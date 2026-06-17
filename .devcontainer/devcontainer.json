@@ -1,0 +1,27 @@
+{
+  "name": "Jerry's Options Dashboard",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  // Install Python deps once when the Codespace is first created.
+  "postCreateCommand": "pip install --user -r requirements.txt",
+
+  // Start the dashboard automatically every time you open the Codespace.
+  // The script is idempotent: it won't launch a second copy if one is
+  // already running.
+  "postAttachCommand": "bash .devcontainer/start-dashboard.sh",
+
+  // The dashboard serves both the page and /api/* on this single port.
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": {
+      "label": "Options Dashboard",
+      "onAutoForward": "openPreview"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"]
+    }
+  }
+}
