@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Runtime / generated
+dashboard.log
+options_dashboard.html
+
+# Secrets & local data
+.env
+*.env
+schwab_token.json
+.jerry-dashboard/
+
+# OS
+.DS_Store
