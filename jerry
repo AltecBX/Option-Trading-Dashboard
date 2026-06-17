@@ -1,0 +1,543 @@
+#!/bin/bash
+# jerry — one-command launcher for the dashboard.
+#
+# Usage:
+#   jerry start             Start server + tunnel + caffeinate
+#   jerry stop              Stop everything cleanly
+#   jerry restart           Stop + start
+#   jerry status            Show what's running, Schwab status, recent logs
+#   jerry update [zip]      Unzip newest (or specified) version, restart
+#   jerry logs [server|tunnel]   Tail the log
+#   jerry auth              Run schwab_auth.py (one-time OAuth)
+#
+# Config lives in ~/.jerry-dashboard/. State (PIDs, logs, tokens, watchlist)
+# all live there too — survives every version upgrade.
+
+set -e
+
+DATA_DIR="$HOME/.jerry-dashboard"
+SERVER_PID_FILE="$DATA_DIR/server.pid"
+TUNNEL_PID_FILE="$DATA_DIR/tunnel.pid"
+CAFFEINATE_PID_FILE="$DATA_DIR/caffeinate.pid"
+SERVER_LOG="$DATA_DIR/server.log"
+TUNNEL_LOG="$DATA_DIR/tunnel.log"
+CURRENT_VERSION_FILE="$DATA_DIR/current_version.txt"
+ENV_FILE="$DATA_DIR/.env"
+DOWNLOADS_DIR="$HOME/Downloads"
+PORT=8765
+HOST="0.0.0.0"
+
+mkdir -p "$DATA_DIR"
+
+# Color helpers
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+BLUE=$'\033[0;34m'
+GRAY=$'\033[0;90m'
+NC=$'\033[0m'
+
+# ─────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────
+
+current_version_dir() {
+    if [ -f "$CURRENT_VERSION_FILE" ]; then
+        cat "$CURRENT_VERSION_FILE"
+    else
+        # Auto-detect: newest Sell_covered_calls_v* folder in Downloads
+        ls -td "$DOWNLOADS_DIR"/Sell_covered_calls_v* 2>/dev/null | head -1
+    fi
+}
+
+is_running() {
+    local pidfile="$1"
+    [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null
+}
+
+kill_pidfile() {
+    local pidfile="$1"
+    if [ -f "$pidfile" ]; then
+        local pid
+        pid=$(cat "$pidfile" 2>/dev/null)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            sleep 0.5
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        rm -f "$pidfile"
+    fi
+}
+
+find_newest_zip() {
+    ls -t "$DOWNLOADS_DIR"/Sell_covered_calls_v*.zip 2>/dev/null | head -1
+}
+
+# ─────────────────────────────────────────────────────────────────────
+# Commands
+# ─────────────────────────────────────────────────────────────────────
+
+cmd_start() {
+    local version_dir
+    version_dir=$(current_version_dir)
+    if [ -z "$version_dir" ] || [ ! -d "$version_dir" ]; then
+        echo "${RED}No dashboard version found.${NC}"
+        echo "Drop a Sell_covered_calls_vNN.zip into ~/Downloads, then run:"
+        echo "  jerry update"
+        exit 1
+    fi
+
+    # Kill anything stale on our port
+    local stale_pid
+    stale_pid=$(lsof -ti tcp:$PORT 2>/dev/null || true)
+    if [ -n "$stale_pid" ]; then
+        kill -9 $stale_pid 2>/dev/null || true
+        sleep 0.3
+    fi
+
+    echo "${BLUE}→${NC} Starting from: $version_dir"
+
+    # Server
+    if is_running "$SERVER_PID_FILE"; then
+        echo "${GRAY}  server already running (PID $(cat "$SERVER_PID_FILE"))${NC}"
+    else
+        cd "$version_dir"
+        # Source ~/.jerry-dashboard/.env so secrets like UW_API_KEY,
+        # SCHWAB_APP_KEY, etc. are available as environment variables
+        # to the Python process. Each variable in .env is exported via
+        # `set -a` so subprocesses inherit them.
+        if [ -f "$ENV_FILE" ]; then
+            set -a
+            # shellcheck disable=SC1090
+            source "$ENV_FILE"
+            set +a
+        fi
+        nohup python3 options_dashboard.py --serve --host "$HOST" --port "$PORT" \
+            > "$SERVER_LOG" 2>&1 &
+        echo $! > "$SERVER_PID_FILE"
+        echo "${GREEN}  ✓ server started${NC} (PID $(cat "$SERVER_PID_FILE"), port $PORT)"
+        sleep 1
+    fi
+
+    # Caffeinate (keep Mac awake)
+    if is_running "$CAFFEINATE_PID_FILE"; then
+        echo "${GRAY}  caffeinate already running${NC}"
+    else
+        nohup caffeinate -dimsu > /dev/null 2>&1 &
+        echo $! > "$CAFFEINATE_PID_FILE"
+        echo "${GREEN}  ✓ caffeinate started${NC} (PID $(cat "$CAFFEINATE_PID_FILE"))"
+    fi
+
+    # Cloudflared tunnel
+    if is_running "$TUNNEL_PID_FILE"; then
+        echo "${GRAY}  tunnel already running${NC}"
+    else
+        if ! command -v cloudflared >/dev/null 2>&1; then
+            echo "${YELLOW}  ⚠ cloudflared not installed — skipping tunnel${NC}"
+        else
+            # Read CLOUDFLARED_TOKEN from .env if present (long-lived token form).
+            # Falls back to named-tunnel form if no token configured.
+            local cf_token=""
+            if [ -f "$DATA_DIR/.env" ]; then
+                cf_token=$(grep '^CLOUDFLARED_TOKEN=' "$DATA_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/^["'\'']//; s/["'\'']$//')
+            fi
+            if [ -n "$cf_token" ]; then
+                nohup cloudflared tunnel run --token "$cf_token" \
+                    > "$TUNNEL_LOG" 2>&1 &
+            else
+                nohup cloudflared tunnel run Jerry-Dashboard \
+                    > "$TUNNEL_LOG" 2>&1 &
+            fi
+            echo $! > "$TUNNEL_PID_FILE"
+            echo "${GREEN}  ✓ tunnel started${NC} (PID $(cat "$TUNNEL_PID_FILE"))"
+        fi
+    fi
+
+    echo
+    echo "${GREEN}Dashboard:${NC}  http://localhost:$PORT"
+    echo "${GREEN}Public:${NC}     https://dashboard.jerrytrade.com"
+    echo
+    echo "Run ${BLUE}jerry status${NC} to verify, ${BLUE}jerry logs${NC} to follow output."
+}
+
+cmd_stop() {
+    echo "${BLUE}→${NC} Stopping all services."
+    kill_pidfile "$SERVER_PID_FILE" && echo "${GREEN}  ✓ server${NC}" || echo "${GRAY}  server not running${NC}"
+    kill_pidfile "$TUNNEL_PID_FILE" && echo "${GREEN}  ✓ tunnel${NC}" || echo "${GRAY}  tunnel not running${NC}"
+    kill_pidfile "$CAFFEINATE_PID_FILE" && echo "${GREEN}  ✓ caffeinate${NC}" || echo "${GRAY}  caffeinate not running${NC}"
+    # Belt-and-suspenders: kill any stragglers on the port
+    local stale
+    stale=$(lsof -ti tcp:$PORT 2>/dev/null || true)
+    if [ -n "$stale" ]; then
+        kill -9 $stale 2>/dev/null || true
+    fi
+}
+
+cmd_restart() {
+    cmd_stop
+    sleep 1
+    cmd_start
+}
+
+cmd_status() {
+    local version_dir
+    version_dir=$(current_version_dir)
+    echo "${BLUE}═══ Jerry Dashboard ═══${NC}"
+    echo "Active version:  ${version_dir:-${RED}none${NC}}"
+    echo
+
+    # Server
+    if is_running "$SERVER_PID_FILE"; then
+        local pid uptime
+        pid=$(cat "$SERVER_PID_FILE")
+        uptime=$(ps -p "$pid" -o etime= 2>/dev/null | xargs)
+        echo "${GREEN}● server${NC}     PID $pid, uptime $uptime"
+    else
+        echo "${RED}○ server${NC}     not running"
+    fi
+
+    # Tunnel
+    if is_running "$TUNNEL_PID_FILE"; then
+        local pid uptime
+        pid=$(cat "$TUNNEL_PID_FILE")
+        uptime=$(ps -p "$pid" -o etime= 2>/dev/null | xargs)
+        echo "${GREEN}● tunnel${NC}     PID $pid, uptime $uptime"
+    else
+        echo "${GRAY}○ tunnel${NC}     not running"
+    fi
+
+    # Caffeinate
+    if is_running "$CAFFEINATE_PID_FILE"; then
+        echo "${GREEN}● caffeinate${NC} keeping Mac awake"
+    else
+        echo "${GRAY}○ caffeinate${NC} not running"
+    fi
+
+    # Schwab token health
+    echo
+    if [ -f "$DATA_DIR/schwab_token.json" ]; then
+        local age_seconds
+        age_seconds=$(( $(date +%s) - $(stat -f %m "$DATA_DIR/schwab_token.json") ))
+        local age_hours=$(( age_seconds / 3600 ))
+        local age_days=$(( age_seconds / 86400 ))
+        if [ "$age_days" -ge 6 ]; then
+            echo "${YELLOW}⚠ schwab token${NC}  ${age_days}d old, expires in $(( 7 - age_days ))d — re-auth soon"
+        elif [ "$age_days" -ge 1 ]; then
+            echo "${GREEN}● schwab token${NC}  ${age_days}d old, refresh good for $(( 7 - age_days ))d"
+        else
+            echo "${GREEN}● schwab token${NC}  ${age_hours}h old, refresh good for ~7d"
+        fi
+    else
+        echo "${YELLOW}○ schwab token${NC}  none — run: ${BLUE}jerry auth${NC}"
+    fi
+
+    # Live data source check (only if server is running)
+    if is_running "$SERVER_PID_FILE"; then
+        local source
+        source=$(curl -s --max-time 2 "http://localhost:$PORT/api/data_source" 2>/dev/null | \
+            python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('last_source','?'))" 2>/dev/null || echo "?")
+        if [ "$source" = "schwab" ]; then
+            echo "${GREEN}● live data${NC}     Schwab"
+        elif [ "$source" = "yfinance" ]; then
+            echo "${YELLOW}○ live data${NC}     yfinance (Schwab not used on last call)"
+        else
+            echo "${GRAY}? live data${NC}     unknown"
+        fi
+    fi
+
+    # Auto-update watcher
+    if [ -f "$HOME/Library/LaunchAgents/com.jerrytrade.watcher.plist" ]; then
+        if [ -f "$DATA_DIR/watcher.heartbeat" ]; then
+            local hb
+            hb=$(cat "$DATA_DIR/watcher.heartbeat" 2>/dev/null)
+            local now hb_age
+            now=$(date +%s)
+            hb_age=$(( now - hb ))
+            if [ "$hb_age" -lt 90 ]; then
+                echo "${GREEN}● auto-update${NC}   active · last tick ${hb_age}s ago"
+            elif [ "$hb_age" -lt 600 ]; then
+                echo "${YELLOW}● auto-update${NC}   stale · last tick ${hb_age}s ago"
+            else
+                local hb_min=$(( hb_age / 60 ))
+                echo "${RED}● auto-update${NC}   stalled · last tick ${hb_min}m ago — try: jerry unwatch && jerry watch"
+            fi
+        else
+            echo "${YELLOW}● auto-update${NC}   registered but never ticked"
+        fi
+    else
+        echo "${GRAY}○ auto-update${NC}   not enabled (run: jerry watch)"
+    fi
+
+    # Recent log tail
+    echo
+    if [ -f "$SERVER_LOG" ]; then
+        echo "${GRAY}─── last 5 server log lines ───${NC}"
+        tail -5 "$SERVER_LOG" | sed 's/^/  /'
+    fi
+}
+
+cmd_update() {
+    local zip_path="$1"
+    if [ -z "$zip_path" ]; then
+        zip_path=$(find_newest_zip)
+        if [ -z "$zip_path" ]; then
+            echo "${RED}No Sell_covered_calls_v*.zip found in ~/Downloads.${NC}"
+            exit 1
+        fi
+        echo "${BLUE}→${NC} Auto-detected: $zip_path"
+    elif [ ! -f "$zip_path" ]; then
+        echo "${RED}Zip not found: $zip_path${NC}"
+        exit 1
+    fi
+
+    # Stop services so the unzip / process swap is clean
+    cmd_stop > /dev/null 2>&1 || true
+
+    # Unzip into ~/Downloads (where you already drop them)
+    local unzip_dir
+    unzip_dir="$DOWNLOADS_DIR"
+    echo "${BLUE}→${NC} Unzipping."
+    unzip -oq "$zip_path" -d "$unzip_dir"
+
+    # The zip contains a folder named Sell_covered_calls_vNN — find it
+    local version_name
+    version_name=$(basename "$zip_path" .zip)
+    local new_dir="$unzip_dir/$version_name"
+
+    if [ ! -d "$new_dir" ]; then
+        echo "${RED}Unzip succeeded but expected folder not found: $new_dir${NC}"
+        exit 1
+    fi
+
+    echo "$new_dir" > "$CURRENT_VERSION_FILE"
+    echo "${GREEN}  ✓ pinned to $new_dir${NC}"
+
+    cmd_start
+}
+
+cmd_logs() {
+    local which="$1"
+    case "$which" in
+        tunnel)
+            [ -f "$TUNNEL_LOG" ] || { echo "${RED}No tunnel log yet.${NC}"; exit 1; }
+            tail -f "$TUNNEL_LOG"
+            ;;
+        ""|server)
+            [ -f "$SERVER_LOG" ] || { echo "${RED}No server log yet.${NC}"; exit 1; }
+            tail -f "$SERVER_LOG"
+            ;;
+        *)
+            echo "${RED}Unknown log: $which (use 'server' or 'tunnel')${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_auth() {
+    local version_dir
+    version_dir=$(current_version_dir)
+    if [ -z "$version_dir" ] || [ ! -f "$version_dir/schwab_auth.py" ]; then
+        echo "${RED}No active version with schwab_auth.py found.${NC}"
+        exit 1
+    fi
+    cd "$version_dir"
+    python3 schwab_auth.py
+}
+
+# Safely set a key=value pair in ~/.jerry-dashboard/.env. Handles missing
+# trailing newlines, replaces existing keys cleanly, never concatenates
+# values onto previous lines.
+cmd_env() {
+    local action="$1"
+    local key="$2"
+    local value="$3"
+    local env_file="$DATA_DIR/.env"
+    case "$action" in
+        set)
+            if [ -z "$key" ] || [ -z "$value" ]; then
+                echo "${RED}Usage: jerry env set KEY VALUE${NC}"
+                exit 1
+            fi
+            # Ensure file exists and ends with newline
+            touch "$env_file"
+            if [ -s "$env_file" ] && [ "$(tail -c 1 "$env_file" | wc -l)" -eq 0 ]; then
+                echo "" >> "$env_file"
+            fi
+            # Remove any existing line for this key, then append
+            local tmp
+            tmp=$(mktemp)
+            grep -v "^${key}=" "$env_file" > "$tmp" || true
+            echo "${key}=${value}" >> "$tmp"
+            mv "$tmp" "$env_file"
+            chmod 600 "$env_file"
+            echo "${GREEN}  ✓ ${key} updated${NC}"
+            ;;
+        get)
+            if [ -z "$key" ]; then
+                echo "${RED}Usage: jerry env get KEY${NC}"
+                exit 1
+            fi
+            grep "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2-
+            ;;
+        list)
+            if [ ! -f "$env_file" ]; then
+                echo "${YELLOW}  no .env file yet${NC}"
+                return
+            fi
+            echo "${BLUE}Keys in $env_file:${NC}"
+            grep -E "^[A-Z_]+=" "$env_file" | cut -d= -f1 | sort -u | sed 's/^/  /'
+            ;;
+        *)
+            echo "Usage:"
+            echo "  jerry env set KEY VALUE   # safely set or update"
+            echo "  jerry env get KEY         # show one value"
+            echo "  jerry env list            # list keys (no values)"
+            ;;
+    esac
+}
+
+cmd_help() {
+    cat << EOF
+${BLUE}jerry${NC} — dashboard launcher
+
+  ${GREEN}jerry start${NC}              Start server + tunnel + caffeinate
+  ${GREEN}jerry stop${NC}               Stop everything cleanly
+  ${GREEN}jerry restart${NC}            Stop + start
+  ${GREEN}jerry status${NC}             Show services, Schwab health, recent log
+  ${GREEN}jerry update${NC} [zip]       Unzip newest (or specified) version, restart
+  ${GREEN}jerry logs${NC} [server|tunnel]  Tail a log live (Ctrl-C to exit)
+  ${GREEN}jerry auth${NC}               One-time Schwab OAuth
+  ${GREEN}jerry env${NC} set KEY VALUE  Safely set an .env value
+  ${GREEN}jerry env${NC} get KEY        Print one .env value
+  ${GREEN}jerry env${NC} list           List .env keys (no secrets)
+  ${GREEN}jerry watch${NC}              Auto-deploy when new zip lands in ~/Downloads
+  ${GREEN}jerry unwatch${NC}            Stop auto-deploy watcher
+
+State lives in: $DATA_DIR
+EOF
+}
+
+# Watch ~/Downloads for new Sell_covered_calls_v*.zip files. Polls every
+# 30s. When it finds a zip newer than the currently-pinned version, runs
+# `jerry update` automatically. Implemented as a launchd plist so it
+# runs in the background without an open Terminal.
+cmd_watch() {
+    local watcher_plist="$HOME/Library/LaunchAgents/com.jerrytrade.watcher.plist"
+    local script_path="$DATA_DIR/auto_update.sh"
+    # Inline auto-updater script. Compares newest zip's mtime against
+    # the active deployed folder's mtime. If zip is newer, deploy.
+    # No marker file needed — the deployed folder itself IS the marker.
+    cat > "$script_path" << 'EOF'
+#!/bin/bash
+DATA_DIR="$HOME/.jerry-dashboard"
+DOWNLOADS="$HOME/Downloads"
+HEARTBEAT="$DATA_DIR/watcher.heartbeat"
+JERRY="$DATA_DIR/jerry"
+CURRENT_VERSION_FILE="$DATA_DIR/current_version.txt"
+date +%s > "$HEARTBEAT"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] tick" >> "$DATA_DIR/auto_update.log"
+
+newest=$(ls -t "$DOWNLOADS"/Sell_covered_calls_v*.zip 2>/dev/null | head -1)
+[ -z "$newest" ] && exit 0
+
+# Active deployed folder. Use its mtime as the "currently installed" marker.
+active=""
+[ -f "$CURRENT_VERSION_FILE" ] && active=$(cat "$CURRENT_VERSION_FILE")
+
+# If active folder doesn't exist, deploy unconditionally
+if [ -z "$active" ] || [ ! -d "$active" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] no active version, deploying $(basename "$newest")" >> "$DATA_DIR/auto_update.log"
+    "$JERRY" update "$newest" >> "$DATA_DIR/auto_update.log" 2>&1
+    exit 0
+fi
+
+# Compare basenames first — same name = same version, skip
+zip_name=$(basename "$newest" .zip)
+active_name=$(basename "$active")
+if [ "$zip_name" = "$active_name" ]; then
+    exit 0
+fi
+
+# Different basename — deploy
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] zip=$zip_name active=$active_name, deploying" >> "$DATA_DIR/auto_update.log"
+"$JERRY" update "$newest" >> "$DATA_DIR/auto_update.log" 2>&1
+EOF
+    chmod +x "$script_path"
+    # Clean up the legacy marker file — we don't use it anymore
+    rm -f "$DATA_DIR/last_processed_zip.txt"
+    cat > "$watcher_plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jerrytrade.watcher</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>$script_path</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+        <string>$HOME/Downloads</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$DATA_DIR/watcher.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>$DATA_DIR/watcher.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/3.13/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+EOF
+    local domain="gui/$UID"
+    launchctl bootout "$domain" "$watcher_plist" 2>/dev/null || true
+    if launchctl bootstrap "$domain" "$watcher_plist" 2>/dev/null; then
+        echo "${GREEN}  ✓ auto-update watcher started${NC} (WatchPaths + 60s fallback)"
+    else
+        launchctl unload "$watcher_plist" 2>/dev/null || true
+        launchctl load "$watcher_plist"
+        echo "${GREEN}  ✓ auto-update watcher started${NC} (load fallback)"
+    fi
+    bash "$script_path"
+    echo "  Drop a new Sell_covered_calls_v*.zip in ~/Downloads — deploys in seconds."
+}
+
+cmd_unwatch() {
+    local watcher_plist="$HOME/Library/LaunchAgents/com.jerrytrade.watcher.plist"
+    if [ -f "$watcher_plist" ]; then
+        local domain="gui/$UID"
+        launchctl bootout "$domain" "$watcher_plist" 2>/dev/null \
+            || launchctl unload "$watcher_plist" 2>/dev/null || true
+        rm -f "$watcher_plist"
+        echo "${GREEN}  ✓ auto-update watcher stopped${NC}"
+    else
+        echo "${GRAY}  watcher not running${NC}"
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────
+# Dispatch
+# ─────────────────────────────────────────────────────────────────────
+case "${1:-help}" in
+    start)   cmd_start ;;
+    stop)    cmd_stop ;;
+    restart) cmd_restart ;;
+    status)  cmd_status ;;
+    update)  cmd_update "$2" ;;
+    logs)    cmd_logs "$2" ;;
+    auth)    cmd_auth ;;
+    env)     cmd_env "$2" "$3" "$4" ;;
+    watch)   cmd_watch ;;
+    unwatch) cmd_unwatch ;;
+    help|-h|--help) cmd_help ;;
+    *) echo "Unknown command: $1"; cmd_help; exit 1 ;;
+esac
