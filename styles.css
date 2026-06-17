@@ -21,6 +21,8 @@
   --fg-3: oklch(0.58 0.01 90);
 
   --shadow-card: 0 1px 0 rgba(0,0,0,0.02), 0 1px 2px rgba(15,15,15,0.04), 0 8px 24px -12px rgba(15,15,15,0.06);
+  --shadow-hover: 0 1px 0 rgba(0,0,0,0.03), 0 2px 6px rgba(15,15,15,0.06), 0 18px 40px -18px rgba(15,15,15,0.14);
+  --sheen: rgba(255,255,255,0);
   --radius: 12px;
   --radius-lg: 16px;
 
@@ -47,6 +49,8 @@
   --fg-3: oklch(0.62 0.01 250);
   --accent-soft: oklch(0.28 0.06 var(--accent-h));
   --shadow-card: 0 1px 0 rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -16px rgba(0,0,0,0.6);
+  --shadow-hover: 0 1px 0 rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.4), 0 22px 48px -20px rgba(0,0,0,0.8);
+  --sheen: rgba(255,255,255,0.045);
 }
 
 [data-density="compact"] {
@@ -7126,4 +7130,96 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   color: var(--fg-3);
   margin-top: 3px;
   letter-spacing: 0.02em;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   POLISH LAYER (v1.41)
+   App-wide visual refinement, layered on top of the base component
+   styles above (so nothing is rewritten). All token-driven, so it
+   adapts to light/dark and the density/typeface settings.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* — Consistent, springy micro-interactions on interactive surfaces — */
+.card, .metric, .strike-card, .strat-card,
+.tab-btn, .seg button {
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.2s ease,
+    color 0.16s ease,
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* — Cards: a faint top sheen for depth + a refined hover state — */
+.card {
+  background: linear-gradient(180deg, var(--sheen), transparent 160px), var(--bg-2);
+}
+.card:hover {
+  border-color: var(--line-2);
+  box-shadow: var(--shadow-hover);
+}
+
+/* — Metric tiles: glassy top, lift + accent edge on hover — */
+.metric {
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--bg);
+}
+.metric:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--line));
+  box-shadow: var(--shadow-hover);
+}
+
+/* — Strike & strategy cards: gentle lift — */
+.strike-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.strat-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-2);
+  box-shadow: var(--shadow-hover);
+}
+
+/* — Nav tabs: hover wash + a soft glow under the active pill — */
+.tab-btn:hover:not(.active) {
+  background: color-mix(in oklch, var(--fg) 7%, transparent);
+  color: var(--fg);
+}
+.tab-btn.active {
+  box-shadow:
+    0 2px 12px -2px color-mix(in oklch, var(--accent) 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* — Segmented controls: crisper active chip — */
+.seg button:hover:not(.active) { color: var(--fg-2); }
+.seg button.active {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* — App-wide finishing touches — */
+::selection {
+  background: color-mix(in oklch, var(--accent) 32%, transparent);
+}
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* Quieter, consistent scrollbars everywhere (matches the sidebar) */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .metric, .strike-card, .strat-card, .tab-btn, .seg button {
+    transition: none;
+  }
+  .metric:hover, .strike-card:hover, .strat-card:hover { transform: none; }
 }
