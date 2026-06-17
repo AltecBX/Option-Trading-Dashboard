@@ -3766,45 +3766,12 @@ def _migrate_legacy_watchlist() -> None:
 
 
 _migrate_legacy_watchlist()
-_WATCHLIST_LOCK = None  # initialized lazily to avoid import at module load
 
 
-def _watchlist_lock():
-    global _WATCHLIST_LOCK
-    if _WATCHLIST_LOCK is None:
-        import threading
-        _WATCHLIST_LOCK = threading.RLock()
-    return _WATCHLIST_LOCK
-
-
-def _default_watchlist() -> dict:
-    """Initial schema seeded from the legacy 5-symbol default."""
-    import time
-    now = int(time.time())
-    seeds = [
-        ("SPY", ["index", "etf"], True),
-        ("QQQ", ["index", "etf"], True),
-        ("AAPL", ["mega-cap", "tech"], True),
-        ("NVDA", ["mega-cap", "semis"], True),
-        ("TSLA", ["mega-cap", "ev"], True),
-    ]
-    return {
-        "version": 1,
-        "symbols": [
-            {
-                "symbol": s,
-                "tags": tags,
-                "notes": "",
-                "preferred_strategy": None,
-                "starred": star,
-                "added_at": now,
-            }
-            for s, tags, star in seeds
-        ],
-        "tag_order": ["index", "etf", "mega-cap", "tech", "semis", "ev"],
-    }
-
-
+# _watchlist_lock() and _default_watchlist() live in storage.py alongside
+# their only callers (_load_watchlist/_save_watchlist). They used to be
+# defined here, which raised NameError at runtime because storage.py
+# could not see them.
 
 
 class DashboardHandler(SimpleHTTPRequestHandler):
