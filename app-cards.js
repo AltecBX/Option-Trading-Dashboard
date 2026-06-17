@@ -74,6 +74,16 @@ function VolSkewCard({
   const svgRef = useRef(null);
   const [hover, setHover] = useState(null); // {strike, callIv, putIv, x, y}
 
+  // Reset hover whenever the underlying data changes so a stale hover
+  // never points to a strike no longer in scope. This MUST run before any
+  // of the early `return null` guards below — otherwise the hook count
+  // changes between renders (sparse data returns early and skips it),
+  // which throws React error #300 and trips the card's error boundary
+  // until the user clicks Retry.
+  useEffect(() => {
+    setHover(null);
+  }, [ticker, calls.length, puts.length]);
+
   // Filter to plausible IVs. Anything > 500% is almost certainly a stale
   // quote on a deep-ITM/OTM strike with no real bid; exclude it.
   const callsWithIv = calls.filter(c => c.iv && c.iv > 0 && c.iv < 5);
@@ -170,12 +180,6 @@ function VolSkewCard({
     for (let v = Math.ceil(iMin / step) * step; v <= iMax; v += step) yTicks.push(v);
   }
 
-  // Reset hover whenever the underlying data changes so a stale hover
-  // never points to a strike no longer in scope.
-  useEffect(() => {
-    setHover(null);
-  }, [ticker, calls.length, puts.length]);
-
   // Hover handler — converts mouse X back to a strike, then finds the
   // nearest call+put rows. Uses native pixel→viewBox math because the
   // SVG uses preserveAspectRatio and its pixel size != its viewBox.
@@ -210,7 +214,7 @@ function VolSkewCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "IV by strike \xB7 ", activeExpDate.toLocaleDateString("en-US", {
+  }, "IV by strike · ", activeExpDate.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric"
@@ -228,7 +232,7 @@ function VolSkewCard({
     className: "vs-stat"
   }, /*#__PURE__*/React.createElement("div", {
     className: "vs-stat-lbl"
-  }, "Skew (95% put \xB7 105% call)"), /*#__PURE__*/React.createElement("div", {
+  }, "Skew (95% put · 105% call)"), /*#__PURE__*/React.createElement("div", {
     className: `vs-stat-val ${skew25 >= 0 ? "down" : "up"}`
   }, skew25 >= 0 ? "+" : "", skew25.toFixed(1), " pts")), skewHistory.length >= 2 && (() => {
     const sw = 110,
@@ -249,7 +253,7 @@ function VolSkewCard({
       className: "vs-stat"
     }, /*#__PURE__*/React.createElement("div", {
       className: "vs-stat-lbl"
-    }, "Skew \xB7 ", skewHistory.length, "d trend"), /*#__PURE__*/React.createElement("svg", {
+    }, "Skew · ", skewHistory.length, "d trend"), /*#__PURE__*/React.createElement("svg", {
       width: sw,
       height: sh,
       style: {
@@ -436,7 +440,7 @@ function VolSkewCard({
     className: "vs-tt-row vs-tt-spread"
   }, /*#__PURE__*/React.createElement("span", {
     className: "vs-tt-lbl"
-  }, "P \u2212 C"), /*#__PURE__*/React.createElement("span", {
+  }, "P − C"), /*#__PURE__*/React.createElement("span", {
     className: `vs-tt-val ${hover.putRow.iv - hover.callRow.iv >= 0 ? "down" : "up"}`
   }, ((hover.putRow.iv - hover.callRow.iv) * 100).toFixed(1), " pts")))), /*#__PURE__*/React.createElement("div", {
     className: "legend",
@@ -471,12 +475,12 @@ function VolSkewCard({
     style: {
       color: "var(--down)"
     }
-  }, "Put skew \u2014 downside is more expensive than upside"), skew25 != null && skew25 < -0.5 && /*#__PURE__*/React.createElement("span", {
+  }, "Put skew — downside is more expensive than upside"), skew25 != null && skew25 < -0.5 && /*#__PURE__*/React.createElement("span", {
     className: "item",
     style: {
       color: "var(--up)"
     }
-  }, "Call skew \u2014 upside is more expensive than downside")));
+  }, "Call skew — upside is more expensive than downside")));
 }
 function WatchlistAlertsCard({
   apiFetch,
@@ -551,7 +555,7 @@ function WatchlistAlertsCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: "Fresh analyst signals on tickers in your watchlist within the last 7 days. Polled every 5 minutes. Dismissed alerts do not reappear."
-  }, "Watchlist \xB7 last 7 days \xB7 ", alerts.length, " fresh signal", alerts.length === 1 ? "" : "s"), /*#__PURE__*/React.createElement("div", {
+  }, "Watchlist · last 7 days · ", alerts.length, " fresh signal", alerts.length === 1 ? "" : "s"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Analyst alerts")), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -593,7 +597,7 @@ function WatchlistAlertsCard({
   }, a.firm), a.from_grade && a.to_grade && /*#__PURE__*/React.createElement("span", {
     className: "wa-grades",
     title: `Rating change: ${a.from_grade} → ${a.to_grade}`
-  }, a.from_grade, " \u2192 ", a.to_grade), /*#__PURE__*/React.createElement("span", {
+  }, a.from_grade, " → ", a.to_grade), /*#__PURE__*/React.createElement("span", {
     className: "wa-date",
     title: "Date the signal was issued."
   }, a.date)), /*#__PURE__*/React.createElement("div", {
@@ -606,7 +610,7 @@ function WatchlistAlertsCard({
     className: "wa-dismiss",
     onClick: () => dismiss(a.id),
     title: "Dismiss this alert. It will not reappear on subsequent polls."
-  }, "\u2715"))))));
+  }, "✕"))))));
 }
 function TabBar({
   active,
@@ -1092,7 +1096,7 @@ function LevelRepriceCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: "Pick a strike from the live chain, the quote and expiration come with it. Gap shows what the contract should be worth at the open or at a target price you set. Level fade stages a sell at a high and a cover at a settle. IV is backed out of the live mid so every number is self-consistent."
-  }, "Where the premium goes \xB7 ", kind === "call" ? "call" : "put"), /*#__PURE__*/React.createElement("div", {
+  }, "Where the premium goes · ", kind === "call" ? "call" : "put"), /*#__PURE__*/React.createElement("div", {
     className: "card-title",
     title: "Reprice this contract at a target stock level using Black Scholes, not the delta shortcut."
   }, "Level Reprice")), mode === "fade" && fade && /*#__PURE__*/React.createElement("div", {
@@ -1158,11 +1162,11 @@ function LevelRepriceCard({
     return /*#__PURE__*/React.createElement("option", {
       key: e.date,
       value: e.date
-    }, lbl, " \xB7 ", e.dte, "d", e.dte === 0 ? " (0DTE)" : "");
+    }, lbl, " · ", e.dte, "d", e.dte === 0 ? " (0DTE)" : "");
   })) : /*#__PURE__*/React.createElement("div", {
     className: "lr-readout",
     title: `Expiring ${expLabel}, ${dte} days out.`
-  }, expLabel, " \xB7 ", dte, "d")), /*#__PURE__*/React.createElement("div", {
+  }, expLabel, " · ", dte, "d")), /*#__PURE__*/React.createElement("div", {
     className: "lr-field"
   }, /*#__PURE__*/React.createElement("label", {
     title: "Live option mid for the selected strike, pulled from the chain. Read-only."
@@ -1312,7 +1316,7 @@ function LevelRepriceCard({
   }, /*#__PURE__*/React.createElement("div", {
     className: "lr-iv",
     title: "Implied vol backed out of the live mid at the stock-now price, used for every projection below."
-  }, "Backed out IV ", out.iv != null ? (out.iv * 100).toFixed(2) + "%" : "—", " \xB7 start delta ", fmt(out.startDelta, 3), " \xB7 live mid $", fmt(out.q)), /*#__PURE__*/React.createElement("div", {
+  }, "Backed out IV ", out.iv != null ? (out.iv * 100).toFixed(2) + "%" : "—", " · start delta ", fmt(out.startDelta, 3), " · live mid $", fmt(out.q)), /*#__PURE__*/React.createElement("div", {
     className: "lr-compare"
   }, /*#__PURE__*/React.createElement("div", {
     className: "lr-cmp lr-cmp-old",
@@ -1322,7 +1326,7 @@ function LevelRepriceCard({
   }, "$", fmt(out.deltaEst))), /*#__PURE__*/React.createElement("div", {
     className: "lr-cmp-arrow",
     "aria-hidden": "true"
-  }, "\u2192"), /*#__PURE__*/React.createElement("div", {
+  }, "→"), /*#__PURE__*/React.createElement("div", {
     className: "lr-cmp lr-cmp-true",
     title: "Full Black Scholes reprice at the target. Captures delta, gamma, and time decay exactly. This is where to set your sell."
   }, /*#__PURE__*/React.createElement("span", null, "Contract at ", fmt(out.tgt)), /*#__PURE__*/React.createElement("b", {
@@ -1371,7 +1375,7 @@ function LevelRepriceCard({
   }, fade.risk_reward != null ? fade.risk_reward.toFixed(2) : "—"))), status === "Tagged" && fade.live_quote && fade.live_quote.mid && /*#__PURE__*/React.createElement("div", {
     className: "lr-trigger",
     title: "The underlying reached your sell level. Suggested limit is the live mid; the cover target is locked to the model cover price."
-  }, "Tagged. Suggested sell limit $", fmt(fade.live_quote.mid), " \xB7 lock cover target $", fmt(fade.cover_price)), fade.iv_sweep && fade.iv_sweep.length > 0 && /*#__PURE__*/React.createElement("table", {
+  }, "Tagged. Suggested sell limit $", fmt(fade.live_quote.mid), " · lock cover target $", fmt(fade.cover_price)), fade.iv_sweep && fade.iv_sweep.length > 0 && /*#__PURE__*/React.createElement("table", {
     className: "lr-table lr-sweep"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     title: "IV change in vol points applied at the sell."
@@ -1536,7 +1540,7 @@ function WinRateCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: `Realized performance from ${stats.total} closed option trade${stats.total === 1 ? "" : "s"}. Stock positions excluded so the metric reflects premium-selling skill specifically.`
-  }, "Closed trades \xB7 ", stats.total), /*#__PURE__*/React.createElement("div", {
+  }, "Closed trades · ", stats.total), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Win rate")), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -1554,9 +1558,9 @@ function WinRateCard({
     className: `wr-tile-val ${stats.winRate >= 70 ? "up" : stats.winRate >= 50 ? "" : "down"}`
   }, stats.winRate.toFixed(1), "%"), /*#__PURE__*/React.createElement("div", {
     className: "wr-tile-sub"
-  }, stats.wins, "W \xB7 ", stats.losses, "L", stats.breakeven > 0 ? ` · ${stats.breakeven}BE` : "")), /*#__PURE__*/React.createElement("div", {
+  }, stats.wins, "W · ", stats.losses, "L", stats.breakeven > 0 ? ` · ${stats.breakeven}BE` : "")), /*#__PURE__*/React.createElement("div", {
     className: "wr-tile",
-    title: "Total realized P/L across all closed option trades. Per-contract P/L = (entry premium \u2212 exit premium) \xD7 100 \xD7 contracts for short positions."
+    title: "Total realized P/L across all closed option trades. Per-contract P/L = (entry premium − exit premium) × 100 × contracts for short positions."
   }, /*#__PURE__*/React.createElement("div", {
     className: "wr-tile-lbl"
   }, "Total P/L"), /*#__PURE__*/React.createElement("div", {
@@ -1575,7 +1579,7 @@ function WinRateCard({
     title: "Average absolute delta at entry across closed trades. Drift away from the 0.20 target indicates strike picking is creeping more or less aggressive over time."
   }, /*#__PURE__*/React.createElement("div", {
     className: "wr-tile-lbl"
-  }, "Avg entry \u0394"), /*#__PURE__*/React.createElement("div", {
+  }, "Avg entry Δ"), /*#__PURE__*/React.createElement("div", {
     className: `wr-tile-val ${Math.abs(stats.avgDelta - 0.20) <= 0.04 ? "up" : "warn"}`
   }, stats.avgDelta.toFixed(2)), /*#__PURE__*/React.createElement("div", {
     className: "wr-tile-sub"
@@ -1624,7 +1628,7 @@ function WinRateCard({
       className: "wr-chart-head"
     }, /*#__PURE__*/React.createElement("span", {
       className: "wr-chart-lbl"
-    }, "Cumulative P/L \xB7 ", n, " trades"), /*#__PURE__*/React.createElement("span", {
+    }, "Cumulative P/L · ", n, " trades"), /*#__PURE__*/React.createElement("span", {
       className: `wr-chart-now ${up ? "up" : "down"}`
     }, up ? "+" : "", "$", last.toFixed(0))), /*#__PURE__*/React.createElement("svg", {
       className: "wr-chart-svg",
@@ -1692,7 +1696,7 @@ function EarningsCrushCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: "Watchlist tickers with earnings inside 14 days, ranked by proximity. The crush figure is HEURISTIC: it uses pre vs post realized vol around past earnings as a proxy for implied vol crush since historical IV is paid data. Treat as directional not exact."
-  }, "Watchlist \xB7 next 14 days \xB7 heuristic"), /*#__PURE__*/React.createElement("div", {
+  }, "Watchlist · next 14 days · heuristic"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Earnings vol crush")), /*#__PURE__*/React.createElement("button", {
     className: "ec-refresh-btn",
@@ -1792,7 +1796,7 @@ function PushSettingsCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: configured ? "Pushover env vars detected. Roll flag alerts will fire to your phone with 12-hour dedupe per position." : "Pushover env vars missing. Configure PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY via 'jerry env set' to enable phone alerts."
-  }, "Phone alerts \xB7 Pushover \xB7 ", configured ? "configured" : "not configured"), /*#__PURE__*/React.createElement("div", {
+  }, "Phone alerts · Pushover · ", configured ? "configured" : "not configured"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Push notifications")), /*#__PURE__*/React.createElement("button", {
     className: "ps-collapse-btn",
@@ -1826,7 +1830,7 @@ function PushSettingsCard({
     title: testResult.ok ? "Pushover accepted the request. Check your phone." : `Pushover rejected: ${testResult.error || testResult.response}`
   }, testResult.ok ? "✓ sent · check phone" : `✕ ${testResult.error || "failed"}`)), /*#__PURE__*/React.createElement("div", {
     className: "ps-help"
-  }, "Roll flag alerts fire when an open short option position has DTE \u2264 7 and |delta| \u2265 0.40. Dedupe window is 12 hours per position so you get reminded once per day, not every poll.")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "Roll flag alerts fire when an open short option position has DTE ≤ 7 and |delta| ≥ 0.40. Dedupe window is 12 hours per position so you get reminded once per day, not every poll.")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "ps-help"
   }, "To enable phone alerts on roll-flag triggers, install the Pushover app, then set the two env vars from terminal."), /*#__PURE__*/React.createElement("pre", {
     className: "ps-code"
@@ -1953,7 +1957,7 @@ function BrokerImportCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: "Phase 1 of broker import: read-only fetch from Schwab. You review and click Add on positions you want tracked. Phase 2 will add auto-reconciliation on fills and rolls."
-  }, "Schwab \xB7 phase 1 \xB7 manual import"), /*#__PURE__*/React.createElement("div", {
+  }, "Schwab · phase 1 · manual import"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Broker import")), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2008,7 +2012,7 @@ function BrokerImportCard({
     onChange: e => setSelectedHash(e.target.value)
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
-  }, "Select account\u2026"), accounts.map(a => /*#__PURE__*/React.createElement("option", {
+  }, "Select account…"), accounts.map(a => /*#__PURE__*/React.createElement("option", {
     key: a.hash,
     value: a.hash
   }, "Account ending ", a.masked)))), accounts.length === 1 && /*#__PURE__*/React.createElement("div", {
@@ -2260,7 +2264,7 @@ function WatchlistManager({
     title: "Sort"
   }, /*#__PURE__*/React.createElement("option", {
     value: "starred"
-  }, "\u2605 Starred first"), /*#__PURE__*/React.createElement("option", {
+  }, "★ Starred first"), /*#__PURE__*/React.createElement("option", {
     value: "symbol"
   }, "A-Z"), /*#__PURE__*/React.createElement("option", {
     value: "added"
@@ -2424,7 +2428,7 @@ function WatchlistRow({
     className: "wlm-del-btn",
     onClick: onRemove,
     title: "Remove from watchlist"
-  }, "\xD7"))), isEditing && /*#__PURE__*/React.createElement("div", {
+  }, "×"))), isEditing && /*#__PURE__*/React.createElement("div", {
     className: "wlm-edit-panel"
   }, /*#__PURE__*/React.createElement("div", {
     className: "wlm-edit-row"
@@ -2616,11 +2620,11 @@ function PercentCalc({
     className: mode === "p2p" ? "active" : "",
     onClick: () => setMode("p2p"),
     title: "Enter a target price, see the percent move from FROM"
-  }, "$ \u2192 %"), /*#__PURE__*/React.createElement("button", {
+  }, "$ → %"), /*#__PURE__*/React.createElement("button", {
     className: mode === "pct2p" ? "active" : "",
     onClick: () => setMode("pct2p"),
     title: "Enter a percent, see the target price"
-  }, "% \u2192 $"))), /*#__PURE__*/React.createElement("div", {
+  }, "% → $"))), /*#__PURE__*/React.createElement("div", {
     className: "pcalc-body"
   }, /*#__PURE__*/React.createElement("div", {
     className: "pcalc-from-row"
@@ -2641,7 +2645,7 @@ function PercentCalc({
     className: "pcalc-clear-btn",
     onClick: () => setFromOverride(""),
     title: "Reset to live price"
-  }, "\u21BA")), /*#__PURE__*/React.createElement("div", {
+  }, "↺")), /*#__PURE__*/React.createElement("div", {
     className: "pcalc-from-meta"
   }, fromOverride === "" && livePrice != null ? `live · ${activeTicker || "—"}` : fromOverride !== "" ? "manual" : "no live price")), /*#__PURE__*/React.createElement("div", {
     className: "pcalc-divider"
@@ -2673,11 +2677,11 @@ function PercentCalc({
       className: `pcalc-dollar ${result.diff >= 0 ? "up" : "down"}`
     }, result.diff >= 0 ? "+" : "", "$", result.diff.toFixed(2))) : /*#__PURE__*/React.createElement("div", {
       className: "pcalc-empty-result"
-    }, "\u2014")), rows.length > 1 && /*#__PURE__*/React.createElement("button", {
+    }, "—")), rows.length > 1 && /*#__PURE__*/React.createElement("button", {
       className: "pcalc-remove-btn",
       onClick: () => removeRow(row.id),
       title: "Remove row"
-    }, "\xD7"));
+    }, "×"));
   }), /*#__PURE__*/React.createElement("button", {
     className: "pcalc-add-btn",
     onClick: addRow
@@ -2709,11 +2713,11 @@ function PercentCalc({
       className: `pcalc-dollar ${result.diff >= 0 ? "up" : "down"}`
     }, result.diff >= 0 ? "+" : "", "$", result.diff.toFixed(2))) : /*#__PURE__*/React.createElement("div", {
       className: "pcalc-empty-result"
-    }, "\u2014")), pctRows.length > 1 && /*#__PURE__*/React.createElement("button", {
+    }, "—")), pctRows.length > 1 && /*#__PURE__*/React.createElement("button", {
       className: "pcalc-remove-btn",
       onClick: () => removePctRow(row.id),
       title: "Remove row"
-    }, "\xD7"));
+    }, "×"));
   }), /*#__PURE__*/React.createElement("button", {
     className: "pcalc-add-btn",
     onClick: addPctRow
@@ -2824,7 +2828,7 @@ function RollManagerCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Active short calls \xB7 roll choices"), /*#__PURE__*/React.createElement("div", {
+  }, "Active short calls · roll choices"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Roll Manager", loading && /*#__PURE__*/React.createElement("span", {
     className: "muted",
@@ -2832,7 +2836,7 @@ function RollManagerCard({
       fontSize: 12,
       marginLeft: 8
     }
-  }, "fetching quotes\u2026")))), uwHealth?.connected && flowScore?.data_available && (() => {
+  }, "fetching quotes…")))), uwHealth?.connected && flowScore?.data_available && (() => {
     // Decide what flow says about rolling. The most dangerous case
     // is bullish flow targeting strikes ABOVE the short — that
     // means rolling same strike (or only slightly higher) is
@@ -2857,7 +2861,7 @@ function RollManagerCard({
     }, /*#__PURE__*/React.createElement("div", {
       className: "flow-verdict-label",
       title: "Unusual Whales flow read for the active ticker. Drives roll-decision context."
-    }, "UW FLOW \xB7 ", flowScore.verdict), /*#__PURE__*/React.createElement("div", {
+    }, "UW FLOW · ", flowScore.verdict), /*#__PURE__*/React.createElement("div", {
       className: "flow-verdict-reason"
     }, line));
   })(), /*#__PURE__*/React.createElement("div", {
@@ -2937,7 +2941,7 @@ function RollManagerCard({
       className: itm ? "roll-strike-itm" : ""
     }, "$", sc.strike.toFixed(2), " call"), /*#__PURE__*/React.createElement("span", {
       className: "muted"
-    }, " \xB7 ", sc.expiration), dte != null && /*#__PURE__*/React.createElement("span", {
+    }, " · ", sc.expiration), dte != null && /*#__PURE__*/React.createElement("span", {
       className: "roll-dte"
     }, dte, "d"), itm && /*#__PURE__*/React.createElement("span", {
       className: "roll-itm-badge"
@@ -2957,14 +2961,14 @@ function RollManagerCard({
       className: "muted"
     }, "Extrinsic"), " ", /*#__PURE__*/React.createElement("b", null, extrinsic != null ? "$" + extrinsic.toFixed(2) : "—")), q?.delta != null && /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
       className: "muted"
-    }, "\u0394"), " ", /*#__PURE__*/React.createElement("b", null, q.delta.toFixed(2)))), /*#__PURE__*/React.createElement("div", {
+    }, "Δ"), " ", /*#__PURE__*/React.createElement("b", null, q.delta.toFixed(2)))), /*#__PURE__*/React.createElement("div", {
       className: "roll-choices"
     }, choices.map((c, j) => /*#__PURE__*/React.createElement("div", {
       key: j,
       className: `roll-choice${c.available ? "" : " unavailable"}`
     }, /*#__PURE__*/React.createElement("div", {
       className: "roll-choice-label"
-    }, "Roll ", c.label, " \u2192 ", c.exp), /*#__PURE__*/React.createElement("div", {
+    }, "Roll ", c.label, " → ", c.exp), /*#__PURE__*/React.createElement("div", {
       className: "roll-choice-strike"
     }, "$", c.strike.toFixed(2)), c.available ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: `roll-choice-credit ${c.netCredit >= 0 ? "up" : "down"}`
@@ -2973,7 +2977,7 @@ function RollManagerCard({
       style: {
         fontSize: 10.5
       }
-    }, c.netCredit >= 0 ? "credit" : "debit", " \xB7 \u0394 ", c.newDelta != null ? c.newDelta.toFixed(2) : "—")) : /*#__PURE__*/React.createElement("div", {
+    }, c.netCredit >= 0 ? "credit" : "debit", " · Δ ", c.newDelta != null ? c.newDelta.toFixed(2) : "—")) : /*#__PURE__*/React.createElement("div", {
       className: "muted",
       style: {
         fontSize: 11
@@ -2982,9 +2986,9 @@ function RollManagerCard({
       className: "roll-choice"
     }, /*#__PURE__*/React.createElement("div", {
       className: "roll-choice-label"
-    }, "Buy back \xB7 close"), /*#__PURE__*/React.createElement("div", {
+    }, "Buy back · close"), /*#__PURE__*/React.createElement("div", {
       className: "roll-choice-strike"
-    }, "\u2014"), buyback != null ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    }, "—"), buyback != null ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: `roll-choice-credit ${buyback >= 0 ? "up" : "down"}`
     }, buyback >= 0 ? "+" : "", "$", buyback.toFixed(0)), /*#__PURE__*/React.createElement("div", {
       className: "muted",
@@ -2996,7 +3000,7 @@ function RollManagerCard({
       style: {
         fontSize: 11
       }
-    }, "\u2014"))), (() => {
+    }, "—"))), (() => {
       const fourWeek = (() => {
         const d = new Date(sc.expiration + "T12:00:00");
         d.setDate(d.getDate() + 28);
@@ -3083,12 +3087,12 @@ function RollManagerCard({
       const scenarios = [sc1, sc2, sc3, sc4];
       return /*#__PURE__*/React.createElement("div", {
         className: "roll-pl-section",
-        title: "Side-by-side P/L modeling for four scenarios. Helps choose between roll, assignment, and close. P/L figures are per the underlying short call only \u2014 your stock leg P/L is separate."
+        title: "Side-by-side P/L modeling for four scenarios. Helps choose between roll, assignment, and close. P/L figures are per the underlying short call only — your stock leg P/L is separate."
       }, /*#__PURE__*/React.createElement("div", {
         className: "roll-pl-head"
       }, /*#__PURE__*/React.createElement("span", {
         className: "roll-pl-kicker"
-      }, "Decision support \xB7 per contract option P/L")), /*#__PURE__*/React.createElement("div", {
+      }, "Decision support · per contract option P/L")), /*#__PURE__*/React.createElement("div", {
         className: "roll-pl-grid"
       }, scenarios.map((s, idx) => /*#__PURE__*/React.createElement("div", {
         key: idx,
@@ -3198,7 +3202,7 @@ function FlowScoreCard({
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Unusual Whales \xB7 real-time options flow"), /*#__PURE__*/React.createElement("div", {
+    }, "Unusual Whales · real-time options flow"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Flow Score"))), /*#__PURE__*/React.createElement("div", {
       className: "muted",
@@ -3214,7 +3218,7 @@ function FlowScoreCard({
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Unusual Whales \xB7 real-time options flow"), /*#__PURE__*/React.createElement("div", {
+    }, "Unusual Whales · real-time options flow"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Flow Score"))), /*#__PURE__*/React.createElement("div", {
       className: "muted",
@@ -3231,9 +3235,9 @@ function FlowScoreCard({
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Unusual Whales \xB7 real-time options flow"), /*#__PURE__*/React.createElement("div", {
+    }, "Unusual Whales · real-time options flow"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
-    }, "Flow Score \xB7 ", ticker))), /*#__PURE__*/React.createElement("div", {
+    }, "Flow Score · ", ticker))), /*#__PURE__*/React.createElement("div", {
       className: "muted",
       style: {
         padding: "16px 0"
@@ -3274,16 +3278,16 @@ function FlowScoreCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Unusual Whales \xB7 real-time options flow"), /*#__PURE__*/React.createElement("div", {
+  }, "Unusual Whales · real-time options flow"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "Flow Score \xB7 ", ticker)), /*#__PURE__*/React.createElement("div", {
+  }, "Flow Score · ", ticker)), /*#__PURE__*/React.createElement("div", {
     className: "kicker",
     title: `${score.stats.alert_count} unusual flow alerts in today's session`
   }, score.stats.alert_count, " alerts today")), /*#__PURE__*/React.createElement("div", {
     className: `flow-verdict ${score.verdict_class}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "flow-verdict-label",
-    title: "UW decision-engine verdict for selling covered calls right now. Overrides standard verdict when bullish flow \u2265 70 AND CC Risk \u2265 70."
+    title: "UW decision-engine verdict for selling covered calls right now. Overrides standard verdict when bullish flow ≥ 70 AND CC Risk ≥ 70."
   }, "UW VERDICT"), /*#__PURE__*/React.createElement("div", {
     className: "flow-verdict-text"
   }, score.verdict), /*#__PURE__*/React.createElement("div", {
@@ -3315,14 +3319,14 @@ function FlowScoreCard({
     className: "flow-stat-val down"
   }, fmt$M(score.stats.total_put_premium))), /*#__PURE__*/React.createElement("div", {
     className: "flow-stat-row",
-    title: "Ask-side call premium specifically targeting strikes at or above current price \u2014 the dangerous zone for covered-call writers"
+    title: "Ask-side call premium specifically targeting strikes at or above current price — the dangerous zone for covered-call writers"
   }, /*#__PURE__*/React.createElement("span", {
     className: "flow-stat-lbl"
   }, "Above strike (calls)"), /*#__PURE__*/React.createElement("span", {
     className: "flow-stat-val"
   }, fmt$M(score.stats.call_above_strike_premium))), /*#__PURE__*/React.createElement("div", {
     className: "flow-stat-row",
-    title: "Number of sweep orders detected. Sweeps are aggressive, multi-exchange ask-side fills \u2014 typically institutional."
+    title: "Number of sweep orders detected. Sweeps are aggressive, multi-exchange ask-side fills — typically institutional."
   }, /*#__PURE__*/React.createElement("span", {
     className: "flow-stat-lbl"
   }, "Sweeps (call/put)"), /*#__PURE__*/React.createElement("span", {
@@ -3348,7 +3352,7 @@ function FlowScoreCard({
     label: "CC risk",
     value: score.cc_risk,
     tone: score.cc_risk >= 70 ? "bad" : score.cc_risk >= 50 ? "neutral" : "default",
-    tip: "0-100. Risk that selling covered calls right now leads to fast assignment. Driven by ask-side call premium concentrated AT or ABOVE current price. \u226570 means aggressive bullish flow is targeting your potential strike zone."
+    tip: "0-100. Risk that selling covered calls right now leads to fast assignment. Driven by ask-side call premium concentrated AT or ABOVE current price. ≥70 means aggressive bullish flow is targeting your potential strike zone."
   })), /*#__PURE__*/React.createElement("div", {
     className: "flow-trades-section"
   }, /*#__PURE__*/React.createElement("button", {
@@ -3397,7 +3401,7 @@ function FlowScoreCard({
   }, "Exp"), /*#__PURE__*/React.createElement("span", {
     title: "Trade size in contracts"
   }, "Size"), /*#__PURE__*/React.createElement("span", {
-    title: "Total premium paid (size \xD7 price \xD7 100)"
+    title: "Total premium paid (size × price × 100)"
   }, "Premium"), /*#__PURE__*/React.createElement("span", {
     title: "IV at the contract"
   }, "IV"), /*#__PURE__*/React.createElement("span", {
@@ -3442,7 +3446,7 @@ function FlowScoreCard({
       className: biasCls
     }, t.sentiment), /*#__PURE__*/React.createElement("span", null, t.is_sweep ? /*#__PURE__*/React.createElement("span", {
       className: "sweep-flag",
-      title: "Sweep \u2014 aggressive multi-exchange fill, typically institutional"
+      title: "Sweep — aggressive multi-exchange fill, typically institutional"
     }, "S") : ""));
   })))));
 }
@@ -3646,7 +3650,7 @@ function PullbackBacktest({
     title: "Most recent qualifying days. Green = target hit, red = target missed. Each cell shows the actual move that day."
   }, /*#__PURE__*/React.createElement("div", {
     className: "pbb-timeline-label"
-  }, "Recent ", result.recent.length, " qualifying days (oldest \u2192 newest)"), /*#__PURE__*/React.createElement("div", {
+  }, "Recent ", result.recent.length, " qualifying days (oldest → newest)"), /*#__PURE__*/React.createElement("div", {
     className: "pbb-timeline-bar"
   }, result.recent.map((d, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
@@ -3917,7 +3921,7 @@ function TradeBuilderCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Decision engine \xB7 0.20 delta strikes \xB7 ", activeExpDate.toLocaleDateString("en-US", {
+  }, "Decision engine · 0.20 delta strikes · ", activeExpDate.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric"
   }), " (", FRONT_DTE, "d)"), /*#__PURE__*/React.createElement("div", {
@@ -3974,7 +3978,7 @@ function TradeBuilderCard({
     title: "Strike picked by the dashboard's 0.20-delta target. The call you'd sell."
   }, "$", callStrike.toFixed(2), " ", /*#__PURE__*/React.createElement("span", {
     className: "trade-side-strike-meta"
-  }, ((callStrike / currentPrice - 1) * 100).toFixed(1), "% OTM \xB7 ", callDelta.toFixed(2), "\u0394")), /*#__PURE__*/React.createElement("div", {
+  }, ((callStrike / currentPrice - 1) * 100).toFixed(1), "% OTM · ", callDelta.toFixed(2), "Δ")), /*#__PURE__*/React.createElement("div", {
     className: "trade-side-rows"
   }, /*#__PURE__*/React.createElement("div", {
     className: "trade-row",
@@ -3994,7 +3998,7 @@ function TradeBuilderCard({
     className: "trade-val"
   }, callPctOfStock.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
     className: "trade-row",
-    title: "Annualized return assuming you collect this premium over the holding period and roll continuously. NOT a guarantee \u2014 assumes no early assignment, no IV expansion."
+    title: "Annualized return assuming you collect this premium over the holding period and roll continuously. NOT a guarantee — assumes no early assignment, no IV expansion."
   }, /*#__PURE__*/React.createElement("span", {
     className: "trade-lbl"
   }, "Annualized"), /*#__PURE__*/React.createElement("span", {
@@ -4015,7 +4019,7 @@ function TradeBuilderCard({
     className: "trade-val"
   }, "$", callBreakeven.toFixed(2))), /*#__PURE__*/React.createElement("div", {
     className: "trade-row",
-    title: "Maximum upside if the stock rises to your strike and gets called away. = (strike - current price) \xD7 100 + premium. Past the strike, you give up further upside."
+    title: "Maximum upside if the stock rises to your strike and gets called away. = (strike - current price) × 100 + premium. Past the strike, you give up further upside."
   }, /*#__PURE__*/React.createElement("span", {
     className: "trade-lbl"
   }, "Max if assigned"), /*#__PURE__*/React.createElement("span", {
@@ -4041,7 +4045,7 @@ function TradeBuilderCard({
     title: "Strike picked by the dashboard's 0.20-delta target. The put you'd sell."
   }, "$", putStrike.toFixed(2), " ", /*#__PURE__*/React.createElement("span", {
     className: "trade-side-strike-meta"
-  }, ((1 - putStrike / currentPrice) * 100).toFixed(1), "% OTM \xB7 ", putDelta.toFixed(2), "\u0394")), /*#__PURE__*/React.createElement("div", {
+  }, ((1 - putStrike / currentPrice) * 100).toFixed(1), "% OTM · ", putDelta.toFixed(2), "Δ")), /*#__PURE__*/React.createElement("div", {
     className: "trade-side-rows"
   }, /*#__PURE__*/React.createElement("div", {
     className: "trade-row",
@@ -4089,7 +4093,7 @@ function TradeBuilderCard({
     className: `trade-val ${putBreakevenDiscount > 5 ? "up" : ""}`
   }, putBreakevenDiscount.toFixed(1), "%")), /*#__PURE__*/React.createElement("div", {
     className: "trade-row",
-    title: "Capital required to secure 1 contract = strike \xD7 100. The cash you'd need parked to back this put."
+    title: "Capital required to secure 1 contract = strike × 100. The cash you'd need parked to back this put."
   }, /*#__PURE__*/React.createElement("span", {
     className: "trade-lbl"
   }, "Capital"), /*#__PURE__*/React.createElement("span", {
@@ -4109,12 +4113,12 @@ function TradeBuilderCard({
       setMultiExpExpanded(true);
       fetchMultiExp();
     },
-    title: "Load and compare 0.20-delta strike scoring across the next 8 weekly expirations. Fetches all chains from the broker \u2014 typically 3-10 seconds."
-  }, "Compare across expirations \u2192"), multiExpExpanded && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    title: "Load and compare 0.20-delta strike scoring across the next 8 weekly expirations. Fetches all chains from the broker — typically 3-10 seconds."
+  }, "Compare across expirations →"), multiExpExpanded && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "trade-multi-exp-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Cross-expiration \xB7 0.20 delta \xB7 8 weeks out"), /*#__PURE__*/React.createElement("div", {
+  }, "Cross-expiration · 0.20 delta · 8 weeks out"), /*#__PURE__*/React.createElement("div", {
     className: "trade-multi-exp-title"
   }, "Compare across expirations")), /*#__PURE__*/React.createElement("button", {
     className: "trade-multi-exp-refresh",
@@ -4125,7 +4129,7 @@ function TradeBuilderCard({
     className: "trade-multi-exp-error"
   }, "Error: ", multiExpError), multiExpLoading && !multiExp && /*#__PURE__*/React.createElement("div", {
     className: "trade-multi-exp-loading"
-  }, "Loading ", ticker, " chains across expirations\u2026 (3-10 seconds)"), multiExp && multiExp.rows && multiExp.rows.length > 0 && (() => {
+  }, "Loading ", ticker, " chains across expirations… (3-10 seconds)"), multiExp && multiExp.rows && multiExp.rows.length > 0 && (() => {
     // Find the best annualized for each side to highlight
     const bestCallAnn = Math.max(...multiExp.rows.filter(r => r.call?.annualized_pct != null).map(r => r.call.annualized_pct));
     const bestPutAnn = Math.max(...multiExp.rows.filter(r => r.put?.annualized_pct != null).map(r => r.put.annualized_pct));
@@ -4277,7 +4281,7 @@ function AnalystCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Analyst price targets \xB7 ratings \xB7 catalysts"), /*#__PURE__*/React.createElement("div", {
+  }, "Analyst price targets · ratings · catalysts"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Analyst price targets")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -4290,7 +4294,7 @@ function AnalystCard({
     className: "research-error"
   }, "Error: ", error), !data && !loading && !error && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
-  }, "Loading analyst data for ", ticker, "\u2026"), data && !data.data_available && /*#__PURE__*/React.createElement("div", {
+  }, "Loading analyst data for ", ticker, "…"), data && !data.data_available && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
   }, "No analyst data available for ", ticker, ". This is normal for very small caps, recent IPOs, or international tickers."), data && data.data_available && (() => {
     const t = data.targets || {};
@@ -4350,7 +4354,7 @@ function AnalystCard({
     }, " ", c.score)) : /*#__PURE__*/React.createElement("span", {
       className: "analyst-finnhub-hint",
       title: "Set FINNHUB_API_KEY in .env to enable consensus, analyst count, and trend."
-    }, "\u2014", /*#__PURE__*/React.createElement("span", {
+    }, "—", /*#__PURE__*/React.createElement("span", {
       className: "analyst-needs-finnhub"
     }, "needs Finnhub")))), /*#__PURE__*/React.createElement("div", {
       className: "analyst-stat",
@@ -4439,7 +4443,7 @@ function AnalystCard({
     }, "Recent analyst updates (", data.history.length, ")", /*#__PURE__*/React.createElement("span", {
       className: "analyst-source-tag",
       title: `Data source: ${data.source}`
-    }, " \xB7 ", data.source)), /*#__PURE__*/React.createElement("div", {
+    }, " · ", data.source)), /*#__PURE__*/React.createElement("div", {
       className: "analyst-history-table"
     }, /*#__PURE__*/React.createElement("div", {
       className: "analyst-history-head"
@@ -4450,12 +4454,12 @@ function AnalystCard({
     }, "Firm"), /*#__PURE__*/React.createElement("span", {
       title: "Type of update. Upgrade = rating raised. Downgrade = rating lowered. Initiate = first time covering. Target = price target changed but rating unchanged. Reiterate = no change to either."
     }, "Action"), /*#__PURE__*/React.createElement("span", {
-      title: "Rating change. Shows prior rating \u2192 new rating when the rating moved. Bullish ratings (Buy, Outperform, Overweight) in green. Bearish (Sell, Underperform) in red. Hold/Neutral in gray."
+      title: "Rating change. Shows prior rating → new rating when the rating moved. Bullish ratings (Buy, Outperform, Overweight) in green. Bearish (Sell, Underperform) in red. Hold/Neutral in gray."
     }, "Rating"), /*#__PURE__*/React.createElement("span", {
-      title: "Price target. Shows prior target \u2192 new target when changed. Single value when only the rating moved or this is an initiation."
+      title: "Price target. Shows prior target → new target when changed. Single value when only the rating moved or this is an initiation."
     }, "Target"), /*#__PURE__*/React.createElement("span", {
       title: "Percentage change in the price target from prior to new. Positive (green) = target raised. Negative (red) = target lowered. Blank = no prior target available (initiations or rating-only changes)."
-    }, "\u0394")), data.history.slice(0, 30).map((h, i) => {
+    }, "Δ")), data.history.slice(0, 30).map((h, i) => {
       const tcCls = h.target_change_pct == null ? "" : h.target_change_pct > 0 ? "up" : h.target_change_pct < 0 ? "down" : "";
       return /*#__PURE__*/React.createElement("div", {
         key: i,
@@ -4472,7 +4476,7 @@ function AnalystCard({
         className: `grade-pill ${gradeClass(h.prior_grade)}`
       }, h.prior_grade), /*#__PURE__*/React.createElement("span", {
         className: "grade-arrow"
-      }, " \u2192 "), /*#__PURE__*/React.createElement("span", {
+      }, " → "), /*#__PURE__*/React.createElement("span", {
         className: `grade-pill ${gradeClass(h.new_grade)}`
       }, h.new_grade)) : h.new_grade ? /*#__PURE__*/React.createElement("span", {
         className: `grade-pill ${gradeClass(h.new_grade)}`
@@ -4482,7 +4486,7 @@ function AnalystCard({
         className: "muted"
       }, "$", h.prior_target.toFixed(0)), /*#__PURE__*/React.createElement("span", {
         className: "muted"
-      }, " \u2192 "), /*#__PURE__*/React.createElement("span", null, "$", h.new_target.toFixed(0))) : h.new_target ? /*#__PURE__*/React.createElement("span", null, "$", h.new_target.toFixed(0)) : "—"), /*#__PURE__*/React.createElement("span", {
+      }, " → "), /*#__PURE__*/React.createElement("span", null, "$", h.new_target.toFixed(0))) : h.new_target ? /*#__PURE__*/React.createElement("span", null, "$", h.new_target.toFixed(0)) : "—"), /*#__PURE__*/React.createElement("span", {
         className: `analyst-target-change ${tcCls}`
       }, h.target_change_pct != null ? (h.target_change_pct > 0 ? "+" : "") + h.target_change_pct.toFixed(1) + "%" : "—"));
     }))));
@@ -4591,7 +4595,7 @@ function PullbackProfileCard({
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Open behavior \xB7 pullback profile"), /*#__PURE__*/React.createElement("div", {
+    }, "Open behavior · pullback profile"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Open-to-low / open-to-high"))), /*#__PURE__*/React.createElement("div", {
       className: "muted",
@@ -4692,7 +4696,7 @@ function PullbackProfileCard({
     className: "kicker"
   }, isShort ? "Short the open · pullback profile" : "Buy the open · pop profile"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, isShort ? "Open-to-low pullback" : "Open-to-high pop", " \xB7 ", data.lookback_days, "d history")), /*#__PURE__*/React.createElement("div", {
+  }, isShort ? "Open-to-low pullback" : "Open-to-high pop", " · ", data.lookback_days, "d history")), /*#__PURE__*/React.createElement("div", {
     className: "pullback-card-tools"
   }, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
@@ -4759,7 +4763,7 @@ function PullbackProfileCard({
     }, /*#__PURE__*/React.createElement("div", {
       className: "pullback-thresh-label",
       title: isShort ? `Frequency of days where the open-to-low pullback exceeded ${t.toFixed(2)}%` : `Frequency of days where the open-to-high pop exceeded ${t.toFixed(2)}%`
-    }, "\u2265 ", t.toFixed(2), "%"), /*#__PURE__*/React.createElement("div", {
+    }, "≥ ", t.toFixed(2), "%"), /*#__PURE__*/React.createElement("div", {
       className: "pullback-thresh-val"
     }, v ? v.pct.toFixed(0) + "%" : "—"));
   }))), /*#__PURE__*/React.createElement("div", {
@@ -4854,9 +4858,9 @@ function PullbackProfileCard({
       className: "pullback-rr"
     }, "R:R from current ", fmt$(live), " = ", /*#__PURE__*/React.createElement("b", null, rr != null ? rr.toFixed(2) : "—"), rr != null && rr >= 2 && /*#__PURE__*/React.createElement("span", {
       className: "rr-good"
-    }, " \xB7 good"), rr != null && rr < 1 && /*#__PURE__*/React.createElement("span", {
+    }, " · good"), rr != null && rr < 1 && /*#__PURE__*/React.createElement("span", {
       className: "rr-bad"
-    }, " \xB7 poor"));
+    }, " · poor"));
   })()), (data.strong_gap || data.high_rvol) && (() => {
     const sg = data.strong_gap ? isShort ? data.strong_gap.short : data.strong_gap.long : null;
     const hr = data.high_rvol ? isShort ? data.high_rvol.short : data.high_rvol.long : null;
@@ -4869,7 +4873,7 @@ function PullbackProfileCard({
     }, /*#__PURE__*/React.createElement("div", {
       className: "pullback-cond-label",
       title: "Days where the open gapped up at least 3% from prior close. Strong gaps tend to behave differently than normal gap-ups"
-    }, "Strong gap (\u22653%, n=", data.strong_gap.n, ")"), /*#__PURE__*/React.createElement("div", {
+    }, "Strong gap (≥3%, n=", data.strong_gap.n, ")"), /*#__PURE__*/React.createElement("div", {
       className: "pullback-cond-vals"
     }, /*#__PURE__*/React.createElement("span", {
       title: isShort ? "Median open-to-low pullback on strong-gap days" : "Median open-to-high pop on strong-gap days"
@@ -5049,7 +5053,7 @@ function BasingCard({
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Mean reversion \xB7 today's basing"), /*#__PURE__*/React.createElement("div", {
+    }, "Mean reversion · today's basing"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Intraday basing levels"))), /*#__PURE__*/React.createElement("div", {
       className: "muted",
@@ -5065,7 +5069,7 @@ function BasingCard({
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Mean reversion \xB7 today's basing"), /*#__PURE__*/React.createElement("div", {
+    }, "Mean reversion · today's basing"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Intraday basing levels"))), /*#__PURE__*/React.createElement("div", {
       className: "muted",
@@ -5093,7 +5097,7 @@ function BasingCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Mean reversion \xB7 today's basing"), /*#__PURE__*/React.createElement("div", {
+  }, "Mean reversion · today's basing"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Intraday basing levels ", data.bounce_signal && /*#__PURE__*/React.createElement("span", {
     className: "basing-signal"
@@ -5337,14 +5341,14 @@ function BasingCard({
         className: "basing-profile-marker"
       }, isPOC && /*#__PURE__*/React.createElement("span", {
         className: "basing-tag tag-poc",
-        title: "Point of Control \u2014 price level with the most volume traded today"
+        title: "Point of Control — price level with the most volume traded today"
       }, "POC"), isTPO && /*#__PURE__*/React.createElement("span", {
         className: "basing-tag tag-tpo",
-        title: "Time Price Opportunity \u2014 price level where price spent the most time today"
+        title: "Time Price Opportunity — price level where price spent the most time today"
       }, "TPO"), isCurrent && /*#__PURE__*/React.createElement("span", {
         className: "basing-tag tag-now",
         title: "Current price"
-      }, "\u25CF")));
+      }, "●")));
     });
   })()), /*#__PURE__*/React.createElement("div", {
     className: "basing-legend"
@@ -5366,25 +5370,25 @@ function BasingCard({
   }, "No intraday data yet."), /*#__PURE__*/React.createElement("div", {
     className: "basing-levels"
   }, /*#__PURE__*/React.createElement("div", {
-    title: "Point of Control \u2014 price level with the most volume traded today"
+    title: "Point of Control — price level with the most volume traded today"
   }, /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-label"
   }, "POC"), /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-val"
   }, fmt$(data.poc_price))), /*#__PURE__*/React.createElement("div", {
-    title: "Time Price Opportunity \u2014 price level where price spent the most time today"
+    title: "Time Price Opportunity — price level where price spent the most time today"
   }, /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-label"
   }, "TPO"), /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-val"
   }, fmt$(data.tpo_price))), /*#__PURE__*/React.createElement("div", {
-    title: "Value Area High \u2014 top of the 70% volume zone"
+    title: "Value Area High — top of the 70% volume zone"
   }, /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-label"
   }, "VAH"), /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-val"
   }, fmt$(data.value_area_high))), /*#__PURE__*/React.createElement("div", {
-    title: "Value Area Low \u2014 bottom of the 70% volume zone"
+    title: "Value Area Low — bottom of the 70% volume zone"
   }, /*#__PURE__*/React.createElement("span", {
     className: "basing-levels-label"
   }, "VAL"), /*#__PURE__*/React.createElement("span", {
@@ -5549,7 +5553,7 @@ function StrategyCard({
     className: "leg-action"
   }, L.action), L.qty !== 1 && /*#__PURE__*/React.createElement("span", {
     className: "leg-qty"
-  }, L.qty, "\xD7"), /*#__PURE__*/React.createElement("span", {
+  }, L.qty, "×"), /*#__PURE__*/React.createElement("span", {
     className: `leg-side ${L.side === "CALL" ? "call" : L.side === "PUT" ? "put" : "stock"}`
   }, L.side), /*#__PURE__*/React.createElement("span", {
     className: "leg-strike"
@@ -5838,16 +5842,16 @@ function PositionsCard({
       className: "pos-dte"
     }, v.dte, "d"), /*#__PURE__*/React.createElement("span", {
       className: "pos-qty"
-    }, Math.abs(p.qty / (p.type === "stock" ? 1 : 100)), "\xD7 ", p.type === "stock" ? "shares" : "ctr")), /*#__PURE__*/React.createElement("div", {
+    }, Math.abs(p.qty / (p.type === "stock" ? 1 : 100)), "× ", p.type === "stock" ? "shares" : "ctr")), /*#__PURE__*/React.createElement("div", {
       className: "pos-line2"
     }, /*#__PURE__*/React.createElement("span", null, "Entry ", /*#__PURE__*/React.createElement("b", null, "$", (p.entryPremium ?? 0).toFixed(2))), v.currentPremium != null && /*#__PURE__*/React.createElement("span", null, "Now ", /*#__PURE__*/React.createElement("b", null, "$", v.currentPremium.toFixed(2))), v.currentDelta != null && /*#__PURE__*/React.createElement("span", {
       title: "Live |delta| of the position. For short OTM options 0.20-0.30 is the entry zone; > 0.40 with low DTE is a roll trigger."
-    }, "|\u0394| ", /*#__PURE__*/React.createElement("b", null, Math.abs(v.currentDelta).toFixed(2))), /*#__PURE__*/React.createElement("span", {
+    }, "|Δ| ", /*#__PURE__*/React.createElement("b", null, Math.abs(v.currentDelta).toFixed(2))), /*#__PURE__*/React.createElement("span", {
       className: "pos-status"
     }, v.status === "live" ? "● live" : v.status === "estimate" ? "○ estimate" : v.status === "closed" ? "✓ closed" : "load " + p.ticker)), v.rollFlag && /*#__PURE__*/React.createElement("div", {
       className: "pos-roll-flag",
-      title: "Position is approaching in-the-money near expiration. Common short-options heuristic: roll out (and possibly down for puts, up for calls) when DTE < 7 and |\u0394| > 0.40 to defer assignment and collect more premium."
-    }, "\u26A0 ", v.rollFlag)), /*#__PURE__*/React.createElement("div", {
+      title: "Position is approaching in-the-money near expiration. Common short-options heuristic: roll out (and possibly down for puts, up for calls) when DTE < 7 and |Δ| > 0.40 to defer assignment and collect more premium."
+    }, "⚠ ", v.rollFlag)), /*#__PURE__*/React.createElement("div", {
       className: "pos-row-pnl"
     }, v.currentPremium != null ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: `pos-pnl ${v.pnl >= 0 ? "up" : "down"}`
@@ -5855,7 +5859,7 @@ function PositionsCard({
       className: `pos-pnl-pct ${v.pnl >= 0 ? "up" : "down"}`
     }, v.pnl >= 0 ? "+" : "", v.pnlPct.toFixed(1), "%")) : /*#__PURE__*/React.createElement("div", {
       className: "pos-pnl-na"
-    }, "\u2014")), /*#__PURE__*/React.createElement("div", {
+    }, "—")), /*#__PURE__*/React.createElement("div", {
       className: "pos-row-actions"
     }, !p.closed && /*#__PURE__*/React.createElement("button", {
       className: "pos-action",
@@ -5863,7 +5867,7 @@ function PositionsCard({
     }, "Close"), /*#__PURE__*/React.createElement("button", {
       className: "pos-action danger",
       onClick: () => deletePosition(p.id)
-    }, "\xD7")));
+    }, "×")));
   })));
 }
 function AddPositionForm({
