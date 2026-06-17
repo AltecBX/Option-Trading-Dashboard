@@ -7223,3 +7223,76 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   }
   .metric:hover, .strike-card:hover, .strat-card:hover { transform: none; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   DEEP POLISH #1 — Hero & Suggested Strikes (v1.42)
+   The SELL CALL / SELL PUT cards are the centerpiece of the Trade tab.
+   ════════════════════════════════════════════════════════════════════ */
+
+.strike-card {
+  border-radius: 16px;
+  padding: 15px 18px 14px;
+}
+/* Directional tint with a soft top-left light source */
+.strike-card.call {
+  background:
+    radial-gradient(120% 85% at 0% 0%, color-mix(in oklch, var(--up), transparent 80%), transparent 62%),
+    linear-gradient(168deg, color-mix(in oklch, var(--up), transparent 85%), color-mix(in oklch, var(--up), transparent 96%));
+  border-color: color-mix(in oklch, var(--up), transparent 60%);
+}
+.strike-card.put {
+  background:
+    radial-gradient(120% 85% at 0% 0%, color-mix(in oklch, var(--down), transparent 80%), transparent 62%),
+    linear-gradient(168deg, color-mix(in oklch, var(--down), transparent 85%), color-mix(in oklch, var(--down), transparent 96%));
+  border-color: color-mix(in oklch, var(--down), transparent 60%);
+}
+/* Glowing top accent bar */
+.strike-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 1;
+}
+.strike-card.call::before {
+  background: linear-gradient(90deg, transparent, var(--up), transparent);
+  box-shadow: 0 0 14px color-mix(in oklch, var(--up), transparent 35%);
+}
+.strike-card.put::before {
+  background: linear-gradient(90deg, transparent, var(--down), transparent);
+  box-shadow: 0 0 14px color-mix(in oklch, var(--down), transparent 35%);
+}
+/* Label: tracked caps + glowing status dot */
+.strike-card .label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.strike-card.call .label { color: color-mix(in oklch, var(--up), var(--fg) 30%); }
+.strike-card.put  .label { color: color-mix(in oklch, var(--down), var(--fg) 30%); }
+.strike-card.call .label .dot { box-shadow: 0 0 8px var(--up); }
+.strike-card.put  .label .dot { box-shadow: 0 0 8px var(--down); }
+/* Price: bigger, tighter */
+.strike-card .price-big {
+  font-size: 34px;
+  line-height: 1.04;
+  margin: 5px 0 2px;
+}
+.strike-card .price-big small { opacity: 0.6; }
+/* Stat rows separated by hairlines for a cleaner read */
+.strike-card .meta {
+  border-top: 1px solid color-mix(in oklch, var(--fg) 9%, transparent);
+  padding-top: 7px;
+  margin-top: 0;
+}
+.strike-card .meta b { color: var(--fg); }
+/* Color-matched hover ring */
+.strike-card.call:hover {
+  border-color: color-mix(in oklch, var(--up), transparent 42%);
+  box-shadow: var(--shadow-hover), 0 0 0 1px color-mix(in oklch, var(--up), transparent 58%);
+}
+.strike-card.put:hover {
+  border-color: color-mix(in oklch, var(--down), transparent 42%);
+  box-shadow: var(--shadow-hover), 0 0 0 1px color-mix(in oklch, var(--down), transparent 58%);
+}
