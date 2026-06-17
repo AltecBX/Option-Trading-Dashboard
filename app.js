@@ -2829,7 +2829,7 @@ function App() {
       title: `Unusual Whales connected · ${remTxt} · today ${dailyTxt} requests`
     }, /*#__PURE__*/React.createElement("span", {
       className: "src-dot"
-    }), " UW \xB7 ", typeof rem === "number" ? rem : "—", "/min");
+    }), " UW · ", typeof rem === "number" ? rem : "—", "/min");
   })())), /*#__PURE__*/React.createElement("div", {
     className: "sb-brand-actions"
   }, /*#__PURE__*/React.createElement("button", {
@@ -3015,7 +3015,7 @@ function App() {
     className: "sb-ticker-name-line"
   }, loadError ? /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, "\u2014") : current.name), !loadError && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "—") : current.name), !loadError && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
     className: "sb-divyield",
     title: `Trailing annual dividend yield for ${ticker}, from the stock's last close.`
   }, "Div yield ", current.dividend_yield.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
@@ -3032,7 +3032,7 @@ function App() {
   // message is already shown elsewhere in the sidebar.
   React.createElement("span", {
     className: "sb-price muted"
-  }, "\u2014") : (() => {
+  }, "—") : (() => {
     // currentPrice is already live (overridden in App scope
     // with getLivePrice(ticker)). Live change_pct preferred
     // when polled, else fall back to the payload's snapshot.
@@ -3056,7 +3056,7 @@ function App() {
     }, "$", currentPrice.toFixed(2), isStale && /*#__PURE__*/React.createElement("span", {
       className: "sb-stale-marker",
       title: staleTip
-    }, " \xB7 stale"))), /*#__PURE__*/React.createElement("span", {
+    }, " · stale"))), /*#__PURE__*/React.createElement("span", {
       className: `delta ${displayChg >= 0 ? "up" : "down"}`
     }, displayChg >= 0 ? "▲" : "▼", " ", Math.abs(displayChg).toFixed(2), "%"));
   })())))), /*#__PURE__*/React.createElement("div", {
@@ -3088,7 +3088,7 @@ function App() {
     className: "sb-preset-row"
   }, starredSymbols.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "sb-watchlist-empty"
-  }, "No starred tickers. Click \u2606 to star, or Manage to add."), starredSymbols.map(t => /*#__PURE__*/React.createElement("button", {
+  }, "No starred tickers. Click ☆ to star, or Manage to add."), starredSymbols.map(t => /*#__PURE__*/React.createElement("button", {
     key: `wl-${t}`,
     className: `preset-pill ${ticker === t ? "active" : ""}`,
     onClick: () => {
@@ -3099,7 +3099,7 @@ function App() {
       e.preventDefault();
       wlToggleStar(t);
     },
-    title: "Click to switch \xB7 right-click to unstar"
+    title: "Click to switch · right-click to unstar"
   }, t)))), /*#__PURE__*/React.createElement("div", {
     className: "sb-section"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3160,7 +3160,7 @@ function App() {
     onChange: e => setTargetDelta(+e.target.value)
   }), /*#__PURE__*/React.createElement("div", {
     className: "sb-hint"
-  }, "Calls picked at +", targetDelta.toFixed(2), " \xB7 puts at -", targetDelta.toFixed(2))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "Calls picked at +", targetDelta.toFixed(2), " · puts at -", targetDelta.toFixed(2))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "sb-row"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "buffer",
@@ -3232,7 +3232,7 @@ function App() {
   }, "Strategy reference"), /*#__PURE__*/React.createElement("button", {
     className: "hk-close",
     onClick: () => setShowRef(false)
-  }, "\xD7")), /*#__PURE__*/React.createElement(StrategyReferenceCard, null))), showWatchlistManager && /*#__PURE__*/React.createElement("div", {
+  }, "×")), /*#__PURE__*/React.createElement(StrategyReferenceCard, null))), showWatchlistManager && /*#__PURE__*/React.createElement("div", {
     className: "hk-overlay",
     onClick: () => setShowWatchlistManager(false)
   }, /*#__PURE__*/React.createElement("div", {
@@ -3242,10 +3242,10 @@ function App() {
     className: "hk-head"
   }, /*#__PURE__*/React.createElement("div", {
     className: "hk-title"
-  }, "Watchlist \xB7 ", watchlistData.symbols.length, " ", watchlistData.symbols.length === 1 ? "symbol" : "symbols"), /*#__PURE__*/React.createElement("button", {
+  }, "Watchlist · ", watchlistData.symbols.length, " ", watchlistData.symbols.length === 1 ? "symbol" : "symbols"), /*#__PURE__*/React.createElement("button", {
     className: "hk-close",
     onClick: () => setShowWatchlistManager(false)
-  }, "\xD7")), /*#__PURE__*/React.createElement(WatchlistManager, {
+  }, "×")), /*#__PURE__*/React.createElement(WatchlistManager, {
     data: watchlistData,
     onAdd: wlAddSymbol,
     onRemove: wlRemoveSymbol,
@@ -3270,17 +3270,17 @@ function App() {
   }, "Keyboard shortcuts"), /*#__PURE__*/React.createElement("button", {
     className: "hk-close",
     onClick: () => setShowHelp(false)
-  }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+  }, "×")), /*#__PURE__*/React.createElement("div", {
     className: "hk-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "hk-row"
   }, /*#__PURE__*/React.createElement("kbd", null, "/"), /*#__PURE__*/React.createElement("span", null, "Focus ticker search")), /*#__PURE__*/React.createElement("div", {
     className: "hk-row"
-  }, /*#__PURE__*/React.createElement("kbd", null, "a"), "\u2013", /*#__PURE__*/React.createElement("kbd", null, "z"), /*#__PURE__*/React.createElement("span", null, "Start typing to search a new ticker")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("kbd", null, "a"), "–", /*#__PURE__*/React.createElement("kbd", null, "z"), /*#__PURE__*/React.createElement("span", null, "Start typing to search a new ticker")), /*#__PURE__*/React.createElement("div", {
     className: "hk-row"
   }, /*#__PURE__*/React.createElement("kbd", null, "["), " / ", /*#__PURE__*/React.createElement("kbd", null, "]"), /*#__PURE__*/React.createElement("span", null, "Previous / next expiration")), /*#__PURE__*/React.createElement("div", {
     className: "hk-row"
-  }, /*#__PURE__*/React.createElement("kbd", null, "1"), "\u2013", /*#__PURE__*/React.createElement("kbd", null, "9"), /*#__PURE__*/React.createElement("span", null, "Select strategy by rank (top 9)")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("kbd", null, "1"), "–", /*#__PURE__*/React.createElement("kbd", null, "9"), /*#__PURE__*/React.createElement("span", null, "Select strategy by rank (top 9)")), /*#__PURE__*/React.createElement("div", {
     className: "hk-row"
   }, /*#__PURE__*/React.createElement("kbd", null, "?"), /*#__PURE__*/React.createElement("span", null, "Show / hide this help")), /*#__PURE__*/React.createElement("div", {
     className: "hk-row"
@@ -3297,7 +3297,7 @@ function App() {
     className: "error-banner"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ico"
-  }, "\u26A0"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "Couldn't load ", ticker, "."), " ", /*#__PURE__*/React.createElement("span", {
+  }, "⚠"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "Couldn't load ", ticker, "."), " ", /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, loadError)), /*#__PURE__*/React.createElement("button", {
     className: "error-retry",
@@ -3306,7 +3306,7 @@ function App() {
     className: "earnings-banner"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ico"
-  }, "\u26A0"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "Earnings reported this week."), " ", /*#__PURE__*/React.createElement("span", {
+  }, "⚠"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "Earnings reported this week."), " ", /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, "Expected moves can be much larger than historical medians. Consider trimming size or skipping the trade."))), (() => {
     const O = window.OptionStrats;
@@ -3357,9 +3357,9 @@ function App() {
       }
     }, /*#__PURE__*/React.createElement("span", {
       className: "assign-icon"
-    }, "\u26A0"), /*#__PURE__*/React.createElement("span", {
+    }, "⚠"), /*#__PURE__*/React.createElement("span", {
       className: "assign-title"
-    }, "Assignment risk \xB7 ", tierLabel), /*#__PURE__*/React.createElement("span", {
+    }, "Assignment risk · ", tierLabel), /*#__PURE__*/React.createElement("span", {
       className: "assign-detail"
     }, evaluated.length, " position", evaluated.length === 1 ? "" : "s", " flagged", " · ", evaluated.map(e => {
       const leg = e.leg;
@@ -3368,7 +3368,7 @@ function App() {
       return `${e.p.ticker} ${sign}${t}$${leg.strike.toFixed(2)}`;
     }).join(", ")), /*#__PURE__*/React.createElement("span", {
       className: "assign-arrow"
-    }, "\u2192 View positions"));
+    }, "→ View positions"));
   })(), /*#__PURE__*/React.createElement(WatchlistAlertsCard, {
     apiFetch: apiFetch,
     onSwitchTicker: sym => {
@@ -3436,28 +3436,28 @@ function App() {
       title: "Performance vs the close on the day before each period started"
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-pill",
-      title: "Week-to-date \u2014 return since last Friday's close"
+      title: "Week-to-date — return since last Friday's close"
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-lbl"
     }, "WTD"), /*#__PURE__*/React.createElement("div", {
       className: `chart-perf-val ${cls(wtd)}`
     }, fmt(wtd))), /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-pill",
-      title: "Month-to-date \u2014 return since the close on the last day of the prior month"
+      title: "Month-to-date — return since the close on the last day of the prior month"
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-lbl"
     }, "MTD"), /*#__PURE__*/React.createElement("div", {
       className: `chart-perf-val ${cls(mtd)}`
     }, fmt(mtd))), /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-pill",
-      title: "Quarter-to-date \u2014 return since the close on the last day of the prior quarter"
+      title: "Quarter-to-date — return since the close on the last day of the prior quarter"
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-lbl"
     }, "QTD"), /*#__PURE__*/React.createElement("div", {
       className: `chart-perf-val ${cls(qtd)}`
     }, fmt(qtd))), /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-pill",
-      title: "Year-to-date \u2014 return since last year's final close"
+      title: "Year-to-date — return since last year's final close"
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-perf-lbl"
     }, "YTD"), /*#__PURE__*/React.createElement("div", {
@@ -3467,7 +3467,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, chartDays, " day price \xB7 expected weekly range"), /*#__PURE__*/React.createElement("div", {
+  }, chartDays, " day price · expected weekly range"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, ticker, " candlestick", (() => {
     if (!liveEarnings || !liveEarnings.next) return null;
@@ -3482,7 +3482,7 @@ function App() {
     });
     return /*#__PURE__*/React.createElement("span", {
       className: cls
-    }, "Earnings in ", days, "d \xB7 ", label);
+    }, "Earnings in ", days, "d · ", label);
   })())), /*#__PURE__*/React.createElement("div", {
     className: "toolbar"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3506,7 +3506,7 @@ function App() {
   }, "RSI"), /*#__PURE__*/React.createElement("button", {
     className: showProbCone ? "active cone" : "cone",
     onClick: () => setShowProbCone(v => !v),
-    title: "Probability cone (\xB11\u03C3 / \xB12\u03C3 to expiration)"
+    title: "Probability cone (±1σ / ±2σ to expiration)"
   }, "CONE")), /*#__PURE__*/React.createElement("div", {
     className: "seg",
     title: "Visible day range"
@@ -3629,7 +3629,7 @@ function App() {
       opacity: 0.22,
       height: 10
     }
-  }), "Prob cone \xB11\u03C3/\xB12\u03C3"), showMA50 && showMA200 && (() => {
+  }), "Prob cone ±1σ/±2σ"), showMA50 && showMA200 && (() => {
     const last = daily[daily.length - 1];
     if (!last || last.ma50 == null || last.ma200 == null) return null;
     const isAbove = last.ma50 > last.ma200;
@@ -3667,7 +3667,7 @@ function App() {
         color: "var(--fg-3)",
         marginLeft: 6
       }
-    }, "\xB7 last ", lastCross.type, " cross ", lastCross.daysAgo, "d ago"));
+    }, "· last ", lastCross.type, " cross ", lastCross.daysAgo, "d ago"));
   })(), /*#__PURE__*/React.createElement("span", {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
@@ -3790,7 +3790,7 @@ function App() {
       className: "chart-stat-val"
     }, fmt$(hi)), /*#__PURE__*/React.createElement("div", {
       className: `chart-stat-sub ${cls(dist52H)}`
-    }, fmtPct(dist52H), " \xB7 ", fmtDate(hiDate))), /*#__PURE__*/React.createElement("div", {
+    }, fmtPct(dist52H), " · ", fmtDate(hiDate))), /*#__PURE__*/React.createElement("div", {
       className: "chart-stat",
       title: "Lowest price in the last 252 trading days (~1 year)"
     }, /*#__PURE__*/React.createElement("div", {
@@ -3799,7 +3799,7 @@ function App() {
       className: "chart-stat-val"
     }, fmt$(lo)), /*#__PURE__*/React.createElement("div", {
       className: `chart-stat-sub ${cls(dist52L)}`
-    }, fmtPct(dist52L), " \xB7 ", fmtDate(loDate))), /*#__PURE__*/React.createElement("div", {
+    }, fmtPct(dist52L), " · ", fmtDate(loDate))), /*#__PURE__*/React.createElement("div", {
       className: "chart-stat",
       title: "EMA21 value and price distance from it. Above = uptrend, below = downtrend."
     }, /*#__PURE__*/React.createElement("div", {
@@ -3819,7 +3819,7 @@ function App() {
       className: `chart-stat-sub ${cls(distMA50)}`
     }, fmtPct(distMA50))), /*#__PURE__*/React.createElement("div", {
       className: "chart-stat",
-      title: "MA200 value and price distance. The classic long-term trend filter \u2014 above = bull, below = bear."
+      title: "MA200 value and price distance. The classic long-term trend filter — above = bull, below = bear."
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-stat-lbl"
     }, "MA200"), /*#__PURE__*/React.createElement("div", {
@@ -3837,7 +3837,7 @@ function App() {
       className: "chart-stat-sub"
     }, rsi == null ? "" : rsi >= 70 ? "overbought" : rsi <= 30 ? "oversold" : "neutral")), /*#__PURE__*/React.createElement("div", {
       className: "chart-stat",
-      title: "14-day Average True Range \u2014 typical daily price movement in dollars"
+      title: "14-day Average True Range — typical daily price movement in dollars"
     }, /*#__PURE__*/React.createElement("div", {
       className: "chart-stat-lbl"
     }, "ATR14"), /*#__PURE__*/React.createElement("div", {
@@ -3869,7 +3869,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "ATM straddle \xB7 for ", activeExpDate.toLocaleDateString("en-US", {
+  }, "ATM straddle · for ", activeExpDate.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric"
@@ -3880,7 +3880,7 @@ function App() {
     style: {
       fontSize: 11
     }
-  }, atmCall && atmPut ? /*#__PURE__*/React.createElement(React.Fragment, null, "ATM strike $", atmCall.strike?.toFixed(2), " \xB7 call $", atmCallMid.toFixed(2), " \xB7 put $", atmPutMid.toFixed(2)) : "Waiting for chain…")), /*#__PURE__*/React.createElement("div", {
+  }, atmCall && atmPut ? /*#__PURE__*/React.createElement(React.Fragment, null, "ATM strike $", atmCall.strike?.toFixed(2), " · call $", atmCallMid.toFixed(2), " · put $", atmPutMid.toFixed(2)) : "Waiting for chain…")), /*#__PURE__*/React.createElement("div", {
     className: "em-stats-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "em-stat",
@@ -3891,19 +3891,19 @@ function App() {
     className: "em-stat-val"
   }, FRONT_DTE, "d")), /*#__PURE__*/React.createElement("div", {
     className: "em-stat",
-    title: "Expected dollar move from now to expiration as priced by the options market. Calculated as ATM call mid + ATM put mid (the straddle price). About 68% of the time the stock should stay within \xB1 this amount, per Black-Scholes assumptions."
+    title: "Expected dollar move from now to expiration as priced by the options market. Calculated as ATM call mid + ATM put mid (the straddle price). About 68% of the time the stock should stay within ± this amount, per Black-Scholes assumptions."
   }, /*#__PURE__*/React.createElement("div", {
     className: "em-stat-lbl"
   }, "Expected $"), /*#__PURE__*/React.createElement("div", {
     className: "em-stat-val"
-  }, "\xB1$", expectedDollarMove.toFixed(2))), /*#__PURE__*/React.createElement("div", {
+  }, "±$", expectedDollarMove.toFixed(2))), /*#__PURE__*/React.createElement("div", {
     className: "em-stat",
     title: "Expected move as a percentage of current stock price. Quick read on volatility for this expiration: 1-2% is calm, 3-5% is active, 6%+ usually means earnings or big catalyst within the expiration window."
   }, /*#__PURE__*/React.createElement("div", {
     className: "em-stat-lbl"
   }, "Expected %"), /*#__PURE__*/React.createElement("div", {
     className: "em-stat-val"
-  }, "\xB1", ivMove.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
+  }, "±", ivMove.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
     className: "em-stat",
     title: "Upper bound of the expected range = current price + expected move. Implied 1-sigma upside the market is pricing in for this expiration. Stocks closing above this on expiration are in the upper tail (~16% of cases)."
   }, /*#__PURE__*/React.createElement("div", {
@@ -3953,7 +3953,7 @@ function App() {
       className: `earn-badge earn-${tone}`
     }, /*#__PURE__*/React.createElement("span", {
       className: "earn-dot"
-    }, "\u23F5"), /*#__PURE__*/React.createElement("span", {
+    }, "⏵"), /*#__PURE__*/React.createElement("span", {
       className: "earn-cap"
     }, "EARN"), /*#__PURE__*/React.createElement("span", {
       className: "earn-when"
@@ -4025,7 +4025,7 @@ function App() {
       k: "premium"
     }, "Premium"), " ", /*#__PURE__*/React.createElement("b", null, "$", callAtSug.bid.toFixed(2))), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
       k: "delta"
-    }, "\u0394"), " ", /*#__PURE__*/React.createElement("b", null, callAtSug.delta.toFixed(2)))), /*#__PURE__*/React.createElement("div", {
+    }, "Δ"), " ", /*#__PURE__*/React.createElement("b", null, callAtSug.delta.toFixed(2)))), /*#__PURE__*/React.createElement("div", {
       className: "meta"
     }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
       k: "oi"
@@ -4039,15 +4039,15 @@ function App() {
       title: "Today's volume in unusual trades at this strike"
     }, "UW Vol"), /*#__PURE__*/React.createElement("b", null, callFlow.volume.toLocaleString()), /*#__PURE__*/React.createElement("span", {
       className: "strike-flow-lbl",
-      title: "Ask-side premium today at this strike \u2014 high = aggressive call buyers, dangerous for covered-call writers"
+      title: "Ask-side premium today at this strike — high = aggressive call buyers, dangerous for covered-call writers"
     }, "Ask$"), /*#__PURE__*/React.createElement("b", {
       className: callFlow.ask_premium > callFlow.premium * 0.6 ? "warn" : ""
     }, fmt$M(callFlow.ask_premium)), callFlow.sweep_count > 0 && /*#__PURE__*/React.createElement("span", {
       className: "strike-flow-sweep",
       title: `${callFlow.sweep_count} sweep(s) detected at this strike — institutional aggression`
-    }, callFlow.sweep_count, "\xD7 S"), callFlow.vol_oi_max > 1 && /*#__PURE__*/React.createElement("span", {
+    }, callFlow.sweep_count, "× S"), callFlow.vol_oi_max > 1 && /*#__PURE__*/React.createElement("span", {
       className: "strike-flow-vol-oi",
-      title: "Volume exceeded open interest in at least one trade \u2014 opening flow, new positions"
+      title: "Volume exceeded open interest in at least one trade — opening flow, new positions"
     }, "V>OI"))), (strategyMode === "both" || strategyMode === "csp") && /*#__PURE__*/React.createElement("div", {
       className: `strike-card put ${manualPutStrike != null ? "manual" : ""}`
     }, /*#__PURE__*/React.createElement("div", {
@@ -4064,7 +4064,7 @@ function App() {
       k: "premium"
     }, "Premium"), " ", /*#__PURE__*/React.createElement("b", null, "$", putAtSug.bid.toFixed(2))), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
       k: "delta"
-    }, "\u0394"), " ", /*#__PURE__*/React.createElement("b", null, putAtSug.delta.toFixed(2)))), /*#__PURE__*/React.createElement("div", {
+    }, "Δ"), " ", /*#__PURE__*/React.createElement("b", null, putAtSug.delta.toFixed(2)))), /*#__PURE__*/React.createElement("div", {
       className: "meta"
     }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
       k: "oi"
@@ -4078,15 +4078,15 @@ function App() {
       title: "Today's volume in unusual trades at this strike"
     }, "UW Vol"), /*#__PURE__*/React.createElement("b", null, putFlow.volume.toLocaleString()), /*#__PURE__*/React.createElement("span", {
       className: "strike-flow-lbl",
-      title: "Ask-side premium today \u2014 high = aggressive put buyers, downside protection in demand"
+      title: "Ask-side premium today — high = aggressive put buyers, downside protection in demand"
     }, "Ask$"), /*#__PURE__*/React.createElement("b", {
       className: putFlow.ask_premium > putFlow.premium * 0.6 ? "warn" : ""
     }, fmt$M(putFlow.ask_premium)), putFlow.sweep_count > 0 && /*#__PURE__*/React.createElement("span", {
       className: "strike-flow-sweep",
       title: `${putFlow.sweep_count} sweep(s) detected at this strike`
-    }, putFlow.sweep_count, "\xD7 S"), putFlow.vol_oi_max > 1 && /*#__PURE__*/React.createElement("span", {
+    }, putFlow.sweep_count, "× S"), putFlow.vol_oi_max > 1 && /*#__PURE__*/React.createElement("span", {
       className: "strike-flow-vol-oi",
-      title: "Volume exceeded open interest in at least one trade \u2014 opening flow"
+      title: "Volume exceeded open interest in at least one trade — opening flow"
     }, "V>OI"))));
   })()), (() => {
     // ── Catalyst check: does earnings fall inside expiration?
@@ -4170,7 +4170,7 @@ function App() {
         className: "pick-row"
       }, /*#__PURE__*/React.createElement("span", null, "Yield"), /*#__PURE__*/React.createElement("b", null, (pick._yieldPct || 0).toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
         className: "pick-row"
-      }, /*#__PURE__*/React.createElement("span", null, "\u0394"), /*#__PURE__*/React.createElement("b", null, (pick.delta || 0).toFixed(2))), /*#__PURE__*/React.createElement("div", {
+      }, /*#__PURE__*/React.createElement("span", null, "Δ"), /*#__PURE__*/React.createElement("b", null, (pick.delta || 0).toFixed(2))), /*#__PURE__*/React.createElement("div", {
         className: "pick-row"
       }, /*#__PURE__*/React.createElement("span", null, "POP"), /*#__PURE__*/React.createElement("b", null, pop != null ? pop.toFixed(0) + "%" : "—")));
     };
@@ -4192,7 +4192,7 @@ function App() {
       className: "pp-val"
     }, popPct != null ? popPct.toFixed(0) + "%" : "—")), /*#__PURE__*/React.createElement("span", {
       className: "pp-pair",
-      title: "Probability price TOUCHES the strike at any point before expiration. Lower = safer. Approx 2 \xD7 |delta|."
+      title: "Probability price TOUCHES the strike at any point before expiration. Lower = safer. Approx 2 × |delta|."
     }, /*#__PURE__*/React.createElement("span", {
       className: "pp-key"
     }, "POT"), /*#__PURE__*/React.createElement("span", {
@@ -4309,7 +4309,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Behaviour summary \xB7 last ", weeks, " weeks"), /*#__PURE__*/React.createElement("div", {
+  }, "Behaviour summary · last ", weeks, " weeks"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "How ", ticker, " typically moves in a week"))), /*#__PURE__*/React.createElement("div", {
     className: "metric-grid five"
@@ -4405,7 +4405,7 @@ function App() {
     className: "kicker"
   }, "Weekly returns history"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "Open, high, low, close \xB7 last ", weeks, " weeks")), /*#__PURE__*/React.createElement("div", {
+  }, "Open, high, low, close · last ", weeks, " weeks")), /*#__PURE__*/React.createElement("div", {
     className: "legend"
   }, /*#__PURE__*/React.createElement("span", {
     className: "item"
@@ -4425,7 +4425,7 @@ function App() {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch open-tick",
-    title: "Open marker \u2014 short tick on the left side of each bar"
+    title: "Open marker — short tick on the left side of each bar"
   }), "Open"), /*#__PURE__*/React.createElement("span", {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
@@ -4461,29 +4461,17 @@ function App() {
   }, "Day of week"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "When highs and lows land"))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      fontWeight: 600,
-      color: "var(--up)",
-      letterSpacing: "0.08em",
-      textTransform: "uppercase",
-      marginBottom: 4
-    }
-  }, "HIGH"), /*#__PURE__*/React.createElement(DayBarChart, {
+    className: "dow-seclabel dow-seclabel--up"
+  }, "High"), /*#__PURE__*/React.createElement(DayBarChart, {
     rows: rows,
     colors: chartColors,
     mode: "high"
   }), /*#__PURE__*/React.createElement("div", {
+    className: "dow-seclabel dow-seclabel--down",
     style: {
-      fontSize: 11,
-      fontWeight: 600,
-      color: "var(--down)",
-      letterSpacing: "0.08em",
-      textTransform: "uppercase",
-      marginBottom: 4,
-      marginTop: 8
+      marginTop: 14
     }
-  }, "LOW"), /*#__PURE__*/React.createElement(DayBarChart, {
+  }, "Low"), /*#__PURE__*/React.createElement(DayBarChart, {
     rows: rows,
     colors: chartColors,
     mode: "low"
@@ -4537,31 +4525,24 @@ function App() {
       className: "dow-extremes-label up"
     }, "Best high"), extremes.map(e => /*#__PURE__*/React.createElement("span", {
       key: e.day,
-      className: "dow-extremes-cell up"
+      className: `dow-extremes-cell up${e.day === _todayShort ? " today" : ""}`
     }, fmt(e.bestHigh)))), /*#__PURE__*/React.createElement("div", {
       className: "dow-extremes-row"
     }, /*#__PURE__*/React.createElement("span", {
       className: "dow-extremes-label down"
     }, "Worst low"), extremes.map(e => /*#__PURE__*/React.createElement("span", {
       key: e.day,
-      className: "dow-extremes-cell down"
+      className: `dow-extremes-cell down${e.day === _todayShort ? " today" : ""}`
     }, fmt(e.worstLow)))));
   })(), /*#__PURE__*/React.createElement("div", {
-    className: "muted",
-    style: {
-      fontSize: 13,
-      marginTop: 14,
-      textAlign: "center"
-    }
-  }, "Highs cluster ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: "var(--up)"
-    }
-  }, typicalHighDay), " \xB7 Lows cluster ", /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: "var(--down)"
-    }
-  }, typicalLowDay)))), /*#__PURE__*/React.createElement("div", {
+    className: "dow-footer"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dow-footer-chip up"
+  }, "Highs cluster ", /*#__PURE__*/React.createElement("b", null, typicalHighDay)), /*#__PURE__*/React.createElement("span", {
+    className: "dow-footer-dot"
+  }, "·"), /*#__PURE__*/React.createElement("span", {
+    className: "dow-footer-chip down"
+  }, "Lows cluster ", /*#__PURE__*/React.createElement("b", null, typicalLowDay))))), /*#__PURE__*/React.createElement("div", {
     id: "jump-basing",
     className: "jump-anchor",
     "aria-hidden": "true"
@@ -4647,7 +4628,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Implied vs historical \xB7 for ", activeExpDate.toLocaleDateString("en-US", {
+  }, "Implied vs historical · for ", activeExpDate.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric"
@@ -4678,9 +4659,9 @@ function App() {
     k: "expected_move"
   }, "Market expected move")), /*#__PURE__*/React.createElement("div", {
     className: "val"
-  }, "\xB1", ivMove.toFixed(2), "%"), /*#__PURE__*/React.createElement("div", {
+  }, "±", ivMove.toFixed(2), "%"), /*#__PURE__*/React.createElement("div", {
     className: "sub"
-  }, "\xB1$", expectedDollarMove.toFixed(2), " pts \xB7 $", (currentPrice - expectedDollarMove).toFixed(2), " to $", (currentPrice + expectedDollarMove).toFixed(2))), /*#__PURE__*/React.createElement("div", {
+  }, "±$", expectedDollarMove.toFixed(2), " pts · $", (currentPrice - expectedDollarMove).toFixed(2), " to $", (currentPrice + expectedDollarMove).toFixed(2))), /*#__PURE__*/React.createElement("div", {
     className: "iv-col"
   }, /*#__PURE__*/React.createElement("div", {
     className: "lbl"
@@ -4690,7 +4671,7 @@ function App() {
     className: "val"
   }, histMove.toFixed(2), "%"), /*#__PURE__*/React.createElement("div", {
     className: "sub"
-  }, "\xB1$", (baselinePrice * histMove / 200).toFixed(2), " pts vs baseline"))), /*#__PURE__*/React.createElement("div", {
+  }, "±$", (baselinePrice * histMove / 200).toFixed(2), " pts vs baseline"))), /*#__PURE__*/React.createElement("div", {
     className: "iv-verdict",
     style: {
       background: ivMove > histMove * 1.2 ? "color-mix(in oklch, var(--up), transparent 90%)" : ivMove < histMove * 0.8 ? "color-mix(in oklch, var(--warn), transparent 88%)" : "color-mix(in oklch, var(--accent), transparent 92%)",
@@ -4850,7 +4831,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Open interest \xB7 volume \xB7 for ", expDateLabel), /*#__PURE__*/React.createElement("div", {
+    }, "Open interest · volume · for ", expDateLabel), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Where the action is")), maxPainStrike != null && /*#__PURE__*/React.createElement("div", {
       className: "max-pain-pill"
@@ -4946,7 +4927,7 @@ function App() {
       }), "Puts"), /*#__PURE__*/React.createElement("span", {
         className: "oi-leg-note",
         title: "The highlighted row is the strike nearest the current price."
-      }, "\xB7 current $", currentPrice.toFixed(2))), /*#__PURE__*/React.createElement("div", {
+      }, "· current $", currentPrice.toFixed(2))), /*#__PURE__*/React.createElement("div", {
         className: "oi-metric-toggle",
         title: "Switch between today's traded volume and total open interest. Volume shows where today's action is. OI shows where positioning has accumulated."
       }, /*#__PURE__*/React.createElement("button", {
@@ -5120,10 +5101,10 @@ function App() {
       cursor: "pointer"
     },
     onClick: () => setMarketDashOpen(v => !v),
-    title: "Market-wide flow snapshot. Same for every ticker \u2014 independent of the active dashboard symbol. Click to expand or collapse."
+    title: "Market-wide flow snapshot. Same for every ticker — independent of the active dashboard symbol. Click to expand or collapse."
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Unusual Whales \xB7 whole market (not ", ticker, ")"), /*#__PURE__*/React.createElement("div", {
+  }, "Unusual Whales · whole market (not ", ticker, ")"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, marketDashOpen ? "▾" : "▸", " Market flow dashboard")), (() => {
     if (!marketDashboard?.tide) return null;
@@ -5229,7 +5210,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Unusual Whales \xB7 tickers NOT in your watchlist"), /*#__PURE__*/React.createElement("div", {
+  }, "Unusual Whales · tickers NOT in your watchlist"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Market scanner")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -5391,7 +5372,7 @@ function App() {
     const fmtEarn = (iso, days, cls) => {
       if (!iso) return /*#__PURE__*/React.createElement("span", {
         className: "muted"
-      }, "\u2014");
+      }, "—");
       const lbl = days != null ? days === 0 ? "today" : days === 1 ? "tomorrow" : `${days}d` : iso;
       const pillCls = cls === "imminent" ? "earn-pill earn-imminent" : cls === "soon" ? "earn-pill earn-soon" : "earn-pill";
       return /*#__PURE__*/React.createElement("span", {
@@ -5422,19 +5403,19 @@ function App() {
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Total $",
       k: "total_premium_today",
-      tip: "Total options premium today across ALL trades (calls + puts). From UW ticker_options_volume \u2014 what the UW website chart shows."
+      tip: "Total options premium today across ALL trades (calls + puts). From UW ticker_options_volume — what the UW website chart shows."
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Unus $",
       k: "premium",
-      tip: "Premium from UW unusual flow alerts only \u2014 the trades UW flagged as unusual. Hover to see alert count."
+      tip: "Premium from UW unusual flow alerts only — the trades UW flagged as unusual. Hover to see alert count."
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Unus %",
       k: "unusual_pct",
-      tip: "Unusual / Total premium ratio. High = today's options flow is unusually concentrated in flagged trades. The primary 'unusual activity' signal \u2014 sort default."
+      tip: "Unusual / Total premium ratio. High = today's options flow is unusually concentrated in flagged trades. The primary 'unusual activity' signal — sort default."
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Net $",
       k: "net_premium_today",
-      tip: "Net premium = call premium \u2212 put premium. Positive (green) means call premium dominates (bullish positioning). Negative (red) means put premium dominates (bearish positioning)."
+      tip: "Net premium = call premium − put premium. Positive (green) means call premium dominates (bullish positioning). Negative (red) means put premium dominates (bearish positioning)."
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Vol",
       k: "total_volume_today",
@@ -5450,7 +5431,7 @@ function App() {
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Analyst",
       k: "analyst_signal",
-      tip: "Fresh analyst catalyst today. \u2191 = upgrade today. \u2193 = downgrade today. \u26A0 = trading above highest analyst target. \u2014 = no recent activity."
+      tip: "Fresh analyst catalyst today. ↑ = upgrade today. ↓ = downgrade today. ⚠ = trading above highest analyst target. — = no recent activity."
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Earnings",
       k: "days_to_earnings",
@@ -5558,7 +5539,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Daily EMA pullback \xB7 trend-continuation"), /*#__PURE__*/React.createElement("div", {
+  }, "Daily EMA pullback · trend-continuation"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "EMA pullback strategy")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -5583,7 +5564,7 @@ function App() {
     className: "ema-params-row"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ema-param",
-    title: "Fast EMA period \u2014 the pullback target. Try different values (5, 8, 9, 13, 20) to see which works best on this stock. Med (21) and Slow (50) EMAs are fixed."
+    title: "Fast EMA period — the pullback target. Try different values (5, 8, 9, 13, 20) to see which works best on this stock. Med (21) and Slow (50) EMAs are fixed."
   }, /*#__PURE__*/React.createElement("span", {
     className: "ema-param-lbl"
   }, "EMA"), /*#__PURE__*/React.createElement("input", {
@@ -5601,7 +5582,7 @@ function App() {
     className: "ema-section"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ema-section-title"
-  }, "Backtest \xB7 ", ticker, " \xB7 ", emaFast, " EMA \xB7 1 year of daily bars", /*#__PURE__*/React.createElement("button", {
+  }, "Backtest · ", ticker, " · ", emaFast, " EMA · 1 year of daily bars", /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
     style: {
       marginLeft: 12
@@ -5641,7 +5622,7 @@ function App() {
       className: `ema-stat-val ${winCls}`
     }, t.win_rate_pct, "%")), /*#__PURE__*/React.createElement("div", {
       className: "ema-stat",
-      title: "Total R earned across all trades. R = (exit - entry) / risk_per_share. The standard strategy-performance metric \u2014 independent of capital and position size. Positive total R = profitable strategy."
+      title: "Total R earned across all trades. R = (exit - entry) / risk_per_share. The standard strategy-performance metric — independent of capital and position size. Positive total R = profitable strategy."
     }, /*#__PURE__*/React.createElement("div", {
       className: "ema-stat-lbl"
     }, "Total R"), /*#__PURE__*/React.createElement("div", {
@@ -5676,7 +5657,7 @@ function App() {
       className: `ema-stat-val ${pfCls}`
     }, t.profit_factor)), /*#__PURE__*/React.createElement("div", {
       className: "ema-stat",
-      title: "Account return at 1% risk per trade \u2014 what you would have actually earned on a real account sized to risk 1% on each trade. This is realistic position sizing, not 100%-bet compounding."
+      title: "Account return at 1% risk per trade — what you would have actually earned on a real account sized to risk 1% on each trade. This is realistic position sizing, not 100%-bet compounding."
     }, /*#__PURE__*/React.createElement("div", {
       className: "ema-stat-lbl"
     }, "Acct ret @ 1%"), /*#__PURE__*/React.createElement("div", {
@@ -5721,14 +5702,14 @@ function App() {
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "ema-section-title"
-  }, "Watchlist scanner \xB7 find ", emaDirection, " setups now \xB7 ", emaFast, " EMA", /*#__PURE__*/React.createElement("button", {
+  }, "Watchlist scanner · find ", emaDirection, " setups now · ", emaFast, " EMA", /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
     style: {
       marginLeft: 12
     },
     disabled: emaScanRunning || !filteredWatchlistSymbols.length,
     onClick: runEmaScan,
-    title: "Score every watchlist ticker for current EMA pullback setup state. No options data \u2014 pure technicals."
+    title: "Score every watchlist ticker for current EMA pullback setup state. No options data — pure technicals."
   }, emaScanRunning ? `Scanning. ${emaScanProgress.done}/${emaScanProgress.total}` : Object.keys(emaScan).length > 0 ? "Re-scan" : `Scan ${filteredWatchlistSymbols.length}`), emaScanAt && /*#__PURE__*/React.createElement("span", {
     className: "scan-stale",
     style: {
@@ -5815,9 +5796,9 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Open-to-", pbScanDir === "short" ? "low pullback" : "high pop", " \xB7 180d history"), /*#__PURE__*/React.createElement("div", {
+  }, "Open-to-", pbScanDir === "short" ? "low pullback" : "high pop", " · 180d history"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, pbScanDir === "short" ? "Short the open" : "Buy the open", " \xB7 pullback scanner")), /*#__PURE__*/React.createElement("div", {
+  }, pbScanDir === "short" ? "Short the open" : "Buy the open", " · pullback scanner")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
   }, /*#__PURE__*/React.createElement("div", {
     className: "basing-toggle",
@@ -6004,7 +5985,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Today's price action \xD7 Unusual Whales flow"), /*#__PURE__*/React.createElement("div", {
+  }, "Today's price action × Unusual Whales flow"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Intraday momentum scanner")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -6090,7 +6071,7 @@ function App() {
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "RVOL",
       k: "rvol",
-      tip: "Today's volume / 20-day average. \u22651.5x = catalyst-driven flow."
+      tip: "Today's volume / 20-day average. ≥1.5x = catalyst-driven flow."
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "Flow",
       k: "flow_overall",
@@ -6136,7 +6117,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Unusual Whales \xB7 today's premium attractiveness"), /*#__PURE__*/React.createElement("div", {
+  }, "Unusual Whales · today's premium attractiveness"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Premium richness scanner")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -6227,7 +6208,7 @@ function App() {
     }), /*#__PURE__*/React.createElement(SortHeader, {
       label: "P/C",
       k: "put_call_ratio",
-      tip: "Put/call ratio. Extreme reads (\u22640.5 or \u22652.0) signal one-sided positioning."
+      tip: "Put/call ratio. Extreme reads (≤0.5 or ≥2.0) signal one-sided positioning."
     })), sortable.map(r => {
       const cls = r.score >= 75 ? "rich" : r.score >= 60 ? "moderate" : r.score >= 40 ? "fair" : "thin";
       const isActive = r.symbol === ticker;
@@ -6386,7 +6367,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Multi-ticker \xB7 best setup right now per symbol"), /*#__PURE__*/React.createElement("div", {
+    }, "Multi-ticker · best setup right now per symbol"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Watchlist scanner")), /*#__PURE__*/React.createElement("div", {
       className: "scan-toolbar"
@@ -6394,7 +6375,7 @@ function App() {
       className: "scan-filter-chip",
       onClick: () => setWatchlistTagFilter(null),
       title: "Clear tag filter"
-    }, "filter: ", watchlistTagFilter, " \u2715"), watchlistData.symbols.length > 0 && (() => {
+    }, "filter: ", watchlistTagFilter, " ✕"), watchlistData.symbols.length > 0 && (() => {
       const allTags = Array.from(new Set(watchlistData.symbols.flatMap(s => s.tags || []))).sort();
       if (allTags.length === 0) return null;
       return /*#__PURE__*/React.createElement("select", {
@@ -6437,7 +6418,7 @@ function App() {
       onSort: k => setScanSort(prev => cycleSort(prev, k)),
       className: "scan-th-num"
     }), /*#__PURE__*/React.createElement(SortableTh, {
-      label: "\u0394 Day",
+      label: "Δ Day",
       sortKey: "change",
       current: scanSort,
       onSort: k => setScanSort(prev => cycleSort(prev, k)),
@@ -6571,7 +6552,7 @@ function App() {
       }, best ? best.score : "—"));
     })))), haveAny && /*#__PURE__*/React.createElement("div", {
       className: "scan-disclaimer"
-    }, "Click any row to switch the dashboard to that ticker. Score is a rough heuristic from snapshot data \u2014 load the full ticker for the real strategy ranking."));
+    }, "Click any row to switch the dashboard to that ticker. Score is a rough heuristic from snapshot data — load the full ticker for the real strategy ranking."));
   })()), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Weekly range"
   }, /*#__PURE__*/React.createElement("div", {
@@ -6583,7 +6564,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Implied move + 0.20 delta strikes \xB7 this week's expiration"), /*#__PURE__*/React.createElement("div", {
+  }, "Implied move + 0.20 delta strikes · this week's expiration"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Weekly range scanner")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -6686,7 +6667,7 @@ function App() {
       onSort: k => setWrSort(prev => cycleSort(prev, k)),
       className: "num"
     }), /*#__PURE__*/React.createElement(SortableTh, {
-      label: "Put strike (.20\u0394)",
+      label: "Put strike (.20Δ)",
       sortKey: "put_strike",
       current: wrSort,
       onSort: k => setWrSort(prev => cycleSort(prev, k)),
@@ -6698,7 +6679,7 @@ function App() {
       onSort: k => setWrSort(prev => cycleSort(prev, k)),
       className: "num"
     }), /*#__PURE__*/React.createElement(SortableTh, {
-      label: "Call strike (.20\u0394)",
+      label: "Call strike (.20Δ)",
       sortKey: "call_strike",
       current: wrSort,
       onSort: k => setWrSort(prev => cycleSort(prev, k)),
@@ -6772,7 +6753,7 @@ function App() {
       }, row.total_credit_20d != null ? `$${row.total_credit_20d.toFixed(2)}` : "—"));
     }))), /*#__PURE__*/React.createElement("div", {
       className: "research-disclaimer"
-    }, "Implied move = ATM call + ATM put price (this week's expiration). High/low = spot \xB1 straddle. Strike picks target 0.20 delta. Credits are mid prices, real fills 3-8% lower after spread."));
+    }, "Implied move = ATM call + ATM put price (this week's expiration). High/low = spot ± straddle. Strike picks target 0.20 delta. Credits are mid prices, real fills 3-8% lower after spread."));
   })())), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Earnings ladder"
   }, /*#__PURE__*/React.createElement("div", {
@@ -6784,7 +6765,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Past earnings \xB7 ", ticker, " \xB7 synthetic IV (HV20 proxy)"), /*#__PURE__*/React.createElement("div", {
+  }, "Past earnings · ", ticker, " · synthetic IV (HV20 proxy)"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Earnings IV crush ladder")), /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
@@ -6833,7 +6814,7 @@ function App() {
     className: "ladder-stat"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ladder-stat-lbl"
-  }, "Avg edge (impl \u2212 real)"), /*#__PURE__*/React.createElement("div", {
+  }, "Avg edge (impl − real)"), /*#__PURE__*/React.createElement("div", {
     className: `ladder-stat-val ${earningsLadder.summary.avg_edge >= 0 ? "up" : "down"}`
   }, earningsLadder.summary.avg_edge >= 0 ? "+" : "", earningsLadder.summary.avg_edge, "%"))), /*#__PURE__*/React.createElement("table", {
     className: "ladder-table"
@@ -6866,7 +6847,7 @@ function App() {
     className: `ladder-pill ladder-pill-${e.winner}`
   }, e.winner === "sellers" ? "SELLERS" : "BUYERS")))))), /*#__PURE__*/React.createElement("div", {
     className: "research-disclaimer"
-  }, "Synthetic IV uses HV20 as a proxy. Real IV typically runs 10-25% higher than HV (vol risk premium), so this analysis is conservatively biased \u2014 i.e. real-world sellers' edge is usually larger than shown here.")), earningsLadder && earningsLadder.events && earningsLadder.events.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Synthetic IV uses HV20 as a proxy. Real IV typically runs 10-25% higher than HV (vol risk premium), so this analysis is conservatively biased — i.e. real-world sellers' edge is usually larger than shown here.")), earningsLadder && earningsLadder.events && earningsLadder.events.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
   }, "No past earnings events found in price history range."))), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Backtest"
@@ -6879,7 +6860,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Walk-forward \xB7 ", ticker, " \xB7 weekly cycles \xB7 synthetic prices"), /*#__PURE__*/React.createElement("div", {
+  }, "Walk-forward · ", ticker, " · weekly cycles · synthetic prices"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Strategy backtest")), /*#__PURE__*/React.createElement("div", {
     className: "research-controls"
@@ -6966,7 +6947,7 @@ function App() {
     className: "bt-stat-lbl"
   }, "Max drawdown"), /*#__PURE__*/React.createElement("div", {
     className: "bt-stat-val down"
-  }, "\u2212$", backtest.summary.max_drawdown)), /*#__PURE__*/React.createElement("div", {
+  }, "−$", backtest.summary.max_drawdown)), /*#__PURE__*/React.createElement("div", {
     className: "bt-stat"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bt-stat-lbl"
@@ -7165,7 +7146,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Dealer gamma exposure \xB7 for ", expDateLabel), /*#__PURE__*/React.createElement("div", {
+    }, "Dealer gamma exposure · for ", expDateLabel), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Where dealers hedge")), /*#__PURE__*/React.createElement("div", {
       className: "gex-controls"
@@ -7344,7 +7325,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Net Greeks \xB7 ", layout), /*#__PURE__*/React.createElement("div", {
+    }, "Net Greeks · ", layout), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "If you sell the selected strikes")), /*#__PURE__*/React.createElement("div", {
       className: "ng-credit"
@@ -7354,7 +7335,7 @@ function App() {
       className: `ng-credit-val ${netCredit >= 0 ? "up" : "down"}`
     }, netCredit >= 0 ? "+" : "", "$", netCredit.toFixed(2)), /*#__PURE__*/React.createElement("span", {
       className: "ng-credit-tag"
-    }, "\xD7100 = $", netCreditDollars.toFixed(0), "/contract pair"))), /*#__PURE__*/React.createElement("div", {
+    }, "×100 = $", netCreditDollars.toFixed(0), "/contract pair"))), /*#__PURE__*/React.createElement("div", {
       className: "ng-grid"
     }, /*#__PURE__*/React.createElement("div", {
       className: "ng-leg"
@@ -7364,13 +7345,13 @@ function App() {
       className: "up"
     }, "SHORT CALL")), /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-line"
-    }, "$", sugCall.toFixed(2), " \xB7 \u0394 ", (callPrimaryRow.delta || 0).toFixed(2), " \xB7 \u0398 ", (callPrimaryRow.theta || 0).toFixed(3)), callWingRow && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    }, "$", sugCall.toFixed(2), " · Δ ", (callPrimaryRow.delta || 0).toFixed(2), " · Θ ", (callPrimaryRow.theta || 0).toFixed(3)), callWingRow && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-head"
     }, /*#__PURE__*/React.createElement("span", {
       className: "up"
     }, "+ LONG CALL WING")), /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-line"
-    }, "$", manualCallWing.toFixed(2), " \xB7 \u0394 ", (callWingRow.delta || 0).toFixed(2), " \xB7 \u0398 ", (callWingRow.theta || 0).toFixed(3)))), /*#__PURE__*/React.createElement("div", {
+    }, "$", manualCallWing.toFixed(2), " · Δ ", (callWingRow.delta || 0).toFixed(2), " · Θ ", (callWingRow.theta || 0).toFixed(3)))), /*#__PURE__*/React.createElement("div", {
       className: "ng-leg"
     }, /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-head"
@@ -7378,13 +7359,13 @@ function App() {
       className: "down"
     }, "SHORT PUT")), /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-line"
-    }, "$", sugPut.toFixed(2), " \xB7 \u0394 ", (putPrimaryRow.delta || 0).toFixed(2), " \xB7 \u0398 ", (putPrimaryRow.theta || 0).toFixed(3)), putWingRow && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    }, "$", sugPut.toFixed(2), " · Δ ", (putPrimaryRow.delta || 0).toFixed(2), " · Θ ", (putPrimaryRow.theta || 0).toFixed(3)), putWingRow && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-head"
     }, /*#__PURE__*/React.createElement("span", {
       className: "down"
     }, "+ LONG PUT WING")), /*#__PURE__*/React.createElement("div", {
       className: "ng-leg-line"
-    }, "$", manualPutWing.toFixed(2), " \xB7 \u0394 ", (putWingRow.delta || 0).toFixed(2), " \xB7 \u0398 ", (putWingRow.theta || 0).toFixed(3)))), /*#__PURE__*/React.createElement("div", {
+    }, "$", manualPutWing.toFixed(2), " · Δ ", (putWingRow.delta || 0).toFixed(2), " · Θ ", (putWingRow.theta || 0).toFixed(3)))), /*#__PURE__*/React.createElement("div", {
       className: "ng-totals"
     }, /*#__PURE__*/React.createElement("div", {
       className: "ng-totals-head"
@@ -7394,7 +7375,7 @@ function App() {
       className: "ng-tot-lbl"
     }, /*#__PURE__*/React.createElement(Term, {
       k: "delta"
-    }, "\u0394 Delta")), /*#__PURE__*/React.createElement("span", {
+    }, "Δ Delta")), /*#__PURE__*/React.createElement("span", {
       className: `ng-tot-val ${D100 >= 0 ? "up" : "down"}`
     }, D100 >= 0 ? "+" : "", D100.toFixed(2))), /*#__PURE__*/React.createElement("div", {
       className: "ng-tot-row"
@@ -7402,7 +7383,7 @@ function App() {
       className: "ng-tot-lbl"
     }, /*#__PURE__*/React.createElement(Term, {
       k: "gamma"
-    }, "\u0393 Gamma")), /*#__PURE__*/React.createElement("span", {
+    }, "Γ Gamma")), /*#__PURE__*/React.createElement("span", {
       className: `ng-tot-val ${G100 >= 0 ? "up" : "down"}`
     }, G100 >= 0 ? "+" : "", G100.toFixed(3))), /*#__PURE__*/React.createElement("div", {
       className: "ng-tot-row"
@@ -7410,7 +7391,7 @@ function App() {
       className: "ng-tot-lbl"
     }, /*#__PURE__*/React.createElement(Term, {
       k: "theta"
-    }, "\u0398 Theta")), /*#__PURE__*/React.createElement("span", {
+    }, "Θ Theta")), /*#__PURE__*/React.createElement("span", {
       className: `ng-tot-val ${T100 >= 0 ? "up" : "down"}`
     }, T100 >= 0 ? "+" : "", T100.toFixed(2), "/day")), /*#__PURE__*/React.createElement("div", {
       className: "ng-tot-row"
@@ -7422,7 +7403,7 @@ function App() {
       className: `ng-tot-val ${V100 >= 0 ? "up" : "down"}`
     }, V100 >= 0 ? "+" : "", V100.toFixed(2))))), /*#__PURE__*/React.createElement("div", {
       className: "ng-disclaimer"
-    }, "Convention: short = negative qty. Greeks per share scaled \xD7100 for contract pair.", !callWingRow && !putWingRow && " Shift+click a strike in the chain below to add a wing."));
+    }, "Convention: short = negative qty. Greeks per share scaled ×100 for contract pair.", !callWingRow && !putWingRow && " Shift+click a strike in the chain below to add a wing."));
   })()), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Theta vs gamma"
   }, /*#__PURE__*/React.createElement("div", {
@@ -7532,7 +7513,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Roll candidates \xB7 if you're already short the suggested strike"), /*#__PURE__*/React.createElement("div", {
+    }, "Roll candidates · if you're already short the suggested strike"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Roll to ", nextExpLabel, " (", nextDte, "d)")), /*#__PURE__*/React.createElement("div", {
       className: "card-sub"
@@ -7546,7 +7527,7 @@ function App() {
       className: "up"
     }, "SHORT CALL"), " rolls"), /*#__PURE__*/React.createElement("div", {
       className: "roll-side-now"
-    }, "Currently short $", sugCall.toFixed(2), " call \xB7 IV ", ((callAtSug.iv || 0) * 100).toFixed(0), "%"), callRolls.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    }, "Currently short $", sugCall.toFixed(2), " call · IV ", ((callAtSug.iv || 0) * 100).toFixed(0), "%"), callRolls.map((r, i) => /*#__PURE__*/React.createElement("div", {
       key: `cr${i}`,
       className: "roll-row"
     }, /*#__PURE__*/React.createElement("div", {
@@ -7569,7 +7550,7 @@ function App() {
       className: "down"
     }, "SHORT PUT"), " rolls"), /*#__PURE__*/React.createElement("div", {
       className: "roll-side-now"
-    }, "Currently short $", sugPut.toFixed(2), " put \xB7 IV ", ((putAtSug.iv || 0) * 100).toFixed(0), "%"), putRolls.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    }, "Currently short $", sugPut.toFixed(2), " put · IV ", ((putAtSug.iv || 0) * 100).toFixed(0), "%"), putRolls.map((r, i) => /*#__PURE__*/React.createElement("div", {
       key: `pr${i}`,
       className: "roll-row"
     }, /*#__PURE__*/React.createElement("div", {
@@ -7616,7 +7597,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Position sizing \xB7 ", activeStrat?.name || "no strategy"), /*#__PURE__*/React.createElement("div", {
+    }, "Position sizing · ", activeStrat?.name || "no strategy"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "How many contracts to buy")), /*#__PURE__*/React.createElement("div", {
       className: "card-sub"
@@ -7705,7 +7686,7 @@ function App() {
         className: "card-head"
       }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
         className: "kicker"
-      }, "Tracked positions \xB7 0 open"), /*#__PURE__*/React.createElement("div", {
+      }, "Tracked positions · 0 open"), /*#__PURE__*/React.createElement("div", {
         className: "card-title"
       }, "Open positions")), /*#__PURE__*/React.createElement("div", {
         className: "card-sub"
@@ -7770,7 +7751,7 @@ function App() {
         className: `pos-dte ${dte <= 7 ? "urgent" : dte <= 14 ? "close" : ""}`
       }, dte, "d to exp"), assignFlag && /*#__PURE__*/React.createElement("span", {
         className: "pos-flag-assign"
-      }, "\u26A0 Assignment risk"), p.status === "closed" && /*#__PURE__*/React.createElement("span", {
+      }, "⚠ Assignment risk"), p.status === "closed" && /*#__PURE__*/React.createElement("span", {
         className: "pos-status-closed"
       }, "CLOSED")), /*#__PURE__*/React.createElement("div", {
         className: "pos-legs"
@@ -7858,7 +7839,7 @@ function App() {
       className: "card-head"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker"
-    }, "Tracked positions \xB7 ", open.length, " open \xB7 ", closed.length, " closed"), /*#__PURE__*/React.createElement("div", {
+    }, "Tracked positions · ", open.length, " open · ", closed.length, " closed"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Open positions")), /*#__PURE__*/React.createElement("div", {
       className: "card-sub"
@@ -7883,7 +7864,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Strategy menu \xB7 ", strategies.length, " ways to play this setup"), /*#__PURE__*/React.createElement("div", {
+  }, "Strategy menu · ", strategies.length, " ways to play this setup"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Suggested options strategies")), /*#__PURE__*/React.createElement("div", {
     className: "card-sub"
@@ -7917,7 +7898,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "P/L at expiration \xB7 per share"), /*#__PURE__*/React.createElement("div", {
+  }, "P/L at expiration · per share"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, activeStrat.name, " profile")), /*#__PURE__*/React.createElement("div", {
     className: "card-sub"
@@ -7993,7 +7974,7 @@ function App() {
     className: "net-greeks-title"
   }, "Net position Greeks"), netGreeks.partial && /*#__PURE__*/React.createElement("div", {
     className: "net-greeks-partial"
-  }, "front leg only \xB7 back leg Greeks not loaded")), /*#__PURE__*/React.createElement("div", {
+  }, "front leg only · back leg Greeks not loaded")), /*#__PURE__*/React.createElement("div", {
     className: "net-greeks-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ng-cell"
@@ -8065,7 +8046,7 @@ function App() {
       className: "oc-head"
     }, /*#__PURE__*/React.createElement("div", {
       className: "oc-title"
-    }, "Options chain \xB7 ", expDateLabel), /*#__PURE__*/React.createElement("div", {
+    }, "Options chain · ", expDateLabel), /*#__PURE__*/React.createElement("div", {
       className: "oc-sub"
     }, visible.length, " strikes around $", currentPrice.toFixed(2))), /*#__PURE__*/React.createElement("div", {
       className: `builder-tray ${customLegs.length ? "has-legs" : ""}`
@@ -8091,7 +8072,7 @@ function App() {
         className: "builder-leg-strike"
       }, "$", leg.strike.toFixed(2)), /*#__PURE__*/React.createElement("span", {
         className: "builder-leg-qty"
-      }, "\xD7", Math.abs(leg.qty / 100)), /*#__PURE__*/React.createElement("span", {
+      }, "×", Math.abs(leg.qty / 100)), /*#__PURE__*/React.createElement("span", {
         className: "builder-leg-prem"
       }, "@ $", leg.premium.toFixed(2)), /*#__PURE__*/React.createElement("span", {
         className: `builder-leg-cost ${totalCost >= 0 ? "credit" : "debit"}`
@@ -8102,11 +8083,11 @@ function App() {
           qty: -l.qty
         } : l)),
         title: "Flip long/short"
-      }, "\u21C5"), /*#__PURE__*/React.createElement("button", {
+      }, "⇅"), /*#__PURE__*/React.createElement("button", {
         className: "builder-leg-rm",
         onClick: () => setCustomLegs(prev => prev.filter((_, j) => j !== i)),
         title: "Remove leg"
-      }, "\xD7"));
+      }, "×"));
     })), /*#__PURE__*/React.createElement("div", {
       className: "builder-actions"
     }, (() => {
@@ -8161,7 +8142,7 @@ function App() {
         className: "card-head"
       }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
         className: "kicker"
-      }, "P/L at expiration \xB7 per share \xB7 custom build"), /*#__PURE__*/React.createElement("div", {
+      }, "P/L at expiration · per share · custom build"), /*#__PURE__*/React.createElement("div", {
         className: "card-title"
       }, "Custom strategy profile")), /*#__PURE__*/React.createElement("div", {
         className: "card-sub"
@@ -8236,7 +8217,7 @@ function App() {
       className: "oc-table"
     }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
       className: "oc-side oc-side-call"
-    }, "+/\u2212"), /*#__PURE__*/React.createElement("th", {
+    }, "+/−"), /*#__PURE__*/React.createElement("th", {
       colSpan: "7",
       className: "oc-side oc-side-call"
     }, "CALLS"), /*#__PURE__*/React.createElement("th", {
@@ -8246,7 +8227,7 @@ function App() {
       className: "oc-side oc-side-put"
     }, "PUTS"), /*#__PURE__*/React.createElement("th", {
       className: "oc-side oc-side-put"
-    }, "+/\u2212")), /*#__PURE__*/React.createElement("tr", {
+    }, "+/−")), /*#__PURE__*/React.createElement("tr", {
       className: "oc-sub-head"
     }, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "Bid"), /*#__PURE__*/React.createElement("th", null, "Ask"), /*#__PURE__*/React.createElement("th", null, "IV"), /*#__PURE__*/React.createElement("th", null, "Delta"), /*#__PURE__*/React.createElement("th", null, "Theta"), /*#__PURE__*/React.createElement("th", null, "Vol"), /*#__PURE__*/React.createElement("th", null, "OI"), /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "Bid"), /*#__PURE__*/React.createElement("th", null, "Ask"), /*#__PURE__*/React.createElement("th", null, "IV"), /*#__PURE__*/React.createElement("th", null, "Delta"), /*#__PURE__*/React.createElement("th", null, "Theta"), /*#__PURE__*/React.createElement("th", null, "Vol"), /*#__PURE__*/React.createElement("th", null, "OI"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, visible.map(strike => {
       const k = skey(strike);
@@ -8354,48 +8335,48 @@ function App() {
           addLeg("call", -1);
         },
         title: "Add short call to builder"
-      }, "\u2212C")), /*#__PURE__*/React.createElement("td", {
+      }, "−C")), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, c.bid != null ? `$${c.bid.toFixed(2)}` : "—"), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, c.ask != null ? `$${c.ask.toFixed(2)}` : "—"), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, c.iv ? `${(c.iv * 100).toFixed(0)}%` : "—"), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtDelta(c.delta)), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtTheta(c.theta)), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtN(c.volume)), /*#__PURE__*/React.createElement("td", {
         className: callClass(),
         onClick: pickCall,
         onMouseDown: startCallDrag,
         onMouseEnter: moveCallDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtN(c.openInterest)), /*#__PURE__*/React.createElement("td", {
         className: "oc-strike"
       }, "$", strike.toFixed(2)), /*#__PURE__*/React.createElement("td", {
@@ -8403,43 +8384,43 @@ function App() {
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, p.bid != null ? `$${p.bid.toFixed(2)}` : "—"), /*#__PURE__*/React.createElement("td", {
         className: putClass(),
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, p.ask != null ? `$${p.ask.toFixed(2)}` : "—"), /*#__PURE__*/React.createElement("td", {
         className: putClass(),
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, p.iv ? `${(p.iv * 100).toFixed(0)}%` : "—"), /*#__PURE__*/React.createElement("td", {
         className: putClass(),
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtDelta(p.delta)), /*#__PURE__*/React.createElement("td", {
         className: putClass(),
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtTheta(p.theta)), /*#__PURE__*/React.createElement("td", {
         className: putClass(),
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtN(p.volume)), /*#__PURE__*/React.createElement("td", {
         className: putClass(),
         onClick: pickPut,
         onMouseDown: startPutDrag,
         onMouseEnter: movePutDrag,
-        title: "Click strike \xB7 drag to set spread"
+        title: "Click strike · drag to set spread"
       }, fmtN(p.openInterest)), /*#__PURE__*/React.createElement("td", {
         className: "oc-build-cell oc-build-put"
       }, /*#__PURE__*/React.createElement("button", {
@@ -8456,7 +8437,7 @@ function App() {
           addLeg("put", -1);
         },
         title: "Add short put to builder"
-      }, "\u2212P")));
+      }, "−P")));
     })))), /*#__PURE__*/React.createElement("div", {
       className: "oc-legend"
     }, /*#__PURE__*/React.createElement("span", {
@@ -8471,7 +8452,7 @@ function App() {
       className: "oc-leg-item"
     }, "Theta shown per calendar day"), /*#__PURE__*/React.createElement("span", {
       className: "oc-leg-item"
-    }, "Click to set strike \xB7 Shift+click for spread wing"), (manualCallStrike != null || manualPutStrike != null || manualCallWing != null || manualPutWing != null) && /*#__PURE__*/React.createElement("button", {
+    }, "Click to set strike · Shift+click for spread wing"), (manualCallStrike != null || manualPutStrike != null || manualCallWing != null || manualPutWing != null) && /*#__PURE__*/React.createElement("button", {
       className: "oc-reset-btn",
       onClick: () => {
         setManualCallStrike(null);

@@ -3403,48 +3403,138 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 
 /* Day-of-week extremes — best high / worst low per weekday */
+/* ── Day-of-week section: labels, bars, extremes, footer ───────── */
+
+/* Pill labels above each bar chart (HIGH / LOW) */
+.dow-seclabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  padding: 3px 11px 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.dow-seclabel::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.dow-seclabel--up {
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 12%, transparent);
+  border-color: color-mix(in srgb, var(--up) 28%, transparent);
+}
+.dow-seclabel--up::before {
+  background: var(--up);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--up) 80%, transparent);
+}
+.dow-seclabel--down {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 12%, transparent);
+  border-color: color-mix(in srgb, var(--down) 28%, transparent);
+}
+.dow-seclabel--down::before {
+  background: var(--down);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--down) 80%, transparent);
+}
+
+/* Bars: crisp baseline + staggered grow-in */
+.dow-chart .dow-baseline {
+  stroke: currentColor;
+  stroke-opacity: 0.22;
+  stroke-width: 1.5;
+}
+.dow-bar {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: dowBarRise 0.55s cubic-bezier(0.22, 0.85, 0.25, 1) both;
+}
+@keyframes dowBarRise {
+  from { transform: scaleY(0); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dow-bar { animation: none; }
+}
+
+/* Best-high / worst-low matrix */
 .dow-extremes {
-  margin-top: 14px;
-  padding: 10px 12px;
-  background: var(--bg-3);
+  margin-top: 18px;
+  padding: 12px 14px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--bg-3) 60%, transparent),
+      var(--bg-3));
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 7px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .dow-extremes-head,
 .dow-extremes-row {
   display: grid;
-  grid-template-columns: 80px repeat(5, 1fr);
+  grid-template-columns: 86px repeat(5, 1fr);
   align-items: center;
   font-family: var(--font-mono);
   gap: 4px;
 }
 .dow-extremes-corner { /* spacer above the row labels */ }
 .dow-extremes-daycol {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
   color: var(--fg-3);
   text-align: center;
-  letter-spacing: 0.04em;
-  padding-bottom: 2px;
+  letter-spacing: 0.06em;
+  padding: 2px 0;
+  text-transform: uppercase;
 }
 .dow-extremes-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .dow-extremes-label.up { color: var(--up); }
 .dow-extremes-label.down { color: var(--down); }
 .dow-extremes-cell {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   text-align: center;
+  padding: 3px 0;
+  border-radius: 6px;
 }
-.dow-extremes-cell.up { color: var(--up); }
+.dow-extremes-cell.up   { color: var(--up); }
 .dow-extremes-cell.down { color: var(--down); }
+
+/* Footer: clustering summary as chips */
+.dow-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 12.5px;
+}
+.dow-footer-chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: var(--fg-2);
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.dow-footer-chip b { font-weight: 800; }
+.dow-footer-chip.up b   { color: var(--up); }
+.dow-footer-chip.down b { color: var(--down); }
+.dow-footer-dot { color: var(--fg-3); }
 
 /* Basing tool card */
 .basing-card .basing-signal {
@@ -3824,14 +3914,17 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .basing-row1 { grid-template-columns: 1fr; }
 }
 
-/* Day-of-week extremes — today's column highlighted in white so it pops */
+/* Day-of-week extremes — today's column highlighted so it pops */
 .dow-extremes-daycol.today {
   color: var(--fg);
   font-weight: 800;
+  background: color-mix(in srgb, var(--accent, #6ea8ff) 18%, transparent);
+  border-radius: 999px;
 }
 .dow-extremes-cell.today {
-  color: var(--fg);
   font-weight: 800;
+  background: color-mix(in srgb, var(--accent, #6ea8ff) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #6ea8ff) 22%, transparent);
 }
 
 /* ── Decision Engine on the Suggested Strike card ────────────── */
