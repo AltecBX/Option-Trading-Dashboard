@@ -704,7 +704,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.7"
-    }, "+2\u03C3"), /*#__PURE__*/React.createElement("text", {
+    }, "+2σ"), /*#__PURE__*/React.createElement("text", {
       x: s1.lastUpper[0] - 4,
       y: s1.lastUpper[1] - 3,
       fontSize: "10",
@@ -712,7 +712,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.85"
-    }, "+1\u03C3"), /*#__PURE__*/React.createElement("text", {
+    }, "+1σ"), /*#__PURE__*/React.createElement("text", {
       x: s1.lastLower[0] - 4,
       y: s1.lastLower[1] + 11,
       fontSize: "10",
@@ -720,7 +720,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.85"
-    }, "-1\u03C3"), /*#__PURE__*/React.createElement("text", {
+    }, "-1σ"), /*#__PURE__*/React.createElement("text", {
       x: s2.lastLower[0] - 4,
       y: s2.lastLower[1] + 11,
       fontSize: "10",
@@ -728,7 +728,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.7"
-    }, "-2\u03C3"));
+    }, "-2σ"));
   })(), callStrike > 0 && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
     x1: padL,
     x2: W - padR,
@@ -1544,33 +1544,94 @@ function DayBarChart({
     if (!vals.length) return null;
     return vals.reduce((a, b) => a + b, 0) / vals.length;
   });
+  const peakCount = Math.max(...counts);
   const W = 600,
-    H = 220;
-  const padL = 14,
-    padR = 14,
-    padT = 24,
-    padB = 50;
+    H = 232;
+  const padL = 16,
+    padR = 16,
+    padT = 30,
+    padB = 52;
   const innerW = W - padL - padR,
     innerH = H - padT - padB;
-  const bw = innerW / days.length * 0.62;
+  const bw = innerW / days.length * 0.56;
   const gap = innerW / days.length;
+  const baseY = padT + innerH;
+
+  // Unique gradient/filter ids so the high and low charts (and multiple
+  // instances) never cross-reference each other's <defs>.
+  const uid = useMemo(() => "dow" + mode + Math.floor(Math.random() * 1e6), [mode]);
+
+  // Rectangle path with only the TOP two corners rounded — bars sit flush
+  // on the baseline, so a fully-rounded rect would float oddly.
+  const topRoundRect = (x, y, w, h, r) => {
+    r = Math.max(0, Math.min(r, w / 2, h));
+    if (h <= 0) return "";
+    return `M${x},${baseY} L${x},${y + r} Q${x},${y} ${x + r},${y}` + ` L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r}` + ` L${x + w},${baseY} Z`;
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "chart-wrap"
   }, /*#__PURE__*/React.createElement("svg", {
     viewBox: `0 0 ${W} ${H}`,
-    className: "chart-svg"
-  }, [0, 0.25, 0.5, 0.75, 1].map((p, i) => /*#__PURE__*/React.createElement("line", {
+    className: "chart-svg dow-chart"
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+    id: `${uid}-fill`,
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "0%",
+    stopColor: fillColor,
+    stopOpacity: "1"
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "100%",
+    stopColor: fillColor,
+    stopOpacity: "0.42"
+  })), /*#__PURE__*/React.createElement("linearGradient", {
+    id: `${uid}-mute`,
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "0%",
+    stopColor: colors.bandSolid,
+    stopOpacity: "0.72"
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "100%",
+    stopColor: colors.bandSolid,
+    stopOpacity: "0.26"
+  })), /*#__PURE__*/React.createElement("filter", {
+    id: `${uid}-glow`,
+    x: "-60%",
+    y: "-60%",
+    width: "220%",
+    height: "220%"
+  }, /*#__PURE__*/React.createElement("feGaussianBlur", {
+    stdDeviation: "4",
+    result: "b"
+  }), /*#__PURE__*/React.createElement("feMerge", null, /*#__PURE__*/React.createElement("feMergeNode", {
+    in: "b"
+  }), /*#__PURE__*/React.createElement("feMergeNode", {
+    in: "SourceGraphic"
+  })))), [0, 0.25, 0.5, 0.75, 1].map((p, i) => /*#__PURE__*/React.createElement("line", {
     key: i,
     x1: padL,
     x2: W - padR,
     y1: padT + innerH * (1 - p),
     y2: padT + innerH * (1 - p),
     className: "grid"
-  })), days.map((d, i) => {
+  })), /*#__PURE__*/React.createElement("line", {
+    x1: padL,
+    x2: W - padR,
+    y1: baseY,
+    y2: baseY,
+    className: "dow-baseline"
+  }), days.map((d, i) => {
     const x = padL + i * gap + (gap - bw) / 2;
     const h = counts[i] / max * innerH;
-    const y = padT + innerH - h;
-    const top = Math.max(...counts) === counts[i] && counts[i] > 0;
+    const y = baseY - h;
+    const top = peakCount === counts[i] && counts[i] > 0;
     const avg = avgPcts[i];
     const avgText = avg == null ? "—" : (avg >= 0 ? "+" : "") + avg.toFixed(2) + "%";
     const expectedSign = mode === "low" ? -1 : 1;
@@ -1588,17 +1649,17 @@ function DayBarChart({
     };
     return /*#__PURE__*/React.createElement("g", {
       key: d
-    }, /*#__PURE__*/React.createElement("rect", {
-      x: x,
-      y: y,
-      width: bw,
-      height: h,
-      rx: "4",
-      fill: top ? fillColor : colors.bandSolid,
-      opacity: top ? 1 : 0.55
+    }, h > 0 && /*#__PURE__*/React.createElement("path", {
+      d: topRoundRect(x, y, bw, h, 7),
+      className: "dow-bar",
+      style: {
+        animationDelay: `${i * 70}ms`
+      },
+      fill: top ? `url(#${uid}-fill)` : `url(#${uid}-mute)`,
+      filter: top ? `url(#${uid}-glow)` : undefined
     }), /*#__PURE__*/React.createElement("text", {
       x: x + bw / 2,
-      y: y - 6,
+      y: y - 10,
       textAnchor: "middle",
       fontSize: "15",
       fontFamily: "ui-monospace, monospace",
@@ -1620,7 +1681,7 @@ function DayBarChart({
       y: H - 8,
       textAnchor: "middle",
       fontFamily: "ui-monospace, monospace",
-      fontSize: "15",
+      fontSize: "14",
       style: labelStyle
     }, avgText));
   })));
@@ -1984,7 +2045,7 @@ function PLChart({
     fill: "#bcd0f5",
     fontSize: "11",
     fontFamily: "ui-sans-serif, system-ui"
-  }, strategyName ? strategyName + " · " : "", "\xB1$", sigma.toFixed(2), " 1\u03C3"))), hoverPt && /*#__PURE__*/React.createElement("div", {
+  }, strategyName ? strategyName + " · " : "", "±$", sigma.toFixed(2), " 1σ"))), hoverPt && /*#__PURE__*/React.createElement("div", {
     className: "chart-tooltip pl-tip",
     style: {
       left: `${xScale(hoverPt.s) / W * 100}%`

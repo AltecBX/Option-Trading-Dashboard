@@ -16,3 +16,7 @@ schwab_token.json
 
 # OS
 .DS_Store
+
+# Node build tooling (Babel for build_frontend.js)
+node_modules/
+package-lock.json

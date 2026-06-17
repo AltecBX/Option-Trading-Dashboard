@@ -3492,9 +3492,9 @@ function App() {
                 <div className="card-title">When highs and lows land</div>
               </div>
             </div>
-            <div style={{fontSize: 11, fontWeight: 600, color: "var(--up)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4}}>HIGH</div>
+            <div className="dow-seclabel dow-seclabel--up">High</div>
             <DayBarChart rows={rows} colors={chartColors} mode="high" />
-            <div style={{fontSize: 11, fontWeight: 600, color: "var(--down)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4, marginTop: 8}}>LOW</div>
+            <div className="dow-seclabel dow-seclabel--down" style={{marginTop: 14}}>Low</div>
             <DayBarChart rows={rows} colors={chartColors} mode="low" />
             {(() => {
               if (!rows.length) return null;
@@ -3541,21 +3541,23 @@ function App() {
                     <span className="dow-extremes-label up">Best high</span>
                     {extremes.map(e => (
                       <span key={e.day}
-                            className="dow-extremes-cell up">{fmt(e.bestHigh)}</span>
+                            className={`dow-extremes-cell up${e.day === _todayShort ? " today" : ""}`}>{fmt(e.bestHigh)}</span>
                     ))}
                   </div>
                   <div className="dow-extremes-row">
                     <span className="dow-extremes-label down">Worst low</span>
                     {extremes.map(e => (
                       <span key={e.day}
-                            className="dow-extremes-cell down">{fmt(e.worstLow)}</span>
+                            className={`dow-extremes-cell down${e.day === _todayShort ? " today" : ""}`}>{fmt(e.worstLow)}</span>
                     ))}
                   </div>
                 </div>
               );
             })()}
-            <div className="muted" style={{fontSize: 13, marginTop: 14, textAlign: "center"}}>
-              Highs cluster <b style={{color: "var(--up)"}}>{typicalHighDay}</b> · Lows cluster <b style={{color: "var(--down)"}}>{typicalLowDay}</b>
+            <div className="dow-footer">
+              <span className="dow-footer-chip up">Highs cluster <b>{typicalHighDay}</b></span>
+              <span className="dow-footer-dot">·</span>
+              <span className="dow-footer-chip down">Lows cluster <b>{typicalLowDay}</b></span>
             </div>
           </div>
         </div>

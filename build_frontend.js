@@ -36,7 +36,11 @@ for (const f of FILES) {
   const outPath = srcPath.replace(/\.jsx$/, ".js");
   try {
     const result = babel.transformFileSync(srcPath, {
-      presets: ["@babel/preset-react"],
+      // Pin the CLASSIC runtime (React.createElement). The page loads React
+      // via UMD globals, not a module bundler, so the automatic runtime —
+      // which newer Babel defaults to — would emit `import ... from
+      // "react/jsx-dev-runtime"` and crash every page in the browser.
+      presets: [["@babel/preset-react", { runtime: "classic" }]],
       compact: false,
       babelrc: false,
       configFile: false,
