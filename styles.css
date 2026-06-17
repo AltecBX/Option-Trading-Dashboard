@@ -7354,3 +7354,53 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (prefers-reduced-motion: reduce) {
   .preset-pill:hover, .sb-weather-pill:hover { transform: none; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   DEEP POLISH #3 — Scanner tables (v1.44)
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Run button: gradient + glow + lift */
+.scan-run-btn {
+  background: linear-gradient(180deg, color-mix(in oklch, var(--accent), white 10%), var(--accent));
+  box-shadow: 0 2px 10px -3px color-mix(in oklch, var(--accent), transparent 40%);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.scan-run-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: 1;
+  box-shadow: 0 5px 16px -3px color-mix(in oklch, var(--accent), transparent 32%);
+}
+
+/* Table gets a defined, rounded, scrollable frame */
+.scan-table-wrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: auto;
+  background: var(--bg);
+}
+/* Sticky, glassy header so columns stay labeled while scrolling */
+.scan-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: color-mix(in oklch, var(--bg-2) 90%, transparent);
+  backdrop-filter: blur(6px) saturate(1.1);
+  border-bottom: 1px solid var(--line-2);
+}
+/* Zebra striping + accent hover/active for fast scanning */
+.scan-row:nth-child(even) { background: color-mix(in oklch, var(--fg) 3%, transparent); }
+.scan-row { transition: background 0.12s ease, box-shadow 0.12s ease; }
+.scan-row:hover { background: color-mix(in oklch, var(--accent) 9%, transparent); }
+.scan-row.scan-row-active {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Option-chain table: matching glassy sticky header */
+.oc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: color-mix(in oklch, var(--bg-2) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
