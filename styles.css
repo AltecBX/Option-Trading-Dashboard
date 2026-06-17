@@ -7296,3 +7296,61 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border-color: color-mix(in oklch, var(--down), transparent 42%);
   box-shadow: var(--shadow-hover), 0 0 0 1px color-mix(in oklch, var(--down), transparent 58%);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   DEEP POLISH #2 — Sidebar (v1.43)
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Faint top sheen so the sidebar reads as a distinct panel */
+.sidebar {
+  background: linear-gradient(180deg, var(--sheen), transparent 240px), var(--bg-2);
+}
+
+/* Live-data badges: give the "live" states a real glow */
+.src-badge { border: 1px solid transparent; }
+.src-badge-schwab {
+  border-color: color-mix(in oklch, var(--up), transparent 65%);
+  box-shadow: inset 0 0 14px color-mix(in oklch, var(--up), transparent 88%);
+}
+.src-badge-schwab .src-dot {
+  box-shadow: 0 0 7px var(--up);
+}
+.src-badge-uw {
+  box-shadow: inset 0 0 14px rgba(80, 160, 255, 0.10);
+}
+.src-badge-uw .src-dot { box-shadow: 0 0 7px rgb(80, 160, 255); }
+
+/* Watchlist + preset pills: spring on hover, glow when active */
+.preset-pill {
+  transition:
+    color 0.15s ease, background-color 0.15s ease,
+    border-color 0.15s ease, box-shadow 0.15s ease,
+    transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.preset-pill:hover { transform: translateY(-1px); }
+.preset-pill.active {
+  box-shadow:
+    0 3px 12px -3px color-mix(in oklch, var(--accent), transparent 45%),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Ticker block: symbol pops, the day move gets a subtle glow */
+.sb-ticker-symbol { letter-spacing: -0.01em; }
+.sb-ticker-price-row .delta.up {
+  text-shadow: 0 0 9px color-mix(in oklch, var(--up), transparent 65%);
+}
+.sb-ticker-price-row .delta.down {
+  text-shadow: 0 0 9px color-mix(in oklch, var(--down), transparent 65%);
+}
+
+/* Header chips: consistent springy hover */
+.sb-weather-pill:hover { transform: translateY(-1px); }
+.sb-weather-pill, .sb-version-pill {
+  transition:
+    border-color 0.15s ease, color 0.15s ease,
+    transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preset-pill:hover, .sb-weather-pill:hover { transform: none; }
+}
