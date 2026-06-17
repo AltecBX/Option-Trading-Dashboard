@@ -292,6 +292,47 @@ def _save_sent_alerts(data: dict) -> None:
         print(f"[sent_alerts] write failed: {exc}", file=sys.stderr)
 
 
+# Watchlist reads/writes share one re-entrant lock so an atomic save can't
+# interleave with a concurrent read. Lazily created to match the lazy-init
+# style used elsewhere in this module.
+_WATCHLIST_LOCK = None
+
+
+def _watchlist_lock():
+    global _WATCHLIST_LOCK
+    if _WATCHLIST_LOCK is None:
+        _WATCHLIST_LOCK = threading.RLock()
+    return _WATCHLIST_LOCK
+
+
+def _default_watchlist() -> dict:
+    """Initial schema seeded from the legacy 5-symbol default."""
+    import time
+    now = int(time.time())
+    seeds = [
+        ("SPY", ["index", "etf"], True),
+        ("QQQ", ["index", "etf"], True),
+        ("AAPL", ["mega-cap", "tech"], True),
+        ("NVDA", ["mega-cap", "semis"], True),
+        ("TSLA", ["mega-cap", "ev"], True),
+    ]
+    return {
+        "version": 1,
+        "symbols": [
+            {
+                "symbol": s,
+                "tags": tags,
+                "notes": "",
+                "preferred_strategy": None,
+                "starred": star,
+                "added_at": now,
+            }
+            for s, tags, star in seeds
+        ],
+        "tag_order": ["index", "etf", "mega-cap", "tech", "semis", "ev"],
+    }
+
+
 def _load_watchlist() -> dict:
     """Read the watchlist file. If missing or invalid, return the default
     schema and persist it so subsequent writes have a stable file."""
