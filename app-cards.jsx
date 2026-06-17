@@ -63,6 +63,14 @@ function VolSkewCard({ calls, puts, currentPrice, ticker, sugCall, sugPut, activ
   const svgRef = useRef(null);
   const [hover, setHover] = useState(null);  // {strike, callIv, putIv, x, y}
 
+  // Reset hover whenever the underlying data changes so a stale hover
+  // never points to a strike no longer in scope. This MUST run before any
+  // of the early `return null` guards below — otherwise the hook count
+  // changes between renders (sparse data returns early and skips it),
+  // which throws React error #300 and trips the card's error boundary
+  // until the user clicks Retry.
+  useEffect(() => { setHover(null); }, [ticker, calls.length, puts.length]);
+
   // Filter to plausible IVs. Anything > 500% is almost certainly a stale
   // quote on a deep-ITM/OTM strike with no real bid; exclude it.
   const callsWithIv = calls.filter(c => c.iv && c.iv > 0 && c.iv < 5);
@@ -159,10 +167,6 @@ function VolSkewCard({ calls, puts, currentPrice, ticker, sugCall, sugPut, activ
     const step = range > 1 ? 0.25 : range > 0.5 ? 0.1 : range > 0.2 ? 0.05 : 0.02;
     for (let v = Math.ceil(iMin / step) * step; v <= iMax; v += step) yTicks.push(v);
   }
-
-  // Reset hover whenever the underlying data changes so a stale hover
-  // never points to a strike no longer in scope.
-  useEffect(() => { setHover(null); }, [ticker, calls.length, puts.length]);
 
   // Hover handler — converts mouse X back to a strike, then finds the
   // nearest call+put rows. Uses native pixel→viewBox math because the
