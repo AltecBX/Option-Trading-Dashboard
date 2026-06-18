@@ -27,9 +27,13 @@ Honest limitations (free data):
 """
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
+import urllib.request
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Any
 
 try:
@@ -78,7 +82,83 @@ UNIVERSE: list[str] = [
     # Popular high-beta / meme-ish movers that get analyst calls
     "SOFI", "RBLX", "DKNG", "AFRM", "HOOD", "DAL", "AAL", "UAL", "MARA",
     "RIOT", "ROKU", "PINS", "SNAP", "ZM", "DOCU", "TTD", "NET", "DDOG",
+    # International / ADRs (mostly not in the S&P 500)
+    "BABA", "PDD", "JD", "BIDU", "LI", "XPEV", "NU", "SE", "MELI", "GRAB",
+    "STLA", "SONY", "TSM", "NVO", "AZN", "SAP", "SHEL", "BP", "RIO", "TME",
+    "BEKE",
+    # Recent IPOs / secular-growth names with heavy coverage
+    "RDDT", "CART", "CAVA", "TOST", "DASH", "U", "PATH", "AI", "IOT",
+    "SOUN", "IONQ", "RGTI", "QBTS", "RKLB", "ASTS", "ACHR", "JOBY", "CHPT",
+    "RUN", "PLUG", "CVNA", "CARG", "W", "CHWY", "DUOL", "HIMS", "OSCR",
+    "APP", "DJT", "SMR", "OKLO", "TLN", "TEM", "PENN", "BYD",
+    # Crypto-adjacent
+    "MSTR", "CLSK", "HUT", "BITF", "CIFR", "WULF", "IREN", "BTBT",
+    # Biotech movers
+    "NVAX", "VKTX", "CRSP", "NTLA", "BEAM", "RXRX", "SAVA", "BNTX",
+    # Fintech / retail / meme
+    "UPST", "OPEN", "LMND", "ROOT", "GME", "AMC",
 ]
+
+# Full universe = S&P 500 (fetched + cached daily) ∪ the curated movers
+# above ∪ the user's watchlist → ~600 names. The S&P 500 list comes from a
+# stable GitHub-hosted constituents CSV; if that fetch ever fails we fall
+# back to just the curated list so a scan still runs.
+_SP500_URL = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+_UNIVERSE_CACHE: dict | None = None  # {"date": iso, "syms": [...]}
+
+
+def _data_dir() -> Path:
+    d = os.environ.get("JERRY_DATA_DIR", "").strip()
+    p = Path(d).expanduser() if d else (Path.home() / ".jerry-dashboard")
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return p
+
+
+def _fetch_sp500() -> list[str]:
+    req = urllib.request.Request(_SP500_URL, headers={"User-Agent": "Mozilla/5.0"})
+    csv = urllib.request.urlopen(req, timeout=25).read().decode("utf-8", "replace")
+    out = []
+    for line in csv.strip().splitlines()[1:]:  # skip header
+        sym = line.split(",")[0].strip().strip('"').upper()
+        if sym:
+            out.append(sym.replace(".", "-"))  # BRK.B -> BRK-B for yfinance
+    return out
+
+
+def _load_universe() -> list[str]:
+    """S&P 500 (fetched, cached for the day) merged with the curated movers
+    list. Falls back to the curated list alone if the fetch fails."""
+    global _UNIVERSE_CACHE
+    today = datetime.now(timezone.utc).date().isoformat()
+    if _UNIVERSE_CACHE and _UNIVERSE_CACHE.get("date") == today:
+        return _UNIVERSE_CACHE["syms"]
+    cache_file = _data_dir() / "universe_cache.json"
+    try:
+        if cache_file.exists():
+            j = json.loads(cache_file.read_text())
+            if j.get("date") == today and j.get("syms"):
+                _UNIVERSE_CACHE = j
+                return j["syms"]
+    except Exception:
+        pass
+    try:
+        sp = _fetch_sp500()
+    except Exception:
+        sp = []
+    syms = list(dict.fromkeys([*UNIVERSE, *sp]))
+    if len(syms) < 200:  # fetch failed/short — use curated, don't cache it
+        return list(dict.fromkeys(UNIVERSE))
+    payload = {"date": today, "syms": syms}
+    try:
+        cache_file.write_text(json.dumps(payload))
+    except Exception:
+        pass
+    _UNIVERSE_CACHE = payload
+    return syms
+
 
 # ── Analyst-firm reputation tiers (subset; everything else = baseline) ──
 FIRM_TIER_1 = {  # bulge bracket / most market-moving
@@ -327,17 +407,27 @@ def _build_summary(actions: list[dict]) -> dict:
     def _sector_list(d):
         return [{"sector": k, "count": v} for k, v in sorted(d.items(), key=lambda x: -x[1])][:6]
 
-    multi = sorted({a["ticker"]: a for a in actions if a.get("multi_count", 1) > 1}.values(),
-                   key=lambda a: -a["score"])
-    biggest_pm = sorted([a for a in actions if isinstance(a.get("premarket_pct"), (int, float))],
-                        key=lambda a: -abs(a["premarket_pct"]))[:8]
-    meaningful = [a for a in actions if a["importance"] == "high" and not a["suspicious"]][:10]
-    suspicious = [a for a in actions if a["suspicious"]][:8]
-    watch = sorted(actions, key=lambda a: -a["score"])[:10]
+    def _dedupe(rows):
+        # actions are pre-sorted by score, so the first row per ticker is
+        # its highest-scoring action — one clean row per name.
+        seen: dict[str, dict] = {}
+        for r in rows:
+            t = r.get("ticker")
+            if t and t not in seen:
+                seen[t] = r
+        return list(seen.values())
+
+    multi = _dedupe([a for a in actions if a.get("multi_count", 1) > 1])
+    biggest_pm = _dedupe(sorted(
+        [a for a in actions if isinstance(a.get("premarket_pct"), (int, float))],
+        key=lambda a: -abs(a["premarket_pct"])))[:8]
+    meaningful = _dedupe([a for a in actions if a["importance"] == "high" and not a["suspicious"]])[:10]
+    suspicious = _dedupe([a for a in actions if a["suspicious"]])[:8]
+    watch = _dedupe(sorted(actions, key=lambda a: -a["score"]))[:10]
 
     return {
-        "top_bullish": bull[:8],
-        "top_bearish": bear[:8],
+        "top_bullish": _dedupe(bull)[:8],
+        "top_bearish": _dedupe(bear)[:8],
         "sectors_positive": _sector_list(sector_pos),
         "sectors_negative": _sector_list(sector_neg),
         "multi_action": multi[:8],
@@ -395,7 +485,7 @@ def trigger_scan(watchlist_syms: list[str] | None = None,
     with _LOCK:
         if _STATE["scanning"] and not force:
             return {"started": False, "reason": "already scanning"}
-        syms = list(dict.fromkeys([*(watchlist_syms or []), *UNIVERSE]))
+        syms = list(dict.fromkeys([*(watchlist_syms or []), *_load_universe()]))
         _STATE.update({
             "scanning": True, "scanned": 0, "total": len(syms),
             "started": _now_iso(), "universe_size": len(syms),
