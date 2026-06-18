@@ -3759,6 +3759,53 @@ def _pushover_send(title: str, message: str, priority: int = 0,
         return {"ok": False, "error": str(exc), "configured": True}
 
 
+def _ntfy_configured() -> bool:
+    return bool(os.environ.get("NTFY_TOPIC", "").strip())
+
+
+def _ntfy_send(title: str, message: str, priority: int = 0) -> dict:
+    """Send a push via ntfy.sh — free, no account. Set NTFY_TOPIC to a
+    private/random topic string and subscribe to it in the free ntfy app.
+    Optional NTFY_SERVER overrides the default https://ntfy.sh host."""
+    topic = os.environ.get("NTFY_TOPIC", "").strip()
+    if not topic:
+        return {"ok": False, "error": "not configured", "configured": False}
+    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").strip().rstrip("/")
+    pr = {1: "5", 0: "3", -1: "2"}.get(int(priority), "3")  # ntfy uses 1..5
+    try:
+        req = urllib.request.Request(f"{server}/{topic}",
+                                     data=message.encode("utf-8"), method="POST")
+        # HTTP headers must be ASCII — strip any emoji/glyphs from the title.
+        req.add_header("Title", title.encode("ascii", "ignore").decode() or "Jerry")
+        req.add_header("Priority", pr)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            status = resp.status
+        return {"ok": status == 200, "status": status, "configured": True}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ntfy] send failed: {exc}", file=sys.stderr)
+        return {"ok": False, "error": str(exc), "configured": True}
+
+
+def _push_configured() -> bool:
+    return _ntfy_configured() or _pushover_configured()
+
+
+def _push_notify(title: str, message: str, priority: int = 0,
+                 url: str = None, url_title: str = None) -> dict:
+    """Unified push: prefer free ntfy, also send via Pushover if set."""
+    results = {}
+    sent = False
+    if _ntfy_configured():
+        results["ntfy"] = _ntfy_send(title, message, priority)
+        sent = sent or results["ntfy"].get("ok")
+    if _pushover_configured():
+        results["pushover"] = _pushover_send(title, message, priority, url, url_title)
+        sent = sent or results["pushover"].get("ok")
+    if not results:
+        return {"ok": False, "error": "no push provider configured", "configured": False}
+    return {"ok": sent, "configured": True, "providers": results}
+
+
 def _migrate_legacy_watchlist() -> None:
     """One-time migration: if a watchlist.json exists in the project
     folder (legacy location) but not in the stable location, copy it.
@@ -4109,7 +4156,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 else:
                     payload = {}
                 msg = payload.get("message") or "Push notifications are working. This is a test from your dashboard."
-                result = _pushover_send(
+                result = _push_notify(
                     title="Jerry Dashboard test",
                     message=msg,
                     priority=0,
@@ -4159,7 +4206,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     "Roll, close, or accept assignment.",
                 ]
                 message = "\n".join(lines)
-                result = _pushover_send(
+                result = _push_notify(
                     title=title,
                     message=message,
                     priority=1,  # high — bypasses quiet hours
@@ -5544,8 +5591,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             # Lightweight status check so the frontend can show a
             # "Push not configured" hint when env vars are missing.
             self._send_json({
-                "configured": _pushover_configured(),
-                "provider": "pushover",
+                "configured": _push_configured(),
+                "provider": "ntfy" if _ntfy_configured() else ("pushover" if _pushover_configured() else "none"),
+                "ntfy_configured": _ntfy_configured(),
+                "pushover_configured": _pushover_configured(),
                 "user_key_set": bool(os.environ.get("PUSHOVER_USER_KEY")),
                 "app_token_set": bool(os.environ.get("PUSHOVER_APP_TOKEN")),
             })
@@ -6321,10 +6370,11 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                     return []
 
             def _morning_push(title, message):
-                # No-op unless Pushover is configured (PUSHOVER_* env vars).
-                if _pushover_configured():
+                # No-op unless a push provider is configured (free ntfy via
+                # NTFY_TOPIC, or Pushover).
+                if _push_configured():
                     try:
-                        _pushover_send(title, message, priority=0)
+                        _push_notify(title, message, priority=0)
                     except Exception as e:  # noqa: BLE001
                         print(f"[analyst_board] push failed: {e}", file=sys.stderr)
 

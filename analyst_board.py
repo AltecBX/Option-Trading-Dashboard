@@ -298,13 +298,31 @@ def score_action(act: dict, enrich: dict, multi_count: int) -> dict:
         score += min(16.0, (multi_count - 1) * 8.0)
         reasons.append(f"{multi_count} firms acted today")
 
-    score = max(0.0, min(100.0, score))
-    importance = "high" if score >= 60 else "medium" if score >= 38 else "low"
-
     direction = _direction(
         act.get("action_class", ""), act.get("prior_grade"),
         act.get("new_grade"), act.get("pt_action"),
     )
+
+    # Additional news beyond the analyst note — a real catalyst stacking
+    # on the call. yfinance counts the rating itself, so require >= 2.
+    nc = enrich.get("news_count")
+    if isinstance(nc, int) and nc >= 2:
+        score += min(10.0, nc * 3.0)
+        reasons.append(f"extra news today ({nc} items)")
+
+    # Technical posture: reward when price confirms the call's direction
+    # (above the 200-DMA for a bull call, below it for a bear call).
+    a200 = enrich.get("above_ma200")
+    a50 = enrich.get("above_ma50")
+    if direction == "bull":
+        if a200 is True: score += 6; reasons.append("above 200-DMA (uptrend)")
+        elif a50 is True: score += 3; reasons.append("above 50-DMA")
+    elif direction == "bear":
+        if a200 is False: score += 6; reasons.append("below 200-DMA (downtrend)")
+        elif a50 is False: score += 3; reasons.append("below 50-DMA")
+
+    score = max(0.0, min(100.0, score))
+    importance = "high" if score >= 60 else "medium" if score >= 38 else "low"
 
     # Suspicious / weak: a big premarket move on a weak action, or a move
     # with no real rating change behind it.
@@ -321,6 +339,9 @@ def score_action(act: dict, enrich: dict, multi_count: int) -> dict:
         "market_cap": enrich.get("market_cap"),
         "premarket_pct": pm,
         "vol_ratio": vr,
+        "news_count": enrich.get("news_count"),
+        "above_ma50": enrich.get("above_ma50"),
+        "above_ma200": enrich.get("above_ma200"),
         "score": round(score, 1),
         "importance": importance,
         "direction": direction,
@@ -356,6 +377,7 @@ def _enrich(symbol: str) -> dict:
     out: dict[str, Any] = {
         "ticker": symbol, "premarket_pct": None, "vol_ratio": None,
         "market_cap": None, "sector": None, "company": None,
+        "news_count": None, "above_ma50": None, "above_ma200": None,
     }
     # Premarket move + volume via Schwab (handles extended session)
     if _SCHWAB_OK:
@@ -369,10 +391,12 @@ def _enrich(symbol: str) -> dict:
                     out["_vol"] = vol
         except Exception:
             pass
-    # Fundamentals + (fallback) premarket via yfinance
+    # Fundamentals + (fallback) premarket + news catalyst + technicals via
+    # yfinance (one Ticker, reused).
     if _YF_OK:
         try:
-            info = yf.Ticker(symbol).info or {}
+            t = yf.Ticker(symbol)
+            info = t.info or {}
             out["market_cap"] = info.get("marketCap")
             out["sector"] = info.get("sector")
             out["company"] = info.get("shortName") or info.get("longName")
@@ -384,6 +408,34 @@ def _enrich(symbol: str) -> dict:
                 pmp = info.get("preMarketChangePercent")
                 if pmp is not None:
                     out["premarket_pct"] = round(pmp, 2)
+            # Additional news in the last 48h (beyond the analyst note).
+            try:
+                cutoff = time.time() - 48 * 3600
+                cnt = 0
+                for it in (t.news or []):
+                    ts = it.get("providerPublishTime")
+                    if ts is None and isinstance(it.get("content"), dict):
+                        pd = it["content"].get("pubDate") or ""
+                        try:
+                            ts = datetime.strptime(pd[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+                        except Exception:
+                            ts = None
+                    if isinstance(ts, (int, float)) and ts >= cutoff:
+                        cnt += 1
+                out["news_count"] = cnt
+            except Exception:
+                pass
+            # Technical posture: price vs 50/200-day moving averages.
+            try:
+                hist = t.history(period="1y", interval="1d")
+                closes = [c for c in list(hist["Close"]) if c == c]  # drop NaN
+                if len(closes) >= 50:
+                    last = closes[-1]
+                    out["above_ma50"] = last >= sum(closes[-50:]) / 50
+                    if len(closes) >= 200:
+                        out["above_ma200"] = last >= sum(closes[-200:]) / 200
+            except Exception:
+                pass
         except Exception:
             pass
     out.pop("_vol", None)
