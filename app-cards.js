@@ -494,6 +494,7 @@ function AnalystBoardCard({
   const [fSector, setFSector] = useState("all");
   const [fCap, setFCap] = useState("all");
   const [fHigh, setFHigh] = useState(false);
+  const [fToday, setFToday] = useState(false);
   const [q, setQ] = useState("");
   const pollRef = useRef(null);
   const load = async () => {
@@ -550,12 +551,18 @@ function AnalystBoardCard({
     if (fSector !== "all" && a.sector !== fSector) return false;
     if (fCap !== "all" && capBucket(a.market_cap) !== fCap) return false;
     if (fHigh && a.importance !== "high") return false;
+    if (fToday) {
+      const dt = new Date(String(a.date || "").slice(0, 10) + "T00:00:00");
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (isNaN(dt) || Math.round((today - dt) / 86400000) !== 0) return false;
+    }
     if (q) {
       const s = q.toLowerCase();
       if (!String(a.ticker || "").toLowerCase().includes(s) && !String(a.firm || "").toLowerCase().includes(s)) return false;
     }
     return true;
-  }), [actions, fType, fDir, fSector, fCap, fHigh, q]);
+  }), [actions, fType, fDir, fSector, fCap, fHigh, fToday, q]);
   const fmtPct = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
   const fmtCap = v => {
     if (!v) return "—";
@@ -763,6 +770,12 @@ function AnalystBoardCard({
     key: s,
     value: s
   }, s))), /*#__PURE__*/React.createElement("label", {
+    className: "ab-toggle"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: fToday,
+    onChange: e => setFToday(e.target.checked)
+  }), " Today only"), /*#__PURE__*/React.createElement("label", {
     className: "ab-toggle"
   }, /*#__PURE__*/React.createElement("input", {
     type: "checkbox",
