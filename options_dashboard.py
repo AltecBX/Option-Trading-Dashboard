@@ -92,6 +92,16 @@ except Exception as _exc:  # noqa: BLE001
     _ANALYST_AVAILABLE = False
     _analyst_client = None  # type: ignore
 
+# Morning analyst board — scans a universe for fresh analyst actions,
+# enriches movers with premarket data, and ranks by importance.
+try:
+    import analyst_board as _analyst_board
+    _ANALYST_BOARD_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[analyst_board] module load failed: {_exc}", file=sys.stderr)
+    _ANALYST_BOARD_AVAILABLE = False
+    _analyst_board = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -5194,6 +5204,40 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 _log_warn(symbol, "api/trade_builder/multi_exp", exc)
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/analyst_board":
+            # Morning analyst board: ranked actions + game-plan summary.
+            if not _ANALYST_BOARD_AVAILABLE:
+                self._send_json({"error": "analyst board unavailable"}, status=503)
+                return
+            try:
+                self._send_json(_analyst_board.get_board())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/analyst_board", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/analyst_board/scan":
+            # Kick off a background universe scan (merges in the watchlist).
+            if not _ANALYST_BOARD_AVAILABLE:
+                self._send_json({"error": "analyst board unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            try:
+                days = int(qs.get("days", ["2"])[0])
+            except (TypeError, ValueError):
+                days = 2
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:
+                syms = []
+            try:
+                res = _analyst_board.trigger_scan(syms, recent_days=max(1, min(7, days)), force=force)
+                self._send_json(res)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/analyst_board/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/analyst":
             # Analyst price targets + rating change history.
