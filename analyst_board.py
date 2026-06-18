@@ -496,6 +496,54 @@ def trigger_scan(watchlist_syms: list[str] | None = None,
     return {"started": True, "total": len(syms)}
 
 
+# ── Auto-scan scheduler ───────────────────────────────────────────────
+_SCHED_THREAD: threading.Thread | None = None
+
+
+def start_scheduler(get_watchlist_fn=None, hour: int = 8, minute: int = 0,
+                    tz: str = "America/New_York") -> None:
+    """Run one scan each weekday morning in a 1-hour window starting at
+    `hour:minute` (market timezone). Idempotent; checks once a minute so a
+    server restart before/within the window still catches the morning."""
+    global _SCHED_THREAD
+    if _SCHED_THREAD is not None:
+        return
+    try:
+        from zoneinfo import ZoneInfo
+        zone = ZoneInfo(tz)
+    except Exception:
+        zone = timezone.utc  # fall back to UTC if tz database is unavailable
+
+    target_min = hour * 60 + minute
+
+    def loop():
+        last_run_date = None
+        while True:
+            try:
+                now = datetime.now(zone)
+                now_min = now.hour * 60 + now.minute
+                in_window = target_min <= now_min < target_min + 60
+                if now.weekday() < 5 and in_window and last_run_date != now.date():
+                    syms = []
+                    if get_watchlist_fn:
+                        try:
+                            syms = get_watchlist_fn() or []
+                        except Exception:
+                            syms = []
+                    res = trigger_scan(syms, recent_days=2)
+                    if res.get("started"):
+                        last_run_date = now.date()
+                        print(f"[analyst_board] auto-scan started "
+                              f"{now.isoformat()} ({res.get('total')} names)",
+                              file=__import__("sys").stderr)
+            except Exception:
+                pass
+            time.sleep(60)
+
+    _SCHED_THREAD = threading.Thread(target=loop, daemon=True)
+    _SCHED_THREAD.start()
+
+
 def get_board() -> dict:
     """Current board snapshot — status + ranked actions + game-plan summary."""
     with _LOCK:

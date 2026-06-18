@@ -38,7 +38,7 @@ import time
 import urllib.parse
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -503,6 +503,14 @@ class AnalystClient:
         # Fill num_analysts from consensus if targets didn't provide it
         if not targets_block.get("num_analysts") and consensus_block.get("breakdown"):
             targets_block["num_analysts"] = consensus_block["breakdown"].get("total")
+        # Yahoo's aggregate price-target block (high/low/mean) lags the
+        # per-firm upgrades/downgrades feed, so the headline High could
+        # read lower than a fresh target shown in the history rows below
+        # it. Reconcile high/low (and fill mean when missing) from the
+        # latest target per firm so the summary is consistent with the
+        # list the user sees.
+        targets_block = self._reconcile_targets_with_history(
+            targets_block, history, current_price)
 
         payload = {
             "symbol": symbol,
@@ -544,6 +552,54 @@ class AnalystClient:
             "upside_to_high_pct": upside_high,
             "downside_to_low_pct": downside_low,
         }
+
+    def _reconcile_targets_with_history(self, tb: dict, history: list[dict] | None,
+                                        current_price: float | None,
+                                        days: int = 120) -> dict:
+        """Pull each firm's most-recent target from the history feed (within
+        `days`) and fold it into the high/low so the headline can't show a
+        High below a target listed in the rows. Fills mean/num_analysts when
+        the aggregate block is empty, and recomputes the derived upside %s."""
+        if not history:
+            return tb
+        from datetime import date as _date
+        cutoff = datetime.now(timezone.utc).date() - timedelta(days=days)
+        latest_by_firm: dict[str, tuple[_date, float]] = {}
+        for r in history:
+            nt = r.get("new_target")
+            d = r.get("date")
+            if not isinstance(nt, (int, float)) or not nt or not d:
+                continue
+            try:
+                rd = datetime.strptime(d[:10], "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if rd < cutoff:
+                continue
+            firm = r.get("firm") or "?"
+            prev = latest_by_firm.get(firm)
+            if prev is None or rd >= prev[0]:
+                latest_by_firm[firm] = (rd, float(nt))
+        tgts = [v[1] for v in latest_by_firm.values()]
+        if not tgts:
+            return tb
+        tb = dict(tb)
+        hi, lo = max(tgts), min(tgts)
+        tb["high"] = max(hi, tb["high"]) if tb.get("high") else hi
+        tb["low"] = min(lo, tb["low"]) if tb.get("low") else lo
+        if not tb.get("mean"):
+            tb["mean"] = round(sum(tgts) / len(tgts), 2)
+        if not tb.get("num_analysts"):
+            tb["num_analysts"] = len(tgts)
+        cp = current_price
+        if cp:
+            if tb.get("high"):
+                tb["upside_to_high_pct"] = (tb["high"] - cp) / cp * 100
+            if tb.get("low"):
+                tb["downside_to_low_pct"] = (tb["low"] - cp) / cp * 100
+            if tb.get("mean"):
+                tb["upside_pct"] = (tb["mean"] - cp) / cp * 100
+        return tb
 
     def _build_consensus_block(self, recs: list[dict] | None) -> dict:
         if not recs:

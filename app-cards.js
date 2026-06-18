@@ -626,7 +626,9 @@ function AnalystBoardCard({
     className: "ab-status"
   }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " · ", status.universe_size || 0, " names · ", actions.length, " actions") : /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, "No scan yet — click ", /*#__PURE__*/React.createElement("b", null, "Scan now"), " (a full ~600-name scan takes a few minutes)."), err && /*#__PURE__*/React.createElement("span", {
+  }, "No scan yet — click ", /*#__PURE__*/React.createElement("b", null, "Scan now"), " (a full ~600-name scan takes a few minutes)."), /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " · Auto-scans weekdays 8:00 AM ET"), err && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
   }, " · ", err)), scanning && /*#__PURE__*/React.createElement("div", {
     className: "ab-progress"

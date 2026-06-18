@@ -6309,6 +6309,19 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
     # call is instant.
     import threading
     threading.Thread(target=load_ticker_index, daemon=True).start()
+    # Auto-build the analyst board each weekday at 8:00 AM ET so the
+    # morning game plan is ready before the open.
+    if _ANALYST_BOARD_AVAILABLE:
+        try:
+            def _wl_syms():
+                try:
+                    wl = _load_watchlist()
+                    return [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                except Exception:
+                    return []
+            _analyst_board.start_scheduler(get_watchlist_fn=_wl_syms, hour=8, minute=0)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[analyst_board] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;
