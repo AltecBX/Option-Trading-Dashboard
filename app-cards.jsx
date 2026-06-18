@@ -573,6 +573,158 @@ function AnalystBoardCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+function MoversCard({ apiFetch, onSwitchTicker }) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [fDir, setFDir] = useState("all");
+  const [fCap, setFCap] = useState("all");
+  const [minGap, setMinGap] = useState(0);
+  const [fCat, setFCat] = useState(false);
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try { const r = await apiFetch("/api/movers"); const d = await r.json(); setBoard(d); return d; }
+    catch (e) { setErr(String(e)); return null; }
+  };
+  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+
+  const startScan = async () => {
+    setErr(null);
+    try { await apiFetch("/api/movers/scan?force=1"); } catch (e) { setErr(String(e)); return; }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+    }, 4000);
+  };
+
+  const status = (board && board.status) || {};
+  const movers = (board && board.movers) || [];
+  const summary = (board && board.summary) || {};
+  const scanning = !!status.scanning;
+
+  const capBucket = (mc) => { if (!mc) return "unknown"; const b = mc / 1e9; if (b >= 200) return "mega"; if (b >= 50) return "large"; if (b >= 10) return "mid"; return "small"; };
+  const filtered = useMemo(() => movers.filter(m => {
+    if (fDir !== "all" && m.direction !== fDir) return false;
+    if (fCap !== "all" && capBucket(m.market_cap) !== fCap) return false;
+    if (minGap && Math.abs(m.gap_pct || 0) < minGap) return false;
+    if (fCat && !m.has_analyst) return false;
+    if (q && !String(m.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [movers, fDir, fCap, minGap, fCat, q]);
+
+  const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  const fmtCap = (v) => { if (!v) return "—"; const b = v / 1e9; return b >= 1 ? `$${b.toFixed(0)}B` : `$${(v / 1e6).toFixed(0)}M`; };
+  const fmtVol = (v) => { if (!v) return "—"; if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`; if (v >= 1e3) return `${(v / 1e3).toFixed(0)}K`; return String(v); };
+
+  const Chips = ({ rows }) => (
+    <div className="ab-chips">
+      {(rows || []).length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+      {(rows || []).map((m, i) => (
+        <button key={m.ticker + i} className={`ab-chip ab-${m.direction === "up" ? "bull" : "bear"}`}
+                onClick={() => onSwitchTicker(m.ticker)} title={(m.reasons || []).join(" · ")}>
+          {m.ticker} <b>{fmtPct(m.gap_pct)}</b>
+        </button>
+      ))}
+    </div>
+  );
+  const SummaryBox = ({ title, tone, children }) => (
+    <div className={`ab-sumbox ${tone || ""}`}><div className="ab-sumbox-title">{title}</div>{children}</div>
+  );
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Pre-market game plan</div>
+          <div className="card-title">What's moving today</div>
+        </div>
+        <div className="ab-controls">
+          <button className="scan-run-btn" onClick={startScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Scan now"}
+          </button>
+        </div>
+      </div>
+      <div className="ab-status">
+        {status.last_scan
+          ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {status.universe_size || 0} names · {movers.length} movers</span>
+          : <span className="muted">No scan yet — click <b>Scan now</b> (needs Schwab; most useful during pre-market hours).</span>}
+        {status.error && <span className="ab-err"> · {status.error}</span>}
+        {err && <span className="ab-err"> · {err}</span>}
+      </div>
+      {scanning && (
+        <div className="ab-progress">
+          <div className="ab-progress-bar" style={{ width: `${status.total ? (status.scanned / status.total * 100) : 0}%` }}></div>
+          <span className="ab-progress-txt">{status.scanned || 0} / {status.total || 0}</span>
+        </div>
+      )}
+
+      {movers.length > 0 && (
+        <div className="ab-summary">
+          <SummaryBox title="Top gainers" tone="up"><Chips rows={summary.top_gainers} /></SummaryBox>
+          <SummaryBox title="Top losers" tone="down"><Chips rows={summary.top_losers} /></SummaryBox>
+          <SummaryBox title="Heaviest volume"><Chips rows={summary.high_relvol} /></SummaryBox>
+          <SummaryBox title="Moving + analyst call" tone="up"><Chips rows={summary.with_catalyst} /></SummaryBox>
+        </div>
+      )}
+
+      {movers.length > 0 && (
+        <div className="ab-filters">
+          <input className="sb-select ab-search" placeholder="Ticker…" value={q} onChange={e => setQ(e.target.value)} />
+          <select className="sb-select" value={fDir} onChange={e => setFDir(e.target.value)}>
+            <option value="all">Up & down</option>
+            <option value="up">Gainers</option>
+            <option value="down">Losers</option>
+          </select>
+          <select className="sb-select" value={fCap} onChange={e => setFCap(e.target.value)}>
+            <option value="all">Any cap</option>
+            <option value="mega">Mega (≥$200B)</option>
+            <option value="large">Large ($50–200B)</option>
+            <option value="mid">Mid ($10–50B)</option>
+            <option value="small">Small (&lt;$10B)</option>
+          </select>
+          <select className="sb-select" value={minGap} onChange={e => setMinGap(+e.target.value)}>
+            <option value={0}>Any move</option>
+            <option value={2}>≥ 2%</option>
+            <option value={5}>≥ 5%</option>
+            <option value={10}>≥ 10%</option>
+          </select>
+          <label className="ab-toggle"><input type="checkbox" checked={fCat} onChange={e => setFCat(e.target.checked)} /> Has analyst call</label>
+        </div>
+      )}
+
+      <div className="ab-board">
+        {movers.length === 0 && !scanning && (
+          <div className="ab-empty">No movers yet. Run a scan (best during pre-market hours, with Schwab connected).</div>
+        )}
+        {filtered.map((m, i) => (
+          <div key={m.ticker + i} className="ab-row" onClick={() => onSwitchTicker(m.ticker)} title="Open this ticker on the Trade tab">
+            <div className={`ab-scorebadge imp-${m.importance}`}>{Math.round(m.score)}</div>
+            <div className="ab-rowmain">
+              <div className="ab-rowtop">
+                <span className="ab-tk">{m.ticker}</span>
+                <span className={`ab-pill ab-${m.direction === "up" ? "bull" : "bear"}`}>{fmtPct(m.gap_pct)}</span>
+                {m.has_analyst && <span className="ab-pill ab-multi">analyst call</span>}
+                {m.company && <span className="ab-company">{m.company}</span>}
+                <span className="ab-sector">{m.sector}</span>
+              </div>
+              <div className="ab-rowsub">
+                <span>Last <b>${Number(m.last || 0).toFixed(2)}</b></span>
+                <span>Pre-mkt vol <b>{fmtVol(m.premarket_vol)}</b></span>
+                {m.rel_vol != null && <span>Rel vol <b>{m.rel_vol}x</b></span>}
+                <span className="ab-cap">{fmtCap(m.market_cap)}</span>
+              </div>
+              {m.reasons && m.reasons.length > 0 && <div className="ab-reasons">{m.reasons.join(" · ")}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WatchlistAlertsCard({ apiFetch, onSwitchTicker }) {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -5457,4 +5609,4 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, MoversCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
