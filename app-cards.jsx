@@ -463,6 +463,7 @@ function AnalystBoardCard({ apiFetch, onSwitchTicker }) {
         {status.last_scan
           ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {status.universe_size || 0} names · {actions.length} actions</span>
           : <span className="muted">No scan yet — click <b>Scan now</b> (a full ~600-name scan takes a few minutes).</span>}
+        <span className="muted"> · Auto-scans weekdays 8:00 AM ET</span>
         {err && <span className="ab-err"> · {err}</span>}
       </div>
       {scanning && (
