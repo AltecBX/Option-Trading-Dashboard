@@ -345,6 +345,214 @@ function VolSkewCard({ calls, puts, currentPrice, ticker, sugCall, sugPut, activ
   );
 }
 
+function AnalystBoardCard({ apiFetch, onSwitchTicker }) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [days, setDays] = useState(2);
+  const [fType, setFType] = useState("all");
+  const [fDir, setFDir] = useState("all");
+  const [fSector, setFSector] = useState("all");
+  const [fCap, setFCap] = useState("all");
+  const [fHigh, setFHigh] = useState(false);
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/analyst_board");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (e) { setErr(String(e)); return null; }
+  };
+
+  useEffect(() => {
+    load();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const startScan = async () => {
+    setErr(null);
+    try { await apiFetch(`/api/analyst_board/scan?days=${days}&force=1`); }
+    catch (e) { setErr(String(e)); return; }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) {
+        clearInterval(pollRef.current); pollRef.current = null;
+      }
+    }, 4000);
+  };
+
+  const status = (board && board.status) || {};
+  const actions = (board && board.actions) || [];
+  const summary = (board && board.summary) || {};
+  const scanning = !!status.scanning;
+
+  const sectors = useMemo(
+    () => Array.from(new Set(actions.map(a => a.sector).filter(Boolean))).sort(),
+    [actions]
+  );
+  const capBucket = (mc) => {
+    if (!mc) return "unknown";
+    const b = mc / 1e9;
+    if (b >= 200) return "mega"; if (b >= 50) return "large";
+    if (b >= 10) return "mid"; return "small";
+  };
+  const filtered = useMemo(() => actions.filter(a => {
+    if (fType !== "all" && a.action_class !== fType) return false;
+    if (fDir !== "all" && a.direction !== fDir) return false;
+    if (fSector !== "all" && a.sector !== fSector) return false;
+    if (fCap !== "all" && capBucket(a.market_cap) !== fCap) return false;
+    if (fHigh && a.importance !== "high") return false;
+    if (q) {
+      const s = q.toLowerCase();
+      if (!String(a.ticker || "").toLowerCase().includes(s) &&
+          !String(a.firm || "").toLowerCase().includes(s)) return false;
+    }
+    return true;
+  }), [actions, fType, fDir, fSector, fCap, fHigh, q]);
+
+  const fmtPct = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  const fmtCap = (v) => { if (!v) return "—"; const b = v / 1e9; return b >= 1 ? `$${b.toFixed(0)}B` : `$${(v / 1e6).toFixed(0)}M`; };
+  const fmt$ = (v) => v == null ? "—" : `$${Number(v).toFixed(2)}`;
+  const actLabel = { upgrade: "Upgrade", downgrade: "Downgrade", initiate: "Initiation", reiterate: "Reiterate", target_change: "PT change" };
+
+  const Chips = ({ rows, withScore }) => (
+    <div className="ab-chips">
+      {(rows || []).length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+      {(rows || []).map((a, i) => (
+        <button key={a.ticker + i} className={`ab-chip ab-${a.direction || "neutral"}`}
+                onClick={() => onSwitchTicker(a.ticker)} title={(a.reasons || []).join(" · ")}>
+          {a.ticker}{a.multi_count > 1 ? ` ·${a.multi_count}` : ""}
+          {withScore && <b>{Math.round(a.score)}</b>}
+        </button>
+      ))}
+    </div>
+  );
+
+  const SummaryBox = ({ title, children, tone }) => (
+    <div className={`ab-sumbox ${tone || ""}`}>
+      <div className="ab-sumbox-title">{title}</div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Pre-market game plan</div>
+          <div className="card-title">Analyst actions that matter</div>
+        </div>
+        <div className="ab-controls">
+          <select className="sb-select ab-days" value={days} onChange={e => setDays(+e.target.value)} title="How far back to look for fresh actions">
+            <option value={1}>Today</option>
+            <option value={2}>2 days</option>
+            <option value={3}>3 days</option>
+            <option value={7}>1 week</option>
+          </select>
+          <button className="scan-run-btn" onClick={startScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Scan now"}
+          </button>
+        </div>
+      </div>
+
+      <div className="ab-status">
+        {status.last_scan
+          ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {status.universe_size || 0} names · {actions.length} actions</span>
+          : <span className="muted">No scan yet — click <b>Scan now</b> (a full ~600-name scan takes a few minutes).</span>}
+        {err && <span className="ab-err"> · {err}</span>}
+      </div>
+      {scanning && (
+        <div className="ab-progress">
+          <div className="ab-progress-bar" style={{ width: `${status.total ? (status.scanned / status.total * 100) : 0}%` }}></div>
+          <span className="ab-progress-txt">{status.scanned || 0} / {status.total || 0}</span>
+        </div>
+      )}
+
+      {actions.length > 0 && (
+        <div className="ab-summary">
+          <SummaryBox title="Top bullish" tone="up"><Chips rows={summary.top_bullish} withScore /></SummaryBox>
+          <SummaryBox title="Top bearish" tone="down"><Chips rows={summary.top_bearish} withScore /></SummaryBox>
+          <SummaryBox title="Multiple firms"><Chips rows={summary.multi_action} /></SummaryBox>
+          <SummaryBox title="Biggest pre-market"><Chips rows={summary.biggest_premarket} /></SummaryBox>
+          <SummaryBox title="Looks meaningful" tone="up"><Chips rows={summary.meaningful} withScore /></SummaryBox>
+          <SummaryBox title="Weak / suspicious" tone="warn"><Chips rows={summary.suspicious} /></SummaryBox>
+          <SummaryBox title="Sectors — bullish">
+            <div className="ab-sectors">{(summary.sectors_positive || []).map(s => <span key={s.sector} className="ab-sectchip up">{s.sector}<b>{s.count}</b></span>)}</div>
+          </SummaryBox>
+          <SummaryBox title="Sectors — bearish">
+            <div className="ab-sectors">{(summary.sectors_negative || []).map(s => <span key={s.sector} className="ab-sectchip down">{s.sector}<b>{s.count}</b></span>)}</div>
+          </SummaryBox>
+          <SummaryBox title="Watch after open"><Chips rows={summary.watch_after_open} withScore /></SummaryBox>
+        </div>
+      )}
+
+      {actions.length > 0 && (
+        <div className="ab-filters">
+          <input className="sb-select ab-search" placeholder="Ticker or firm…" value={q} onChange={e => setQ(e.target.value)} />
+          <select className="sb-select" value={fType} onChange={e => setFType(e.target.value)}>
+            <option value="all">All actions</option>
+            <option value="upgrade">Upgrades</option>
+            <option value="downgrade">Downgrades</option>
+            <option value="initiate">Initiations</option>
+            <option value="target_change">PT changes</option>
+            <option value="reiterate">Reiterations</option>
+          </select>
+          <select className="sb-select" value={fDir} onChange={e => setFDir(e.target.value)}>
+            <option value="all">Bull & bear</option>
+            <option value="bull">Bullish</option>
+            <option value="bear">Bearish</option>
+          </select>
+          <select className="sb-select" value={fCap} onChange={e => setFCap(e.target.value)}>
+            <option value="all">Any cap</option>
+            <option value="mega">Mega (≥$200B)</option>
+            <option value="large">Large ($50–200B)</option>
+            <option value="mid">Mid ($10–50B)</option>
+            <option value="small">Small (&lt;$10B)</option>
+          </select>
+          <select className="sb-select" value={fSector} onChange={e => setFSector(e.target.value)}>
+            <option value="all">All sectors</option>
+            {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <label className="ab-toggle"><input type="checkbox" checked={fHigh} onChange={e => setFHigh(e.target.checked)} /> High impact only</label>
+        </div>
+      )}
+
+      <div className="ab-board">
+        {actions.length === 0 && !scanning && (
+          <div className="ab-empty">No analyst actions yet. Run a scan to build this morning's board.</div>
+        )}
+        {filtered.map((a, i) => (
+          <div key={a.ticker + a.firm + i} className="ab-row" onClick={() => onSwitchTicker(a.ticker)} title="Open this ticker on the Trade tab">
+            <div className={`ab-scorebadge imp-${a.importance}`}>{Math.round(a.score)}</div>
+            <div className="ab-rowmain">
+              <div className="ab-rowtop">
+                <span className="ab-tk">{a.ticker}</span>
+                <span className={`ab-pill ab-${a.direction}`}>{actLabel[a.action_class] || a.action_class}</span>
+                {a.multi_count > 1 && <span className="ab-pill ab-multi">{a.multi_count} firms</span>}
+                {a.suspicious && <span className="ab-pill ab-warn">weak move</span>}
+                {a.company && <span className="ab-company">{a.company}</span>}
+                <span className="ab-sector">{a.sector}</span>
+              </div>
+              <div className="ab-rowsub">
+                <span className="ab-firm">{a.firm || "—"}</span>
+                {(a.prior_grade || a.new_grade) && <span>{a.prior_grade || "—"} → <b>{a.new_grade || "—"}</b></span>}
+                {(a.prior_target || a.new_target) && <span>PT {fmt$(a.prior_target)} → <b>{fmt$(a.new_target)}</b>{a.target_change_pct != null ? ` (${fmtPct(a.target_change_pct)})` : ""}</span>}
+                <span className={`ab-pm ${(a.premarket_pct || 0) >= 0 ? "up" : "down"}`}>{fmtPct(a.premarket_pct)} pre</span>
+                <span className="ab-cap">{fmtCap(a.market_cap)}</span>
+              </div>
+              {a.reasons && a.reasons.length > 0 && <div className="ab-reasons">{a.reasons.join(" · ")}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WatchlistAlertsCard({ apiFetch, onSwitchTicker }) {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -5229,4 +5437,4 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });

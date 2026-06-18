@@ -128,6 +128,9 @@ const TABS = [{
   id: "trade",
   label: "Trade"
 }, {
+  id: "mornings",
+  label: "Mornings"
+}, {
   id: "analyze",
   label: "Analyze"
 }, {

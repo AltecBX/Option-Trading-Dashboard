@@ -7445,3 +7445,112 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* Vol-skew headline stat gets a touch of glow */
 .vs-stat-val { text-shadow: 0 0 12px color-mix(in oklch, var(--fg), transparent 80%); }
+
+/* ════════════════════════════════════════════════════════════════════
+   Mornings tab — analyst action board (v1.44)
+   ════════════════════════════════════════════════════════════════════ */
+.ab-controls { display: flex; align-items: center; gap: 8px; }
+.ab-days { width: auto; padding: 6px 8px; }
+.ab-status { font-size: 12px; color: var(--fg-2); font-family: var(--font-mono); margin-bottom: 10px; }
+.ab-err { color: var(--down); }
+
+.ab-progress {
+  position: relative; height: 22px; border-radius: 999px;
+  background: var(--bg-3); border: 1px solid var(--line);
+  overflow: hidden; margin-bottom: 14px;
+}
+.ab-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--accent), transparent 35%), var(--accent));
+  transition: width 0.4s ease;
+}
+.ab-progress-txt {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--fg);
+}
+
+/* Game-plan summary grid */
+.ab-summary {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px; margin-bottom: 16px;
+}
+.ab-sumbox {
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--bg);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+}
+.ab-sumbox.up   { border-color: color-mix(in oklch, var(--up), transparent 70%); }
+.ab-sumbox.down { border-color: color-mix(in oklch, var(--down), transparent 70%); }
+.ab-sumbox.warn { border-color: color-mix(in oklch, var(--warn), transparent 70%); }
+.ab-sumbox-title {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-3); margin-bottom: 8px;
+}
+.ab-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ab-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  padding: 3px 8px; border-radius: 999px; cursor: pointer;
+  background: var(--bg-3); border: 1px solid var(--line); color: var(--fg);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.ab-chip:hover { transform: translateY(-1px); border-color: var(--line-2); }
+.ab-chip b { font-size: 10px; opacity: 0.8; }
+.ab-chip.ab-bull { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 65%); }
+.ab-chip.ab-bear { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 65%); }
+.ab-sectors { display: flex; flex-wrap: wrap; gap: 5px; }
+.ab-sectchip {
+  display: inline-flex; gap: 6px; font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 8px; background: var(--bg-3); border: 1px solid var(--line);
+}
+.ab-sectchip b { font-family: var(--font-mono); }
+.ab-sectchip.up b { color: var(--up); }
+.ab-sectchip.down b { color: var(--down); }
+
+/* Filters */
+.ab-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+.ab-filters .sb-select { width: auto; }
+.ab-search { min-width: 150px; }
+.ab-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); cursor: pointer; }
+
+/* Ranked board */
+.ab-board { display: flex; flex-direction: column; gap: 8px; }
+.ab-empty { padding: 28px 8px; text-align: center; color: var(--fg-3); font-family: var(--font-mono); font-size: 13px; }
+.ab-row {
+  display: flex; gap: 12px; align-items: stretch;
+  padding: 10px 12px; border-radius: 12px;
+  background: linear-gradient(180deg, var(--sheen), transparent), var(--bg);
+  border: 1px solid var(--line); cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.ab-row:hover { transform: translateY(-1px); border-color: var(--line-2); box-shadow: var(--shadow-hover); }
+.ab-scorebadge {
+  flex: 0 0 auto; width: 46px; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 18px; font-weight: 800;
+  border-radius: 10px; color: var(--fg);
+}
+.ab-scorebadge.imp-high   { background: color-mix(in oklch, var(--accent), transparent 80%); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent), transparent 60%); }
+.ab-scorebadge.imp-medium { background: var(--bg-3); }
+.ab-scorebadge.imp-low    { background: var(--bg-3); color: var(--fg-3); }
+.ab-rowmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ab-rowtop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ab-tk { font-family: var(--font-display); font-weight: 800; font-size: 15px; letter-spacing: -0.01em; }
+.ab-pill {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; background: var(--bg-3); color: var(--fg-2);
+}
+.ab-pill.ab-bull { background: color-mix(in oklch, var(--up), transparent 84%); color: var(--up); }
+.ab-pill.ab-bear { background: color-mix(in oklch, var(--down), transparent 84%); color: var(--down); }
+.ab-pill.ab-multi { background: color-mix(in oklch, var(--accent), transparent 82%); color: var(--accent); }
+.ab-pill.ab-warn { background: color-mix(in oklch, var(--warn), transparent 80%); color: var(--warn); }
+.ab-company { font-size: 12px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.ab-sector { font-size: 11px; color: var(--fg-3); margin-left: auto; }
+.ab-rowsub { display: flex; flex-wrap: wrap; gap: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
+.ab-rowsub b { color: var(--fg); }
+.ab-firm { color: var(--fg); font-weight: 600; }
+.ab-pm.up { color: var(--up); } .ab-pm.down { color: var(--down); }
+.ab-cap { color: var(--fg-3); }
+.ab-reasons { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
+@media (max-width: 640px) {
+  .ab-summary { grid-template-columns: 1fr 1fr; }
+  .ab-sector { margin-left: 0; }
+}

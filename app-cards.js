@@ -482,6 +482,314 @@ function VolSkewCard({
     }
   }, "Call skew — upside is more expensive than downside")));
 }
+function AnalystBoardCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [days, setDays] = useState(2);
+  const [fType, setFType] = useState("all");
+  const [fDir, setFDir] = useState("all");
+  const [fSector, setFSector] = useState("all");
+  const [fCap, setFCap] = useState("all");
+  const [fHigh, setFHigh] = useState(false);
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/analyst_board");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (e) {
+      setErr(String(e));
+      return null;
+    }
+  };
+  useEffect(() => {
+    load();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try {
+      await apiFetch(`/api/analyst_board/scan?days=${days}&force=1`);
+    } catch (e) {
+      setErr(String(e));
+      return;
+    }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 4000);
+  };
+  const status = board && board.status || {};
+  const actions = board && board.actions || [];
+  const summary = board && board.summary || {};
+  const scanning = !!status.scanning;
+  const sectors = useMemo(() => Array.from(new Set(actions.map(a => a.sector).filter(Boolean))).sort(), [actions]);
+  const capBucket = mc => {
+    if (!mc) return "unknown";
+    const b = mc / 1e9;
+    if (b >= 200) return "mega";
+    if (b >= 50) return "large";
+    if (b >= 10) return "mid";
+    return "small";
+  };
+  const filtered = useMemo(() => actions.filter(a => {
+    if (fType !== "all" && a.action_class !== fType) return false;
+    if (fDir !== "all" && a.direction !== fDir) return false;
+    if (fSector !== "all" && a.sector !== fSector) return false;
+    if (fCap !== "all" && capBucket(a.market_cap) !== fCap) return false;
+    if (fHigh && a.importance !== "high") return false;
+    if (q) {
+      const s = q.toLowerCase();
+      if (!String(a.ticker || "").toLowerCase().includes(s) && !String(a.firm || "").toLowerCase().includes(s)) return false;
+    }
+    return true;
+  }), [actions, fType, fDir, fSector, fCap, fHigh, q]);
+  const fmtPct = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  const fmtCap = v => {
+    if (!v) return "—";
+    const b = v / 1e9;
+    return b >= 1 ? `$${b.toFixed(0)}B` : `$${(v / 1e6).toFixed(0)}M`;
+  };
+  const fmt$ = v => v == null ? "—" : `$${Number(v).toFixed(2)}`;
+  const actLabel = {
+    upgrade: "Upgrade",
+    downgrade: "Downgrade",
+    initiate: "Initiation",
+    reiterate: "Reiterate",
+    target_change: "PT change"
+  };
+  const Chips = ({
+    rows,
+    withScore
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "ab-chips"
+  }, (rows || []).length === 0 && /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, "—"), (rows || []).map((a, i) => /*#__PURE__*/React.createElement("button", {
+    key: a.ticker + i,
+    className: `ab-chip ab-${a.direction || "neutral"}`,
+    onClick: () => onSwitchTicker(a.ticker),
+    title: (a.reasons || []).join(" · ")
+  }, a.ticker, a.multi_count > 1 ? ` ·${a.multi_count}` : "", withScore && /*#__PURE__*/React.createElement("b", null, Math.round(a.score)))));
+  const SummaryBox = ({
+    title,
+    children,
+    tone
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `ab-sumbox ${tone || ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-sumbox-title"
+  }, title), children);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card ab-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Pre-market game plan"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Analyst actions that matter")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-controls"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "sb-select ab-days",
+    value: days,
+    onChange: e => setDays(+e.target.value),
+    title: "How far back to look for fresh actions"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: 1
+  }, "Today"), /*#__PURE__*/React.createElement("option", {
+    value: 2
+  }, "2 days"), /*#__PURE__*/React.createElement("option", {
+    value: 3
+  }, "3 days"), /*#__PURE__*/React.createElement("option", {
+    value: 7
+  }, "1 week")), /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: scanning
+  }, scanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " · ", status.universe_size || 0, " names · ", actions.length, " actions") : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "No scan yet — click ", /*#__PURE__*/React.createElement("b", null, "Scan now"), " (a full ~600-name scan takes a few minutes)."), err && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", err)), scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress-bar",
+    style: {
+      width: `${status.total ? status.scanned / status.total * 100 : 0}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ab-progress-txt"
+  }, status.scanned || 0, " / ", status.total || 0)), actions.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-summary"
+  }, /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Top bullish",
+    tone: "up"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.top_bullish,
+    withScore: true
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Top bearish",
+    tone: "down"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.top_bearish,
+    withScore: true
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Multiple firms"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.multi_action
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Biggest pre-market"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.biggest_premarket
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Looks meaningful",
+    tone: "up"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.meaningful,
+    withScore: true
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Weak / suspicious",
+    tone: "warn"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.suspicious
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Sectors — bullish"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-sectors"
+  }, (summary.sectors_positive || []).map(s => /*#__PURE__*/React.createElement("span", {
+    key: s.sector,
+    className: "ab-sectchip up"
+  }, s.sector, /*#__PURE__*/React.createElement("b", null, s.count))))), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Sectors — bearish"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-sectors"
+  }, (summary.sectors_negative || []).map(s => /*#__PURE__*/React.createElement("span", {
+    key: s.sector,
+    className: "ab-sectchip down"
+  }, s.sector, /*#__PURE__*/React.createElement("b", null, s.count))))), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Watch after open"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.watch_after_open,
+    withScore: true
+  }))), actions.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-filters"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "sb-select ab-search",
+    placeholder: "Ticker or firm…",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fType,
+    onChange: e => setFType(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All actions"), /*#__PURE__*/React.createElement("option", {
+    value: "upgrade"
+  }, "Upgrades"), /*#__PURE__*/React.createElement("option", {
+    value: "downgrade"
+  }, "Downgrades"), /*#__PURE__*/React.createElement("option", {
+    value: "initiate"
+  }, "Initiations"), /*#__PURE__*/React.createElement("option", {
+    value: "target_change"
+  }, "PT changes"), /*#__PURE__*/React.createElement("option", {
+    value: "reiterate"
+  }, "Reiterations")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fDir,
+    onChange: e => setFDir(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Bull & bear"), /*#__PURE__*/React.createElement("option", {
+    value: "bull"
+  }, "Bullish"), /*#__PURE__*/React.createElement("option", {
+    value: "bear"
+  }, "Bearish")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fCap,
+    onChange: e => setFCap(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Any cap"), /*#__PURE__*/React.createElement("option", {
+    value: "mega"
+  }, "Mega (≥$200B)"), /*#__PURE__*/React.createElement("option", {
+    value: "large"
+  }, "Large ($50–200B)"), /*#__PURE__*/React.createElement("option", {
+    value: "mid"
+  }, "Mid ($10–50B)"), /*#__PURE__*/React.createElement("option", {
+    value: "small"
+  }, "Small (<$10B)")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fSector,
+    onChange: e => setFSector(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All sectors"), sectors.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s))), /*#__PURE__*/React.createElement("label", {
+    className: "ab-toggle"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: fHigh,
+    onChange: e => setFHigh(e.target.checked)
+  }), " High impact only")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-board"
+  }, actions.length === 0 && !scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-empty"
+  }, "No analyst actions yet. Run a scan to build this morning's board."), filtered.map((a, i) => /*#__PURE__*/React.createElement("div", {
+    key: a.ticker + a.firm + i,
+    className: "ab-row",
+    onClick: () => onSwitchTicker(a.ticker),
+    title: "Open this ticker on the Trade tab"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `ab-scorebadge imp-${a.importance}`
+  }, Math.round(a.score)), /*#__PURE__*/React.createElement("div", {
+    className: "ab-rowmain"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-rowtop"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ab-tk"
+  }, a.ticker), /*#__PURE__*/React.createElement("span", {
+    className: `ab-pill ab-${a.direction}`
+  }, actLabel[a.action_class] || a.action_class), a.multi_count > 1 && /*#__PURE__*/React.createElement("span", {
+    className: "ab-pill ab-multi"
+  }, a.multi_count, " firms"), a.suspicious && /*#__PURE__*/React.createElement("span", {
+    className: "ab-pill ab-warn"
+  }, "weak move"), a.company && /*#__PURE__*/React.createElement("span", {
+    className: "ab-company"
+  }, a.company), /*#__PURE__*/React.createElement("span", {
+    className: "ab-sector"
+  }, a.sector)), /*#__PURE__*/React.createElement("div", {
+    className: "ab-rowsub"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ab-firm"
+  }, a.firm || "—"), (a.prior_grade || a.new_grade) && /*#__PURE__*/React.createElement("span", null, a.prior_grade || "—", " → ", /*#__PURE__*/React.createElement("b", null, a.new_grade || "—")), (a.prior_target || a.new_target) && /*#__PURE__*/React.createElement("span", null, "PT ", fmt$(a.prior_target), " → ", /*#__PURE__*/React.createElement("b", null, fmt$(a.new_target)), a.target_change_pct != null ? ` (${fmtPct(a.target_change_pct)})` : ""), /*#__PURE__*/React.createElement("span", {
+    className: `ab-pm ${(a.premarket_pct || 0) >= 0 ? "up" : "down"}`
+  }, fmtPct(a.premarket_pct), " pre"), /*#__PURE__*/React.createElement("span", {
+    className: "ab-cap"
+  }, fmtCap(a.market_cap))), a.reasons && a.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-reasons"
+  }, a.reasons.join(" · ")))))));
+}
 function WatchlistAlertsCard({
   apiFetch,
   onSwitchTicker
@@ -6017,6 +6325,7 @@ function AddPositionForm({
 Object.assign(window, {
   TickerLogo,
   VolSkewCard,
+  AnalystBoardCard,
   WatchlistAlertsCard,
   TabBar,
   TabPanel,
