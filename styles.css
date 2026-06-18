@@ -7554,3 +7554,17 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .ab-summary { grid-template-columns: 1fr 1fr; }
   .ab-sector { margin-left: 0; }
 }
+
+/* Mornings tab — analyst action date pill (v1.48) */
+.ab-datepill {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in oklch, var(--accent) 28%, transparent);
+  white-space: nowrap;
+}
