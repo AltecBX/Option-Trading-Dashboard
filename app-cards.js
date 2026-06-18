@@ -823,6 +823,206 @@ function AnalystBoardCard({
     className: "ab-reasons"
   }, a.reasons.join(" · ")))))));
 }
+function IVRankCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [fReg, setFReg] = useState("all");
+  const [fVolTrend, setFVolTrend] = useState("all");
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/ivrank");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (e) {
+      setErr(String(e));
+      return null;
+    }
+  };
+  useEffect(() => {
+    load();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try {
+      await apiFetch("/api/ivrank/scan?force=1");
+    } catch (e) {
+      setErr(String(e));
+      return;
+    }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 4000);
+  };
+  const status = board && board.status || {};
+  const rows = board && board.rows || [];
+  const summary = board && board.summary || {};
+  const scanning = !!status.scanning;
+  const filtered = useMemo(() => rows.filter(r => {
+    if (fReg !== "all" && r.regime !== fReg) return false;
+    if (fVolTrend === "expanding" && !r.expanding) return false;
+    if (fVolTrend === "contracting" && !r.contracting) return false;
+    if (q && !String(r.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [rows, fReg, fVolTrend, q]);
+  const regimeTone = rg => rg === "rich" ? "bull" : rg === "cheap" ? "bear" : "neutral";
+  const Chips = ({
+    rows
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "ab-chips"
+  }, (rows || []).length === 0 && /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, "—"), (rows || []).map((r, i) => /*#__PURE__*/React.createElement("button", {
+    key: r.ticker + i,
+    className: `ab-chip ab-${regimeTone(r.regime)}`,
+    onClick: () => onSwitchTicker(r.ticker),
+    title: (r.reasons || []).join(" · ")
+  }, r.ticker, " ", /*#__PURE__*/React.createElement("b", null, Math.round(r.rank)))));
+  const SummaryBox = ({
+    title,
+    tone,
+    children
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `ab-sumbox ${tone || ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-sumbox-title"
+  }, title), children);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card ab-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Premium selling"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Volatility rank")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-controls"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: scanning
+  }, scanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " · ", status.universe_size || 0, " names · ", rows.length, " ranked") : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "No scan yet — ranks ~600 names by where their volatility sits in its 1-year range (rich = good for selling premium)."), status.error && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", status.error), err && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", err)), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status muted",
+    style: {
+      marginTop: -6
+    }
+  }, "Free realized-vol proxy for IV rank — exact option IV shows on the Trade tab per name."), scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress-bar",
+    style: {
+      width: `${status.total ? status.scanned / status.total * 100 : 0}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ab-progress-txt"
+  }, status.scanned || 0, " / ", status.total || 0)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-summary"
+  }, /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Richest premium (sell)",
+    tone: "up"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.richest
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Cheapest vol (buy)",
+    tone: "down"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.cheapest
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Vol expanding",
+    tone: "warn"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.expanding
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Vol contracting"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.contracting
+  }))), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-filters"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "sb-select ab-search",
+    placeholder: "Ticker…",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fReg,
+    onChange: e => setFReg(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Any regime"), /*#__PURE__*/React.createElement("option", {
+    value: "rich"
+  }, "Rich (rank ≥70)"), /*#__PURE__*/React.createElement("option", {
+    value: "elevated"
+  }, "Elevated"), /*#__PURE__*/React.createElement("option", {
+    value: "normal"
+  }, "Normal"), /*#__PURE__*/React.createElement("option", {
+    value: "cheap"
+  }, "Cheap (rank <30)")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fVolTrend,
+    onChange: e => setFVolTrend(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Any vol trend"), /*#__PURE__*/React.createElement("option", {
+    value: "expanding"
+  }, "Vol expanding"), /*#__PURE__*/React.createElement("option", {
+    value: "contracting"
+  }, "Vol contracting"))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-board"
+  }, rows.length === 0 && !scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-empty"
+  }, "No vol data yet. Run a scan to rank the universe by volatility."), filtered.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: r.ticker + i,
+    className: "ab-row",
+    onClick: () => onSwitchTicker(r.ticker),
+    title: "Open this ticker on the Trade tab"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `ab-scorebadge imp-${r.importance}`
+  }, Math.round(r.rank)), /*#__PURE__*/React.createElement("div", {
+    className: "ab-rowmain"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-rowtop"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ab-tk"
+  }, r.ticker), /*#__PURE__*/React.createElement("span", {
+    className: `ab-pill ab-${regimeTone(r.regime)}`
+  }, r.regime), r.expanding && /*#__PURE__*/React.createElement("span", {
+    className: "ab-pill ab-warn"
+  }, "vol ↑"), r.contracting && /*#__PURE__*/React.createElement("span", {
+    className: "ab-pill ab-multi"
+  }, "vol ↓"), /*#__PURE__*/React.createElement("span", {
+    className: "ab-sector"
+  }, "$", Number(r.last || 0).toFixed(2))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-rowsub"
+  }, /*#__PURE__*/React.createElement("span", null, "HV ", /*#__PURE__*/React.createElement("b", null, r.hv, "%")), /*#__PURE__*/React.createElement("span", null, "1y range ", /*#__PURE__*/React.createElement("b", null, r.hv_low, "–", r.hv_high, "%")), /*#__PURE__*/React.createElement("span", null, "Vol rank ", /*#__PURE__*/React.createElement("b", null, Math.round(r.rank))), /*#__PURE__*/React.createElement("span", null, "Pctile ", /*#__PURE__*/React.createElement("b", null, Math.round(r.percentile)))), r.reasons && r.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-reasons"
+  }, r.reasons.join(" · ")))))));
+}
 function TrendCard({
   apiFetch,
   onSwitchTicker
@@ -6828,6 +7028,7 @@ Object.assign(window, {
   AnalystBoardCard,
   MoversCard,
   TrendCard,
+  IVRankCard,
   WatchlistAlertsCard,
   TabBar,
   TabPanel,

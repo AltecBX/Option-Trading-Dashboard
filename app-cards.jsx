@@ -573,6 +573,146 @@ function AnalystBoardCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+function IVRankCard({ apiFetch, onSwitchTicker }) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [fReg, setFReg] = useState("all");
+  const [fVolTrend, setFVolTrend] = useState("all");
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try { const r = await apiFetch("/api/ivrank"); const d = await r.json(); setBoard(d); return d; }
+    catch (e) { setErr(String(e)); return null; }
+  };
+  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  const startScan = async () => {
+    setErr(null);
+    try { await apiFetch("/api/ivrank/scan?force=1"); } catch (e) { setErr(String(e)); return; }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+    }, 4000);
+  };
+
+  const status = (board && board.status) || {};
+  const rows = (board && board.rows) || [];
+  const summary = (board && board.summary) || {};
+  const scanning = !!status.scanning;
+
+  const filtered = useMemo(() => rows.filter(r => {
+    if (fReg !== "all" && r.regime !== fReg) return false;
+    if (fVolTrend === "expanding" && !r.expanding) return false;
+    if (fVolTrend === "contracting" && !r.contracting) return false;
+    if (q && !String(r.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [rows, fReg, fVolTrend, q]);
+
+  const regimeTone = (rg) => rg === "rich" ? "bull" : rg === "cheap" ? "bear" : "neutral";
+  const Chips = ({ rows }) => (
+    <div className="ab-chips">
+      {(rows || []).length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+      {(rows || []).map((r, i) => (
+        <button key={r.ticker + i} className={`ab-chip ab-${regimeTone(r.regime)}`}
+                onClick={() => onSwitchTicker(r.ticker)} title={(r.reasons || []).join(" · ")}>
+          {r.ticker} <b>{Math.round(r.rank)}</b>
+        </button>
+      ))}
+    </div>
+  );
+  const SummaryBox = ({ title, tone, children }) => (
+    <div className={`ab-sumbox ${tone || ""}`}><div className="ab-sumbox-title">{title}</div>{children}</div>
+  );
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Premium selling</div>
+          <div className="card-title">Volatility rank</div>
+        </div>
+        <div className="ab-controls">
+          <button className="scan-run-btn" onClick={startScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Scan now"}
+          </button>
+        </div>
+      </div>
+      <div className="ab-status">
+        {status.last_scan
+          ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {status.universe_size || 0} names · {rows.length} ranked</span>
+          : <span className="muted">No scan yet — ranks ~600 names by where their volatility sits in its 1-year range (rich = good for selling premium).</span>}
+        {status.error && <span className="ab-err"> · {status.error}</span>}
+        {err && <span className="ab-err"> · {err}</span>}
+      </div>
+      <div className="ab-status muted" style={{ marginTop: -6 }}>
+        Free realized-vol proxy for IV rank — exact option IV shows on the Trade tab per name.
+      </div>
+      {scanning && (
+        <div className="ab-progress">
+          <div className="ab-progress-bar" style={{ width: `${status.total ? (status.scanned / status.total * 100) : 0}%` }}></div>
+          <span className="ab-progress-txt">{status.scanned || 0} / {status.total || 0}</span>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="ab-summary">
+          <SummaryBox title="Richest premium (sell)" tone="up"><Chips rows={summary.richest} /></SummaryBox>
+          <SummaryBox title="Cheapest vol (buy)" tone="down"><Chips rows={summary.cheapest} /></SummaryBox>
+          <SummaryBox title="Vol expanding" tone="warn"><Chips rows={summary.expanding} /></SummaryBox>
+          <SummaryBox title="Vol contracting"><Chips rows={summary.contracting} /></SummaryBox>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="ab-filters">
+          <input className="sb-select ab-search" placeholder="Ticker…" value={q} onChange={e => setQ(e.target.value)} />
+          <select className="sb-select" value={fReg} onChange={e => setFReg(e.target.value)}>
+            <option value="all">Any regime</option>
+            <option value="rich">Rich (rank ≥70)</option>
+            <option value="elevated">Elevated</option>
+            <option value="normal">Normal</option>
+            <option value="cheap">Cheap (rank &lt;30)</option>
+          </select>
+          <select className="sb-select" value={fVolTrend} onChange={e => setFVolTrend(e.target.value)}>
+            <option value="all">Any vol trend</option>
+            <option value="expanding">Vol expanding</option>
+            <option value="contracting">Vol contracting</option>
+          </select>
+        </div>
+      )}
+
+      <div className="ab-board">
+        {rows.length === 0 && !scanning && (
+          <div className="ab-empty">No vol data yet. Run a scan to rank the universe by volatility.</div>
+        )}
+        {filtered.map((r, i) => (
+          <div key={r.ticker + i} className="ab-row" onClick={() => onSwitchTicker(r.ticker)} title="Open this ticker on the Trade tab">
+            <div className={`ab-scorebadge imp-${r.importance}`}>{Math.round(r.rank)}</div>
+            <div className="ab-rowmain">
+              <div className="ab-rowtop">
+                <span className="ab-tk">{r.ticker}</span>
+                <span className={`ab-pill ab-${regimeTone(r.regime)}`}>{r.regime}</span>
+                {r.expanding && <span className="ab-pill ab-warn">vol ↑</span>}
+                {r.contracting && <span className="ab-pill ab-multi">vol ↓</span>}
+                <span className="ab-sector">${Number(r.last || 0).toFixed(2)}</span>
+              </div>
+              <div className="ab-rowsub">
+                <span>HV <b>{r.hv}%</b></span>
+                <span>1y range <b>{r.hv_low}–{r.hv_high}%</b></span>
+                <span>Vol rank <b>{Math.round(r.rank)}</b></span>
+                <span>Pctile <b>{Math.round(r.percentile)}</b></span>
+              </div>
+              {r.reasons && r.reasons.length > 0 && <div className="ab-reasons">{r.reasons.join(" · ")}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TrendCard({ apiFetch, onSwitchTicker }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -5762,4 +5902,4 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, MoversCard, TrendCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
