@@ -112,6 +112,15 @@ except Exception as _exc:  # noqa: BLE001
     _MOVERS_AVAILABLE = False
     _movers = None  # type: ignore
 
+# Trend / momentum screener — MA stack, 52wk high/low, RSI, streaks.
+try:
+    import trend as _trend
+    _TREND_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[trend] module load failed: {_exc}", file=sys.stderr)
+    _TREND_AVAILABLE = False
+    _trend = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -5261,6 +5270,33 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 _log_warn(symbol, "api/trade_builder/multi_exp", exc)
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/trend":
+            if not _TREND_AVAILABLE:
+                self._send_json({"error": "trend unavailable"}, status=503)
+                return
+            try:
+                self._send_json(_trend.get_board())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/trend", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/trend/scan":
+            if not _TREND_AVAILABLE:
+                self._send_json({"error": "trend unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:
+                syms = []
+            try:
+                self._send_json(_trend.trigger_scan(syms, force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/trend/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/movers":
             if not _MOVERS_AVAILABLE:

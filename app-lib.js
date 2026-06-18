@@ -134,6 +134,9 @@ const TABS = [{
   id: "movers",
   label: "Movers"
 }, {
+  id: "trend",
+  label: "Trend"
+}, {
   id: "analyze",
   label: "Analyze"
 }, {
