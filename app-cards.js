@@ -563,6 +563,21 @@ function AnalystBoardCard({
     return b >= 1 ? `$${b.toFixed(0)}B` : `$${(v / 1e6).toFixed(0)}M`;
   };
   const fmt$ = v => v == null ? "—" : `$${Number(v).toFixed(2)}`;
+  const fmtDate = d => {
+    if (!d) return "";
+    const s = String(d).slice(0, 10);
+    const dt = new Date(s + "T00:00:00");
+    if (isNaN(dt)) return s;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const days = Math.round((today - dt) / 86400000);
+    const rel = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
+    const md = dt.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric"
+    });
+    return `${md} · ${rel}`;
+  };
   const actLabel = {
     upgrade: "Upgrade",
     downgrade: "Downgrade",
@@ -776,7 +791,10 @@ function AnalystBoardCard({
     className: "ab-pill ab-multi"
   }, a.multi_count, " firms"), a.suspicious && /*#__PURE__*/React.createElement("span", {
     className: "ab-pill ab-warn"
-  }, "weak move"), a.company && /*#__PURE__*/React.createElement("span", {
+  }, "weak move"), a.date && /*#__PURE__*/React.createElement("span", {
+    className: "ab-datepill",
+    title: `Analyst action dated ${a.date}`
+  }, fmtDate(a.date)), a.company && /*#__PURE__*/React.createElement("span", {
     className: "ab-company"
   }, a.company), /*#__PURE__*/React.createElement("span", {
     className: "ab-sector"
