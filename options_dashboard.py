@@ -6319,7 +6319,18 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                     return [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
                 except Exception:
                     return []
-            _analyst_board.start_scheduler(get_watchlist_fn=_wl_syms, hour=8, minute=0)
+
+            def _morning_push(title, message):
+                # No-op unless Pushover is configured (PUSHOVER_* env vars).
+                if _pushover_configured():
+                    try:
+                        _pushover_send(title, message, priority=0)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[analyst_board] push failed: {e}", file=sys.stderr)
+
+            _analyst_board.start_scheduler(
+                get_watchlist_fn=_wl_syms, notify_fn=_morning_push,
+                hour=8, minute=0)
         except Exception as exc:  # noqa: BLE001
             print(f"[analyst_board] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can

@@ -500,11 +500,36 @@ def trigger_scan(watchlist_syms: list[str] | None = None,
 _SCHED_THREAD: threading.Thread | None = None
 
 
-def start_scheduler(get_watchlist_fn=None, hour: int = 8, minute: int = 0,
-                    tz: str = "America/New_York") -> None:
+def _compose_push(board: dict) -> tuple[str, str]:
+    """Concise morning push: top bullish/bearish calls + high-impact count."""
+    s = board.get("summary", {})
+    acts = board.get("actions", [])
+    n_high = sum(1 for a in acts if a.get("importance") == "high")
+
+    def line(a):
+        d = "▲" if a.get("direction") == "bull" else "▼" if a.get("direction") == "bear" else "•"
+        extra = f" ·{a['multi_count']}f" if a.get("multi_count", 1) > 1 else ""
+        return f"{d}{a.get('ticker')} {int(a.get('score', 0))}{extra}"
+
+    parts = []
+    if s.get("top_bullish"):
+        parts.append("Bull: " + ", ".join(line(a) for a in s["top_bullish"][:3]))
+    if s.get("top_bearish"):
+        parts.append("Bear: " + ", ".join(line(a) for a in s["top_bearish"][:3]))
+    if s.get("multi_action"):
+        parts.append("Multi-firm: " + ", ".join(a.get("ticker") for a in s["multi_action"][:4]))
+    body = "\n".join(parts) or "No notable analyst actions this morning."
+    title = f"Jerry • {len(acts)} analyst calls ({n_high} high-impact)"
+    return title, body
+
+
+def start_scheduler(get_watchlist_fn=None, notify_fn=None, hour: int = 8,
+                    minute: int = 0, tz: str = "America/New_York") -> None:
     """Run one scan each weekday morning in a 1-hour window starting at
     `hour:minute` (market timezone). Idempotent; checks once a minute so a
-    server restart before/within the window still catches the morning."""
+    server restart before/within the window still catches the morning.
+    After the scan finishes, `notify_fn(title, message)` (if given) is
+    called with the top calls."""
     global _SCHED_THREAD
     if _SCHED_THREAD is not None:
         return
@@ -536,6 +561,19 @@ def start_scheduler(get_watchlist_fn=None, hour: int = 8, minute: int = 0,
                         print(f"[analyst_board] auto-scan started "
                               f"{now.isoformat()} ({res.get('total')} names)",
                               file=__import__("sys").stderr)
+                        # Wait for completion (~up to 15 min), then push.
+                        if notify_fn:
+                            for _ in range(60):
+                                time.sleep(15)
+                                if not get_board()["status"]["scanning"]:
+                                    break
+                            try:
+                                b = get_board()
+                                if b.get("count"):
+                                    title, msg = _compose_push(b)
+                                    notify_fn(title, msg)
+                            except Exception:
+                                pass
             except Exception:
                 pass
             time.sleep(60)
