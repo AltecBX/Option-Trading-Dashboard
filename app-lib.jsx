@@ -101,6 +101,7 @@ const TABS = [
   { id: "mornings", label: "Mornings" },
   { id: "movers", label: "Movers" },
   { id: "trend", label: "Trend" },
+  { id: "ivrank", label: "Vol Rank" },
   { id: "analyze", label: "Analyze" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },

@@ -121,6 +121,15 @@ except Exception as _exc:  # noqa: BLE001
     _TREND_AVAILABLE = False
     _trend = None  # type: ignore
 
+# Volatility-rank screener — realized-vol rank for premium selling.
+try:
+    import ivrank as _ivrank
+    _IVRANK_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[ivrank] module load failed: {_exc}", file=sys.stderr)
+    _IVRANK_AVAILABLE = False
+    _ivrank = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -5270,6 +5279,33 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 _log_warn(symbol, "api/trade_builder/multi_exp", exc)
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/ivrank":
+            if not _IVRANK_AVAILABLE:
+                self._send_json({"error": "ivrank unavailable"}, status=503)
+                return
+            try:
+                self._send_json(_ivrank.get_board())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/ivrank", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/ivrank/scan":
+            if not _IVRANK_AVAILABLE:
+                self._send_json({"error": "ivrank unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:
+                syms = []
+            try:
+                self._send_json(_ivrank.trigger_scan(syms, force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/ivrank/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/trend":
             if not _TREND_AVAILABLE:

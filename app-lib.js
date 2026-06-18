@@ -137,6 +137,9 @@ const TABS = [{
   id: "trend",
   label: "Trend"
 }, {
+  id: "ivrank",
+  label: "Vol Rank"
+}, {
   id: "analyze",
   label: "Analyze"
 }, {
