@@ -564,12 +564,8 @@ function AnalystBoardCard({
     return true;
   }), [actions, fType, fDir, fSector, fCap, fHigh, fToday, q]);
   const fmtPct = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
-  const fmtCap = v => {
-    if (!v) return "—";
-    const b = v / 1e9;
-    return b >= 1 ? `$${b.toFixed(0)}B` : `$${(v / 1e6).toFixed(0)}M`;
-  };
-  const fmt$ = v => v == null ? "—" : `$${Number(v).toFixed(2)}`;
+  const fmtCap = fmtMktCap;
+  const fmt$ = v => fmtUsd(v);
   const fmtDate = d => {
     if (!d) return "";
     const s = String(d).slice(0, 10);
@@ -823,6 +819,30 @@ function AnalystBoardCard({
     className: "ab-reasons"
   }, a.reasons.join(" · ")))))));
 }
+
+// Shared money formatters for the Discover boards. Comma thousands
+// separators everywhere; market caps roll up to T / B / M.
+function fmtUsd(v, dp) {
+  if (v == null || isNaN(v)) return "—";
+  const d = dp == null ? 2 : dp;
+  return "$" + Number(v).toLocaleString(undefined, {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d
+  });
+}
+function fmtMktCap(v) {
+  if (!v) return "—";
+  if (v >= 1e12) return "$" + (v / 1e12).toLocaleString(undefined, {
+    maximumFractionDigits: 2
+  }) + "T";
+  if (v >= 1e9) return "$" + (v / 1e9).toLocaleString(undefined, {
+    maximumFractionDigits: 1
+  }) + "B";
+  if (v >= 1e6) return "$" + (v / 1e6).toLocaleString(undefined, {
+    maximumFractionDigits: 0
+  }) + "M";
+  return "$" + Number(v).toLocaleString();
+}
 function ScreenersHub({
   apiFetch,
   onSwitchTicker
@@ -1073,7 +1093,7 @@ function IVRankCard({
     className: "ab-pill ab-multi"
   }, "vol ↓"), /*#__PURE__*/React.createElement("span", {
     className: "ab-sector"
-  }, "$", Number(r.last || 0).toFixed(2))), /*#__PURE__*/React.createElement("div", {
+  }, fmtUsd(r.last))), /*#__PURE__*/React.createElement("div", {
     className: "ab-rowsub"
   }, /*#__PURE__*/React.createElement("span", null, "HV ", /*#__PURE__*/React.createElement("b", null, r.hv, "%")), /*#__PURE__*/React.createElement("span", null, "1y range ", /*#__PURE__*/React.createElement("b", null, r.hv_low, "–", r.hv_high, "%")), /*#__PURE__*/React.createElement("span", null, "Vol rank ", /*#__PURE__*/React.createElement("b", null, Math.round(r.rank))), /*#__PURE__*/React.createElement("span", null, "Pctile ", /*#__PURE__*/React.createElement("b", null, Math.round(r.percentile)))), r.reasons && r.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "ab-reasons"
@@ -1303,7 +1323,7 @@ function TrendCard({
     className: "ab-pill ab-multi"
   }, "oversold"), /*#__PURE__*/React.createElement("span", {
     className: "ab-sector"
-  }, "$", Number(r.last || 0).toFixed(2))), /*#__PURE__*/React.createElement("div", {
+  }, fmtUsd(r.last))), /*#__PURE__*/React.createElement("div", {
     className: "ab-rowsub"
   }, r.rsi != null && /*#__PURE__*/React.createElement("span", null, "RSI ", /*#__PURE__*/React.createElement("b", null, r.rsi)), r.from_high != null && /*#__PURE__*/React.createElement("span", null, "From 52wk hi ", /*#__PURE__*/React.createElement("b", null, r.from_high, "%")), r.streak ? /*#__PURE__*/React.createElement("span", null, "Streak ", /*#__PURE__*/React.createElement("b", null, r.streak > 0 ? `+${r.streak}` : r.streak, "d")) : null, /*#__PURE__*/React.createElement("span", null, "200-DMA ", /*#__PURE__*/React.createElement("b", null, r.above_ma200 ? "above" : "below"))), r.reasons && r.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "ab-reasons"
@@ -1377,11 +1397,7 @@ function MoversCard({
     return true;
   }), [movers, fDir, fCap, minGap, fCat, q]);
   const fmtPct = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
-  const fmtCap = v => {
-    if (!v) return "—";
-    const b = v / 1e9;
-    return b >= 1 ? `$${b.toFixed(0)}B` : `$${(v / 1e6).toFixed(0)}M`;
-  };
+  const fmtCap = fmtMktCap;
   const fmtVol = v => {
     if (!v) return "—";
     if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
@@ -1540,7 +1556,7 @@ function MoversCard({
     className: "ab-sector"
   }, m.sector)), /*#__PURE__*/React.createElement("div", {
     className: "ab-rowsub"
-  }, /*#__PURE__*/React.createElement("span", null, "Last ", /*#__PURE__*/React.createElement("b", null, "$", Number(m.last || 0).toFixed(2))), /*#__PURE__*/React.createElement("span", null, "Pre-mkt vol ", /*#__PURE__*/React.createElement("b", null, fmtVol(m.premarket_vol))), m.rel_vol != null && /*#__PURE__*/React.createElement("span", null, "Rel vol ", /*#__PURE__*/React.createElement("b", null, m.rel_vol, "x")), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, "Last ", /*#__PURE__*/React.createElement("b", null, fmtUsd(m.last))), /*#__PURE__*/React.createElement("span", null, "Pre-mkt vol ", /*#__PURE__*/React.createElement("b", null, fmtVol(m.premarket_vol))), m.rel_vol != null && /*#__PURE__*/React.createElement("span", null, "Rel vol ", /*#__PURE__*/React.createElement("b", null, m.rel_vol, "x")), /*#__PURE__*/React.createElement("span", {
     className: "ab-cap"
   }, fmtCap(m.market_cap))), m.reasons && m.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "ab-reasons"
