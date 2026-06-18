@@ -7568,3 +7568,36 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border: 1px solid color-mix(in oklch, var(--accent) 28%, transparent);
   white-space: nowrap;
 }
+
+/* Discover tab — screener sub-navigation (v1.53) */
+.screener-subnav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+.screener-subnav button {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.screener-subnav button:hover { color: var(--fg-2); }
+.screener-subnav button.active {
+  color: var(--accent-text);
+  background: var(--accent);
+  box-shadow: 0 2px 10px -2px color-mix(in oklch, var(--accent), transparent 55%),
+              inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}

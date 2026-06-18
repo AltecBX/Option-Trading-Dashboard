@@ -823,6 +823,62 @@ function AnalystBoardCard({
     className: "ab-reasons"
   }, a.reasons.join(" · ")))))));
 }
+function ScreenersHub({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const KEY = "jerry_screener_sub_v1";
+  const [sub, setSub] = useState(() => {
+    try {
+      return localStorage.getItem(KEY) || "analyst";
+    } catch {
+      return "analyst";
+    }
+  });
+  const pick = id => {
+    setSub(id);
+    try {
+      localStorage.setItem(KEY, id);
+    } catch {}
+  };
+  const SUBS = [{
+    id: "analyst",
+    label: "Analyst calls"
+  }, {
+    id: "movers",
+    label: "Movers"
+  }, {
+    id: "trend",
+    label: "Trend"
+  }, {
+    id: "ivrank",
+    label: "Vol Rank"
+  }];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "screener-subnav",
+    role: "tablist",
+    "aria-label": "Discovery screeners"
+  }, SUBS.map(s => /*#__PURE__*/React.createElement("button", {
+    key: s.id,
+    type: "button",
+    role: "tab",
+    "aria-selected": sub === s.id,
+    className: sub === s.id ? "active" : "",
+    onClick: () => pick(s.id)
+  }, s.label))), sub === "analyst" && /*#__PURE__*/React.createElement(AnalystBoardCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: onSwitchTicker
+  }), sub === "movers" && /*#__PURE__*/React.createElement(MoversCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: onSwitchTicker
+  }), sub === "trend" && /*#__PURE__*/React.createElement(TrendCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: onSwitchTicker
+  }), sub === "ivrank" && /*#__PURE__*/React.createElement(IVRankCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: onSwitchTicker
+  }));
+}
 function IVRankCard({
   apiFetch,
   onSwitchTicker
@@ -7025,6 +7081,7 @@ function AddPositionForm({
 Object.assign(window, {
   TickerLogo,
   VolSkewCard,
+  ScreenersHub,
   AnalystBoardCard,
   MoversCard,
   TrendCard,

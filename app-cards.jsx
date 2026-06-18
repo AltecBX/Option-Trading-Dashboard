@@ -573,6 +573,36 @@ function AnalystBoardCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+function ScreenersHub({ apiFetch, onSwitchTicker }) {
+  const KEY = "jerry_screener_sub_v1";
+  const [sub, setSub] = useState(() => {
+    try { return localStorage.getItem(KEY) || "analyst"; } catch { return "analyst"; }
+  });
+  const pick = (id) => { setSub(id); try { localStorage.setItem(KEY, id); } catch {} };
+  const SUBS = [
+    { id: "analyst", label: "Analyst calls" },
+    { id: "movers", label: "Movers" },
+    { id: "trend", label: "Trend" },
+    { id: "ivrank", label: "Vol Rank" },
+  ];
+  return (
+    <div>
+      <div className="screener-subnav" role="tablist" aria-label="Discovery screeners">
+        {SUBS.map(s => (
+          <button key={s.id} type="button" role="tab" aria-selected={sub === s.id}
+                  className={sub === s.id ? "active" : ""} onClick={() => pick(s.id)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {sub === "analyst" && <AnalystBoardCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
+      {sub === "movers" && <MoversCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
+      {sub === "trend" && <TrendCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
+      {sub === "ivrank" && <IVRankCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
+    </div>
+  );
+}
+
 function IVRankCard({ apiFetch, onSwitchTicker }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -5902,4 +5932,4 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, ScreenersHub, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
