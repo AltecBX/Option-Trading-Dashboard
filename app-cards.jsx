@@ -588,6 +588,108 @@ function fmtMktCap(v) {
   return "$" + Number(v).toLocaleString();
 }
 
+function SwingPatternCard({ apiFetch, ticker }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [sens, setSens] = useState("0.12");  // zig-zag % threshold
+
+  const load = async (sym, pct) => {
+    if (!sym) return;
+    setLoading(true); setErr(null);
+    try {
+      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(sym)}&pct=${pct}`);
+      const d = await r.json();
+      if (d.error) setErr(d.error); else setData(d);
+    } catch (e) { setErr(String(e)); }
+    setLoading(false);
+  };
+  useEffect(() => { load(ticker, sens); /* eslint-disable-next-line */ }, [ticker, sens]);
+
+  const fmtUsd2 = (v) => v == null ? "—" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const swings = (data && data.swings) || [];
+  const rhythm = data && data.rhythm;
+  const proj = data && data.projection;
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Pattern recognition · {ticker}</div>
+          <div className="card-title">Swing rhythm &amp; projected targets</div>
+        </div>
+        <div className="ab-controls">
+          <select className="sb-select ab-days" value={sens} onChange={e => setSens(e.target.value)} title="How big a pullback counts as a new swing">
+            <option value="0.15">Major swings</option>
+            <option value="0.12">Standard</option>
+            <option value="0.08">Sensitive</option>
+          </select>
+          <button className="scan-run-btn" onClick={() => load(ticker, sens)} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
+
+      {rhythm && (
+        <div className="ab-status">
+          <b>{rhythm.count}</b> major up-swings · usually <b>{rhythm.days_p25}–{rhythm.days_p75} trading days</b>
+          {" "}· <b className="up">+{rhythm.pct_p25}% to +{rhythm.pct_p75}%</b> (median <b>+{rhythm.pct_median}%</b>, ~{rhythm.days_median}d)
+          {" "}· full range {rhythm.days_min}–{rhythm.days_max}d / +{rhythm.pct_min}–{rhythm.pct_max}%
+        </div>
+      )}
+
+      {proj ? (
+        <div className="swing-proj">
+          <div className="swing-proj-title">📈 Active setup — fresh swing low {fmtUsd2(proj.from_low_price)} on {proj.from_low_date} ({proj.days_so_far}d ago)</div>
+          <div className="swing-proj-grid">
+            <div><span>Projected target</span><b className="up">{fmtUsd2(proj.target_low)} – {fmtUsd2(proj.target_high)}</b></div>
+            <div><span>Median target</span><b className="up">{fmtUsd2(proj.target_median)}{proj.to_target_median_pct != null ? ` (${proj.to_target_median_pct >= 0 ? "+" : ""}${proj.to_target_median_pct}% from here)` : ""}</b></div>
+            <div><span>Expected move</span><b>+{proj.pct_low}% to +{proj.pct_high}%</b></div>
+            <div><span>Time window</span><b>{proj.window_start} → {proj.window_end}</b></div>
+          </div>
+        </div>
+      ) : (rhythm && (
+        <div className="ab-status muted">No fresh swing low right now — the projection appears once {ticker} prints a new swing low.</div>
+      ))}
+
+      {swings.length > 0 ? (
+        <div className="scan-table-wrap" style={{ marginTop: 12 }}>
+          <table className="scan-table swing-table">
+            <thead>
+              <tr>
+                <th>Swing low</th><th className="scan-th-num">Low $</th>
+                <th>Swing high</th><th className="scan-th-num">High $</th>
+                <th className="scan-th-num">Days</th>
+                <th className="scan-th-num">$ chg</th>
+                <th className="scan-th-num">% chg</th>
+                <th className="scan-th-num">Avg/day</th>
+                <th className="scan-th-num">Rhythm</th>
+              </tr>
+            </thead>
+            <tbody>
+              {swings.slice().reverse().map((s, i) => (
+                <tr key={i} className="scan-row">
+                  <td>{s.low_date}</td>
+                  <td className="scan-num">{fmtUsd2(s.low_price)}</td>
+                  <td>{s.high_date}</td>
+                  <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                  <td className="scan-num">{s.trading_days}</td>
+                  <td className="scan-num">+{fmtUsd2(s.dollar_change).replace("$", "$")}</td>
+                  <td className="scan-num up">+{s.pct_change}%</td>
+                  <td className="scan-num">+{s.avg_daily_pct}%</td>
+                  <td className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (!err && !loading && <div className="ab-empty">No major swings found for {ticker} in this window.</div>)}
+    </div>
+  );
+}
+
 function ScreenersHub({ apiFetch, onSwitchTicker }) {
   const KEY = "jerry_screener_sub_v1";
   const [sub, setSub] = useState(() => {
@@ -5947,4 +6049,4 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, ScreenersHub, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, SwingPatternCard, ScreenersHub, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });

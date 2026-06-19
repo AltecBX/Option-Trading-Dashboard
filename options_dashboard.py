@@ -153,6 +153,15 @@ except Exception as _exc:  # noqa: BLE001
     _IVRANK_AVAILABLE = False
     _ivrank = None  # type: ignore
 
+# Swing pattern recognition — low→high swings, rhythm, projected targets.
+try:
+    import swings as _swings
+    _SWINGS_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[swings] module load failed: {_exc}", file=sys.stderr)
+    _SWINGS_AVAILABLE = False
+    _swings = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -5302,6 +5311,32 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 _log_warn(symbol, "api/trade_builder/multi_exp", exc)
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/swings":
+            if not _SWINGS_AVAILABLE:
+                self._send_json({"error": "swings unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                pct = float(qs.get("pct", ["0.12"])[0])
+            except (TypeError, ValueError):
+                pct = 0.12
+            try:
+                mm = float(qs.get("min", ["15"])[0])
+            except (TypeError, ValueError):
+                mm = 15.0
+            period = qs.get("period", ["1y"])[0]
+            try:
+                self._send_json(_swings.analyze(symbol, period=period,
+                                                pct=max(0.03, min(0.30, pct)),
+                                                min_move_pct=max(1.0, min(60.0, mm))))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/swings", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/ivrank":
             if not _IVRANK_AVAILABLE:
