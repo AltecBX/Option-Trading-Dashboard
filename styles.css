@@ -7726,3 +7726,24 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .swing-histnav button:hover { color: var(--fg-2); }
 .swing-histnav button.active { color: var(--fg); border-color: var(--accent); background: color-mix(in oklch, var(--accent) 10%, transparent); }
+
+/* Relative-strength / catalyst tags in the live box */
+.swing-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.swing-tag {
+  font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--fg-2);
+}
+.swing-tag.up { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); }
+.swing-tag.down { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%); }
+
+/* History filter bar */
+.swing-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.swing-filters-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); margin-right: 2px; }
+.swing-filters .sb-select { font-size: 12px; padding: 4px 8px; }
+.swing-filters-clear {
+  background: none; border: 1px solid var(--line); color: var(--fg-3);
+  font-size: 11px; padding: 4px 10px; border-radius: 8px; cursor: pointer;
+}
+.swing-filters-clear:hover { color: var(--fg-2); border-color: var(--accent); }
+.swing-flagcell { white-space: nowrap; font-size: 13px; letter-spacing: 1px; }
+.swing-flagcell span { cursor: help; }

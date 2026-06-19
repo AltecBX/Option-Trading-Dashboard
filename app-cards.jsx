@@ -603,6 +603,11 @@ function SwingPatternCard({ apiFetch, ticker }) {
   const [err, setErr] = useState(null);
   const [sens, setSens] = useState("0.12");   // zig-zag % threshold
   const [tab, setTab] = useState("up");        // history table: up | down
+  const [fMove, setFMove] = useState("all");   // size filter
+  const [fDur, setFDur] = useState("all");     // duration filter
+  const [fVol, setFVol] = useState("all");     // volume filter
+  const [fCat, setFCat] = useState("all");     // catalyst filter
+  const [fStruct, setFStruct] = useState("all"); // structure filter
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -643,7 +648,22 @@ function SwingPatternCard({ apiFetch, ticker }) {
   );
 
   const histRhythm = tab === "up" ? upRhythm : downRhythm;
-  const histSwings = tab === "up" ? upSwings : downSwings;
+  const allHistSwings = tab === "up" ? upSwings : downSwings;
+  const histSwings = useMemo(() => allHistSwings.filter(s => {
+    const mag = Math.abs(s.pct_change || 0);
+    if (fMove === "10" && mag < 10) return false;
+    if (fMove === "20" && mag < 20) return false;
+    const d = s.trading_days || 0;
+    if (fDur === "short" && !(d >= 1 && d <= 3)) return false;
+    if (fDur === "mid" && !(d >= 4 && d <= 8)) return false;
+    if (fDur === "long" && d < 9) return false;
+    if (fVol === "high" && !s.above_avg_vol) return false;
+    if (fCat === "earnings" && !s.after_earnings) return false;
+    if (fStruct === "broke" && !s.broke_resistance) return false;
+    if (fStruct === "failed" && !s.failed_breakout) return false;
+    return true;
+  }), [allHistSwings, fMove, fDur, fVol, fCat, fStruct]);
+  const filtersOn = fMove !== "all" || fDur !== "all" || fVol !== "all" || fCat !== "all" || fStruct !== "all";
 
   return (
     <div className="card ab-card">
@@ -694,7 +714,20 @@ function SwingPatternCard({ apiFetch, ticker }) {
               <b className={dirTone}>{fmtUsd2(a.targets[1].price)} <small>{sgn(a.targets[1].from_here_pct)}{a.targets[1].from_here_pct}% away</small></b></div>
             <div><span>RSI · rel-vol</span>
               <b><Term k="rsi14">{ind && ind.rsi14 != null ? ind.rsi14 : "—"}</Term> · <Term k="rel_vol">{ind && ind.rel_vol != null ? ind.rel_vol + "x" : "—"}</Term></b></div>
+            {a.relative_strength && (
+              <div><span><Term k="relative_strength">vs market (SPY)</Term></span>
+                <b className={a.relative_strength.leading ? "up" : a.relative_strength.lagging ? "down" : ""}>
+                  {sgn(a.relative_strength.vs_spy)}{a.relative_strength.vs_spy}% <small>{a.relative_strength.leading ? "leading" : a.relative_strength.lagging ? "lagging" : "tracking"}</small>
+                </b></div>
+            )}
           </div>
+
+          {(a.broke_resistance || a.after_earnings) && (
+            <div className="swing-tags">
+              {a.broke_resistance && <span className="swing-tag up"><Term k="broke_resistance">⤴ Broke {isUp ? "resistance" : "support"}</Term></span>}
+              {a.after_earnings && <span className="swing-tag"><Term k="after_earnings">⚡ Post-earnings move</Term></span>}
+            </div>
+          )}
 
           <div className="swing-signal">{a.signal_note}</div>
 
@@ -768,11 +801,42 @@ function SwingPatternCard({ apiFetch, ticker }) {
         </div>
       )}
 
-      {/* ── History table (up / down toggle) ────────────────────────────── */}
+      {/* ── History table (up / down toggle + filters) ──────────────────── */}
       <div className="swing-histnav" style={{ marginTop: 14 }}>
         <button type="button" className={tab === "up" ? "active" : ""} onClick={() => setTab("up")}>Up-swings ({upSwings.length})</button>
         <button type="button" className={tab === "down" ? "active" : ""} onClick={() => setTab("down")}>Down-swings ({downSwings.length})</button>
       </div>
+
+      {(upSwings.length > 0 || downSwings.length > 0) && (
+        <div className="swing-filters" title="Narrow the history to setups like the one happening now">
+          <span className="swing-filters-label"><Term k="swing_filters">Filter</Term></span>
+          <select className="sb-select" value={fMove} onChange={e => setFMove(e.target.value)}>
+            <option value="all">Any size</option>
+            <option value="10">≥ 10%</option>
+            <option value="20">≥ 20%</option>
+          </select>
+          <select className="sb-select" value={fDur} onChange={e => setFDur(e.target.value)}>
+            <option value="all">Any length</option>
+            <option value="short">1–3 days</option>
+            <option value="mid">4–8 days</option>
+            <option value="long">9+ days</option>
+          </select>
+          <select className="sb-select" value={fVol} onChange={e => setFVol(e.target.value)}>
+            <option value="all">Any volume</option>
+            <option value="high">Above-avg vol</option>
+          </select>
+          <select className="sb-select" value={fCat} onChange={e => setFCat(e.target.value)}>
+            <option value="all">Any catalyst</option>
+            <option value="earnings">After earnings</option>
+          </select>
+          <select className="sb-select" value={fStruct} onChange={e => setFStruct(e.target.value)}>
+            <option value="all">Any structure</option>
+            <option value="broke">Broke {tab === "up" ? "resistance" : "support"}</option>
+            <option value="failed">Failed breakout</option>
+          </select>
+          {filtersOn && <button type="button" className="swing-filters-clear" onClick={() => { setFMove("all"); setFDur("all"); setFVol("all"); setFCat("all"); setFStruct("all"); }}>Clear</button>}
+        </div>
+      )}
 
       {histRhythm && (
         <div className="ab-status">
@@ -793,7 +857,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
                   <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num">High $</th>
                   <th className="scan-th-num">Days</th><th className="scan-th-num">$ chg</th>
                   <th className="scan-th-num">% chg</th><th className="scan-th-num">Avg/day</th>
-                  <th className="scan-th-num">Rhythm</th>
+                  <th className="scan-th-num">Rhythm</th><th>Flags</th>
                 </tr>
               ) : (
                 <tr>
@@ -801,7 +865,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
                   <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num">Low $</th>
                   <th className="scan-th-num">Days</th><th className="scan-th-num">$ chg</th>
                   <th className="scan-th-num">% drop</th><th className="scan-th-num">Avg/day</th>
-                  <th className="scan-th-num">Rhythm</th>
+                  <th className="scan-th-num">Rhythm</th><th>Flags</th>
                 </tr>
               )}
             </thead>
@@ -828,12 +892,24 @@ function SwingPatternCard({ apiFetch, ticker }) {
                   <td className={`scan-num ${tab === "up" ? "up" : "down"}`}>{s.pct_change}%</td>
                   <td className="scan-num">{s.avg_daily_pct}%</td>
                   <td className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
+                  <td className="swing-flagcell">
+                    {s.above_avg_vol && <span title={`Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`}>🔥</span>}
+                    {s.broke_resistance && <span title={`Broke prior ${tab === "up" ? "resistance" : "support"}`}>⤴</span>}
+                    {s.failed_breakout && <span title="Failed breakout — level didn't hold">⚠</span>}
+                    {s.after_earnings && <span title="Launched after an earnings report">⚡</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      ) : (!err && !loading && <div className="ab-empty">No major {tab === "up" ? "up" : "down"}-swings found for {ticker} in this window.</div>)}
+      ) : (!err && !loading && (
+        <div className="ab-empty">
+          {filtersOn && allHistSwings.length > 0
+            ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.`
+            : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`}
+        </div>
+      ))}
     </div>
   );
 }
