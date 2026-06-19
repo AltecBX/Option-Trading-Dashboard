@@ -100,6 +100,7 @@ const TABS = [
   { id: "trade", label: "Trade" },
   { id: "discover", label: "Discover" },
   { id: "analyze", label: "Analyze" },
+  { id: "patterns", label: "Patterns" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
   { id: "manage", label: "Manage" },
