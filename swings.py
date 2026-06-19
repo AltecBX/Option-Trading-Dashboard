@@ -66,6 +66,149 @@ def _busday_offset(date_str: str, n: int) -> str:
         return date_str
 
 
+# ──────────────────── benchmarks + earnings (phase 2) ──────────────────────
+
+def _fetch_bench(period: str = "1y") -> dict:
+    """Date→close maps for SPY and QQQ in one batched download (free)."""
+    out: dict[str, dict] = {}
+    try:
+        df = yf.download("SPY QQQ", period=period, interval="1d",
+                         progress=False, group_by="ticker", threads=False)
+        for sym in ("SPY", "QQQ"):
+            try:
+                closes = df[sym]["Close"].dropna()
+                out[sym] = {d.strftime("%Y-%m-%d"): float(v)
+                            for d, v in closes.items()}
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+
+def _fetch_earnings(symbol: str) -> set:
+    """Past earnings dates as numpy day values (best-effort; degrades to ∅)."""
+    out: set = set()
+    try:
+        t = yf.Ticker(symbol)
+        ed = None
+        try:
+            ed = t.get_earnings_dates(limit=16)
+        except Exception:
+            ed = getattr(t, "earnings_dates", None)
+        if ed is not None and len(ed):
+            for ts in ed.index:
+                try:
+                    out.add(np.datetime64(ts.to_pydatetime().date(), "D"))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return out
+
+
+def _after_earnings(date_str: str, earnings: set, max_days: int = 5) -> bool:
+    """True when this date launched within max_days after an earnings report."""
+    if not earnings:
+        return False
+    try:
+        d = np.datetime64(date_str, "D")
+    except Exception:
+        return False
+    for e in earnings:
+        diff = (d - e) / np.timedelta64(1, "D")
+        if 0 <= diff <= max_days:
+            return True
+    return False
+
+
+def _bench_return(bench_map: dict, start_date: str, last_date: str):
+    """Benchmark % return between start and last (nearest prior trading day)."""
+    if not bench_map:
+        return None
+    def lookup(target):
+        if target in bench_map:
+            return bench_map[target]
+        prior = [d for d in bench_map if d <= target]
+        return bench_map[max(prior)] if prior else None
+    a = lookup(start_date); b = lookup(last_date)
+    if a and b and a > 0:
+        return (b - a) / a * 100.0
+    return None
+
+
+def _rel_strength(direction, from_date, last_date, stock_move, bench):
+    """Stock move vs SPY/QQQ over the same window. 'leading' = stronger than
+    the market in the move's own direction."""
+    out: dict[str, Any] = {}
+    for sym in ("SPY", "QQQ"):
+        br = _bench_return(bench.get(sym, {}), from_date, last_date)
+        if br is None:
+            continue
+        out[sym.lower() + "_ret"] = round(br, 1)
+        out["vs_" + sym.lower()] = round(stock_move - br, 1)
+    if "vs_spy" not in out:
+        return None
+    vs = out["vs_spy"]
+    if direction == "up":
+        out["leading"] = vs >= 2.0
+        out["lagging"] = vs <= -2.0
+    else:
+        out["leading"] = vs <= -2.0       # falling more than the market
+        out["lagging"] = vs >= 2.0
+    sign = "+" if vs >= 0 else ""
+    rel = "leading" if out["leading"] else "lagging" if out["lagging"] else "tracking"
+    out["note"] = f"{rel} SPY ({sign}{vs}% vs market over the move)"
+    return out
+
+
+def _enrich_swings(swings, kind, vols, closes, earnings):
+    """Per-swing tags for the filter set: volume ratio, broke resistance /
+    support, failed breakout, after-earnings."""
+    prev_ext = None
+    for s in swings:
+        lo_i = s.get("_lo_i"); hi_i = s.get("_hi_i")
+        start_i = lo_i if kind == "up" else hi_i
+        end_i = hi_i if kind == "up" else lo_i
+        # Volume ratio: avg during the swing vs the ~50 bars before it.
+        ratio = None
+        try:
+            seg = vols[start_i:end_i + 1]
+            base = vols[max(0, start_i - 50):start_i] or vols[:start_i] or seg
+            sv = sum(seg) / len(seg) if seg else 0.0
+            bv = sum(base) / len(base) if base else 0.0
+            ratio = round(sv / bv, 2) if bv > 0 else None
+        except Exception:
+            ratio = None
+        s["vol_ratio"] = ratio
+        s["above_avg_vol"] = bool(ratio is not None and ratio >= 1.2)
+        # Broke prior resistance (up) / support (down), and whether it held.
+        level_broken = None
+        if kind == "up":
+            broke = prev_ext is not None and s["high_price"] > prev_ext
+            level_broken = prev_ext if broke else None
+            prev_ext = max(prev_ext, s["high_price"]) if prev_ext is not None else s["high_price"]
+        else:
+            broke = prev_ext is not None and s["low_price"] < prev_ext
+            level_broken = prev_ext if broke else None
+            prev_ext = min(prev_ext, s["low_price"]) if prev_ext is not None else s["low_price"]
+        s["broke_resistance"] = bool(broke)
+        # Failed breakout: broke the level but closed back through it within ~10 bars.
+        failed = False
+        if broke and level_broken is not None and hi_i is not None and lo_i is not None:
+            try:
+                after = closes[(end_i + 1):(end_i + 11)]
+                if kind == "up":
+                    failed = any(c < level_broken for c in after)
+                else:
+                    failed = any(c > level_broken for c in after)
+            except Exception:
+                failed = False
+        s["failed_breakout"] = bool(failed)
+        start_date = s["low_date"] if kind == "up" else s["high_date"]
+        s["after_earnings"] = _after_earnings(start_date, earnings)
+
+
 # ───────────────────────────── indicators ──────────────────────────────────
 
 def _sma(closes, n):
@@ -343,7 +486,8 @@ def _similar_move(swings, cur, days, exclude_dates):
 
 
 def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
-                    up_swings, down_swings, up_rhythm, down_rhythm, ind):
+                    up_swings, down_swings, up_rhythm, down_rhythm, ind,
+                    bench=None, earnings=None):
     """Build the real-time decision block for the move in progress."""
     if len(pivots) < 2:
         return None
@@ -408,6 +552,26 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
     maturity = _maturity(cur_abs, r)
     exh, exh_f = _exhaustion(direction, cur_abs, days_active, r, ind)
     cont, cont_f = _continuation(direction, cur_abs, days_active, r, ind)
+
+    # Relative strength vs SPY/QQQ over the move's window, folded into scores.
+    rs = _rel_strength(direction, from_date, dates[-1], cur_move, bench or {})
+    if rs:
+        if rs.get("leading"):
+            cont = round(min(100.0, cont + 8)); cont_f.append(rs["note"])
+        elif rs.get("lagging"):
+            exh = round(min(100.0, exh + 6)); exh_f.append(rs["note"])
+
+    # Catalyst / structure tags for the live move.
+    after_earn = _after_earnings(from_date, earnings or set())
+    if direction == "up":
+        prior_highs = [s["high_price"] for s in swings if s.get("high_date") and s["high_date"] < dates[ext_i]]
+        broke_res = bool(prior_highs and ext_p > max(prior_highs))
+    else:
+        prior_lows = [s["low_price"] for s in swings if s.get("low_date") and s["low_date"] < dates[ext_i]]
+        broke_res = bool(prior_lows and ext_p < min(prior_lows))
+    block["after_earnings"] = after_earn
+    block["broke_resistance"] = broke_res
+
     state = _trend_state(direction, maturity, exh, cont)
 
     # Target ladder, projected from the from-price using the historical band.
@@ -513,6 +677,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
         "signal_note": _signal_note(direction, hold_signal, maturity, exh, cont,
                                     remaining_to_median, median_t),
         "similar_move": similar,
+        "relative_strength": rs,
         "trade_plan": plan,
     })
     return block
@@ -571,8 +736,16 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
     down_rhythm = _rhythm(down_swings)
     ind = _indicators(opens, highs, lows, closes, vols)
 
+    # Phase-2 context: benchmarks for relative strength, earnings for catalyst
+    # tagging, and per-swing tags for the filter set. All best-effort/free.
+    bench = _fetch_bench(period)
+    earnings = _fetch_earnings(symbol)
+    _enrich_swings(up_swings, "up", vols, closes, earnings)
+    _enrich_swings(down_swings, "down", vols, closes, earnings)
+
     analysis = _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
-                               up_swings, down_swings, up_rhythm, down_rhythm, ind)
+                               up_swings, down_swings, up_rhythm, down_rhythm, ind,
+                               bench=bench, earnings=earnings)
 
     current_price = round(closes[-1], 2) if closes else None
 

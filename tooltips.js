@@ -83,7 +83,13 @@ const GLOSSARY = {
   similar_move: "The closest past swing to this one by size and duration, with whether the current move is running hotter or cooler than that comparison's pace.",
   confidence_rating: "How many past moves actually reached a given target. High = matched 5+ similar moves, medium = 2–4, low = thin or none.",
   rsi14: "Relative Strength Index (14). Above 70 is overbought, below 30 oversold. Used here as one input to exhaustion.",
-  rel_vol: "Today's volume vs the 20-day average. Above 1x means heavier-than-normal participation behind the move."
+  rel_vol: "Today's volume vs the 20-day average. Above 1x means heavier-than-normal participation behind the move.",
+  relative_strength: "How the current move stacks up against SPY and QQQ over the same window. 'Leading' = stronger than the market in the move's own direction (up-moves rising faster, down-moves falling faster) — confirmation the move has real relative power, not just a market tide.",
+  broke_resistance: "The move pushed through the prior swing extreme (resistance for up-moves, support for down-moves) — a structural breakout / breakdown rather than a move inside the old range.",
+  failed_breakout: "Price broke the prior level but then closed back through it within ~10 bars — the breakout didn't hold. A common reversal tell.",
+  after_earnings: "The swing launched within ~5 trading days of an earnings report — i.e. the move was likely catalyst-driven.",
+  vol_ratio: "Average volume during the swing vs the ~50 bars before it. Above ~1.2x means the move ran on heavier-than-usual participation.",
+  swing_filters: "Narrow the history table to the kinds of moves you care about — size, duration, volume, catalyst, and structure — so you can study only the setups that match what's happening now."
 };
 function Term({
   k,
