@@ -7601,3 +7601,22 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   box-shadow: 0 2px 10px -2px color-mix(in oklch, var(--accent), transparent 55%),
               inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
+
+/* Analyze tab — swing pattern projection (v1.56) */
+.swing-proj {
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, color-mix(in oklch, var(--up) 8%, transparent), var(--bg));
+  border: 1px solid color-mix(in oklch, var(--up), transparent 65%);
+}
+.swing-proj-title { font-weight: 700; font-size: 13px; margin-bottom: 10px; }
+.swing-proj-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 18px;
+}
+.swing-proj-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.swing-proj-grid span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
+.swing-proj-grid b { font-family: var(--font-mono); font-size: 14px; }
+.swing-proj-grid b.up { color: var(--up); }
+.swing-table th, .swing-table td { white-space: nowrap; }
