@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import socket
@@ -46,6 +47,28 @@ try:
     import yfinance as yf
 except ImportError:
     sys.exit("Missing dependency.  Run:  pip install yfinance pandas numpy")
+
+
+# NaN-safe JSON. Python's json emits a bare `NaN`/`Infinity` token, which
+# is invalid JSON and makes the browser's JSON.parse throw
+# ("Unexpected token 'N'"). Any non-finite float (e.g. a week with no
+# data → y_close = NaN) is mapped to null before serialization. All API
+# responses go through _dumps so this can never leak again.
+_RAW_DUMPS = json.dumps
+
+
+def _json_safe(o):
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
+
+
+def _dumps(o, **kw):
+    return _RAW_DUMPS(_json_safe(o), **kw)
 
 # Schwab integration — primary data source when configured + authed.
 # Module is stdlib-only so import never fails. Falls back to yfinance
@@ -3056,7 +3079,7 @@ def bake(payload: dict) -> str:
     if not TEMPLATE.exists():
         sys.exit(f"Could not find dashboard template at {TEMPLATE}")
     html = TEMPLATE.read_text(encoding="utf-8")
-    json_blob = json.dumps(payload, default=str)
+    json_blob = _dumps(payload, default=str)
     shim = SHIM_TEMPLATE.replace("__JSON__", json_blob)
     if 'src="data.js"' in html:
         html = html.replace('<script src="data.js"></script>', shim)
@@ -3906,7 +3929,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         hand rolled send_response boilerplate that was copy pasted across
         every endpoint (v1.38 cleanup). Same headers, same CORS, same
         Content-Length as the inline pattern it replaces."""
-        body = json.dumps(obj, **dump_kwargs).encode("utf-8")
+        body = _dumps(obj, **dump_kwargs).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         if no_store:
@@ -3954,7 +3977,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 ok = _save_watchlist(clean)
                 if not ok:
                     raise RuntimeError("save failed")
-                body = json.dumps({"ok": True, "count": len(clean["symbols"])}).encode("utf-8")
+                body = _dumps({"ok": True, "count": len(clean["symbols"])}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -4302,11 +4325,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 days = 8
             days = max(1, min(days, 14))
             if not symbol or len(symbol) > 8:
-                body = json.dumps({"error": "symbol required"}).encode("utf-8")
+                body = _dumps({"error": "symbol required"}).encode("utf-8")
                 self.send_response(400)
             else:
                 data = _reprice_week_chains(symbol, max_days=days)
-                body = json.dumps(data).encode("utf-8")
+                body = _dumps(data).encode("utf-8")
                 self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
@@ -4319,7 +4342,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             q = (qs.get("q", [""])[0] or "").strip()
             if not q or len(q) > 24:
-                body = json.dumps({"results": []}).encode("utf-8")
+                body = _dumps({"results": []}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -4333,7 +4356,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 results = []
                 sys.stderr.write(f"search failed for {q!r}: {exc}\n")
-            body = json.dumps({"results": results}).encode("utf-8")
+            body = _dumps({"results": results}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
@@ -4358,7 +4381,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     results.append(snap)
                 except Exception as exc:  # noqa: BLE001
                     results.append({"symbol": sym, "error": str(exc)})
-            body = json.dumps({"results": results}, default=str).encode("utf-8")
+            body = _dumps({"results": results}, default=str).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
@@ -4382,7 +4405,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     results.append(rng)
                 except Exception as exc:  # noqa: BLE001
                     results.append({"symbol": sym, "error": str(exc)})
-            body = json.dumps({"results": results}, default=str).encode("utf-8")
+            body = _dumps({"results": results}, default=str).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
@@ -4394,7 +4417,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/watchlist":
             try:
                 data = _load_watchlist()
-                body = json.dumps(data).encode("utf-8")
+                body = _dumps(data).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -4419,7 +4442,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 "schwab": (sc.status() if sc else {"configured": False, "reason": "module_unavailable"}),
                 "last_source": _LAST_SOURCE.get("source", "yfinance"),
             }
-            body = json.dumps(payload).encode("utf-8")
+            body = _dumps(payload).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
@@ -4447,7 +4470,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 else:
                     payload.setdefault("rate", {})
                 payload.setdefault("configured", uw is not None)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5026,7 +5049,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 lookback_weeks = 12
             try:
                 payload = build_basing_profile(symbol, lookback_weeks)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5047,7 +5070,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             n = max(1, min(20, n))
             try:
                 payload = build_earnings_ladder(symbol, n)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5080,7 +5103,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                                 lookback_days=lookback,
                                                 ema_fast=ema_fast, ema_med=ema_med,
                                                 ema_slow=ema_slow, slope_bars=slope_bars)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5111,7 +5134,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 payload = ema_pullback_setup_state(symbol, direction=direction,
                                                    ema_fast=ema_fast, ema_med=ema_med,
                                                    ema_slow=ema_slow, slope_bars=slope_bars)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5268,7 +5291,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     "rows": rows,
                     "as_of": datetime.now().isoformat(),
                 }
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5422,7 +5445,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             try:
                 client = _analyst_client.get_client()
                 payload = client.get_analyst_data(symbol, current_price=price, force_refresh=force)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5519,7 +5542,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         _log_warn(sym, "watchlist_alerts.symbol", exc)
                 # Newest first.
                 alerts.sort(key=lambda a: a["date"], reverse=True)
-                body = json.dumps({
+                body = _dumps({
                     "alerts": alerts,
                     "lookback_days": lookback_days,
                     "scanned_count": len(symbols),
@@ -5542,7 +5565,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             try:
                 journal = _load_trade_journal()
                 journal.sort(key=lambda e: e.get("closed_at", ""), reverse=True)
-                body = json.dumps({"trades": journal,
+                body = _dumps({"trades": journal,
                                    "count": len(journal)}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -5680,7 +5703,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     except Exception as exc:  # noqa: BLE001
                         _log_warn(sym, "earnings_iv_crush.symbol", exc)
                 rows.sort(key=lambda r: r["days_to_earnings"])
-                body = json.dumps({
+                body = _dumps({
                     "rows": rows,
                     "horizon_days": horizon_days,
                     "lookback_events": lookback_events,
@@ -5731,7 +5754,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         "hash": a.get("hashValue"),
                         "masked": masked,
                     })
-                body = json.dumps({
+                body = _dumps({
                     "configured": True,
                     "accounts": safe_accounts,
                     "count": len(safe_accounts),
@@ -5773,7 +5796,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     return
                 from schwab_client import SchwabClient
                 positions = SchwabClient.normalize_positions(payload)
-                body = json.dumps({
+                body = _dumps({
                     "configured": True,
                     "positions": positions,
                     "count": len(positions),
@@ -5805,7 +5828,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             target_delta = max(0.05, min(0.45, target_delta))
             try:
                 payload = backtest_strategy(symbol, strategy, weeks, target_delta)
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -5997,7 +6020,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 payload["error"] = str(exc)
             try:
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -6108,7 +6131,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 except Exception as exc:  # noqa: BLE001
                     results.append({"symbol": symbol, "error": str(exc)})
             try:
-                body = json.dumps({"results": results, "lookback_days": lookback_days}, default=str).encode("utf-8")
+                body = _dumps({"results": results, "lookback_days": lookback_days}, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -6275,7 +6298,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 payload = {"symbol": symbol, "error": str(exc)}
             try:
-                body = json.dumps(payload, default=str).encode("utf-8")
+                body = _dumps(payload, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -6333,7 +6356,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                     "volume": row.get("volume"),
                                 }
             try:
-                body = json.dumps(results, default=str).encode("utf-8")
+                body = _dumps(results, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
@@ -6387,7 +6410,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             }
                     except Exception:
                         continue
-                body = json.dumps({"results": results}, default=str).encode("utf-8")
+                body = _dumps({"results": results}, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Cache-Control", "no-store")
