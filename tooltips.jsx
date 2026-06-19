@@ -73,6 +73,24 @@ const GLOSSARY = {
   jade_lizard: "Sell a put and sell a call spread. Structured so total credit exceeds the call spread width, eliminating upside risk. Profits if the stock stays above the put or finishes inside the call spread.",
   ratio_spread: "Buy one option and sell two at a further strike (1x2). Net credit or small debit. Profits in a moderate move toward the short strike. Risk grows past the short strikes.",
   wheel: "Repeating cycle: sell cash-secured puts until assigned, then sell covered calls on the assigned shares until called away, then back to puts. Premium-generating system on a stock you're comfortable owning.",
+
+  // Swing pattern recognition / live decision
+  swing_low: "A local price bottom confirmed by the zig-zag: price fell into it, then reversed up by more than the swing threshold. The launch point of an up-move.",
+  swing_high: "A local price top confirmed by the zig-zag: price rallied into it, then reversed down by more than the swing threshold. The launch point of a down-move.",
+  swing_threshold: "How big a reversal (percent) counts as a new swing. Larger = only major swings; smaller = catches more, noisier swings.",
+  swing_rhythm: "This stock's historical habit: across past swings, how far it typically runs (percent) and how long it takes (trading days). The basis for every projection here.",
+  current_move: "The move in progress right now, measured from the most recent swing pivot to the current price. The heart of the live read.",
+  maturity: "Where the live move sits in this stock's history of moves. Early = below the 25th percentile, developing = below median, mature = below the 75th percentile, extended = below the largest ever, exhausted = beyond it.",
+  target_ladder: "Projected price targets built from the from-price and this stock's historical move sizes: conservative (25th pctile), median (typical), aggressive (75th pctile), and extreme (largest prior move).",
+  exhaustion_score: "0–100 read on how stretched the move is: size vs history, duration vs history, RSI extreme, distance from the 20-day average, wick rejection, and fading volume. High = late, manage risk.",
+  continuation_score: "0–100 read on whether the move should keep going: close near the day's extreme, position vs the moving averages, RSI in a trending band, room left before the usual exhaustion zone, and participation (volume).",
+  trend_state: "A plain-English label for the move: Accumulating, Breaking out, Continuation, Extended, Exhaustion / reversal risk, Breaking down, etc.",
+  do_not_sell_yet: "Fires on a long when momentum still favors continuation, exhaustion is low, and the typical move hasn't reached its usual size yet — a nudge not to sell too early.",
+  cover_too_early: "Fires on a short when the down-move still favors continuation and hasn't reached its usual depth yet — a nudge not to cover too early.",
+  similar_move: "The closest past swing to this one by size and duration, with whether the current move is running hotter or cooler than that comparison's pace.",
+  confidence_rating: "How many past moves actually reached a given target. High = matched 5+ similar moves, medium = 2–4, low = thin or none.",
+  rsi14: "Relative Strength Index (14). Above 70 is overbought, below 30 oversold. Used here as one input to exhaustion.",
+  rel_vol: "Today's volume vs the 20-day average. Above 1x means heavier-than-normal participation behind the move.",
 };
 
 function Term({ k, children, className = "" }) {
