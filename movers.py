@@ -14,6 +14,7 @@ if Schwab isn't configured.
 """
 from __future__ import annotations
 
+import gc
 import threading
 import time
 from datetime import datetime, timezone
@@ -99,6 +100,7 @@ def _score(gap: float, enrich: dict, has_analyst: bool) -> tuple[float, list[str
 
 
 def _scan_worker(symbols: list[str]) -> None:
+    analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:
         if not _SCHWAB_OK:
             raise RuntimeError("Schwab not available")
@@ -173,6 +175,8 @@ def _scan_worker(symbols: list[str]) -> None:
     finally:
         with _LOCK:
             _STATE["scanning"] = False
+        gc.collect()
+        analyst_board.HEAVY_SCAN_LOCK.release()
 
 
 def trigger_scan(watchlist_syms: list[str] | None = None, force: bool = False) -> dict:

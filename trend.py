@@ -15,6 +15,7 @@ scan + progress + cache, same pattern as movers/analyst_board.
 """
 from __future__ import annotations
 
+import gc
 import threading
 import time
 from datetime import datetime, timezone
@@ -109,15 +110,17 @@ def _score(sig: dict) -> dict:
 
 
 def _scan_worker(symbols: list[str]) -> None:
+    analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:
         if not _OK:
             raise RuntimeError("yfinance/pandas unavailable")
         rows = []
         for i in range(0, len(symbols), CHUNK):
             part = symbols[i:i + CHUNK]
+            df = None
             try:
                 df = yf.download(" ".join(part), period="1y", interval="1d",
-                                 progress=False, group_by="ticker", threads=True)
+                                 progress=False, group_by="ticker", threads=False)
                 multi = isinstance(df.columns, pd.MultiIndex)
                 for sym in part:
                     try:
@@ -144,6 +147,9 @@ def _scan_worker(symbols: list[str]) -> None:
                     })
             except Exception:
                 pass
+            finally:
+                del df
+                gc.collect()
             with _LOCK:
                 _STATE["scanned"] = min(len(symbols), i + CHUNK)
             time.sleep(0.3)
@@ -158,6 +164,8 @@ def _scan_worker(symbols: list[str]) -> None:
     finally:
         with _LOCK:
             _STATE["scanning"] = False
+        gc.collect()
+        analyst_board.HEAVY_SCAN_LOCK.release()
 
 
 def trigger_scan(watchlist_syms: list[str] | None = None, force: bool = False) -> dict:
