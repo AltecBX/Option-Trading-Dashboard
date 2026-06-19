@@ -27,6 +27,7 @@ Honest limitations (free data):
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import threading
@@ -175,6 +176,11 @@ FIRM_TIER_2 = {  # top research / well-followed
 }
 
 # ── Module state ───────────────────────────────────────────────────────
+# Only one heavy universe scan (analyst / movers / trend / ivrank) may run
+# at a time. On a small free-tier container, two 600-name scans at once is
+# what tips it into OOM. The other scanner modules import and hold this.
+HEAVY_SCAN_LOCK = threading.Semaphore(1)
+
 _LOCK = threading.RLock()
 _STATE: dict[str, Any] = {
     "scanning": False,
@@ -492,6 +498,7 @@ def _build_summary(actions: list[dict]) -> dict:
 
 def _scan_worker(symbols: list[str], recent_days: int) -> None:
     """Background scan: collect recent actions, enrich active names, score."""
+    HEAVY_SCAN_LOCK.acquire()
     try:
         client = analyst_client.get_client()
         # Pass 1 — collect recent action rows per ticker (cheap, cached).
@@ -506,6 +513,8 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
                 pass
             with _LOCK:
                 _STATE["scanned"] = i + 1
+            if i % 50 == 0:
+                gc.collect()  # keep yfinance's per-call growth in check
             time.sleep(0.15)  # gentle throttle to avoid Yahoo 429s
 
         # Pass 2 — enrich only the names that had an action, then score.
@@ -525,9 +534,12 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
     except Exception as exc:  # noqa: BLE001
         with _LOCK:
             _STATE["error"] = str(exc)
+        gc.collect()
     finally:
         with _LOCK:
             _STATE["scanning"] = False
+        gc.collect()
+        HEAVY_SCAN_LOCK.release()
 
 
 def trigger_scan(watchlist_syms: list[str] | None = None,
@@ -592,15 +604,32 @@ def start_scheduler(get_watchlist_fn=None, notify_fn=None, hour: int = 8,
         zone = timezone.utc  # fall back to UTC if tz database is unavailable
 
     target_min = hour * 60 + minute
+    stamp_file = _data_dir() / "last_autoscan.txt"
+
+    def _already_ran(today_iso: str) -> bool:
+        try:
+            return stamp_file.read_text().strip() == today_iso
+        except Exception:
+            return False
+
+    def _mark_ran(today_iso: str) -> None:
+        try:
+            stamp_file.write_text(today_iso)
+        except Exception:
+            pass
 
     def loop():
-        last_run_date = None
         while True:
             try:
                 now = datetime.now(zone)
                 now_min = now.hour * 60 + now.minute
                 in_window = target_min <= now_min < target_min + 60
-                if now.weekday() < 5 and in_window and last_run_date != now.date():
+                today_iso = now.date().isoformat()
+                # The stamp is persisted to /data and written BEFORE the
+                # scan, so a crash/restart inside the window can never
+                # re-trigger the heavy scan and crash-loop the container.
+                if now.weekday() < 5 and in_window and not _already_ran(today_iso):
+                    _mark_ran(today_iso)
                     syms = []
                     if get_watchlist_fn:
                         try:
@@ -609,7 +638,6 @@ def start_scheduler(get_watchlist_fn=None, notify_fn=None, hour: int = 8,
                             syms = []
                     res = trigger_scan(syms, recent_days=2)
                     if res.get("started"):
-                        last_run_date = now.date()
                         print(f"[analyst_board] auto-scan started "
                               f"{now.isoformat()} ({res.get('total')} names)",
                               file=__import__("sys").stderr)
