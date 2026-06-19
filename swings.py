@@ -546,6 +546,16 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
     if hist is None or len(hist) < 20:
         return {"symbol": symbol, "error": "not enough price history"}
 
+    # yfinance can return a trailing NaN bar for the in-progress / latest
+    # session. Drop any row missing OHLC so a NaN doesn't cascade into the
+    # current-price and move math (which would falsely read as "exhausted").
+    try:
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close"])
+    except Exception:
+        pass
+    if hist is None or len(hist) < 20:
+        return {"symbol": symbol, "error": "not enough clean price history"}
+
     opens = [float(x) for x in hist["Open"]]
     highs = [float(x) for x in hist["High"]]
     lows = [float(x) for x in hist["Low"]]
