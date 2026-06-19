@@ -843,14 +843,26 @@ function fmtMktCap(v) {
   }) + "M";
   return "$" + Number(v).toLocaleString();
 }
+
+// MM-DD-YYYY (e.g. 6-19-2026) from an ISO YYYY-MM-DD string.
+function fmtSwingDate(s) {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s));
+  if (!m) return String(s);
+  return `${+m[2]}-${+m[3]}-${m[1]}`;
+}
 function SwingPatternCard({
   apiFetch,
   ticker
 }) {
+  const Term = window.Term || (({
+    children
+  }) => /*#__PURE__*/React.createElement("span", null, children));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [sens, setSens] = useState("0.12"); // zig-zag % threshold
+  const [tab, setTab] = useState("up"); // history table: up | down
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -872,9 +884,53 @@ function SwingPatternCard({
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
-  const swings = data && data.swings || [];
-  const rhythm = data && data.rhythm;
-  const proj = data && data.projection;
+  const sgn = v => v == null ? "" : v >= 0 ? "+" : "";
+  const a = data && data.analysis;
+  const ind = data && data.indicators;
+  const upRhythm = data && data.rhythm;
+  const downRhythm = data && data.down_rhythm;
+  const upSwings = data && data.swings || [];
+  const downSwings = data && data.down_swings || [];
+  const isUp = a && a.direction === "up";
+  const dirTone = a ? isUp ? "up" : "down" : "";
+  const matTone = m => ({
+    early: "up",
+    developing: "up",
+    mature: "",
+    extended: "warn",
+    exhausted: "down"
+  })[m] || "";
+  const confTone = c => ({
+    high: "up",
+    medium: "",
+    low: "warn"
+  })[c] || "";
+  const ScoreBar = ({
+    label,
+    k,
+    score,
+    tone,
+    factors
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "swing-score"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-score-row"
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: k
+  }, label)), /*#__PURE__*/React.createElement("b", {
+    className: tone
+  }, score == null ? "—" : Math.round(score), /*#__PURE__*/React.createElement("small", null, " / 100"))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `swing-bar-fill ${tone}`,
+    style: {
+      width: `${Math.max(0, Math.min(100, score || 0))}%`
+    }
+  })), factors && factors.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "swing-factors"
+  }, factors.slice(0, 3).join(" · ")));
+  const histRhythm = tab === "up" ? upRhythm : downRhythm;
+  const histSwings = tab === "up" ? upSwings : downSwings;
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -883,13 +939,13 @@ function SwingPatternCard({
     className: "kicker"
   }, "Pattern recognition · ", ticker), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "Swing rhythm & projected targets")), /*#__PURE__*/React.createElement("div", {
+  }, "Swing decision — where am I in this move?")), /*#__PURE__*/React.createElement("div", {
     className: "ab-controls"
   }, /*#__PURE__*/React.createElement("select", {
     className: "sb-select ab-days",
     value: sens,
     onChange: e => setSens(e.target.value),
-    title: "How big a pullback counts as a new swing"
+    title: "How big a reversal counts as a new swing"
   }, /*#__PURE__*/React.createElement("option", {
     value: "0.15"
   }, "Major swings"), /*#__PURE__*/React.createElement("option", {
@@ -904,32 +960,166 @@ function SwingPatternCard({
     className: "ab-status"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, err)), rhythm && /*#__PURE__*/React.createElement("div", {
-    className: "ab-status"
-  }, /*#__PURE__*/React.createElement("b", null, rhythm.count), " major up-swings · usually ", /*#__PURE__*/React.createElement("b", null, rhythm.days_p25, "–", rhythm.days_p75, " trading days"), " ", "· ", /*#__PURE__*/React.createElement("b", {
-    className: "up"
-  }, "+", rhythm.pct_p25, "% to +", rhythm.pct_p75, "%"), " (median ", /*#__PURE__*/React.createElement("b", null, "+", rhythm.pct_median, "%"), ", ~", rhythm.days_median, "d)", " ", "· full range ", rhythm.days_min, "–", rhythm.days_max, "d / +", rhythm.pct_min, "–", rhythm.pct_max, "%"), proj ? /*#__PURE__*/React.createElement("div", {
-    className: "swing-proj"
+  }, err)), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
+    className: `swing-live swing-${dirTone}`
   }, /*#__PURE__*/React.createElement("div", {
-    className: "swing-proj-title"
-  }, "📈 Active setup — fresh swing low ", fmtUsd2(proj.from_low_price), " on ", proj.from_low_date, " (", proj.days_so_far, "d ago)"), /*#__PURE__*/React.createElement("div", {
-    className: "swing-proj-grid"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Projected target"), /*#__PURE__*/React.createElement("b", {
-    className: "up"
-  }, fmtUsd2(proj.target_low), " – ", fmtUsd2(proj.target_high))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Median target"), /*#__PURE__*/React.createElement("b", {
-    className: "up"
-  }, fmtUsd2(proj.target_median), proj.to_target_median_pct != null ? ` (${proj.to_target_median_pct >= 0 ? "+" : ""}${proj.to_target_median_pct}% from here)` : "")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Expected move"), /*#__PURE__*/React.createElement("b", null, "+", proj.pct_low, "% to +", proj.pct_high, "%")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Time window"), /*#__PURE__*/React.createElement("b", null, proj.window_start, " → ", proj.window_end)))) : rhythm && /*#__PURE__*/React.createElement("div", {
+    className: "swing-live-head"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `swing-badge ${dirTone}`
+  }, isUp ? "LONG setup ▲" : "SHORT setup ▼"), /*#__PURE__*/React.createElement("span", {
+    className: "swing-state",
+    title: "Plain-English read of the move"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "trend_state"
+  }, a.trend_state)), /*#__PURE__*/React.createElement("span", {
+    className: `swing-maturity ${matTone(a.maturity)}`,
+    title: "Where this move sits in the stock's history"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "maturity"
+  }, a.maturity)), a.do_not_sell_yet && /*#__PURE__*/React.createElement("span", {
+    className: "swing-flag up"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "do_not_sell_yet"
+  }, "Don't sell yet")), a.cover_too_early_risk && /*#__PURE__*/React.createElement("span", {
+    className: "swing-flag down"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "cover_too_early"
+  }, "Don't cover yet"))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-live-grid"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: isUp ? "swing_low" : "swing_high"
+  }, "From ", a.from_label)), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.from_price), " ", /*#__PURE__*/React.createElement("small", null, "· ", fmtSwingDate(a.from_date)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Current price"), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.current_price))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "current_move"
+  }, "Move so far")), /*#__PURE__*/React.createElement("b", {
+    className: dirTone
+  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, "d"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median ", /*#__PURE__*/React.createElement("small", null, "(med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d)"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Next target (median)"), /*#__PURE__*/React.createElement("b", {
+    className: dirTone
+  }, fmtUsd2(a.targets[1].price), " ", /*#__PURE__*/React.createElement("small", null, sgn(a.targets[1].from_here_pct), a.targets[1].from_here_pct, "% away"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "RSI · rel-vol"), /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
+    k: "rsi14"
+  }, ind && ind.rsi14 != null ? ind.rsi14 : "—"), " · ", /*#__PURE__*/React.createElement(Term, {
+    k: "rel_vol"
+  }, ind && ind.rel_vol != null ? ind.rel_vol + "x" : "—")))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-signal"
+  }, a.signal_note), /*#__PURE__*/React.createElement("div", {
+    className: "swing-scores"
+  }, /*#__PURE__*/React.createElement(ScoreBar, {
+    label: "Continuation",
+    k: "continuation_score",
+    score: a.continuation_score,
+    tone: isUp ? "up" : "down",
+    factors: a.continuation_factors
+  }), /*#__PURE__*/React.createElement(ScoreBar, {
+    label: "Exhaustion",
+    k: "exhaustion_score",
+    score: a.exhaustion_score,
+    tone: "warn",
+    factors: a.exhaustion_factors
+  }))), a && a.status === "no_rhythm" && /*#__PURE__*/React.createElement("div", {
     className: "ab-status muted"
-  }, "No fresh swing low right now — the projection appears once ", ticker, " prints a new swing low."), swings.length > 0 ? /*#__PURE__*/React.createElement("div", {
+  }, a.note), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap",
     style: {
       marginTop: 12
     }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-subtitle"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "target_ladder"
+  }, "Projected target ladder"), " — from ", a.from_label, " ", fmtUsd2(a.from_price)), /*#__PURE__*/React.createElement("table", {
+    className: "scan-table swing-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, isUp ? "Upside" : "Downside", " %"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "Price"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "From here"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "By (est.)"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "confidence_rating"
+  }, "Confidence")))), /*#__PURE__*/React.createElement("tbody", null, a.targets.map((t, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    className: "scan-row"
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      textTransform: "capitalize"
+    }
+  }, t.label, t.reached ? " ✓" : ""), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, sgn(isUp ? t.pct_move : -t.pct_move), isUp ? t.pct_move : -t.pct_move, "%"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtUsd2(t.price)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${t.reached ? "muted" : dirTone}`
+  }, t.reached ? "reached" : `${sgn(t.from_here_pct)}${t.from_here_pct}%`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtSwingDate(t.eta_date)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${confTone(t.confidence)}`,
+    title: `Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`
+  }, t.confidence)))))), a && a.status === "ok" && a.trade_plan && /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-subtitle"
+  }, a.trade_plan.side === "long" ? "Long" : "Short", " trade plan"), /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-grid"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Entry zone"), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.trade_plan.entry_zone[0]), " – ", fmtUsd2(a.trade_plan.entry_zone[1]))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Invalidation"), /*#__PURE__*/React.createElement("b", {
+    className: "down"
+  }, fmtUsd2(a.trade_plan.invalidation))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Target 1 (median)"), /*#__PURE__*/React.createElement("b", {
+    className: dirTone
+  }, fmtUsd2(a.trade_plan.t1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Target 2 (stretch)"), /*#__PURE__*/React.createElement("b", {
+    className: dirTone
+  }, fmtUsd2(a.trade_plan.t2))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Extreme"), /*#__PURE__*/React.createElement("b", {
+    className: dirTone
+  }, fmtUsd2(a.trade_plan.stretch))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Holding window"), /*#__PURE__*/React.createElement("b", null, a.trade_plan.holding_window))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-note"
+  }, a.trade_plan.entry_note), /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-note muted"
+  }, a.trade_plan.invalidation_note), /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-cols"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-h up"
+  }, "Reasons to stay"), /*#__PURE__*/React.createElement("ul", null, a.trade_plan.reason_to_stay.map((r, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, r)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-h warn"
+  }, "Exit warnings"), /*#__PURE__*/React.createElement("ul", null, a.trade_plan.exit_warnings.map((r, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, r))))), a.similar_move && /*#__PURE__*/React.createElement("div", {
+    className: "swing-plan-note"
+  }, /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
+    k: "similar_move"
+  }, "Similar past move:")), " ", a.similar_move.note)), /*#__PURE__*/React.createElement("div", {
+    className: "swing-histnav",
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: tab === "up" ? "active" : "",
+    onClick: () => setTab("up")
+  }, "Up-swings (", upSwings.length, ")"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: tab === "down" ? "active" : "",
+    onClick: () => setTab("down")
+  }, "Down-swings (", downSwings.length, ")")), histRhythm && /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, /*#__PURE__*/React.createElement("b", null, histRhythm.count), " ", tab === "up" ? "up" : "down", "-swings · usually ", /*#__PURE__*/React.createElement("b", null, histRhythm.days_p25, "–", histRhythm.days_p75, " trading days"), " ", "· ", /*#__PURE__*/React.createElement("b", {
+    className: tab === "up" ? "up" : "down"
+  }, tab === "up" ? "+" : "−", histRhythm.pct_p25, "% to ", tab === "up" ? "+" : "−", histRhythm.pct_p75, "%"), " ", "(median ", /*#__PURE__*/React.createElement("b", null, tab === "up" ? "+" : "−", histRhythm.pct_median, "%"), ", ~", histRhythm.days_median, "d)", " ", "· full range ", histRhythm.days_min, "–", histRhythm.days_max, "d / ", histRhythm.pct_min, "–", histRhythm.pct_max, "%"), histSwings.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap",
+    style: {
+      marginTop: 8
+    }
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table swing-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Swing low"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, tab === "up" ? /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
+    k: "swing_low"
+  }, "Swing low")), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
-  }, "Low $"), /*#__PURE__*/React.createElement("th", null, "Swing high"), /*#__PURE__*/React.createElement("th", {
+  }, "Low $"), /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
+    k: "swing_high"
+  }, "Swing high")), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
   }, "High $"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
@@ -941,26 +1131,48 @@ function SwingPatternCard({
     className: "scan-th-num"
   }, "Avg/day"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
-  }, "Rhythm"))), /*#__PURE__*/React.createElement("tbody", null, swings.slice().reverse().map((s, i) => /*#__PURE__*/React.createElement("tr", {
+  }, "Rhythm")) : /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
+    k: "swing_high"
+  }, "Swing high")), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "High $"), /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
+    k: "swing_low"
+  }, "Swing low")), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "Low $"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "Days"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "$ chg"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "% drop"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "Avg/day"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num"
+  }, "Rhythm"))), /*#__PURE__*/React.createElement("tbody", null, histSwings.slice().reverse().map((s, i) => /*#__PURE__*/React.createElement("tr", {
     key: i,
     className: "scan-row"
-  }, /*#__PURE__*/React.createElement("td", null, s.low_date), /*#__PURE__*/React.createElement("td", {
+  }, tab === "up" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, fmtUsd2(s.low_price)), /*#__PURE__*/React.createElement("td", null, s.high_date), /*#__PURE__*/React.createElement("td", {
+  }, fmtUsd2(s.low_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, fmtUsd2(s.high_price)), /*#__PURE__*/React.createElement("td", {
+  }, fmtUsd2(s.high_price))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtUsd2(s.high_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtUsd2(s.low_price))), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, s.trading_days), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${tab === "up" ? "" : "down"}`
+  }, fmtUsd2(s.dollar_change)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${tab === "up" ? "up" : "down"}`
+  }, s.pct_change, "%"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, "+", fmtUsd2(s.dollar_change).replace("$", "$")), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num up"
-  }, "+", s.pct_change, "%"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, "+", s.avg_daily_pct, "%"), /*#__PURE__*/React.createElement("td", {
+  }, s.avg_daily_pct, "%"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, s.matches_rhythm ? "✓" : "·")))))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, "No major swings found for ", ticker, " in this window."));
+  }, "No major ", tab === "up" ? "up" : "down", "-swings found for ", ticker, " in this window."));
 }
 function ScreenersHub({
   apiFetch,

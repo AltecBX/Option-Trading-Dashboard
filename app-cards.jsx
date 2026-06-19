@@ -588,11 +588,21 @@ function fmtMktCap(v) {
   return "$" + Number(v).toLocaleString();
 }
 
+// MM-DD-YYYY (e.g. 6-19-2026) from an ISO YYYY-MM-DD string.
+function fmtSwingDate(s) {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s));
+  if (!m) return String(s);
+  return `${+m[2]}-${+m[3]}-${m[1]}`;
+}
+
 function SwingPatternCard({ apiFetch, ticker }) {
+  const Term = window.Term || (({ children }) => <span>{children}</span>);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
-  const [sens, setSens] = useState("0.12");  // zig-zag % threshold
+  const [sens, setSens] = useState("0.12");   // zig-zag % threshold
+  const [tab, setTab] = useState("up");        // history table: up | down
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -607,19 +617,44 @@ function SwingPatternCard({ apiFetch, ticker }) {
   useEffect(() => { load(ticker, sens); /* eslint-disable-next-line */ }, [ticker, sens]);
 
   const fmtUsd2 = (v) => v == null ? "—" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const swings = (data && data.swings) || [];
-  const rhythm = data && data.rhythm;
-  const proj = data && data.projection;
+  const sgn = (v) => (v == null ? "" : (v >= 0 ? "+" : ""));
+
+  const a = data && data.analysis;
+  const ind = data && data.indicators;
+  const upRhythm = data && data.rhythm;
+  const downRhythm = data && data.down_rhythm;
+  const upSwings = (data && data.swings) || [];
+  const downSwings = (data && data.down_swings) || [];
+  const isUp = a && a.direction === "up";
+  const dirTone = a ? (isUp ? "up" : "down") : "";
+
+  const matTone = (m) => ({ early: "up", developing: "up", mature: "", extended: "warn", exhausted: "down" }[m] || "");
+  const confTone = (c) => ({ high: "up", medium: "", low: "warn" }[c] || "");
+
+  const ScoreBar = ({ label, k, score, tone, factors }) => (
+    <div className="swing-score">
+      <div className="swing-score-row">
+        <span><Term k={k}>{label}</Term></span>
+        <b className={tone}>{score == null ? "—" : Math.round(score)}<small> / 100</small></b>
+      </div>
+      <div className="swing-bar"><div className={`swing-bar-fill ${tone}`} style={{ width: `${Math.max(0, Math.min(100, score || 0))}%` }} /></div>
+      {factors && factors.length > 0 && <div className="swing-factors">{factors.slice(0, 3).join(" · ")}</div>}
+    </div>
+  );
+
+  const histRhythm = tab === "up" ? upRhythm : downRhythm;
+  const histSwings = tab === "up" ? upSwings : downSwings;
 
   return (
     <div className="card ab-card">
       <div className="card-head">
         <div>
           <div className="kicker">Pattern recognition · {ticker}</div>
-          <div className="card-title">Swing rhythm &amp; projected targets</div>
+          <div className="card-title">Swing decision — where am I in this move?</div>
         </div>
         <div className="ab-controls">
-          <select className="sb-select ab-days" value={sens} onChange={e => setSens(e.target.value)} title="How big a pullback counts as a new swing">
+          <select className="sb-select ab-days" value={sens} onChange={e => setSens(e.target.value)}
+                  title="How big a reversal counts as a new swing">
             <option value="0.15">Major swings</option>
             <option value="0.12">Standard</option>
             <option value="0.08">Sensitive</option>
@@ -632,60 +667,173 @@ function SwingPatternCard({ apiFetch, ticker }) {
 
       {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
 
-      {rhythm && (
-        <div className="ab-status">
-          <b>{rhythm.count}</b> major up-swings · usually <b>{rhythm.days_p25}–{rhythm.days_p75} trading days</b>
-          {" "}· <b className="up">+{rhythm.pct_p25}% to +{rhythm.pct_p75}%</b> (median <b>+{rhythm.pct_median}%</b>, ~{rhythm.days_median}d)
-          {" "}· full range {rhythm.days_min}–{rhythm.days_max}d / +{rhythm.pct_min}–{rhythm.pct_max}%
+      {/* ── Live decision box ───────────────────────────────────────────── */}
+      {a && a.status === "ok" && (
+        <div className={`swing-live swing-${dirTone}`}>
+          <div className="swing-live-head">
+            <span className={`swing-badge ${dirTone}`}>{isUp ? "LONG setup ▲" : "SHORT setup ▼"}</span>
+            <span className="swing-state" title="Plain-English read of the move">
+              <Term k="trend_state">{a.trend_state}</Term>
+            </span>
+            <span className={`swing-maturity ${matTone(a.maturity)}`} title="Where this move sits in the stock's history">
+              <Term k="maturity">{a.maturity}</Term>
+            </span>
+            {a.do_not_sell_yet && <span className="swing-flag up"><Term k="do_not_sell_yet">Don't sell yet</Term></span>}
+            {a.cover_too_early_risk && <span className="swing-flag down"><Term k="cover_too_early">Don't cover yet</Term></span>}
+          </div>
+
+          <div className="swing-live-grid">
+            <div><span><Term k={isUp ? "swing_low" : "swing_high"}>From {a.from_label}</Term></span>
+              <b>{fmtUsd2(a.from_price)} <small>· {fmtSwingDate(a.from_date)}</small></b></div>
+            <div><span>Current price</span><b>{fmtUsd2(a.current_price)}</b></div>
+            <div><span><Term k="current_move">Move so far</Term></span>
+              <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active}d</small></b></div>
+            <div><span>vs typical move</span>
+              <b>{a.vs_history.pct_of_median_move}% of median <small>(med {a.vs_history.median_pct}% / {a.vs_history.median_days}d)</small></b></div>
+            <div><span>Next target (median)</span>
+              <b className={dirTone}>{fmtUsd2(a.targets[1].price)} <small>{sgn(a.targets[1].from_here_pct)}{a.targets[1].from_here_pct}% away</small></b></div>
+            <div><span>RSI · rel-vol</span>
+              <b><Term k="rsi14">{ind && ind.rsi14 != null ? ind.rsi14 : "—"}</Term> · <Term k="rel_vol">{ind && ind.rel_vol != null ? ind.rel_vol + "x" : "—"}</Term></b></div>
+          </div>
+
+          <div className="swing-signal">{a.signal_note}</div>
+
+          <div className="swing-scores">
+            <ScoreBar label="Continuation" k="continuation_score" score={a.continuation_score} tone={isUp ? "up" : "down"} factors={a.continuation_factors} />
+            <ScoreBar label="Exhaustion" k="exhaustion_score" score={a.exhaustion_score} tone="warn" factors={a.exhaustion_factors} />
+          </div>
         </div>
       )}
 
-      {proj ? (
-        <div className="swing-proj">
-          <div className="swing-proj-title">📈 Active setup — fresh swing low {fmtUsd2(proj.from_low_price)} on {proj.from_low_date} ({proj.days_so_far}d ago)</div>
-          <div className="swing-proj-grid">
-            <div><span>Projected target</span><b className="up">{fmtUsd2(proj.target_low)} – {fmtUsd2(proj.target_high)}</b></div>
-            <div><span>Median target</span><b className="up">{fmtUsd2(proj.target_median)}{proj.to_target_median_pct != null ? ` (${proj.to_target_median_pct >= 0 ? "+" : ""}${proj.to_target_median_pct}% from here)` : ""}</b></div>
-            <div><span>Expected move</span><b>+{proj.pct_low}% to +{proj.pct_high}%</b></div>
-            <div><span>Time window</span><b>{proj.window_start} → {proj.window_end}</b></div>
-          </div>
-        </div>
-      ) : (rhythm && (
-        <div className="ab-status muted">No fresh swing low right now — the projection appears once {ticker} prints a new swing low.</div>
-      ))}
+      {a && a.status === "no_rhythm" && (
+        <div className="ab-status muted">{a.note}</div>
+      )}
 
-      {swings.length > 0 ? (
+      {/* ── Target ladder ───────────────────────────────────────────────── */}
+      {a && a.status === "ok" && (
         <div className="scan-table-wrap" style={{ marginTop: 12 }}>
+          <div className="swing-subtitle"><Term k="target_ladder">Projected target ladder</Term> — from {a.from_label} {fmtUsd2(a.from_price)}</div>
           <table className="scan-table swing-table">
             <thead>
               <tr>
-                <th>Swing low</th><th className="scan-th-num">Low $</th>
-                <th>Swing high</th><th className="scan-th-num">High $</th>
-                <th className="scan-th-num">Days</th>
-                <th className="scan-th-num">$ chg</th>
-                <th className="scan-th-num">% chg</th>
-                <th className="scan-th-num">Avg/day</th>
-                <th className="scan-th-num">Rhythm</th>
+                <th>Target</th>
+                <th className="scan-th-num">{isUp ? "Upside" : "Downside"} %</th>
+                <th className="scan-th-num">Price</th>
+                <th className="scan-th-num">From here</th>
+                <th className="scan-th-num">By (est.)</th>
+                <th className="scan-th-num"><Term k="confidence_rating">Confidence</Term></th>
               </tr>
             </thead>
             <tbody>
-              {swings.slice().reverse().map((s, i) => (
+              {a.targets.map((t, i) => (
                 <tr key={i} className="scan-row">
-                  <td>{s.low_date}</td>
-                  <td className="scan-num">{fmtUsd2(s.low_price)}</td>
-                  <td>{s.high_date}</td>
-                  <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                  <td style={{ textTransform: "capitalize" }}>{t.label}{t.reached ? " ✓" : ""}</td>
+                  <td className="scan-num">{sgn(isUp ? t.pct_move : -t.pct_move)}{isUp ? t.pct_move : -t.pct_move}%</td>
+                  <td className="scan-num">{fmtUsd2(t.price)}</td>
+                  <td className={`scan-num ${t.reached ? "muted" : dirTone}`}>{t.reached ? "reached" : `${sgn(t.from_here_pct)}${t.from_here_pct}%`}</td>
+                  <td className="scan-num">{fmtSwingDate(t.eta_date)}</td>
+                  <td className={`scan-num ${confTone(t.confidence)}`} title={`Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`}>{t.confidence}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Trade plan ──────────────────────────────────────────────────── */}
+      {a && a.status === "ok" && a.trade_plan && (
+        <div className="swing-plan">
+          <div className="swing-subtitle">{a.trade_plan.side === "long" ? "Long" : "Short"} trade plan</div>
+          <div className="swing-plan-grid">
+            <div><span>Entry zone</span><b>{fmtUsd2(a.trade_plan.entry_zone[0])} – {fmtUsd2(a.trade_plan.entry_zone[1])}</b></div>
+            <div><span>Invalidation</span><b className="down">{fmtUsd2(a.trade_plan.invalidation)}</b></div>
+            <div><span>Target 1 (median)</span><b className={dirTone}>{fmtUsd2(a.trade_plan.t1)}</b></div>
+            <div><span>Target 2 (stretch)</span><b className={dirTone}>{fmtUsd2(a.trade_plan.t2)}</b></div>
+            <div><span>Extreme</span><b className={dirTone}>{fmtUsd2(a.trade_plan.stretch)}</b></div>
+            <div><span>Holding window</span><b>{a.trade_plan.holding_window}</b></div>
+          </div>
+          <div className="swing-plan-note">{a.trade_plan.entry_note}</div>
+          <div className="swing-plan-note muted">{a.trade_plan.invalidation_note}</div>
+          <div className="swing-plan-cols">
+            <div>
+              <div className="swing-plan-h up">Reasons to stay</div>
+              <ul>{a.trade_plan.reason_to_stay.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+            <div>
+              <div className="swing-plan-h warn">Exit warnings</div>
+              <ul>{a.trade_plan.exit_warnings.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+          </div>
+          {a.similar_move && <div className="swing-plan-note"><b><Term k="similar_move">Similar past move:</Term></b> {a.similar_move.note}</div>}
+        </div>
+      )}
+
+      {/* ── History table (up / down toggle) ────────────────────────────── */}
+      <div className="swing-histnav" style={{ marginTop: 14 }}>
+        <button type="button" className={tab === "up" ? "active" : ""} onClick={() => setTab("up")}>Up-swings ({upSwings.length})</button>
+        <button type="button" className={tab === "down" ? "active" : ""} onClick={() => setTab("down")}>Down-swings ({downSwings.length})</button>
+      </div>
+
+      {histRhythm && (
+        <div className="ab-status">
+          <b>{histRhythm.count}</b> {tab === "up" ? "up" : "down"}-swings · usually <b>{histRhythm.days_p25}–{histRhythm.days_p75} trading days</b>
+          {" "}· <b className={tab === "up" ? "up" : "down"}>{tab === "up" ? "+" : "−"}{histRhythm.pct_p25}% to {tab === "up" ? "+" : "−"}{histRhythm.pct_p75}%</b>
+          {" "}(median <b>{tab === "up" ? "+" : "−"}{histRhythm.pct_median}%</b>, ~{histRhythm.days_median}d)
+          {" "}· full range {histRhythm.days_min}–{histRhythm.days_max}d / {histRhythm.pct_min}–{histRhythm.pct_max}%
+        </div>
+      )}
+
+      {histSwings.length > 0 ? (
+        <div className="scan-table-wrap" style={{ marginTop: 8 }}>
+          <table className="scan-table swing-table">
+            <thead>
+              {tab === "up" ? (
+                <tr>
+                  <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num">Low $</th>
+                  <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num">High $</th>
+                  <th className="scan-th-num">Days</th><th className="scan-th-num">$ chg</th>
+                  <th className="scan-th-num">% chg</th><th className="scan-th-num">Avg/day</th>
+                  <th className="scan-th-num">Rhythm</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num">High $</th>
+                  <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num">Low $</th>
+                  <th className="scan-th-num">Days</th><th className="scan-th-num">$ chg</th>
+                  <th className="scan-th-num">% drop</th><th className="scan-th-num">Avg/day</th>
+                  <th className="scan-th-num">Rhythm</th>
+                </tr>
+              )}
+            </thead>
+            <tbody>
+              {histSwings.slice().reverse().map((s, i) => (
+                <tr key={i} className="scan-row">
+                  {tab === "up" ? (
+                    <React.Fragment>
+                      <td>{fmtSwingDate(s.low_date)}</td>
+                      <td className="scan-num">{fmtUsd2(s.low_price)}</td>
+                      <td>{fmtSwingDate(s.high_date)}</td>
+                      <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                    </React.Fragment>
+                  ) : (
+                    <React.Fragment>
+                      <td>{fmtSwingDate(s.high_date)}</td>
+                      <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                      <td>{fmtSwingDate(s.low_date)}</td>
+                      <td className="scan-num">{fmtUsd2(s.low_price)}</td>
+                    </React.Fragment>
+                  )}
                   <td className="scan-num">{s.trading_days}</td>
-                  <td className="scan-num">+{fmtUsd2(s.dollar_change).replace("$", "$")}</td>
-                  <td className="scan-num up">+{s.pct_change}%</td>
-                  <td className="scan-num">+{s.avg_daily_pct}%</td>
+                  <td className={`scan-num ${tab === "up" ? "" : "down"}`}>{fmtUsd2(s.dollar_change)}</td>
+                  <td className={`scan-num ${tab === "up" ? "up" : "down"}`}>{s.pct_change}%</td>
+                  <td className="scan-num">{s.avg_daily_pct}%</td>
                   <td className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      ) : (!err && !loading && <div className="ab-empty">No major swings found for {ticker} in this window.</div>)}
+      ) : (!err && !loading && <div className="ab-empty">No major {tab === "up" ? "up" : "down"}-swings found for {ticker} in this window.</div>)}
     </div>
   );
 }
