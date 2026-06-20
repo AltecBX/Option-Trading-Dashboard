@@ -19,6 +19,12 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 try:
+    from zoneinfo import ZoneInfo
+    _ET = ZoneInfo("America/New_York")
+except Exception:
+    _ET = timezone.utc
+
+try:
     import yfinance as yf
     _YF = True
 except Exception:
@@ -60,6 +66,41 @@ def _parse_iso(s: str):
             tzinfo=timezone.utc).timestamp()
     except Exception:
         return None
+
+
+def _et_labels(ts: float):
+    """(M-D-YYYY, h:mmam/pm, YYYY-MM-DD) in US Eastern for one timestamp."""
+    if not ts:
+        return None, None, None
+    try:
+        dt = datetime.fromtimestamp(ts, _ET)
+        date_label = f"{dt.month}-{dt.day}-{dt.year}"
+        time_label = dt.strftime("%I:%M%p").lstrip("0").lower()
+        return date_label, time_label, dt.strftime("%Y-%m-%d")
+    except Exception:
+        return None, None, None
+
+
+def _day_changes(symbol: str) -> dict:
+    """Date (YYYY-MM-DD) → that day's % price change, so each headline can
+    carry the stock's move on its day (Finviz-style tag)."""
+    if not _YF:
+        return {}
+    try:
+        h = yf.Ticker(symbol).history(period="3mo", interval="1d")
+        if h is None or h.empty:
+            return {}
+        out, prev = {}, None
+        for idx, c in h["Close"].items():
+            c = float(c)
+            if c != c:  # NaN
+                continue
+            if prev is not None and prev > 0:
+                out[idx.strftime("%Y-%m-%d")] = round((c - prev) / prev * 100.0, 2)
+            prev = c
+        return out
+    except Exception:
+        return {}
 
 
 def _yf_news(symbol: str) -> list[dict]:
@@ -151,9 +192,25 @@ def _build(symbol: str, limit: int) -> dict:
         if (it.get("url") and not cur.get("url")) or (it["ts"] or 0) > (cur["ts"] or 0):
             seen[k] = it
     merged = sorted(seen.values(), key=lambda x: -(x["ts"] or 0))[:limit]
+    changes = _day_changes(symbol)
+    last_key = max(changes) if changes else None        # latest session we have
     for it in merged:
-        it["published"] = _iso(it["ts"])
-        it["age"] = _age(it["ts"])
+        ts = it["ts"] or 0.0
+        it["published"] = _iso(ts)
+        it["age"] = _age(ts)
+        date_label, time_label, day_key = _et_labels(ts)
+        it["date_label"] = date_label
+        it["time_label"] = time_label
+        # The stock's move on the headline's day. For the most recent
+        # headlines whose session close isn't in daily history yet, fall
+        # back to the latest available session (never to an older one).
+        chg = None
+        if day_key:
+            if day_key in changes:
+                chg = changes[day_key]
+            elif last_key and day_key >= last_key:
+                chg = changes[last_key]
+        it["day_change"] = chg
         it.pop("ts", None)
     sources = sorted({it["source"] for it in merged if it.get("source")})
     return {"symbol": symbol, "count": len(merged), "items": merged,
