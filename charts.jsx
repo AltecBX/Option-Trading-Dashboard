@@ -43,7 +43,7 @@ function TVPriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPr
       layout: { background: { type: "solid", color: "transparent" }, textColor: "#9aa4b2", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
       grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.06)" } },
       rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
-      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 6 },
+      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14 },
       crosshair: { mode: LC.CrosshairMode.Normal },
     });
     let main;

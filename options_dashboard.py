@@ -170,6 +170,14 @@ except Exception as _exc:  # noqa: BLE001
     _NEWS_AVAILABLE = False
     _news = None  # type: ignore
 
+try:
+    import watchlist_table as _wltable
+    _WLTABLE_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] module load failed: {_exc}", file=sys.stderr)
+    _WLTABLE_AVAILABLE = False
+    _wltable = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -5397,6 +5405,29 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/news", exc)
                 self._send_json({"error": str(exc), "items": []}, status=500)
+            return
+        if parsed.path == "/api/watchlist_table":
+            if not _WLTABLE_AVAILABLE:
+                self._send_json({"error": "watchlist table unavailable", "rows": []}, status=503)
+                return
+            try:
+                self._send_json(_wltable.get_board())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/watchlist_table", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/watchlist_table/scan":
+            if not _WLTABLE_AVAILABLE:
+                self._send_json({"error": "watchlist table unavailable"}, status=503)
+                return
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                force = parse_qs(parsed.query).get("force", ["0"])[0] in ("1", "true")
+                self._send_json(_wltable.trigger_scan(syms, force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/watchlist_table/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/ivrank":
             if not _IVRANK_AVAILABLE:

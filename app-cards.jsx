@@ -853,7 +853,7 @@ function SwingChart({ data, focusKey, onPickSwing }) {
       layout: { background: { type: "solid", color: "transparent" }, textColor: "#9aa4b2", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
       grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.06)" } },
       rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
-      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 6, fixLeftEdge: true },
+      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14, fixLeftEdge: true },
       crosshair: { mode: LC.CrosshairMode.Normal },
     });
     const candle = chart.addCandlestickSeries({
@@ -1459,6 +1459,151 @@ function SwingPatternCard({ apiFetch, ticker }) {
         <TVAdvancedChart apiFetch={apiFetch} ticker={ticker} data={data}
           fallback={<SwingChart data={data} focusKey={focusKey} onPickSwing={pickSwingByTime} />} />
       )}
+    </div>
+  );
+}
+
+function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [sort, setSort] = useState({ key: "market_cap", dir: "desc" });
+  const [fSector, setFSector] = useState("all");
+  const [fIndustry, setFIndustry] = useState("all");
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try { const r = await apiFetch("/api/watchlist_table"); const d = await r.json(); setBoard(d); return d; }
+    catch (e) { setErr(String(e)); return null; }
+  };
+  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  const startScan = async () => {
+    setErr(null);
+    try { await apiFetch("/api/watchlist_table/scan?force=1"); } catch (e) { setErr(String(e)); return; }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+    }, 4000);
+  };
+
+  const status = (board && board.status) || {};
+  const rows = (board && board.rows) || [];
+  const scanning = !!status.scanning;
+  const sectors = (board && board.sectors) || [];
+  const industries = (board && board.industries) || [];
+
+  const COLS = [
+    { k: "symbol", label: "Symbol" }, { k: "company", label: "Company" },
+    { k: "last", label: "Price", num: true }, { k: "market_cap", label: "Mkt Cap", num: true },
+    { k: "pe", label: "P/E", num: true }, { k: "forward_pe", label: "Fwd P/E", num: true },
+    { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
+    { k: "rsi", label: "RSI", num: true }, { k: "rel_vol", label: "Rel Vol", num: true },
+    { k: "next_earnings", label: "Earnings", num: true },
+    { k: "wtd", label: "WTD%", num: true }, { k: "mtd", label: "MTD%", num: true },
+    { k: "qtd", label: "QTD%", num: true }, { k: "ytd", label: "YTD%", num: true },
+    { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
+    { k: "from_ma200", label: "%200DMA", num: true },
+  ];
+  const STR = new Set(["symbol", "company", "industry", "sector"]);
+  const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
+
+  const filtered = useMemo(() => {
+    let out = rows.filter(r => {
+      if (fSector !== "all" && r.sector !== fSector) return false;
+      if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      if (q && !`${r.symbol} ${r.company || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+      return true;
+    });
+    const { key, dir } = sort, mul = dir === "asc" ? 1 : -1;
+    out = out.slice().sort((a, b) => {
+      let av = a[key], bv = b[key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1; if (bv == null) return -1;
+      if (typeof av === "string") return av.localeCompare(bv) * mul;
+      return (av - bv) * mul;
+    });
+    return out;
+  }, [rows, fSector, fIndustry, q, sort]);
+
+  const pctCls = (v) => v == null ? "" : v >= 0 ? "up" : "down";
+  const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Watchlist</div>
+          <div className="card-title">Tracked stocks — full metrics</div>
+        </div>
+        <div className="ab-controls">
+          <button className="scan-run-btn" onClick={startScan} disabled={scanning}>{scanning ? "Scanning…" : "Scan now"}</button>
+        </div>
+      </div>
+      <div className="ab-status">
+        {status.last_scan
+          ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {rows.length} stocks</span>
+          : <span className="muted">No scan yet — Scan now pulls valuation, momentum, volume, earnings &amp; moving-average metrics for your tracked stocks (a few minutes for large lists).</span>}
+        {status.error && <span className="ab-err"> · {status.error}</span>}
+        {err && <span className="ab-err"> · {err}</span>}
+      </div>
+      {scanning && (
+        <div className="ab-progress">
+          <div className="ab-progress-bar" style={{ width: `${status.total ? (status.scanned / status.total * 100) : 0}%` }}></div>
+          <span className="ab-progress-txt">{status.scanned || 0} / {status.total || 0}</span>
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div className="ab-filters">
+          <input className="sb-select ab-search" placeholder="Symbol / company…" value={q} onChange={e => setQ(e.target.value)} />
+          <select className="sb-select" value={fSector} onChange={e => setFSector(e.target.value)}>
+            <option value="all">All sectors</option>{sectors.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="sb-select" value={fIndustry} onChange={e => setFIndustry(e.target.value)}>
+            <option value="all">All industries</option>{industries.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <span className="muted" style={{ fontSize: 12 }}>{filtered.length} shown</span>
+        </div>
+      )}
+      {filtered.length > 0 ? (
+        <div className="scan-table-wrap" style={{ marginTop: 10 }}>
+          <table className="scan-table wl-table">
+            <thead><tr>
+              {COLS.map(c => (
+                <th key={c.k} className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`}
+                    onClick={() => setSortKey(c.k)} title="Click to sort">
+                  {c.label}{sort.key === c.k ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+                </th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)} title={`Open ${r.symbol}`}>
+                  <td className="wl-sym">{r.symbol}</td>
+                  <td className="wl-co">{r.company || "—"}</td>
+                  <td className="scan-num">{fmtUsd(r.last, 2)}</td>
+                  <td className="scan-num">{fmtMktCap(r.market_cap)}</td>
+                  <td className="scan-num">{r.pe != null ? r.pe : "—"}</td>
+                  <td className="scan-num">{r.forward_pe != null ? r.forward_pe : "—"}</td>
+                  <td className="wl-txt">{r.industry || "—"}</td>
+                  <td className="wl-txt">{r.sector || "—"}</td>
+                  <td className="scan-num">{r.rsi != null ? r.rsi : "—"}</td>
+                  <td className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>
+                  <td className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>
+                  <td className={`scan-num ${pctCls(r.wtd)}`}>{pct(r.wtd)}</td>
+                  <td className={`scan-num ${pctCls(r.mtd)}`}>{pct(r.mtd)}</td>
+                  <td className={`scan-num ${pctCls(r.qtd)}`}>{pct(r.qtd)}</td>
+                  <td className={`scan-num ${pctCls(r.ytd)}`}>{pct(r.ytd)}</td>
+                  <td className={`scan-num ${pctCls(r.from_ma20)}`}>{pct(r.from_ma20)}</td>
+                  <td className={`scan-num ${pctCls(r.from_ma50)}`}>{pct(r.from_ma50)}</td>
+                  <td className={`scan-num ${pctCls(r.from_ma200)}`}>{pct(r.from_ma200)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (!scanning && status.last_scan && <div className="ab-empty">No stocks match these filters.</div>)}
     </div>
   );
 }
@@ -6846,4 +6991,4 @@ const ScreenersHubM = React.memo(ScreenersHub);
 Object.assign(window, {
   SwingPatternCard: SwingPatternCardM, NewsCard: NewsCardM, ScreenersHub: ScreenersHubM,
 });
-Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, WatchlistTableCard, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
