@@ -697,7 +697,7 @@ function SwingChart({ data, focusKey, onPickSwing }) {
   const candleRef = useRef(null);
   const volRef = useRef(null);
   const overlayRef = useRef({ lines: [], priceLines: [] });
-  const [show, setShow] = useState({ markers: true, lines: true, up: true, down: true, current: true, targets: true });
+  const [show, setShow] = useState({ markers: true, lines: true, up: true, down: false, current: true, targets: true, labels: false });
   const [collapsed, setCollapsed] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 900));
 
   const bars = (data && data.bars) || [];
@@ -754,8 +754,9 @@ function SwingChart({ data, focusKey, onPickSwing }) {
     const addSwing = (s, dir) => {
       const c = dir === "up" ? UPC : DNC;
       if (show.markers) {
-        markers.push({ time: s.low_date, position: "belowBar", color: c, shape: "arrowUp", text: dir === "down" ? `${s.pct_change}%·${s.trading_days}d` : "" });
-        markers.push({ time: s.high_date, position: "aboveBar", color: c, shape: "arrowDown", text: dir === "up" ? `+${s.pct_change}%·${s.trading_days}d` : "" });
+        const lbl = show.labels ? `${s.pct_change > 0 ? "+" : ""}${Math.round(s.pct_change)}%` : "";
+        markers.push({ time: s.low_date, position: "belowBar", color: c, shape: "arrowUp", text: dir === "down" ? lbl : "" });
+        markers.push({ time: s.high_date, position: "aboveBar", color: c, shape: "arrowDown", text: dir === "up" ? lbl : "" });
       }
       if (show.lines) {
         const ls = chart.addLineSeries({ color: c, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
@@ -792,7 +793,7 @@ function SwingChart({ data, focusKey, onPickSwing }) {
     /* eslint-disable-next-line */
   }, [focusKey, collapsed]);
 
-  const TOGGLES = [["markers", "Markers"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
+  const TOGGLES = [["markers", "Markers"], ["labels", "Labels"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
 
   return (
     <div className="swing-chart-block">

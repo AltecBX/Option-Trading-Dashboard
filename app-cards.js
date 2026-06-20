@@ -970,9 +970,10 @@ function SwingChart({
     markers: true,
     lines: true,
     up: true,
-    down: true,
+    down: false,
     current: true,
-    targets: true
+    targets: true,
+    labels: false
   });
   const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= 900);
   const bars = data && data.bars || [];
@@ -1103,19 +1104,20 @@ function SwingChart({
     const addSwing = (s, dir) => {
       const c = dir === "up" ? UPC : DNC;
       if (show.markers) {
+        const lbl = show.labels ? `${s.pct_change > 0 ? "+" : ""}${Math.round(s.pct_change)}%` : "";
         markers.push({
           time: s.low_date,
           position: "belowBar",
           color: c,
           shape: "arrowUp",
-          text: dir === "down" ? `${s.pct_change}%·${s.trading_days}d` : ""
+          text: dir === "down" ? lbl : ""
         });
         markers.push({
           time: s.high_date,
           position: "aboveBar",
           color: c,
           shape: "arrowDown",
-          text: dir === "up" ? `+${s.pct_change}%·${s.trading_days}d` : ""
+          text: dir === "up" ? lbl : ""
         });
       }
       if (show.lines) {
@@ -1175,7 +1177,7 @@ function SwingChart({
     } catch (e) {}
     /* eslint-disable-next-line */
   }, [focusKey, collapsed]);
-  const TOGGLES = [["markers", "Markers"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
+  const TOGGLES = [["markers", "Markers"], ["labels", "Labels"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
   return /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-block"
   }, /*#__PURE__*/React.createElement("div", {
