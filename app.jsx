@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.78";
+const APP_VERSION = "1.79";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2784,6 +2784,26 @@ function App() {
             short calls. Computes 3 roll choices (same strike +1wk,
             +$5 +1wk, +$10 +1wk) plus buy-back close, with net credit. */}
         <TabPanel tab="trade" active={activeTab}>
+        {rec && (() => {
+          const mode = strategyMode || "both";
+          const cc = rec.cc || (rec.title ? { kind: rec.kind, title: rec.title } : null);
+          const csp = rec.csp || null;
+          const TONE = { success: "go", warn: "warn", danger: "down", info: "muted" };
+          return (
+            <div className="trade-actionread" aria-label="Trade action read">
+              {(mode === "both" || mode === "cc") && cc && cc.title && (
+                <span className={`tar-chip tone-${TONE[cc.kind] || "muted"}`}>
+                  <span className="tar-tag">Covered call</span><b>{cc.title}</b>
+                </span>
+              )}
+              {(mode === "both" || mode === "csp") && csp && csp.title && (
+                <span className={`tar-chip tone-${TONE[csp.kind] || "muted"}`}>
+                  <span className="tar-tag">Cash-secured put</span><b>{csp.title}</b>
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <div id="jump-roll" className="jump-anchor" aria-hidden="true"></div>
         <RollManagerCard
           ticker={ticker}

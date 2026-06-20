@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.78";
+const APP_VERSION = "1.79";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3519,7 +3519,32 @@ function App() {
   }), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
     active: activeTab
-  }, /*#__PURE__*/React.createElement("div", {
+  }, rec && (() => {
+    const mode = strategyMode || "both";
+    const cc = rec.cc || (rec.title ? {
+      kind: rec.kind,
+      title: rec.title
+    } : null);
+    const csp = rec.csp || null;
+    const TONE = {
+      success: "go",
+      warn: "warn",
+      danger: "down",
+      info: "muted"
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      className: "trade-actionread",
+      "aria-label": "Trade action read"
+    }, (mode === "both" || mode === "cc") && cc && cc.title && /*#__PURE__*/React.createElement("span", {
+      className: `tar-chip tone-${TONE[cc.kind] || "muted"}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "tar-tag"
+    }, "Covered call"), /*#__PURE__*/React.createElement("b", null, cc.title)), (mode === "both" || mode === "csp") && csp && csp.title && /*#__PURE__*/React.createElement("span", {
+      className: `tar-chip tone-${TONE[csp.kind] || "muted"}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "tar-tag"
+    }, "Cash-secured put"), /*#__PURE__*/React.createElement("b", null, csp.title)));
+  })(), /*#__PURE__*/React.createElement("div", {
     id: "jump-roll",
     className: "jump-anchor",
     "aria-hidden": "true"
