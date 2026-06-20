@@ -1473,7 +1473,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
   const pollRef = useRef(null);
 
   const load = async () => {
-    try { const r = await apiFetch("/api/watchlist_table"); const d = await r.json(); setBoard(d); return d; }
+    try { const r = await apiFetch("/api/watchlist_table"); const d = await r.json(); setBoard(d); setErr(null); return d; }
     catch (e) { setErr(String(e)); return null; }
   };
   useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
