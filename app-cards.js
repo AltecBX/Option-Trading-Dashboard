@@ -1024,8 +1024,15 @@ function TVAdvancedChart({
       done(true);
       return;
     }
-    // Safety net: if the script never resolves (flaky 404), fall back so the
-    // user always gets the Lightweight chart rather than a stuck spinner.
+    // Only attempt to load the licensed Charting Library when explicitly
+    // enabled (set window.__CHARTING_LIBRARY = true in config.js once the
+    // files are committed). Otherwise go straight to the Lightweight chart —
+    // no wasted 404 request or loading flash for everyone else.
+    const enabled = window.__CHARTING_LIBRARY === true || window.__APP_CONFIG && window.__APP_CONFIG.chartingLibrary === true;
+    if (!enabled) {
+      done(false);
+      return;
+    }
     const timer = setTimeout(() => done(false), 5000);
     const finish = ok => {
       clearTimeout(timer);
