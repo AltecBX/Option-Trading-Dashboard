@@ -1012,7 +1012,9 @@ function SwingPatternCard({
     k: "current_move"
   }, "Move so far")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, "d"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median ", /*#__PURE__*/React.createElement("small", null, "(med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d)"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Next target (median)"), /*#__PURE__*/React.createElement("b", {
+  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, "d"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
+    className: "swing-sub"
+  }, "med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Median target"), /*#__PURE__*/React.createElement("b", {
     className: dirTone
   }, fmtUsd2(a.targets[1].price), " ", /*#__PURE__*/React.createElement("small", null, sgn(a.targets[1].from_here_pct), a.targets[1].from_here_pct, "% away"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "RSI · rel-vol"), /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
     k: "rsi14"
@@ -1133,7 +1135,13 @@ function SwingPatternCard({
     className: dirTone
   }, fmtUsd2(a.trade_plan.t2))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Extreme"), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, fmtUsd2(a.trade_plan.stretch))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Holding window"), /*#__PURE__*/React.createElement("b", null, a.trade_plan.holding_window))), /*#__PURE__*/React.createElement("div", {
+  }, fmtUsd2(a.trade_plan.stretch))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Holding window"), (() => {
+    const hw = a.trade_plan.holding_window || "";
+    const m = /^(.*?)\s*\(through\s*(.+)\)\s*$/.exec(hw);
+    return m ? /*#__PURE__*/React.createElement("b", null, m[1], /*#__PURE__*/React.createElement("small", {
+      className: "swing-sub"
+    }, "through ", m[2])) : /*#__PURE__*/React.createElement("b", null, hw);
+  })())), /*#__PURE__*/React.createElement("div", {
     className: "swing-plan-note"
   }, a.trade_plan.entry_note), /*#__PURE__*/React.createElement("div", {
     className: "swing-plan-note muted"

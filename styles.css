@@ -7649,7 +7649,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-badge.down { background: var(--down); }
 .swing-state { font-weight: 700; font-size: 15px; }
 .swing-maturity {
-  font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em;
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
   color: var(--fg-2);
 }
@@ -7663,15 +7663,19 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-flag.up { color: var(--up); background: color-mix(in oklch, var(--up) 16%, transparent); }
 .swing-flag.down { color: var(--down); background: color-mix(in oklch, var(--down) 16%, transparent); }
 .swing-live-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 9px 16px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 11px 18px;
 }
 .swing-live-grid > div { display: flex; flex-direction: column; gap: 2px; }
-.swing-live-grid span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
-.swing-live-grid b { font-family: var(--font-mono); font-size: 16px; }
+.swing-live-grid span { font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3); }
+.swing-live-grid b { font-family: var(--font-mono); font-size: 16px; white-space: nowrap; }
 .swing-live-grid b small, .swing-live-grid b.up small, .swing-live-grid b.down small {
   white-space: nowrap;
-  font-size: 10.5px; color: var(--fg-3); font-weight: 500;
+  font-size: 12px; color: var(--fg-3); font-weight: 500;
+}
+.swing-live-grid .swing-sub {
+  display: block; white-space: nowrap;
+  font-size: 12px; color: var(--fg-3); font-weight: 500; font-family: var(--font-mono);
 }
 .swing-live-grid b.up { color: var(--up); }
 .swing-live-grid b.down { color: var(--down); }
@@ -7704,12 +7708,13 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border: 1px solid var(--line); background: var(--bg-2);
 }
 .swing-plan-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 9px 16px; margin-bottom: 10px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 11px 18px; margin-bottom: 10px;
 }
 .swing-plan-grid > div { display: flex; flex-direction: column; gap: 2px; }
-.swing-plan-grid span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
-.swing-plan-grid b { font-family: var(--font-mono); font-size: 16px; }
+.swing-plan-grid span { font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3); }
+.swing-plan-grid b { font-family: var(--font-mono); font-size: 16px; white-space: nowrap; }
+.swing-plan-grid .swing-sub { display: block; white-space: nowrap; font-size: 12px; color: var(--fg-3); font-weight: 500; }
 .swing-plan-grid b.up { color: var(--up); }
 .swing-plan-grid b.down { color: var(--down); }
 .swing-plan-note { font-size: 14px; line-height: 1.4; margin-top: 4px; }
