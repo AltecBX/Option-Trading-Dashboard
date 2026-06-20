@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.71";
+const APP_VERSION = "1.72";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2162,10 +2162,10 @@ function App() {
                       // Live ET wall clock — updates every second via nowTs state.
                       try {
                         const d = new Date(nowTs);
-                        const dateFmt = new Intl.DateTimeFormat("en-CA", {
+                        const dateFmt = new Intl.DateTimeFormat("en-US", {
                           timeZone: "America/New_York",
-                          year: "numeric", month: "2-digit", day: "2-digit",
-                        }).format(d);
+                          year: "numeric", month: "numeric", day: "numeric",
+                        }).format(d).replace(/\//g, "-");
                         const timeFmt = new Intl.DateTimeFormat("en-US", {
                           timeZone: "America/New_York",
                           hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,

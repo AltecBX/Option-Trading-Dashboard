@@ -920,12 +920,18 @@ function NewsCard({
     rel: "noopener noreferrer",
     title: it.summary || it.title
   }, /*#__PURE__*/React.createElement("span", {
+    className: "news-when"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "news-abs"
+  }, it.date_label || "—"), /*#__PURE__*/React.createElement("span", {
     className: "news-age"
-  }, it.age || "—"), /*#__PURE__*/React.createElement("span", {
+  }, it.time_label || it.age || "")), /*#__PURE__*/React.createElement("span", {
     className: "news-body"
   }, /*#__PURE__*/React.createElement("span", {
     className: "news-title"
-  }, it.title), it.summary && /*#__PURE__*/React.createElement("span", {
+  }, it.title, it.day_change != null && /*#__PURE__*/React.createElement("span", {
+    className: `news-chg ${it.day_change >= 0 ? "up" : "down"}`
+  }, it.day_change >= 0 ? "+" : "", it.day_change, "%")), it.summary && /*#__PURE__*/React.createElement("span", {
     className: "news-summary"
   }, it.summary)), /*#__PURE__*/React.createElement("span", {
     className: "news-src"

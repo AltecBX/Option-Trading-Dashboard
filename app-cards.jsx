@@ -656,9 +656,19 @@ function NewsCard({ apiFetch, ticker }) {
           {shown.map((it, i) => (
             <a key={i} className="news-row" href={it.url || "#"} target="_blank" rel="noopener noreferrer"
                title={it.summary || it.title}>
-              <span className="news-age">{it.age || "—"}</span>
+              <span className="news-when">
+                <span className="news-abs">{it.date_label || "—"}</span>
+                <span className="news-age">{it.time_label || it.age || ""}</span>
+              </span>
               <span className="news-body">
-                <span className="news-title">{it.title}</span>
+                <span className="news-title">
+                  {it.title}
+                  {it.day_change != null && (
+                    <span className={`news-chg ${it.day_change >= 0 ? "up" : "down"}`}>
+                      {it.day_change >= 0 ? "+" : ""}{it.day_change}%
+                    </span>
+                  )}
+                </span>
                 {it.summary && <span className="news-summary">{it.summary}</span>}
               </span>
               <span className="news-src">{it.source}</span>
