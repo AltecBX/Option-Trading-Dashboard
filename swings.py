@@ -1125,5 +1125,9 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
         "indicators": ind,
         "analysis": analysis,
         "projection": projection,
+        "bars": [{"t": dates[i], "o": round(opens[i], 2), "h": round(highs[i], 2),
+                  "l": round(lows[i], 2), "c": round(closes[i], 2),
+                  "v": int(vols[i]) if vols[i] == vols[i] else 0}
+                 for i in range(len(dates))],
         "as_of": datetime.now(timezone.utc).isoformat(),
     }
