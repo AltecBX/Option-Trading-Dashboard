@@ -1164,7 +1164,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
               <b>{fmtUsd2(a.from_price)} <small>· {fmtSwingDate(a.from_date)}</small></b></div>
             <div><span>Current price</span><b>{fmtUsd2(a.current_price)}</b></div>
             <div><span><Term k="current_move">Move so far</Term></span>
-              <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active} {a.days_active === 1 ? "day" : "days"}</small></b></div>
+              <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active}{a.days_active === 1 ? "day" : "days"}</small></b></div>
             {a.vs_history && (
               <div><span>vs typical move</span>
                 <b>{a.vs_history.pct_of_median_move}% of median</b>

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.89";
+const APP_VERSION = "1.90";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2778,12 +2778,14 @@ function App() {
         })()}
 
         {/* Watchlist alerts (v1.15) — fresh upgrades and downgrades on
-            watchlist tickers in the past 7 days. Only renders when there
-            are alerts to show. Auto-hides when empty. */}
-        <WatchlistAlertsCard
-          apiFetch={apiFetch}
-          onSwitchTicker={switchTicker}
-        />
+            watchlist tickers in the past 7 days. Scoped to the Trade tab
+            (home dashboard) so it doesn't render on every tab. */}
+        <TabPanel tab="trade" active={activeTab}>
+          <WatchlistAlertsCard
+            apiFetch={apiFetch}
+            onSwitchTicker={switchTicker}
+          />
+        </TabPanel>
 
         {/* Roll Manager — only renders if the active ticker has open
             short calls. Computes 3 roll choices (same strike +1wk,

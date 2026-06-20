@@ -1222,7 +1222,7 @@ body {
   color: var(--fg); letter-spacing: 0.02em;
 }
 .sb-ticker-logo {
-  height: 56px; max-width: 100%; object-fit: contain;
+  height: 60px; max-width: 100%; object-fit: contain;
   align-self: flex-start;
   filter: drop-shadow(0 0 0.5px var(--line));
   border-radius: 6px;
@@ -1982,7 +1982,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
     font-size: 16px !important;  /* iOS zooms inputs <16px on focus */
   }
   .sb-ticker-logo {
-    height: 52px !important;
+    height: 56px !important;
     transform: translateY(-2px) !important;
   }
   .sb-ticker-symbol-fallback {
