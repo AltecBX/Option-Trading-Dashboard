@@ -8174,3 +8174,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   animation: ptr-spin 0.7s linear infinite;
 }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+/* Watchlist market-wide flow banner (one UW call, whole market). */
+.wl-market {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 8px; padding: 7px 11px; border-radius: 8px;
+  background: var(--bg-2, #11141b); border: 1px solid var(--line, #232733);
+  font-size: 12.5px; font-family: var(--font-mono);
+}
+.wl-market-tag {
+  font-family: var(--font-display); font-weight: 700; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3, #6b7280);
+}

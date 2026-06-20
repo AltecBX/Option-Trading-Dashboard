@@ -236,11 +236,18 @@ def _fundamentals(symbol: str) -> dict:
 
 
 def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
-    """Distil a UW flow score into compact watchlist fields: a directional
-    net (bull premium − bear premium share), a 0-100 conviction-ish score,
-    and whether the tape agrees with the stock's recent price direction."""
+    """Distil a UW flow score into watchlist columns. Everything here comes
+    from the single flow_alerts call already made per symbol — no extra UW
+    cost: directional net + agreement, the raw bullish/bearish premium,
+    ask-side premium, sweeps, alert count, the 0-100 sub-scores, the
+    covered-call risk read, and the plain-English verdict."""
     out = {"flow_score": None, "flow_net": None, "flow_dir": None,
-           "flow_agree": None, "flow_available": False}
+           "flow_agree": None, "flow_available": False,
+           "call_prem": None, "put_prem": None, "net_prem": None, "pc_ratio": None,
+           "ask_call_prem": None, "ask_put_prem": None,
+           "call_sweeps": None, "put_sweeps": None, "flow_alerts": None,
+           "flow_bull": None, "flow_bear": None, "flow_quality": None,
+           "flow_cc_risk": None, "flow_verdict": None}
     if not flow or not flow.get("data_available"):
         return out
     bull = float(flow.get("bullish") or 0)
@@ -257,6 +264,27 @@ def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
         agrees = ((price_dir == "up" and label == "bull") or
                   (price_dir == "down" and label == "bear"))
         out["flow_agree"] = "agrees" if agrees else "disagrees"
+
+    # Raw premium / activity (from the same alerts call).
+    st = flow.get("stats") or {}
+    cp = float(st.get("total_call_premium") or 0)
+    pp = float(st.get("total_put_premium") or 0)
+    out["call_prem"] = round(cp)
+    out["put_prem"] = round(pp)
+    out["net_prem"] = round(cp - pp)
+    out["pc_ratio"] = round(pp / cp, 2) if cp > 0 else None
+    out["ask_call_prem"] = round(float(st.get("ask_side_call_premium") or 0))
+    out["ask_put_prem"] = round(float(st.get("ask_side_put_premium") or 0))
+    out["call_sweeps"] = int(st.get("call_sweeps") or 0)
+    out["put_sweeps"] = int(st.get("put_sweeps") or 0)
+    out["flow_alerts"] = int(st.get("alert_count") or 0)
+
+    # Sub-scores + covered-call read + verdict.
+    out["flow_bull"] = int(round(bull))
+    out["flow_bear"] = int(round(bear))
+    out["flow_quality"] = int(round(float(flow.get("quality") or 0)))
+    out["flow_cc_risk"] = int(round(float(flow.get("cc_risk") or 0)))
+    out["flow_verdict"] = flow.get("verdict")
     return out
 
 
@@ -306,7 +334,7 @@ def _scan_worker(symbols: list[str]) -> None:
                     # self-throttles, so a big list just runs slower).
                     if flow_fn is not None:
                         try:
-                            fl = flow_fn(sym)
+                            fl = flow_fn(sym, pm.get("last") or 0.0)
                         except Exception:
                             fl = None
                         base = pm.get("wtd")
