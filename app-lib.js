@@ -137,6 +137,9 @@ const TABS = [{
   id: "patterns",
   label: "Patterns"
 }, {
+  id: "news",
+  label: "News"
+}, {
   id: "flow",
   label: "Flow"
 }, {

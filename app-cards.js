@@ -851,6 +851,88 @@ function fmtSwingDate(s) {
   if (!m) return String(s);
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
+function NewsCard({
+  apiFetch,
+  ticker
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [src, setSrc] = useState("all");
+  const load = async sym => {
+    if (!sym) return;
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await apiFetch(`/api/news?symbol=${encodeURIComponent(sym)}`);
+      const d = await r.json();
+      if (d.error && !(d.items || []).length) setErr(d.error);else setData(d);
+    } catch (e) {
+      setErr(String(e));
+    }
+    setLoading(false);
+  };
+  useEffect(() => {
+    setSrc("all");
+    load(ticker); /* eslint-disable-next-line */
+  }, [ticker]);
+  const items = data && data.items || [];
+  const sources = data && data.sources || [];
+  const shown = items.filter(i => src === "all" || i.source === src);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card ab-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "News · ", ticker), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Latest headlines")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-controls"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: () => load(ticker),
+    disabled: loading
+  }, loading ? "Loading…" : "Refresh"))), err && /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, err)), data && /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, items.length, " headlines from ", sources.length, " source", sources.length === 1 ? "" : "s", " ", "· aggregated from Yahoo Finance & Finnhub (free)"), sources.length > 1 && /*#__PURE__*/React.createElement("div", {
+    className: "news-srcnav"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: src === "all" ? "active" : "",
+    onClick: () => setSrc("all")
+  }, "All (", items.length, ")"), sources.map(s => /*#__PURE__*/React.createElement("button", {
+    key: s,
+    type: "button",
+    className: src === s ? "active" : "",
+    onClick: () => setSrc(s)
+  }, s, " (", items.filter(i => i.source === s).length, ")"))), shown.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "news-list"
+  }, shown.map((it, i) => /*#__PURE__*/React.createElement("a", {
+    key: i,
+    className: "news-row",
+    href: it.url || "#",
+    target: "_blank",
+    rel: "noopener noreferrer",
+    title: it.summary || it.title
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "news-age"
+  }, it.age || "—"), /*#__PURE__*/React.createElement("span", {
+    className: "news-body"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "news-title"
+  }, it.title), it.summary && /*#__PURE__*/React.createElement("span", {
+    className: "news-summary"
+  }, it.summary)), /*#__PURE__*/React.createElement("span", {
+    className: "news-src"
+  }, it.source)))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
+    className: "ab-empty"
+  }, "No recent headlines for ", ticker, "."));
+}
 function SwingPatternCard({
   apiFetch,
   ticker
@@ -7588,6 +7670,7 @@ Object.assign(window, {
   TickerLogo,
   VolSkewCard,
   SwingPatternCard,
+  NewsCard,
   ScreenersHub,
   AnalystBoardCard,
   MoversCard,

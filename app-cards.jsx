@@ -596,6 +596,80 @@ function fmtSwingDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
+function NewsCard({ apiFetch, ticker }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [src, setSrc] = useState("all");
+
+  const load = async (sym) => {
+    if (!sym) return;
+    setLoading(true); setErr(null);
+    try {
+      const r = await apiFetch(`/api/news?symbol=${encodeURIComponent(sym)}`);
+      const d = await r.json();
+      if (d.error && !(d.items || []).length) setErr(d.error); else setData(d);
+    } catch (e) { setErr(String(e)); }
+    setLoading(false);
+  };
+  useEffect(() => { setSrc("all"); load(ticker); /* eslint-disable-next-line */ }, [ticker]);
+
+  const items = (data && data.items) || [];
+  const sources = (data && data.sources) || [];
+  const shown = items.filter(i => src === "all" || i.source === src);
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">News · {ticker}</div>
+          <div className="card-title">Latest headlines</div>
+        </div>
+        <div className="ab-controls">
+          <button className="scan-run-btn" onClick={() => load(ticker)} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
+      {data && (
+        <div className="ab-status">
+          {items.length} headlines from {sources.length} source{sources.length === 1 ? "" : "s"}
+          {" "}· aggregated from Yahoo Finance &amp; Finnhub (free)
+        </div>
+      )}
+
+      {sources.length > 1 && (
+        <div className="news-srcnav">
+          <button type="button" className={src === "all" ? "active" : ""} onClick={() => setSrc("all")}>All ({items.length})</button>
+          {sources.map(s => (
+            <button key={s} type="button" className={src === s ? "active" : ""} onClick={() => setSrc(s)}>
+              {s} ({items.filter(i => i.source === s).length})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {shown.length > 0 ? (
+        <div className="news-list">
+          {shown.map((it, i) => (
+            <a key={i} className="news-row" href={it.url || "#"} target="_blank" rel="noopener noreferrer"
+               title={it.summary || it.title}>
+              <span className="news-age">{it.age || "—"}</span>
+              <span className="news-body">
+                <span className="news-title">{it.title}</span>
+                {it.summary && <span className="news-summary">{it.summary}</span>}
+              </span>
+              <span className="news-src">{it.source}</span>
+            </a>
+          ))}
+        </div>
+      ) : (!err && !loading && <div className="ab-empty">No recent headlines for {ticker}.</div>)}
+    </div>
+  );
+}
+
 function SwingPatternCard({ apiFetch, ticker }) {
   const Term = window.Term || (({ children }) => <span>{children}</span>);
   const [data, setData] = useState(null);
@@ -6326,4 +6400,4 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, SwingPatternCard, ScreenersHub, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+Object.assign(window, { TickerLogo, VolSkewCard, SwingPatternCard, NewsCard, ScreenersHub, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
