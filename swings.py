@@ -535,10 +535,33 @@ def _flow_read(direction, flow):
     net = bull - bear                          # >0 bullish tape
     aligned = net if direction == "up" else -net   # >0 = flow confirms the move
     label = "bullish" if net > 8 else "bearish" if net < -8 else "mixed"
+
+    # Flow-vs-price agreement breakdown (premiums, sweep pressure, hedge).
+    st = flow.get("stats") or {}
+    bull_prem = float(st.get("total_call_premium") or 0)
+    bear_prem = float(st.get("total_put_premium") or 0)
+    call_sweeps = int(st.get("call_sweeps") or 0)
+    put_sweeps = int(st.get("put_sweeps") or 0)
+
+    def _press(n):
+        return "strong" if n >= 5 else "moderate" if n >= 2 else "weak"
+
+    tot_prem = bull_prem + bear_prem
+    put_share = (bear_prem / tot_prem) if tot_prem > 0 else 0.0
+    hedge = "heavy" if put_share >= 0.55 else "light" if put_share <= 0.35 else "moderate"
+    agrees = "neutral" if label == "mixed" else (
+        "agrees" if ((direction == "up" and label == "bullish") or
+                     (direction == "down" and label == "bearish")) else "disagrees")
+
     summary = {
         "bullish": round(bull), "bearish": round(bear), "quality": round(q),
         "net": round(net), "label": label,
         "verdict": flow.get("verdict"),
+        "bull_premium": round(bull_prem), "bear_premium": round(bear_prem),
+        "call_sweep_pressure": _press(call_sweeps),
+        "put_hedge_pressure": hedge,
+        "call_sweeps": call_sweeps, "put_sweeps": put_sweeps,
+        "agrees_with_price": agrees,
         "data_available": True,
     }
     # Quality gates how much the tape is allowed to move the scores.
@@ -550,6 +573,152 @@ def _flow_read(direction, flow):
         return (0.0, weight,
                 f"options flow fading the move ({label} tape, quality {round(q)})", summary)
     return (0.0, 0.0, f"options flow {label} but not decisive (quality {round(q)})", summary)
+
+
+def _confidence_block(targets, days_active, cur_abs, r, ind, direction):
+    """Confidence in the projection, with the reasons that drove it."""
+    matched = targets[1]["matched"]            # how many past moves reached median
+    in_dur = r["days_p25"] <= days_active <= r["days_p75"]
+    in_size = r["pct_p25"] <= cur_abs <= r["pct_p75"] or cur_abs < r["pct_p25"]
+    if direction == "up":
+        ma_ok = bool(ind.get("above_ma20") and ind.get("above_ma50"))
+        ma_txt = ("price is above the 20 & 50-DMA" if ma_ok
+                  else "price is below a key moving average")
+    else:
+        ma_ok = bool((not ind.get("above_ma20")) and (not ind.get("above_ma50")))
+        ma_txt = ("price is below the 20 & 50-DMA" if ma_ok
+                  else "price is back above a key moving average")
+    reasons = []
+    if matched >= 2:
+        reasons.append(f"{matched} similar past moves matched")
+    else:
+        reasons.append(f"only {matched} similar move{'' if matched == 1 else 's'} matched")
+    reasons.append("current rhythm is inside the normal duration" if in_dur
+                   else "current duration is outside the normal range")
+    if not in_size:
+        reasons.append("the move is already outside the normal size range")
+    reasons.append(ma_txt)
+    score = int(matched >= 5) + int(in_dur) + int(in_size) + int(ma_ok)
+    if matched < 2 or (not in_size and not in_dur):
+        level = "low"
+    elif score >= 3:
+        level = "high"
+    else:
+        level = "medium"
+    return {"level": level, "matched": matched, "reasons": reasons}
+
+
+def _decision(direction, maturity, exh, cont, hold_signal, broke_res, next_level):
+    """Single top-of-card action from a fixed vocabulary, with drivers."""
+    near = next_level is not None and abs(next_level.get("pct_away", 99)) <= 4
+    near_px = next_level.get("price") if next_level else None
+    d = []
+    if direction == "up":
+        if maturity == "exhausted" or exh >= 70:
+            act = "Take partial"; d.append(f"move looks exhausted (exhaustion {exh:.0f})")
+        elif maturity == "extended":
+            act = "Trail only"; d.append("move is extended vs history")
+        elif maturity == "mature":
+            if hold_signal:
+                act = "Hold"; d.append("momentum still favors continuation")
+            elif exh >= 55:
+                act = "Take partial"; d.append(f"exhaustion building (exhaustion {exh:.0f})")
+            else:
+                act = "Trail only"; d.append("mid-move — protect the gain")
+        else:  # early / developing
+            if broke_res and cont >= 58:
+                act = "Add on breakout"; d.append("broke resistance on strong momentum")
+            elif near and cont >= 50:
+                act = "Add on pullback"; d.append(f"near support ${near_px:.2f} with momentum intact")
+            elif cont >= 50:
+                act = "Hold"; d.append("trend intact — let it develop")
+            else:
+                act = "No new trade"; d.append("momentum not yet confirmed")
+    else:
+        if maturity == "exhausted" or exh >= 70:
+            act = "Cover fully"; d.append(f"down-move looks exhausted (exhaustion {exh:.0f})")
+        elif maturity == "extended":
+            act = "Cover partial"; d.append("decline is extended vs history")
+        elif maturity == "mature":
+            if exh >= 55:
+                act = "Cover partial"; d.append(f"exhaustion building (exhaustion {exh:.0f})")
+            elif hold_signal:
+                act = "Hold"; d.append("downside momentum still favors continuation")
+            else:
+                act = "Trail only"; d.append("mid-move — protect the gain")
+        else:
+            if broke_res and cont >= 58:
+                act = "Short trigger active"; d.append("broke support on strong momentum")
+            elif cont >= 45:
+                act = "Short watch"; d.append("rolling over but not yet confirmed")
+            else:
+                act = "No new trade"; d.append("downside not yet confirmed")
+    if cont >= 60:
+        d.append(f"continuation {cont:.0f}/100")
+    return {"action": act, "drivers": d[:3]}
+
+
+def _attach_details(swings, kind, pivots, dates, r):
+    """Per-swing 'what happened before/after' detail for row expansion."""
+    if not r:
+        return
+    posmap: dict[int, int] = {}
+    for pos, (idx, _p, _k) in enumerate(pivots):
+        posmap.setdefault(idx, pos)
+    med = r["pct_median"]
+    for s in swings:
+        lo_i = s.get("_lo_i"); hi_i = s.get("_hi_i")
+        if lo_i is None or hi_i is None:
+            continue
+        if kind == "up":
+            start_i, start_p, end_i, end_p = lo_i, s["low_price"], hi_i, s["high_price"]
+        else:
+            start_i, start_p, end_i, end_p = hi_i, s["high_price"], lo_i, s["low_price"]
+        detail: dict[str, Any] = {}
+        # Before — the leg into the swing's start.
+        pos = posmap.get(start_i)
+        if pos is not None and pos - 1 >= 0:
+            pi, pp, _ = pivots[pos - 1]
+            bpct = (start_p - pp) / pp * 100.0 if pp else 0.0
+            bdays = start_i - pi
+            detail["before"] = (f"Fell {abs(bpct):.0f}% over {bdays}d into the swing low"
+                                if kind == "up" else
+                                f"Rallied {abs(bpct):.0f}% over {bdays}d into the swing high")
+        # Median target and how far past it the move ran.
+        if kind == "up":
+            mt = start_p * (1 + med / 100.0); reached = end_p >= mt
+            beyond = (end_p - mt) / mt * 100.0 if reached else None
+        else:
+            mt = start_p * (1 - med / 100.0); reached = end_p <= mt
+            beyond = (mt - end_p) / mt * 100.0 if reached else None
+        detail["median_target"] = round(mt, 2)
+        detail["beyond_median"] = (
+            f"Hit the median target (${mt:.2f}), then ran {beyond:.0f}% further to the extreme"
+            if reached else f"Never reached the median target (${mt:.2f})")
+        # After — the reversal off the extreme.
+        epos = posmap.get(end_i)
+        if epos is not None and epos + 1 < len(pivots):
+            ni, np_, _ = pivots[epos + 1]
+            rpct = (np_ - end_p) / end_p * 100.0 if end_p else 0.0
+            rdays = ni - end_i
+            detail["after"] = (f"Pulled back {abs(rpct):.0f}% over {rdays}d after the high"
+                               if kind == "up" else
+                               f"Bounced {abs(rpct):.0f}% over {rdays}d after the low")
+        else:
+            detail["after"] = "Still in progress after the extreme"
+        # Sell-at-target vs hold.
+        hold_gain = abs(s["pct_change"])
+        if reached:
+            edge = hold_gain - med
+            if edge >= 5:
+                detail["hold_vs_target"] = f"Holding beat selling at target by +{edge:.0f} pts"
+            elif edge <= -2:
+                detail["hold_vs_target"] = f"Selling at target was better by {abs(edge):.0f} pts"
+            else:
+                detail["hold_vs_target"] = "Holding vs selling at target was roughly a wash"
+        else:
+            detail["hold_vs_target"] = "Selling at the median target was the better exit"
+        s["detail"] = detail
 
 
 def _levels_block(pivots, dates, cur_price, direction, med_price=None):
@@ -761,6 +930,11 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
 
     remaining_to_median = round(abs(median_t["from_here_pct"]), 1) if not median_t["reached"] else 0.0
 
+    # Confidence (with reasons) + the single top-of-card action.
+    confidence = _confidence_block(targets, days_active, cur_abs, r, ind, direction)
+    decision = _decision(direction, maturity, exh, cont, hold_signal,
+                         block.get("broke_resistance"), block["key_levels"].get("next"))
+
     similar = _similar_move(swings, cur_abs, days_active,
                             exclude_dates=(dates[from_i], dates[ext_i]))
 
@@ -807,6 +981,16 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
         plan["exit_warnings"] = ([f"approaching prior {lbl} ${next_level['price']:.2f} — first "
                                   f"{'cover' if direction == 'down' else 'trim'} / decision zone"]
                                  + plan["exit_warnings"])[:5]
+    # Fold options-flow agreement into the plan's reasons / warnings.
+    if flow_summary:
+        if flow_summary["agrees_with_price"] == "agrees":
+            plan["reason_to_stay"] = ([f"options flow agrees with the move "
+                                       f"({flow_summary['label']} tape, quality {flow_summary['quality']})"]
+                                      + plan["reason_to_stay"])[:5]
+        elif flow_summary["agrees_with_price"] == "disagrees":
+            plan["exit_warnings"] = ([f"options flow disagrees with the move "
+                                      f"({flow_summary['label']} tape)"]
+                                     + plan["exit_warnings"])[:5]
 
     block.update({
         "status": "ok",
@@ -831,6 +1015,8 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
         "similar_move": similar,
         "relative_strength": rs,
         "flow": flow_summary,
+        "confidence": confidence,
+        "decision": decision,
         "trade_plan": plan,
     })
     return block
@@ -895,6 +1081,8 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
     earnings = _fetch_earnings(symbol)
     _enrich_swings(up_swings, "up", vols, closes, earnings)
     _enrich_swings(down_swings, "down", vols, closes, earnings)
+    _attach_details(up_swings, "up", pivots, dates, up_rhythm)
+    _attach_details(down_swings, "down", pivots, dates, down_rhythm)
 
     analysis = _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                                up_swings, down_swings, up_rhythm, down_rhythm, ind,

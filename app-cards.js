@@ -853,7 +853,8 @@ function fmtSwingDate(s) {
 }
 function NewsCard({
   apiFetch,
-  ticker
+  ticker,
+  companyName
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -864,7 +865,8 @@ function NewsCard({
     setLoading(true);
     setErr(null);
     try {
-      const r = await apiFetch(`/api/news?symbol=${encodeURIComponent(sym)}`);
+      const nm = companyName ? `&name=${encodeURIComponent(companyName)}` : "";
+      const r = await apiFetch(`/api/news?symbol=${encodeURIComponent(sym)}${nm}`);
       const d = await r.json();
       if (d.error && !(d.items || []).length) setErr(d.error);else setData(d);
     } catch (e) {
@@ -875,7 +877,7 @@ function NewsCard({
   useEffect(() => {
     setSrc("all");
     load(ticker); /* eslint-disable-next-line */
-  }, [ticker]);
+  }, [ticker, companyName]);
   const items = data && data.items || [];
   const sources = data && data.sources || [];
   const shown = items.filter(i => src === "all" || i.source === src);
@@ -956,6 +958,7 @@ function SwingPatternCard({
   const [fVol, setFVol] = useState("all"); // volume filter
   const [fCat, setFCat] = useState("all"); // catalyst filter
   const [fStruct, setFStruct] = useState("all"); // structure filter
+  const [openRow, setOpenRow] = useState(null); // expanded history row key
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -998,6 +1001,18 @@ function SwingPatternCard({
     medium: "",
     low: "warn"
   })[c] || "";
+  const DECISION_TONE = {
+    "Add on breakout": "go",
+    "Add on pullback": "go",
+    "Hold": "go",
+    "Short trigger active": "short",
+    "Short watch": "watch",
+    "Take partial": "warn",
+    "Cover partial": "warn",
+    "Trail only": "warn",
+    "Cover fully": "down",
+    "No new trade": "muted"
+  };
   const ScoreBar = ({
     label,
     k,
@@ -1068,7 +1083,13 @@ function SwingPatternCard({
     className: "ab-status"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, err)), a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
+  }, err)), a && a.decision && /*#__PURE__*/React.createElement("div", {
+    className: `swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swing-decision-action"
+  }, a.decision.action), (a.decision.drivers || []).length > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "swing-decision-because"
+  }, "because ", a.decision.drivers.join(" · "))), a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
     className: `swing-live swing-${dirTone}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-live-head"
@@ -1136,7 +1157,21 @@ function SwingPatternCard({
     className: "swing-tag"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "after_earnings"
-  }, "⚡ Post-earnings move"))), a.signal_note && /*#__PURE__*/React.createElement("div", {
+  }, "⚡ Post-earnings move"))), a.flow && a.flow.data_available && /*#__PURE__*/React.createElement("div", {
+    className: `swing-flowagree agree-${a.flow.agrees_with_price}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-flowagree-head"
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "swing_flow"
+  }, "Options flow agreement")), /*#__PURE__*/React.createElement("b", {
+    className: a.flow.agrees_with_price === "agrees" ? isUp ? "up" : "down" : a.flow.agrees_with_price === "disagrees" ? "warn" : ""
+  }, a.flow.label, " · flow ", a.flow.agrees_with_price === "agrees" ? "agrees with price" : a.flow.agrees_with_price === "disagrees" ? "disagrees with price" : "neutral vs price")), /*#__PURE__*/React.createElement("div", {
+    className: "swing-flowagree-grid"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Bullish premium"), /*#__PURE__*/React.createElement("b", {
+    className: "up"
+  }, fmtUsd(a.flow.bull_premium, 1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Bearish premium"), /*#__PURE__*/React.createElement("b", {
+    className: "down"
+  }, fmtUsd(a.flow.bear_premium, 1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Call sweep pressure"), /*#__PURE__*/React.createElement("b", null, a.flow.call_sweep_pressure, " ", /*#__PURE__*/React.createElement("small", null, "(", a.flow.call_sweeps, ")"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Put hedge pressure"), /*#__PURE__*/React.createElement("b", null, a.flow.put_hedge_pressure, " ", /*#__PURE__*/React.createElement("small", null, "(", a.flow.put_sweeps, ")"))))), a.signal_note && /*#__PURE__*/React.createElement("div", {
     className: "swing-signal"
   }, a.signal_note), a.status === "no_rhythm" && a.note && /*#__PURE__*/React.createElement("div", {
     className: "swing-signal"
@@ -1211,7 +1246,11 @@ function SwingPatternCard({
   }, fmtSwingDate(t.eta_date)), /*#__PURE__*/React.createElement("td", {
     className: `scan-num ${confTone(t.confidence)}`,
     title: `Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`
-  }, t.confidence)))))), a && a.status === "ok" && a.trade_plan && /*#__PURE__*/React.createElement("div", {
+  }, t.confidence))))), a.confidence && /*#__PURE__*/React.createElement("div", {
+    className: `swing-confwhy conf-${a.confidence.level}`
+  }, /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
+    k: "confidence_rating"
+  }, "Confidence: ", a.confidence.level)), " ", /*#__PURE__*/React.createElement("span", null, "because ", (a.confidence.reasons || []).join(", "), "."))), a && a.status === "ok" && a.trade_plan && /*#__PURE__*/React.createElement("div", {
     className: "swing-plan"
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-subtitle"
@@ -1374,38 +1413,56 @@ function SwingPatternCard({
     className: "scan-th-num"
   }, "Avg/day"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
-  }, "Rhythm"), /*#__PURE__*/React.createElement("th", null, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, histSwings.slice().reverse().map((s, i) => /*#__PURE__*/React.createElement("tr", {
-    key: i,
-    className: "scan-row"
-  }, tab === "up" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, fmtUsd2(s.low_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, fmtUsd2(s.high_price))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, fmtUsd2(s.high_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, fmtUsd2(s.low_price))), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, s.trading_days), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${tab === "up" ? "" : "down"}`
-  }, fmtUsd2(s.dollar_change)), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${tab === "up" ? "up" : "down"}`
-  }, s.pct_change, "%"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, s.avg_daily_pct, "%"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, s.matches_rhythm ? "✓" : "·"), /*#__PURE__*/React.createElement("td", {
-    className: "swing-flagcell"
-  }, s.above_avg_vol && /*#__PURE__*/React.createElement("span", {
-    title: `Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`
-  }, "🔥"), s.broke_resistance && /*#__PURE__*/React.createElement("span", {
-    title: `Broke prior ${tab === "up" ? "resistance" : "support"}`
-  }, "⤴"), s.failed_breakout && /*#__PURE__*/React.createElement("span", {
-    title: "Failed breakout — level didn't hold"
-  }, "⚠"), s.after_earnings && /*#__PURE__*/React.createElement("span", {
-    title: "Launched after an earnings report"
-  }, "⚡"))))))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
+  }, "Rhythm"), /*#__PURE__*/React.createElement("th", null, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, histSwings.slice().reverse().map((s, i) => {
+    const rk = `${tab}-${i}`;
+    const open = openRow === rk;
+    const det = s.detail || {};
+    return /*#__PURE__*/React.createElement(React.Fragment, {
+      key: rk
+    }, /*#__PURE__*/React.createElement("tr", {
+      className: `scan-row swing-exrow${open ? " open" : ""}`,
+      onClick: () => setOpenRow(open ? null : rk),
+      title: "Click for what happened before & after this move"
+    }, tab === "up" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+      className: "swing-caret"
+    }, open ? "▾" : "▸"), " ", fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, fmtUsd2(s.low_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, fmtUsd2(s.high_price))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+      className: "swing-caret"
+    }, open ? "▾" : "▸"), " ", fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, fmtUsd2(s.high_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, fmtUsd2(s.low_price))), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.trading_days), /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${tab === "up" ? "" : "down"}`
+    }, fmtUsd2(s.dollar_change)), /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${tab === "up" ? "up" : "down"}`
+    }, s.pct_change, "%"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.avg_daily_pct, "%"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.matches_rhythm ? "✓" : "·"), /*#__PURE__*/React.createElement("td", {
+      className: "swing-flagcell"
+    }, s.above_avg_vol && /*#__PURE__*/React.createElement("span", {
+      title: `Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`
+    }, "🔥"), s.broke_resistance && /*#__PURE__*/React.createElement("span", {
+      title: `Broke prior ${tab === "up" ? "resistance" : "support"}`
+    }, "⤴"), s.failed_breakout && /*#__PURE__*/React.createElement("span", {
+      title: "Failed breakout — level didn't hold"
+    }, "⚠"), s.after_earnings && /*#__PURE__*/React.createElement("span", {
+      title: "Launched after an earnings report"
+    }, "⚡"))), open && /*#__PURE__*/React.createElement("tr", {
+      className: "swing-detailrow"
+    }, /*#__PURE__*/React.createElement("td", {
+      colSpan: 10
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "swing-detailgrid"
+    }, det.before && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Before the move"), /*#__PURE__*/React.createElement("b", null, det.before)), det.beyond_median && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Past the median target"), /*#__PURE__*/React.createElement("b", null, det.beyond_median)), det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "After the ", tab === "up" ? "high" : "low"), /*#__PURE__*/React.createElement("b", null, det.after)), det.hold_vs_target && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Sell at target vs hold"), /*#__PURE__*/React.createElement("b", null, det.hold_vs_target)), !det.before && !det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Detail"), /*#__PURE__*/React.createElement("b", null, "Not enough surrounding history for this swing."))))));
+  })))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
   }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`));
 }
