@@ -98,6 +98,7 @@ const GLOSSARY = {
   vol_ratio: "Average volume during the swing vs the ~50 bars before it. Above ~1.2x means the move ran on heavier-than-usual participation.",
   swing_filters: "Narrow the history table to the kinds of moves you care about — size, duration, volume, catalyst, and structure — so you can study only the setups that match what's happening now.",
   swing_flow: "Today's unusual options flow from Unusual Whales, distilled to a bullish-vs-bearish read with a quality score (trade size + ask-side conviction). When the tape confirms the move's direction it adds to Continuation; when it fades the move it adds to Exhaustion. Quality gates how much it's allowed to count.",
+  key_levels: "Horizontal support (prior swing lows) and resistance (prior swing highs) from this stock's own history. Unlike the statistical target ladder, these are the price levels traders actually defend — the move will negotiate the nearest one FIRST. A hold can spark a bounce (double-bottom / double-top); a decisive break on volume opens the next target. The median projection may sit beyond a level, meaning it requires a breakdown/breakout to reach.",
 };
 
 function Term({ k, children, className = "" }) {

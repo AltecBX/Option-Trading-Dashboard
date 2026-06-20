@@ -7747,3 +7747,22 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-filters-clear:hover { color: var(--fg-2); border-color: var(--accent); }
 .swing-flagcell { white-space: nowrap; font-size: 13px; letter-spacing: 1px; }
 .swing-flagcell span { cursor: help; }
+
+/* Structural support/resistance read */
+.swing-levelnote {
+  margin-top: 8px; padding: 8px 11px; border-radius: 9px;
+  background: color-mix(in oklch, var(--warn) 9%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warn), transparent 68%);
+  font-size: 12.5px; line-height: 1.4;
+}
+.swing-levels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.swing-levels-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); margin-right: 2px; }
+.swing-lvl {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  padding: 2px 8px; border-radius: 7px; border: 1px solid var(--line); color: var(--fg-2);
+  white-space: nowrap;
+}
+.swing-lvl small { font-weight: 500; color: var(--fg-3); }
+.swing-lvl.res { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 60%); }
+.swing-lvl.sup { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 60%); }
+.swing-lvl.now { background: var(--bg-3); color: var(--fg); border-color: var(--accent); }

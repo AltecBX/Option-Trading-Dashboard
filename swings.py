@@ -485,6 +485,45 @@ def _similar_move(swings, cur, days, exclude_dates):
     }
 
 
+def _us_date(s: str) -> str:
+    """ISO YYYY-MM-DD → M-D-YYYY for human-facing notes."""
+    try:
+        y, m, d = s.split("-")
+        return f"{int(m)}-{int(d)}-{y}"
+    except Exception:
+        return s
+
+
+def _key_levels(pivots, dates, cur_price):
+    """Horizontal support (prior swing lows) and resistance (prior swing
+    highs) from confirmed pivots, clustered so near-equal touches merge.
+    The active running extreme (last pivot) is excluded."""
+    lows, highs = [], []
+    for i, (idx, p, k) in enumerate(pivots):
+        if i == len(pivots) - 1:        # active, unconfirmed extreme
+            continue
+        (lows if k == "low" else highs).append((dates[idx], float(p)))
+
+    def cluster(levels):
+        levels = sorted(levels, key=lambda x: x[1])
+        out = []
+        for d, p in levels:
+            if out and abs(p - out[-1][1]) / out[-1][1] < 0.012:
+                pd, pp = out[-1]
+                out[-1] = (max(pd, d), (pp + p) / 2.0)   # merge, keep recent date
+            else:
+                out.append((d, p))
+        return out
+
+    supports = cluster(lows)
+    resistances = cluster(highs)
+    below = [(d, p) for d, p in supports if p < cur_price * 0.999]
+    above = [(d, p) for d, p in resistances if p > cur_price * 1.001]
+    nearest_support = max(below, key=lambda x: x[1]) if below else None
+    nearest_resist = min(above, key=lambda x: x[1]) if above else None
+    return supports, resistances, nearest_support, nearest_resist
+
+
 def _flow_read(direction, flow):
     """Distil a UW flow score into a direction-aligned read for the move.
     Returns (delta_continuation, delta_exhaustion, factor, summary) or None."""
@@ -641,6 +680,54 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
     p75_t = targets[2]
     extreme_t = targets[3]
 
+    # ── Structural levels ───────────────────────────────────────────────
+    # The statistical ladder above is blind to horizontal support/resistance.
+    # Price negotiates the nearest prior pivot FIRST, so surface it: the next
+    # support beneath a falling stock (or resistance above a rising one) is the
+    # real next decision point, and the median target may sit beyond it.
+    supports, resistances, ns, nr = _key_levels(pivots, dates, cur_price)
+    med_price = median_t["price"]
+    next_level = None
+    level_note = None
+    if direction == "down" and ns:
+        d, p = ns
+        away = (cur_price - p) / cur_price * 100.0
+        if p > med_price:
+            tail = (f"a decisive break of it on volume opens the median target "
+                    f"(${med_price:.2f}); a hold here risks a double-bottom bounce")
+        else:
+            tail = (f"the median target (${med_price:.2f}) sits above it, so that "
+                    f"projection is already within prior support")
+        next_level = {"kind": "support", "price": round(p, 2), "date": d,
+                      "pct_away": round(-away, 1)}
+        level_note = (f"Next support ${p:.2f} ({_us_date(d)}) ~{away:.1f}% below — "
+                      f"price usually reacts there first; {tail}.")
+    elif direction == "up" and nr:
+        d, p = nr
+        away = (p - cur_price) / cur_price * 100.0
+        if p < med_price:
+            tail = (f"a decisive break of it on volume opens the median target "
+                    f"(${med_price:.2f}); a stall here risks a double-top fade")
+        else:
+            tail = (f"the median target (${med_price:.2f}) sits below it, so that "
+                    f"projection is already within prior resistance")
+        next_level = {"kind": "resistance", "price": round(p, 2), "date": d,
+                      "pct_away": round(away, 1)}
+        level_note = (f"Next resistance ${p:.2f} ({_us_date(d)}) ~{away:.1f}% above — "
+                      f"price usually reacts there first; {tail}.")
+    # Only show levels still in play: support at/below price, resistance
+    # at/above. Nearest to current price first.
+    block["key_levels"] = {
+        "supports": [{"date": d, "price": round(p, 2),
+                      "pct_away": round((p - cur_price) / cur_price * 100.0, 1)}
+                     for d, p in reversed(supports) if p <= cur_price * 1.01][:4],
+        "resistances": [{"date": d, "price": round(p, 2),
+                         "pct_away": round((p - cur_price) / cur_price * 100.0, 1)}
+                        for d, p in resistances if p >= cur_price * 0.99][:4],
+        "next": next_level,
+        "note": level_note,
+    }
+
     # "Do not sell / cover too early" guard: structure still favors continuation
     # and the move hasn't reached its usual exhaustion zone.
     has_room = cur_abs < r["pct_p75"]
@@ -693,6 +780,13 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
         }
     plan["exit_warnings"] = exh_f[:4] or ["No exhaustion flags yet."]
     plan["reason_to_stay"] = cont_f[:4] or ["Momentum support is thin here."]
+    # The nearest structural level is the real first take-profit / decision zone.
+    if next_level and abs(next_level["pct_away"]) <= 12:
+        lbl = "support" if next_level["kind"] == "support" else "resistance"
+        plan["first_target_level"] = next_level["price"]
+        plan["exit_warnings"] = ([f"approaching prior {lbl} ${next_level['price']:.2f} — first "
+                                  f"{'cover' if direction == 'down' else 'trim'} / decision zone"]
+                                 + plan["exit_warnings"])[:5]
 
     block.update({
         "status": "ok",

@@ -726,7 +726,15 @@ function SwingPatternCard({ apiFetch, ticker }) {
                   {a.flow.label} <small>quality {a.flow.quality}</small>
                 </b></div>
             )}
+            {a.key_levels && a.key_levels.next && (
+              <div><span><Term k="key_levels">Next {a.key_levels.next.kind}</Term></span>
+                <b className="warn">{fmtUsd2(a.key_levels.next.price)} <small>{sgn(a.key_levels.next.pct_away)}{a.key_levels.next.pct_away}% · {fmtSwingDate(a.key_levels.next.date)}</small></b></div>
+            )}
           </div>
+
+          {a.key_levels && a.key_levels.note && (
+            <div className="swing-levelnote"><Term k="key_levels">⊟ Level read:</Term> {a.key_levels.note}</div>
+          )}
 
           {(a.broke_resistance || a.after_earnings) && (
             <div className="swing-tags">
@@ -752,6 +760,18 @@ function SwingPatternCard({ apiFetch, ticker }) {
       {a && a.status === "ok" && (
         <div className="scan-table-wrap" style={{ marginTop: 12 }}>
           <div className="swing-subtitle"><Term k="target_ladder">Projected target ladder</Term> — from {a.from_label} {fmtUsd2(a.from_price)}</div>
+          {a.key_levels && ((a.key_levels.supports || []).length > 0 || (a.key_levels.resistances || []).length > 0) && (
+            <div className="swing-levels">
+              <span className="swing-levels-lbl"><Term k="key_levels">Key levels</Term></span>
+              {(a.key_levels.resistances || []).slice().reverse().map((l, i) => (
+                <span key={"r" + i} className="swing-lvl res" title={`Resistance · prior swing high ${fmtSwingDate(l.date)}`}>{fmtUsd2(l.price)} <small>+{l.pct_away}%</small></span>
+              ))}
+              <span className="swing-lvl now">{fmtUsd2(a.current_price)} now</span>
+              {(a.key_levels.supports || []).map((l, i) => (
+                <span key={"s" + i} className="swing-lvl sup" title={`Support · prior swing low ${fmtSwingDate(l.date)}`}>{fmtUsd2(l.price)} <small>{l.pct_away}%</small></span>
+              ))}
+            </div>
+          )}
           <table className="scan-table swing-table">
             <thead>
               <tr>
