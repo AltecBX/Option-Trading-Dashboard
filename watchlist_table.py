@@ -14,10 +14,13 @@ the other screeners.
 from __future__ import annotations
 
 import gc
+import json
 import math
+import sys
 import threading
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 try:
@@ -32,12 +35,67 @@ import analyst_board
 
 CHUNK = 40
 
+# ── Persistence ─────────────────────────────────────────────────────
+# The scanned board is cached to the stable data dir (the persistent
+# /data volume on Railway) so it survives restarts and redeploys, and
+# every device reads the same server-side cache. Atomic write (tmp +
+# replace) so a crash mid-write can't corrupt the file.
+try:
+    from storage import _stable_data_dir
+    _CACHE_PATH: Path | None = _stable_data_dir() / "watchlist_table.json"
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] cache path unavailable: {_exc}", file=sys.stderr)
+    _CACHE_PATH = None
+
 _LOCK = threading.RLock()
 _STATE: dict[str, Any] = {
     "scanning": False, "scanned": 0, "total": 0, "last_scan": None,
-    "rows": [], "error": None,
+    "rows": [], "error": None, "auto_fired": [], "last_auto": None,
 }
 _THREAD: threading.Thread | None = None
+_SCHED_THREAD: threading.Thread | None = None
+
+# Auto-refresh slots, in ET (market timezone): 9 AM pre-open and 6 PM
+# post-close, every weekday. Each slot has a catch-up window so a server
+# that boots a little late still runs the missed refresh.
+_AUTO_SLOTS = (9, 18)
+_CATCHUP_HOURS = 3
+
+
+def _persist() -> None:
+    if not _CACHE_PATH:
+        return
+    with _LOCK:
+        payload = {
+            "rows": _STATE["rows"],
+            "last_scan": _STATE["last_scan"],
+            "auto_fired": _STATE.get("auto_fired", [])[-20:],
+            "last_auto": _STATE.get("last_auto"),
+        }
+    try:
+        tmp = _CACHE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload))
+        tmp.replace(_CACHE_PATH)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[watchlist_table] persist failed: {exc}", file=sys.stderr)
+
+
+def _load_persisted() -> None:
+    if not _CACHE_PATH or not _CACHE_PATH.exists():
+        return
+    try:
+        data = json.loads(_CACHE_PATH.read_text())
+        if not isinstance(data, dict):
+            return
+        with _LOCK:
+            _STATE["rows"] = data.get("rows") or []
+            _STATE["last_scan"] = data.get("last_scan")
+            _STATE["auto_fired"] = data.get("auto_fired") or []
+            _STATE["last_auto"] = data.get("last_auto")
+        print(f"[watchlist_table] loaded {len(_STATE['rows'])} cached rows "
+              f"(last scan {_STATE['last_scan']})", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[watchlist_table] cache load failed: {exc}", file=sys.stderr)
 
 
 def _now_iso() -> str:
@@ -178,6 +236,7 @@ def _scan_worker(symbols: list[str]) -> None:
             _STATE["rows"] = rows
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
+        _persist()  # cache to /data so the board survives restarts/redeploys
     except Exception as exc:  # noqa: BLE001
         with _LOCK:
             _STATE["error"] = str(exc)
@@ -206,9 +265,84 @@ def get_board() -> dict:
         status = {
             "scanning": _STATE["scanning"], "scanned": _STATE["scanned"],
             "total": _STATE["total"], "last_scan": _STATE["last_scan"],
-            "error": _STATE["error"],
+            "error": _STATE["error"], "last_auto": _STATE.get("last_auto"),
+            "auto_slots_et": list(_AUTO_SLOTS),
         }
     sectors = sorted({r["sector"] for r in rows if r.get("sector")})
     industries = sorted({r["industry"] for r in rows if r.get("industry")})
     return {"as_of": _now_iso(), "status": status, "count": len(rows),
             "rows": rows, "sectors": sectors, "industries": industries}
+
+
+# ── Auto-refresh scheduler ──────────────────────────────────────────
+def _now_et() -> datetime:
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        # Fallback if the tz database is unavailable: approximate ET as
+        # UTC-4. DST-unaware, but only shifts the trigger by an hour.
+        return datetime.now(timezone.utc) - timedelta(hours=4)
+
+
+def _maybe_auto_scan(get_symbols) -> None:
+    now = _now_et()
+    if now.weekday() >= 5:  # Saturday/Sunday — markets closed
+        return
+    for hour in _AUTO_SLOTS:
+        slot = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if now < slot:
+            continue
+        if (now - slot) > timedelta(hours=_CATCHUP_HOURS):
+            continue  # window passed; wait for the next slot
+        key = f"{now.date().isoformat()}:{hour:02d}"
+        with _LOCK:
+            if key in _STATE.get("auto_fired", []):
+                continue
+            if _STATE["scanning"]:
+                return
+        syms = []
+        try:
+            syms = get_symbols() or []
+        except Exception:
+            syms = []
+        if not syms:
+            return
+        # Record the slot BEFORE firing and persist immediately, so a
+        # restart inside the window can't re-trigger the heavy scan.
+        with _LOCK:
+            fired = _STATE.setdefault("auto_fired", [])
+            fired.append(key)
+            _STATE["auto_fired"] = fired[-20:]
+            _STATE["last_auto"] = {"slot": key, "at": _now_iso()}
+        _persist()
+        res = trigger_scan(syms)
+        print(f"[watchlist_table] auto-scan {key} ET "
+              f"({res.get('total')} names): {res}", file=sys.stderr)
+        return
+
+
+def start_scheduler(get_symbols) -> None:
+    """Run a watchlist-table refresh at 9 AM and 6 PM ET each weekday.
+    Idempotent; checks once a minute so a restart within a slot's catch-up
+    window still runs the missed refresh. Slot stamps are persisted to
+    /data so a restart can't re-trigger the same heavy scan."""
+    global _SCHED_THREAD
+    if _SCHED_THREAD is not None and _SCHED_THREAD.is_alive():
+        return
+
+    def loop():
+        while True:
+            try:
+                _maybe_auto_scan(get_symbols)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[watchlist_table] scheduler error: {exc}", file=sys.stderr)
+            time.sleep(60)
+
+    _SCHED_THREAD = threading.Thread(target=loop, daemon=True)
+    _SCHED_THREAD.start()
+
+
+# Load any cached board at import so the table is populated immediately
+# after a restart/redeploy, before the first scan or scheduler tick.
+_load_persisted()

@@ -2295,7 +2295,9 @@ function WatchlistTableCard({
     className: "ab-status"
   }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " · ", rows.length, " stocks") : /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, "No scan yet — Scan now pulls valuation, momentum, volume, earnings & moving-average metrics for your tracked stocks (a few minutes for large lists)."), status.error && /*#__PURE__*/React.createElement("span", {
+  }, "No scan yet — Scan now pulls valuation, momentum, volume, earnings & moving-average metrics for your tracked stocks (a few minutes for large lists)."), /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " · Auto-refreshes 9 AM & 6 PM ET each trading day · cached server-side (shared across your devices)"), status.error && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
   }, " · ", status.error), err && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"

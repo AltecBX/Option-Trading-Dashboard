@@ -6641,6 +6641,21 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                 hour=8, minute=0)
         except Exception as exc:  # noqa: BLE001
             print(f"[analyst_board] scheduler start failed: {exc}", file=sys.stderr)
+    # Auto-refresh the watchlist metrics table at 9 AM and 6 PM ET each
+    # weekday so the board is current without a manual scan. Results are
+    # cached to /data (survives restarts) and shared across all devices.
+    if _WLTABLE_AVAILABLE:
+        try:
+            def _wlt_syms():
+                try:
+                    wl = _load_watchlist()
+                    return [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                except Exception:
+                    return []
+
+            _wltable.start_scheduler(_wlt_syms)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[watchlist_table] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;
