@@ -22,6 +22,85 @@ function niceTicks(min, max, target = 6) {
   return out;
 }
 
+// ── TradingView (Lightweight Charts) price chart for the Trade tab ─────────
+// Real TradingView charting engine. Honors chartStyle (candles/area/ohlc),
+// MA50/MA200/EMA21 toggles, and overlays the trade-relevant levels (current
+// price, suggested call/put strikes, expected range) + earnings markers.
+function TVPriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false }) {
+  const LC = window.LightweightCharts;
+  const wrapRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+  const mainRef = React.useRef(null);
+  const volRef = React.useRef(null);
+  const extraRef = React.useRef({ lines: [], series: [] });
+  const norm = (s) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(s)); return m ? m[1] : new Date(s).toISOString().slice(0, 10); };
+
+  React.useEffect(() => {
+    if (!LC || !wrapRef.current) return;
+    const el = wrapRef.current;
+    const chart = LC.createChart(el, {
+      width: el.clientWidth, height: el.clientHeight || 460,
+      layout: { background: { type: "solid", color: "transparent" }, textColor: "#9aa4b2", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
+      grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.06)" } },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 6 },
+      crosshair: { mode: LC.CrosshairMode.Normal },
+    });
+    let main;
+    if (chartStyle === "area") main = chart.addAreaSeries({ lineColor: "#22c55e", topColor: "rgba(34,197,94,0.35)", bottomColor: "rgba(34,197,94,0.02)", lineWidth: 2 });
+    else if (chartStyle === "ohlc") main = chart.addBarSeries({ upColor: "#22c55e", downColor: "#ef4444" });
+    else main = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444", wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
+    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    chartRef.current = chart; mainRef.current = main; volRef.current = vol;
+    const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
+    ro.observe(el);
+    return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
+  }, [LC, chartStyle]);
+
+  React.useEffect(() => {
+    if (!mainRef.current || !daily || !daily.length) return;
+    const rows = daily.filter(d => d && d.close != null);
+    if (chartStyle === "area") mainRef.current.setData(rows.map(d => ({ time: norm(d.date), value: d.close })));
+    else mainRef.current.setData(rows.map(d => ({ time: norm(d.date), open: d.open, high: d.high, low: d.low, close: d.close })));
+    const hasVol = rows.some(d => d.volume);
+    if (volRef.current) volRef.current.setData(hasVol ? rows.map(d => ({ time: norm(d.date), value: d.volume || 0, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" })) : []);
+    chartRef.current.timeScale().fitContent();
+  }, [daily, chartStyle]);
+
+  React.useEffect(() => {
+    const chart = chartRef.current, main = mainRef.current;
+    if (!chart || !main || !daily || !daily.length) return;
+    extraRef.current.series.forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
+    extraRef.current.lines.forEach(pl => { try { main.removePriceLine(pl); } catch (e) {} });
+    extraRef.current = { lines: [], series: [] };
+    const rows = daily.filter(d => d && d.close != null);
+    const closes = rows.map(d => d.close);
+    const sma = (n) => { const out = []; for (let i = n - 1; i < rows.length; i++) { let s = 0; for (let j = i - n + 1; j <= i; j++) s += closes[j]; out.push({ time: norm(rows[i].date), value: s / n }); } return out; };
+    const ema = (n) => { const k = 2 / (n + 1); let prev = null; const out = []; rows.forEach((d, i) => { prev = prev == null ? d.close : d.close * k + prev * (1 - k); if (i >= n - 1) out.push({ time: norm(d.date), value: prev }); }); return out; };
+    const addLine = (data, color) => { const s = chart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }); s.setData(data); extraRef.current.series.push(s); };
+    if (showMA50 && rows.length >= 50) addLine(sma(50), "#eab308");
+    if (showMA200 && rows.length >= 200) addLine(sma(200), "#3b82f6");
+    if (showEMA21 && rows.length >= 21) addLine(ema(21), "#a855f7");
+    const pl = (price, color, style, title) => { if (price == null) return; extraRef.current.lines.push(main.createPriceLine({ price: +price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title })); };
+    pl(currentPrice, "rgba(255,255,255,0.6)", LC.LineStyle.Solid, "now");
+    pl(callStrike, "#ef4444", LC.LineStyle.Dashed, "call");
+    pl(putStrike, "#22c55e", LC.LineStyle.Dashed, "put");
+    pl(expHigh, "rgba(234,179,8,0.85)", LC.LineStyle.Dotted, "exp hi");
+    pl(expLow, "rgba(234,179,8,0.85)", LC.LineStyle.Dotted, "exp lo");
+    if (earnings) {
+      const m = [];
+      (earnings.past || []).forEach(d => { const t = norm(d && d.date ? d.date : d); if (t) m.push({ time: t, position: "belowBar", color: "#a855f7", shape: "circle", text: "E" }); });
+      if (earnings.next) m.push({ time: norm(earnings.next), position: "aboveBar", color: "#a855f7", shape: "circle", text: "E" });
+      m.sort((x, y) => x.time < y.time ? -1 : x.time > y.time ? 1 : 0);
+      try { main.setMarkers(m); } catch (e) {}
+    }
+  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, showMA50, showMA200, showEMA21, earnings, chartStyle]);
+
+  if (!LC) return null;
+  return <div className="tv-price-chart" ref={wrapRef} />;
+}
+
 // ── Candlestick / Area / OHLC ──────────────────────────────────────────────
 function PriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPrice, chartStyle = "candles", colors, earnings, showMA50 = false, showMA200 = false, showEMA21 = false, showRSI = false, showProbCone = false, ivAnnualized = null, dteToExp = null, fullDailyLength = null, visibleStart = 0, onViewRangeChange = null }) {
   const W = 1200;
@@ -1639,4 +1718,4 @@ function ThetaPanel({
   );
 }
 
-Object.assign(window, { PriceChart, ReturnsChart, DayBarChart, PLChart, ThetaPanel, fmt$, fmtPct, fmtDate, niceTicks });
+Object.assign(window, { PriceChart, TVPriceChart, ReturnsChart, DayBarChart, PLChart, ThetaPanel, fmt$, fmtPct, fmtDate, niceTicks });

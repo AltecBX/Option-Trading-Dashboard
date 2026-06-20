@@ -1240,7 +1240,7 @@ body {
   display: flex; gap: 8px; align-items: baseline;
   font-family: var(--font-mono); margin-top: 2px;
 }
-.sb-ticker-price-row .sb-price { font-size: 16px; color: var(--fg-2); font-weight: 600; }
+.sb-ticker-price-row .sb-price { font-size: 17px; color: var(--fg-2); font-weight: 600; }
 .sb-pe {
   font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   color: var(--fg-3); letter-spacing: 0.02em; margin-top: 3px;
@@ -8131,3 +8131,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-tv-badge { font-size: 10px; font-weight: 600; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent), transparent 55%); padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
 .swing-chart-tv { height: 480px; }
 @media (max-width: 900px) { .swing-chart-tv { height: 360px; } }
+
+/* TradingView (Lightweight) price chart on the Trade tab */
+.tv-price-chart { width: 100%; height: 460px; }
+@media (max-width: 900px) { .tv-price-chart { height: 340px; } }
