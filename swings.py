@@ -800,6 +800,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
     plan["exit_warnings"] = exh_f[:4] or ["No exhaustion flags yet."]
     plan["reason_to_stay"] = cont_f[:4] or ["Momentum support is thin here."]
     # The nearest structural level is the real first take-profit / decision zone.
+    next_level = block.get("key_levels", {}).get("next")
     if next_level and abs(next_level["pct_away"]) <= 12:
         lbl = "support" if next_level["kind"] == "support" else "resistance"
         plan["first_target_level"] = next_level["price"]
