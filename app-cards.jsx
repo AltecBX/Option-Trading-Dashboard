@@ -688,16 +688,21 @@ function SwingPatternCard({ apiFetch, ticker }) {
       {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
 
       {/* ── Live decision box ───────────────────────────────────────────── */}
-      {a && a.status === "ok" && (
+      {a && (a.status === "ok" || a.status === "no_rhythm") && (
         <div className={`swing-live swing-${dirTone}`}>
           <div className="swing-live-head">
             <span className={`swing-badge ${dirTone}`}>{isUp ? "LONG setup ▲" : "SHORT setup ▼"}</span>
-            <span className="swing-state" title="Plain-English read of the move">
-              <Term k="trend_state">{a.trend_state}</Term>
-            </span>
-            <span className={`swing-maturity ${matTone(a.maturity)}`} title="Where this move sits in the stock's history">
-              <Term k="maturity">{a.maturity}</Term>
-            </span>
+            {a.trend_state && (
+              <span className="swing-state" title="Plain-English read of the move">
+                <Term k="trend_state">{a.trend_state}</Term>
+              </span>
+            )}
+            {a.maturity && (
+              <span className={`swing-maturity ${matTone(a.maturity)}`} title="Where this move sits in the stock's history">
+                <Term k="maturity">{a.maturity}</Term>
+              </span>
+            )}
+            {a.status === "no_rhythm" && <span className="swing-maturity">live move</span>}
             {a.do_not_sell_yet && <span className="swing-flag up"><Term k="do_not_sell_yet">Don't sell yet</Term></span>}
             {a.cover_too_early_risk && <span className="swing-flag down"><Term k="cover_too_early">Don't cover yet</Term></span>}
           </div>
@@ -708,11 +713,15 @@ function SwingPatternCard({ apiFetch, ticker }) {
             <div><span>Current price</span><b>{fmtUsd2(a.current_price)}</b></div>
             <div><span><Term k="current_move">Move so far</Term></span>
               <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active}d</small></b></div>
-            <div><span>vs typical move</span>
-              <b>{a.vs_history.pct_of_median_move}% of median</b>
-              <small className="swing-sub">med {a.vs_history.median_pct}% / {a.vs_history.median_days}d</small></div>
-            <div><span>Median target</span>
-              <b className={dirTone}>{fmtUsd2(a.targets[1].price)} <small>{sgn(a.targets[1].from_here_pct)}{a.targets[1].from_here_pct}% away</small></b></div>
+            {a.vs_history && (
+              <div><span>vs typical move</span>
+                <b>{a.vs_history.pct_of_median_move}% of median</b>
+                <small className="swing-sub">med {a.vs_history.median_pct}% / {a.vs_history.median_days}d</small></div>
+            )}
+            {a.targets && (
+              <div><span>Median target</span>
+                <b className={dirTone}>{fmtUsd2(a.targets[1].price)} <small>{sgn(a.targets[1].from_here_pct)}{a.targets[1].from_here_pct}% away</small></b></div>
+            )}
             <div><span>RSI · rel-vol</span>
               <b><Term k="rsi14">{ind && ind.rsi14 != null ? ind.rsi14 : "—"}</Term> · <Term k="rel_vol">{ind && ind.rel_vol != null ? ind.rel_vol + "x" : "—"}</Term></b></div>
             {a.relative_strength && (
@@ -744,18 +753,18 @@ function SwingPatternCard({ apiFetch, ticker }) {
             </div>
           )}
 
-          <div className="swing-signal">{a.signal_note}</div>
+          {a.signal_note && <div className="swing-signal">{a.signal_note}</div>}
+          {a.status === "no_rhythm" && a.note && <div className="swing-signal">{a.note}</div>}
 
-          <div className="swing-scores">
-            <ScoreBar label="Continuation" k="continuation_score" score={a.continuation_score} tone={isUp ? "up" : "down"} factors={a.continuation_factors} />
-            <ScoreBar label="Exhaustion" k="exhaustion_score" score={a.exhaustion_score} tone="warn" factors={a.exhaustion_factors} />
-          </div>
+          {a.continuation_score != null && (
+            <div className="swing-scores">
+              <ScoreBar label="Continuation" k="continuation_score" score={a.continuation_score} tone={isUp ? "up" : "down"} factors={a.continuation_factors} />
+              <ScoreBar label="Exhaustion" k="exhaustion_score" score={a.exhaustion_score} tone="warn" factors={a.exhaustion_factors} />
+            </div>
+          )}
         </div>
       )}
 
-      {a && a.status === "no_rhythm" && (
-        <div className="ab-status muted">{a.note}</div>
-      )}
 
       {/* ── Target ladder ───────────────────────────────────────────────── */}
       {a && a.status === "ok" && (

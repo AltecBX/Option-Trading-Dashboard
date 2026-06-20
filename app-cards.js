@@ -980,23 +980,25 @@ function SwingPatternCard({
     className: "ab-status"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, err)), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
+  }, err)), a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
     className: `swing-live swing-${dirTone}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-live-head"
   }, /*#__PURE__*/React.createElement("span", {
     className: `swing-badge ${dirTone}`
-  }, isUp ? "LONG setup ▲" : "SHORT setup ▼"), /*#__PURE__*/React.createElement("span", {
+  }, isUp ? "LONG setup ▲" : "SHORT setup ▼"), a.trend_state && /*#__PURE__*/React.createElement("span", {
     className: "swing-state",
     title: "Plain-English read of the move"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "trend_state"
-  }, a.trend_state)), /*#__PURE__*/React.createElement("span", {
+  }, a.trend_state)), a.maturity && /*#__PURE__*/React.createElement("span", {
     className: `swing-maturity ${matTone(a.maturity)}`,
     title: "Where this move sits in the stock's history"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "maturity"
-  }, a.maturity)), a.do_not_sell_yet && /*#__PURE__*/React.createElement("span", {
+  }, a.maturity)), a.status === "no_rhythm" && /*#__PURE__*/React.createElement("span", {
+    className: "swing-maturity"
+  }, "live move"), a.do_not_sell_yet && /*#__PURE__*/React.createElement("span", {
     className: "swing-flag up"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "do_not_sell_yet"
@@ -1012,9 +1014,9 @@ function SwingPatternCard({
     k: "current_move"
   }, "Move so far")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, "d"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
+  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, "d"))), a.vs_history && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
     className: "swing-sub"
-  }, "med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Median target"), /*#__PURE__*/React.createElement("b", {
+  }, "med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d")), a.targets && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Median target"), /*#__PURE__*/React.createElement("b", {
     className: dirTone
   }, fmtUsd2(a.targets[1].price), " ", /*#__PURE__*/React.createElement("small", null, sgn(a.targets[1].from_here_pct), a.targets[1].from_here_pct, "% away"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "RSI · rel-vol"), /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
     k: "rsi14"
@@ -1046,9 +1048,11 @@ function SwingPatternCard({
     className: "swing-tag"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "after_earnings"
-  }, "⚡ Post-earnings move"))), /*#__PURE__*/React.createElement("div", {
+  }, "⚡ Post-earnings move"))), a.signal_note && /*#__PURE__*/React.createElement("div", {
     className: "swing-signal"
-  }, a.signal_note), /*#__PURE__*/React.createElement("div", {
+  }, a.signal_note), a.status === "no_rhythm" && a.note && /*#__PURE__*/React.createElement("div", {
+    className: "swing-signal"
+  }, a.note), a.continuation_score != null && /*#__PURE__*/React.createElement("div", {
     className: "swing-scores"
   }, /*#__PURE__*/React.createElement(ScoreBar, {
     label: "Continuation",
@@ -1062,9 +1066,7 @@ function SwingPatternCard({
     score: a.exhaustion_score,
     tone: "warn",
     factors: a.exhaustion_factors
-  }))), a && a.status === "no_rhythm" && /*#__PURE__*/React.createElement("div", {
-    className: "ab-status muted"
-  }, a.note), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
+  }))), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap",
     style: {
       marginTop: 12

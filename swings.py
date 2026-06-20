@@ -552,6 +552,54 @@ def _flow_read(direction, flow):
     return (0.0, 0.0, f"options flow {label} but not decisive (quality {round(q)})", summary)
 
 
+def _levels_block(pivots, dates, cur_price, direction, med_price=None):
+    """Structural support/resistance read. Works with or without a rhythm-
+    based median target (med_price=None when we can't project one)."""
+    supports, resistances, ns, nr = _key_levels(pivots, dates, cur_price)
+    next_level = None
+    level_note = None
+    if direction == "down" and ns:
+        d, p = ns
+        away = (cur_price - p) / cur_price * 100.0
+        if med_price is None:
+            tail = "a hold here can spark a double-bottom bounce; a decisive break on volume opens the next leg down"
+        elif p > med_price:
+            tail = (f"a decisive break of it on volume opens the median target "
+                    f"(${med_price:.2f}); a hold here risks a double-bottom bounce")
+        else:
+            tail = (f"the median target (${med_price:.2f}) sits above it, so that "
+                    f"projection is already within prior support")
+        next_level = {"kind": "support", "price": round(p, 2), "date": d,
+                      "pct_away": round(-away, 1)}
+        level_note = (f"Next support ${p:.2f} ({_us_date(d)}) ~{away:.1f}% below — "
+                      f"price usually reacts there first; {tail}.")
+    elif direction == "up" and nr:
+        d, p = nr
+        away = (p - cur_price) / cur_price * 100.0
+        if med_price is None:
+            tail = "a stall here can spark a double-top fade; a decisive break on volume opens the next leg up"
+        elif p < med_price:
+            tail = (f"a decisive break of it on volume opens the median target "
+                    f"(${med_price:.2f}); a stall here risks a double-top fade")
+        else:
+            tail = (f"the median target (${med_price:.2f}) sits below it, so that "
+                    f"projection is already within prior resistance")
+        next_level = {"kind": "resistance", "price": round(p, 2), "date": d,
+                      "pct_away": round(away, 1)}
+        level_note = (f"Next resistance ${p:.2f} ({_us_date(d)}) ~{away:.1f}% above — "
+                      f"price usually reacts there first; {tail}.")
+    return {
+        "supports": [{"date": d, "price": round(p, 2),
+                      "pct_away": round((p - cur_price) / cur_price * 100.0, 1)}
+                     for d, p in reversed(supports) if p <= cur_price * 1.01][:4],
+        "resistances": [{"date": d, "price": round(p, 2),
+                         "pct_away": round((p - cur_price) / cur_price * 100.0, 1)}
+                        for d, p in resistances if p >= cur_price * 0.99][:4],
+        "next": next_level,
+        "note": level_note,
+    }
+
+
 def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                     up_swings, down_swings, up_rhythm, down_rhythm, ind,
                     bench=None, earnings=None, flow=None):
@@ -610,10 +658,21 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
     }
 
     if not r:
+        # No rhythm to project targets from — but the live move, indicators,
+        # relative strength, flow, and structural levels need no rhythm, so
+        # still show them rather than collapsing to a one-liner.
         block["status"] = "no_rhythm"
         block["note"] = ("Not enough completed "
                          + ("up-moves" if direction == "up" else "down-moves")
-                         + " yet to project this one. Showing the live move only.")
+                         + f" ≥ the move threshold yet to project targets for this "
+                         + ("up" if direction == "up" else "down")
+                         + "-move. Showing the live move, levels, and flow.")
+        block["relative_strength"] = _rel_strength(direction, from_date, dates[-1],
+                                                    cur_move, bench or {})
+        fr0 = _flow_read(direction, flow)
+        block["flow"] = fr0[3] if fr0 else None
+        block["after_earnings"] = _after_earnings(from_date, earnings or set())
+        block["key_levels"] = _levels_block(pivots, dates, cur_price, direction, None)
         return block
 
     maturity = _maturity(cur_abs, r)
@@ -685,48 +744,8 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
     # Price negotiates the nearest prior pivot FIRST, so surface it: the next
     # support beneath a falling stock (or resistance above a rising one) is the
     # real next decision point, and the median target may sit beyond it.
-    supports, resistances, ns, nr = _key_levels(pivots, dates, cur_price)
-    med_price = median_t["price"]
-    next_level = None
-    level_note = None
-    if direction == "down" and ns:
-        d, p = ns
-        away = (cur_price - p) / cur_price * 100.0
-        if p > med_price:
-            tail = (f"a decisive break of it on volume opens the median target "
-                    f"(${med_price:.2f}); a hold here risks a double-bottom bounce")
-        else:
-            tail = (f"the median target (${med_price:.2f}) sits above it, so that "
-                    f"projection is already within prior support")
-        next_level = {"kind": "support", "price": round(p, 2), "date": d,
-                      "pct_away": round(-away, 1)}
-        level_note = (f"Next support ${p:.2f} ({_us_date(d)}) ~{away:.1f}% below — "
-                      f"price usually reacts there first; {tail}.")
-    elif direction == "up" and nr:
-        d, p = nr
-        away = (p - cur_price) / cur_price * 100.0
-        if p < med_price:
-            tail = (f"a decisive break of it on volume opens the median target "
-                    f"(${med_price:.2f}); a stall here risks a double-top fade")
-        else:
-            tail = (f"the median target (${med_price:.2f}) sits below it, so that "
-                    f"projection is already within prior resistance")
-        next_level = {"kind": "resistance", "price": round(p, 2), "date": d,
-                      "pct_away": round(away, 1)}
-        level_note = (f"Next resistance ${p:.2f} ({_us_date(d)}) ~{away:.1f}% above — "
-                      f"price usually reacts there first; {tail}.")
-    # Only show levels still in play: support at/below price, resistance
-    # at/above. Nearest to current price first.
-    block["key_levels"] = {
-        "supports": [{"date": d, "price": round(p, 2),
-                      "pct_away": round((p - cur_price) / cur_price * 100.0, 1)}
-                     for d, p in reversed(supports) if p <= cur_price * 1.01][:4],
-        "resistances": [{"date": d, "price": round(p, 2),
-                         "pct_away": round((p - cur_price) / cur_price * 100.0, 1)}
-                        for d, p in resistances if p >= cur_price * 0.99][:4],
-        "next": next_level,
-        "note": level_note,
-    }
+    block["key_levels"] = _levels_block(pivots, dates, cur_price, direction,
+                                        median_t["price"])
 
     # "Do not sell / cover too early" guard: structure still favors continuation
     # and the move hasn't reached its usual exhaustion zone.
