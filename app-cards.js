@@ -2444,6 +2444,11 @@ function TabPanel({
   active,
   children
 }) {
+  // Lazy-mount: render children only after the tab is first activated, then
+  // keep them mounted (hidden) so they stay live. Avoids paying the mount /
+  // fetch cost for sections you never open — faster initial load on mobile.
+  const seen = useRef(active === tab);
+  if (active === tab) seen.current = true;
   return /*#__PURE__*/React.createElement("div", {
     className: "tab-panel",
     role: "tabpanel",
@@ -2451,7 +2456,7 @@ function TabPanel({
     style: active === tab ? undefined : {
       display: "none"
     }
-  }, children);
+  }, seen.current ? children : null);
 }
 function WeatherBadge() {
   const WX_KEY = "jerry_weather_v1";
