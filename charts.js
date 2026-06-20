@@ -894,6 +894,31 @@ function PriceChart({
         x: vbX,
         y: vbY
       });
+    },
+    onTouchStart: e => {
+      // Tap-to-inspect on mobile (no hover). Mirrors the mouse path.
+      if (!svgRef.current || !e.touches[0]) return;
+      const r = svgRef.current.getBoundingClientRect();
+      const vbX = (e.touches[0].clientX - r.left) / r.width * W;
+      const vbY = (e.touches[0].clientY - r.top) / r.height * H;
+      const idx = Math.max(0, Math.min(daily.length - 1, Math.round((vbX - padL) / innerW * (daily.length - 1))));
+      setHover({
+        idx,
+        x: vbX,
+        y: vbY
+      });
+    },
+    onTouchMove: e => {
+      if (!svgRef.current || !e.touches[0]) return;
+      const r = svgRef.current.getBoundingClientRect();
+      const vbX = (e.touches[0].clientX - r.left) / r.width * W;
+      const vbY = (e.touches[0].clientY - r.top) / r.height * H;
+      const idx = Math.max(0, Math.min(daily.length - 1, Math.round((vbX - padL) / innerW * (daily.length - 1))));
+      setHover({
+        idx,
+        x: vbX,
+        y: vbY
+      });
     }
   }), hover != null && daily[hover.idx] && (() => {
     // Clamp the crosshair lines to the chart's plot area so they
@@ -1778,6 +1803,18 @@ function PLChart({
       const rect = e.currentTarget.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width * W;
       if (x >= padL && x <= W - padR) setHoverX(x);else setHoverX(null);
+    },
+    onTouchStart: e => {
+      if (!e.touches[0]) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = (e.touches[0].clientX - rect.left) / rect.width * W;
+      if (x >= padL && x <= W - padR) setHoverX(x);
+    },
+    onTouchMove: e => {
+      if (!e.touches[0]) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = (e.touches[0].clientX - rect.left) / rect.width * W;
+      if (x >= padL && x <= W - padR) setHoverX(x);
     }
   }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
     id: `${uid}-bg`,
