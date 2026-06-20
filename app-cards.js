@@ -952,6 +952,215 @@ function NewsCard({
     className: "ab-empty"
   }, "No recent headlines for ", ticker, "."));
 }
+
+// ── TradingView Charting Library integration ────────────────────────────
+// Activates ONLY when the licensed library files are present at
+// /charting_library/charting_library.standalone.js (committed by the owner
+// after TradingView grants access). Until then, callers fall back to the
+// open-source Lightweight Charts SwingChart below. Untested until the real
+// library files are in the repo — will be tuned once they are.
+const _dms = d => Date.parse(String(d) + "T00:00:00Z");
+function makeSwingDatafeed(apiFetch) {
+  return {
+    onReady: cb => setTimeout(() => cb({
+      supported_resolutions: ["1D"],
+      supports_time: true,
+      supports_marks: false,
+      supports_timescale_marks: false
+    }), 0),
+    searchSymbols: (_u, _e, _t, onResult) => onResult([]),
+    resolveSymbol: (name, onResolve) => setTimeout(() => onResolve({
+      name,
+      ticker: name,
+      description: name,
+      type: "stock",
+      session: "0930-1600",
+      timezone: "America/New_York",
+      exchange: "",
+      minmov: 1,
+      pricescale: 100,
+      has_intraday: false,
+      supported_resolutions: ["1D"],
+      volume_precision: 0,
+      data_status: "streaming"
+    }), 0),
+    getBars: (symbolInfo, _res, periodParams, onResult, onError) => {
+      apiFetch(`/api/swings?symbol=${encodeURIComponent(symbolInfo.name)}`).then(r => r.json()).then(d => {
+        const bars = (d.bars || []).map(b => ({
+          time: _dms(b.t),
+          open: b.o,
+          high: b.h,
+          low: b.l,
+          close: b.c,
+          volume: b.v
+        })).filter(x => x.time / 1000 >= periodParams.from && x.time / 1000 <= periodParams.to).sort((a, b) => a.time - b.time);
+        onResult(bars, {
+          noData: bars.length === 0
+        });
+      }).catch(e => onError(String(e)));
+    },
+    subscribeBars: () => {},
+    unsubscribeBars: () => {}
+  };
+}
+function TVAdvancedChart({
+  apiFetch,
+  ticker,
+  data,
+  fallback
+}) {
+  const ref = useRef(null);
+  const widgetRef = useRef(null);
+  const [mode, setMode] = useState("loading"); // loading | tv | fallback
+  const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= 900);
+
+  // Detect whether the licensed library is available (load the script once).
+  useEffect(() => {
+    let cancelled = false;
+    const done = ok => {
+      if (!cancelled) setMode(ok ? "tv" : "fallback");
+    };
+    if (window.TradingView && window.TradingView.widget) {
+      done(true);
+      return;
+    }
+    // Safety net: if the script never resolves (flaky 404), fall back so the
+    // user always gets the Lightweight chart rather than a stuck spinner.
+    const timer = setTimeout(() => done(false), 5000);
+    const finish = ok => {
+      clearTimeout(timer);
+      done(ok);
+    };
+    const existing = document.getElementById("tv-charting-lib");
+    if (existing) {
+      if (existing.dataset.loaded === "1") {
+        finish(true);
+        return () => {
+          cancelled = true;
+          clearTimeout(timer);
+        };
+      }
+      existing.addEventListener("load", () => finish(true));
+      existing.addEventListener("error", () => finish(false));
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    }
+    const s = document.createElement("script");
+    s.id = "tv-charting-lib";
+    s.src = "/charting_library/charting_library.standalone.js";
+    s.onload = () => {
+      s.dataset.loaded = "1";
+      finish(true);
+    };
+    s.onerror = () => finish(false);
+    document.head.appendChild(s);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Create the TradingView widget + draw the swing overlays.
+  useEffect(() => {
+    if (mode !== "tv" || collapsed || !ref.current || !window.TradingView) return;
+    let widget;
+    try {
+      widget = new window.TradingView.widget({
+        container: ref.current,
+        library_path: "/charting_library/",
+        datafeed: makeSwingDatafeed(apiFetch),
+        symbol: ticker,
+        interval: "1D",
+        theme: "dark",
+        autosize: true,
+        timezone: "America/New_York",
+        disabled_features: ["use_localstorage_for_settings", "header_symbol_search", "header_compare"]
+      });
+      widgetRef.current = widget;
+      widget.onChartReady(() => {
+        try {
+          const chart = widget.activeChart();
+          const lastT = data && data.bars && data.bars.length ? _dms(data.bars[data.bars.length - 1].t) / 1000 : null;
+          const drawSwing = (s, color) => chart.createMultipointShape([{
+            time: _dms(s.low_date) / 1000,
+            price: s.low_price
+          }, {
+            time: _dms(s.high_date) / 1000,
+            price: s.high_price
+          }], {
+            shape: "trend_line",
+            lock: true,
+            disableSave: true,
+            disableSelection: true,
+            overrides: {
+              linecolor: color,
+              linewidth: 2,
+              linestyle: 0
+            }
+          });
+          (data.swings || []).forEach(s => drawSwing(s, "#22c55e"));
+          (data.down_swings || []).forEach(s => drawSwing(s, "#ef4444"));
+          const a = data && data.analysis;
+          if (a && a.status === "ok" && lastT) {
+            const hline = (price, color, txt) => {
+              if (price == null) return;
+              chart.createShape({
+                time: lastT,
+                price
+              }, {
+                shape: "horizontal_line",
+                lock: true,
+                disableSelection: true,
+                overrides: {
+                  linecolor: color,
+                  linestyle: 2,
+                  showLabel: true,
+                  text: txt
+                }
+              });
+            };
+            if (a.targets) {
+              hline(a.targets[1] && a.targets[1].price, "#22c55e", "median");
+              hline(a.targets[2] && a.targets[2].price, "#15803d", "aggr");
+            }
+            if (a.trade_plan) hline(a.trade_plan.invalidation, "#ef4444", "invalidation");
+            hline(a.current_price, "rgba(255,255,255,0.6)", "now");
+          }
+        } catch (e) {
+          console.warn("[swing-tv] overlay draw failed:", e);
+        }
+      });
+    } catch (e) {
+      console.warn("[swing-tv] widget init failed, falling back:", e);
+      setMode("fallback");
+    }
+    return () => {
+      try {
+        if (widgetRef.current) widgetRef.current.remove();
+      } catch (e) {}
+      widgetRef.current = null;
+    };
+    /* eslint-disable-next-line */
+  }, [mode, ticker, collapsed]);
+  if (mode === "fallback") return fallback;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-head"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "swing-chart-toggle",
+    onClick: () => setCollapsed(c => !c)
+  }, collapsed ? "▸" : "▾", " Swing chart ", /*#__PURE__*/React.createElement("span", {
+    className: "swing-tv-badge"
+  }, "TradingView"))), !collapsed && mode === "loading" && /*#__PURE__*/React.createElement("div", {
+    className: "ab-status muted"
+  }, "Loading TradingView charting library…"), !collapsed && mode === "tv" && /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart swing-chart-tv",
+    ref: ref
+  }));
+}
 function SwingChart({
   data,
   focusKey,
@@ -1871,10 +2080,15 @@ function SwingPatternCard({
     }, det.before && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Before the move"), /*#__PURE__*/React.createElement("b", null, det.before)), det.beyond_median && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Past the median target"), /*#__PURE__*/React.createElement("b", null, det.beyond_median)), det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "After the ", tab === "up" ? "high" : "low"), /*#__PURE__*/React.createElement("b", null, det.after)), det.hold_vs_target && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Sell at target vs hold"), /*#__PURE__*/React.createElement("b", null, det.hold_vs_target)), !det.before && !det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Detail"), /*#__PURE__*/React.createElement("b", null, "Not enough surrounding history for this swing."))))));
   })))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`), data && (data.bars || []).length > 0 && /*#__PURE__*/React.createElement(SwingChart, {
+  }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`), data && (data.bars || []).length > 0 && /*#__PURE__*/React.createElement(TVAdvancedChart, {
+    apiFetch: apiFetch,
+    ticker: ticker,
     data: data,
-    focusKey: focusKey,
-    onPickSwing: pickSwingByTime
+    fallback: /*#__PURE__*/React.createElement(SwingChart, {
+      data: data,
+      focusKey: focusKey,
+      onPickSwing: pickSwingByTime
+    })
   }));
 }
 function ScreenersHub({
