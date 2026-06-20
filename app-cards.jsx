@@ -1463,7 +1463,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
   );
 }
 
-function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
+function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const [sort, setSort] = useState({ key: "market_cap", dir: "desc" });
@@ -1501,6 +1501,13 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
     { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
     { k: "rsi", label: "RSI", num: true }, { k: "rel_vol", label: "Rel Vol", num: true },
     { k: "flow_net", label: "Flow", num: true }, { k: "flow_agree", label: "Agree" },
+    { k: "flow_bull", label: "Bull", num: true }, { k: "flow_bear", label: "Bear", num: true },
+    { k: "call_prem", label: "Bull $", num: true }, { k: "put_prem", label: "Bear $", num: true },
+    { k: "net_prem", label: "Net $", num: true }, { k: "pc_ratio", label: "P/C", num: true },
+    { k: "ask_call_prem", label: "Ask C$", num: true }, { k: "ask_put_prem", label: "Ask P$", num: true },
+    { k: "call_sweeps", label: "C Swp", num: true }, { k: "put_sweeps", label: "P Swp", num: true },
+    { k: "flow_alerts", label: "Alerts", num: true }, { k: "flow_quality", label: "Conv", num: true },
+    { k: "flow_cc_risk", label: "CC Risk", num: true }, { k: "flow_verdict", label: "Verdict" },
     { k: "next_earnings", label: "Earnings", num: true },
     { k: "change", label: "Chg%", num: true },
     { k: "wtd", label: "WTD%", num: true }, { k: "mtd", label: "MTD%", num: true },
@@ -1508,7 +1515,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
     { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
     { k: "from_ma200", label: "%200DMA", num: true },
   ];
-  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
 
   // Industry dropdown is scoped to the selected sector so it only lists
@@ -1557,6 +1564,9 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
     if (r.flow_agree === "disagrees") return <span className="down" title="Options flow disagrees with the recent price trend">✗ against</span>;
     return <span className="muted" title="Mixed / neutral flow">~ neutral</span>;
   };
+  // Compact signed $ for premium columns (e.g. $1.2M, -$540K). Blank/0 → —
+  const prem$ = (v) => (v == null) ? "—" : (v === 0 ? "—" : window.fmt$M(v));
+  const numOr = (v) => v == null ? "—" : v;
 
   return (
     <div className="card ab-card">
@@ -1577,6 +1587,28 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
         {status.error && <span className="ab-err"> · {status.error}</span>}
         {err && <span className="ab-err"> · {err}</span>}
       </div>
+      {(() => {
+        // Market-wide flow read (one UW call, whole market — not per row).
+        const tide = market && market.tide;
+        if (!tide) return null;
+        const row = Array.isArray(tide) ? tide[tide.length - 1] : tide;
+        if (!row) return null;
+        const cp = row.net_call_premium ?? row.call_premium ?? null;
+        const pp = row.net_put_premium ?? row.put_premium ?? null;
+        if (cp == null && pp == null) return null;
+        const net = (cp || 0) - (pp || 0);
+        const regime = net > 0 ? "Bullish" : net < 0 ? "Bearish" : "Neutral";
+        const cls = net > 0 ? "up" : net < 0 ? "down" : "muted";
+        return (
+          <div className="wl-market" title="Whole-market options flow (net call − put premium today). One UW call, same for every row.">
+            <span className="wl-market-tag">Market flow</span>
+            <b className={cls}>{regime}</b>
+            <span className="muted">net call − put</span>
+            <b className={cls}>{window.fmt$M(net)}</b>
+            <span className="muted">· calls {window.fmt$M(cp)} / puts {window.fmt$M(pp)}</span>
+          </div>
+        );
+      })()}
       {scanning && (
         <div className="ab-progress">
           <div className="ab-progress-bar" style={{ width: `${status.total ? (status.scanned / status.total * 100) : 0}%` }}></div>
@@ -1621,6 +1653,20 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
                   <td className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>
                   <td className="scan-num">{flowCell(r)}</td>
                   <td className="wl-txt">{agreeCell(r)}</td>
+                  <td className="scan-num up">{numOr(r.flow_bull)}</td>
+                  <td className="scan-num down">{numOr(r.flow_bear)}</td>
+                  <td className="scan-num up">{prem$(r.call_prem)}</td>
+                  <td className="scan-num down">{prem$(r.put_prem)}</td>
+                  <td className={`scan-num ${pctCls(r.net_prem)}`}>{prem$(r.net_prem)}</td>
+                  <td className="scan-num">{r.pc_ratio != null ? r.pc_ratio : "—"}</td>
+                  <td className="scan-num">{prem$(r.ask_call_prem)}</td>
+                  <td className="scan-num">{prem$(r.ask_put_prem)}</td>
+                  <td className="scan-num">{numOr(r.call_sweeps)}</td>
+                  <td className="scan-num">{numOr(r.put_sweeps)}</td>
+                  <td className="scan-num">{numOr(r.flow_alerts)}</td>
+                  <td className="scan-num">{numOr(r.flow_quality)}</td>
+                  <td className={`scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`}>{numOr(r.flow_cc_risk)}</td>
+                  <td className="wl-txt" title={r.flow_verdict || ""}>{r.flow_verdict || "—"}</td>
                   <td className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>
                   <td className={`scan-num ${pctCls(r.change)}`}>{pct(r.change)}</td>
                   <td className={`scan-num ${pctCls(r.wtd)}`}>{pct(r.wtd)}</td>

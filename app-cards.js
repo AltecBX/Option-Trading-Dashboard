@@ -2123,7 +2123,8 @@ function SwingPatternCard({
 }
 function WatchlistTableCard({
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  market
 }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -2219,6 +2220,61 @@ function WatchlistTableCard({
     k: "flow_agree",
     label: "Agree"
   }, {
+    k: "flow_bull",
+    label: "Bull",
+    num: true
+  }, {
+    k: "flow_bear",
+    label: "Bear",
+    num: true
+  }, {
+    k: "call_prem",
+    label: "Bull $",
+    num: true
+  }, {
+    k: "put_prem",
+    label: "Bear $",
+    num: true
+  }, {
+    k: "net_prem",
+    label: "Net $",
+    num: true
+  }, {
+    k: "pc_ratio",
+    label: "P/C",
+    num: true
+  }, {
+    k: "ask_call_prem",
+    label: "Ask C$",
+    num: true
+  }, {
+    k: "ask_put_prem",
+    label: "Ask P$",
+    num: true
+  }, {
+    k: "call_sweeps",
+    label: "C Swp",
+    num: true
+  }, {
+    k: "put_sweeps",
+    label: "P Swp",
+    num: true
+  }, {
+    k: "flow_alerts",
+    label: "Alerts",
+    num: true
+  }, {
+    k: "flow_quality",
+    label: "Conv",
+    num: true
+  }, {
+    k: "flow_cc_risk",
+    label: "CC Risk",
+    num: true
+  }, {
+    k: "flow_verdict",
+    label: "Verdict"
+  }, {
     k: "next_earnings",
     label: "Earnings",
     num: true
@@ -2255,7 +2311,7 @@ function WatchlistTableCard({
     label: "%200DMA",
     num: true
   }];
-  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict"]);
   const setSortKey = k => setSort(s => s.key === k ? {
     key: k,
     dir: s.dir === "asc" ? "desc" : "asc"
@@ -2332,6 +2388,9 @@ function WatchlistTableCard({
       title: "Mixed / neutral flow"
     }, "~ neutral");
   };
+  // Compact signed $ for premium columns (e.g. $1.2M, -$540K). Blank/0 → —
+  const prem$ = v => v == null ? "—" : v === 0 ? "—" : window.fmt$M(v);
+  const numOr = v => v == null ? "—" : v;
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2356,7 +2415,33 @@ function WatchlistTableCard({
     className: "ab-err"
   }, " · ", status.error), err && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, " · ", err)), scanning && /*#__PURE__*/React.createElement("div", {
+  }, " · ", err)), (() => {
+    // Market-wide flow read (one UW call, whole market — not per row).
+    const tide = market && market.tide;
+    if (!tide) return null;
+    const row = Array.isArray(tide) ? tide[tide.length - 1] : tide;
+    if (!row) return null;
+    const cp = row.net_call_premium ?? row.call_premium ?? null;
+    const pp = row.net_put_premium ?? row.put_premium ?? null;
+    if (cp == null && pp == null) return null;
+    const net = (cp || 0) - (pp || 0);
+    const regime = net > 0 ? "Bullish" : net < 0 ? "Bearish" : "Neutral";
+    const cls = net > 0 ? "up" : net < 0 ? "down" : "muted";
+    return /*#__PURE__*/React.createElement("div", {
+      className: "wl-market",
+      title: "Whole-market options flow (net call − put premium today). One UW call, same for every row."
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "wl-market-tag"
+    }, "Market flow"), /*#__PURE__*/React.createElement("b", {
+      className: cls
+    }, regime), /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "net call − put"), /*#__PURE__*/React.createElement("b", {
+      className: cls
+    }, window.fmt$M(net)), /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "· calls ", window.fmt$M(cp), " / puts ", window.fmt$M(pp)));
+  })(), scanning && /*#__PURE__*/React.createElement("div", {
     className: "ab-progress"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ab-progress-bar",
@@ -2437,6 +2522,35 @@ function WatchlistTableCard({
   }, flowCell(r)), /*#__PURE__*/React.createElement("td", {
     className: "wl-txt"
   }, agreeCell(r)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num up"
+  }, numOr(r.flow_bull)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num down"
+  }, numOr(r.flow_bear)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num up"
+  }, prem$(r.call_prem)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num down"
+  }, prem$(r.put_prem)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.net_prem)}`
+  }, prem$(r.net_prem)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.pc_ratio != null ? r.pc_ratio : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, prem$(r.ask_call_prem)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, prem$(r.ask_put_prem)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, numOr(r.call_sweeps)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, numOr(r.put_sweeps)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, numOr(r.flow_alerts)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, numOr(r.flow_quality)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`
+  }, numOr(r.flow_cc_risk)), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt",
+    title: r.flow_verdict || ""
+  }, r.flow_verdict || "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.next_earnings ? fmtUSDate(r.next_earnings) : "—", r.days_to_earnings != null ? /*#__PURE__*/React.createElement("span", {
     className: "muted"
