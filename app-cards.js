@@ -844,6 +844,130 @@ function fmtMktCap(v) {
   return "$" + Number(v).toLocaleString();
 }
 
+// Watchlist Edge model. Collapses the per-stock options-flow fields into a
+// single signed conviction score in [-100, +100]: positive = long candidate,
+// negative = short. All from data already loaded — no extra UW cost.
+//
+// Quant principles applied:
+//  - Normalize before comparing: premium is judged size-free (lean ratios)
+//    and by cross-sectional rank of net premium / market cap, so a small-cap
+//    whale bet outranks mega-cap background noise.
+//  - Confluence: direction blends flow $ lean, ask-side aggression, sweeps,
+//    UW flow score, the stock's SECTOR tilt, and price-trend structure.
+//  - Direction x conviction: a clean stacked setup scores high; a muddy one
+//    scores low even if it leans the same way (quality, premium rank, rel-vol,
+//    alert count, and price agreement drive conviction).
+//  - Risk gate: earnings within 7 days halves the score and flags the row.
+function computeWatchlistEdges(rows) {
+  if (!rows || !rows.length) return rows || [];
+  const clip = (x, a, b) => Math.max(a, Math.min(b, x));
+
+  // Sector tilt: net-premium lean per sector, size-free, in [-1, +1].
+  const secAgg = new Map();
+  rows.forEach(r => {
+    if (!r.flow_available) return;
+    const k = r.sector || "—";
+    const s = secAgg.get(k) || {
+      bull: 0,
+      bear: 0
+    };
+    s.bull += r.call_prem || 0;
+    s.bear += r.put_prem || 0;
+    secAgg.set(k, s);
+  });
+  const sectorTilt = new Map();
+  secAgg.forEach((v, k) => {
+    const tot = v.bull + v.bear;
+    sectorTilt.set(k, tot > 0 ? (v.bull - v.bear) / tot : 0);
+  });
+
+  // Cross-sectional rank of premium intensity (|net prem| / market cap).
+  const intens = rows.filter(r => r.flow_available).map(r => r.market_cap > 0 ? Math.abs(r.net_prem || 0) / r.market_cap : 0).sort((a, b) => a - b);
+  const pctRank = x => {
+    if (!intens.length) return 0;
+    let lo = 0,
+      hi = intens.length;
+    while (lo < hi) {
+      const m = lo + hi >> 1;
+      if (intens[m] <= x) lo = m + 1;else hi = m;
+    }
+    return lo / intens.length;
+  };
+  return rows.map(r => {
+    if (!r.flow_available) return {
+      ...r,
+      edge: null,
+      setup: null,
+      prem_sell: null,
+      edge_er: false,
+      edge_tip: "No flow data — run a scan"
+    };
+    const cp = r.call_prem || 0,
+      pp = r.put_prem || 0;
+    const ac = r.ask_call_prem || 0,
+      ap = r.ask_put_prem || 0;
+    const cs = r.call_sweeps || 0,
+      ps = r.put_sweeps || 0;
+
+    // Direction: size-free leans, positive = bullish.
+    const premTilt = (cp - pp) / (cp + pp + 1);
+    const askTilt = (ac - ap) / (ac + ap + 1);
+    const sweepTilt = (cs - ps) / (cs + ps + 1);
+    const flowTilt = clip((r.flow_net || 0) / 60, -1, 1);
+    const secTilt = sectorTilt.get(r.sector || "—") || 0;
+    const trendTilt = clip((r.from_ma50 != null ? r.from_ma50 : 0) / 15, -1, 1);
+    const D = 0.28 * premTilt + 0.20 * askTilt + 0.16 * flowTilt + 0.08 * sweepTilt + 0.16 * secTilt + 0.12 * trendTilt;
+
+    // Price-trend confirmation shrinks (never flips) conviction on divergence.
+    const agreeMult = r.flow_agree === "agrees" ? 1.0 : r.flow_agree === "disagrees" ? 0.55 : 0.8;
+
+    // Conviction (cleanliness of the signal), ~0.15..1.0.
+    const intensityPct = pctRank(r.market_cap > 0 ? Math.abs(r.net_prem || 0) / r.market_cap : 0);
+    const quality = clip((r.flow_quality || 0) / 100, 0, 1);
+    const relvol = clip((r.rel_vol || 0) / 2, 0, 1);
+    const alerts = clip((r.flow_alerts || 0) / 15, 0, 1);
+    const K = 0.15 + 0.25 * quality + 0.25 * intensityPct + 0.20 * relvol + 0.15 * alerts;
+    let edge = 100 * D * agreeMult * (0.4 + 0.6 * K);
+    const er = r.days_to_earnings != null && r.days_to_earnings >= 0 && r.days_to_earnings <= 7;
+    if (er) edge *= 0.5; // earnings: flag + dampen
+    edge = Math.round(clip(edge, -100, 100));
+    const dir = edge >= 15 ? "long" : edge <= -15 ? "short" : "mixed";
+    const strength = Math.abs(edge) >= 50 ? "strong" : Math.abs(edge) >= 25 ? "building" : "weak";
+    let setup = dir === "long" ? "Long" : dir === "short" ? "Short" : "Mixed";
+    if (dir !== "mixed") setup += " · " + strength;
+
+    // Premium-selling lens (both lenses): sell puts under bullish flow, sell
+    // calls under bearish — flag squeeze risk when CC-Risk is high.
+    let prem_sell = "—";
+    if (dir === "long") prem_sell = "Sell puts";else if (dir === "short") prem_sell = r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "Sell calls ⚠" : "Sell calls";
+
+    // Driver breakdown for the hover tooltip.
+    const parts = [];
+    const tag = (label, v) => {
+      if (Math.abs(v) >= 0.08) parts.push((v > 0 ? "+" : "−") + label);
+    };
+    tag("flow$", premTilt);
+    tag("ask-side", askTilt);
+    tag("sweeps", sweepTilt);
+    tag("flow-score", flowTilt);
+    tag("sector", secTilt);
+    tag("trend", trendTilt);
+    let tip = `Edge ${edge > 0 ? "+" : ""}${edge} (${setup}). Drivers: ${parts.join(", ") || "balanced"}.`;
+    tip += ` Conviction: quality ${Math.round(quality * 100)}, premium-rank ${Math.round(intensityPct * 100)}, ${r.rel_vol || 0}× vol`;
+    tip += r.flow_agree === "agrees" ? ", price confirms" : r.flow_agree === "disagrees" ? ", price diverges" : "";
+    if (er) tip += `. ⚠ Earnings in ${r.days_to_earnings}d — score halved`;
+    return {
+      ...r,
+      edge,
+      setup,
+      prem_sell,
+      edge_er: er,
+      edge_dir: dir,
+      edge_tip: tip
+    };
+  });
+}
+
 // MM-DD-YYYY (e.g. 6-19-2026) from an ISO YYYY-MM-DD string.
 function fmtSwingDate(s) {
   if (!s) return "—";
@@ -2129,7 +2253,7 @@ function WatchlistTableCard({
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const [sort, setSort] = useState({
-    key: "market_cap",
+    key: "edge",
     dir: "desc"
   });
   const [gsort, setGsort] = useState({
@@ -2178,7 +2302,7 @@ function WatchlistTableCard({
     }, 4000);
   };
   const status = board && board.status || {};
-  const rows = board && board.rows || [];
+  const rows = useMemo(() => computeWatchlistEdges(board && board.rows || []), [board]);
   const scanning = !!status.scanning;
   const sectors = board && board.sectors || [];
   const industries = board && board.industries || [];
@@ -2188,6 +2312,16 @@ function WatchlistTableCard({
   }, {
     k: "company",
     label: "Company"
+  }, {
+    k: "edge",
+    label: "Edge",
+    num: true
+  }, {
+    k: "setup",
+    label: "Setup"
+  }, {
+    k: "prem_sell",
+    label: "Premium"
   }, {
     k: "last",
     label: "Price",
@@ -2317,7 +2451,7 @@ function WatchlistTableCard({
     label: "%200DMA",
     num: true
   }];
-  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell"]);
   const setSortKey = k => setSort(s => s.key === k ? {
     key: k,
     dir: s.dir === "asc" ? "desc" : "asc"
@@ -2531,6 +2665,24 @@ function WatchlistTableCard({
   // Compact signed $ for premium columns (e.g. $1.2M, -$540K). Blank/0 → —
   const prem$ = v => v == null ? "—" : v === 0 ? "—" : window.fmt$M(v);
   const numOr = v => v == null ? "—" : v;
+  const edgeCell = r => {
+    if (r.edge == null) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    const cls = r.edge >= 15 ? "up" : r.edge <= -15 ? "down" : "muted";
+    return /*#__PURE__*/React.createElement("b", {
+      className: cls
+    }, r.edge > 0 ? "+" : "", r.edge);
+  };
+  const setupCell = r => {
+    if (!r.setup) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    const cls = r.edge_dir === "long" ? "up" : r.edge_dir === "short" ? "down" : "muted";
+    return /*#__PURE__*/React.createElement("span", {
+      className: cls
+    }, r.edge_er ? "⚠ " : "", r.setup);
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2551,7 +2703,7 @@ function WatchlistTableCard({
     className: "muted"
   }, "No scan yet — Scan now pulls valuation, momentum, volume, earnings & moving-average metrics for your tracked stocks (a few minutes for large lists)."), /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, " · Auto-refreshes 9 AM & 6 PM ET each trading day · cached server-side (shared across your devices)"), status.error && /*#__PURE__*/React.createElement("span", {
+  }, " · ", /*#__PURE__*/React.createElement("b", null, "Edge"), " = signed flow conviction (+long / −short), size-normalized; sort it to rank morning buys vs sells · hover a row for the driver breakdown · Auto-refreshes 9 AM & 6 PM ET · cached server-side"), status.error && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
   }, " · ", status.error), err && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
@@ -2701,6 +2853,14 @@ function WatchlistTableCard({
   }, r.symbol), /*#__PURE__*/React.createElement("td", {
     className: "wl-co"
   }, r.company || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: r.edge_tip || ""
+  }, edgeCell(r)), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt",
+    title: r.edge_tip || ""
+  }, setupCell(r)), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt"
+  }, r.prem_sell || "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, fmtUsd(r.last, 2)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
