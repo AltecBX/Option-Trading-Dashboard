@@ -7620,6 +7620,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-proj-grid b { font-family: var(--font-mono); font-size: 14px; }
 .swing-proj-grid b.up { color: var(--up); }
 .swing-table th, .swing-table td { white-space: nowrap; }
+.swing-table td { font-size: 13.5px; }
+.swing-table th { font-size: 12px; }
 
 /* ── Live swing decision box ─────────────────────────────────────────── */
 .swing-live {
@@ -7639,15 +7641,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .swing-live-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .swing-badge {
-  font-weight: 800; font-size: 12px; letter-spacing: 0.04em;
+  font-weight: 800; font-size: 13.5px; letter-spacing: 0.04em;
   padding: 3px 9px; border-radius: 999px;
   color: #fff; background: var(--fg-3);
 }
 .swing-badge.up { background: var(--up); }
 .swing-badge.down { background: var(--down); }
-.swing-state { font-weight: 700; font-size: 13px; }
+.swing-state { font-weight: 700; font-size: 15px; }
 .swing-maturity {
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
   color: var(--fg-2);
 }
@@ -7655,7 +7657,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-maturity.warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 55%); }
 .swing-maturity.down { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%); }
 .swing-flag {
-  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
   margin-left: auto;
 }
 .swing-flag.up { color: var(--up); background: color-mix(in oklch, var(--up) 16%, transparent); }
@@ -7665,9 +7667,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 9px 16px;
 }
 .swing-live-grid > div { display: flex; flex-direction: column; gap: 2px; }
-.swing-live-grid span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
-.swing-live-grid b { font-family: var(--font-mono); font-size: 14px; }
+.swing-live-grid span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
+.swing-live-grid b { font-family: var(--font-mono); font-size: 16px; }
 .swing-live-grid b small, .swing-live-grid b.up small, .swing-live-grid b.down small {
+  white-space: nowrap;
   font-size: 10.5px; color: var(--fg-3); font-weight: 500;
 }
 .swing-live-grid b.up { color: var(--up); }
@@ -7676,12 +7679,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   margin-top: 10px; padding: 8px 11px; border-radius: 9px;
   background: color-mix(in oklch, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in oklch, var(--accent), transparent 70%);
-  font-size: 12.5px; line-height: 1.4;
+  font-size: 14.5px; line-height: 1.45;
 }
 .swing-scores { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
-.swing-score-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
-.swing-score-row b { font-family: var(--font-mono); font-size: 15px; }
-.swing-score-row b small { font-size: 10px; color: var(--fg-3); font-weight: 500; }
+.swing-score-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; }
+.swing-score-row b { font-family: var(--font-mono); font-size: 17px; }
+.swing-score-row b small { font-size: 12px; color: var(--fg-3); font-weight: 500; }
 .swing-score-row b.up { color: var(--up); }
 .swing-score-row b.down { color: var(--down); }
 .swing-score-row b.warn { color: var(--warn); }
@@ -7690,10 +7693,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-bar-fill.up { background: var(--up); }
 .swing-bar-fill.down { background: var(--down); }
 .swing-bar-fill.warn { background: var(--warn); }
-.swing-factors { font-size: 11px; color: var(--fg-3); line-height: 1.35; }
+.swing-factors { font-size: 13px; color: var(--fg-3); line-height: 1.35; }
 @media (max-width: 560px) { .swing-scores { grid-template-columns: 1fr; } }
 
-.swing-subtitle { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; color: var(--fg-2); }
+.swing-subtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; color: var(--fg-2); }
 
 /* ── Trade plan ──────────────────────────────────────────────────────── */
 .swing-plan {
@@ -7705,15 +7708,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 9px 16px; margin-bottom: 10px;
 }
 .swing-plan-grid > div { display: flex; flex-direction: column; gap: 2px; }
-.swing-plan-grid span { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
-.swing-plan-grid b { font-family: var(--font-mono); font-size: 14px; }
+.swing-plan-grid span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); }
+.swing-plan-grid b { font-family: var(--font-mono); font-size: 16px; }
 .swing-plan-grid b.up { color: var(--up); }
 .swing-plan-grid b.down { color: var(--down); }
-.swing-plan-note { font-size: 12px; line-height: 1.4; margin-top: 4px; }
+.swing-plan-note { font-size: 14px; line-height: 1.4; margin-top: 4px; }
 .swing-plan-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
 .swing-plan-cols ul { margin: 4px 0 0; padding-left: 16px; }
-.swing-plan-cols li { font-size: 11.5px; line-height: 1.45; color: var(--fg-2); }
-.swing-plan-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.swing-plan-cols li { font-size: 13.5px; line-height: 1.45; color: var(--fg-2); }
+.swing-plan-h { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
 .swing-plan-h.up { color: var(--up); }
 .swing-plan-h.warn { color: var(--warn); }
 @media (max-width: 560px) { .swing-plan-cols { grid-template-columns: 1fr; } }
@@ -7730,7 +7733,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Relative-strength / catalyst tags in the live box */
 .swing-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .swing-tag {
-  font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
   border: 1px solid var(--line); color: var(--fg-2);
 }
 .swing-tag.up { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); }
@@ -7738,8 +7741,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* History filter bar */
 .swing-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
-.swing-filters-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); margin-right: 2px; }
-.swing-filters .sb-select { font-size: 12px; padding: 4px 8px; }
+.swing-filters-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); margin-right: 2px; }
+.swing-filters .sb-select { font-size: 13.5px; padding: 5px 9px; }
 .swing-filters-clear {
   background: none; border: 1px solid var(--line); color: var(--fg-3);
   font-size: 11px; padding: 4px 10px; border-radius: 8px; cursor: pointer;
@@ -7753,12 +7756,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   margin-top: 8px; padding: 8px 11px; border-radius: 9px;
   background: color-mix(in oklch, var(--warn) 9%, transparent);
   border: 1px solid color-mix(in oklch, var(--warn), transparent 68%);
-  font-size: 12.5px; line-height: 1.4;
+  font-size: 14.5px; line-height: 1.45;
 }
 .swing-levels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
-.swing-levels-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); margin-right: 2px; }
+.swing-levels-lbl { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); margin-right: 2px; }
 .swing-lvl {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 14px; font-weight: 600;
   padding: 2px 8px; border-radius: 7px; border: 1px solid var(--line); color: var(--fg-2);
   white-space: nowrap;
 }
