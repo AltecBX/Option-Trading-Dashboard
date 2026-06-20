@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.69";
+const APP_VERSION = "1.70";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2734,7 +2734,10 @@ function App() {
     className: "shell"
   }, /*#__PURE__*/React.createElement(TabBar, {
     active: activeTab,
-    onChange: changeTab
+    onChange: changeTab,
+    ticker: ticker,
+    earnDate: loadError ? null : current.next_earnings,
+    earnDays: loadError ? null : current.days_to_earnings
   }), /*#__PURE__*/React.createElement("aside", {
     className: "sidebar"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3062,7 +3065,10 @@ function App() {
     }, " · stale"))), /*#__PURE__*/React.createElement("span", {
       className: `delta ${displayChg >= 0 ? "up" : "down"}`
     }, displayChg >= 0 ? "▲" : "▼", " ", Math.abs(displayChg).toFixed(2), "%"));
-  })())))), /*#__PURE__*/React.createElement("div", {
+  })()), !loadError && (current.pe != null || current.forward_pe != null) && /*#__PURE__*/React.createElement("div", {
+    className: "sb-pe",
+    title: "Trailing and forward price-to-earnings ratio"
+  }, "P/E ", current.pe != null ? current.pe : "—", " · Fwd ", current.forward_pe != null ? current.forward_pe : "—")))), /*#__PURE__*/React.createElement("div", {
     className: "sb-section"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sb-label-row"

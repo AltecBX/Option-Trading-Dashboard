@@ -1568,7 +1568,9 @@ function WatchlistAlertsCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
-function TabBar({ active, onChange }) {
+function TabBar({ active, onChange, ticker, earnDate, earnDays }) {
+  const hasEarn = earnDate != null;
+  const soon = earnDays != null && earnDays >= 0 && earnDays <= 7;
   return (
     <div className="tab-bar" role="tablist" aria-label="Dashboard sections"
          title="Switch sections. Each tab shows only its own cards. Cards stay live in the background, so switching is instant and nothing reloads. Your tab choice is remembered.">
@@ -1581,6 +1583,14 @@ function TabBar({ active, onChange }) {
           {t.label}
         </button>
       ))}
+      {hasEarn && (
+        <div className={`tab-earn ${soon ? "soon" : ""}`}
+             title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
+          <span className="tab-earn-lbl">{ticker} earnings</span>
+          <b>{fmtSwingDate(earnDate)}</b>
+          {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+        </div>
+      )}
     </div>
   );
 }

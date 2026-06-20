@@ -2172,8 +2172,13 @@ function WatchlistAlertsCard({
 }
 function TabBar({
   active,
-  onChange
+  onChange,
+  ticker,
+  earnDate,
+  earnDays
 }) {
+  const hasEarn = earnDate != null;
+  const soon = earnDays != null && earnDays >= 0 && earnDays <= 7;
   return /*#__PURE__*/React.createElement("div", {
     className: "tab-bar",
     role: "tablist",
@@ -2187,7 +2192,14 @@ function TabBar({
     className: `tab-btn ${active === t.id ? "active" : ""}`,
     onClick: () => onChange(t.id),
     title: `Show the ${t.label} section.`
-  }, t.label)));
+  }, t.label)), hasEarn && /*#__PURE__*/React.createElement("div", {
+    className: `tab-earn ${soon ? "soon" : ""}`,
+    title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tab-earn-lbl"
+  }, ticker, " earnings"), /*#__PURE__*/React.createElement("b", null, fmtSwingDate(earnDate)), earnDays != null && /*#__PURE__*/React.createElement("span", {
+    className: "tab-earn-days"
+  }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`)));
 }
 function TabPanel({
   tab,
