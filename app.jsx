@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.86";
+const APP_VERSION = "1.87";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2246,7 +2246,7 @@ function App() {
                           timeZone: "America/New_York",
                           hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
                         }).format(d);
-                        return `${dateFmt} ${timeFmt}`;
+                        return `${dateFmt}  |  ${timeFmt}`;
                       } catch {
                         return new Date(nowTs).toString();
                       }
@@ -2939,6 +2939,12 @@ function App() {
               const visibleDaily = daily.slice(start, end);
               return (
                 <CardErrorBoundary label="Price chart">
+                {window.LightweightCharts ? (
+                  <TVPriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
+                                callStrike={sugCall} putStrike={sugPut} currentPrice={currentPrice}
+                                chartStyle={chartStyle} earnings={liveEarnings}
+                                showMA50={showMA50} showMA200={showMA200} showEMA21={showEMA21} />
+                ) : (
                 <PriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
                             callStrike={sugCall} putStrike={sugPut} currentPrice={currentPrice}
                             chartStyle={chartStyle} colors={chartColors}
@@ -2952,6 +2958,7 @@ function App() {
                             fullDailyLength={len}
                             visibleStart={start}
                             onViewRangeChange={setViewRange} />
+                )}
                 </CardErrorBoundary>
               );
             })()}
