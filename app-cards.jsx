@@ -1545,6 +1545,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
         {status.last_scan
           ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {rows.length} stocks</span>
           : <span className="muted">No scan yet — Scan now pulls valuation, momentum, volume, earnings &amp; moving-average metrics for your tracked stocks (a few minutes for large lists).</span>}
+        <span className="muted"> · Auto-refreshes 9 AM &amp; 6 PM ET each trading day · cached server-side (shared across your devices)</span>
         {status.error && <span className="ab-err"> · {status.error}</span>}
         {err && <span className="ab-err"> · {err}</span>}
       </div>
