@@ -1467,6 +1467,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const [sort, setSort] = useState({ key: "market_cap", dir: "desc" });
+  const [gsort, setGsort] = useState({ key: "net", dir: "desc" });
+  const [view, setView] = useState("stocks"); // stocks | sectors | industries
   const [fSector, setFSector] = useState("all");
   const [fIndustry, setFIndustry] = useState("all");
   const [q, setQ] = useState("");
@@ -1549,6 +1551,67 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
     return out;
   }, [rows, fSector, fIndustry, q, sort]);
 
+  // Sector / industry rollup. Sums the per-stock premium fields (all from
+  // the flow_alerts call already made — no extra UW cost) so you can see
+  // where money is flowing in and out at the group level. Respects the
+  // sector/industry dropdowns so you can drill the industry rollup into a
+  // single sector. Stocks with no flow data are counted but contribute $0.
+  const groupKey = view === "sectors" ? "sector" : "industry";
+  const groups = useMemo(() => {
+    if (view === "stocks") return [];
+    const base = rows.filter(r => {
+      if (fSector !== "all" && r.sector !== fSector) return false;
+      if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      return true;
+    });
+    const map = new Map();
+    base.forEach(r => {
+      const name = r[groupKey] || "—";
+      let g = map.get(name);
+      if (!g) { g = { name, stocks: 0, withFlow: 0, nBull: 0, nBear: 0, bull: 0,
+                      bear: 0, net: 0, askC: 0, askP: 0, cSwp: 0, pSwp: 0, alerts: 0 };
+                map.set(name, g); }
+      g.stocks++;
+      if (r.flow_available) {
+        g.withFlow++;
+        g.bull += r.call_prem || 0; g.bear += r.put_prem || 0;
+        g.net += r.net_prem || 0;
+        g.askC += r.ask_call_prem || 0; g.askP += r.ask_put_prem || 0;
+        g.cSwp += r.call_sweeps || 0; g.pSwp += r.put_sweeps || 0;
+        g.alerts += r.flow_alerts || 0;
+        if (r.net_prem > 0) g.nBull++; else if (r.net_prem < 0) g.nBear++;
+      }
+    });
+    let arr = Array.from(map.values());
+    arr.forEach(g => { g.pc = g.bull > 0 ? Math.round(g.bear / g.bull * 100) / 100 : null; });
+    const { key, dir } = gsort, mul = dir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      let av = a[key], bv = b[key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1; if (bv == null) return -1;
+      if (typeof av === "string") return av.localeCompare(bv) * mul;
+      return (av - bv) * mul;
+    });
+    return arr;
+  }, [rows, view, groupKey, fSector, fIndustry, gsort]);
+  const GCOLS = [
+    { k: "name", label: view === "sectors" ? "Sector" : "Industry" },
+    { k: "stocks", label: "Stocks", num: true },
+    { k: "nBull", label: "Bull #", num: true }, { k: "nBear", label: "Bear #", num: true },
+    { k: "bull", label: "Bull $", num: true }, { k: "bear", label: "Bear $", num: true },
+    { k: "net", label: "Net $", num: true }, { k: "pc", label: "P/C", num: true },
+    { k: "askC", label: "Ask C$", num: true }, { k: "askP", label: "Ask P$", num: true },
+    { k: "cSwp", label: "C Swp", num: true }, { k: "pSwp", label: "P Swp", num: true },
+    { k: "alerts", label: "Alerts", num: true },
+  ];
+  const setGsortKey = (k) => setGsort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: k === "name" ? "asc" : "desc" });
+  // Drill a group row down into the per-stock view, pre-filtered.
+  const drillGroup = (name) => {
+    if (view === "sectors") setFSector(name === "—" ? "all" : name);
+    else setFIndustry(name === "—" ? "all" : name);
+    setView("stocks");
+  };
+
   const pctCls = (v) => v == null ? "" : v >= 0 ? "up" : "down";
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
   const flowCell = (r) => {
@@ -1617,17 +1680,60 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
       )}
       {rows.length > 0 && (
         <div className="ab-filters">
-          <input className="sb-select ab-search" placeholder="Symbol / company…" value={q} onChange={e => setQ(e.target.value)} />
+          <div className="wl-viewtabs" role="tablist" aria-label="Watchlist view">
+            {[["stocks", "Stocks"], ["sectors", "Sectors"], ["industries", "Industries"]].map(([v, lbl]) => (
+              <button key={v} type="button" role="tab" aria-selected={view === v}
+                      className={view === v ? "active" : ""} onClick={() => setView(v)}
+                      title={v === "stocks" ? "Per-stock metrics" : `Premiums aggregated by ${v === "sectors" ? "sector" : "industry"} — see where money flows in and out`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          {view === "stocks" && <input className="sb-select ab-search" placeholder="Symbol / company…" value={q} onChange={e => setQ(e.target.value)} />}
           <select className="sb-select" value={fSector} onChange={e => setFSector(e.target.value)}>
             <option value="all">All sectors</option>{sectors.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <select className="sb-select" value={fIndustry} onChange={e => setFIndustry(e.target.value)}>
             <option value="all">All industries</option>{industryOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <span className="muted" style={{ fontSize: 12 }}>{filtered.length} shown</span>
+          <span className="muted" style={{ fontSize: 12 }}>{view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`}</span>
         </div>
       )}
-      {filtered.length > 0 ? (
+      {view !== "stocks" ? (
+        groups.length > 0 ? (
+          <div className="scan-table-wrap" style={{ marginTop: 10 }}>
+            <table className="scan-table wl-table">
+              <thead><tr>
+                {GCOLS.map(c => (
+                  <th key={c.k} className={`${c.num ? "scan-th-num" : ""} wl-th${gsort.key === c.k ? " active" : ""}`}
+                      onClick={() => setGsortKey(c.k)} title="Click to sort">
+                    {c.label}{gsort.key === c.k ? (gsort.dir === "asc" ? " ▲" : " ▼") : ""}
+                  </th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {groups.map(g => (
+                  <tr key={g.name} className="scan-row wl-row" onClick={() => drillGroup(g.name)} title={`Show ${g.name} stocks`}>
+                    <td className="wl-co">{g.name}</td>
+                    <td className="scan-num">{g.stocks}{g.withFlow < g.stocks ? <span className="muted"> ({g.withFlow})</span> : ""}</td>
+                    <td className="scan-num up">{g.nBull || "—"}</td>
+                    <td className="scan-num down">{g.nBear || "—"}</td>
+                    <td className="scan-num up">{prem$(g.bull)}</td>
+                    <td className="scan-num down">{prem$(g.bear)}</td>
+                    <td className={`scan-num ${pctCls(g.net)}`}><b>{prem$(g.net)}</b></td>
+                    <td className="scan-num">{g.pc != null ? g.pc : "—"}</td>
+                    <td className="scan-num">{prem$(g.askC)}</td>
+                    <td className="scan-num">{prem$(g.askP)}</td>
+                    <td className="scan-num">{g.cSwp || "—"}</td>
+                    <td className="scan-num">{g.pSwp || "—"}</td>
+                    <td className="scan-num">{g.alerts || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (!scanning && status.last_scan && <div className="ab-empty">No flow data to aggregate yet — run a scan.</div>)
+      ) : filtered.length > 0 ? (
         <div className="scan-table-wrap" style={{ marginTop: 10 }}>
           <table className="scan-table wl-table">
             <thead><tr>

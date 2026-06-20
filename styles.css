@@ -8186,3 +8186,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-family: var(--font-display); font-weight: 700; font-size: 11px;
   text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3, #6b7280);
 }
+
+/* Watchlist Stocks/Sectors/Industries view toggle. */
+.wl-viewtabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px;
+  background: var(--bg-2, #11141b); border: 1px solid var(--line, #232733); }
+.wl-viewtabs button { font-family: var(--font-display); font-size: 12px; font-weight: 600;
+  padding: 5px 12px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--fg-3, #8b93a3); cursor: pointer; white-space: nowrap; }
+.wl-viewtabs button:hover { color: var(--fg-1, #e6e9ef); }
+.wl-viewtabs button.active { background: var(--accent, #3b82f6); color: #fff; }
