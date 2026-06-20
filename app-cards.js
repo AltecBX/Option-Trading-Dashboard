@@ -1199,6 +1199,22 @@ function SwingChart({
   const UPC = "#22c55e",
     DNC = "#ef4444";
 
+  // Default "home" view = last ~6 months (126 trading days), not the full year.
+  const applyHome = () => {
+    const n = bars.length;
+    if (!n || !chartRef.current) return;
+    try {
+      chartRef.current.timeScale().setVisibleRange({
+        from: bars[Math.max(0, n - 126)].t,
+        to: bars[n - 1].t
+      });
+    } catch (e) {
+      try {
+        chartRef.current.timeScale().fitContent();
+      } catch (e2) {}
+    }
+  };
+
   // Create the chart once (re-create when uncollapsed so the container exists).
   useEffect(() => {
     if (!LC || !wrapRef.current || collapsed) return;
@@ -1291,9 +1307,9 @@ function SwingChart({
     volRef.current.setData(bars.map(b => ({
       time: b.t,
       value: b.v,
-      color: b.c >= b.o ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)"
+      color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)"
     })));
-    chartRef.current.timeScale().fitContent();
+    applyHome();
     /* eslint-disable-next-line */
   }, [data, collapsed]);
 
@@ -1316,10 +1332,18 @@ function SwingChart({
       lines: [],
       priceLines: []
     };
+    const fStart = focusKey && focusKey.start,
+      fEnd = focusKey && focusKey.end;
+    const DIMUP = "rgba(34,197,94,0.22)",
+      DIMDN = "rgba(239,68,68,0.22)";
     const markers = [];
     const addSwing = (s, dir) => {
+      const lo = s.low_date < s.high_date ? s.low_date : s.high_date;
+      const hi = s.low_date < s.high_date ? s.high_date : s.low_date;
+      const focused = fStart && lo === fStart && hi === fEnd;
+      const dim = fStart && !focused; // something selected, not this
       const c = dir === "up" ? UPC : DNC;
-      if (show.markers) {
+      if (show.markers && !dim) {
         const lbl = show.labels ? `${s.pct_change > 0 ? "+" : ""}${Math.round(s.pct_change)}%` : "";
         markers.push({
           time: s.low_date,
@@ -1337,9 +1361,10 @@ function SwingChart({
         });
       }
       if (show.lines) {
+        const lineColor = dim ? dir === "up" ? DIMUP : DIMDN : c;
         const ls = chart.addLineSeries({
-          color: c,
-          lineWidth: 2,
+          color: lineColor,
+          lineWidth: focused ? 3 : 1.5,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false
@@ -1379,7 +1404,7 @@ function SwingChart({
       if (show.current && a.trade_plan) mk(a.trade_plan.invalidation, DNC, LC.LineStyle.Dashed, "inval");
     }
     /* eslint-disable-next-line */
-  }, [data, show, collapsed]);
+  }, [data, show, collapsed, focusKey]);
 
   // Focus the chart on a selected swing (from a table-row click).
   useEffect(() => {
@@ -1411,9 +1436,7 @@ function SwingChart({
       [k]: !s[k]
     }))
   }, lbl)), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      if (chartRef.current) chartRef.current.timeScale().fitContent();
-    }
+    onClick: () => applyHome()
   }, "Reset"))), !collapsed && !LC && /*#__PURE__*/React.createElement("div", {
     className: "ab-status muted"
   }, "Chart library didn't load (offline?). The swing table above has the full data."), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
@@ -1421,7 +1444,7 @@ function SwingChart({
     ref: wrapRef
   }), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-hint"
-  }, "Tap a candle near a swing to open its row · tap a table row to zoom the chart to it · Reset = full view"));
+  }, "Tap a candle near a swing to open its row · tap a table row to highlight + zoom to that move · Reset = 6-month view"));
 }
 function SwingPatternCard({
   apiFetch,
