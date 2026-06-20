@@ -2922,6 +2922,26 @@ def build_payload(
     except Exception:
         div_yield = None
 
+    # Valuation multiples (v1.70) for the sidebar.
+    def _num(x, dp=1):
+        try:
+            v = float(x)
+            return round(v, dp) if v == v else None    # drop NaN
+        except (TypeError, ValueError):
+            return None
+    pe = _num(info.get("trailingPE"))
+    forward_pe = _num(info.get("forwardPE"))
+
+    # Days until the next earnings report (earnings_date is the next upcoming
+    # date from check_earnings; may be None for ETFs / no coverage).
+    days_to_earnings = None
+    if earnings_date:
+        try:
+            ed = datetime.strptime(earnings_date, "%Y-%m-%d").date()
+            days_to_earnings = (ed - date.today()).days
+        except Exception:
+            days_to_earnings = None
+
     rows = weekly.to_dict("records")
 
     cur_price = current["current_price"] if current else float(rows[-1]["friday_close"])
@@ -2991,8 +3011,12 @@ def build_payload(
             "name": name,
             "sector": sector,
             "dividend_yield": div_yield,
+            "pe": pe,
+            "forward_pe": forward_pe,
             "earnings": has_earnings,
             "earningsDate": earnings_date,
+            "next_earnings": earnings_date,
+            "days_to_earnings": days_to_earnings,
             "week_start": current["week_start"] if current else target_fri.strftime("%Y-%m-%d"),
         },
         "chain": {"calls": calls, "puts": puts, "atm": atm},

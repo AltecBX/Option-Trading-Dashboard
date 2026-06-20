@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.69";
+const APP_VERSION = "1.70";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2144,7 +2144,9 @@ function App() {
   return (
     <div className="shell">
       {/* Tab bar (v1.25) — full-width section switcher, spans both columns */}
-      <TabBar active={activeTab} onChange={changeTab} />
+      <TabBar active={activeTab} onChange={changeTab} ticker={ticker}
+              earnDate={loadError ? null : current.next_earnings}
+              earnDays={loadError ? null : current.days_to_earnings} />
       {/* ── SIDEBAR ───────────────────────────────────────────────────────── */}
       <aside className="sidebar">
         <div className="sb-version-pill" title="App version">v{APP_VERSION}</div>
@@ -2387,6 +2389,11 @@ function App() {
                   );
                 })()}
               </div>
+              {!loadError && (current.pe != null || current.forward_pe != null) && (
+                <div className="sb-pe" title="Trailing and forward price-to-earnings ratio">
+                  P/E {current.pe != null ? current.pe : "—"} · Fwd {current.forward_pe != null ? current.forward_pe : "—"}
+                </div>
+              )}
             </div>
           </div>
         </div>
