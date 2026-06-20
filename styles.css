@@ -8104,3 +8104,25 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .tar-chip.tone-down b { color: var(--down); }
 .tar-chip.tone-muted b { color: var(--fg); }
 @media (max-width: 620px) { .tar-chip { flex-basis: 100%; padding: 10px 13px; } .tar-chip b { font-size: 16px; } }
+
+/* ── Swing chart (TradingView Lightweight Charts) ──────────────────────── */
+.swing-chart-block { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.swing-chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+.swing-chart-toggle {
+  background: none; border: none; color: var(--fg); cursor: pointer;
+  font-size: 14px; font-weight: 700; padding: 4px 2px;
+}
+.swing-chart-toggles { display: flex; flex-wrap: wrap; gap: 5px; margin-left: auto; }
+.swing-chart-toggles button {
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-3);
+  font-size: 11.5px; font-weight: 600; padding: 5px 10px; border-radius: 7px; cursor: pointer;
+  min-height: 32px;
+}
+.swing-chart-toggles button.on { color: var(--fg); border-color: var(--accent); background: color-mix(in oklch, var(--accent) 12%, transparent); }
+.swing-chart { width: 100%; height: 440px; }
+.swing-chart-hint { font-size: 11px; color: var(--fg-3); margin-top: 6px; line-height: 1.4; }
+@media (max-width: 900px) {
+  .swing-chart { height: 320px; }
+  .swing-chart-toggles { margin-left: 0; width: 100%; }
+  .swing-chart-toggles button { flex: 1 1 auto; min-height: 36px; }
+}

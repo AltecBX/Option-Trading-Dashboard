@@ -952,6 +952,259 @@ function NewsCard({
     className: "ab-empty"
   }, "No recent headlines for ", ticker, "."));
 }
+function SwingChart({
+  data,
+  focusKey,
+  onPickSwing
+}) {
+  const LC = window.LightweightCharts;
+  const wrapRef = useRef(null);
+  const chartRef = useRef(null);
+  const candleRef = useRef(null);
+  const volRef = useRef(null);
+  const overlayRef = useRef({
+    lines: [],
+    priceLines: []
+  });
+  const [show, setShow] = useState({
+    markers: true,
+    lines: true,
+    up: true,
+    down: true,
+    current: true,
+    targets: true
+  });
+  const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= 900);
+  const bars = data && data.bars || [];
+  const upSw = data && data.swings || [];
+  const downSw = data && data.down_swings || [];
+  const a = data && data.analysis;
+  const UPC = "#22c55e",
+    DNC = "#ef4444";
+
+  // Create the chart once (re-create when uncollapsed so the container exists).
+  useEffect(() => {
+    if (!LC || !wrapRef.current || collapsed) return;
+    const el = wrapRef.current;
+    const chart = LC.createChart(el, {
+      width: el.clientWidth,
+      height: el.clientHeight || 420,
+      layout: {
+        background: {
+          type: "solid",
+          color: "transparent"
+        },
+        textColor: "#9aa4b2",
+        fontFamily: "JetBrains Mono, ui-monospace, monospace"
+      },
+      grid: {
+        vertLines: {
+          color: "rgba(255,255,255,0.04)"
+        },
+        horzLines: {
+          color: "rgba(255,255,255,0.06)"
+        }
+      },
+      rightPriceScale: {
+        borderColor: "rgba(255,255,255,0.1)"
+      },
+      timeScale: {
+        borderColor: "rgba(255,255,255,0.1)",
+        rightOffset: 6,
+        fixLeftEdge: true
+      },
+      crosshair: {
+        mode: LC.CrosshairMode.Normal
+      }
+    });
+    const candle = chart.addCandlestickSeries({
+      upColor: UPC,
+      downColor: DNC,
+      borderUpColor: UPC,
+      borderDownColor: DNC,
+      wickUpColor: UPC,
+      wickDownColor: DNC
+    });
+    const vol = chart.addHistogramSeries({
+      priceFormat: {
+        type: "volume"
+      },
+      priceScaleId: "vol"
+    });
+    chart.priceScale("vol").applyOptions({
+      scaleMargins: {
+        top: 0.84,
+        bottom: 0
+      }
+    });
+    chartRef.current = chart;
+    candleRef.current = candle;
+    volRef.current = vol;
+    if (onPickSwing) chart.subscribeClick(p => {
+      if (p && p.time) onPickSwing(p.time);
+    });
+    const ro = new window.ResizeObserver(() => {
+      if (wrapRef.current) chart.applyOptions({
+        width: wrapRef.current.clientWidth
+      });
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      try {
+        chart.remove();
+      } catch (e) {}
+      chartRef.current = null;
+      candleRef.current = null;
+      volRef.current = null;
+    };
+    /* eslint-disable-next-line */
+  }, [LC, collapsed]);
+
+  // Candles + volume whenever bars change.
+  useEffect(() => {
+    if (!candleRef.current || !bars.length) return;
+    candleRef.current.setData(bars.map(b => ({
+      time: b.t,
+      open: b.o,
+      high: b.h,
+      low: b.l,
+      close: b.c
+    })));
+    volRef.current.setData(bars.map(b => ({
+      time: b.t,
+      value: b.v,
+      color: b.c >= b.o ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)"
+    })));
+    chartRef.current.timeScale().fitContent();
+    /* eslint-disable-next-line */
+  }, [data, collapsed]);
+
+  // Swing overlay: markers + connector lines + current-swing price lines.
+  useEffect(() => {
+    const chart = chartRef.current,
+      candle = candleRef.current;
+    if (!chart || !candle || !bars.length) return;
+    overlayRef.current.lines.forEach(ls => {
+      try {
+        chart.removeSeries(ls);
+      } catch (e) {}
+    });
+    overlayRef.current.priceLines.forEach(pl => {
+      try {
+        candle.removePriceLine(pl);
+      } catch (e) {}
+    });
+    overlayRef.current = {
+      lines: [],
+      priceLines: []
+    };
+    const markers = [];
+    const addSwing = (s, dir) => {
+      const c = dir === "up" ? UPC : DNC;
+      if (show.markers) {
+        markers.push({
+          time: s.low_date,
+          position: "belowBar",
+          color: c,
+          shape: "arrowUp",
+          text: dir === "down" ? `${s.pct_change}%·${s.trading_days}d` : ""
+        });
+        markers.push({
+          time: s.high_date,
+          position: "aboveBar",
+          color: c,
+          shape: "arrowDown",
+          text: dir === "up" ? `+${s.pct_change}%·${s.trading_days}d` : ""
+        });
+      }
+      if (show.lines) {
+        const ls = chart.addLineSeries({
+          color: c,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false
+        });
+        const pts = [{
+          time: s.low_date,
+          value: s.low_price
+        }, {
+          time: s.high_date,
+          value: s.high_price
+        }].sort((x, y) => x.time < y.time ? -1 : 1);
+        ls.setData(pts);
+        overlayRef.current.lines.push(ls);
+      }
+    };
+    if (show.up) upSw.forEach(s => addSwing(s, "up"));
+    if (show.down) downSw.forEach(s => addSwing(s, "down"));
+    markers.sort((x, y) => x.time < y.time ? -1 : x.time > y.time ? 1 : 0);
+    candle.setMarkers(markers);
+    if (a && a.status === "ok") {
+      const mk = (price, color, style, title) => {
+        if (price == null) return;
+        overlayRef.current.priceLines.push(candle.createPriceLine({
+          price,
+          color,
+          lineWidth: 1,
+          lineStyle: style,
+          axisLabelVisible: true,
+          title
+        }));
+      };
+      if (show.current) mk(a.current_price, "rgba(255,255,255,0.55)", LC.LineStyle.Solid, "now");
+      if (show.targets && a.targets) {
+        mk(a.targets[1] && a.targets[1].price, UPC, LC.LineStyle.Dashed, "median");
+        mk(a.targets[2] && a.targets[2].price, "#15803d", LC.LineStyle.Dotted, "aggr");
+      }
+      if (show.current && a.trade_plan) mk(a.trade_plan.invalidation, DNC, LC.LineStyle.Dashed, "inval");
+    }
+    /* eslint-disable-next-line */
+  }, [data, show, collapsed]);
+
+  // Focus the chart on a selected swing (from a table-row click).
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusKey || !focusKey.start || !focusKey.end) return;
+    try {
+      chart.timeScale().setVisibleRange({
+        from: focusKey.start,
+        to: focusKey.end
+      });
+    } catch (e) {}
+    /* eslint-disable-next-line */
+  }, [focusKey, collapsed]);
+  const TOGGLES = [["markers", "Markers"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-head"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "swing-chart-toggle",
+    onClick: () => setCollapsed(c => !c)
+  }, collapsed ? "▸" : "▾", " Swing chart"), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-toggles"
+  }, TOGGLES.map(([k, lbl]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: show[k] ? "on" : "",
+    onClick: () => setShow(s => ({
+      ...s,
+      [k]: !s[k]
+    }))
+  }, lbl)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (chartRef.current) chartRef.current.timeScale().fitContent();
+    }
+  }, "Reset"))), !collapsed && !LC && /*#__PURE__*/React.createElement("div", {
+    className: "ab-status muted"
+  }, "Chart library didn't load (offline?). The swing table above has the full data."), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart",
+    ref: wrapRef
+  }), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-hint"
+  }, "Tap a candle near a swing to open its row · tap a table row to zoom the chart to it · Reset = full view"));
+}
 function SwingPatternCard({
   apiFetch,
   ticker
@@ -971,6 +1224,7 @@ function SwingPatternCard({
   const [fCat, setFCat] = useState("all"); // catalyst filter
   const [fStruct, setFStruct] = useState("all"); // structure filter
   const [openRow, setOpenRow] = useState(null); // expanded history row key
+  const [focusKey, setFocusKey] = useState(null); // chart focus range {start,end}
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -1115,6 +1369,40 @@ function SwingPatternCard({
     return true;
   }), [allHistSwings, fMove, fDur, fVol, fCat, fStruct]);
   const filtersOn = fMove !== "all" || fDur !== "all" || fVol !== "all" || fCat !== "all" || fStruct !== "all";
+
+  // Zoom the chart to a swing (earliest→latest date, padded a touch).
+  const focusSwingOnChart = s => {
+    const lo = s.low_date,
+      hi = s.high_date;
+    const start = lo < hi ? lo : hi,
+      end = lo < hi ? hi : lo;
+    setFocusKey({
+      start,
+      end,
+      k: start + end + Date.now()
+    });
+  };
+  // Chart click → find the swing whose span contains that date, open its row.
+  const pickSwingByTime = t => {
+    const inSpan = s => {
+      const a0 = s.low_date < s.high_date ? s.low_date : s.high_date;
+      const b0 = s.low_date < s.high_date ? s.high_date : s.low_date;
+      return t >= a0 && t <= b0;
+    };
+    let hit = upSwings.findIndex(inSpan);
+    if (hit >= 0) {
+      setTab("up");
+      setOpenRow(`up-${upSwings.length - 1 - hit}`);
+      focusSwingOnChart(upSwings[hit]);
+      return;
+    }
+    hit = downSwings.findIndex(inSpan);
+    if (hit >= 0) {
+      setTab("down");
+      setOpenRow(`down-${downSwings.length - 1 - hit}`);
+      focusSwingOnChart(downSwings[hit]);
+    }
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card",
     ref: cardRef
@@ -1516,8 +1804,11 @@ function SwingPatternCard({
       key: rk
     }, /*#__PURE__*/React.createElement("tr", {
       className: `scan-row swing-exrow${open ? " open" : ""}`,
-      onClick: () => setOpenRow(open ? null : rk),
-      title: "Click for what happened before & after this move"
+      onClick: () => {
+        setOpenRow(open ? null : rk);
+        focusSwingOnChart(s);
+      },
+      title: "Click to expand details & zoom the swing chart to this move"
     }, tab === "up" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", {
       "data-label": "Swing low"
     }, /*#__PURE__*/React.createElement("span", {
@@ -1578,7 +1869,11 @@ function SwingPatternCard({
     }, det.before && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Before the move"), /*#__PURE__*/React.createElement("b", null, det.before)), det.beyond_median && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Past the median target"), /*#__PURE__*/React.createElement("b", null, det.beyond_median)), det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "After the ", tab === "up" ? "high" : "low"), /*#__PURE__*/React.createElement("b", null, det.after)), det.hold_vs_target && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Sell at target vs hold"), /*#__PURE__*/React.createElement("b", null, det.hold_vs_target)), !det.before && !det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Detail"), /*#__PURE__*/React.createElement("b", null, "Not enough surrounding history for this swing."))))));
   })))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`));
+  }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`), data && (data.bars || []).length > 0 && /*#__PURE__*/React.createElement(SwingChart, {
+    data: data,
+    focusKey: focusKey,
+    onPickSwing: pickSwingByTime
+  }));
 }
 function ScreenersHub({
   apiFetch,
