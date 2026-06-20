@@ -2212,6 +2212,13 @@ function WatchlistTableCard({
     label: "Rel Vol",
     num: true
   }, {
+    k: "flow_net",
+    label: "Flow",
+    num: true
+  }, {
+    k: "flow_agree",
+    label: "Agree"
+  }, {
     k: "next_earnings",
     label: "Earnings",
     num: true
@@ -2248,7 +2255,7 @@ function WatchlistTableCard({
     label: "%200DMA",
     num: true
   }];
-  const STR = new Set(["symbol", "company", "industry", "sector"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree"]);
   const setSortKey = k => setSort(s => s.key === k ? {
     key: k,
     dir: s.dir === "asc" ? "desc" : "asc"
@@ -2296,6 +2303,35 @@ function WatchlistTableCard({
   }, [rows, fSector, fIndustry, q, sort]);
   const pctCls = v => v == null ? "" : v >= 0 ? "up" : "down";
   const pct = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+  const flowCell = r => {
+    if (!r.flow_available || r.flow_net == null) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    const d = r.flow_dir;
+    const cls = d === "bull" ? "up" : d === "bear" ? "down" : "muted";
+    const lbl = d === "bull" ? "Bull" : d === "bear" ? "Bear" : "Mixed";
+    return /*#__PURE__*/React.createElement("span", {
+      className: cls,
+      title: "Net options-flow direction (bullish − bearish premium share)"
+    }, lbl, " ", r.flow_net >= 0 ? "+" : "", r.flow_net);
+  };
+  const agreeCell = r => {
+    if (!r.flow_available || !r.flow_agree) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    if (r.flow_agree === "agrees") return /*#__PURE__*/React.createElement("span", {
+      className: "up",
+      title: "Options flow agrees with the recent price trend"
+    }, "✓ agrees");
+    if (r.flow_agree === "disagrees") return /*#__PURE__*/React.createElement("span", {
+      className: "down",
+      title: "Options flow disagrees with the recent price trend"
+    }, "✗ against");
+    return /*#__PURE__*/React.createElement("span", {
+      className: "muted",
+      title: "Mixed / neutral flow"
+    }, "~ neutral");
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2397,6 +2433,10 @@ function WatchlistTableCard({
   }, r.rsi != null ? r.rsi : "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.rel_vol != null ? r.rel_vol + "x" : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, flowCell(r)), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt"
+  }, agreeCell(r)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.next_earnings ? fmtUSDate(r.next_earnings) : "—", r.days_to_earnings != null ? /*#__PURE__*/React.createElement("span", {
     className: "muted"

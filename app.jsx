@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.91";
+const APP_VERSION = "1.92";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -1296,6 +1296,80 @@ function App() {
       document.removeEventListener("touchend", onEnd);
     };
   }, [activeTab, changeTab]);
+
+  // Pull-to-refresh for the installed PWA (home-screen app). In standalone
+  // mode there's no browser chrome, so the native pull-to-refresh is gone.
+  // Pull down from the very top to reload — which re-fetches index.html
+  // (served no-store) and therefore the latest app version. Only active
+  // when launched as an installed app, so it never fights normal browser
+  // scrolling/refresh in a tab.
+  useEffect(() => {
+    const standalone =
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator.standalone === true;
+    if (!standalone || !("ontouchstart" in window)) return undefined;
+
+    const THRESHOLD = 80, MAX = 150;
+    let startY = 0, startX = 0, pulling = false, dist = 0;
+    const scroller = () => document.scrollingElement || document.documentElement;
+
+    const ind = document.createElement("div");
+    ind.className = "ptr-indicator";
+    ind.innerHTML = '<div class="ptr-spinner"></div>';
+    document.body.appendChild(ind);
+    const pullAmt = () => Math.min(MAX, dist * 0.5);
+
+    const onStart = (e) => {
+      if (e.touches.length !== 1 || scroller().scrollTop > 0) { pulling = false; return; }
+      startY = e.touches[0].clientY; startX = e.touches[0].clientX;
+      pulling = true; dist = 0;
+      ind.style.transition = "none";
+    };
+    const onMove = (e) => {
+      if (!pulling) return;
+      const y = e.touches[0].clientY, x = e.touches[0].clientX;
+      dist = y - startY;
+      // Ignore mostly-horizontal gestures (let swipe-nav handle those) and
+      // upward scrolls.
+      if (dist <= 0 || Math.abs(x - startX) > Math.abs(dist)) {
+        ind.style.opacity = "0";
+        return;
+      }
+      if (scroller().scrollTop <= 0 && e.cancelable) e.preventDefault();
+      const p = pullAmt();
+      ind.style.transform = `translateY(${p - 46}px)`;
+      ind.style.opacity = String(Math.min(1, p / THRESHOLD));
+      ind.classList.toggle("ready", p >= THRESHOLD);
+    };
+    const onEnd = () => {
+      if (!pulling) return;
+      const ready = pullAmt() >= THRESHOLD;
+      pulling = false;
+      ind.style.transition = "transform 0.25s ease, opacity 0.25s ease";
+      if (ready) {
+        ind.classList.add("refreshing");
+        ind.style.transform = "translateY(24px)";
+        ind.style.opacity = "1";
+        setTimeout(() => location.reload(), 350);
+      } else {
+        ind.classList.remove("ready");
+        ind.style.transform = "translateY(-46px)";
+        ind.style.opacity = "0";
+      }
+    };
+
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    document.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+      if (ind.parentNode) ind.parentNode.removeChild(ind);
+    };
+  }, []);
 
   // Debounced ticker autocomplete. Calls the local /api/search proxy that
   // the Python server exposes. Falls back to the existing PRESETS list when
