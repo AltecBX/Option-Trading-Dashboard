@@ -8135,3 +8135,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* TradingView (Lightweight) price chart on the Trade tab */
 .tv-price-chart { width: 100%; height: 460px; }
 @media (max-width: 900px) { .tv-price-chart { height: 340px; } }
+
+/* ── Watchlist metrics table ───────────────────────────────────────────── */
+.wl-table { font-size: 12.5px; }
+.wl-th { cursor: pointer; user-select: none; white-space: nowrap; }
+.wl-th:hover { color: var(--fg); }
+.wl-th.active { color: var(--accent); }
+.wl-table td { white-space: nowrap; }
+.wl-row { cursor: pointer; }
+.wl-row:hover { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.wl-sym { font-weight: 700; font-family: var(--font-mono); position: sticky; left: 0; background: var(--bg-2); }
+.wl-co, .wl-txt { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
+.wl-table thead th:first-child { position: sticky; left: 0; background: var(--bg-2); z-index: 1; }

@@ -1243,7 +1243,7 @@ function SwingChart({
       },
       timeScale: {
         borderColor: "rgba(255,255,255,0.1)",
-        rightOffset: 6,
+        rightOffset: 14,
         fixLeftEdge: true
       },
       crosshair: {
@@ -2120,6 +2120,282 @@ function SwingPatternCard({
       onPickSwing: pickSwingByTime
     })
   }));
+}
+function WatchlistTableCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [sort, setSort] = useState({
+    key: "market_cap",
+    dir: "desc"
+  });
+  const [fSector, setFSector] = useState("all");
+  const [fIndustry, setFIndustry] = useState("all");
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/watchlist_table");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (e) {
+      setErr(String(e));
+      return null;
+    }
+  };
+  useEffect(() => {
+    load();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try {
+      await apiFetch("/api/watchlist_table/scan?force=1");
+    } catch (e) {
+      setErr(String(e));
+      return;
+    }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 4000);
+  };
+  const status = board && board.status || {};
+  const rows = board && board.rows || [];
+  const scanning = !!status.scanning;
+  const sectors = board && board.sectors || [];
+  const industries = board && board.industries || [];
+  const COLS = [{
+    k: "symbol",
+    label: "Symbol"
+  }, {
+    k: "company",
+    label: "Company"
+  }, {
+    k: "last",
+    label: "Price",
+    num: true
+  }, {
+    k: "market_cap",
+    label: "Mkt Cap",
+    num: true
+  }, {
+    k: "pe",
+    label: "P/E",
+    num: true
+  }, {
+    k: "forward_pe",
+    label: "Fwd P/E",
+    num: true
+  }, {
+    k: "industry",
+    label: "Industry"
+  }, {
+    k: "sector",
+    label: "Sector"
+  }, {
+    k: "rsi",
+    label: "RSI",
+    num: true
+  }, {
+    k: "rel_vol",
+    label: "Rel Vol",
+    num: true
+  }, {
+    k: "next_earnings",
+    label: "Earnings",
+    num: true
+  }, {
+    k: "wtd",
+    label: "WTD%",
+    num: true
+  }, {
+    k: "mtd",
+    label: "MTD%",
+    num: true
+  }, {
+    k: "qtd",
+    label: "QTD%",
+    num: true
+  }, {
+    k: "ytd",
+    label: "YTD%",
+    num: true
+  }, {
+    k: "from_ma20",
+    label: "%20DMA",
+    num: true
+  }, {
+    k: "from_ma50",
+    label: "%50DMA",
+    num: true
+  }, {
+    k: "from_ma200",
+    label: "%200DMA",
+    num: true
+  }];
+  const STR = new Set(["symbol", "company", "industry", "sector"]);
+  const setSortKey = k => setSort(s => s.key === k ? {
+    key: k,
+    dir: s.dir === "asc" ? "desc" : "asc"
+  } : {
+    key: k,
+    dir: STR.has(k) ? "asc" : "desc"
+  });
+  const filtered = useMemo(() => {
+    let out = rows.filter(r => {
+      if (fSector !== "all" && r.sector !== fSector) return false;
+      if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      if (q && !`${r.symbol} ${r.company || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+      return true;
+    });
+    const {
+        key,
+        dir
+      } = sort,
+      mul = dir === "asc" ? 1 : -1;
+    out = out.slice().sort((a, b) => {
+      let av = a[key],
+        bv = b[key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "string") return av.localeCompare(bv) * mul;
+      return (av - bv) * mul;
+    });
+    return out;
+  }, [rows, fSector, fIndustry, q, sort]);
+  const pctCls = v => v == null ? "" : v >= 0 ? "up" : "down";
+  const pct = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card ab-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Watchlist"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Tracked stocks — full metrics")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-controls"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: scanning
+  }, scanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " · ", rows.length, " stocks") : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "No scan yet — Scan now pulls valuation, momentum, volume, earnings & moving-average metrics for your tracked stocks (a few minutes for large lists)."), status.error && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", status.error), err && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", err)), scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress-bar",
+    style: {
+      width: `${status.total ? status.scanned / status.total * 100 : 0}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ab-progress-txt"
+  }, status.scanned || 0, " / ", status.total || 0)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-filters"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "sb-select ab-search",
+    placeholder: "Symbol / company…",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fSector,
+    onChange: e => setFSector(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All sectors"), sectors.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s))), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fIndustry,
+    onChange: e => setFIndustry(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All industries"), industries.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s))), /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, filtered.length, " shown")), filtered.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap",
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table wl-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, COLS.map(c => /*#__PURE__*/React.createElement("th", {
+    key: c.k,
+    className: `${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`,
+    onClick: () => setSortKey(c.k),
+    title: "Click to sort"
+  }, c.label, sort.key === c.k ? sort.dir === "asc" ? " ▲" : " ▼" : "")))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol,
+    className: "scan-row wl-row",
+    onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+    title: `Open ${r.symbol}`
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "wl-sym"
+  }, r.symbol), /*#__PURE__*/React.createElement("td", {
+    className: "wl-co"
+  }, r.company || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtUsd(r.last, 2)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtMktCap(r.market_cap)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.pe != null ? r.pe : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.forward_pe != null ? r.forward_pe : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt"
+  }, r.industry || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt"
+  }, r.sector || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.rsi != null ? r.rsi : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.rel_vol != null ? r.rel_vol + "x" : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.next_earnings ? fmtUSDate(r.next_earnings) : "—", r.days_to_earnings != null ? /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " (", r.days_to_earnings, "d)") : ""), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.wtd)}`
+  }, pct(r.wtd)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.mtd)}`
+  }, pct(r.mtd)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.qtd)}`
+  }, pct(r.qtd)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.ytd)}`
+  }, pct(r.ytd)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.from_ma20)}`
+  }, pct(r.from_ma20)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.from_ma50)}`
+  }, pct(r.from_ma50)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.from_ma200)}`
+  }, pct(r.from_ma200))))))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
+    className: "ab-empty"
+  }, "No stocks match these filters."));
 }
 function ScreenersHub({
   apiFetch,
@@ -8404,6 +8680,7 @@ Object.assign(window, {
 Object.assign(window, {
   TickerLogo,
   VolSkewCard,
+  WatchlistTableCard,
   AnalystBoardCard,
   MoversCard,
   TrendCard,

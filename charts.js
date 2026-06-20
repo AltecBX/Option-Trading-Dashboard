@@ -92,7 +92,7 @@ function TVPriceChart({
       },
       timeScale: {
         borderColor: "rgba(255,255,255,0.1)",
-        rightOffset: 6
+        rightOffset: 14
       },
       crosshair: {
         mode: LC.CrosshairMode.Normal
