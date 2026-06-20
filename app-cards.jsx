@@ -1501,6 +1501,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
     { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
     { k: "rsi", label: "RSI", num: true }, { k: "rel_vol", label: "Rel Vol", num: true },
     { k: "next_earnings", label: "Earnings", num: true },
+    { k: "change", label: "Chg%", num: true },
     { k: "wtd", label: "WTD%", num: true }, { k: "mtd", label: "MTD%", num: true },
     { k: "qtd", label: "QTD%", num: true }, { k: "ytd", label: "YTD%", num: true },
     { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
@@ -1508,6 +1509,19 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
   ];
   const STR = new Set(["symbol", "company", "industry", "sector"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
+
+  // Industry dropdown is scoped to the selected sector so it only lists
+  // industries that actually live in that sector.
+  const industryOpts = useMemo(() => {
+    if (fSector === "all") return industries;
+    const set = new Set();
+    rows.forEach(r => { if (r.sector === fSector && r.industry) set.add(r.industry); });
+    return Array.from(set).sort();
+  }, [rows, industries, fSector]);
+  // If the chosen industry isn't in the (newly) selected sector, reset it.
+  useEffect(() => {
+    if (fIndustry !== "all" && !industryOpts.includes(fIndustry)) setFIndustry("all");
+  }, [industryOpts, fIndustry]);
 
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
@@ -1562,7 +1576,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
             <option value="all">All sectors</option>{sectors.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <select className="sb-select" value={fIndustry} onChange={e => setFIndustry(e.target.value)}>
-            <option value="all">All industries</option>{industries.map(s => <option key={s} value={s}>{s}</option>)}
+            <option value="all">All industries</option>{industryOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span className="muted" style={{ fontSize: 12 }}>{filtered.length} shown</span>
         </div>
@@ -1592,6 +1606,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
                   <td className="scan-num">{r.rsi != null ? r.rsi : "—"}</td>
                   <td className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>
                   <td className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>
+                  <td className={`scan-num ${pctCls(r.change)}`}>{pct(r.change)}</td>
                   <td className={`scan-num ${pctCls(r.wtd)}`}>{pct(r.wtd)}</td>
                   <td className={`scan-num ${pctCls(r.mtd)}`}>{pct(r.mtd)}</td>
                   <td className={`scan-num ${pctCls(r.qtd)}`}>{pct(r.qtd)}</td>
