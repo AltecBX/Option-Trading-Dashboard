@@ -162,6 +162,14 @@ except Exception as _exc:  # noqa: BLE001
     _SWINGS_AVAILABLE = False
     _swings = None  # type: ignore
 
+try:
+    import news as _news
+    _NEWS_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[news] module load failed: {_exc}", file=sys.stderr)
+    _NEWS_AVAILABLE = False
+    _news = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -5373,6 +5381,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/swings", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/news":
+            if not _NEWS_AVAILABLE:
+                self._send_json({"error": "news unavailable", "items": []}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required", "items": []}, status=400)
+                return
+            try:
+                self._send_json(_news.get_news(symbol, limit=40))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/news", exc)
+                self._send_json({"error": str(exc), "items": []}, status=500)
             return
         if parsed.path == "/api/ivrank":
             if not _IVRANK_AVAILABLE:
