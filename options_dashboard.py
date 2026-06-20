@@ -5388,11 +5388,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return
             qs = parse_qs(parsed.query)
             symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            name = (qs.get("name", [""])[0] or "").strip()
             if not symbol:
                 self._send_json({"error": "symbol required", "items": []}, status=400)
                 return
             try:
-                self._send_json(_news.get_news(symbol, limit=40))
+                self._send_json(_news.get_news(symbol, name=name or None, limit=40))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/news", exc)
                 self._send_json({"error": str(exc), "items": []}, status=500)

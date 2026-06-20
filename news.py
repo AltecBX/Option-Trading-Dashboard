@@ -16,7 +16,9 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 try:
     from zoneinfo import ZoneInfo
@@ -173,12 +175,78 @@ def _finnhub_news(symbol: str) -> list[dict]:
     return out
 
 
+# PR/news wires worth keeping even when the ticker isn't in the headline text.
+_WIRES = {"globenewswire", "business wire", "businesswire", "pr newswire",
+          "prnewswire", "globe newswire", "accesswire", "newsfile", "reuters",
+          "marketwatch", "barron", "bloomberg", "zacks", "motley fool"}
+
+
+def _gnews_fetch(query: str) -> list[dict]:
+    """Raw Google News RSS items for a query."""
+    url = (f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}"
+           f"&hl=en-US&gl=US&ceid=US:en")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "jerry-dashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            root = ET.fromstring(resp.read())
+    except Exception:
+        return []
+    out = []
+    for item in root.iter("item"):
+        try:
+            title = (item.findtext("title") or "").strip()
+            src_el = item.find("source")
+            source = (src_el.text or "").strip() if src_el is not None else "Google News"
+            if source and title.endswith(f" - {source}"):
+                title = title[: -(len(source) + 3)].strip()
+            if not title:
+                continue
+            ts = None
+            pd = item.findtext("pubDate")
+            if pd:
+                try:
+                    ts = parsedate_to_datetime(pd).timestamp()
+                except Exception:
+                    ts = None
+            out.append({"title": title, "source": source or "Google News",
+                        "url": (item.findtext("link") or "").strip(),
+                        "ts": float(ts) if ts else 0.0, "summary": "",
+                        "origin": "GoogleNews"})
+        except Exception:
+            continue
+    return out
+
+
+def _google_news(symbol: str, name: str | None) -> list[dict]:
+    """Google News RSS — a broad, free aggregator pulling from many outlets
+    (Reuters, GlobeNewswire, Business Wire, etc.) the way Finviz does, plus a
+    dedicated GlobeNewswire press-release query. Filtered to items that name
+    the company/ticker (or come from a known wire) so short tickers stay clean."""
+    terms = [symbol.lower()]
+    if name:
+        first = name.replace(",", " ").split()
+        if first:
+            terms.append(first[0].lower())
+    out = []
+    # Broad ticker query.
+    for it in _gnews_fetch(f'"{symbol}" stock'):
+        low = it["title"].lower()
+        if any(t in low for t in terms) or it["source"].lower() in _WIRES:
+            out.append(it)
+    # GlobeNewswire press releases (titles use the company name, not ticker).
+    for it in _gnews_fetch(f'"{name or symbol}" site:globenewswire.com'):
+        low = it["title"].lower()
+        if any(t in low for t in terms):     # strict — drop ETF/unrelated noise
+            out.append(it)
+    return out
+
+
 def _key(title: str) -> str:
     return "".join(ch.lower() for ch in title if ch.isalnum())[:80]
 
 
-def _build(symbol: str, limit: int) -> dict:
-    items = _yf_news(symbol) + _finnhub_news(symbol)
+def _build(symbol: str, name: str | None, limit: int) -> dict:
+    items = _yf_news(symbol) + _finnhub_news(symbol) + _google_news(symbol, name)
     seen: dict[str, dict] = {}
     for it in items:
         k = _key(it["title"])
@@ -191,7 +259,18 @@ def _build(symbol: str, limit: int) -> dict:
         # Keep the richer / newer entry; prefer one that has a URL.
         if (it.get("url") and not cur.get("url")) or (it["ts"] or 0) > (cur["ts"] or 0):
             seen[k] = it
-    merged = sorted(seen.values(), key=lambda x: -(x["ts"] or 0))[:limit]
+    ordered = sorted(seen.values(), key=lambda x: -(x["ts"] or 0))
+    merged = ordered[:limit]
+    # Press releases (esp. GlobeNewswire) are infrequent, so a newest-first
+    # feed can bury them past the limit. Guarantee a few show through.
+    def _is_pr(it):
+        s = (it.get("source") or "").lower()
+        return "globenewswire" in s or "business wire" in s or "businesswire" in s
+    if not any(_is_pr(it) for it in merged):
+        pr = [it for it in ordered if _is_pr(it)][:6]
+        if pr:
+            merged = sorted(merged[:max(0, limit - len(pr))] + pr,
+                            key=lambda x: -(x["ts"] or 0))
     changes = _day_changes(symbol)
     last_key = max(changes) if changes else None        # latest session we have
     for it in merged:
@@ -217,7 +296,7 @@ def _build(symbol: str, limit: int) -> dict:
             "sources": sources, "as_of": datetime.now(timezone.utc).isoformat()}
 
 
-def get_news(symbol: str, limit: int = 40) -> dict:
+def get_news(symbol: str, name: str | None = None, limit: int = 40) -> dict:
     symbol = (symbol or "").upper().strip()
     if not symbol:
         return {"symbol": symbol, "error": "symbol required", "items": [], "sources": []}
@@ -226,7 +305,7 @@ def get_news(symbol: str, limit: int = 40) -> dict:
         cached = _CACHE.get(symbol)
         if cached and now - cached[0] < _TTL:
             return cached[1]
-    result = _build(symbol, limit)
+    result = _build(symbol, name, limit)
     with _LOCK:
         _CACHE[symbol] = (now, result)
     return result

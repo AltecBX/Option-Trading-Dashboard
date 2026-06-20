@@ -596,7 +596,7 @@ function fmtSwingDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-function NewsCard({ apiFetch, ticker }) {
+function NewsCard({ apiFetch, ticker, companyName }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -606,13 +606,14 @@ function NewsCard({ apiFetch, ticker }) {
     if (!sym) return;
     setLoading(true); setErr(null);
     try {
-      const r = await apiFetch(`/api/news?symbol=${encodeURIComponent(sym)}`);
+      const nm = companyName ? `&name=${encodeURIComponent(companyName)}` : "";
+      const r = await apiFetch(`/api/news?symbol=${encodeURIComponent(sym)}${nm}`);
       const d = await r.json();
       if (d.error && !(d.items || []).length) setErr(d.error); else setData(d);
     } catch (e) { setErr(String(e)); }
     setLoading(false);
   };
-  useEffect(() => { setSrc("all"); load(ticker); /* eslint-disable-next-line */ }, [ticker]);
+  useEffect(() => { setSrc("all"); load(ticker); /* eslint-disable-next-line */ }, [ticker, companyName]);
 
   const items = (data && data.items) || [];
   const sources = (data && data.sources) || [];
@@ -692,6 +693,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
   const [fVol, setFVol] = useState("all");     // volume filter
   const [fCat, setFCat] = useState("all");     // catalyst filter
   const [fStruct, setFStruct] = useState("all"); // structure filter
+  const [openRow, setOpenRow] = useState(null);  // expanded history row key
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -719,6 +721,12 @@ function SwingPatternCard({ apiFetch, ticker }) {
 
   const matTone = (m) => ({ early: "up", developing: "up", mature: "", extended: "warn", exhausted: "down" }[m] || "");
   const confTone = (c) => ({ high: "up", medium: "", low: "warn" }[c] || "");
+  const DECISION_TONE = {
+    "Add on breakout": "go", "Add on pullback": "go", "Hold": "go",
+    "Short trigger active": "short", "Short watch": "watch",
+    "Take partial": "warn", "Cover partial": "warn", "Trail only": "warn",
+    "Cover fully": "down", "No new trade": "muted",
+  };
 
   const ScoreBar = ({ label, k, score, tone, factors }) => (
     <div className="swing-score">
@@ -770,6 +778,16 @@ function SwingPatternCard({ apiFetch, ticker }) {
       </div>
 
       {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
+
+      {/* ── Decision banner ─────────────────────────────────────────────── */}
+      {a && a.decision && (
+        <div className={`swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`}>
+          <span className="swing-decision-action">{a.decision.action}</span>
+          {(a.decision.drivers || []).length > 0 && (
+            <span className="swing-decision-because">because {a.decision.drivers.join(" · ")}</span>
+          )}
+        </div>
+      )}
 
       {/* ── Live decision box ───────────────────────────────────────────── */}
       {a && (a.status === "ok" || a.status === "no_rhythm") && (
@@ -837,6 +855,23 @@ function SwingPatternCard({ apiFetch, ticker }) {
             </div>
           )}
 
+          {a.flow && a.flow.data_available && (
+            <div className={`swing-flowagree agree-${a.flow.agrees_with_price}`}>
+              <div className="swing-flowagree-head">
+                <span><Term k="swing_flow">Options flow agreement</Term></span>
+                <b className={a.flow.agrees_with_price === "agrees" ? (isUp ? "up" : "down") : a.flow.agrees_with_price === "disagrees" ? "warn" : ""}>
+                  {a.flow.label} · flow {a.flow.agrees_with_price === "agrees" ? "agrees with price" : a.flow.agrees_with_price === "disagrees" ? "disagrees with price" : "neutral vs price"}
+                </b>
+              </div>
+              <div className="swing-flowagree-grid">
+                <div><span>Bullish premium</span><b className="up">{fmtUsd(a.flow.bull_premium, 1)}</b></div>
+                <div><span>Bearish premium</span><b className="down">{fmtUsd(a.flow.bear_premium, 1)}</b></div>
+                <div><span>Call sweep pressure</span><b>{a.flow.call_sweep_pressure} <small>({a.flow.call_sweeps})</small></b></div>
+                <div><span>Put hedge pressure</span><b>{a.flow.put_hedge_pressure} <small>({a.flow.put_sweeps})</small></b></div>
+              </div>
+            </div>
+          )}
+
           {a.signal_note && <div className="swing-signal">{a.signal_note}</div>}
           {a.status === "no_rhythm" && a.note && <div className="swing-signal">{a.note}</div>}
 
@@ -890,6 +925,12 @@ function SwingPatternCard({ apiFetch, ticker }) {
               ))}
             </tbody>
           </table>
+          {a.confidence && (
+            <div className={`swing-confwhy conf-${a.confidence.level}`}>
+              <b><Term k="confidence_rating">Confidence: {a.confidence.level}</Term></b>
+              {" "}<span>because {(a.confidence.reasons || []).join(", ")}.</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -997,36 +1038,58 @@ function SwingPatternCard({ apiFetch, ticker }) {
               )}
             </thead>
             <tbody>
-              {histSwings.slice().reverse().map((s, i) => (
-                <tr key={i} className="scan-row">
-                  {tab === "up" ? (
-                    <React.Fragment>
-                      <td>{fmtSwingDate(s.low_date)}</td>
-                      <td className="scan-num">{fmtUsd2(s.low_price)}</td>
-                      <td>{fmtSwingDate(s.high_date)}</td>
-                      <td className="scan-num">{fmtUsd2(s.high_price)}</td>
-                    </React.Fragment>
-                  ) : (
-                    <React.Fragment>
-                      <td>{fmtSwingDate(s.high_date)}</td>
-                      <td className="scan-num">{fmtUsd2(s.high_price)}</td>
-                      <td>{fmtSwingDate(s.low_date)}</td>
-                      <td className="scan-num">{fmtUsd2(s.low_price)}</td>
-                    </React.Fragment>
-                  )}
-                  <td className="scan-num">{s.trading_days}</td>
-                  <td className={`scan-num ${tab === "up" ? "" : "down"}`}>{fmtUsd2(s.dollar_change)}</td>
-                  <td className={`scan-num ${tab === "up" ? "up" : "down"}`}>{s.pct_change}%</td>
-                  <td className="scan-num">{s.avg_daily_pct}%</td>
-                  <td className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
-                  <td className="swing-flagcell">
-                    {s.above_avg_vol && <span title={`Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`}>🔥</span>}
-                    {s.broke_resistance && <span title={`Broke prior ${tab === "up" ? "resistance" : "support"}`}>⤴</span>}
-                    {s.failed_breakout && <span title="Failed breakout — level didn't hold">⚠</span>}
-                    {s.after_earnings && <span title="Launched after an earnings report">⚡</span>}
-                  </td>
-                </tr>
-              ))}
+              {histSwings.slice().reverse().map((s, i) => {
+                const rk = `${tab}-${i}`;
+                const open = openRow === rk;
+                const det = s.detail || {};
+                return (
+                  <React.Fragment key={rk}>
+                    <tr className={`scan-row swing-exrow${open ? " open" : ""}`}
+                        onClick={() => setOpenRow(open ? null : rk)}
+                        title="Click for what happened before & after this move">
+                      {tab === "up" ? (
+                        <React.Fragment>
+                          <td><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.low_date)}</td>
+                          <td className="scan-num">{fmtUsd2(s.low_price)}</td>
+                          <td>{fmtSwingDate(s.high_date)}</td>
+                          <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                        </React.Fragment>
+                      ) : (
+                        <React.Fragment>
+                          <td><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.high_date)}</td>
+                          <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                          <td>{fmtSwingDate(s.low_date)}</td>
+                          <td className="scan-num">{fmtUsd2(s.low_price)}</td>
+                        </React.Fragment>
+                      )}
+                      <td className="scan-num">{s.trading_days}</td>
+                      <td className={`scan-num ${tab === "up" ? "" : "down"}`}>{fmtUsd2(s.dollar_change)}</td>
+                      <td className={`scan-num ${tab === "up" ? "up" : "down"}`}>{s.pct_change}%</td>
+                      <td className="scan-num">{s.avg_daily_pct}%</td>
+                      <td className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
+                      <td className="swing-flagcell">
+                        {s.above_avg_vol && <span title={`Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`}>🔥</span>}
+                        {s.broke_resistance && <span title={`Broke prior ${tab === "up" ? "resistance" : "support"}`}>⤴</span>}
+                        {s.failed_breakout && <span title="Failed breakout — level didn't hold">⚠</span>}
+                        {s.after_earnings && <span title="Launched after an earnings report">⚡</span>}
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="swing-detailrow">
+                        <td colSpan={10}>
+                          <div className="swing-detailgrid">
+                            {det.before && <div><span>Before the move</span><b>{det.before}</b></div>}
+                            {det.beyond_median && <div><span>Past the median target</span><b>{det.beyond_median}</b></div>}
+                            {det.after && <div><span>After the {tab === "up" ? "high" : "low"}</span><b>{det.after}</b></div>}
+                            {det.hold_vs_target && <div><span>Sell at target vs hold</span><b>{det.hold_vs_target}</b></div>}
+                            {!det.before && !det.after && <div><span>Detail</span><b>Not enough surrounding history for this swing.</b></div>}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
