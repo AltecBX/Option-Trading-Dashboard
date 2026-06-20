@@ -8126,3 +8126,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .swing-chart-toggles { margin-left: 0; width: 100%; }
   .swing-chart-toggles button { flex: 1 1 auto; min-height: 36px; }
 }
+
+/* TradingView Charting Library chart (activates when licensed files present) */
+.swing-tv-badge { font-size: 10px; font-weight: 600; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent), transparent 55%); padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+.swing-chart-tv { height: 480px; }
+@media (max-width: 900px) { .swing-chart-tv { height: 360px; } }
