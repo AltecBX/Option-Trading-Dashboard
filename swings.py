@@ -485,9 +485,37 @@ def _similar_move(swings, cur, days, exclude_dates):
     }
 
 
+def _flow_read(direction, flow):
+    """Distil a UW flow score into a direction-aligned read for the move.
+    Returns (delta_continuation, delta_exhaustion, factor, summary) or None."""
+    if not flow or not flow.get("data_available"):
+        return None
+    bull = float(flow.get("bullish") or 0)
+    bear = float(flow.get("bearish") or 0)
+    q = float(flow.get("quality") or 0)
+    net = bull - bear                          # >0 bullish tape
+    aligned = net if direction == "up" else -net   # >0 = flow confirms the move
+    label = "bullish" if net > 8 else "bearish" if net < -8 else "mixed"
+    summary = {
+        "bullish": round(bull), "bearish": round(bear), "quality": round(q),
+        "net": round(net), "label": label,
+        "verdict": flow.get("verdict"),
+        "data_available": True,
+    }
+    # Quality gates how much the tape is allowed to move the scores.
+    weight = round(min(12.0, abs(aligned) * 0.18 * (q / 100.0)), 1)
+    if aligned >= 10 and weight >= 1:
+        return (weight, 0.0,
+                f"options flow confirms ({label} tape, quality {round(q)})", summary)
+    if aligned <= -10 and weight >= 1:
+        return (0.0, weight,
+                f"options flow fading the move ({label} tape, quality {round(q)})", summary)
+    return (0.0, 0.0, f"options flow {label} but not decisive (quality {round(q)})", summary)
+
+
 def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                     up_swings, down_swings, up_rhythm, down_rhythm, ind,
-                    bench=None, earnings=None):
+                    bench=None, earnings=None, flow=None):
     """Build the real-time decision block for the move in progress."""
     if len(pivots) < 2:
         return None
@@ -560,6 +588,16 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
             cont = round(min(100.0, cont + 8)); cont_f.append(rs["note"])
         elif rs.get("lagging"):
             exh = round(min(100.0, exh + 6)); exh_f.append(rs["note"])
+
+    # UW options flow — does the tape confirm or fade this move?
+    flow_summary = None
+    fr = _flow_read(direction, flow)
+    if fr:
+        d_cont, d_exh, factor, flow_summary = fr
+        if d_cont:
+            cont = round(min(100.0, cont + d_cont)); cont_f.append(factor)
+        elif d_exh:
+            exh = round(min(100.0, exh + d_exh)); exh_f.append(factor)
 
     # Catalyst / structure tags for the live move.
     after_earn = _after_earnings(from_date, earnings or set())
@@ -678,6 +716,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                                     remaining_to_median, median_t),
         "similar_move": similar,
         "relative_strength": rs,
+        "flow": flow_summary,
         "trade_plan": plan,
     })
     return block
@@ -700,7 +739,7 @@ def _signal_note(direction, hold, maturity, exh, cont, remaining, median_t):
 # ─────────────────────────────── entrypoint ────────────────────────────────
 
 def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
-            min_move_pct: float = 15.0) -> dict:
+            min_move_pct: float = 15.0, flow: dict | None = None) -> dict:
     symbol = symbol.upper().strip()
     if not _OK:
         return {"symbol": symbol, "error": "yfinance unavailable"}
@@ -745,7 +784,7 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
 
     analysis = _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                                up_swings, down_swings, up_rhythm, down_rhythm, ind,
-                               bench=bench, earnings=earnings)
+                               bench=bench, earnings=earnings, flow=flow)
 
     current_price = round(closes[-1], 2) if closes else None
 

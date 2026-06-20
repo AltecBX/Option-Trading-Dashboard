@@ -1022,7 +1022,11 @@ function SwingPatternCard({
     k: "relative_strength"
   }, "vs market (SPY)")), /*#__PURE__*/React.createElement("b", {
     className: a.relative_strength.leading ? "up" : a.relative_strength.lagging ? "down" : ""
-  }, sgn(a.relative_strength.vs_spy), a.relative_strength.vs_spy, "% ", /*#__PURE__*/React.createElement("small", null, a.relative_strength.leading ? "leading" : a.relative_strength.lagging ? "lagging" : "tracking")))), (a.broke_resistance || a.after_earnings) && /*#__PURE__*/React.createElement("div", {
+  }, sgn(a.relative_strength.vs_spy), a.relative_strength.vs_spy, "% ", /*#__PURE__*/React.createElement("small", null, a.relative_strength.leading ? "leading" : a.relative_strength.lagging ? "lagging" : "tracking"))), a.flow && a.flow.data_available && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "swing_flow"
+  }, "Options flow")), /*#__PURE__*/React.createElement("b", {
+    className: a.flow.label === "bullish" ? "up" : a.flow.label === "bearish" ? "down" : ""
+  }, a.flow.label, " ", /*#__PURE__*/React.createElement("small", null, "quality ", a.flow.quality)))), (a.broke_resistance || a.after_earnings) && /*#__PURE__*/React.createElement("div", {
     className: "swing-tags"
   }, a.broke_resistance && /*#__PURE__*/React.createElement("span", {
     className: "swing-tag up"

@@ -5330,10 +5330,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except (TypeError, ValueError):
                 mm = 15.0
             period = qs.get("period", ["1y"])[0]
+            # Best-effort UW options-flow read, folded into the swing scores.
+            # One cached per-ticker call; degrades silently if UW is off.
+            flow = None
+            try:
+                if _UW_AVAILABLE and _uw_client is not None:
+                    uw = _uw_client.get_client()
+                    if uw is not None:
+                        flow = _compute_flow_score(uw, symbol, 0.0)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/swings.flow", exc)
+                flow = None
             try:
                 self._send_json(_swings.analyze(symbol, period=period,
                                                 pct=max(0.03, min(0.30, pct)),
-                                                min_move_pct=max(1.0, min(60.0, mm))))
+                                                min_move_pct=max(1.0, min(60.0, mm)),
+                                                flow=flow))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/swings", exc)
                 self._send_json({"error": str(exc)}, status=500)
