@@ -8056,3 +8056,33 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .col-resize-handle:hover::after { background: var(--accent); }
 .swing-table th { position: relative; }
 @media (max-width: 900px) { .col-resize-handle { display: none !important; } }
+
+/* ── Usability pass: skeletons, mobile quick-switch, staleness ─────────── */
+@keyframes skel-shimmer { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } }
+.skel {
+  display: block; border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 40%, var(--bg-2) 80%);
+  background-size: 200px 100%; animation: skel-shimmer 1.2s ease-in-out infinite;
+}
+.skel-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.skel-row { display: grid; grid-template-columns: 80px 1fr 70px; gap: 12px; align-items: center; }
+.skel-when { height: 26px; } .skel-line { height: 16px; } .skel-tag { height: 18px; border-radius: 999px; }
+.skel-block { margin: 6px 0; display: flex; flex-direction: column; gap: 10px; }
+.skel-banner { height: 48px; border-radius: 12px; }
+.skel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.skel-cell { height: 38px; } .skel-bar { height: 14px; }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+/* Mobile header: ident + bottom status are now tappable ticker-switchers. */
+.mh-ident, .mbb-status { background: none; border: none; cursor: pointer; text-align: left; padding: 0; color: inherit; }
+.mbb-status { text-align: center; }
+.mh-search-ico { margin-left: 5px; color: var(--fg-3); font-size: 0.95em; }
+@media (max-width: 900px) {
+  .mh-refresh.stale { color: var(--warn); }
+  .mh-refresh.stale::after {
+    content: ""; position: absolute; top: 7px; right: 7px; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--warn);
+  }
+  .mh-btn.mh-refresh { position: relative; }
+  .mh-section { color: var(--fg-3); }
+}
