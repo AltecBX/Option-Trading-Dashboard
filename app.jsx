@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.75";
+const APP_VERSION = "1.76";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -24,14 +24,15 @@ function App() {
   // what the colocated Python server expects. In production the config
   // points at Railway and includes a key matching the server's API_KEY
   // env var.
-  const apiFetch = (path, opts = {}) => {
+  // Stable identity so React.memo'd cards don't re-render on unrelated state.
+  const apiFetch = React.useCallback((path, opts = {}) => {
     const cfg = window.__APP_CONFIG || {};
     const base = (cfg.apiBase || "").replace(/\/$/, "");  // trim trailing slash
     const url = path.startsWith("http") ? path : `${base}${path}`;
     const headers = { ...(opts.headers || {}) };
     if (cfg.apiKey) headers["X-API-Key"] = cfg.apiKey;
     return fetch(url, { ...opts, headers });
-  };
+  }, []);
   const TWEAK_KEY = "weeklyOptionsTimer.tweaks.v1";
   const persistedTweaks = (() => {
     try { return JSON.parse(localStorage.getItem(TWEAK_KEY) || "{}"); }
@@ -77,6 +78,10 @@ function App() {
   const [navOpen, setNavOpen] = useState(false);      // mobile sidebar drawer
   const [reloadNonce, setReloadNonce] = useState(0);  // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
+  // Stable ticker switcher (used as a memo-friendly prop for cards).
+  const switchTicker = React.useCallback((sym) => {
+    setTicker(sym); setTickerInput(sym);
+  }, []);
   // Analyst data lifted to App level so the covered-call recommendation
   // engine and other downstream consumers can read it. AnalystCard owns
   // the fetch and reports up via the setAnalystData callback below.
@@ -1257,6 +1262,40 @@ function App() {
     document.body.style.overflow = navOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [navOpen]);
+
+  // Swipe left/right between sections on mobile. Guarded so it never fires
+  // inside horizontally-scrollable zones (tables, charts, chip strips).
+  useEffect(() => {
+    const NOSWIPE = ".scan-table-wrap,.oc-table-scroll,.tab-bar,.sidebar,.mobile-overlay,"
+      + "canvas,input,select,textarea,.swing-levels,.news-srcnav,.swing-histnav,"
+      + ".screener-subnav,.ab-chips,.pcalc-panel,.mobile-bottombar";
+    let sx = 0, sy = 0, st = 0, tracking = false;
+    const onStart = (e) => {
+      if (window.innerWidth > 900 || e.touches.length !== 1) { tracking = false; return; }
+      const t = e.target;
+      if (t && t.closest && t.closest(NOSWIPE)) { tracking = false; return; }
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); tracking = true;
+    };
+    const onEnd = (e) => {
+      if (!tracking) return; tracking = false;
+      if (window.innerWidth > 900) return;
+      const tch = e.changedTouches && e.changedTouches[0]; if (!tch) return;
+      const dx = tch.clientX - sx, dy = tch.clientY - sy;
+      if (Date.now() - st > 600) return;
+      if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      const tabs = window.TABS || [];
+      const idx = tabs.findIndex(t => t.id === activeTab);
+      const next = dx < 0 ? idx + 1 : idx - 1;
+      if (idx < 0 || next < 0 || next >= tabs.length) return;
+      changeTab(tabs[next].id);
+    };
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchend", onEnd);
+    };
+  }, [activeTab, changeTab]);
 
   // Debounced ticker autocomplete. Calls the local /api/search proxy that
   // the Python server exposes. Falls back to the existing PRESETS list when
@@ -2570,7 +2609,7 @@ function App() {
         <TabPanel tab="discover" active={activeTab}>
           <ScreenersHub
             apiFetch={apiFetch}
-            onSwitchTicker={(sym) => { setTicker(sym); setTickerInput(sym); }}
+            onSwitchTicker={switchTicker}
           />
         </TabPanel>
         <TabPanel tab="patterns" active={activeTab}>
@@ -2728,7 +2767,7 @@ function App() {
             are alerts to show. Auto-hides when empty. */}
         <WatchlistAlertsCard
           apiFetch={apiFetch}
-          onSwitchTicker={(sym) => { setTicker(sym); setTickerInput(sym); }}
+          onSwitchTicker={switchTicker}
         />
 
         {/* Roll Manager — only renders if the active ticker has open
@@ -3475,7 +3514,7 @@ function App() {
         <TabPanel tab="flow" active={activeTab}>
         <EarningsCrushCard
           apiFetch={apiFetch}
-          onSwitchTicker={(sym) => { setTicker(sym); setTickerInput(sym); }}
+          onSwitchTicker={switchTicker}
         />
         </TabPanel>
 
