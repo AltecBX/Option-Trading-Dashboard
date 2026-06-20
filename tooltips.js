@@ -89,7 +89,8 @@ const GLOSSARY = {
   failed_breakout: "Price broke the prior level but then closed back through it within ~10 bars — the breakout didn't hold. A common reversal tell.",
   after_earnings: "The swing launched within ~5 trading days of an earnings report — i.e. the move was likely catalyst-driven.",
   vol_ratio: "Average volume during the swing vs the ~50 bars before it. Above ~1.2x means the move ran on heavier-than-usual participation.",
-  swing_filters: "Narrow the history table to the kinds of moves you care about — size, duration, volume, catalyst, and structure — so you can study only the setups that match what's happening now."
+  swing_filters: "Narrow the history table to the kinds of moves you care about — size, duration, volume, catalyst, and structure — so you can study only the setups that match what's happening now.",
+  swing_flow: "Today's unusual options flow from Unusual Whales, distilled to a bullish-vs-bearish read with a quality score (trade size + ask-side conviction). When the tape confirms the move's direction it adds to Continuation; when it fades the move it adds to Exhaustion. Quality gates how much it's allowed to count."
 };
 function Term({
   k,

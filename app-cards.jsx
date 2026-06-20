@@ -720,6 +720,12 @@ function SwingPatternCard({ apiFetch, ticker }) {
                   {sgn(a.relative_strength.vs_spy)}{a.relative_strength.vs_spy}% <small>{a.relative_strength.leading ? "leading" : a.relative_strength.lagging ? "lagging" : "tracking"}</small>
                 </b></div>
             )}
+            {a.flow && a.flow.data_available && (
+              <div><span><Term k="swing_flow">Options flow</Term></span>
+                <b className={a.flow.label === "bullish" ? "up" : a.flow.label === "bearish" ? "down" : ""}>
+                  {a.flow.label} <small>quality {a.flow.quality}</small>
+                </b></div>
+            )}
           </div>
 
           {(a.broke_resistance || a.after_earnings) && (
