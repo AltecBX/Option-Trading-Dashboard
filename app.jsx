@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.73";
+const APP_VERSION = "1.74";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -74,6 +74,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
+  const [navOpen, setNavOpen] = useState(false);      // mobile sidebar drawer
+  const [reloadNonce, setReloadNonce] = useState(0);  // manual refresh trigger
+  const refreshData = () => setReloadNonce(n => n + 1);
   // Analyst data lifted to App level so the covered-call recommendation
   // engine and other downstream consumers can read it. AnalystCard owns
   // the fetch and reports up via the setAnalystData callback below.
@@ -1239,12 +1242,21 @@ function App() {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [ticker, weeks, baseline, expiration]);
+  }, [ticker, weeks, baseline, expiration, reloadNonce]);
 
   // Reset expiration override whenever the ticker changes — different
   // symbols have different chains, so a stale date will silently fall back
   // to the server default.
   useEffect(() => { setExpiration(""); }, [ticker]);
+
+  // Close the mobile drawer when the ticker changes (e.g. picked from it).
+  useEffect(() => { setNavOpen(false); }, [ticker]);
+
+  // Lock body scroll while the mobile drawer is open.
+  useEffect(() => {
+    document.body.style.overflow = navOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [navOpen]);
 
   // Debounced ticker autocomplete. Calls the local /api/search proxy that
   // the Python server exposes. Falls back to the existing PRESETS list when
@@ -2141,14 +2153,35 @@ function App() {
 
   const isBackMonthStrat = activeStrat && (activeStrat.key === "calendar_spread" || activeStrat.key === "diagonal_spread");
 
+  // Mobile sticky header values.
+  const _mhChg = (liveQuotes[ticker]?.change_pct != null) ? liveQuotes[ticker].change_pct : stockDeltaPct;
+  const _sectionLabel = activeTab ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : "";
+
   return (
     <div className="shell">
+      {/* Mobile sticky header (phones/tablets only; hidden on desktop via CSS) */}
+      <header className="mobile-header">
+        <button className="mh-btn mh-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}>☰</button>
+        <div className="mh-ident">
+          <span className="mh-sym">{ticker}</span>
+          {!loadError && currentPrice != null && (
+            <span className="mh-quote">
+              ${Number(currentPrice).toFixed(2)}
+              <span className={`mh-chg ${_mhChg >= 0 ? "up" : "down"}`}>{_mhChg >= 0 ? "▲" : "▼"} {Math.abs(_mhChg).toFixed(2)}%</span>
+            </span>
+          )}
+        </div>
+        <span className="mh-section">{loading ? "Loading…" : _sectionLabel}</span>
+        <button className="mh-btn mh-refresh" aria-label="Refresh" onClick={refreshData} disabled={loading}>↻</button>
+      </header>
+      <div className={`mobile-overlay${navOpen ? " show" : ""}`} onClick={() => setNavOpen(false)} aria-hidden="true" />
+
       {/* Tab bar (v1.25) — full-width section switcher, spans both columns */}
       <TabBar active={activeTab} onChange={changeTab} ticker={ticker}
               earnDate={loadError ? null : current.next_earnings}
               earnDays={loadError ? null : current.days_to_earnings} />
       {/* ── SIDEBAR ───────────────────────────────────────────────────────── */}
-      <aside className="sidebar">
+      <aside className={`sidebar${navOpen ? " nav-open" : ""}`}>
         <div className="sb-version-pill" title="App version">v{APP_VERSION}</div>
         <WeatherBadge />
         <div className="sb-section sb-brand">
@@ -6968,7 +7001,7 @@ function App() {
             </TweakSection>
             <TweakSection label="Density">
               <TweakRadio label="Spacing" value={tweaks.values.density} onChange={v => tweaks.setValue("density", v)}
-                options={[{value:"comfortable",label:"Comfortable"},{value:"compact",label:"Compact"}]} />
+                options={[{value:"compact",label:"Compact"},{value:"comfortable",label:"Standard"},{value:"full",label:"Full"}]} />
             </TweakSection>
             <TweakSection label="Charts">
               <TweakRadio label="Style" value={tweaks.values.chartStyle} onChange={v => tweaks.setValue("chartStyle", v)}

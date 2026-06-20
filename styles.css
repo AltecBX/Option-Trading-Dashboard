@@ -7885,3 +7885,101 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-lvl.res { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 60%); }
 .swing-lvl.sup { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 60%); }
 .swing-lvl.now { background: var(--bg-3); color: var(--fg); border-color: var(--accent); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MOBILE FOUNDATION (v1.74) — drawer sidebar, sticky header, density modes.
+   Desktop is untouched: everything below is either a new mobile-only
+   element (hidden on desktop) or gated behind a max-width media query.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Roomier "Full" density (Compact + Standard already exist). */
+[data-density="full"] {
+  --pad-card-y: 24px;
+  --pad-card-x: 26px;
+  --gap-grid: 20px;
+  --row-gap: 22px;
+}
+
+/* Mobile sticky header + drawer overlay — hidden on desktop. */
+.mobile-header { display: none; }
+.mobile-overlay { display: none; }
+
+@media (max-width: 900px) {
+  /* ── Sticky compact header ─────────────────────────────────────────── */
+  .mobile-header {
+    display: flex; align-items: center; gap: 10px;
+    grid-column: 1 / -1;
+    position: sticky; top: 0; z-index: 220;
+    margin: 0 0 10px; padding: 7px 10px;
+    background: color-mix(in oklch, var(--bg) 90%, transparent);
+    backdrop-filter: blur(10px) saturate(1.1);
+    border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow-card);
+  }
+  .mh-btn {
+    flex: 0 0 auto; width: 42px; height: 42px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 20px; line-height: 1;
+    background: var(--bg-2); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  }
+  .mh-btn:active { background: var(--bg-3); }
+  .mh-ident { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.15; }
+  .mh-sym { font-weight: 800; font-size: 15px; letter-spacing: 0.01em; }
+  .mh-quote { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+  .mh-chg { margin-left: 6px; font-weight: 700; }
+  .mh-chg.up { color: var(--up); } .mh-chg.down { color: var(--down); }
+  .mh-section { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); white-space: nowrap; }
+  .mh-refresh { font-size: 22px; }
+
+  /* ── Drawer overlay ────────────────────────────────────────────────── */
+  .mobile-overlay {
+    display: block; position: fixed; inset: 0; z-index: 250;
+    background: rgba(0,0,0,0.55);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .mobile-overlay.show { opacity: 1; pointer-events: auto; }
+
+  /* ── Sidebar as off-canvas drawer (overrides the stacked mobile rule) ─ */
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important; left: 0 !important; bottom: 0 !important;
+    width: min(86vw, 330px) !important;
+    height: 100dvh !important; max-height: 100dvh !important;
+    margin: 0 !important; border-radius: 0 14px 14px 0 !important;
+    overflow-y: auto !important;
+    z-index: 300 !important;
+    transform: translateX(-103%);
+    transition: transform 0.25s ease;
+    padding: 14px !important;
+  }
+  .sidebar.nav-open { transform: translateX(0); box-shadow: 0 0 50px rgba(0,0,0,0.7); }
+
+  /* ── Tab bar: one tidy horizontal-scroll row under the header ──────── */
+  .tab-bar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    position: sticky; top: 56px; z-index: 210;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-btn { flex: 0 0 auto; padding: 9px 15px !important; min-height: 42px; }
+  .tab-earn { display: none !important; }  /* earnings shown elsewhere; save row space */
+
+  /* ── Touch targets ─────────────────────────────────────────────────── */
+  .sb-select, select, .scan-run-btn, .ab-controls button {
+    min-height: 40px;
+  }
+  select, .sb-select { font-size: 16px !important; }  /* iOS no-zoom */
+  .news-srcnav button, .swing-histnav button, .screener-subnav button { min-height: 38px; }
+}
+
+/* Phones: trim oversized headers, tighten further. */
+@media (max-width: 480px) {
+  .card-title { font-size: 16px !important; }
+  .kicker { font-size: 10px !important; }
+  .mobile-header { padding: 6px 9px; }
+  .mh-section { display: none; }  /* keep header to ticker+price+actions */
+  .swing-decision-action { font-size: 16px; }
+}

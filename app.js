@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.73";
+const APP_VERSION = "1.74";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -89,6 +89,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
+  const [navOpen, setNavOpen] = useState(false); // mobile sidebar drawer
+  const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
+  const refreshData = () => setReloadNonce(n => n + 1);
   // Analyst data lifted to App level so the covered-call recommendation
   // engine and other downstream consumers can read it. AnalystCard owns
   // the fetch and reports up via the setAnalystData callback below.
@@ -1514,7 +1517,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [ticker, weeks, baseline, expiration]);
+  }, [ticker, weeks, baseline, expiration, reloadNonce]);
 
   // Reset expiration override whenever the ticker changes — different
   // symbols have different chains, so a stale date will silently fall back
@@ -1522,6 +1525,19 @@ function App() {
   useEffect(() => {
     setExpiration("");
   }, [ticker]);
+
+  // Close the mobile drawer when the ticker changes (e.g. picked from it).
+  useEffect(() => {
+    setNavOpen(false);
+  }, [ticker]);
+
+  // Lock body scroll while the mobile drawer is open.
+  useEffect(() => {
+    document.body.style.overflow = navOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [navOpen]);
 
   // Debounced ticker autocomplete. Calls the local /api/search proxy that
   // the Python server exposes. Falls back to the existing PRESETS list when
@@ -2730,16 +2746,45 @@ function App() {
     };
   }, [activeStrat, plLegs, calls, puts, FRONT_DTE]);
   const isBackMonthStrat = activeStrat && (activeStrat.key === "calendar_spread" || activeStrat.key === "diagonal_spread");
+
+  // Mobile sticky header values.
+  const _mhChg = liveQuotes[ticker]?.change_pct != null ? liveQuotes[ticker].change_pct : stockDeltaPct;
+  const _sectionLabel = activeTab ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : "";
   return /*#__PURE__*/React.createElement("div", {
     className: "shell"
-  }, /*#__PURE__*/React.createElement(TabBar, {
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "mobile-header"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "mh-btn mh-burger",
+    "aria-label": "Open menu",
+    onClick: () => setNavOpen(true)
+  }, "☰"), /*#__PURE__*/React.createElement("div", {
+    className: "mh-ident"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mh-sym"
+  }, ticker), !loadError && currentPrice != null && /*#__PURE__*/React.createElement("span", {
+    className: "mh-quote"
+  }, "$", Number(currentPrice).toFixed(2), /*#__PURE__*/React.createElement("span", {
+    className: `mh-chg ${_mhChg >= 0 ? "up" : "down"}`
+  }, _mhChg >= 0 ? "▲" : "▼", " ", Math.abs(_mhChg).toFixed(2), "%"))), /*#__PURE__*/React.createElement("span", {
+    className: "mh-section"
+  }, loading ? "Loading…" : _sectionLabel), /*#__PURE__*/React.createElement("button", {
+    className: "mh-btn mh-refresh",
+    "aria-label": "Refresh",
+    onClick: refreshData,
+    disabled: loading
+  }, "↻")), /*#__PURE__*/React.createElement("div", {
+    className: `mobile-overlay${navOpen ? " show" : ""}`,
+    onClick: () => setNavOpen(false),
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement(TabBar, {
     active: activeTab,
     onChange: changeTab,
     ticker: ticker,
     earnDate: loadError ? null : current.next_earnings,
     earnDays: loadError ? null : current.days_to_earnings
   }), /*#__PURE__*/React.createElement("aside", {
-    className: "sidebar"
+    className: `sidebar${navOpen ? " nav-open" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "sb-version-pill",
     title: "App version"
@@ -8530,11 +8575,14 @@ function App() {
     value: tweaks.values.density,
     onChange: v => tweaks.setValue("density", v),
     options: [{
-      value: "comfortable",
-      label: "Comfortable"
-    }, {
       value: "compact",
       label: "Compact"
+    }, {
+      value: "comfortable",
+      label: "Standard"
+    }, {
+      value: "full",
+      label: "Full"
     }]
   })), /*#__PURE__*/React.createElement(TweakSection, {
     label: "Charts"
