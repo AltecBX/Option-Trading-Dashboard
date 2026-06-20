@@ -760,7 +760,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
             "t2": p75_t["price"], "t2_pct": p75_t["pct_move"],
             "stretch": extreme_t["price"], "stretch_pct": extreme_t["pct_move"],
             "holding_window": (f"{r['days_p25']}–{r['days_p75']} trading days "
-                               f"(through {_busday_offset(from_date, max(1, r['days_p75']))})"),
+                               f"(through {_us_date(_busday_offset(from_date, max(1, r['days_p75'])))})"),
         }
     else:
         entry_zone = [round(from_p * 0.97, 2), round(from_p, 2)]
@@ -776,7 +776,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
             "t2": p75_t["price"], "t2_pct": p75_t["pct_move"],
             "stretch": extreme_t["price"], "stretch_pct": extreme_t["pct_move"],
             "holding_window": (f"{r['days_p25']}–{r['days_p75']} trading days "
-                               f"(through {_busday_offset(from_date, max(1, r['days_p75']))})"),
+                               f"(through {_us_date(_busday_offset(from_date, max(1, r['days_p75'])))})"),
         }
     plan["exit_warnings"] = exh_f[:4] or ["No exhaustion flags yet."]
     plan["reason_to_stay"] = cont_f[:4] or ["Momentum support is thin here."]
