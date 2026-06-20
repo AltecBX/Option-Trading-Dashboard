@@ -2216,6 +2216,10 @@ function WatchlistTableCard({
     label: "Earnings",
     num: true
   }, {
+    k: "change",
+    label: "Chg%",
+    num: true
+  }, {
     k: "wtd",
     label: "WTD%",
     num: true
@@ -2252,6 +2256,21 @@ function WatchlistTableCard({
     key: k,
     dir: STR.has(k) ? "asc" : "desc"
   });
+
+  // Industry dropdown is scoped to the selected sector so it only lists
+  // industries that actually live in that sector.
+  const industryOpts = useMemo(() => {
+    if (fSector === "all") return industries;
+    const set = new Set();
+    rows.forEach(r => {
+      if (r.sector === fSector && r.industry) set.add(r.industry);
+    });
+    return Array.from(set).sort();
+  }, [rows, industries, fSector]);
+  // If the chosen industry isn't in the (newly) selected sector, reset it.
+  useEffect(() => {
+    if (fIndustry !== "all" && !industryOpts.includes(fIndustry)) setFIndustry("all");
+  }, [industryOpts, fIndustry]);
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
       if (fSector !== "all" && r.sector !== fSector) return false;
@@ -2332,7 +2351,7 @@ function WatchlistTableCard({
     onChange: e => setFIndustry(e.target.value)
   }, /*#__PURE__*/React.createElement("option", {
     value: "all"
-  }, "All industries"), industries.map(s => /*#__PURE__*/React.createElement("option", {
+  }, "All industries"), industryOpts.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
   }, s))), /*#__PURE__*/React.createElement("span", {
@@ -2382,6 +2401,8 @@ function WatchlistTableCard({
   }, r.next_earnings ? fmtUSDate(r.next_earnings) : "—", r.days_to_earnings != null ? /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, " (", r.days_to_earnings, "d)") : ""), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${pctCls(r.change)}`
+  }, pct(r.change)), /*#__PURE__*/React.createElement("td", {
     className: `scan-num ${pctCls(r.wtd)}`
   }, pct(r.wtd)), /*#__PURE__*/React.createElement("td", {
     className: `scan-num ${pctCls(r.mtd)}`

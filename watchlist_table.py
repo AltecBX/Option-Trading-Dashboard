@@ -145,8 +145,11 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
     qt_start = today.replace(month=q, day=1)
     yr_start = today.replace(month=1, day=1)
     rsi = _rsi(closes)
+    chg = (round((closes[-1] - closes[-2]) / closes[-2] * 100.0, 2)
+           if len(closes) >= 2 and closes[-2] else None)
     return {
         "last": round(last, 2),
+        "change": chg,
         "rsi": round(rsi, 1) if rsi is not None else None,
         "rel_vol": round(vols[-1] / avgvol, 2) if (avgvol and vols and vols[-1]) else None,
         "from_ma20": round((last - ma20) / ma20 * 100.0, 1) if ma20 else None,
@@ -159,19 +162,62 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
     }
 
 
+def _num(v):
+    """Coerce to a finite float or None (handles NaN, strings, etc.)."""
+    try:
+        f = float(v)
+        return f if f == f and f not in (float("inf"), float("-inf")) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _fundamentals(symbol: str) -> dict:
     out = {"company": None, "market_cap": None, "pe": None, "forward_pe": None,
            "sector": None, "industry": None, "next_earnings": None, "days_to_earnings": None}
     try:
         t = yf.Ticker(symbol)
-        info = t.info or {}
+    except Exception:
+        return out
+
+    # .info is the rich source (name / sector / industry / P/E) but Yahoo
+    # throttles it hard during a big scan, returning an empty dict on a
+    # 429. Retry a few times with backoff so a transient throttle doesn't
+    # leave the whole row blank — the user needs every field populated.
+    info = {}
+    for attempt in range(4):
+        try:
+            info = t.info or {}
+        except Exception:
+            info = {}
+        if info.get("shortName") or info.get("longName") or info.get("marketCap"):
+            break
+        time.sleep(0.5 * (attempt + 1))
+
+    try:
         out["company"] = info.get("shortName") or info.get("longName")
         out["market_cap"] = info.get("marketCap")
-        pe = info.get("trailingPE"); fpe = info.get("forwardPE")
-        out["pe"] = round(float(pe), 1) if isinstance(pe, (int, float)) and pe == pe else None
-        out["forward_pe"] = round(float(fpe), 1) if isinstance(fpe, (int, float)) and fpe == fpe else None
+        pe = _num(info.get("trailingPE")); fpe = _num(info.get("forwardPE"))
+        out["pe"] = round(pe, 1) if pe is not None else None
+        out["forward_pe"] = round(fpe, 1) if fpe is not None else None
         out["sector"] = info.get("sector")
         out["industry"] = info.get("industry")
+
+        # fast_info is a lighter endpoint that survives throttling better —
+        # backfill market cap (and infer P/E from price/EPS) when .info
+        # came back thin.
+        if out["market_cap"] is None:
+            try:
+                mc = getattr(t.fast_info, "market_cap", None)
+                if mc:
+                    out["market_cap"] = mc
+            except Exception:
+                pass
+        if out["pe"] is None:
+            eps = _num(info.get("trailingEps") or info.get("epsTrailingTwelveMonths"))
+            price = _num(info.get("currentPrice") or info.get("regularMarketPrice"))
+            if eps and price and eps > 0:
+                out["pe"] = round(price / eps, 1)
+
         # Next earnings date — best-effort.
         try:
             ed = t.get_earnings_dates(limit=12)
@@ -223,7 +269,9 @@ def _scan_worker(symbols: list[str]) -> None:
                     done += 1
                     with _LOCK:
                         _STATE["scanned"] = done
-                    time.sleep(0.05)
+                    # Gentle throttle between per-symbol .info calls so
+                    # Yahoo doesn't start 429-ing and blanking out rows.
+                    time.sleep(0.15)
             except Exception:
                 done = min(len(symbols), i + CHUNK)
             finally:
