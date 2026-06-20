@@ -683,6 +683,7 @@ function NewsCard({ apiFetch, ticker, companyName }) {
 
 function SwingPatternCard({ apiFetch, ticker }) {
   const Term = window.Term || (({ children }) => <span>{children}</span>);
+  const cardRef = useRef(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -706,6 +707,40 @@ function SwingPatternCard({ apiFetch, ticker }) {
     setLoading(false);
   };
   useEffect(() => { load(ticker, sens); /* eslint-disable-next-line */ }, [ticker, sens]);
+
+  // Resizable columns (desktop only). Adds a drag handle to each header cell
+  // of the swing tables. Idempotent + re-runs when the tables change.
+  useEffect(() => {
+    if (typeof window === "undefined" || window.innerWidth <= 900) return;
+    const root = cardRef.current; if (!root) return;
+    const cleanups = [];
+    root.querySelectorAll("table.swing-table thead").forEach(thead => {
+      const ths = Array.from(thead.querySelectorAll("th"));
+      ths.forEach((th, i) => {
+        if (i === ths.length - 1 || th.querySelector(".col-resize-handle")) return;
+        th.style.position = "relative";
+        const h = document.createElement("span");
+        h.className = "col-resize-handle";
+        const onDown = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const startX = e.clientX, startW = th.offsetWidth;
+          document.body.style.userSelect = "none";
+          const move = (ev) => { th.style.width = Math.max(44, startW + ev.clientX - startX) + "px"; };
+          const up = () => {
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("mouseup", up);
+            document.body.style.userSelect = "";
+          };
+          window.addEventListener("mousemove", move);
+          window.addEventListener("mouseup", up);
+        };
+        h.addEventListener("mousedown", onDown);
+        th.appendChild(h);
+        cleanups.push(() => { h.removeEventListener("mousedown", onDown); h.remove(); });
+      });
+    });
+    return () => cleanups.forEach(fn => fn());
+  }, [data, tab, sens]);
 
   const fmtUsd2 = (v) => v == null ? "—" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const sgn = (v) => (v == null ? "" : (v >= 0 ? "+" : ""));
@@ -758,7 +793,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
   const filtersOn = fMove !== "all" || fDur !== "all" || fVol !== "all" || fCat !== "all" || fStruct !== "all";
 
   return (
-    <div className="card ab-card">
+    <div className="card ab-card" ref={cardRef}>
       <div className="card-head">
         <div>
           <div className="kicker">Pattern recognition · {ticker}</div>
@@ -6473,4 +6508,13 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
-Object.assign(window, { TickerLogo, VolSkewCard, SwingPatternCard, NewsCard, ScreenersHub, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });
+// Memoize the heavy, self-contained ticker cards so unrelated App state
+// changes (hovers, sidebar, other tabs) don't re-render them. Their props
+// (apiFetch, switchTicker, ticker) are stable identities from App.
+const SwingPatternCardM = React.memo(SwingPatternCard);
+const NewsCardM = React.memo(NewsCard);
+const ScreenersHubM = React.memo(ScreenersHub);
+Object.assign(window, {
+  SwingPatternCard: SwingPatternCardM, NewsCard: NewsCardM, ScreenersHub: ScreenersHubM,
+});
+Object.assign(window, { TickerLogo, VolSkewCard, AnalystBoardCard, MoversCard, TrendCard, IVRankCard, WatchlistAlertsCard, TabBar, TabPanel, WeatherBadge, LevelRepriceCard, WinRateCard, EarningsCrushCard, PushSettingsCard, BrokerImportCard, StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange, SortableTh, PercentCalc, RollManagerCard, FlowScoreCard, PullbackBacktest, TradeBuilderCard, AnalystCard, PullbackProfileCard, BasingCard, Recommendation, RecommendationPair, StrategyCard, PositionsCard, AddPositionForm });

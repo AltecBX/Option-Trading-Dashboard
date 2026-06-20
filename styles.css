@@ -8043,3 +8043,16 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   /* Keep the bottom bar from covering the last cards. */
   .shell { padding-bottom: 76px !important; }
 }
+
+/* ── Phase 3: resizable desktop columns (swing tables) ─────────────────── */
+.col-resize-handle {
+  position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
+  cursor: col-resize; z-index: 3; touch-action: none;
+}
+.col-resize-handle::after {
+  content: ""; position: absolute; top: 20%; right: 4px; width: 2px; height: 60%;
+  background: transparent; border-radius: 2px; transition: background 0.12s ease;
+}
+.col-resize-handle:hover::after { background: var(--accent); }
+.swing-table th { position: relative; }
+@media (max-width: 900px) { .col-resize-handle { display: none !important; } }
