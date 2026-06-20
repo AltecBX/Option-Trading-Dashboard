@@ -593,6 +593,23 @@ function PriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPric
                 const px = vbX - padL;
                 const idx = Math.max(0, Math.min(daily.length - 1, Math.round((px / innerW) * (daily.length - 1))));
                 setHover({ idx, x: vbX, y: vbY });
+              }}
+              onTouchStart={(e) => {
+                // Tap-to-inspect on mobile (no hover). Mirrors the mouse path.
+                if (!svgRef.current || !e.touches[0]) return;
+                const r = svgRef.current.getBoundingClientRect();
+                const vbX = ((e.touches[0].clientX - r.left) / r.width) * W;
+                const vbY = ((e.touches[0].clientY - r.top) / r.height) * H;
+                const idx = Math.max(0, Math.min(daily.length - 1, Math.round(((vbX - padL) / innerW) * (daily.length - 1))));
+                setHover({ idx, x: vbX, y: vbY });
+              }}
+              onTouchMove={(e) => {
+                if (!svgRef.current || !e.touches[0]) return;
+                const r = svgRef.current.getBoundingClientRect();
+                const vbX = ((e.touches[0].clientX - r.left) / r.width) * W;
+                const vbY = ((e.touches[0].clientY - r.top) / r.height) * H;
+                const idx = Math.max(0, Math.min(daily.length - 1, Math.round(((vbX - padL) / innerW) * (daily.length - 1))));
+                setHover({ idx, x: vbX, y: vbY });
               }} />
 
         {hover != null && daily[hover.idx] && (() => {
@@ -1185,13 +1202,25 @@ function PLChart({ legs, currentPrice, expectedMove, colors, strategyName = "" }
 
   return (
     <div className="chart-wrap pl-3d">
-      <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" 
+      <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg"
            onMouseLeave={() => setHoverX(null)}
            onMouseMove={(e) => {
              const rect = e.currentTarget.getBoundingClientRect();
              const x = ((e.clientX - rect.left) / rect.width) * W;
              if (x >= padL && x <= W - padR) setHoverX(x);
              else setHoverX(null);
+           }}
+           onTouchStart={(e) => {
+             if (!e.touches[0]) return;
+             const rect = e.currentTarget.getBoundingClientRect();
+             const x = ((e.touches[0].clientX - rect.left) / rect.width) * W;
+             if (x >= padL && x <= W - padR) setHoverX(x);
+           }}
+           onTouchMove={(e) => {
+             if (!e.touches[0]) return;
+             const rect = e.currentTarget.getBoundingClientRect();
+             const x = ((e.touches[0].clientX - rect.left) / rect.width) * W;
+             if (x >= padL && x <= W - padR) setHoverX(x);
            }}>
         <defs>
           <linearGradient id={`${uid}-bg`} x1="0" y1="0" x2="0" y2="1">
