@@ -709,8 +709,9 @@ function SwingPatternCard({ apiFetch, ticker }) {
             <div><span><Term k="current_move">Move so far</Term></span>
               <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active}d</small></b></div>
             <div><span>vs typical move</span>
-              <b>{a.vs_history.pct_of_median_move}% of median <small>(med {a.vs_history.median_pct}% / {a.vs_history.median_days}d)</small></b></div>
-            <div><span>Next target (median)</span>
+              <b>{a.vs_history.pct_of_median_move}% of median</b>
+              <small className="swing-sub">med {a.vs_history.median_pct}% / {a.vs_history.median_days}d</small></div>
+            <div><span>Median target</span>
               <b className={dirTone}>{fmtUsd2(a.targets[1].price)} <small>{sgn(a.targets[1].from_here_pct)}{a.targets[1].from_here_pct}% away</small></b></div>
             <div><span>RSI · rel-vol</span>
               <b><Term k="rsi14">{ind && ind.rsi14 != null ? ind.rsi14 : "—"}</Term> · <Term k="rel_vol">{ind && ind.rel_vol != null ? ind.rel_vol + "x" : "—"}</Term></b></div>
@@ -809,7 +810,14 @@ function SwingPatternCard({ apiFetch, ticker }) {
             <div><span>Target 1 (median)</span><b className={dirTone}>{fmtUsd2(a.trade_plan.t1)}</b></div>
             <div><span>Target 2 (stretch)</span><b className={dirTone}>{fmtUsd2(a.trade_plan.t2)}</b></div>
             <div><span>Extreme</span><b className={dirTone}>{fmtUsd2(a.trade_plan.stretch)}</b></div>
-            <div><span>Holding window</span><b>{a.trade_plan.holding_window}</b></div>
+            <div><span>Holding window</span>
+              {(() => {
+                const hw = a.trade_plan.holding_window || "";
+                const m = /^(.*?)\s*\(through\s*(.+)\)\s*$/.exec(hw);
+                return m
+                  ? <b>{m[1]}<small className="swing-sub">through {m[2]}</small></b>
+                  : <b>{hw}</b>;
+              })()}</div>
           </div>
           <div className="swing-plan-note">{a.trade_plan.entry_note}</div>
           <div className="swing-plan-note muted">{a.trade_plan.invalidation_note}</div>
