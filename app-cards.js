@@ -1026,7 +1026,15 @@ function SwingPatternCard({
     k: "swing_flow"
   }, "Options flow")), /*#__PURE__*/React.createElement("b", {
     className: a.flow.label === "bullish" ? "up" : a.flow.label === "bearish" ? "down" : ""
-  }, a.flow.label, " ", /*#__PURE__*/React.createElement("small", null, "quality ", a.flow.quality)))), (a.broke_resistance || a.after_earnings) && /*#__PURE__*/React.createElement("div", {
+  }, a.flow.label, " ", /*#__PURE__*/React.createElement("small", null, "quality ", a.flow.quality))), a.key_levels && a.key_levels.next && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "key_levels"
+  }, "Next ", a.key_levels.next.kind)), /*#__PURE__*/React.createElement("b", {
+    className: "warn"
+  }, fmtUsd2(a.key_levels.next.price), " ", /*#__PURE__*/React.createElement("small", null, sgn(a.key_levels.next.pct_away), a.key_levels.next.pct_away, "% · ", fmtSwingDate(a.key_levels.next.date))))), a.key_levels && a.key_levels.note && /*#__PURE__*/React.createElement("div", {
+    className: "swing-levelnote"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "key_levels"
+  }, "⊟ Level read:"), " ", a.key_levels.note), (a.broke_resistance || a.after_earnings) && /*#__PURE__*/React.createElement("div", {
     className: "swing-tags"
   }, a.broke_resistance && /*#__PURE__*/React.createElement("span", {
     className: "swing-tag up"
@@ -1063,7 +1071,23 @@ function SwingPatternCard({
     className: "swing-subtitle"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "target_ladder"
-  }, "Projected target ladder"), " — from ", a.from_label, " ", fmtUsd2(a.from_price)), /*#__PURE__*/React.createElement("table", {
+  }, "Projected target ladder"), " — from ", a.from_label, " ", fmtUsd2(a.from_price)), a.key_levels && ((a.key_levels.supports || []).length > 0 || (a.key_levels.resistances || []).length > 0) && /*#__PURE__*/React.createElement("div", {
+    className: "swing-levels"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swing-levels-lbl"
+  }, /*#__PURE__*/React.createElement(Term, {
+    k: "key_levels"
+  }, "Key levels")), (a.key_levels.resistances || []).slice().reverse().map((l, i) => /*#__PURE__*/React.createElement("span", {
+    key: "r" + i,
+    className: "swing-lvl res",
+    title: `Resistance · prior swing high ${fmtSwingDate(l.date)}`
+  }, fmtUsd2(l.price), " ", /*#__PURE__*/React.createElement("small", null, "+", l.pct_away, "%"))), /*#__PURE__*/React.createElement("span", {
+    className: "swing-lvl now"
+  }, fmtUsd2(a.current_price), " now"), (a.key_levels.supports || []).map((l, i) => /*#__PURE__*/React.createElement("span", {
+    key: "s" + i,
+    className: "swing-lvl sup",
+    title: `Support · prior swing low ${fmtSwingDate(l.date)}`
+  }, fmtUsd2(l.price), " ", /*#__PURE__*/React.createElement("small", null, l.pct_away, "%")))), /*#__PURE__*/React.createElement("table", {
     className: "scan-table swing-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
