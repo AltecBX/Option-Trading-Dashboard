@@ -2141,6 +2141,7 @@ function WatchlistTableCard({
       const r = await apiFetch("/api/watchlist_table");
       const d = await r.json();
       setBoard(d);
+      setErr(null);
       return d;
     } catch (e) {
       setErr(String(e));
