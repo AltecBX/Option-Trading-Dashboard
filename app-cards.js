@@ -899,7 +899,18 @@ function NewsCard({
     className: "ab-status"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, err)), data && /*#__PURE__*/React.createElement("div", {
+  }, err)), loading && !data && /*#__PURE__*/React.createElement("div", {
+    className: "skel-list"
+  }, [0, 1, 2, 3, 4].map(i => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "skel-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "skel skel-when"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "skel skel-line"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "skel skel-tag"
+  })))), data && /*#__PURE__*/React.createElement("div", {
     className: "ab-status"
   }, items.length, " headlines from ", sources.length, " source", sources.length === 1 ? "" : "s", " ", "· aggregated from Yahoo Finance & Finnhub (free)"), sources.length > 1 && /*#__PURE__*/React.createElement("div", {
     className: "news-srcnav"
@@ -1127,7 +1138,20 @@ function SwingPatternCard({
     className: "ab-status"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, err)), a && a.decision && /*#__PURE__*/React.createElement("div", {
+  }, err)), loading && !data && /*#__PURE__*/React.createElement("div", {
+    className: "skel-block"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-banner"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel-grid"
+  }, [0, 1, 2, 3, 4, 5].map(i => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "skel skel-cell"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-bar"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-bar"
+  })), a && a.decision && /*#__PURE__*/React.createElement("div", {
     className: `swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`
   }, /*#__PURE__*/React.createElement("span", {
     className: "swing-decision-action"
@@ -2372,7 +2396,7 @@ function WatchlistAlertsCard({
   }, a.from_grade, " → ", a.to_grade), /*#__PURE__*/React.createElement("span", {
     className: "wa-date",
     title: "Date the signal was issued."
-  }, a.date)), /*#__PURE__*/React.createElement("div", {
+  }, fmtUSDate(a.date))), /*#__PURE__*/React.createElement("div", {
     className: "wa-row-right"
   }, /*#__PURE__*/React.createElement("button", {
     className: "wa-switch",
@@ -3512,7 +3536,7 @@ function EarningsCrushCard({
     title: `Click to switch the dashboard to ${r.symbol}. Past samples: ${r.samples.map(s => s.toFixed(0) + "%").join(", ")}`
   }, /*#__PURE__*/React.createElement("span", {
     className: "ec-sym"
-  }, r.symbol), /*#__PURE__*/React.createElement("span", null, r.next_earnings), /*#__PURE__*/React.createElement("span", {
+  }, r.symbol), /*#__PURE__*/React.createElement("span", null, fmtUSDate(r.next_earnings)), /*#__PURE__*/React.createElement("span", {
     className: r.days_to_earnings <= 3 ? "warn" : ""
   }, r.days_to_earnings, "d"), /*#__PURE__*/React.createElement("span", {
     className: r.median_crush_pct >= 30 ? "up" : r.median_crush_pct < 10 ? "warn" : ""

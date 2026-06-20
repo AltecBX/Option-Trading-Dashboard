@@ -634,6 +634,15 @@ function NewsCard({ apiFetch, ticker, companyName }) {
       </div>
 
       {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
+      {loading && !data && (
+        <div className="skel-list">
+          {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} className="skel-row">
+              <span className="skel skel-when" /><span className="skel skel-line" /><span className="skel skel-tag" />
+            </div>
+          ))}
+        </div>
+      )}
       {data && (
         <div className="ab-status">
           {items.length} headlines from {sources.length} source{sources.length === 1 ? "" : "s"}
@@ -813,6 +822,14 @@ function SwingPatternCard({ apiFetch, ticker }) {
       </div>
 
       {err && <div className="ab-status"><span className="ab-err">{err}</span></div>}
+
+      {loading && !data && (
+        <div className="skel-block">
+          <div className="skel skel-banner" />
+          <div className="skel-grid">{[0,1,2,3,4,5].map(i => <div key={i} className="skel skel-cell" />)}</div>
+          <div className="skel skel-bar" /><div className="skel skel-bar" />
+        </div>
+      )}
 
       {/* ── Decision banner ─────────────────────────────────────────────── */}
       {a && a.decision && (
@@ -1727,7 +1744,7 @@ function WatchlistAlertsCard({ apiFetch, onSwitchTicker }) {
                   </span>
                 )}
                 <span className="wa-date" title="Date the signal was issued.">
-                  {a.date}
+                  {fmtUSDate(a.date)}
                 </span>
               </div>
               <div className="wa-row-right">
@@ -2600,7 +2617,7 @@ function EarningsCrushCard({ apiFetch, onSwitchTicker }) {
                  onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                  title={`Click to switch the dashboard to ${r.symbol}. Past samples: ${r.samples.map(s => s.toFixed(0) + "%").join(", ")}`}>
               <span className="ec-sym">{r.symbol}</span>
-              <span>{r.next_earnings}</span>
+              <span>{fmtUSDate(r.next_earnings)}</span>
               <span className={r.days_to_earnings <= 3 ? "warn" : ""}>{r.days_to_earnings}d</span>
               <span className={r.median_crush_pct >= 30 ? "up" : r.median_crush_pct < 10 ? "warn" : ""}>
                 {r.median_crush_pct >= 0 ? "" : "+"}{r.median_crush_pct.toFixed(1)}%

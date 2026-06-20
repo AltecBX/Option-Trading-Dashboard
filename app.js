@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.76";
+const APP_VERSION = "1.77";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2807,6 +2807,8 @@ function App() {
   // Mobile sticky header values.
   const _mhChg = liveQuotes[ticker]?.change_pct != null ? liveQuotes[ticker].change_pct : stockDeltaPct;
   const _sectionLabel = activeTab ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : "";
+  const _staleMin = lastFetched ? Math.floor((nowTs - lastFetched) / 60000) : null;
+  const _isStale = _staleMin != null && _staleMin >= 5;
   return /*#__PURE__*/React.createElement("div", {
     className: "shell"
   }, /*#__PURE__*/React.createElement("header", {
@@ -2815,19 +2817,25 @@ function App() {
     className: "mh-btn mh-burger",
     "aria-label": "Open menu",
     onClick: () => setNavOpen(true)
-  }, "☰"), /*#__PURE__*/React.createElement("div", {
-    className: "mh-ident"
+  }, "☰"), /*#__PURE__*/React.createElement("button", {
+    className: "mh-ident",
+    onClick: () => setNavOpen(true),
+    "aria-label": "Switch ticker"
   }, /*#__PURE__*/React.createElement("span", {
     className: "mh-sym"
-  }, ticker), !loadError && currentPrice != null && /*#__PURE__*/React.createElement("span", {
+  }, ticker, /*#__PURE__*/React.createElement("span", {
+    className: "mh-search-ico",
+    "aria-hidden": "true"
+  }, "⌕")), !loadError && currentPrice != null && /*#__PURE__*/React.createElement("span", {
     className: "mh-quote"
   }, "$", Number(currentPrice).toFixed(2), /*#__PURE__*/React.createElement("span", {
     className: `mh-chg ${_mhChg >= 0 ? "up" : "down"}`
   }, _mhChg >= 0 ? "▲" : "▼", " ", Math.abs(_mhChg).toFixed(2), "%"))), /*#__PURE__*/React.createElement("span", {
     className: "mh-section"
-  }, loading ? "Loading…" : _sectionLabel), /*#__PURE__*/React.createElement("button", {
-    className: "mh-btn mh-refresh",
+  }, loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel), /*#__PURE__*/React.createElement("button", {
+    className: `mh-btn mh-refresh${_isStale ? " stale" : ""}`,
     "aria-label": "Refresh",
+    title: lastFetched ? `Updated ${_staleMin || 0}m ago` : "Refresh",
     onClick: refreshData,
     disabled: loading
   }, "↻")), /*#__PURE__*/React.createElement("div", {
@@ -6955,7 +6963,7 @@ function App() {
   }, "Edge"), /*#__PURE__*/React.createElement("th", null, "Winner"))), /*#__PURE__*/React.createElement("tbody", null, earningsLadder.events.map(e => /*#__PURE__*/React.createElement("tr", {
     key: e.date,
     className: e.winner === "sellers" ? "ladder-row-sell" : "ladder-row-buy"
-  }, /*#__PURE__*/React.createElement("td", null, e.date), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("td", null, fmtUSDate(e.date)), /*#__PURE__*/React.createElement("td", {
     className: "num"
   }, "$", e.spot), /*#__PURE__*/React.createElement("td", {
     className: "num"
@@ -8672,11 +8680,16 @@ function App() {
     className: "mbb-ico"
   }, "☰"), /*#__PURE__*/React.createElement("span", {
     className: "mbb-lbl"
-  }, "Menu")), /*#__PURE__*/React.createElement("div", {
-    className: "mbb-status"
+  }, "Menu")), /*#__PURE__*/React.createElement("button", {
+    className: "mbb-status",
+    onClick: () => setNavOpen(true),
+    "aria-label": "Switch ticker"
   }, /*#__PURE__*/React.createElement("span", {
     className: "mbb-sym"
-  }, ticker), !loadError && currentPrice != null && /*#__PURE__*/React.createElement("span", {
+  }, ticker, " ", /*#__PURE__*/React.createElement("span", {
+    className: "mh-search-ico",
+    "aria-hidden": "true"
+  }, "⌕")), !loadError && currentPrice != null && /*#__PURE__*/React.createElement("span", {
     className: `mbb-chg ${_mhChg >= 0 ? "up" : "down"}`
   }, "$", Number(currentPrice).toFixed(2), " · ", _mhChg >= 0 ? "+" : "", _mhChg.toFixed(2), "%")), /*#__PURE__*/React.createElement("button", {
     className: "mbb-btn",

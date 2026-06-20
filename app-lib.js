@@ -216,6 +216,14 @@ class RootErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+// Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
+function fmtUSDate(s) {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s));
+  if (!m) return String(s);
+  return `${+m[2]}-${+m[3]}-${m[1]}`;
+}
 Object.assign(window, {
   useState,
   useEffect,
@@ -230,6 +238,7 @@ Object.assign(window, {
   CardErrorBoundary,
   TABS,
   TAB_KEY,
-  RootErrorBoundary
+  RootErrorBoundary,
+  fmtUSDate
 });
 })();
