@@ -1500,6 +1500,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
     { k: "pe", label: "P/E", num: true }, { k: "forward_pe", label: "Fwd P/E", num: true },
     { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
     { k: "rsi", label: "RSI", num: true }, { k: "rel_vol", label: "Rel Vol", num: true },
+    { k: "flow_net", label: "Flow", num: true }, { k: "flow_agree", label: "Agree" },
     { k: "next_earnings", label: "Earnings", num: true },
     { k: "change", label: "Chg%", num: true },
     { k: "wtd", label: "WTD%", num: true }, { k: "mtd", label: "MTD%", num: true },
@@ -1507,7 +1508,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
     { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
     { k: "from_ma200", label: "%200DMA", num: true },
   ];
-  const STR = new Set(["symbol", "company", "industry", "sector"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
 
   // Industry dropdown is scoped to the selected sector so it only lists
@@ -1543,6 +1544,19 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
 
   const pctCls = (v) => v == null ? "" : v >= 0 ? "up" : "down";
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+  const flowCell = (r) => {
+    if (!r.flow_available || r.flow_net == null) return <span className="muted">—</span>;
+    const d = r.flow_dir;
+    const cls = d === "bull" ? "up" : d === "bear" ? "down" : "muted";
+    const lbl = d === "bull" ? "Bull" : d === "bear" ? "Bear" : "Mixed";
+    return <span className={cls} title="Net options-flow direction (bullish − bearish premium share)">{lbl} {r.flow_net >= 0 ? "+" : ""}{r.flow_net}</span>;
+  };
+  const agreeCell = (r) => {
+    if (!r.flow_available || !r.flow_agree) return <span className="muted">—</span>;
+    if (r.flow_agree === "agrees") return <span className="up" title="Options flow agrees with the recent price trend">✓ agrees</span>;
+    if (r.flow_agree === "disagrees") return <span className="down" title="Options flow disagrees with the recent price trend">✗ against</span>;
+    return <span className="muted" title="Mixed / neutral flow">~ neutral</span>;
+  };
 
   return (
     <div className="card ab-card">
@@ -1605,6 +1619,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker }) {
                   <td className="wl-txt">{r.sector || "—"}</td>
                   <td className="scan-num">{r.rsi != null ? r.rsi : "—"}</td>
                   <td className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>
+                  <td className="scan-num">{flowCell(r)}</td>
+                  <td className="wl-txt">{agreeCell(r)}</td>
                   <td className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>
                   <td className={`scan-num ${pctCls(r.change)}`}>{pct(r.change)}</td>
                   <td className={`scan-num ${pctCls(r.wtd)}`}>{pct(r.wtd)}</td>

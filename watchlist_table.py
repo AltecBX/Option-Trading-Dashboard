@@ -235,7 +235,44 @@ def _fundamentals(symbol: str) -> dict:
     return out
 
 
+def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
+    """Distil a UW flow score into compact watchlist fields: a directional
+    net (bull premium − bear premium share), a 0-100 conviction-ish score,
+    and whether the tape agrees with the stock's recent price direction."""
+    out = {"flow_score": None, "flow_net": None, "flow_dir": None,
+           "flow_agree": None, "flow_available": False}
+    if not flow or not flow.get("data_available"):
+        return out
+    bull = float(flow.get("bullish") or 0)
+    bear = float(flow.get("bearish") or 0)
+    net = round(bull - bear)
+    label = "bull" if net > 8 else "bear" if net < -8 else "mixed"
+    out["flow_available"] = True
+    out["flow_score"] = int(round(float(flow.get("overall") or 50)))
+    out["flow_net"] = net
+    out["flow_dir"] = label
+    if label == "mixed" or not price_dir:
+        out["flow_agree"] = "neutral"
+    else:
+        agrees = ((price_dir == "up" and label == "bull") or
+                  (price_dir == "down" and label == "bear"))
+        out["flow_agree"] = "agrees" if agrees else "disagrees"
+    return out
+
+
+# Options-flow provider, injected once at startup by options_dashboard
+# (so this module doesn't import the UW client directly). Signature:
+# fn(symbol) -> flow dict (the _compute_flow_score payload) or None.
+_FLOW_FN = None
+
+
+def set_flow_provider(fn) -> None:
+    global _FLOW_FN
+    _FLOW_FN = fn
+
+
 def _scan_worker(symbols: list[str]) -> None:
+    flow_fn = _FLOW_FN
     analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:
         if not _OK:
@@ -265,6 +302,19 @@ def _scan_worker(symbols: list[str]) -> None:
                     row = {"symbol": sym}
                     row.update(pm)
                     row.update(fund)
+                    # Options-flow agreement (best-effort; UW client
+                    # self-throttles, so a big list just runs slower).
+                    if flow_fn is not None:
+                        try:
+                            fl = flow_fn(sym)
+                        except Exception:
+                            fl = None
+                        base = pm.get("wtd")
+                        if base is None:
+                            base = pm.get("change")
+                        pdir = ("up" if (base or 0) > 0
+                                else "down" if (base or 0) < 0 else None)
+                        row.update(_flow_metrics(fl, pdir))
                     rows.append(row)
                     done += 1
                     with _LOCK:

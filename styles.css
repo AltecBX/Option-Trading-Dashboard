@@ -8147,3 +8147,30 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wl-sym { font-weight: 700; font-family: var(--font-mono); position: sticky; left: 0; background: var(--bg-2); }
 .wl-co, .wl-txt { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
 .wl-table thead th:first-child { position: sticky; left: 0; background: var(--bg-2); z-index: 1; }
+
+/* ── Pull-to-refresh (installed PWA) ──────────────────────────────────
+   Floating spinner that follows the finger as you pull down from the top
+   of the home-screen app, then spins while the page reloads to the latest
+   version. Only injected in standalone mode (see app.jsx). */
+.ptr-indicator {
+  position: fixed; top: 0; left: 50%; margin-left: -19px;
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card, #11141b);
+  border: 1px solid var(--line, #232733);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transform: translateY(-46px); opacity: 0;
+  z-index: 10000; pointer-events: none;
+}
+.ptr-spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--fg-3, #6b7280);
+  border-top-color: var(--accent, #16a34a);
+  transition: transform 0.15s ease;
+}
+.ptr-indicator.ready .ptr-spinner { transform: rotate(180deg); }
+.ptr-indicator.refreshing .ptr-spinner {
+  border-top-color: var(--accent, #16a34a);
+  animation: ptr-spin 0.7s linear infinite;
+}
+@keyframes ptr-spin { to { transform: rotate(360deg); } }

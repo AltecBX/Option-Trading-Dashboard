@@ -6653,6 +6653,20 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                 except Exception:
                     return []
 
+            # Inject the UW options-flow scorer so the watchlist table can
+            # show flow agreement per symbol. Degrades silently when UW is
+            # off; the UW client self-throttles to stay within the budget.
+            def _wlt_flow(symbol):
+                try:
+                    if _UW_AVAILABLE and _uw_client is not None:
+                        uw = _uw_client.get_client()
+                        if uw is not None:
+                            return _compute_flow_score(uw, symbol, 0.0)
+                except Exception:
+                    return None
+                return None
+
+            _wltable.set_flow_provider(_wlt_flow)
             _wltable.start_scheduler(_wlt_syms)
         except Exception as exc:  # noqa: BLE001
             print(f"[watchlist_table] scheduler start failed: {exc}", file=sys.stderr)
