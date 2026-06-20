@@ -771,6 +771,13 @@ function SwingPatternCard({ apiFetch, ticker }) {
     "Take partial": "warn", "Cover partial": "warn", "Trail only": "warn",
     "Cover fully": "down", "No new trade": "muted",
   };
+  // How each ladder target is derived (shown as a tooltip on the label).
+  const TARGET_BASIS = {
+    conservative: "25th percentile of this stock's past moves from a swing — most moves clear this.",
+    median: "The typical (median) past move projected off the swing price.",
+    aggressive: "75th percentile — only the stronger past moves reached this far.",
+    extreme: "The single LARGEST prior move in the lookback, projected off the swing. An outlier ceiling — rarely repeated, hence the low confidence and 0 matches. Not a base case.",
+  };
 
   const ScoreBar = ({ label, k, score, tone, factors }) => (
     <div className="swing-score">
@@ -866,7 +873,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
               <b>{fmtUsd2(a.from_price)} <small>· {fmtSwingDate(a.from_date)}</small></b></div>
             <div><span>Current price</span><b>{fmtUsd2(a.current_price)}</b></div>
             <div><span><Term k="current_move">Move so far</Term></span>
-              <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active}d</small></b></div>
+              <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active} {a.days_active === 1 ? "day" : "days"}</small></b></div>
             {a.vs_history && (
               <div><span>vs typical move</span>
                 <b>{a.vs_history.pct_of_median_move}% of median</b>
@@ -939,7 +946,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
 
       {/* ── Target ladder ───────────────────────────────────────────────── */}
       {a && a.status === "ok" && (
-        <div className="scan-table-wrap" style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12 }}>
           <div className="swing-subtitle"><Term k="target_ladder">Projected target ladder</Term> — from {a.from_label} {fmtUsd2(a.from_price)}</div>
           {a.key_levels && ((a.key_levels.supports || []).length > 0 || (a.key_levels.resistances || []).length > 0) && (
             <div className="swing-levels">
@@ -953,6 +960,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
               ))}
             </div>
           )}
+          <div className="scan-table-wrap">
           <table className="scan-table swing-table mtable">
             <thead>
               <tr>
@@ -967,16 +975,17 @@ function SwingPatternCard({ apiFetch, ticker }) {
             <tbody>
               {a.targets.map((t, i) => (
                 <tr key={i} className="scan-row">
-                  <td data-label="Target" style={{ textTransform: "capitalize" }}>{t.label}{t.reached ? " ✓" : ""}</td>
+                  <td data-label="Target" style={{ textTransform: "capitalize" }} title={TARGET_BASIS[t.label] || ""}>{t.label}{t.reached ? " ✓" : ""}</td>
                   <td data-label={isUp ? "Upside %" : "Downside %"} className="scan-num">{sgn(isUp ? t.pct_move : -t.pct_move)}{isUp ? t.pct_move : -t.pct_move}%</td>
                   <td data-label="Price" className="scan-num">{fmtUsd2(t.price)}</td>
                   <td data-label="From here" className={`scan-num ${t.reached ? "muted" : dirTone}`}>{t.reached ? "reached" : `${sgn(t.from_here_pct)}${t.from_here_pct}%`}</td>
                   <td data-label="By (est.)" className="scan-num">{fmtSwingDate(t.eta_date)}</td>
-                  <td data-label="Confidence" className={`scan-num ${confTone(t.confidence)}`} title={`Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`}>{t.confidence}</td>
+                  <td data-label="Confidence" className={`scan-num ${confTone(t.confidence)}`} title={`Matched ${t.matched} past move${t.matched === 1 ? "" : "s"} of this size or bigger`}>{t.confidence}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
           {a.confidence && (
             <div className={`swing-confwhy conf-${a.confidence.level}`}>
               <b><Term k="confidence_rating">Confidence: {a.confidence.level}</Term></b>
@@ -991,12 +1000,12 @@ function SwingPatternCard({ apiFetch, ticker }) {
         <div className="swing-plan">
           <div className="swing-subtitle">{a.trade_plan.side === "long" ? "Long" : "Short"} trade plan</div>
           <div className="swing-plan-grid">
-            <div><span>Entry zone</span><b>{fmtUsd2(a.trade_plan.entry_zone[0])} – {fmtUsd2(a.trade_plan.entry_zone[1])}</b></div>
-            <div><span>Invalidation</span><b className="down">{fmtUsd2(a.trade_plan.invalidation)}</b></div>
-            <div><span>Target 1 (median)</span><b className={dirTone}>{fmtUsd2(a.trade_plan.t1)}</b></div>
-            <div><span>Target 2 (stretch)</span><b className={dirTone}>{fmtUsd2(a.trade_plan.t2)}</b></div>
-            <div><span>Extreme</span><b className={dirTone}>{fmtUsd2(a.trade_plan.stretch)}</b></div>
-            <div><span>Holding window</span>
+            <div><span><Term k="trade_entry_zone">Entry zone</Term></span><b>{fmtUsd2(a.trade_plan.entry_zone[0])} – {fmtUsd2(a.trade_plan.entry_zone[1])}</b></div>
+            <div><span><Term k="trade_invalidation">Invalidation</Term></span><b className="down">{fmtUsd2(a.trade_plan.invalidation)}</b></div>
+            <div><span><Term k="trade_t1">Target 1 (median)</Term></span><b className={dirTone}>{fmtUsd2(a.trade_plan.t1)}</b></div>
+            <div><span><Term k="trade_t2">Target 2 (stretch)</Term></span><b className={dirTone}>{fmtUsd2(a.trade_plan.t2)}</b></div>
+            <div><span><Term k="trade_extreme">Extreme</Term></span><b className={dirTone}>{fmtUsd2(a.trade_plan.stretch)}</b></div>
+            <div><span><Term k="trade_holding">Holding window</Term></span>
               {(() => {
                 const hw = a.trade_plan.holding_window || "";
                 const m = /^(.*?)\s*\(through\s*(.+)\)\s*$/.exec(hw);

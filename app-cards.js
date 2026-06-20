@@ -1067,6 +1067,13 @@ function SwingPatternCard({
     "Cover fully": "down",
     "No new trade": "muted"
   };
+  // How each ladder target is derived (shown as a tooltip on the label).
+  const TARGET_BASIS = {
+    conservative: "25th percentile of this stock's past moves from a swing — most moves clear this.",
+    median: "The typical (median) past move projected off the swing price.",
+    aggressive: "75th percentile — only the stronger past moves reached this far.",
+    extreme: "The single LARGEST prior move in the lookback, projected off the swing. An outlier ceiling — rarely repeated, hence the low confidence and 0 matches. Not a base case."
+  };
   const ScoreBar = ({
     label,
     k,
@@ -1191,7 +1198,7 @@ function SwingPatternCard({
     k: "current_move"
   }, "Move so far")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, "d"))), a.vs_history && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
+  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, " ", a.days_active === 1 ? "day" : "days"))), a.vs_history && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
     className: "swing-sub"
   }, "med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d")), a.targets && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Median target"), /*#__PURE__*/React.createElement("b", {
     className: dirTone
@@ -1258,7 +1265,6 @@ function SwingPatternCard({
     tone: "warn",
     factors: a.exhaustion_factors
   }))), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
-    className: "scan-table-wrap",
     style: {
       marginTop: 12
     }
@@ -1282,7 +1288,9 @@ function SwingPatternCard({
     key: "s" + i,
     className: "swing-lvl sup",
     title: `Support · prior swing low ${fmtSwingDate(l.date)}`
-  }, fmtUsd2(l.price), " ", /*#__PURE__*/React.createElement("small", null, l.pct_away, "%")))), /*#__PURE__*/React.createElement("table", {
+  }, fmtUsd2(l.price), " ", /*#__PURE__*/React.createElement("small", null, l.pct_away, "%")))), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table swing-table mtable"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
@@ -1303,7 +1311,8 @@ function SwingPatternCard({
     "data-label": "Target",
     style: {
       textTransform: "capitalize"
-    }
+    },
+    title: TARGET_BASIS[t.label] || ""
   }, t.label, t.reached ? " ✓" : ""), /*#__PURE__*/React.createElement("td", {
     "data-label": isUp ? "Upside %" : "Downside %",
     className: "scan-num"
@@ -1319,8 +1328,8 @@ function SwingPatternCard({
   }, fmtSwingDate(t.eta_date)), /*#__PURE__*/React.createElement("td", {
     "data-label": "Confidence",
     className: `scan-num ${confTone(t.confidence)}`,
-    title: `Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`
-  }, t.confidence))))), a.confidence && /*#__PURE__*/React.createElement("div", {
+    title: `Matched ${t.matched} past move${t.matched === 1 ? "" : "s"} of this size or bigger`
+  }, t.confidence)))))), a.confidence && /*#__PURE__*/React.createElement("div", {
     className: `swing-confwhy conf-${a.confidence.level}`
   }, /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
     k: "confidence_rating"
@@ -1330,15 +1339,27 @@ function SwingPatternCard({
     className: "swing-subtitle"
   }, a.trade_plan.side === "long" ? "Long" : "Short", " trade plan"), /*#__PURE__*/React.createElement("div", {
     className: "swing-plan-grid"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Entry zone"), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.trade_plan.entry_zone[0]), " – ", fmtUsd2(a.trade_plan.entry_zone[1]))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Invalidation"), /*#__PURE__*/React.createElement("b", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "trade_entry_zone"
+  }, "Entry zone")), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.trade_plan.entry_zone[0]), " – ", fmtUsd2(a.trade_plan.entry_zone[1]))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "trade_invalidation"
+  }, "Invalidation")), /*#__PURE__*/React.createElement("b", {
     className: "down"
-  }, fmtUsd2(a.trade_plan.invalidation))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Target 1 (median)"), /*#__PURE__*/React.createElement("b", {
+  }, fmtUsd2(a.trade_plan.invalidation))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "trade_t1"
+  }, "Target 1 (median)")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, fmtUsd2(a.trade_plan.t1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Target 2 (stretch)"), /*#__PURE__*/React.createElement("b", {
+  }, fmtUsd2(a.trade_plan.t1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "trade_t2"
+  }, "Target 2 (stretch)")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, fmtUsd2(a.trade_plan.t2))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Extreme"), /*#__PURE__*/React.createElement("b", {
+  }, fmtUsd2(a.trade_plan.t2))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "trade_extreme"
+  }, "Extreme")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, fmtUsd2(a.trade_plan.stretch))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Holding window"), (() => {
+  }, fmtUsd2(a.trade_plan.stretch))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+    k: "trade_holding"
+  }, "Holding window")), (() => {
     const hw = a.trade_plan.holding_window || "";
     const m = /^(.*?)\s*\(through\s*(.+)\)\s*$/.exec(hw);
     return m ? /*#__PURE__*/React.createElement("b", null, m[1], /*#__PURE__*/React.createElement("small", {

@@ -7824,7 +7824,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .swing-plan-grid > div { display: flex; flex-direction: column; gap: 2px; }
 .swing-plan-grid span { font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3); }
-.swing-plan-grid b { font-family: var(--font-mono); font-size: 16px; white-space: nowrap; }
+.swing-plan-grid b { font-family: var(--font-mono); font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
 .swing-plan-grid .swing-sub { display: block; white-space: nowrap; font-size: 12px; color: var(--fg-3); font-weight: 500; }
 .swing-plan-grid b.up { color: var(--up); }
 .swing-plan-grid b.down { color: var(--down); }

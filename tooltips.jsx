@@ -99,6 +99,12 @@ const GLOSSARY = {
   swing_filters: "Narrow the history table to the kinds of moves you care about — size, duration, volume, catalyst, and structure — so you can study only the setups that match what's happening now.",
   swing_flow: "Today's unusual options flow from Unusual Whales, distilled to a bullish-vs-bearish read with a quality score (trade size + ask-side conviction). When the tape confirms the move's direction it adds to Continuation; when it fades the move it adds to Exhaustion. Quality gates how much it's allowed to count.",
   key_levels: "Horizontal support (prior swing lows) and resistance (prior swing highs) from this stock's own history. Unlike the statistical target ladder, these are the price levels traders actually defend — the move will negotiate the nearest one FIRST. A hold can spark a bounce (double-bottom / double-top); a decisive break on volume opens the next target. The median projection may sit beyond a level, meaning it requires a breakdown/breakout to reach.",
+  trade_entry_zone: "Where to get in: from the swing pivot up to ~3% above it. Ideally enter on a higher-low or a break above the prior day's high with volume.",
+  trade_invalidation: "The line in the sand. A close back through this level (under the swing low for a long, over the swing high for a short) means the setup failed — exit.",
+  trade_t1: "First target: the typical (median) move this stock makes from a swing, projected off the entry. The realistic base-case exit.",
+  trade_t2: "Second target: the 75th-percentile move — only the stronger historical runs reach here. A stretch, not a base case.",
+  trade_extreme: "The single largest prior move in the lookback projected off the swing. An outlier ceiling, rarely repeated — low confidence by design. Don't plan around it.",
+  trade_holding: "How long this stock's moves of this kind usually take (25th–75th percentile of past durations), with the date the window typically closes.",
 };
 
 function Term({ k, children, className = "" }) {
