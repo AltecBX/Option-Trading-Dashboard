@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.74";
+const APP_VERSION = "1.75";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -7014,6 +7014,24 @@ function App() {
           </Tweaks>
         )}
       </main>
+
+      {/* Mobile bottom action bar — thumb-reachable status + quick nav. */}
+      <nav className="mobile-bottombar" aria-label="Quick actions">
+        <button className="mbb-btn" onClick={() => setNavOpen(true)} aria-label="Menu">
+          <span className="mbb-ico">☰</span><span className="mbb-lbl">Menu</span>
+        </button>
+        <div className="mbb-status">
+          <span className="mbb-sym">{ticker}</span>
+          {!loadError && currentPrice != null && (
+            <span className={`mbb-chg ${_mhChg >= 0 ? "up" : "down"}`}>
+              ${Number(currentPrice).toFixed(2)} · {_mhChg >= 0 ? "+" : ""}{_mhChg.toFixed(2)}%
+            </span>
+          )}
+        </div>
+        <button className="mbb-btn" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top">
+          <span className="mbb-ico">↑</span><span className="mbb-lbl">Top</span>
+        </button>
+      </nav>
     </div>
   );
 }

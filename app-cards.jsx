@@ -901,7 +901,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
               ))}
             </div>
           )}
-          <table className="scan-table swing-table">
+          <table className="scan-table swing-table mtable">
             <thead>
               <tr>
                 <th>Target</th>
@@ -915,12 +915,12 @@ function SwingPatternCard({ apiFetch, ticker }) {
             <tbody>
               {a.targets.map((t, i) => (
                 <tr key={i} className="scan-row">
-                  <td style={{ textTransform: "capitalize" }}>{t.label}{t.reached ? " ✓" : ""}</td>
-                  <td className="scan-num">{sgn(isUp ? t.pct_move : -t.pct_move)}{isUp ? t.pct_move : -t.pct_move}%</td>
-                  <td className="scan-num">{fmtUsd2(t.price)}</td>
-                  <td className={`scan-num ${t.reached ? "muted" : dirTone}`}>{t.reached ? "reached" : `${sgn(t.from_here_pct)}${t.from_here_pct}%`}</td>
-                  <td className="scan-num">{fmtSwingDate(t.eta_date)}</td>
-                  <td className={`scan-num ${confTone(t.confidence)}`} title={`Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`}>{t.confidence}</td>
+                  <td data-label="Target" style={{ textTransform: "capitalize" }}>{t.label}{t.reached ? " ✓" : ""}</td>
+                  <td data-label={isUp ? "Upside %" : "Downside %"} className="scan-num">{sgn(isUp ? t.pct_move : -t.pct_move)}{isUp ? t.pct_move : -t.pct_move}%</td>
+                  <td data-label="Price" className="scan-num">{fmtUsd2(t.price)}</td>
+                  <td data-label="From here" className={`scan-num ${t.reached ? "muted" : dirTone}`}>{t.reached ? "reached" : `${sgn(t.from_here_pct)}${t.from_here_pct}%`}</td>
+                  <td data-label="By (est.)" className="scan-num">{fmtSwingDate(t.eta_date)}</td>
+                  <td data-label="Confidence" className={`scan-num ${confTone(t.confidence)}`} title={`Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`}>{t.confidence}</td>
                 </tr>
               ))}
             </tbody>
@@ -1017,7 +1017,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
 
       {histSwings.length > 0 ? (
         <div className="scan-table-wrap" style={{ marginTop: 8 }}>
-          <table className="scan-table swing-table">
+          <table className="scan-table swing-table mtable mtable-hist">
             <thead>
               {tab === "up" ? (
                 <tr>
@@ -1049,25 +1049,25 @@ function SwingPatternCard({ apiFetch, ticker }) {
                         title="Click for what happened before & after this move">
                       {tab === "up" ? (
                         <React.Fragment>
-                          <td><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.low_date)}</td>
-                          <td className="scan-num">{fmtUsd2(s.low_price)}</td>
-                          <td>{fmtSwingDate(s.high_date)}</td>
-                          <td className="scan-num">{fmtUsd2(s.high_price)}</td>
+                          <td data-label="Swing low"><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.low_date)}</td>
+                          <td data-label="Low $" className="scan-num">{fmtUsd2(s.low_price)}</td>
+                          <td data-label="Swing high">{fmtSwingDate(s.high_date)}</td>
+                          <td data-label="High $" className="scan-num">{fmtUsd2(s.high_price)}</td>
                         </React.Fragment>
                       ) : (
                         <React.Fragment>
-                          <td><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.high_date)}</td>
-                          <td className="scan-num">{fmtUsd2(s.high_price)}</td>
-                          <td>{fmtSwingDate(s.low_date)}</td>
-                          <td className="scan-num">{fmtUsd2(s.low_price)}</td>
+                          <td data-label="Swing high"><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.high_date)}</td>
+                          <td data-label="High $" className="scan-num">{fmtUsd2(s.high_price)}</td>
+                          <td data-label="Swing low">{fmtSwingDate(s.low_date)}</td>
+                          <td data-label="Low $" className="scan-num">{fmtUsd2(s.low_price)}</td>
                         </React.Fragment>
                       )}
-                      <td className="scan-num">{s.trading_days}</td>
-                      <td className={`scan-num ${tab === "up" ? "" : "down"}`}>{fmtUsd2(s.dollar_change)}</td>
-                      <td className={`scan-num ${tab === "up" ? "up" : "down"}`}>{s.pct_change}%</td>
-                      <td className="scan-num">{s.avg_daily_pct}%</td>
-                      <td className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
-                      <td className="swing-flagcell">
+                      <td data-label="Days" className="scan-num">{s.trading_days}</td>
+                      <td data-label="$ chg" className={`scan-num ${tab === "up" ? "" : "down"}`}>{fmtUsd2(s.dollar_change)}</td>
+                      <td data-label={tab === "up" ? "% chg" : "% drop"} className={`scan-num ${tab === "up" ? "up" : "down"}`}>{s.pct_change}%</td>
+                      <td data-label="Avg/day" className="scan-num">{s.avg_daily_pct}%</td>
+                      <td data-label="Rhythm" className="scan-num">{s.matches_rhythm ? "✓" : "·"}</td>
+                      <td data-label="Flags" className="swing-flagcell">
                         {s.above_avg_vol && <span title={`Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`}>🔥</span>}
                         {s.broke_resistance && <span title={`Broke prior ${tab === "up" ? "resistance" : "support"}`}>⤴</span>}
                         {s.failed_breakout && <span title="Failed breakout — level didn't hold">⚠</span>}
@@ -1076,7 +1076,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
                     </tr>
                     {open && (
                       <tr className="swing-detailrow">
-                        <td colSpan={10}>
+                        <td colSpan={10} className="mtable-full">
                           <div className="swing-detailgrid">
                             {det.before && <div><span>Before the move</span><b>{det.before}</b></div>}
                             {det.beyond_median && <div><span>Past the median target</span><b>{det.beyond_median}</b></div>}

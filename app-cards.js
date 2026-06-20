@@ -1215,7 +1215,7 @@ function SwingPatternCard({
     className: "swing-lvl sup",
     title: `Support · prior swing low ${fmtSwingDate(l.date)}`
   }, fmtUsd2(l.price), " ", /*#__PURE__*/React.createElement("small", null, l.pct_away, "%")))), /*#__PURE__*/React.createElement("table", {
-    className: "scan-table swing-table"
+    className: "scan-table swing-table mtable"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
   }, isUp ? "Upside" : "Downside", " %"), /*#__PURE__*/React.createElement("th", {
@@ -1232,18 +1232,24 @@ function SwingPatternCard({
     key: i,
     className: "scan-row"
   }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Target",
     style: {
       textTransform: "capitalize"
     }
   }, t.label, t.reached ? " ✓" : ""), /*#__PURE__*/React.createElement("td", {
+    "data-label": isUp ? "Upside %" : "Downside %",
     className: "scan-num"
   }, sgn(isUp ? t.pct_move : -t.pct_move), isUp ? t.pct_move : -t.pct_move, "%"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Price",
     className: "scan-num"
   }, fmtUsd2(t.price)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "From here",
     className: `scan-num ${t.reached ? "muted" : dirTone}`
   }, t.reached ? "reached" : `${sgn(t.from_here_pct)}${t.from_here_pct}%`), /*#__PURE__*/React.createElement("td", {
+    "data-label": "By (est.)",
     className: "scan-num"
   }, fmtSwingDate(t.eta_date)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Confidence",
     className: `scan-num ${confTone(t.confidence)}`,
     title: `Matched ${t.matched} past move${t.matched === 1 ? "" : "s"}`
   }, t.confidence))))), a.confidence && /*#__PURE__*/React.createElement("div", {
@@ -1376,7 +1382,7 @@ function SwingPatternCard({
       marginTop: 8
     }
   }, /*#__PURE__*/React.createElement("table", {
-    className: "scan-table swing-table"
+    className: "scan-table swing-table mtable mtable-hist"
   }, /*#__PURE__*/React.createElement("thead", null, tab === "up" ? /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
     k: "swing_low"
   }, "Swing low")), /*#__PURE__*/React.createElement("th", {
@@ -1423,29 +1429,47 @@ function SwingPatternCard({
       className: `scan-row swing-exrow${open ? " open" : ""}`,
       onClick: () => setOpenRow(open ? null : rk),
       title: "Click for what happened before & after this move"
-    }, tab === "up" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    }, tab === "up" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", {
+      "data-label": "Swing low"
+    }, /*#__PURE__*/React.createElement("span", {
       className: "swing-caret"
     }, open ? "▾" : "▸"), " ", fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Low $",
       className: "scan-num"
-    }, fmtUsd2(s.low_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
+    }, fmtUsd2(s.low_price)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Swing high"
+    }, fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "High $",
       className: "scan-num"
-    }, fmtUsd2(s.high_price))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    }, fmtUsd2(s.high_price))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", {
+      "data-label": "Swing high"
+    }, /*#__PURE__*/React.createElement("span", {
       className: "swing-caret"
     }, open ? "▾" : "▸"), " ", fmtSwingDate(s.high_date)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "High $",
       className: "scan-num"
-    }, fmtUsd2(s.high_price)), /*#__PURE__*/React.createElement("td", null, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
+    }, fmtUsd2(s.high_price)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Swing low"
+    }, fmtSwingDate(s.low_date)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Low $",
       className: "scan-num"
     }, fmtUsd2(s.low_price))), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Days",
       className: "scan-num"
     }, s.trading_days), /*#__PURE__*/React.createElement("td", {
+      "data-label": "$ chg",
       className: `scan-num ${tab === "up" ? "" : "down"}`
     }, fmtUsd2(s.dollar_change)), /*#__PURE__*/React.createElement("td", {
+      "data-label": tab === "up" ? "% chg" : "% drop",
       className: `scan-num ${tab === "up" ? "up" : "down"}`
     }, s.pct_change, "%"), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Avg/day",
       className: "scan-num"
     }, s.avg_daily_pct, "%"), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Rhythm",
       className: "scan-num"
     }, s.matches_rhythm ? "✓" : "·"), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Flags",
       className: "swing-flagcell"
     }, s.above_avg_vol && /*#__PURE__*/React.createElement("span", {
       title: `Above-average volume${s.vol_ratio ? ` (${s.vol_ratio}x)` : ""}`
@@ -1458,7 +1482,8 @@ function SwingPatternCard({
     }, "⚡"))), open && /*#__PURE__*/React.createElement("tr", {
       className: "swing-detailrow"
     }, /*#__PURE__*/React.createElement("td", {
-      colSpan: 10
+      colSpan: 10,
+      className: "mtable-full"
     }, /*#__PURE__*/React.createElement("div", {
       className: "swing-detailgrid"
     }, det.before && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Before the move"), /*#__PURE__*/React.createElement("b", null, det.before)), det.beyond_median && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Past the median target"), /*#__PURE__*/React.createElement("b", null, det.beyond_median)), det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "After the ", tab === "up" ? "high" : "low"), /*#__PURE__*/React.createElement("b", null, det.after)), det.hold_vs_target && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Sell at target vs hold"), /*#__PURE__*/React.createElement("b", null, det.hold_vs_target)), !det.before && !det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Detail"), /*#__PURE__*/React.createElement("b", null, "Not enough surrounding history for this swing."))))));

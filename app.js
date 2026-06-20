@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.74";
+const APP_VERSION = "1.75";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -8613,7 +8613,35 @@ function App() {
       value: "swapped",
       label: "Swapped"
     }]
-  })))));
+  })))), /*#__PURE__*/React.createElement("nav", {
+    className: "mobile-bottombar",
+    "aria-label": "Quick actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "mbb-btn",
+    onClick: () => setNavOpen(true),
+    "aria-label": "Menu"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mbb-ico"
+  }, "☰"), /*#__PURE__*/React.createElement("span", {
+    className: "mbb-lbl"
+  }, "Menu")), /*#__PURE__*/React.createElement("div", {
+    className: "mbb-status"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mbb-sym"
+  }, ticker), !loadError && currentPrice != null && /*#__PURE__*/React.createElement("span", {
+    className: `mbb-chg ${_mhChg >= 0 ? "up" : "down"}`
+  }, "$", Number(currentPrice).toFixed(2), " · ", _mhChg >= 0 ? "+" : "", _mhChg.toFixed(2), "%")), /*#__PURE__*/React.createElement("button", {
+    className: "mbb-btn",
+    onClick: () => window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    }),
+    "aria-label": "Back to top"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mbb-ico"
+  }, "↑"), /*#__PURE__*/React.createElement("span", {
+    className: "mbb-lbl"
+  }, "Top"))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)));
 })();

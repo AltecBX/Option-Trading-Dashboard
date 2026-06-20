@@ -7983,3 +7983,63 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .mh-section { display: none; }  /* keep header to ticker+price+actions */
   .swing-decision-action { font-size: 16px; }
 }
+
+/* ── Phase 2: wide tables → stacked cards on mobile ────────────────────── */
+@media (max-width: 620px) {
+  .mtable { border-collapse: separate; }
+  .mtable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .mtable, .mtable tbody { display: block; width: 100%; }
+  .mtable tr { display: block; }
+  /* Each data row becomes a card. */
+  .mtable tbody tr.scan-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;
+    border: 1px solid var(--line); border-radius: 11px;
+    background: var(--bg-2); padding: 10px 12px; margin-bottom: 8px;
+  }
+  .mtable td {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    border: none !important; padding: 2px 0 !important; text-align: right !important;
+    white-space: normal !important; font-size: 13.5px;
+  }
+  .mtable td::before {
+    content: attr(data-label); color: var(--fg-3); font-weight: 600;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+    text-align: left; white-space: nowrap;
+  }
+  .mtable td[data-label]:first-child { grid-column: 1 / -1; font-weight: 700; font-size: 14.5px; }
+  .mtable td[data-label]:first-child::before { content: ""; }
+  .mtable .swing-flagcell { grid-column: 1 / -1; justify-content: flex-start; }
+  /* Detail / full-width rows stay full-width with no label. */
+  .mtable td.mtable-full { display: block; grid-column: 1 / -1; text-align: left !important; }
+  .mtable td.mtable-full::before { content: ""; display: none; }
+  .mtable-hist tbody tr.swing-detailrow { margin-top: -6px; margin-bottom: 10px; }
+  /* Within a card, don't let the wrapping container force horizontal scroll. */
+  .scan-table-wrap { overflow-x: visible; }
+}
+
+/* ── Phase 2: sticky bottom action bar (mobile only) ───────────────────── */
+.mobile-bottombar { display: none; }
+@media (max-width: 900px) {
+  .mobile-bottombar {
+    display: flex; align-items: center; gap: 8px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 240;
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in oklch, var(--bg) 92%, transparent);
+    backdrop-filter: blur(10px) saturate(1.1);
+    border-top: 1px solid var(--line);
+  }
+  .mbb-btn {
+    flex: 0 0 auto; display: inline-flex; flex-direction: column; align-items: center; gap: 1px;
+    min-width: 52px; min-height: 44px; padding: 4px 8px;
+    background: none; border: none; color: var(--fg-2); cursor: pointer;
+  }
+  .mbb-btn:active { color: var(--fg); }
+  .mbb-ico { font-size: 18px; line-height: 1; }
+  .mbb-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-3); }
+  .mbb-status { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+  .mbb-sym { font-weight: 800; font-size: 14px; }
+  .mbb-chg { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+  .mbb-chg.up { color: var(--up); } .mbb-chg.down { color: var(--down); }
+  /* Keep the bottom bar from covering the last cards. */
+  .shell { padding-bottom: 76px !important; }
+}
