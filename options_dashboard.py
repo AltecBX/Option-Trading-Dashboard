@@ -6692,6 +6692,16 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                 return None
 
             _wltable.set_flow_provider(_wlt_flow)
+
+            def _wlt_notify(title, message):
+                # Morning Prime-setup push; no-op unless a provider is set up.
+                if _push_configured():
+                    try:
+                        _push_notify(title, message, priority=0)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[watchlist_table] push failed: {e}", file=sys.stderr)
+
+            _wltable.set_notify_provider(_wlt_notify)
             _wltable.start_scheduler(_wlt_syms)
         except Exception as exc:  # noqa: BLE001
             print(f"[watchlist_table] scheduler start failed: {exc}", file=sys.stderr)
