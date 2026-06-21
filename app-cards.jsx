@@ -1952,6 +1952,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   const [fIndustry, setFIndustry] = useState("all");
   const [q, setQ] = useState("");
   const [fMcap, setFMcap] = useState("all");
+  const [primeOnly, setPrimeOnly] = useState(false);  // confluence shortlist
   const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
   const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
   const pollRef = useRef(null);
@@ -1987,6 +1988,15 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     !removed.has(r.symbol) && (!wlSet || wlSet.has(String(r.symbol).toUpperCase()))
   )), [allRows, removed, wlSet]);
   const mcapPass = (mc) => (MCAP_PRED[fMcap] || MCAP_PRED.all)(mc || 0);
+  // Prime setup = the two independent lenses agree AND the move is early:
+  // options-flow Edge direction == price-swing direction, swing just starting.
+  // That's the highest-conviction "beginning of the move" trade.
+  const isPrime = (r) => {
+    if (r.swing_stage !== "early" || !r.swing_dir) return false;
+    return (r.swing_dir === "long" && r.edge_dir === "long")
+        || (r.swing_dir === "short" && r.edge_dir === "short");
+  };
+  const primeCount = useMemo(() => rows.filter(isPrime).length, [rows]);
   const scanning = !!status.scanning;
   const sectors = (board && board.sectors) || [];
   const industries = (board && board.industries) || [];
@@ -2033,6 +2043,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
 
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
+      if (primeOnly && !isPrime(r)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
       if (fMcap !== "all" && !mcapPass(r.market_cap)) return false;
@@ -2048,7 +2059,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, fMcap, q, sort]);
+  }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly]);
 
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
@@ -2255,6 +2266,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           <select className="sb-select" value={fMcap} onChange={e => setFMcap(e.target.value)} title="Filter by market cap (Finviz-style buckets)">
             {MCAP_BUCKETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
+          <button type="button" className={`wl-prime-btn${primeOnly ? " on" : ""}`} onClick={() => setPrimeOnly(v => !v)}
+                  title="Prime setups: options flow and price-swing agree on direction AND the move is just starting — your highest-conviction, beginning-of-move trades.">
+            ★ Prime{primeCount ? ` (${primeCount})` : ""}
+          </button>
           <span className="muted" style={{ fontSize: 12 }}>{view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`}</span>
         </div>
       )}
@@ -2309,7 +2324,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                 <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                     onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, symbol: r.symbol }); }}
                     title={`Open ${r.symbol} · right-click to remove`}>
-                  <td className="wl-sym">{r.symbol}</td>
+                  <td className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}</td>
                   <td className="wl-co">{r.company || "—"}</td>
                   <td className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>
                   <td className="wl-txt" title={r.edge_tip || ""}>{setupCell(r)}</td>
