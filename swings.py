@@ -1039,33 +1039,50 @@ def _signal_note(direction, hold, maturity, exh, cont, remaining, median_t):
 # ─────────────────────────────── entrypoint ────────────────────────────────
 
 def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
-            min_move_pct: float = 15.0, flow: dict | None = None) -> dict:
+            min_move_pct: float = 15.0, flow: dict | None = None,
+            bars: list | None = None) -> dict:
     symbol = symbol.upper().strip()
-    if not _OK:
-        return {"symbol": symbol, "error": "yfinance unavailable"}
-    try:
-        hist = yf.Ticker(symbol).history(period=period, interval="1d")
-    except Exception as exc:  # noqa: BLE001
-        return {"symbol": symbol, "error": f"history fetch failed: {exc}"}
-    if hist is None or len(hist) < 20:
-        return {"symbol": symbol, "error": "not enough price history"}
+    if bars:
+        # Caller supplied OHLC (the app's Schwab-first, cached daily history) —
+        # skip a fresh yfinance 1y download, which is the slow part of opening
+        # the Patterns tab. Each bar: {date, open, high, low, close, volume}.
+        rows = [b for b in bars
+                if b.get("open") is not None and b.get("high") is not None
+                and b.get("low") is not None and b.get("close") is not None]
+        if len(rows) < 20:
+            return {"symbol": symbol, "error": "not enough price history"}
+        opens = [float(b["open"]) for b in rows]
+        highs = [float(b["high"]) for b in rows]
+        lows = [float(b["low"]) for b in rows]
+        closes = [float(b["close"]) for b in rows]
+        vols = [float(b.get("volume") or 0.0) for b in rows]
+        dates = [str(b["date"])[:10] for b in rows]
+    else:
+        if not _OK:
+            return {"symbol": symbol, "error": "yfinance unavailable"}
+        try:
+            hist = yf.Ticker(symbol).history(period=period, interval="1d")
+        except Exception as exc:  # noqa: BLE001
+            return {"symbol": symbol, "error": f"history fetch failed: {exc}"}
+        if hist is None or len(hist) < 20:
+            return {"symbol": symbol, "error": "not enough price history"}
 
-    # yfinance can return a trailing NaN bar for the in-progress / latest
-    # session. Drop any row missing OHLC so a NaN doesn't cascade into the
-    # current-price and move math (which would falsely read as "exhausted").
-    try:
-        hist = hist.dropna(subset=["Open", "High", "Low", "Close"])
-    except Exception:
-        pass
-    if hist is None or len(hist) < 20:
-        return {"symbol": symbol, "error": "not enough clean price history"}
+        # yfinance can return a trailing NaN bar for the in-progress / latest
+        # session. Drop any row missing OHLC so a NaN doesn't cascade into the
+        # current-price and move math (which would falsely read as "exhausted").
+        try:
+            hist = hist.dropna(subset=["Open", "High", "Low", "Close"])
+        except Exception:
+            pass
+        if hist is None or len(hist) < 20:
+            return {"symbol": symbol, "error": "not enough clean price history"}
 
-    opens = [float(x) for x in hist["Open"]]
-    highs = [float(x) for x in hist["High"]]
-    lows = [float(x) for x in hist["Low"]]
-    closes = [float(x) for x in hist["Close"]]
-    vols = [float(x) for x in hist["Volume"]] if "Volume" in hist else [0.0] * len(closes)
-    dates = [d.strftime("%Y-%m-%d") for d in hist.index]
+        opens = [float(x) for x in hist["Open"]]
+        highs = [float(x) for x in hist["High"]]
+        lows = [float(x) for x in hist["Low"]]
+        closes = [float(x) for x in hist["Close"]]
+        vols = [float(x) for x in hist["Volume"]] if "Volume" in hist else [0.0] * len(closes)
+        dates = [d.strftime("%Y-%m-%d") for d in hist.index]
 
     pivots = _zigzag(highs, lows, pct)
 
