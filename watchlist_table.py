@@ -158,9 +158,30 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
     rsi = _rsi(closes)
     chg = (round((closes[-1] - closes[-2]) / closes[-2] * 100.0, 2)
            if len(closes) >= 2 and closes[-2] else None)
+    # Realized-volatility regime: 20d annualized vol, ranked 0-100 vs its own
+    # 1y history. High = elevated vol (option premium likely rich → favor
+    # selling); low = calm/cheap (favor buying / directional). Free from OHLC.
+    rvol = rvol_rank = None
+    if len(closes) >= 45:
+        try:
+            arr = np.array(closes, dtype=float)
+            rets = np.diff(np.log(arr))
+            win = 20
+            series = [float(np.std(rets[i - win:i], ddof=1) * np.sqrt(252) * 100.0)
+                      for i in range(win, len(rets) + 1)]
+            series = [s for s in series if s == s]   # drop NaN
+            if series:
+                cur = series[-1]
+                lo, hi = min(series), max(series)
+                rvol = round(cur, 1)
+                rvol_rank = int(round((cur - lo) / (hi - lo) * 100.0)) if hi > lo else 50
+        except Exception:
+            rvol = rvol_rank = None
     return {
         "last": round(last, 2),
         "change": chg,
+        "rvol": rvol,
+        "rvol_rank": rvol_rank,
         "rsi": round(rsi, 1) if rsi is not None else None,
         "rel_vol": round(vols[-1] / avgvol, 2) if (avgvol and vols and vols[-1]) else None,
         "from_ma20": round((last - ma20) / ma20 * 100.0, 1) if ma20 else None,

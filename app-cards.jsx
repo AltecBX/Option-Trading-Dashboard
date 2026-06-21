@@ -2048,6 +2048,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "prem_sell", label: "Premium" },
     { k: "swing_dir", label: "Swing" }, { k: "swing_stage", label: "Timing" },
     { k: "tk_ev", label: "EV", num: true }, { k: "tk_size", label: "Size", num: true },
+    { k: "rvol_rank", label: "Vol", num: true },
     { k: "last", label: "Price", num: true }, { k: "market_cap", label: "Mkt Cap", num: true },
     { k: "pe", label: "P/E", num: true }, { k: "forward_pe", label: "Fwd P/E", num: true },
     { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
@@ -2236,6 +2237,17 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     const cls = r.tk_ev >= 0.2 ? "up" : r.tk_ev < 0 ? "down" : "muted";
     return <b className={cls} title={`Expected value per trade. R:R ${r.tk_rr}, win-rate ${r.tk_wr}% → ${r.tk_ev >= 0 ? "+" : ""}${r.tk_ev}R expected`}>{r.tk_ev >= 0 ? "+" : ""}{r.tk_ev}R</b>;
   };
+  // Realized-volatility regime → buy-vs-sell-premium read.
+  const volCell = (r) => {
+    if (r.rvol_rank == null) return <span className="muted">—</span>;
+    const hot = r.rvol_rank >= 70, cold = r.rvol_rank <= 30;
+    const cls = hot ? "down" : cold ? "up" : "muted";
+    const tip = `Realized-vol rank ${r.rvol_rank} (20d vol ${r.rvol}% vs its own year). `
+      + (hot ? "Elevated — premium likely rich → favor SELLING premium (credit spreads / CSPs)."
+        : cold ? "Calm/cheap — favor BUYING premium (long calls/puts) or directional shares."
+        : "Mid — no strong premium edge either way.");
+    return <span className={cls} title={tip}>{r.rvol_rank}{hot ? " ↑" : cold ? " ↓" : ""}</span>;
+  };
   // Risk-based position size for the current account / risk-per-trade.
   const sizeCell = (r) => {
     if (r.tk_size == null) return <span className="muted">—</span>;
@@ -2402,6 +2414,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   <td className="wl-txt">{timingCell(r)}</td>
                   <td className="scan-num">{evCell(r)}</td>
                   <td className="scan-num">{sizeCell(r)}</td>
+                  <td className="scan-num">{volCell(r)}</td>
                   <td className="scan-num">{fmtUsd(r.last, 2)}</td>
                   <td className="scan-num">{fmtMktCap(r.market_cap)}</td>
                   <td className="scan-num">{r.pe != null ? r.pe : "—"}</td>
