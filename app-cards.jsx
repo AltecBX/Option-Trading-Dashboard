@@ -1563,7 +1563,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
   );
 }
 
-function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
+function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, watchlistSymbols }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const [sort, setSort] = useState({ key: "edge", dir: "desc" });
@@ -1572,6 +1572,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
   const [fSector, setFSector] = useState("all");
   const [fIndustry, setFIndustry] = useState("all");
   const [q, setQ] = useState("");
+  const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
+  const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
   const pollRef = useRef(null);
 
   const load = async () => {
@@ -1637,6 +1639,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
 
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
+      if (removed.has(r.symbol)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
       if (q && !`${r.symbol} ${r.company || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
@@ -1651,7 +1654,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, q, sort]);
+  }, [rows, fSector, fIndustry, q, sort, removed]);
 
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
@@ -1662,6 +1665,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
   const groups = useMemo(() => {
     if (view === "stocks") return [];
     const base = rows.filter(r => {
+      if (removed.has(r.symbol)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
       return true;
@@ -1670,10 +1674,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
     base.forEach(r => {
       const name = r[groupKey] || "—";
       let g = map.get(name);
-      if (!g) { g = { name, stocks: 0, withFlow: 0, nBull: 0, nBear: 0, bull: 0,
+      if (!g) { g = { name, stocks: 0, withFlow: 0, mcap: 0, nBull: 0, nBear: 0, bull: 0,
                       bear: 0, net: 0, askC: 0, askP: 0, cSwp: 0, pSwp: 0, alerts: 0 };
                 map.set(name, g); }
       g.stocks++;
+      g.mcap += r.market_cap || 0;
       if (r.flow_available) {
         g.withFlow++;
         g.bull += r.call_prem || 0; g.bear += r.put_prem || 0;
@@ -1695,10 +1700,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
       return (av - bv) * mul;
     });
     return arr;
-  }, [rows, view, groupKey, fSector, fIndustry, gsort]);
+  }, [rows, view, groupKey, fSector, fIndustry, gsort, removed]);
   const GCOLS = [
     { k: "name", label: view === "sectors" ? "Sector" : "Industry" },
     { k: "stocks", label: "Stocks", num: true },
+    { k: "mcap", label: "Mkt Cap", num: true },
     { k: "nBull", label: "Bull #", num: true }, { k: "nBear", label: "Bear #", num: true },
     { k: "bull", label: "Bull $", num: true }, { k: "bear", label: "Bear $", num: true },
     { k: "net", label: "Net $", num: true }, { k: "pc", label: "P/C", num: true },
@@ -1713,6 +1719,26 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
     else setFIndustry(name === "—" ? "all" : name);
     setView("stocks");
   };
+  // Right-click delete: hide the row immediately and remove it from the
+  // (server-synced) watchlist via the parent handler.
+  const doRemove = (sym) => {
+    setRemoved(prev => { const n = new Set(prev); n.add(sym); return n; });
+    if (onRemoveSymbol) onRemoveSymbol(sym);
+    setCtx(null);
+  };
+  useEffect(() => {
+    if (!ctx) return undefined;
+    const close = () => setCtx(null);
+    const onKey = (e) => { if (e.key === "Escape") setCtx(null); };
+    document.addEventListener("click", close);
+    document.addEventListener("scroll", close, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [ctx]);
 
   const pctCls = (v) => v == null ? "" : v >= 0 ? "up" : "down";
   const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
@@ -1805,7 +1831,16 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
           <select className="sb-select" value={fSector} onChange={e => setFSector(e.target.value)}>
             <option value="all">All sectors</option>{sectors.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select className="sb-select" value={fIndustry} onChange={e => setFIndustry(e.target.value)}>
+          <select className="sb-select" value={fIndustry} onChange={e => {
+            const ind = e.target.value;
+            setFIndustry(ind);
+            // Auto-select the parent sector so the Sector filter reflects the
+            // industry you picked (an industry lives in exactly one sector).
+            if (ind !== "all") {
+              const row = rows.find(r => r.industry === ind && r.sector);
+              if (row) setFSector(row.sector);
+            }
+          }}>
             <option value="all">All industries</option>{industryOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span className="muted" style={{ fontSize: 12 }}>{view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`}</span>
@@ -1813,7 +1848,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
       )}
       {view !== "stocks" ? (
         groups.length > 0 ? (
-          <div className="scan-table-wrap" style={{ marginTop: 10 }}>
+          <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }}>
             <table className="scan-table wl-table">
               <thead><tr>
                 {GCOLS.map(c => (
@@ -1828,6 +1863,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
                   <tr key={g.name} className="scan-row wl-row" onClick={() => drillGroup(g.name)} title={`Show ${g.name} stocks`}>
                     <td className="wl-co">{g.name}</td>
                     <td className="scan-num">{g.stocks}{g.withFlow < g.stocks ? <span className="muted"> ({g.withFlow})</span> : ""}</td>
+                    <td className="scan-num">{fmtMktCap(g.mcap)}</td>
                     <td className="scan-num up">{g.nBull || "—"}</td>
                     <td className="scan-num down">{g.nBear || "—"}</td>
                     <td className="scan-num up">{prem$(g.bull)}</td>
@@ -1846,7 +1882,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
           </div>
         ) : (!scanning && status.last_scan && <div className="ab-empty">No flow data to aggregate yet — run a scan.</div>)
       ) : filtered.length > 0 ? (
-        <div className="scan-table-wrap" style={{ marginTop: 10 }}>
+        <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }}>
           <table className="scan-table wl-table">
             <thead><tr>
               {COLS.map(c => (
@@ -1858,7 +1894,9 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
             </tr></thead>
             <tbody>
               {filtered.map(r => (
-                <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)} title={`Open ${r.symbol}`}>
+                <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                    onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, symbol: r.symbol }); }}
+                    title={`Open ${r.symbol} · right-click to remove`}>
                   <td className="wl-sym">{r.symbol}</td>
                   <td className="wl-co">{r.company || "—"}</td>
                   <td className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>
@@ -1903,6 +1941,14 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market }) {
           </table>
         </div>
       ) : (!scanning && status.last_scan && <div className="ab-empty">No stocks match these filters.</div>)}
+      {ctx && (
+        <div className="wl-ctx" onClick={e => e.stopPropagation()}
+             style={{ left: Math.min(ctx.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 240), top: ctx.y }}>
+          <div className="wl-ctx-head">{ctx.symbol}</div>
+          <button type="button" onClick={() => { if (onSwitchTicker) onSwitchTicker(ctx.symbol); setCtx(null); }}>Open {ctx.symbol}</button>
+          <button type="button" className="wl-ctx-danger" onClick={() => doRemove(ctx.symbol)}>Remove from watchlist</button>
+        </div>
+      )}
     </div>
   );
 }
