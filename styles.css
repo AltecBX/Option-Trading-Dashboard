@@ -8226,3 +8226,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wl-ctx button:hover { background: color-mix(in oklch, var(--accent) 16%, transparent); }
 .wl-ctx button.wl-ctx-danger { color: #ff6b6b; }
 .wl-ctx button.wl-ctx-danger:hover { background: color-mix(in oklch, #ff6b6b 16%, transparent); }
+
+/* Draggable top tabs (reorderable, order saved globally). */
+.tab-bar .tab-btn { cursor: pointer; }
+.tab-bar .tab-btn.dragging { opacity: .45; }
+.tab-bar .tab-btn.drop-target { box-shadow: inset 2px 0 0 var(--accent); }

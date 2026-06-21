@@ -3649,6 +3649,9 @@ from storage import (  # noqa: F401
     _load_watchlist,
     _save_watchlist,
     _validate_watchlist_payload,
+    _load_prefs,
+    _save_prefs,
+    _validate_prefs_payload,
 )
 
 
@@ -4034,6 +4037,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/prefs":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 100_000:
+                    raise ValueError("invalid content length")
+                raw = self.rfile.read(length)
+                payload = json.loads(raw.decode("utf-8"))
+                clean = _validate_prefs_payload(payload)
+                if clean is None:
+                    raise ValueError("malformed prefs payload")
+                if not _save_prefs(clean):
+                    raise RuntimeError("save failed")
+                self._send_json({"ok": True})
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
@@ -4474,6 +4493,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/prefs":
+            try:
+                self._send_json(_load_prefs())
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
             return

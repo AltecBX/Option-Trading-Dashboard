@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.97";
+const APP_VERSION = "1.98";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -326,6 +326,46 @@ function App() {
       return "trade";
     }
   });
+  // Custom top-tab order, saved globally (server-side) so it's the same on
+  // every device. Loaded from /api/prefs on mount; unknown ids are dropped
+  // and any newly-shipped tabs are appended so nothing disappears.
+  const [tabOrder, setTabOrder] = useState(() => TABS.map(t => t.id));
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/prefs");
+        if (!r.ok || cancelled) return;
+        const p = await r.json();
+        const saved = Array.isArray(p && p.tab_order) ? p.tab_order : [];
+        const known = new Set(TABS.map(t => t.id));
+        const ordered = saved.filter(id => known.has(id));
+        for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
+        if (ordered.length && !cancelled) setTabOrder(ordered);
+      } catch (_) {/* fall back to default order */}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const saveTabOrder = order => {
+    setTabOrder(order);
+    try {
+      apiFetch("/api/prefs", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          tab_order: order
+        })
+      }).catch(() => {});
+    } catch (_) {}
+  };
+  const orderedTabs = useMemo(() => {
+    const byId = Object.fromEntries(TABS.map(t => [t.id, t]));
+    return tabOrder.map(id => byId[id]).filter(Boolean);
+  }, [tabOrder]);
   // Per-tab scroll memory. Switching tabs used to jump to the top every
   // time. Instead, save where you were on the tab you are leaving and
   // restore where you were on the tab you are entering. Panels stay
@@ -1104,9 +1144,10 @@ function App() {
   const removeFromWatchlist = React.useCallback(symbol => {
     if (!symbol) return;
     const sym = String(symbol).toUpperCase();
+    watchlistDirtyRef.current = true;
     setWatchlistData(prev => ({
       ...prev,
-      symbols: prev.symbols.filter(s => s.symbol !== sym)
+      symbols: prev.symbols.filter(s => String(s.symbol).toUpperCase() !== sym)
     }));
   }, []);
 
@@ -1626,7 +1667,7 @@ function App() {
         dy = tch.clientY - sy;
       if (Date.now() - st > 600) return;
       if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
-      const tabs = window.TABS || [];
+      const tabs = orderedTabs.length ? orderedTabs : window.TABS || [];
       const idx = tabs.findIndex(t => t.id === activeTab);
       const next = dx < 0 ? idx + 1 : idx - 1;
       if (idx < 0 || next < 0 || next >= tabs.length) return;
@@ -1642,7 +1683,7 @@ function App() {
       document.removeEventListener("touchstart", onStart);
       document.removeEventListener("touchend", onEnd);
     };
-  }, [activeTab, changeTab]);
+  }, [activeTab, changeTab, orderedTabs]);
 
   // Pull-to-refresh for the installed PWA (home-screen app). In standalone
   // mode there's no browser chrome, so the native pull-to-refresh is gone.
@@ -2980,6 +3021,8 @@ function App() {
     active: activeTab,
     onChange: changeTab,
     ticker: ticker,
+    tabs: orderedTabs,
+    onReorder: saveTabOrder,
     earnDate: loadError ? null : current.next_earnings,
     earnDays: loadError ? null : current.days_to_earnings
   }), /*#__PURE__*/React.createElement("aside", {

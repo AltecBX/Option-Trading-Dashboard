@@ -413,3 +413,54 @@ def _validate_watchlist_payload(data) -> dict | None:
         "symbols": out_syms,
         "tag_order": tag_order,
     }
+
+
+# ── UI preferences (v1.98) ─────────────────────────────────────────
+# Small server-side key/value store for cross-device UI preferences that
+# aren't part of the watchlist — currently the user's custom top-tab
+# order. Same atomic-write + survives-upgrades semantics as the watchlist.
+_PREFS_PATH = _STABLE_DIR / "ui_prefs.json"
+
+
+def _load_prefs() -> dict:
+    if not _PREFS_PATH.exists():
+        return {"version": 1, "tab_order": []}
+    try:
+        data = json.loads(_PREFS_PATH.read_text())
+        return data if isinstance(data, dict) else {"version": 1, "tab_order": []}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[prefs] load failed: {exc}", file=sys.stderr)
+        return {"version": 1, "tab_order": []}
+
+
+def _save_prefs(data: dict) -> bool:
+    try:
+        tmp = _PREFS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(_PREFS_PATH)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[prefs] save failed: {exc}", file=sys.stderr)
+        try:
+            if tmp.exists(): tmp.unlink()
+        except Exception: pass
+        return False
+
+
+def _validate_prefs_payload(data) -> dict | None:
+    """Sanitize posted UI prefs. Only known keys are kept. tab_order is a
+    short list of slug-like tab ids."""
+    if not isinstance(data, dict):
+        return None
+    tab_order = []
+    raw = data.get("tab_order")
+    if isinstance(raw, list):
+        seen = set()
+        for t in raw[:40]:
+            if isinstance(t, str):
+                s = t.strip().lower()
+                if s and len(s) <= 24 and s not in seen and all(c.isalnum() or c in "-_" for c in s):
+                    seen.add(s)
+                    tab_order.append(s)
+    return {"version": 1, "tab_order": tab_order}
+
