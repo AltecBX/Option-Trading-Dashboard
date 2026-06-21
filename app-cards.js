@@ -1680,6 +1680,380 @@ function SwingChart({
     className: "swing-chart-hint"
   }, "Tap a candle near a swing to open its row · tap a table row to highlight + zoom to that move · Reset = 6-month view"));
 }
+
+// Forward-looking swing projection, derived entirely from the analysis the
+// backend already returns (targets, rhythm percentiles, continuation/
+// exhaustion scores, structural levels) plus the completed swing list — no
+// hardcoded predictions. Adds the pieces not already on the card: Fibonacci
+// pullback/bounce zones, the 3 most-similar past moves + what followed, and
+// three probability-weighted forward paths.
+function computeSwingPrediction(data) {
+  const a = data && data.analysis;
+  if (!a || a.status !== "ok" || a.current_price == null) return null;
+  const up = a.direction === "up";
+  const fromP = a.from_price,
+    extP = a.extreme_price;
+  const vh = a.vs_history || {};
+  const levels = a.key_levels || {};
+  const tp = a.trade_plan || {};
+  const inval = tp.invalidation != null ? tp.invalidation : null;
+  const completed = up ? data.swings || [] : data.down_swings || [];
+  const opp = up ? data.down_swings || [] : data.swings || [];
+  const nSw = Math.max(1, completed.length);
+  const r2 = x => Math.round(x * 100) / 100;
+  const curAbs = Math.abs(a.current_move_pct || 0);
+  const days = a.days_active || 0;
+  const median = arr => {
+    const v = arr.filter(x => x != null).slice().sort((x, y) => x - y);
+    if (!v.length) return 0;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  };
+
+  // 1 — current move read
+  const moveRead = {
+    dir: up ? "Up" : "Down",
+    fromLabel: a.from_label,
+    fromDate: a.from_date,
+    pct: a.current_move_pct,
+    days,
+    perDay: r2(days ? curAbs / days : 0),
+    typicalPct: vh.median_pct,
+    typicalDays: vh.median_days,
+    maturity: a.maturity,
+    pctOfMedian: vh.pct_of_median_move,
+    signal: a.signal_note
+  };
+
+  // 2 — projected targets (probability = share of past swings that ran this far)
+  const tgts = (a.targets || []).map(t => ({
+    label: t.label,
+    price: t.price,
+    fromPct: t.from_here_pct,
+    reached: t.reached,
+    eta: t.eta_date,
+    prob: Math.min(100, Math.round((t.matched || 0) / nSw * 100)),
+    conf: t.confidence
+  }));
+
+  // 3 — pullback / bounce zones (Fibonacci retracement of the live move)
+  const span = Math.abs(extP - fromP);
+  const band = (lo, hi) => {
+    const x = up ? [extP - span * hi, extP - span * lo] : [extP + span * lo, extP + span * hi];
+    return [r2(Math.min(x[0], x[1])), r2(Math.max(x[0], x[1]))];
+  };
+  const pullback = span > 0 ? {
+    shallow: band(0.236, 0.382),
+    normal: band(0.382, 0.618),
+    deep: band(0.618, 0.786),
+    invalidation: inval
+  } : null;
+
+  // 4 — continuation / exhaustion scores + reasons
+  const scores = {
+    continuation: a.continuation_score,
+    contFactors: (a.continuation_factors || []).slice(0, 4),
+    exhaustion: a.exhaustion_score,
+    exhFactors: (a.exhaustion_factors || []).slice(0, 4)
+  };
+
+  // 5 — the 3 most-similar completed moves + what happened next
+  const medPct = median(completed.map(s => Math.abs(s.pct_change))) || 1;
+  const medDays = median(completed.map(s => s.trading_days)) || 1;
+  const dist = s => Math.abs(Math.abs(s.pct_change) - curAbs) / medPct + Math.abs(s.trading_days - days) / medDays;
+  const activeKey = a.from_date;
+  const similar = completed.filter(s => (up ? s.low_date : s.high_date) !== activeKey).slice().sort((x, y) => dist(x) - dist(y)).slice(0, 3).map(s => {
+    const sAbs = Math.abs(s.pct_change),
+      sDays = s.trading_days;
+    let outcome = null;
+    if (up) {
+      const d = opp.find(o => o.high_date === s.high_date);
+      if (d) outcome = {
+        kind: "fell",
+        pct: r2(Math.abs(d.pct_change)),
+        days: d.trading_days
+      };
+    } else {
+      const u = opp.find(o => o.low_date === s.low_date);
+      if (u) outcome = {
+        kind: "rose",
+        pct: r2(Math.abs(u.pct_change)),
+        days: u.trading_days
+      };
+    }
+    return {
+      lowDate: s.low_date,
+      highDate: s.high_date,
+      pct: r2(sAbs),
+      days: sDays,
+      perDay: r2(sDays ? sAbs / sDays : 0),
+      outcome
+    };
+  });
+
+  // 6 — decision (from the backend), 7 — three probability-weighted paths
+  const decision = {
+    action: a.decision && a.decision.action || "—",
+    drivers: a.decision && a.decision.drivers || [],
+    note: a.signal_note
+  };
+  const contS = a.continuation_score != null ? a.continuation_score : 50;
+  const exhS = a.exhaustion_score != null ? a.exhaustion_score : 50;
+  const tot = contS + exhS + ((contS + exhS) / 2 + 10) || 1;
+  const contProb = Math.round(contS / tot * 100);
+  const revProb = Math.round(exhS / tot * 100);
+  const pullProb = 100 - contProb - revProb;
+  const next = levels.next;
+  const find = l => tgts.find(t => t.label === l) || {};
+  const agg = find("aggressive"),
+    ext = find("extreme");
+  const zone = z => z ? `$${z[0]}–$${z[1]}` : "—";
+  const w = (lo, hi) => `${lo || "?"}–${hi || "?"} days`;
+  const md = vh.median_days || 6;
+  const paths = up ? [{
+    name: "Bullish continuation",
+    prob: contProb,
+    trigger: next ? `Holds support, breaks $${next.price}` : `Breaks aggressive $${agg.price || "—"}`,
+    target: ext.price ? `$${ext.price}` : agg.price ? `$${agg.price}` : "—",
+    days: w(vh.p25_days, vh.p75_days),
+    inval: pullback ? `loses $${pullback.normal[1]}` : inval ? `loses $${inval}` : "—"
+  }, {
+    name: "Normal pullback",
+    prob: pullProb,
+    trigger: next ? `Stalls near $${next.price}` : `Fails near $${agg.price || "—"}`,
+    target: pullback ? zone(pullback.normal) : "—",
+    days: w(Math.max(1, Math.round(md / 3)), Math.max(2, Math.round(md / 1.5))),
+    inval: inval ? `loses $${inval}` : "—"
+  }, {
+    name: "Bearish reversal",
+    prob: revProb,
+    trigger: inval ? `Closes below $${inval} on volume` : "Breaks the swing low on volume",
+    target: pullback ? zone(pullback.deep) : "—",
+    days: w(vh.median_days, vh.p75_days),
+    inval: "reclaims the highs"
+  }] : [{
+    name: "Bearish continuation",
+    prob: contProb,
+    trigger: next ? `Stays weak, breaks $${next.price}` : `Breaks aggressive $${agg.price || "—"}`,
+    target: ext.price ? `$${ext.price}` : agg.price ? `$${agg.price}` : "—",
+    days: w(vh.p25_days, vh.p75_days),
+    inval: pullback ? `reclaims $${pullback.normal[0]}` : inval ? `reclaims $${inval}` : "—"
+  }, {
+    name: "Normal bounce",
+    prob: pullProb,
+    trigger: next ? `Holds near $${next.price}` : `Stalls near $${agg.price || "—"}`,
+    target: pullback ? zone(pullback.normal) : "—",
+    days: w(Math.max(1, Math.round(md / 3)), Math.max(2, Math.round(md / 1.5))),
+    inval: inval ? `reclaims $${inval}` : "—"
+  }, {
+    name: "Bullish reversal",
+    prob: revProb,
+    trigger: inval ? `Closes above $${inval} on volume` : "Breaks the swing high on volume",
+    target: pullback ? zone(pullback.deep) : "—",
+    days: w(vh.median_days, vh.p75_days),
+    inval: "loses the lows"
+  }];
+  return {
+    up,
+    moveRead,
+    tgts,
+    pullback,
+    scores,
+    similar,
+    decision,
+    paths,
+    sampleSize: completed.length
+  };
+}
+const SWING_DECISION_TONE = {
+  "Add on breakout": "go",
+  "Add on pullback": "go",
+  "Hold": "go",
+  "Short trigger active": "short",
+  "Short watch": "watch",
+  "Reversal watch": "watch",
+  "Take partial": "warn",
+  "Trim": "warn",
+  "Trail stop": "warn",
+  "Cover partial": "warn",
+  "Do not chase": "warn",
+  "Wait": "muted",
+  "No trade": "muted"
+};
+function SwingPrediction({
+  data
+}) {
+  const p = computeSwingPrediction(data);
+  if (!p) return null;
+  const {
+    up,
+    moveRead: m,
+    tgts,
+    pullback,
+    scores,
+    similar,
+    decision,
+    paths
+  } = p;
+  const dirCls = up ? "up" : "down";
+  const sgn = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+  const matTone = {
+    early: "up",
+    developing: "up",
+    mature: "",
+    extended: "warn",
+    exhausted: "down"
+  }[m.maturity] || "";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-title"
+  }, "Swing Prediction", /*#__PURE__*/React.createElement("span", {
+    className: "swing-pred-sub"
+  }, "based on this stock's ", p.sampleSize, " past ", up ? "up" : "down", "-swings — most likely path, not a guarantee")), /*#__PURE__*/React.createElement("div", {
+    className: `swing-pred-decision tone-${SWING_DECISION_TONE[decision.action] || "muted"}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-decision-action"
+  }, decision.action), decision.drivers.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-decision-why"
+  }, decision.drivers.join(" · ")), decision.note && /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-decision-note"
+  }, decision.note)), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-grid"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-h"
+  }, "1 · Current move read"), /*#__PURE__*/React.createElement("ul", {
+    className: "swing-pred-list"
+  }, /*#__PURE__*/React.createElement("li", null, "Move: ", /*#__PURE__*/React.createElement("b", {
+    className: dirCls
+  }, m.dir, " from ", fmtSwingDate(m.fromDate), " ", m.fromLabel)), /*#__PURE__*/React.createElement("li", null, "So far: ", /*#__PURE__*/React.createElement("b", {
+    className: dirCls
+  }, sgn(m.pct)), " over ", /*#__PURE__*/React.createElement("b", null, m.days, "d"), " (", sgn(m.perDay), "/day)"), /*#__PURE__*/React.createElement("li", null, "Typical ", up ? "up" : "down", "-swing: ", /*#__PURE__*/React.createElement("b", null, up ? "+" : "−", m.typicalPct, "%"), " over ", /*#__PURE__*/React.createElement("b", null, m.typicalDays, "d")), m.pctOfMedian != null && /*#__PURE__*/React.createElement("li", null, "This move = ", /*#__PURE__*/React.createElement("b", null, m.pctOfMedian, "%"), " of the median"), /*#__PURE__*/React.createElement("li", null, "Status: ", /*#__PURE__*/React.createElement("b", {
+    className: matTone
+  }, m.maturity)))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-h"
+  }, "2 · Projected next targets"), /*#__PURE__*/React.createElement("table", {
+    className: "swing-pred-tbl"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", null, "Price"), /*#__PURE__*/React.createElement("th", null, "From here"), /*#__PURE__*/React.createElement("th", null, "By"), /*#__PURE__*/React.createElement("th", null, "Hit rate"), /*#__PURE__*/React.createElement("th", null, "Conf"))), /*#__PURE__*/React.createElement("tbody", null, tgts.map(t => /*#__PURE__*/React.createElement("tr", {
+    key: t.label
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "cap"
+  }, t.label), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, fmtUsd(t.price, 2)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${t.reached ? "muted" : dirCls}`
+  }, t.reached ? "reached" : sgn(t.fromPct)), /*#__PURE__*/React.createElement("td", {
+    className: "num muted"
+  }, t.reached ? "—" : fmtSwingDate(t.eta)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, t.prob, "%"), /*#__PURE__*/React.createElement("td", {
+    className: "cap muted"
+  }, t.conf)))))), pullback && /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-h"
+  }, "3 · Expected ", up ? "pullback" : "bounce", " zone"), /*#__PURE__*/React.createElement("ul", {
+    className: "swing-pred-list"
+  }, /*#__PURE__*/React.createElement("li", null, "Shallow: ", /*#__PURE__*/React.createElement("b", null, "$", pullback.shallow[0], " – $", pullback.shallow[1])), /*#__PURE__*/React.createElement("li", null, "Normal: ", /*#__PURE__*/React.createElement("b", null, "$", pullback.normal[0], " – $", pullback.normal[1])), /*#__PURE__*/React.createElement("li", null, "Deep: ", /*#__PURE__*/React.createElement("b", null, "$", pullback.deep[0], " – $", pullback.deep[1])), pullback.invalidation != null && /*#__PURE__*/React.createElement("li", {
+    className: "muted"
+  }, "Invalidation: ", up ? "below" : "above", " ", /*#__PURE__*/React.createElement("b", {
+    className: "down"
+  }, "$", pullback.invalidation)))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-h"
+  }, "4 · Continuation vs exhaustion"), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-score"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-score-row"
+  }, /*#__PURE__*/React.createElement("span", null, "Continuation"), /*#__PURE__*/React.createElement("b", {
+    className: "up"
+  }, scores.continuation, "/100")), /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar-fill up",
+    style: {
+      width: `${Math.max(0, Math.min(100, scores.continuation || 0))}%`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-factors"
+  }, scores.contFactors.join(" · ") || "—")), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-score"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-score-row"
+  }, /*#__PURE__*/React.createElement("span", null, "Exhaustion"), /*#__PURE__*/React.createElement("b", {
+    className: "down"
+  }, scores.exhaustion, "/100")), /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar-fill down",
+    style: {
+      width: `${Math.max(0, Math.min(100, scores.exhaustion || 0))}%`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-factors"
+  }, scores.exhFactors.join(" · ") || "—"))), similar.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-h"
+  }, "5 · Most-similar past moves"), /*#__PURE__*/React.createElement("table", {
+    className: "swing-pred-tbl"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Move"), /*#__PURE__*/React.createElement("th", null, "Size"), /*#__PURE__*/React.createElement("th", null, "Days"), /*#__PURE__*/React.createElement("th", null, "/day"), /*#__PURE__*/React.createElement("th", null, "What followed"))), /*#__PURE__*/React.createElement("tbody", null, similar.map((s, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "muted"
+  }, fmtSwingDate(up ? s.lowDate : s.highDate)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${dirCls}`
+  }, up ? "+" : "−", s.pct, "%"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, s.days), /*#__PURE__*/React.createElement("td", {
+    className: "num muted"
+  }, s.perDay, "%"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, s.outcome ? /*#__PURE__*/React.createElement("span", {
+    className: s.outcome.kind === "fell" ? "down" : "up"
+  }, s.outcome.kind, " ", s.outcome.pct, "% / ", s.outcome.days, "d") : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "extended further"))))))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-box swing-pred-wide"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-h"
+  }, "6 · Three possible paths next"), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-paths"
+  }, paths.map((pt, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: `swing-pred-path ${i === 0 ? up ? "up" : "down" : i === 2 ? up ? "down" : "up" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-path-head"
+  }, /*#__PURE__*/React.createElement("span", null, pt.name), /*#__PURE__*/React.createElement("b", null, pt.prob, "%")), /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "swing-bar-fill",
+    style: {
+      width: `${pt.prob}%`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-path-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "Trigger"), " ", pt.trigger), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-path-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "Target"), " ", /*#__PURE__*/React.createElement("b", null, pt.target)), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-path-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "Time"), " ", pt.days), /*#__PURE__*/React.createElement("div", {
+    className: "swing-pred-path-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "Invalid if"), " ", pt.inval)))))));
+}
 function SwingPatternCard({
   apiFetch,
   ticker
@@ -2363,6 +2737,8 @@ function SwingPatternCard({
         setOpenRow(null);
       }
     })
+  }), data && data.analysis && data.analysis.status === "ok" && /*#__PURE__*/React.createElement(SwingPrediction, {
+    data: data
   }));
 }
 function WatchlistTableCard({
