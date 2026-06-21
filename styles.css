@@ -8325,3 +8325,13 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wl-acct-wrap { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-mono); font-size: 12px; color: var(--fg-3, #8b93a3); }
 .wl-acct, .wl-risk { width: 78px; background: var(--bg-2, #11141b); border: 1px solid var(--line, #2a2f3a); color: var(--fg-1, #e6e9ef); border-radius: 6px; padding: 4px 6px; font-family: var(--font-mono); font-size: 12px; }
 .wl-risk { width: 46px; }
+
+/* Regime gate line + crowding warning. */
+.wl-regime { font-weight: 600; }
+.wl-regime.up { color: #22c55e; } .wl-regime.down { color: #ef4444; }
+.wl-crowd {
+  margin-top: 8px; padding: 7px 11px; border-radius: 8px; font-size: 12.5px;
+  background: color-mix(in oklch, #f59e0b 12%, transparent);
+  border: 1px solid color-mix(in oklch, #f59e0b 40%, var(--line)); color: var(--fg-1, #e6e9ef);
+}
+.wl-crowd b { color: #f59e0b; }
