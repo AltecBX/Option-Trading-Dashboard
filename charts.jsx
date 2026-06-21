@@ -35,6 +35,9 @@ function TVPriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPr
   const extraRef = React.useRef({ lines: [], series: [] });
   const norm = (s) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(s)); return m ? m[1] : new Date(s).toISOString().slice(0, 10); };
 
+  // Create the chart + volume series ONCE (not on every style toggle). Keeping
+  // chartStyle out of these deps means switching candles/area/ohlc no longer
+  // tears down and rebuilds the whole chart — and your zoom/pan is preserved.
   React.useEffect(() => {
     if (!LC || !wrapRef.current) return;
     const el = wrapRef.current;
@@ -46,16 +49,25 @@ function TVPriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPr
       timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14 },
       crosshair: { mode: LC.CrosshairMode.Normal },
     });
+    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    chartRef.current = chart; volRef.current = vol;
+    const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
+    ro.observe(el);
+    return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
+  }, [LC]);
+
+  // Add/swap ONLY the main price series when the style changes. The chart
+  // itself survives, so the toggle is instant.
+  React.useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
     let main;
     if (chartStyle === "area") main = chart.addAreaSeries({ lineColor: "#22c55e", topColor: "rgba(34,197,94,0.35)", bottomColor: "rgba(34,197,94,0.02)", lineWidth: 2 });
     else if (chartStyle === "ohlc") main = chart.addBarSeries({ upColor: "#22c55e", downColor: "#ef4444" });
     else main = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444", wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
-    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
-    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-    chartRef.current = chart; mainRef.current = main; volRef.current = vol;
-    const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
-    ro.observe(el);
-    return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
+    mainRef.current = main;
+    return () => { try { chart.removeSeries(main); } catch (e) {} if (mainRef.current === main) mainRef.current = null; };
   }, [LC, chartStyle]);
 
   React.useEffect(() => {
@@ -65,8 +77,14 @@ function TVPriceChart({ daily, expHigh, expLow, callStrike, putStrike, currentPr
     else mainRef.current.setData(rows.map(d => ({ time: norm(d.date), open: d.open, high: d.high, low: d.low, close: d.close })));
     const hasVol = rows.some(d => d.volume);
     if (volRef.current) volRef.current.setData(hasVol ? rows.map(d => ({ time: norm(d.date), value: d.volume || 0, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" })) : []);
-    chartRef.current.timeScale().fitContent();
   }, [daily, chartStyle]);
+
+  // Fit the time scale only when the data actually changes (new symbol /
+  // window), NOT on a style toggle — so flipping candles/area/ohlc keeps your
+  // current zoom and pan.
+  React.useEffect(() => {
+    if (chartRef.current && daily && daily.length) chartRef.current.timeScale().fitContent();
+  }, [daily]);
 
   React.useEffect(() => {
     const chart = chartRef.current, main = mainRef.current;
