@@ -8195,3 +8195,34 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   color: var(--fg-3, #8b93a3); cursor: pointer; white-space: nowrap; }
 .wl-viewtabs button:hover { color: var(--fg-1, #e6e9ef); }
 .wl-viewtabs button.active { background: var(--accent, #3b82f6); color: #fff; }
+
+/* Watchlist: make the table its own scroll container so the sticky <thead>
+   actually freezes (Excel-style frozen header row) instead of scrolling
+   away with the page. Applies to Stocks + Sectors/Industries tables. */
+.wl-scroll { max-height: calc(100vh - 200px); overflow: auto; }
+.wl-table thead th {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--bg-2);            /* opaque so body rows don't bleed through */
+  backdrop-filter: none;
+}
+.wl-table thead th:first-child { left: 0; z-index: 4; }
+
+/* Right-click context menu on a watchlist row. */
+.wl-ctx {
+  position: fixed; z-index: 1000; min-width: 200px;
+  background: var(--bg-2, #11141b); border: 1px solid var(--line, #2a2f3a);
+  border-radius: 10px; padding: 5px; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+}
+.wl-ctx-head {
+  font-family: var(--font-mono); font-weight: 700; font-size: 12px;
+  padding: 5px 10px 7px; color: var(--fg-2, #aeb6c2);
+  border-bottom: 1px solid var(--line, #2a2f3a); margin-bottom: 4px;
+}
+.wl-ctx button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  color: var(--fg-1, #e6e9ef); font-size: 13px; padding: 8px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+.wl-ctx button:hover { background: color-mix(in oklch, var(--accent) 16%, transparent); }
+.wl-ctx button.wl-ctx-danger { color: #ff6b6b; }
+.wl-ctx button.wl-ctx-danger:hover { background: color-mix(in oklch, #ff6b6b 16%, transparent); }

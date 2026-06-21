@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "1.96";
+const APP_VERSION = "1.97";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -982,6 +982,7 @@ function App() {
   // We also flush on visibilitychange + beforeunload so a fast refresh
   // doesn't lose data.
   const saveTimerRef = useRef(null);
+  const pendingSaveRef = useRef(false);
   const latestWatchlistRef = useRef(watchlistData);
   useEffect(() => {
     latestWatchlistRef.current = watchlistData;
@@ -1021,6 +1022,9 @@ function App() {
   }, [watchlistLoaded]);
   useEffect(() => {
     if (!watchlistLoaded) return;
+    // Mark a save as pending so the cross-device focus-refetch below knows
+    // not to clobber local edits that haven't reached the server yet.
+    pendingSaveRef.current = true;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
@@ -1034,6 +1038,8 @@ function App() {
         if (!r.ok) {
           const txt = await r.text().catch(() => "");
           console.error("Watchlist save failed:", r.status, txt);
+        } else {
+          pendingSaveRef.current = false;
         }
       } catch (e) {
         console.error("Watchlist save error:", e);
@@ -1062,6 +1068,48 @@ function App() {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [watchlistLoaded, flushWatchlist]);
+  // Cross-device sync: when this device regains focus (tab becomes visible
+  // or window focused), re-pull the watchlist so edits made on another
+  // device show up without a full reload. Guarded so it never clobbers
+  // unsaved local edits (pendingSaveRef) or yanks data while the manager
+  // modal is open, and only applies when the server copy actually differs.
+  useEffect(() => {
+    if (!watchlistLoaded) return undefined;
+    const refetch = async () => {
+      if (pendingSaveRef.current || showWatchlistManager) return;
+      try {
+        const r = await apiFetch("/api/watchlist");
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!data || !Array.isArray(data.symbols)) return;
+        if (pendingSaveRef.current) return;
+        if (JSON.stringify(data) !== JSON.stringify(latestWatchlistRef.current)) {
+          setWatchlistData(data);
+        }
+      } catch (_) {/* transient — ignore */}
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") refetch();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", refetch);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", refetch);
+    };
+  }, [watchlistLoaded, showWatchlistManager]);
+
+  // Remove a symbol from the watchlist (used by the table's right-click
+  // menu). Writes through the same debounced/synced save path.
+  const removeFromWatchlist = React.useCallback(symbol => {
+    if (!symbol) return;
+    const sym = String(symbol).toUpperCase();
+    setWatchlistData(prev => ({
+      ...prev,
+      symbols: prev.symbols.filter(s => s.symbol !== sym)
+    }));
+  }, []);
+
   // Helper: array of just symbol strings (for legacy code that expects this)
   const watchlist = watchlistData.symbols.map(s => s.symbol);
   // Helper: starred subset for sidebar (max 10)
@@ -3457,7 +3505,9 @@ function App() {
   }, /*#__PURE__*/React.createElement(WatchlistTableCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker,
-    market: marketDashboard
+    market: marketDashboard,
+    onRemoveSymbol: removeFromWatchlist,
+    watchlistSymbols: watchlist
   }))), showRef && /*#__PURE__*/React.createElement("div", {
     className: "hk-overlay",
     onClick: () => setShowRef(false)

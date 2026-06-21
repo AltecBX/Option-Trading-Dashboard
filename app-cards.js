@@ -2248,7 +2248,9 @@ function SwingPatternCard({
 function WatchlistTableCard({
   apiFetch,
   onSwitchTicker,
-  market
+  market,
+  onRemoveSymbol,
+  watchlistSymbols
 }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -2264,6 +2266,8 @@ function WatchlistTableCard({
   const [fSector, setFSector] = useState("all");
   const [fIndustry, setFIndustry] = useState("all");
   const [q, setQ] = useState("");
+  const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
+  const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
   const pollRef = useRef(null);
   const load = async () => {
     try {
@@ -2476,6 +2480,7 @@ function WatchlistTableCard({
   }, [industryOpts, fIndustry]);
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
+      if (removed.has(r.symbol)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
       if (q && !`${r.symbol} ${r.company || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
@@ -2496,7 +2501,7 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, q, sort]);
+  }, [rows, fSector, fIndustry, q, sort, removed]);
 
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
@@ -2507,6 +2512,7 @@ function WatchlistTableCard({
   const groups = useMemo(() => {
     if (view === "stocks") return [];
     const base = rows.filter(r => {
+      if (removed.has(r.symbol)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
       return true;
@@ -2520,6 +2526,7 @@ function WatchlistTableCard({
           name,
           stocks: 0,
           withFlow: 0,
+          mcap: 0,
           nBull: 0,
           nBear: 0,
           bull: 0,
@@ -2534,6 +2541,7 @@ function WatchlistTableCard({
         map.set(name, g);
       }
       g.stocks++;
+      g.mcap += r.market_cap || 0;
       if (r.flow_available) {
         g.withFlow++;
         g.bull += r.call_prem || 0;
@@ -2566,13 +2574,17 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return arr;
-  }, [rows, view, groupKey, fSector, fIndustry, gsort]);
+  }, [rows, view, groupKey, fSector, fIndustry, gsort, removed]);
   const GCOLS = [{
     k: "name",
     label: view === "sectors" ? "Sector" : "Industry"
   }, {
     k: "stocks",
     label: "Stocks",
+    num: true
+  }, {
+    k: "mcap",
+    label: "Mkt Cap",
     num: true
   }, {
     k: "nBull",
@@ -2631,6 +2643,32 @@ function WatchlistTableCard({
     if (view === "sectors") setFSector(name === "—" ? "all" : name);else setFIndustry(name === "—" ? "all" : name);
     setView("stocks");
   };
+  // Right-click delete: hide the row immediately and remove it from the
+  // (server-synced) watchlist via the parent handler.
+  const doRemove = sym => {
+    setRemoved(prev => {
+      const n = new Set(prev);
+      n.add(sym);
+      return n;
+    });
+    if (onRemoveSymbol) onRemoveSymbol(sym);
+    setCtx(null);
+  };
+  useEffect(() => {
+    if (!ctx) return undefined;
+    const close = () => setCtx(null);
+    const onKey = e => {
+      if (e.key === "Escape") setCtx(null);
+    };
+    document.addEventListener("click", close);
+    document.addEventListener("scroll", close, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [ctx]);
   const pctCls = v => v == null ? "" : v >= 0 ? "up" : "down";
   const pct = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
   const flowCell = r => {
@@ -2773,7 +2811,16 @@ function WatchlistTableCard({
   }, s))), /*#__PURE__*/React.createElement("select", {
     className: "sb-select",
     value: fIndustry,
-    onChange: e => setFIndustry(e.target.value)
+    onChange: e => {
+      const ind = e.target.value;
+      setFIndustry(ind);
+      // Auto-select the parent sector so the Sector filter reflects the
+      // industry you picked (an industry lives in exactly one sector).
+      if (ind !== "all") {
+        const row = rows.find(r => r.industry === ind && r.sector);
+        if (row) setFSector(row.sector);
+      }
+    }
   }, /*#__PURE__*/React.createElement("option", {
     value: "all"
   }, "All industries"), industryOpts.map(s => /*#__PURE__*/React.createElement("option", {
@@ -2785,7 +2832,7 @@ function WatchlistTableCard({
       fontSize: 12
     }
   }, view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`)), view !== "stocks" ? groups.length > 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "scan-table-wrap",
+    className: "scan-table-wrap wl-scroll",
     style: {
       marginTop: 10
     }
@@ -2808,6 +2855,8 @@ function WatchlistTableCard({
   }, g.stocks, g.withFlow < g.stocks ? /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, " (", g.withFlow, ")") : ""), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, fmtMktCap(g.mcap)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num up"
   }, g.nBull || "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num down"
@@ -2832,7 +2881,7 @@ function WatchlistTableCard({
   }, g.alerts || "—")))))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
   }, "No flow data to aggregate yet — run a scan.") : filtered.length > 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "scan-table-wrap",
+    className: "scan-table-wrap wl-scroll",
     style: {
       marginTop: 10
     }
@@ -2847,7 +2896,15 @@ function WatchlistTableCard({
     key: r.symbol,
     className: "scan-row wl-row",
     onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
-    title: `Open ${r.symbol}`
+    onContextMenu: e => {
+      e.preventDefault();
+      setCtx({
+        x: e.clientX,
+        y: e.clientY,
+        symbol: r.symbol
+      });
+    },
+    title: `Open ${r.symbol} · right-click to remove`
   }, /*#__PURE__*/React.createElement("td", {
     className: "wl-sym"
   }, r.symbol), /*#__PURE__*/React.createElement("td", {
@@ -2931,7 +2988,26 @@ function WatchlistTableCard({
     className: `scan-num ${pctCls(r.from_ma200)}`
   }, pct(r.from_ma200))))))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, "No stocks match these filters."));
+  }, "No stocks match these filters."), ctx && /*#__PURE__*/React.createElement("div", {
+    className: "wl-ctx",
+    onClick: e => e.stopPropagation(),
+    style: {
+      left: Math.min(ctx.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 240),
+      top: ctx.y
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wl-ctx-head"
+  }, ctx.symbol), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      if (onSwitchTicker) onSwitchTicker(ctx.symbol);
+      setCtx(null);
+    }
+  }, "Open ", ctx.symbol), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "wl-ctx-danger",
+    onClick: () => doRemove(ctx.symbol)
+  }, "Remove from watchlist")));
 }
 function ScreenersHub({
   apiFetch,
