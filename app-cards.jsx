@@ -940,14 +940,14 @@ function TVAdvancedChart({ apiFetch, ticker, data, fallback }) {
   );
 }
 
-function SwingChart({ data, focusKey, onPickSwing }) {
+function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
   const LC = window.LightweightCharts;
   const wrapRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
   const volRef = useRef(null);
   const overlayRef = useRef({ lines: [], priceLines: [] });
-  const [show, setShow] = useState({ markers: true, lines: true, up: true, down: false, current: true, targets: true, labels: false });
+  const [show, setShow] = useState({ markers: true, lines: true, up: true, down: false, current: true, targets: true, labels: true });
   const [collapsed, setCollapsed] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 900));
 
   const bars = (data && data.bars) || [];
@@ -980,6 +980,10 @@ function SwingChart({ data, focusKey, onPickSwing }) {
     const candle = chart.addCandlestickSeries({
       upColor: UPC, downColor: DNC, borderUpColor: UPC, borderDownColor: DNC,
       wickUpColor: UPC, wickDownColor: DNC,
+      // We draw our own "now" price line, so hide the candle's built-in
+      // last-value label + price line (they duplicated/overlapped the
+      // now/median/aggr/inval labels and made the right edge unreadable).
+      lastValueVisible: false, priceLineVisible: false,
     });
     const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
@@ -1071,7 +1075,7 @@ function SwingChart({ data, focusKey, onPickSwing }) {
             {TOGGLES.map(([k, lbl]) => (
               <button key={k} className={show[k] ? "on" : ""} onClick={() => setShow(s => ({ ...s, [k]: !s[k] }))}>{lbl}</button>
             ))}
-            <button onClick={() => applyHome()}>Reset</button>
+            <button onClick={() => { applyHome(); if (onClearFocus) onClearFocus(); }}>Reset</button>
           </div>
         )}
       </div>
@@ -1578,7 +1582,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
             else Lightweight Charts) with the swing overlay ──────────────── */}
       {data && (data.bars || []).length > 0 && (
         <TVAdvancedChart apiFetch={apiFetch} ticker={ticker} data={data}
-          fallback={<SwingChart data={data} focusKey={focusKey} onPickSwing={pickSwingByTime} />} />
+          fallback={<SwingChart data={data} focusKey={focusKey} onPickSwing={pickSwingByTime} onClearFocus={() => { setFocusKey(null); setOpenRow(null); }} />} />
       )}
     </div>
   );
