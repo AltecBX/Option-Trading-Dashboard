@@ -27,6 +27,7 @@ import sys
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -2891,6 +2892,12 @@ def build_weekly_range(symbol: str) -> dict:
 _TICKER_LAST_GOOD: dict = {}
 _TICKER_LG_LOCK = threading.Lock()
 _TICKER_LG_MAX = 40
+# Short-TTL "fresh" cache: re-selecting a symbol you just viewed (tab flip,
+# back-and-forth) serves the built payload instantly instead of rebuilding it.
+# The live price is overlaid separately by the frontend's quote polling, so a
+# few seconds of staleness on the heavy payload (bars/chain/earnings) is fine.
+_TICKER_FRESH: dict = {}
+_TICKER_TTL = 10.0  # seconds
 
 def build_payload(
     ticker: str,
@@ -2907,18 +2914,32 @@ def build_payload(
         # Raise a regular ValueError so the endpoint's try/except returns
         # a clean JSON 500 to the frontend.
         raise ValueError(f"No data for {ticker}.")
-    current = load_current_week(ticker, friday_baseline)
-    daily = load_daily(ticker, 260)
     target_fri = next_friday()
-    calls, puts, exp, expirations = load_option_chain(ticker, target_fri, target_exp)
-    has_earnings, earnings_date = check_earnings(ticker)
-    earnings_history = load_earnings_history(ticker, weeks)
 
-    info = {}
-    try:
-        info = yf.Ticker(ticker).info or {}
-    except Exception:
-        pass
+    # These six loaders are independent and each is a network round-trip
+    # (Schwab / yfinance / option chain). Run them concurrently so symbol-load
+    # latency is the slowest single call, not the sum of all of them. yfinance
+    # builds an independent Ticker per call and the Schwab client is read-mostly
+    # with its own TTL cache, so this is safe.
+    def _load_info():
+        try:
+            return yf.Ticker(ticker).info or {}
+        except Exception:
+            return {}
+
+    with ThreadPoolExecutor(max_workers=6) as _ex:
+        f_current = _ex.submit(load_current_week, ticker, friday_baseline)
+        f_daily = _ex.submit(load_daily, ticker, 260)
+        f_chain = _ex.submit(load_option_chain, ticker, target_fri, target_exp)
+        f_earn = _ex.submit(check_earnings, ticker)
+        f_earnhist = _ex.submit(load_earnings_history, ticker, weeks)
+        f_info = _ex.submit(_load_info)
+        current = f_current.result()
+        daily = f_daily.result()
+        calls, puts, exp, expirations = f_chain.result()
+        has_earnings, earnings_date = f_earn.result()
+        earnings_history = f_earnhist.result()
+        info = f_info.result()
     name = info.get("shortName") or info.get("longName") or ticker
     sector = info.get("sector") or ""
     # Dividend yield (v1.33). Computed from the dollar dividend rate over
@@ -2974,14 +2995,12 @@ def build_payload(
     if len(daily) >= 31:
         import math
         closes_full = [d["close"] for d in daily]
-        # Use as much history as we pulled (up to 252 trading days). The
-        # daily payload is trimmed to 90 for display, so we need the raw
-        # closes from yfinance again for the full window.
+        # Reuse the daily bars already fetched by load_daily(260) — about a
+        # year of trading days — instead of re-downloading another full year of
+        # history here. Eliminates one upstream round-trip on every symbol load.
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1y", auto_adjust=False)
-            if not hist.empty:
-                full_closes = hist["Close"].astype(float).tolist()
+            if len(closes_full) >= 31:
+                full_closes = closes_full
                 # Log returns
                 logrets = []
                 for i in range(1, len(full_closes)):
@@ -6586,12 +6605,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 friday_baseline = self.friday_baseline
             target_exp = (qs.get("expiration", [""])[0] or "").strip() or None
             cache_key = (symbol, weeks, friday_baseline, target_exp)
+            # Serve a recent build instantly (TTL cache) — makes flipping back
+            # to a just-viewed symbol feel instant instead of a full rebuild.
+            now = time.time()
+            with _TICKER_LG_LOCK:
+                hit = _TICKER_FRESH.get(cache_key)
+            if hit is not None and (now - hit[0]) < _TICKER_TTL:
+                self._send_json(hit[1], no_store=True, default=str)
+                return
             try:
                 payload = build_payload(symbol, weeks, friday_baseline, target_exp)
                 with _TICKER_LG_LOCK:
                     _TICKER_LAST_GOOD[cache_key] = payload
+                    _TICKER_FRESH[cache_key] = (time.time(), payload)
                     while len(_TICKER_LAST_GOOD) > _TICKER_LG_MAX:
                         _TICKER_LAST_GOOD.pop(next(iter(_TICKER_LAST_GOOD)))
+                    while len(_TICKER_FRESH) > _TICKER_LG_MAX:
+                        _TICKER_FRESH.pop(next(iter(_TICKER_FRESH)))
                 self._send_json(payload, no_store=True, default=str)
             except Exception as exc:  # noqa: BLE001
                 # Serve the last good payload with a stale flag rather
