@@ -985,7 +985,7 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       // now/median/aggr/inval labels and made the right edge unreadable).
       lastValueVisible: false, priceLineVisible: false,
     });
-    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
     chartRef.current = chart; candleRef.current = candle; volRef.current = vol;
     if (onPickSwing) chart.subscribeClick(p => { if (p && p.time) onPickSwing(p.time); });
@@ -1040,29 +1040,49 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     candle.setMarkers(markers);
 
     if (a && a.status === "ok") {
-      const mk = (price, color, style, title) => {
+      // Draw the level lines only — no on-chart/axis labels (they piled up
+      // on the right edge over the candles). The values live in the HTML
+      // legend rendered over the top-left of the chart instead.
+      const mk = (price, color, style) => {
         if (price == null) return;
-        overlayRef.current.priceLines.push(candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title }));
+        overlayRef.current.priceLines.push(candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: false }));
       };
-      if (show.current) mk(a.current_price, "rgba(255,255,255,0.55)", LC.LineStyle.Solid, "now");
+      if (show.current) mk(a.current_price, "rgba(255,255,255,0.55)", LC.LineStyle.Solid);
       if (show.targets && a.targets) {
-        mk(a.targets[1] && a.targets[1].price, UPC, LC.LineStyle.Dashed, "median");
-        mk(a.targets[2] && a.targets[2].price, "#15803d", LC.LineStyle.Dotted, "aggr");
+        mk(a.targets[1] && a.targets[1].price, UPC, LC.LineStyle.Dashed);
+        mk(a.targets[2] && a.targets[2].price, "#15803d", LC.LineStyle.Dotted);
       }
-      if (show.current && a.trade_plan) mk(a.trade_plan.invalidation, DNC, LC.LineStyle.Dashed, "inval");
+      if (show.current && a.trade_plan) mk(a.trade_plan.invalidation, DNC, LC.LineStyle.Dashed);
     }
     /* eslint-disable-next-line */
   }, [data, show, collapsed, focusKey]);
 
-  // Focus the chart on a selected swing (from a table-row click).
+  // Focus the chart on a selected swing (from a table-row click), or zoom
+  // back out to the home view when the selection is cleared.
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart || !focusKey || !focusKey.start || !focusKey.end) return;
-    try { chart.timeScale().setVisibleRange({ from: focusKey.start, to: focusKey.end }); } catch (e) {}
+    if (!chart) return;
+    if (focusKey && focusKey.start && focusKey.end) {
+      try { chart.timeScale().setVisibleRange({ from: focusKey.start, to: focusKey.end }); } catch (e) {}
+    } else {
+      applyHome();
+    }
     /* eslint-disable-next-line */
   }, [focusKey, collapsed]);
 
   const TOGGLES = [["markers", "Markers"], ["labels", "Labels"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
+
+  // Level legend (rendered as HTML over the chart so the now/median/aggr/
+  // inval prices don't overlap the candles on the right axis).
+  const legend = [];
+  if (a && a.status === "ok") {
+    if (show.current && a.current_price != null) legend.push({ name: "now", price: a.current_price, color: "#cbd5e1" });
+    if (show.targets && a.targets) {
+      if (a.targets[1] && a.targets[1].price != null) legend.push({ name: "median", price: a.targets[1].price, color: UPC });
+      if (a.targets[2] && a.targets[2].price != null) legend.push({ name: "aggr", price: a.targets[2].price, color: "#15803d" });
+    }
+    if (show.current && a.trade_plan && a.trade_plan.invalidation != null) legend.push({ name: "inval", price: a.trade_plan.invalidation, color: DNC });
+  }
 
   return (
     <div className="swing-chart-block">
@@ -1080,7 +1100,20 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         )}
       </div>
       {!collapsed && !LC && <div className="ab-status muted">Chart library didn't load (offline?). The swing table above has the full data.</div>}
-      {!collapsed && LC && <div className="swing-chart" ref={wrapRef} />}
+      {!collapsed && LC && (
+        <div className="swing-chart-wrap">
+          <div className="swing-chart" ref={wrapRef} />
+          {legend.length > 0 && (
+            <div className="swing-chart-legend">
+              {legend.map(l => (
+                <span key={l.name} className="swing-legend-item">
+                  <i style={{ background: l.color }} />{l.name} <b>{fmtUsd(l.price, 2)}</b>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {!collapsed && LC && <div className="swing-chart-hint">Tap a candle near a swing to open its row · tap a table row to highlight + zoom to that move · Reset = 6-month view</div>}
     </div>
   );
@@ -1522,8 +1555,11 @@ function SwingPatternCard({ apiFetch, ticker }) {
                 return (
                   <React.Fragment key={rk}>
                     <tr className={`scan-row swing-exrow${open ? " open" : ""}`}
-                        onClick={() => { setOpenRow(open ? null : rk); focusSwingOnChart(s); }}
-                        title="Click to expand details & zoom the swing chart to this move">
+                        onClick={() => {
+                          if (open) { setOpenRow(null); setFocusKey(null); }  // click again = collapse + zoom back out
+                          else { setOpenRow(rk); focusSwingOnChart(s); }
+                        }}
+                        title="Click to expand & zoom to this move · click again to zoom back out">
                       {tab === "up" ? (
                         <React.Fragment>
                           <td data-label="Swing low"><span className="swing-caret">{open ? "▾" : "▸"}</span> {fmtSwingDate(s.low_date)}</td>

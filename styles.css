@@ -8231,3 +8231,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .tab-bar .tab-btn { cursor: pointer; }
 .tab-bar .tab-btn.dragging { opacity: .45; }
 .tab-bar .tab-btn.drop-target { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* Swing-chart level legend (now/median/aggr/inval) — HTML overlay in the
+   top-left so the prices no longer sit on top of the candles. */
+.swing-chart-wrap { position: relative; }
+.swing-chart-legend {
+  position: absolute; top: 8px; left: 10px; z-index: 4;
+  display: flex; flex-wrap: wrap; gap: 6px 12px; pointer-events: none;
+  background: color-mix(in oklch, var(--bg) 62%, transparent);
+  border: 1px solid var(--line, #232733); border-radius: 8px;
+  padding: 5px 9px; backdrop-filter: blur(4px);
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2, #aeb6c2);
+}
+.swing-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.swing-legend-item i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.swing-legend-item b { color: var(--fg-1, #e6e9ef); font-weight: 600; }
