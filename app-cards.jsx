@@ -2126,6 +2126,15 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   };
   const shown = view === "stocks" ? filtered.slice(0, visN) : filtered;
 
+  // How many of the user's tracked symbols aren't in the last scan's board —
+  // either added since the scan, or skipped because the data source returned
+  // no price for them. Surfaced so the count gap never looks like missing data.
+  const notScanned = useMemo(() => {
+    if (!watchlistSymbols || !watchlistSymbols.length) return 0;
+    const boardSet = new Set(allRows.map(r => String(r.symbol).toUpperCase()));
+    return watchlistSymbols.filter(s => !boardSet.has(String(s).toUpperCase())).length;
+  }, [allRows, watchlistSymbols]);
+
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
   // where money is flowing in and out at the group level. Respects the
@@ -2293,6 +2302,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
         {status.last_scan
           ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {rows.length} stocks</span>
           : <span className="muted">No scan yet — Scan now pulls valuation, momentum, volume, earnings &amp; moving-average metrics for your tracked stocks (a few minutes for large lists).</span>}
+        {notScanned > 0 && status.last_scan && !scanning && (
+          <span className="wl-newhint" title="These are in your watchlist but not in the last scan — added since the scan, or the data source returned no price. Re-scan to include them.">
+            {" "}· {notScanned} not in last scan — <button type="button" className="wl-rescan-link" onClick={startScan}>Scan now</button> to include
+          </span>
+        )}
         <span className="muted"> · <b>Edge</b> = signed flow conviction (+long / −short), size-normalized; sort it to rank morning buys vs sells · hover a row for the driver breakdown · Auto-refreshes 9 AM &amp; 6 PM ET · cached server-side</span>
         {status.error && <span className="ab-err"> · {status.error}</span>}
         {err && <span className="ab-err"> · {err}</span>}
