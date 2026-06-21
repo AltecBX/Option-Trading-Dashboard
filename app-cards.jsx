@@ -1190,15 +1190,34 @@ function computeSwingPrediction(data) {
     eta: t.eta_date, prob: Math.min(100, Math.round((t.matched || 0) / nSw * 100)), conf: t.confidence,
   }));
 
-  // 3 — pullback / bounce zones (Fibonacci retracement of the live move)
+  // 3 — pullback / bounce zones, calibrated to THIS stock's OWN retracement
+  // history (how far it actually pulls back), so the ranges are tight and
+  // realistic instead of a generic Fibonacci grid. opp = the opposite-
+  // direction swings = the actual pullbacks/bounces this name has made.
   const span = Math.abs(extP - fromP);
-  const band = (lo, hi) => {
-    const x = up ? [extP - span * hi, extP - span * lo] : [extP + span * lo, extP + span * hi];
-    return [r2(Math.min(x[0], x[1])), r2(Math.max(x[0], x[1]))];
-  };
-  const pullback = span > 0 ? {
-    shallow: band(0.236, 0.382), normal: band(0.382, 0.618), deep: band(0.618, 0.786), invalidation: inval,
-  } : null;
+  const depths = opp.map(s => Math.abs(s.pct_change)).filter(x => x > 0).sort((x, y) => x - y);
+  const pctile = (arr, q) => { if (!arr.length) return null; const i = (arr.length - 1) * q; const lo = Math.floor(i), hi = Math.ceil(i); return arr[lo] + (arr[hi] - arr[lo]) * (i - lo); };
+  const fibBand = (lo, hi) => { const x = up ? [extP - span * hi, extP - span * lo] : [extP + span * lo, extP + span * hi]; return [r2(Math.min(x[0], x[1])), r2(Math.max(x[0], x[1]))]; };
+  let pullback = null;
+  if (depths.length >= 3) {
+    const iqr = (pctile(depths, 0.75) - pctile(depths, 0.25)) || 0;
+    const bw = Math.max(0.75, Math.min(3, iqr * 0.15));   // tight ± band (percent)
+    const zone = (d) => {
+      const a0 = extP * (1 + (up ? -1 : 1) * (d + bw) / 100);
+      const b0 = extP * (1 + (up ? -1 : 1) * (d - bw) / 100);
+      return [r2(Math.min(a0, b0)), r2(Math.max(a0, b0))];
+    };
+    pullback = { shallow: zone(pctile(depths, 0.25)), normal: zone(pctile(depths, 0.5)),
+                 deep: zone(pctile(depths, 0.75)), invalidation: inval,
+                 basis: "history", n: depths.length, medDepth: r2(pctile(depths, 0.5)) };
+  } else if (span > 0) {
+    pullback = { shallow: fibBand(0.30, 0.40), normal: fibBand(0.44, 0.54),
+                 deep: fibBand(0.60, 0.70), invalidation: inval, basis: "fib", n: depths.length };
+  }
+  // Exact structural levels market makers defend (prior pivots) — the tightest
+  // reference of all: real prices where this stock has turned before.
+  const struct = up ? (levels.supports || []) : (levels.resistances || []);
+  const keyLevels = struct.slice(0, 3).map(l => ({ price: l.price, pctAway: l.pct_away }));
 
   // 4 — continuation / exhaustion scores + reasons
   const scores = {
@@ -1262,7 +1281,7 @@ function computeSwingPrediction(data) {
       target: pullback ? zone(pullback.deep) : "—", days: w(vh.median_days, vh.p75_days), inval: "loses the lows" },
   ];
 
-  return { up, moveRead, tgts, pullback, scores, similar, decision, paths, sampleSize: completed.length };
+  return { up, moveRead, tgts, pullback, keyLevels, scores, similar, decision, paths, sampleSize: completed.length, symbol: data.symbol };
 }
 
 const SWING_DECISION_TONE = {
@@ -1275,10 +1294,19 @@ const SWING_DECISION_TONE = {
 function SwingPrediction({ data }) {
   const p = computeSwingPrediction(data);
   if (!p) return null;
-  const { up, moveRead: m, tgts, pullback, scores, similar, decision, paths } = p;
+  const { up, moveRead: m, tgts, pullback, keyLevels, scores, similar, decision, paths } = p;
   const dirCls = up ? "up" : "down";
   const sgn = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
   const matTone = ({ early: "up", developing: "up", mature: "", extended: "warn", exhausted: "down" })[m.maturity] || "";
+  // Entry-timing read — the whole point: be at the START of the move, never chase.
+  const early = ["early", "developing"].includes(m.maturity);
+  const late = ["extended", "exhausted"].includes(m.maturity);
+  const entryRead = early
+    ? { cls: "up", txt: up ? "Early — good spot to be long; you're near the start" : "Early — good spot to be short; you're near the start" }
+    : late
+      ? { cls: "down", txt: up ? "Late — don't chase; wait for the pullback zone to go long" : "Late — don't chase; wait for the bounce zone to short" }
+      : { cls: "", txt: "Mid-move — enter on a pullback, not here" };
+  const sym = p.symbol || "this stock";
 
   return (
     <div className="swing-pred">
@@ -1290,6 +1318,7 @@ function SwingPrediction({ data }) {
       <div className={`swing-pred-decision tone-${SWING_DECISION_TONE[decision.action] || "muted"}`}>
         <div className="swing-pred-decision-action">{decision.action}</div>
         {decision.drivers.length > 0 && <div className="swing-pred-decision-why">{decision.drivers.join(" · ")}</div>}
+        <div className={`swing-pred-timing ${entryRead.cls}`}>Entry timing: {entryRead.txt}</div>
         {decision.note && <div className="swing-pred-decision-note">{decision.note}</div>}
       </div>
 
@@ -1326,16 +1355,27 @@ function SwingPrediction({ data }) {
           </table>
         </div>
 
-        {/* 3 — Pullback / bounce zones */}
+        {/* 3 — Pullback / bounce zones (tight, calibrated to this stock) */}
         {pullback && (
           <div className="swing-pred-box">
             <div className="swing-pred-h">3 · Expected {up ? "pullback" : "bounce"} zone</div>
             <ul className="swing-pred-list">
-              <li>Shallow: <b>${pullback.shallow[0]} – ${pullback.shallow[1]}</b></li>
+              <li>Shallow{up ? " (best re-entry)" : " (best re-short)"}: <b className={dirCls}>${pullback.shallow[0]} – ${pullback.shallow[1]}</b></li>
               <li>Normal: <b>${pullback.normal[0]} – ${pullback.normal[1]}</b></li>
               <li>Deep: <b>${pullback.deep[0]} – ${pullback.deep[1]}</b></li>
               {pullback.invalidation != null && <li className="muted">Invalidation: {up ? "below" : "above"} <b className="down">${pullback.invalidation}</b></li>}
             </ul>
+            <div className="swing-pred-factors">
+              {pullback.basis === "history"
+                ? `Tuned to ${sym}'s own history — it usually ${up ? "pulls back" : "bounces"} ~${pullback.medDepth}% (median of ${pullback.n} past ${up ? "pullbacks" : "bounces"}).`
+                : "Few past pullbacks to learn from — using a tight retracement of the current move."}
+            </div>
+            {keyLevels.length > 0 && (
+              <div className="swing-pred-levels">
+                <span className="muted">{up ? "Support MMs defend" : "Resistance MMs defend"}:</span>
+                {keyLevels.map((k, i) => <span key={i} className="swing-pred-lvl">${k.price}<small className="muted"> {k.pctAway > 0 ? "+" : ""}{k.pctAway}%</small></span>)}
+              </div>
+            )}
           </div>
         )}
 
