@@ -10172,21 +10172,27 @@ Object.assign(window, {
   NewsCard: NewsCardM,
   ScreenersHub: ScreenersHubM
 });
+// Heavy, prop-driven cards are wrapped in React.memo so they don't re-render
+// every time the App re-renders for unrelated state (settings toggles, the 30s
+// staleness tick, sibling-card updates). memo only ever SKIPS a render when
+// props are shallow-equal, so it's safe for these pure components; small
+// helpers/rows are left unwrapped.
+const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
-  VolSkewCard,
-  WatchlistTableCard,
-  AnalystBoardCard,
-  MoversCard,
-  TrendCard,
-  IVRankCard,
-  WatchlistAlertsCard,
+  VolSkewCard: _memo(VolSkewCard),
+  WatchlistTableCard: _memo(WatchlistTableCard),
+  AnalystBoardCard: _memo(AnalystBoardCard),
+  MoversCard: _memo(MoversCard),
+  TrendCard: _memo(TrendCard),
+  IVRankCard: _memo(IVRankCard),
+  WatchlistAlertsCard: _memo(WatchlistAlertsCard),
   TabBar,
   TabPanel,
   WeatherBadge,
-  LevelRepriceCard,
-  WinRateCard,
-  EarningsCrushCard,
+  LevelRepriceCard: _memo(LevelRepriceCard),
+  WinRateCard: _memo(WinRateCard),
+  EarningsCrushCard: _memo(EarningsCrushCard),
   PushSettingsCard,
   BrokerImportCard,
   StrategyReferenceCard,
@@ -10196,17 +10202,17 @@ Object.assign(window, {
   FlashOnChange,
   SortableTh,
   PercentCalc,
-  RollManagerCard,
-  FlowScoreCard,
+  RollManagerCard: _memo(RollManagerCard),
+  FlowScoreCard: _memo(FlowScoreCard),
   PullbackBacktest,
-  TradeBuilderCard,
-  AnalystCard,
-  PullbackProfileCard,
-  BasingCard,
+  TradeBuilderCard: _memo(TradeBuilderCard),
+  AnalystCard: _memo(AnalystCard),
+  PullbackProfileCard: _memo(PullbackProfileCard),
+  BasingCard: _memo(BasingCard),
   Recommendation,
   RecommendationPair,
-  StrategyCard,
-  PositionsCard,
+  StrategyCard: _memo(StrategyCard),
+  PositionsCard: _memo(PositionsCard),
   AddPositionForm
 });
 })();

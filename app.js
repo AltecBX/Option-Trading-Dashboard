@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.10";
+const APP_VERSION = "2.11";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -24,6 +24,56 @@ Object.assign(window, {
 const _API_CACHE = new Map(); // url -> { ts, promise<{status, text}> }
 const API_CACHE_TTL = 4000; // ms — shorter than every polling interval
 
+// Live ET wall clock, isolated so its 1-second tick re-renders ONLY this tiny
+// node instead of the whole App. Pauses while the tab is hidden.
+function LiveClock() {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    let timer = null;
+    const start = () => {
+      if (!timer) timer = setInterval(() => {
+        if (!document.hidden) setNow(Date.now());
+      }, 1000);
+    };
+    const stop = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVis = () => {
+      if (document.hidden) stop();else {
+        setNow(Date.now());
+        start();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    start();
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      stop();
+    };
+  }, []);
+  try {
+    const d = new Date(now);
+    const dateFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric"
+    }).format(d).replace(/\//g, "-");
+    const timeFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    }).format(d);
+    return `${dateFmt}  |  ${timeFmt}`;
+  } catch {
+    return new Date(now).toString();
+  }
+}
 function App() {
   // Floating-point-safe strike key. yfinance can return strikes with
   // tiny FP drift (e.g., 317.5 vs 317.4999999998), so we round to cents
@@ -319,9 +369,10 @@ function App() {
   // Live quote state — populated by polling effects further down (after
   // dependent state is declared). Components use getLivePrice() to read.
   const [liveQuotes, setLiveQuotes] = useState({}); // {sym: {last, change_pct, source, ts}}
-  // Live wall clock — ticks every second so the sidebar timestamp
-  // updates without a page refresh. Stops while tab is hidden to
-  // avoid pointless re-renders.
+  // Coarse "now" for staleness display (minutes since last fetch). Ticks every
+  // 30s instead of every second — the live wall clock that needs 1s updates is
+  // its own <LiveClock> component, so the whole app no longer re-renders once a
+  // second just to advance a clock. Stops while the tab is hidden.
   const [nowTs, setNowTs] = useState(() => Date.now());
   useEffect(() => {
     let timer = null;
@@ -329,7 +380,7 @@ function App() {
       if (timer) return;
       timer = setInterval(() => {
         if (!document.hidden) setNowTs(Date.now());
-      }, 1000);
+      }, 30000);
     };
     const stop = () => {
       if (timer) {
@@ -3092,28 +3143,7 @@ function App() {
     className: "sb-brand-text"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sb-status"
-  }, loading ? "Fetching." : window.__LIVE ? `Live. ${(() => {
-    // Live ET wall clock — updates every second via nowTs state.
-    try {
-      const d = new Date(nowTs);
-      const dateFmt = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        year: "numeric",
-        month: "numeric",
-        day: "numeric"
-      }).format(d).replace(/\//g, "-");
-      const timeFmt = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true
-      }).format(d);
-      return `${dateFmt}  |  ${timeFmt}`;
-    } catch {
-      return new Date(nowTs).toString();
-    }
-  })()}` : "Static snapshot"), loadError && /*#__PURE__*/React.createElement("div", {
+  }, loading ? "Fetching." : window.__LIVE ? /*#__PURE__*/React.createElement(React.Fragment, null, "Live. ", /*#__PURE__*/React.createElement(LiveClock, null)) : "Static snapshot"), loadError && /*#__PURE__*/React.createElement("div", {
     className: "sb-status err"
   }, loadError), /*#__PURE__*/React.createElement("div", {
     className: "sb-source-badges"
