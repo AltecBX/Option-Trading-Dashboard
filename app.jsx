@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.00";
+const APP_VERSION = "2.01";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4303,13 +4303,17 @@ function App() {
                       <div className="market-section" title="Net call premium minus net put premium per sector ETF. Bigger absolute value = bigger institutional positioning.">
                         <div className="market-section-title">Sector flow</div>
                         <div className="sector-grid">
-                          {enriched.slice(0, 12).map((s, i) => (
-                            <div key={i} className={`sector-cell ${s.net >= 0 ? "bull" : "bear"}`}
-                                 title={`${s.sector}: net = ${fmt$M(s.net)} · call = ${fmt$M(s.call)} · put = ${fmt$M(s.put)}`}>
+                          {enriched.slice(0, 12).map((s, i) => {
+                            const sym = String(s.symbol || s.sector || "").toUpperCase();
+                            return (
+                            <div key={i} className={`sector-cell clickable ${s.net >= 0 ? "bull" : "bear"}`}
+                                 onClick={() => sym && switchTicker(sym)}
+                                 title={`${s.sector}: net = ${fmt$M(s.net)} · call = ${fmt$M(s.call)} · put = ${fmt$M(s.put)}${sym ? ` · click to load ${sym}` : ""}`}>
                               <div className="sector-name">{s.sector}</div>
                               <div className={`sector-net ${s.net >= 0 ? "up" : "down"}`}>{fmt$M(s.net)}</div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
