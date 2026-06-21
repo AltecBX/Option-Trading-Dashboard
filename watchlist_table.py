@@ -343,16 +343,27 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12) -> dic
     if comp:
         comp = comp[:-1]                   # drop the active leg
     stage = None
+    med_pct = None
+    winrate = None
     if len(comp) >= 2:
         try:
             r = _sw_rhythm(comp)
             if r:
                 stage = {"early": "early", "developing": "early", "mature": "mid",
                          "extended": "late", "exhausted": "late"}[_sw_maturity(cur_move, r)]
+                med_pct = r["pct_median"]
+                # Win-rate = share of past moves that ran at least the median
+                # (the normal target). Drives the EV / trade-ticket math.
+                mags = [abs(s["pct_change"]) for s in comp]
+                if mags:
+                    winrate = round(sum(1 for x in mags if x >= med_pct) / len(mags), 2)
         except Exception:
             stage = None
     return {"swing_dir": direction, "swing_stage": stage,
-            "swing_pct": round(float(cur_move), 1), "swing_days": int(days)}
+            "swing_pct": round(float(cur_move), 1), "swing_days": int(days),
+            "swing_from": round(float(from_p), 2),          # stop reference (swing origin)
+            "swing_med_pct": med_pct,                        # typical full move %
+            "swing_winrate": winrate}                        # P(reach the median target)
 
 
 # Options-flow provider, injected once at startup by options_dashboard

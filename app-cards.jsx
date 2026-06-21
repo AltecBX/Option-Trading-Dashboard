@@ -1942,6 +1942,31 @@ function SwingPatternCard({ apiFetch, ticker }) {
   );
 }
 
+// Trade ticket: turn a swing read into a sized, EV-ranked order. Stop = swing
+// origin (where the thesis dies), target = origin + the stock's typical move,
+// size = risk-budget / per-share risk. EV is the expected R-multiple. All from
+// fields already on the row — no extra cost.
+function computeTicket(r, acct, riskPct) {
+  if (!r || !r.swing_dir || r.swing_from == null || r.swing_med_pct == null || r.last == null) return {};
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const long = r.swing_dir === "long";
+  const stop = r.swing_from;
+  const target = long ? stop * (1 + r.swing_med_pct / 100) : stop * (1 - r.swing_med_pct / 100);
+  const price = r.last;
+  const risk = Math.abs(price - stop);
+  const reward = long ? (target - price) : (price - target);
+  const base = { tk_target: r2(target), tk_stop: r2(stop) };
+  if (!(risk > 0) || !(reward > 0)) return { ...base, tk_rr: null, tk_ev: null, tk_size: null };  // exhausted / no edge
+  const rr = reward / risk;
+  const wr = r.swing_winrate != null ? r.swing_winrate : 0.5;
+  const ev = wr * rr - (1 - wr);
+  const size = Math.floor(((acct || 0) * (riskPct || 0) / 100) / risk);
+  return { ...base, tk_rr: r2(rr), tk_ev: r2(ev), tk_size: size > 0 ? size : null,
+           tk_riskUsd: size > 0 ? Math.round(size * risk) : null,
+           tk_rewardUsd: size > 0 ? Math.round(size * reward) : null,
+           tk_wr: Math.round(wr * 100) };
+}
+
 function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, watchlistSymbols }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -1953,6 +1978,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   const [q, setQ] = useState("");
   const [fMcap, setFMcap] = useState("all");
   const [primeOnly, setPrimeOnly] = useState(false);  // confluence shortlist
+  const [acct, setAcct] = useState(() => { try { return Number(localStorage.getItem("jerry_acct")) || 100000; } catch { return 100000; } });
+  const [riskPct, setRiskPct] = useState(() => { try { return Number(localStorage.getItem("jerry_riskpct")) || 1; } catch { return 1; } });
+  useEffect(() => { try { localStorage.setItem("jerry_acct", String(acct)); } catch {} }, [acct]);
+  useEffect(() => { try { localStorage.setItem("jerry_riskpct", String(riskPct)); } catch {} }, [riskPct]);
   const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
   const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
   const pollRef = useRef(null);
@@ -1984,9 +2013,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       ? new Set(watchlistSymbols.map(s => String(s).toUpperCase()))
       : null
   ), [watchlistSymbols]);
-  const rows = useMemo(() => allRows.filter(r => (
-    !removed.has(r.symbol) && (!wlSet || wlSet.has(String(r.symbol).toUpperCase()))
-  )), [allRows, removed, wlSet]);
+  const rows = useMemo(() => allRows
+    .filter(r => !removed.has(r.symbol) && (!wlSet || wlSet.has(String(r.symbol).toUpperCase())))
+    .map(r => ({ ...r, ...computeTicket(r, acct, riskPct) })),
+    [allRows, removed, wlSet, acct, riskPct]);
   const mcapPass = (mc) => (MCAP_PRED[fMcap] || MCAP_PRED.all)(mc || 0);
   // Prime setup = the two independent lenses agree AND the move is early:
   // options-flow Edge direction == price-swing direction, swing just starting.
@@ -2006,6 +2036,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "edge", label: "Edge", num: true }, { k: "setup", label: "Setup" },
     { k: "prem_sell", label: "Premium" },
     { k: "swing_dir", label: "Swing" }, { k: "swing_stage", label: "Timing" },
+    { k: "tk_ev", label: "EV", num: true }, { k: "tk_size", label: "Size", num: true },
     { k: "last", label: "Price", num: true }, { k: "market_cap", label: "Mkt Cap", num: true },
     { k: "pe", label: "P/E", num: true }, { k: "forward_pe", label: "Fwd P/E", num: true },
     { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
@@ -2188,6 +2219,19 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       : "Mid-move — enter on a pullback";
     return <span className={cls} title={tip}>{r.swing_stage}</span>;
   };
+  // Expected R-multiple — the desk-style ranker. >0 = positive expectancy.
+  const evCell = (r) => {
+    if (r.tk_ev == null) return <span className="muted" title={r.tk_target ? "Target already reached — no edge left here" : "—"}>—</span>;
+    const cls = r.tk_ev >= 0.2 ? "up" : r.tk_ev < 0 ? "down" : "muted";
+    return <b className={cls} title={`Expected value per trade. R:R ${r.tk_rr}, win-rate ${r.tk_wr}% → ${r.tk_ev >= 0 ? "+" : ""}${r.tk_ev}R expected`}>{r.tk_ev >= 0 ? "+" : ""}{r.tk_ev}R</b>;
+  };
+  // Risk-based position size for the current account / risk-per-trade.
+  const sizeCell = (r) => {
+    if (r.tk_size == null) return <span className="muted">—</span>;
+    const dir = r.swing_dir === "long" ? "Buy" : "Short";
+    const tip = `${dir} ${r.tk_size} sh · risk $${r.tk_riskUsd?.toLocaleString()} → reward $${r.tk_rewardUsd?.toLocaleString()} · R:R ${r.tk_rr} · target $${r.tk_target} / stop $${r.tk_stop}`;
+    return <span title={tip}>{r.tk_size.toLocaleString()}<small className="muted"> sh</small></span>;
+  };
 
   return (
     <div className="card ab-card">
@@ -2270,6 +2314,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   title="Prime setups: options flow and price-swing agree on direction AND the move is just starting — your highest-conviction, beginning-of-move trades.">
             ★ Prime{primeCount ? ` (${primeCount})` : ""}
           </button>
+          <label className="wl-acct-wrap" title="Account size — used to size each trade by risk">$<input className="wl-acct" type="number" min="0" step="1000" value={acct} onChange={e => setAcct(Number(e.target.value) || 0)} /></label>
+          <label className="wl-acct-wrap" title="Risk per trade (% of account). Position size = this ÷ stop distance.">risk<input className="wl-risk" type="number" min="0" step="0.1" value={riskPct} onChange={e => setRiskPct(Number(e.target.value) || 0)} />%</label>
           <span className="muted" style={{ fontSize: 12 }}>{view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`}</span>
         </div>
       )}
@@ -2331,6 +2377,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   <td className="wl-txt">{r.prem_sell || "—"}</td>
                   <td className="wl-txt">{swingCell(r)}</td>
                   <td className="wl-txt">{timingCell(r)}</td>
+                  <td className="scan-num">{evCell(r)}</td>
+                  <td className="scan-num">{sizeCell(r)}</td>
                   <td className="scan-num">{fmtUsd(r.last, 2)}</td>
                   <td className="scan-num">{fmtMktCap(r.market_cap)}</td>
                   <td className="scan-num">{r.pe != null ? r.pe : "—"}</td>
