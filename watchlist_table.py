@@ -33,6 +33,17 @@ except Exception:
 
 import analyst_board
 
+# Reuse the Patterns-tab swing math so the watchlist's swing/timing read
+# agrees with the swing chart. Pure functions, no network — they run on the
+# OHLC each row already downloaded. Guarded so a swings import problem never
+# takes the watchlist scan down.
+try:
+    from swings import _zigzag as _sw_zigzag, _rhythm as _sw_rhythm, _maturity as _sw_maturity
+    _SWINGS_OK = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] swings helpers unavailable: {_exc}", file=sys.stderr)
+    _SWINGS_OK = False
+
 CHUNK = 40
 
 # ── Persistence ─────────────────────────────────────────────────────
@@ -288,6 +299,62 @@ def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
     return out
 
 
+def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12) -> dict:
+    """Lightweight active-swing read from the OHLC already downloaded for the
+    row — no extra network. Returns the current swing direction (long/short
+    bias) and how far along the move is vs the stock's OWN past swings
+    (early/mid/late), so the watchlist can be scanned for fresh entries
+    instead of opening each name on the Patterns tab. Mirrors that tab's
+    zig-zag so the two agree."""
+    if not _SWINGS_OK:
+        return {}
+    n = len(closes)
+    if n < 40 or len(highs) != n or len(lows) != n:
+        return {}
+    try:
+        pivots = _sw_zigzag(highs, lows, pct)
+    except Exception:
+        return {}
+    if len(pivots) < 3:
+        return {}
+    last = pivots[-1]
+    cur_price = closes[-1]
+    last_i = n - 1
+    if last[2] == "high":
+        direction, kind = "long", "up"     # rising from a prior low → long bias
+        start = next((p for p in reversed(pivots[:-1]) if p[2] == "low"), None)
+    else:
+        direction, kind = "short", "down"  # falling from a prior high → short bias
+        start = next((p for p in reversed(pivots[:-1]) if p[2] == "high"), None)
+    if not start or not start[1]:
+        return {}
+    from_i, from_p = start[0], start[1]
+    cur_move = abs((cur_price - from_p) / from_p * 100.0)
+    days = last_i - from_i
+
+    # Completed legs in this direction (exclude the in-progress final leg) →
+    # rhythm → maturity bucket → early/mid/late.
+    comp = []
+    for a, b in zip(pivots[:-1], pivots[1:]):
+        if a[1] and ((kind == "up" and a[2] == "low" and b[2] == "high")
+                     or (kind == "down" and a[2] == "high" and b[2] == "low")):
+            comp.append({"pct_change": (b[1] - a[1]) / a[1] * 100.0,
+                         "trading_days": b[0] - a[0]})
+    if comp:
+        comp = comp[:-1]                   # drop the active leg
+    stage = None
+    if len(comp) >= 2:
+        try:
+            r = _sw_rhythm(comp)
+            if r:
+                stage = {"early": "early", "developing": "early", "mature": "mid",
+                         "extended": "late", "exhausted": "late"}[_sw_maturity(cur_move, r)]
+        except Exception:
+            stage = None
+    return {"swing_dir": direction, "swing_stage": stage,
+            "swing_pct": round(float(cur_move), 1), "swing_days": int(days)}
+
+
 # Options-flow provider, injected once at startup by options_dashboard
 # (so this module doesn't import the UW client directly). Signature:
 # fn(symbol) -> flow dict (the _compute_flow_score payload) or None.
@@ -330,6 +397,18 @@ def _scan_worker(symbols: list[str]) -> None:
                     row = {"symbol": sym}
                     row.update(pm)
                     row.update(fund)
+                    # Active swing direction + entry timing (free — runs on the
+                    # OHLC already in hand). Skips silently on bad/short data.
+                    try:
+                        H, L, C = [], [], []
+                        for hi, lo, cl in zip(sub["High"].tolist(), sub["Low"].tolist(), sub["Close"].tolist()):
+                            if hi == hi and lo == lo and cl == cl:   # drop NaN rows
+                                H.append(float(hi)); L.append(float(lo)); C.append(float(cl))
+                        sw = _swing_read(H, L, C)
+                        if sw:
+                            row.update(sw)
+                    except Exception:
+                        pass
                     # Options-flow agreement (best-effort; UW client
                     # self-throttles, so a big list just runs slower).
                     if flow_fn is not None:
