@@ -2104,6 +2104,28 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     return out;
   }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly]);
 
+  // Progressive rendering: the stocks table can hold ~550 rows × 40+ columns.
+  // Painting them all (and re-painting on every sort/filter) is the table's
+  // biggest cost. Render a chunk and append more as you scroll — after a sort
+  // you look at the top anyway, so this caps the expensive re-render at one
+  // chunk while keeping auto column widths stable (the set only grows). True
+  // row-windowing was avoided on purpose: this table is auto-layout with a
+  // sticky first column, so windowing would make columns jitter horizontally.
+  const WL_CHUNK = 120;
+  const [visN, setVisN] = useState(WL_CHUNK);
+  // Reset to the top whenever the result set changes (sort / filter / search /
+  // new scan data) so you're not deep in a stale, longer list.
+  useEffect(() => { setVisN(WL_CHUNK); }, [filtered]);
+  const wlScrollRef = useRef(null);
+  const onWlScroll = (e) => {
+    if (visN >= filtered.length) return;
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 600) {
+      setVisN(n => Math.min(n + WL_CHUNK, filtered.length));
+    }
+  };
+  const shown = view === "stocks" ? filtered.slice(0, visN) : filtered;
+
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
   // where money is flowing in and out at the group level. Respects the
@@ -2390,7 +2412,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           </div>
         ) : (!scanning && status.last_scan && <div className="ab-empty">No flow data to aggregate yet — run a scan.</div>)
       ) : filtered.length > 0 ? (
-        <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }}>
+        <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }} ref={wlScrollRef} onScroll={onWlScroll}>
           <table className="scan-table wl-table">
             <thead><tr>
               {COLS.map(c => (
@@ -2401,7 +2423,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
               ))}
             </tr></thead>
             <tbody>
-              {filtered.map(r => (
+              {shown.map(r => (
                 <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                     onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, symbol: r.symbol }); }}
                     title={`Open ${r.symbol} · right-click to remove`}>
@@ -2452,6 +2474,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
               ))}
             </tbody>
           </table>
+          {visN < filtered.length && (
+            <div className="wl-more" onClick={() => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))}>
+              Showing {visN} of {filtered.length} — scroll or click for more
+            </div>
+          )}
         </div>
       ) : (!scanning && status.last_scan && <div className="ab-empty">No stocks match these filters.</div>)}
       {ctx && (

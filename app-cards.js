@@ -3196,6 +3196,30 @@ function WatchlistTableCard({
     return out;
   }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly]);
 
+  // Progressive rendering: the stocks table can hold ~550 rows × 40+ columns.
+  // Painting them all (and re-painting on every sort/filter) is the table's
+  // biggest cost. Render a chunk and append more as you scroll — after a sort
+  // you look at the top anyway, so this caps the expensive re-render at one
+  // chunk while keeping auto column widths stable (the set only grows). True
+  // row-windowing was avoided on purpose: this table is auto-layout with a
+  // sticky first column, so windowing would make columns jitter horizontally.
+  const WL_CHUNK = 120;
+  const [visN, setVisN] = useState(WL_CHUNK);
+  // Reset to the top whenever the result set changes (sort / filter / search /
+  // new scan data) so you're not deep in a stale, longer list.
+  useEffect(() => {
+    setVisN(WL_CHUNK);
+  }, [filtered]);
+  const wlScrollRef = useRef(null);
+  const onWlScroll = e => {
+    if (visN >= filtered.length) return;
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 600) {
+      setVisN(n => Math.min(n + WL_CHUNK, filtered.length));
+    }
+  };
+  const shown = view === "stocks" ? filtered.slice(0, visN) : filtered;
+
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
   // where money is flowing in and out at the group level. Respects the
@@ -3690,7 +3714,9 @@ function WatchlistTableCard({
     className: "scan-table-wrap wl-scroll",
     style: {
       marginTop: 10
-    }
+    },
+    ref: wlScrollRef,
+    onScroll: onWlScroll
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table wl-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, COLS.map(c => /*#__PURE__*/React.createElement("th", {
@@ -3698,7 +3724,7 @@ function WatchlistTableCard({
     className: `${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`,
     onClick: () => setSortKey(c.k),
     title: "Click to sort"
-  }, c.label, sort.key === c.k ? sort.dir === "asc" ? " ▲" : " ▼" : "")))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, c.label, sort.key === c.k ? sort.dir === "asc" ? " ▲" : " ▼" : "")))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
     className: "scan-row wl-row",
     onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
@@ -3805,7 +3831,10 @@ function WatchlistTableCard({
     className: `scan-num ${pctCls(r.from_ma50)}`
   }, pct(r.from_ma50)), /*#__PURE__*/React.createElement("td", {
     className: `scan-num ${pctCls(r.from_ma200)}`
-  }, pct(r.from_ma200))))))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
+  }, pct(r.from_ma200)))))), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
+    className: "wl-more",
+    onClick: () => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))
+  }, "Showing ", visN, " of ", filtered.length, " — scroll or click for more")) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
   }, "No stocks match these filters."), ctx && /*#__PURE__*/React.createElement("div", {
     className: "wl-ctx",

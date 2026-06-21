@@ -8335,3 +8335,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border: 1px solid color-mix(in oklch, #f59e0b 40%, var(--line)); color: var(--fg-1, #e6e9ef);
 }
 .wl-crowd b { color: #f59e0b; }
+
+/* Watchlist progressive-render footer (click/scroll to load more rows). */
+.wl-more {
+  position: sticky; left: 0; padding: 9px 12px; margin-top: 2px; cursor: pointer;
+  font-size: 12px; color: var(--fg-3, #8b93a3); text-align: center;
+  background: var(--bg-2, #11141b); border-top: 1px solid var(--line, #2a2f3a);
+}
+.wl-more:hover { color: var(--accent, #22c55e); }
