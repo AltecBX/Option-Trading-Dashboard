@@ -393,6 +393,44 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12) -> dic
 _FLOW_FN = None
 
 
+_NOTIFY_FN = None
+_ALERT_PENDING = False
+
+
+def set_notify_provider(fn) -> None:
+    """Injected by options_dashboard: fn(title, message) sends a push. Used to
+    fire the morning Prime-setup alert after the 9 AM auto-scan."""
+    global _NOTIFY_FN
+    _NOTIFY_FN = fn
+
+
+def _prime_alert(rows: list) -> tuple | None:
+    """Build the morning push from the scanned rows: names where the options
+    flow and the price-swing agree on direction AND the move is just starting
+    (early) — the same Prime confluence the watchlist ★ shows."""
+    longs, shorts = [], []
+    for r in rows:
+        if r.get("swing_stage") != "early":
+            continue
+        sd, fd = r.get("swing_dir"), r.get("flow_dir")
+        conv = abs(r.get("flow_net") or 0)
+        if sd == "long" and fd == "bull":
+            longs.append((conv, r.get("symbol")))
+        elif sd == "short" and fd == "bear":
+            shorts.append((conv, r.get("symbol")))
+    longs.sort(reverse=True)
+    shorts.sort(reverse=True)
+    n = len(longs) + len(shorts)
+    if n == 0:
+        return None
+    parts = []
+    if longs:
+        parts.append("Long: " + ", ".join(s for _, s in longs[:6] if s))
+    if shorts:
+        parts.append("Short: " + ", ".join(s for _, s in shorts[:6] if s))
+    return (f"{n} Prime setup{'s' if n != 1 else ''} today", " · ".join(parts))
+
+
 def set_flow_provider(fn) -> None:
     global _FLOW_FN
     _FLOW_FN = fn
@@ -474,6 +512,17 @@ def _scan_worker(symbols: list[str]) -> None:
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
         _persist()  # cache to /data so the board survives restarts/redeploys
+        # Morning Prime-setup push (only after the 9 AM auto-scan fired it).
+        global _ALERT_PENDING
+        if _ALERT_PENDING:
+            _ALERT_PENDING = False
+            try:
+                msg = _prime_alert(rows)
+                if msg and _NOTIFY_FN:
+                    _NOTIFY_FN(msg[0], msg[1])
+                    print(f"[watchlist_table] prime alert sent: {msg[0]}", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[watchlist_table] prime alert failed: {exc}", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001
         with _LOCK:
             _STATE["error"] = str(exc)
@@ -553,6 +602,10 @@ def _maybe_auto_scan(get_symbols) -> None:
             _STATE["auto_fired"] = fired[-20:]
             _STATE["last_auto"] = {"slot": key, "at": _now_iso()}
         _persist()
+        # Arm the Prime-setup push for the morning slot only (not the 6 PM run).
+        if hour == 9:
+            global _ALERT_PENDING
+            _ALERT_PENDING = True
         res = trigger_scan(syms)
         print(f"[watchlist_table] auto-scan {key} ET "
               f"({res.get('total')} names): {res}", file=sys.stderr)
