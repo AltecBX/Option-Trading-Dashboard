@@ -2835,6 +2835,7 @@ function WatchlistTableCard({
   const [fIndustry, setFIndustry] = useState("all");
   const [q, setQ] = useState("");
   const [fMcap, setFMcap] = useState("all");
+  const [primeOnly, setPrimeOnly] = useState(false); // confluence shortlist
   const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
   const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
   const pollRef = useRef(null);
@@ -2883,6 +2884,14 @@ function WatchlistTableCard({
   const wlSet = useMemo(() => watchlistSymbols && watchlistSymbols.length ? new Set(watchlistSymbols.map(s => String(s).toUpperCase())) : null, [watchlistSymbols]);
   const rows = useMemo(() => allRows.filter(r => !removed.has(r.symbol) && (!wlSet || wlSet.has(String(r.symbol).toUpperCase()))), [allRows, removed, wlSet]);
   const mcapPass = mc => (MCAP_PRED[fMcap] || MCAP_PRED.all)(mc || 0);
+  // Prime setup = the two independent lenses agree AND the move is early:
+  // options-flow Edge direction == price-swing direction, swing just starting.
+  // That's the highest-conviction "beginning of the move" trade.
+  const isPrime = r => {
+    if (r.swing_stage !== "early" || !r.swing_dir) return false;
+    return r.swing_dir === "long" && r.edge_dir === "long" || r.swing_dir === "short" && r.edge_dir === "short";
+  };
+  const primeCount = useMemo(() => rows.filter(isPrime).length, [rows]);
   const scanning = !!status.scanning;
   const sectors = board && board.sectors || [];
   const industries = board && board.industries || [];
@@ -3062,6 +3071,7 @@ function WatchlistTableCard({
   }, [industryOpts, fIndustry]);
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
+      if (primeOnly && !isPrime(r)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
       if (fMcap !== "all" && !mcapPass(r.market_cap)) return false;
@@ -3083,7 +3093,7 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, fMcap, q, sort]);
+  }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly]);
 
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
@@ -3439,7 +3449,12 @@ function WatchlistTableCard({
   }, MCAP_BUCKETS.map(([v, label]) => /*#__PURE__*/React.createElement("option", {
     key: v,
     value: v
-  }, label))), /*#__PURE__*/React.createElement("span", {
+  }, label))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: `wl-prime-btn${primeOnly ? " on" : ""}`,
+    onClick: () => setPrimeOnly(v => !v),
+    title: "Prime setups: options flow and price-swing agree on direction AND the move is just starting — your highest-conviction, beginning-of-move trades."
+  }, "★ Prime", primeCount ? ` (${primeCount})` : ""), /*#__PURE__*/React.createElement("span", {
     className: "muted",
     style: {
       fontSize: 12
@@ -3520,7 +3535,10 @@ function WatchlistTableCard({
     title: `Open ${r.symbol} · right-click to remove`
   }, /*#__PURE__*/React.createElement("td", {
     className: "wl-sym"
-  }, r.symbol), /*#__PURE__*/React.createElement("td", {
+  }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
+    className: "wl-prime-star",
+    title: "Prime setup — flow + swing agree, move is early"
+  }, "★ "), r.symbol), /*#__PURE__*/React.createElement("td", {
     className: "wl-co"
   }, r.company || "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num",
