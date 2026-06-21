@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.00";
+const APP_VERSION = "2.01";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -5521,15 +5521,19 @@ function App() {
       className: "market-section-title"
     }, "Sector flow"), /*#__PURE__*/React.createElement("div", {
       className: "sector-grid"
-    }, enriched.slice(0, 12).map((s, i) => /*#__PURE__*/React.createElement("div", {
-      key: i,
-      className: `sector-cell ${s.net >= 0 ? "bull" : "bear"}`,
-      title: `${s.sector}: net = ${fmt$M(s.net)} · call = ${fmt$M(s.call)} · put = ${fmt$M(s.put)}`
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "sector-name"
-    }, s.sector), /*#__PURE__*/React.createElement("div", {
-      className: `sector-net ${s.net >= 0 ? "up" : "down"}`
-    }, fmt$M(s.net))))));
+    }, enriched.slice(0, 12).map((s, i) => {
+      const sym = String(s.symbol || s.sector || "").toUpperCase();
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        className: `sector-cell clickable ${s.net >= 0 ? "bull" : "bear"}`,
+        onClick: () => sym && switchTicker(sym),
+        title: `${s.sector}: net = ${fmt$M(s.net)} · call = ${fmt$M(s.call)} · put = ${fmt$M(s.put)}${sym ? ` · click to load ${sym}` : ""}`
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "sector-name"
+      }, s.sector), /*#__PURE__*/React.createElement("div", {
+        className: `sector-net ${s.net >= 0 ? "up" : "down"}`
+      }, fmt$M(s.net)));
+    })));
   })(), marketDashboard.spike && (() => {
     const spikes = Array.isArray(marketDashboard.spike) ? marketDashboard.spike : marketDashboard.spike.data || [];
     if (!spikes.length) return null;

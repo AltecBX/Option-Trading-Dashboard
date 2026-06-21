@@ -1321,6 +1321,7 @@ function SwingChart({
     targets: true,
     labels: true
   });
+  const [ohlc, setOhlc] = useState(null); // crosshair hover readout (O/H/L/C/Chg/Vol)
   const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= 900);
   const bars = data && data.bars || [];
   const upSw = data && data.swings || [];
@@ -1412,6 +1413,27 @@ function SwingChart({
     volRef.current = vol;
     if (onPickSwing) chart.subscribeClick(p => {
       if (p && p.time) onPickSwing(p.time);
+    });
+    // Crosshair readout: surface the hovered bar's OHLC / change% / volume.
+    chart.subscribeCrosshairMove(p => {
+      if (!p || !p.time || !p.seriesData) {
+        setOhlc(null);
+        return;
+      }
+      const c = p.seriesData.get(candle);
+      if (!c) {
+        setOhlc(null);
+        return;
+      }
+      const vd = p.seriesData.get(vol);
+      setOhlc({
+        time: p.time,
+        o: c.open,
+        h: c.high,
+        l: c.low,
+        c: c.close,
+        v: vd ? vd.value : null
+      });
     });
     const ro = new window.ResizeObserver(() => {
       if (wrapRef.current) chart.applyOptions({
@@ -1564,6 +1586,20 @@ function SwingChart({
   }, [focusKey, collapsed]);
   const TOGGLES = [["markers", "Markers"], ["labels", "Labels"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
 
+  // Crosshair OHLC readout — hovered bar, falling back to the latest bar.
+  const lastBar = bars.length ? bars[bars.length - 1] : null;
+  const ro = ohlc || (lastBar ? {
+    time: lastBar.t,
+    o: lastBar.o,
+    h: lastBar.h,
+    l: lastBar.l,
+    c: lastBar.c,
+    v: lastBar.v
+  } : null);
+  const fmtVol = v => v == null ? "—" : v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : String(Math.round(v));
+  const fmtBarDate = t => typeof t === "string" ? fmtSwingDate(t) : t && t.year ? `${t.month}-${t.day}-${t.year}` : String(t);
+  const roChg = ro && ro.o ? (ro.c - ro.o) / ro.o * 100 : null;
+
   // Level legend (rendered as HTML over the chart so the now/median/aggr/
   // inval prices don't overlap the candles on the right axis).
   const legend = [];
@@ -1617,9 +1653,18 @@ function SwingChart({
   }, "Chart library didn't load (offline?). The swing table above has the full data."), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-wrap"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "swing-chart",
-    ref: wrapRef
-  }), legend.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-overlay"
+  }, ro && /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart-ohlc"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, fmtBarDate(ro.time)), /*#__PURE__*/React.createElement("span", null, "O ", /*#__PURE__*/React.createElement("b", null, ro.o.toFixed(2))), /*#__PURE__*/React.createElement("span", null, "H ", /*#__PURE__*/React.createElement("b", null, ro.h.toFixed(2))), /*#__PURE__*/React.createElement("span", null, "L ", /*#__PURE__*/React.createElement("b", null, ro.l.toFixed(2))), /*#__PURE__*/React.createElement("span", null, "C ", /*#__PURE__*/React.createElement("b", {
+    className: ro.c >= ro.o ? "up" : "down"
+  }, ro.c.toFixed(2))), roChg != null && /*#__PURE__*/React.createElement("span", {
+    className: roChg >= 0 ? "up" : "down"
+  }, roChg >= 0 ? "+" : "", roChg.toFixed(2), "%"), /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "Vol ", fmtVol(ro.v))), legend.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-legend"
   }, legend.map(l => /*#__PURE__*/React.createElement("span", {
     key: l.name,
@@ -1628,7 +1673,10 @@ function SwingChart({
     style: {
       background: l.color
     }
-  }), l.name, " ", /*#__PURE__*/React.createElement("b", null, fmtUsd(l.price, 2)))))), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
+  }), l.name, " ", /*#__PURE__*/React.createElement("b", null, fmtUsd(l.price, 2)))))), /*#__PURE__*/React.createElement("div", {
+    className: "swing-chart",
+    ref: wrapRef
+  })), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-hint"
   }, "Tap a candle near a swing to open its row · tap a table row to highlight + zoom to that move · Reset = 6-month view"));
 }

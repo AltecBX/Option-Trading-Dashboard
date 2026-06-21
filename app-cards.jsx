@@ -948,6 +948,7 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
   const volRef = useRef(null);
   const overlayRef = useRef({ lines: [], priceLines: [] });
   const [show, setShow] = useState({ markers: true, lines: true, up: true, down: false, current: true, targets: true, labels: true });
+  const [ohlc, setOhlc] = useState(null);  // crosshair hover readout (O/H/L/C/Chg/Vol)
   const [collapsed, setCollapsed] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 900));
 
   const bars = (data && data.bars) || [];
@@ -989,6 +990,14 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
     chartRef.current = chart; candleRef.current = candle; volRef.current = vol;
     if (onPickSwing) chart.subscribeClick(p => { if (p && p.time) onPickSwing(p.time); });
+    // Crosshair readout: surface the hovered bar's OHLC / change% / volume.
+    chart.subscribeCrosshairMove(p => {
+      if (!p || !p.time || !p.seriesData) { setOhlc(null); return; }
+      const c = p.seriesData.get(candle);
+      if (!c) { setOhlc(null); return; }
+      const vd = p.seriesData.get(vol);
+      setOhlc({ time: p.time, o: c.open, h: c.high, l: c.low, c: c.close, v: vd ? vd.value : null });
+    });
     const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
     ro.observe(el);
     return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; candleRef.current = null; volRef.current = null; };
@@ -1072,6 +1081,13 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
 
   const TOGGLES = [["markers", "Markers"], ["labels", "Labels"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"]];
 
+  // Crosshair OHLC readout — hovered bar, falling back to the latest bar.
+  const lastBar = bars.length ? bars[bars.length - 1] : null;
+  const ro = ohlc || (lastBar ? { time: lastBar.t, o: lastBar.o, h: lastBar.h, l: lastBar.l, c: lastBar.c, v: lastBar.v } : null);
+  const fmtVol = (v) => v == null ? "—" : v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : String(Math.round(v));
+  const fmtBarDate = (t) => typeof t === "string" ? fmtSwingDate(t) : (t && t.year ? `${t.month}-${t.day}-${t.year}` : String(t));
+  const roChg = ro && ro.o ? (ro.c - ro.o) / ro.o * 100 : null;
+
   // Level legend (rendered as HTML over the chart so the now/median/aggr/
   // inval prices don't overlap the candles on the right axis).
   const legend = [];
@@ -1102,16 +1118,29 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       {!collapsed && !LC && <div className="ab-status muted">Chart library didn't load (offline?). The swing table above has the full data.</div>}
       {!collapsed && LC && (
         <div className="swing-chart-wrap">
+          <div className="swing-chart-overlay">
+            {ro && (
+              <div className="swing-chart-ohlc">
+                <span className="muted">{fmtBarDate(ro.time)}</span>
+                <span>O <b>{ro.o.toFixed(2)}</b></span>
+                <span>H <b>{ro.h.toFixed(2)}</b></span>
+                <span>L <b>{ro.l.toFixed(2)}</b></span>
+                <span>C <b className={ro.c >= ro.o ? "up" : "down"}>{ro.c.toFixed(2)}</b></span>
+                {roChg != null && <span className={roChg >= 0 ? "up" : "down"}>{roChg >= 0 ? "+" : ""}{roChg.toFixed(2)}%</span>}
+                <span className="muted">Vol {fmtVol(ro.v)}</span>
+              </div>
+            )}
+            {legend.length > 0 && (
+              <div className="swing-chart-legend">
+                {legend.map(l => (
+                  <span key={l.name} className="swing-legend-item">
+                    <i style={{ background: l.color }} />{l.name} <b>{fmtUsd(l.price, 2)}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="swing-chart" ref={wrapRef} />
-          {legend.length > 0 && (
-            <div className="swing-chart-legend">
-              {legend.map(l => (
-                <span key={l.name} className="swing-legend-item">
-                  <i style={{ background: l.color }} />{l.name} <b>{fmtUsd(l.price, 2)}</b>
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       )}
       {!collapsed && LC && <div className="swing-chart-hint">Tap a candle near a swing to open its row · tap a table row to highlight + zoom to that move · Reset = 6-month view</div>}
