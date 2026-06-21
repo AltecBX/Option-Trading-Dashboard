@@ -3015,6 +3015,10 @@ function WatchlistTableCard({
     label: "Size",
     num: true
   }, {
+    k: "rvol_rank",
+    label: "Vol",
+    num: true
+  }, {
     k: "last",
     label: "Price",
     num: true
@@ -3445,6 +3449,20 @@ function WatchlistTableCard({
       title: `Expected value per trade. R:R ${r.tk_rr}, win-rate ${r.tk_wr}% → ${r.tk_ev >= 0 ? "+" : ""}${r.tk_ev}R expected`
     }, r.tk_ev >= 0 ? "+" : "", r.tk_ev, "R");
   };
+  // Realized-volatility regime → buy-vs-sell-premium read.
+  const volCell = r => {
+    if (r.rvol_rank == null) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    const hot = r.rvol_rank >= 70,
+      cold = r.rvol_rank <= 30;
+    const cls = hot ? "down" : cold ? "up" : "muted";
+    const tip = `Realized-vol rank ${r.rvol_rank} (20d vol ${r.rvol}% vs its own year). ` + (hot ? "Elevated — premium likely rich → favor SELLING premium (credit spreads / CSPs)." : cold ? "Calm/cheap — favor BUYING premium (long calls/puts) or directional shares." : "Mid — no strong premium edge either way.");
+    return /*#__PURE__*/React.createElement("span", {
+      className: cls,
+      title: tip
+    }, r.rvol_rank, hot ? " ↑" : cold ? " ↓" : "");
+  };
   // Risk-based position size for the current account / risk-per-trade.
   const sizeCell = r => {
     if (r.tk_size == null) return /*#__PURE__*/React.createElement("span", {
@@ -3717,6 +3735,8 @@ function WatchlistTableCard({
   }, evCell(r)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, sizeCell(r)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, volCell(r)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, fmtUsd(r.last, 2)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
