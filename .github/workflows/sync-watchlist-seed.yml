@@ -1,0 +1,81 @@
+# Keeps watchlist_seed.json (the catastrophic-recovery seed baked into the
+# repo) in sync with the live watchlist so it always reflects the symbols the
+# user is actually working with. Runs on a schedule + on demand. Commits only
+# when the list actually changed, and refuses to bake an obvious regression
+# (empty list or the bare 5-symbol default), so a transient server reset can
+# never poison the seed.
+name: Sync watchlist seed
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch: {}      # manual "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-watchlist-seed
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull live watchlist into the seed
+        env:
+          WL_URL: https://dashboard.jerrytrade.com/api/watchlist
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, pathlib
+          url = os.environ["WL_URL"]
+          try:
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  live = json.load(r)
+          except Exception as e:
+              print(f"::warning::could not fetch live watchlist: {e}; leaving seed unchanged")
+              sys.exit(0)
+
+          syms = live.get("symbols")
+          if not isinstance(syms, list) or len(syms) == 0:
+              print("::warning::live watchlist empty/invalid; leaving seed unchanged")
+              sys.exit(0)
+
+          names = sorted((s.get("symbol") or "").upper() for s in syms if s.get("symbol"))
+          DEFAULTS = {"SPY", "QQQ", "AAPL", "NVDA", "TSLA"}
+          if set(names) == DEFAULTS or len(names) <= 5:
+              print("::warning::live watchlist looks like the reset default; refusing to bake regression")
+              sys.exit(0)
+
+          # Mirror exactly what the user has (symbols, stars, tags, notes).
+          out = {
+              "version": 1,
+              "symbols": [
+                  {
+                      "symbol": (s.get("symbol") or "").upper(),
+                      "tags": s.get("tags") or [],
+                      "notes": s.get("notes") or "",
+                      "preferred_strategy": s.get("preferred_strategy"),
+                      "starred": bool(s.get("starred")),
+                      "added_at": int(s.get("added_at") or 0),
+                  }
+                  for s in syms if s.get("symbol")
+              ],
+              "tag_order": live.get("tag_order") or [],
+          }
+          pathlib.Path("watchlist_seed.json").write_text(json.dumps(out, indent=2) + "\n")
+          print(f"seed updated: {len(out['symbols'])} symbols")
+          PY
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- watchlist_seed.json; then
+            echo "no change — nothing to commit"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add watchlist_seed.json
+          n=$(python3 -c "import json;print(len(json.load(open('watchlist_seed.json'))['symbols']))")
+          git commit -m "chore: sync watchlist seed (${n} symbols)"
+          git push

@@ -5478,8 +5478,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn(symbol, "api/swings.flow", exc)
                 flow = None
             try:
+                # Reuse the app's Schwab-first, cached daily history (already
+                # warm from loading the symbol on Trade) instead of letting
+                # swings do a fresh yfinance 1y download — the slow part of
+                # opening Patterns. Only for the default 1y window.
+                bars = None
+                if period == "1y":
+                    try:
+                        bars = load_daily(symbol, 260)
+                    except Exception:
+                        bars = None
                 res = _swings.analyze(symbol, period=period, pct=pctc,
-                                      min_move_pct=mmc, flow=flow)
+                                      min_move_pct=mmc, flow=flow, bars=bars)
                 with _SWINGS_LOCK:
                     _SWINGS_CACHE[skey] = (time.time(), res)
                     if len(_SWINGS_CACHE) > 128:
