@@ -2957,6 +2957,30 @@ function WatchlistTableCard({
     return r.swing_dir === "long" && r.edge_dir === "long" || r.swing_dir === "short" && r.edge_dir === "short";
   };
   const primeCount = useMemo(() => rows.filter(isPrime).length, [rows]);
+  // Crowding check: if the Prime setups pile into one sector, that's really
+  // one bet, not many — pros net correlated risk.
+  const primeCrowd = useMemo(() => {
+    const ps = rows.filter(isPrime);
+    if (ps.length < 3) return null;
+    const by = {};
+    ps.forEach(r => {
+      const s = r.sector || "—";
+      by[s] = (by[s] || 0) + 1;
+    });
+    let top = null,
+      n = 0;
+    Object.entries(by).forEach(([s, c]) => {
+      if (c > n) {
+        n = c;
+        top = s;
+      }
+    });
+    return top && n >= 3 && n / ps.length >= 0.5 ? {
+      sector: top,
+      n,
+      total: ps.length
+    } : null;
+  }, [rows]);
   const scanning = !!status.scanning;
   const sectors = board && board.sectors || [];
   const industries = board && board.industries || [];
@@ -3468,8 +3492,21 @@ function WatchlistTableCard({
     const pp = row.net_put_premium ?? row.put_premium ?? null;
     if (cp == null && pp == null) return null;
     const net = (cp || 0) - (pp || 0);
+    const tot = Math.abs(cp || 0) + Math.abs(pp || 0);
+    const tilt = tot ? net / tot : 0; // -1..+1 regime strength
     const regime = net > 0 ? "Bullish" : net < 0 ? "Bearish" : "Neutral";
     const cls = net > 0 ? "up" : net < 0 ? "down" : "muted";
+    // Regime gate: don't fight the tape. Strong one-sided tape → favor that side.
+    const gate = tilt > 0.15 ? {
+      txt: "Risk-on — favor longs, go easy on shorts",
+      cls: "up"
+    } : tilt < -0.15 ? {
+      txt: "Risk-off — favor shorts/cash, go easy on longs",
+      cls: "down"
+    } : {
+      txt: "Mixed tape — be selective, trade only the cleanest setups",
+      cls: "muted"
+    };
     return /*#__PURE__*/React.createElement("div", {
       className: "wl-market",
       title: "Whole-market options flow (net call − put premium today). One UW call, same for every row."
@@ -3483,7 +3520,9 @@ function WatchlistTableCard({
       className: cls
     }, window.fmt$M(net)), /*#__PURE__*/React.createElement("span", {
       className: "muted"
-    }, "· calls ", window.fmt$M(cp), " / puts ", window.fmt$M(pp)));
+    }, "· calls ", window.fmt$M(cp), " / puts ", window.fmt$M(pp)), /*#__PURE__*/React.createElement("span", {
+      className: `wl-regime ${gate.cls}`
+    }, "· ", gate.txt));
   })(), scanning && /*#__PURE__*/React.createElement("div", {
     className: "ab-progress"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3577,7 +3616,10 @@ function WatchlistTableCard({
     style: {
       fontSize: 12
     }
-  }, view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`)), view !== "stocks" ? groups.length > 0 ? /*#__PURE__*/React.createElement("div", {
+  }, view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`)), primeCrowd && /*#__PURE__*/React.createElement("div", {
+    className: "wl-crowd",
+    title: "Correlated names move together — sizing 4 trades in one sector is really one position's worth of risk."
+  }, "⚠ Crowding: ", primeCrowd.n, " of ", primeCrowd.total, " Prime setups are ", /*#__PURE__*/React.createElement("b", null, primeCrowd.sector), " — that's really one bet. Spread risk across sectors or size each smaller."), view !== "stocks" ? groups.length > 0 ? /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap wl-scroll",
     style: {
       marginTop: 10
