@@ -4946,22 +4946,28 @@ function RollManagerCard({ ticker, positions, currentPrice, livePrice, apiFetch,
   // below will repopulate. Without this, the previous ticker's
   // flow read briefly bleeds into the new ticker's view.
   useEffect(() => { setFlowScore(null); }, [ticker]);
+  // Latest price via ref so the fetch URL stays current WITHOUT making
+  // currentPrice an effect dependency (which refetched on every 5s quote tick).
+  const flowPriceRef = React.useRef(currentPrice);
+  flowPriceRef.current = currentPrice;
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) {
       setFlowScore(null);
       return;
     }
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
-        const r = await apiFetch(`/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}&price=${currentPrice || 0}`);
+        const r = await apiFetch(`/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}&price=${flowPriceRef.current || 0}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         if (!cancelled) setFlowScore(j);
       } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [ticker, currentPrice, uwHealth?.connected]);
+    };
+    load();
+    const id = setInterval(() => { if (!document.hidden) load(); }, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ticker, uwHealth?.connected]);
 
   // Active short calls on the displayed ticker
   const shortCalls = (positions || [])
@@ -5329,6 +5335,10 @@ function FlowScoreCard({ ticker, currentPrice, apiFetch, uwHealth }) {
     } catch { return false; }
   };
 
+  // Latest price via ref so polling uses the current price without making
+  // currentPrice a dependency (which double-fetched on every 5s quote tick).
+  const scorePriceRef = React.useRef(currentPrice);
+  scorePriceRef.current = currentPrice;
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) return;
     let cancelled = false;
@@ -5336,7 +5346,7 @@ function FlowScoreCard({ ticker, currentPrice, apiFetch, uwHealth }) {
       try {
         setLoading(true);
         const url = `/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}`
-                  + (currentPrice ? `&price=${currentPrice}` : "");
+                  + (scorePriceRef.current ? `&price=${scorePriceRef.current}` : "");
         const r = await apiFetch(url);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
@@ -5357,7 +5367,7 @@ function FlowScoreCard({ ticker, currentPrice, apiFetch, uwHealth }) {
     const intervalMs = isMarketHours() ? 10000 : 60000;
     const id = setInterval(skipWhenHidden(poll), intervalMs);
     return () => { cancelled = true; clearInterval(id); };
-  }, [ticker, currentPrice, uwHealth?.connected]);
+  }, [ticker, uwHealth?.connected]);
 
   // CRITICAL: when ticker changes, the cached flowTrades and score
   // belong to the OLD ticker. Clear them so the user never sees stale
@@ -6255,6 +6265,10 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
     if (onData) onData(null);
   }, [ticker]);
 
+  // Latest price via ref — analyst ratings barely move with intraday price,
+  // so we don't want to refetch on every 5s quote tick (deps below).
+  const analystPriceRef = React.useRef(currentPrice);
+  analystPriceRef.current = currentPrice;
   useEffect(() => {
     if (!ticker) return;
     let cancelled = false;
@@ -6262,7 +6276,7 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
       try {
         setLoading(true);
         const url = `/api/analyst?symbol=${encodeURIComponent(ticker)}`
-                  + (currentPrice ? `&price=${currentPrice}` : "")
+                  + (analystPriceRef.current ? `&price=${analystPriceRef.current}` : "")
                   + (refreshKey > 0 ? `&force=1` : "");
         const r = await apiFetch(url);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -6288,7 +6302,7 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
     };
     fetchData();
     return () => { cancelled = true; };
-  }, [ticker, currentPrice, refreshKey]);
+  }, [ticker, refreshKey]);
 
   // Color-coded action pills
   const actionClass = (action) => ({

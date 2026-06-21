@@ -5,10 +5,21 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.09";
+const APP_VERSION = "2.10";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
+
+// Transparent fetch cache for apiFetch. Two wins, invisible to call sites:
+//  • In-flight de-duplication — N components asking for the same URL at the
+//    same time share ONE network request.
+//  • Short TTL — a GET repeated within API_CACHE_TTL ms (rapid re-render, tab
+//    flip, symbol bounce) is served from memory instead of the network.
+// We cache the response TEXT (not the Response object, whose body can only be
+// read once) and hand each caller a fresh Response, so .json()/.ok/.status all
+// keep working unchanged.
+const _API_CACHE = new Map();   // url -> { ts, promise<{status, text}> }
+const API_CACHE_TTL = 4000;     // ms — shorter than every polling interval
 
 function App() {
   // Floating-point-safe strike key. yfinance can return strikes with
@@ -31,7 +42,25 @@ function App() {
     const url = path.startsWith("http") ? path : `${base}${path}`;
     const headers = { ...(opts.headers || {}) };
     if (cfg.apiKey) headers["X-API-Key"] = cfg.apiKey;
-    return fetch(url, { ...opts, headers });
+    const method = (opts.method || "GET").toUpperCase();
+    // Only GETs are safe to dedupe/cache. Mutations, signalled (abortable),
+    // or explicitly opted-out requests go straight to the network.
+    if (method !== "GET" || opts.signal || opts.noCache) {
+      return fetch(url, { ...opts, headers });
+    }
+    const now = Date.now();
+    const hit = _API_CACHE.get(url);
+    if (hit && (now - hit.ts) < API_CACHE_TTL) {
+      return hit.promise.then(({ status, text }) => new Response(text, { status }));
+    }
+    const promise = fetch(url, { ...opts, headers }).then(async (r) => {
+      const text = await r.text();
+      if (!r.ok) _API_CACHE.delete(url);   // never cache failures
+      return { status: r.status, text };
+    }).catch((e) => { _API_CACHE.delete(url); throw e; });
+    _API_CACHE.set(url, { ts: now, promise });
+    if (_API_CACHE.size > 200) _API_CACHE.delete(_API_CACHE.keys().next().value);
+    return promise.then(({ status, text }) => new Response(text, { status }));
   }, []);
   const TWEAK_KEY = "weeklyOptionsTimer.tweaks.v1";
   const persistedTweaks = (() => {

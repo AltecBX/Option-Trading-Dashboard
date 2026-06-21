@@ -37,7 +37,7 @@ const ENV = new Set(("window document navigator localStorage sessionStorage fetc
   "setTimeout clearTimeout setInterval clearInterval requestAnimationFrame cancelAnimationFrame " +
   "Date Math JSON Object Array String Number Boolean Promise Map Set WeakMap WeakSet Symbol " +
   "RegExp Error TypeError RangeError SyntaxError isNaN isFinite parseInt parseFloat NaN Infinity " +
-  "undefined encodeURIComponent decodeURIComponent encodeURI decodeURI atob btoa Blob URL URLSearchParams " +
+  "undefined encodeURIComponent decodeURIComponent encodeURI decodeURI atob btoa Blob URL URLSearchParams Response Request Headers " +
   "AbortController Intl performance crypto location history alert confirm prompt getComputedStyle " +
   "ResizeObserver IntersectionObserver MutationObserver CustomEvent Event KeyboardEvent MouseEvent " +
   "React ReactDOM globalThis structuredClone queueMicrotask matchMedia FileReader Image Audio " +
