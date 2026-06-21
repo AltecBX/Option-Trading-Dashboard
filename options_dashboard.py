@@ -4543,6 +4543,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/watchlist":
             try:
                 data = _load_watchlist()
+                # Surface the transient fallback flag as `seeded` so the client
+                # won't let a fresh seed/default overwrite a richer local list.
+                seeded = bool(data.pop("_seeded", False))
+                data = {**data, "seeded": seeded}
                 body = _dumps(data).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")

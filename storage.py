@@ -39,6 +39,11 @@ def _stable_data_dir() -> Path:
 
 _STABLE_DIR = _stable_data_dir()
 _WATCHLIST_PATH = _STABLE_DIR / "watchlist.json"
+# Safety mirror in the same dir (survives corruption of the main file) and a
+# repo-baked seed (survives a wiped/ephemeral data dir on redeploy). Load order
+# on a missing/bad main file: backup -> repo seed -> built-in 5 defaults.
+_WATCHLIST_BAK = _STABLE_DIR / "watchlist.json.bak"
+_WATCHLIST_SEED = Path(__file__).resolve().parent / "watchlist_seed.json"
 
 # ── Request log (v1.39) ─────────────────────────────────────────────
 # One line per /api request with method, path, status, and duration in
@@ -333,41 +338,87 @@ def _default_watchlist() -> dict:
     }
 
 
+def _read_watchlist_file(path: "Path") -> dict | None:
+    """Read + structurally validate one watchlist file. None if absent/bad."""
+    try:
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict) or not isinstance(data.get("symbols"), list):
+            return None
+        return data
+    except Exception:
+        return None
+
+
 def _load_watchlist() -> dict:
-    """Read the watchlist file. If missing or invalid, return the default
-    schema and persist it so subsequent writes have a stable file."""
+    """Read the watchlist, with layered recovery so the user's list is never
+    silently lost:
+
+      1. main file (watchlist.json)            — normal path
+      2. backup mirror (watchlist.json.bak)    — main corrupt/missing
+      3. repo seed (watchlist_seed.json)       — data dir wiped on redeploy
+      4. built-in 5-symbol default             — first run, nothing else
+
+    Recovered copies (2-4) are written back to the main file. The returned dict
+    carries a transient `_seeded` flag (True only for cases 3-4, i.e. a fresh
+    fallback that is NOT real saved data) so the API/clients can avoid letting a
+    fallback clobber a richer list. `_seeded` is never persisted to disk."""
     with _watchlist_lock():
-        if not _WATCHLIST_PATH.exists():
-            wl = _default_watchlist()
-            _save_watchlist(wl)
-            return wl
-        try:
-            data = json.loads(_WATCHLIST_PATH.read_text())
-            if not isinstance(data, dict) or "symbols" not in data:
-                raise ValueError("malformed watchlist file")
+        data = _read_watchlist_file(_WATCHLIST_PATH)
+        if data is not None:
             return data
-        except Exception as exc:  # noqa: BLE001
-            print(f"[watchlist] read failed, resetting: {exc}", file=sys.stderr)
-            wl = _default_watchlist()
-            _save_watchlist(wl)
-            return wl
+        # 2 — restore from the backup mirror (real data, not a seed)
+        bak = _read_watchlist_file(_WATCHLIST_BAK)
+        if bak is not None and bak.get("symbols"):
+            print("[watchlist] main missing/corrupt — restored from .bak", file=sys.stderr)
+            _save_watchlist(bak)
+            return bak
+        # 3 — restore from the repo-baked seed (survives an ephemeral data dir)
+        seed = _read_watchlist_file(_WATCHLIST_SEED)
+        if seed is not None and seed.get("symbols"):
+            print(f"[watchlist] no saved file — seeded {len(seed['symbols'])} "
+                  "symbols from watchlist_seed.json", file=sys.stderr)
+            _save_watchlist(seed)
+            out = dict(seed)
+            out["_seeded"] = True
+            return out
+        # 4 — last resort: built-in defaults
+        print("[watchlist] no saved file or seed — using built-in defaults", file=sys.stderr)
+        wl = _default_watchlist()
+        _save_watchlist(wl)
+        out = dict(wl)
+        out["_seeded"] = True
+        return out
 
 
 def _save_watchlist(data: dict) -> bool:
-    """Atomic write: write to .tmp then rename. Avoids corruption on
-    crash mid-write."""
+    """Atomic write of the main file plus a backup mirror. Transient keys
+    (anything starting with "_", e.g. _seeded) are stripped before writing so
+    they never persist. The .bak mirror lets a later corruption of the main
+    file be recovered on the next load."""
+    clean = {k: v for k, v in data.items() if not str(k).startswith("_")}
     with _watchlist_lock():
-        tmp = _WATCHLIST_PATH.with_suffix(".json.tmp")
+        ok = _atomic_write_json(_WATCHLIST_PATH, clean)
+        if ok:
+            # Best-effort mirror; failure here never fails the save.
+            _atomic_write_json(_WATCHLIST_BAK, clean)
+        return ok
+
+
+def _atomic_write_json(path: "Path", data: dict) -> bool:
+    """Write to a .tmp then rename. Avoids corruption on crash mid-write."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(path)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[watchlist] write failed ({path.name}): {exc}", file=sys.stderr)
         try:
-            tmp.write_text(json.dumps(data, indent=2))
-            tmp.replace(_WATCHLIST_PATH)
-            return True
-        except Exception as exc:  # noqa: BLE001
-            print(f"[watchlist] save failed: {exc}", file=sys.stderr)
-            try:
-                if tmp.exists(): tmp.unlink()
-            except Exception: pass
-            return False
+            if tmp.exists(): tmp.unlink()
+        except Exception: pass
+        return False
 
 
 def _validate_watchlist_payload(data) -> dict | None:

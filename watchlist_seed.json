@@ -1,0 +1,4406 @@
+{
+  "version": 1,
+  "symbols": [
+    {
+      "symbol": "ALDX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BTBT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UWMC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ALT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RZLV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PLUG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LAES",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RXRX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SPCE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GRAB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DNUT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IOVA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BBAI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MNKD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HIVE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BTG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NIO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LAC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OPEN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MPT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SNAP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TLRY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BHC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KOPN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CLOV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HTZ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TMC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SBET",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RIG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LCID",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ACHR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JBLU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PTON",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NUAI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AUR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KEEL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "STLA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WEN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SERV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JMIA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ENVX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BULL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SOUN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ASPI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RXT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IBRX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RUM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EOSE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NMAX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UAMY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "QS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SLS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TDOC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LUMN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PONY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MBLY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DJT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PCT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RILY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NVAX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BKKT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FUBO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ONDS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PURR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OCUL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FRMI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OWL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GOOS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PSKY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JOBY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SOC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRML",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "REPL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PATH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AGNC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "QUBT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RCAT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "STUB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SMR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HLF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UEC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "POET",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CLF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TRIP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ODD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CAG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "XPEV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "XNDU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ACI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NOK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RUN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SGML",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SMMT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "F",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LYFT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RDW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RKT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AES",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ASST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BEKE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "S",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "XP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VALE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DBRG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AAL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BMNR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AMPX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CSIQ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PCG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RIVN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GRRR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UUUU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PBR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BILI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CLSK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KSS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VFC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CDE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SRPT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "QXO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AEO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FSLY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SOFI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BTDR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CPNG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KVUE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CHWY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TTD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ET",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KLAR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FIG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ZETA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BAX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PINS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SONY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NCLH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BBWI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CPB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GAP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PAA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RGTI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GME",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "T",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PFE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NLY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CMCSA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KHC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LUNR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MOS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HPQ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NVTS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FCEL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BLSH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "M",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HRL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CWAN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ZIM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "USAR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TOST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "QBTS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BTU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UMAC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HOG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WRBY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DBX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WBD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DKNG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GTLB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KGC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "U",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SIRI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RIOT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NNE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OSCR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FIGR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WULF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CORZ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CIFR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CZR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TSCO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VKTX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SMCI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CELH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CCL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FLY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TEVA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KMI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IOT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DOW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UPST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CMG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "APA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GLXY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HAL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RNG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HIMS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SKYT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EPD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BRUN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FIS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ONON",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NKE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "B",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CNQ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SYM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DVN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PYPL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NVO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DOCU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CART",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BSX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VZ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CSX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CBRS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OUST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "APLD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MGM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HPE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FISV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LUV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SLB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LVS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PAAS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EQT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TEM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RBLX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ASO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OXY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ENPH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BMY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRSP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KTOS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "STM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BAC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IONQ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WOLF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SEDG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "USB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LMND",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WGS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SHAK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IREN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AAP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MDLZ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CNC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OKLO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GEHC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NTR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MRNA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ELF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TECK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LASR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FCX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CVNA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AMBA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RBRK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BROS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LQDA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UBER",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CARR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DXCM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WMB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AFRM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ETSY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AIG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BBY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "XYZ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "URBN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GDDY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NFLX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SHEL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MDT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PDD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRCL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ASTS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BUD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WFC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NDAQ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TEAM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DAL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AXTI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ZM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NEE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ANF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SIG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ABT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "W",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CAVA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LEN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SCHW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HSBC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NOW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "INOD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IBKR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FUTU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KKR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CVS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ABVX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MCHP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SBUX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "KMB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NEM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DIS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UPS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WYNN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CCJ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VOD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BABA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RKLB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "COP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HOOD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EBAY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SHOP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DECK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SATS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ACMR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DLTR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BIDU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LULU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MSTR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MRK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AEHR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AFL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WDAY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WMT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "OKTA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRWV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PPG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UAL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CSCO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ON",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WPM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GILD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HUT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ZS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AKAM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DUOL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CHTR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PHM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IRM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ACN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PLTR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "STZ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ARES",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EOG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TGT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ICE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "INTC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NRG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "XOM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ROKU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PEP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ABNB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "C",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TPR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FTNT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EMR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DHI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ALB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MMM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AAOI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "COIN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TJX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PSX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AEM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AVAV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ANET",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CTAS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LYV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BKNG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HSY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DOCN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DASH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CVX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RDDT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DHR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TXRH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TMUS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ALGN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ORCL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RTX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TWLO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DLR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CAR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SCCO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ADSK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GLW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ADBE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BIIB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "COF",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PGR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NVDA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ABBV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ADP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CAH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LOW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DDOG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NET",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "QCOM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LNG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JNJ",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HON",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PNC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SNOW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ROST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VLO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TTWO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "EXPE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AMZN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CME",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CBOE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "IBM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UNP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FSLR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "INTU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRDO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CEG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FTAI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HWM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MCD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GNRC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "NBIS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TSEM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "PANW",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LHX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AAPL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MRVL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RCL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DAVE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TXN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JPM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "FDX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "V",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MDB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VRT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BURL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AMGN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AXP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HLT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "HUM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "RACE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GOOG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GOOGL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "JBL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CLS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MSFT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CDNS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LRCX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "COHR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MAR",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TSLA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "UNH",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ISRG",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DELL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SPGI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AVGO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ALAB",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ETN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AXON",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CIEN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ADI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TLN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TER",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ARM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SNPS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "VRTX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ULTA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TSM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "TMO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SPOT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "APP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LMT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AMD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "META",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": true,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "REGN",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AMAT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CRWD",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "WDC",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LITE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "COST",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "CAT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BLK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "STX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "URI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GS",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "LLY",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GEV",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MU",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MELI",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "GSK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "ASML",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SNDK",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "APO",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BILL",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "BP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MARA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "MT",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SAP",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "SPCX",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "AA",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    },
+    {
+      "symbol": "DRAM",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782068390
+    }
+  ],
+  "tag_order": []
+}

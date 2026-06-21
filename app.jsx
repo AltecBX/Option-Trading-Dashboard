@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.13";
+const APP_VERSION = "2.14";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -812,7 +812,8 @@ function App() {
             };
           });
         } else {
-          setWatchlistData(data);
+          // Normalize away the transient `seeded` flag before storing.
+          setWatchlistData({ version: 1, symbols: data.symbols, tag_order: data.tag_order || [] });
         }
         // Only mark loaded after a SUCCESSFUL load. If we get here on a
         // failure path, watchlistLoaded stays false and the save effect
@@ -948,8 +949,17 @@ function App() {
         const data = await r.json();
         if (!data || !Array.isArray(data.symbols)) return;
         if (pendingSaveRef.current) return;
-        if (JSON.stringify(data) !== JSON.stringify(latestWatchlistRef.current)) {
-          setWatchlistData(data);
+        const incoming = { version: 1, symbols: data.symbols, tag_order: data.tag_order || [] };
+        const local = latestWatchlistRef.current || { symbols: [] };
+        // Guard: if the server handed back a fresh seed/default that is SMALLER
+        // than what we have locally, do NOT adopt it — push ours back instead so
+        // a transient server reset can never wipe the user's list.
+        if (data.seeded && (local.symbols || []).length > incoming.symbols.length) {
+          flushWatchlist();
+          return;
+        }
+        if (JSON.stringify(incoming) !== JSON.stringify(local)) {
+          setWatchlistData(incoming);
         }
       } catch (_) { /* transient — ignore */ }
     };
