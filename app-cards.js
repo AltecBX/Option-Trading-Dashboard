@@ -844,6 +844,11 @@ function fmtMktCap(v) {
   return "$" + Number(v).toLocaleString();
 }
 
+// Finviz-style market-cap buckets for the watchlist screener. Each is
+// [value, label, predicate(marketCapInDollars)].
+const MCAP_BUCKETS = [["all", "All caps", () => true], ["mega", "Mega ($200B+)", mc => mc >= 200e9], ["large", "Large ($10–200B)", mc => mc >= 10e9 && mc < 200e9], ["mid", "Mid ($2–10B)", mc => mc >= 2e9 && mc < 10e9], ["small", "Small ($300M–2B)", mc => mc >= 300e6 && mc < 2e9], ["micro", "Micro ($50–300M)", mc => mc >= 50e6 && mc < 300e6], ["nano", "Nano (<$50M)", mc => mc > 0 && mc < 50e6], ["plarge", "+Large (>$10B)", mc => mc >= 10e9], ["pmid", "+Mid (>$2B)", mc => mc >= 2e9], ["psmall", "+Small (>$300M)", mc => mc >= 300e6], ["pmicro", "+Micro (>$50M)", mc => mc >= 50e6], ["nlarge", "-Large (<$200B)", mc => mc > 0 && mc < 200e9], ["nmid", "-Mid (<$10B)", mc => mc > 0 && mc < 10e9], ["nsmall", "-Small (<$2B)", mc => mc > 0 && mc < 2e9], ["nmicro", "-Micro (<$300M)", mc => mc > 0 && mc < 300e6]];
+const MCAP_PRED = Object.fromEntries(MCAP_BUCKETS.map(([v,, fn]) => [v, fn]));
+
 // Watchlist Edge model. Collapses the per-stock options-flow fields into a
 // single signed conviction score in [-100, +100]: positive = long candidate,
 // negative = short. All from data already loaded — no extra UW cost.
@@ -2266,6 +2271,7 @@ function WatchlistTableCard({
   const [fSector, setFSector] = useState("all");
   const [fIndustry, setFIndustry] = useState("all");
   const [q, setQ] = useState("");
+  const [fMcap, setFMcap] = useState("all");
   const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
   const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
   const pollRef = useRef(null);
@@ -2306,7 +2312,14 @@ function WatchlistTableCard({
     }, 4000);
   };
   const status = board && board.status || {};
-  const rows = useMemo(() => computeWatchlistEdges(board && board.rows || []), [board]);
+  const allRows = useMemo(() => computeWatchlistEdges(board && board.rows || []), [board]);
+  // Live watchlist set: the scan cache can lag behind the current watchlist
+  // (a deleted symbol stays in the cache until the next scan). Filtering to
+  // the live watchlist makes the table reflect reality immediately and keeps
+  // right-click deletes from "coming back" on refresh.
+  const wlSet = useMemo(() => watchlistSymbols && watchlistSymbols.length ? new Set(watchlistSymbols.map(s => String(s).toUpperCase())) : null, [watchlistSymbols]);
+  const rows = useMemo(() => allRows.filter(r => !removed.has(r.symbol) && (!wlSet || wlSet.has(String(r.symbol).toUpperCase()))), [allRows, removed, wlSet]);
+  const mcapPass = mc => (MCAP_PRED[fMcap] || MCAP_PRED.all)(mc || 0);
   const scanning = !!status.scanning;
   const sectors = board && board.sectors || [];
   const industries = board && board.industries || [];
@@ -2480,9 +2493,9 @@ function WatchlistTableCard({
   }, [industryOpts, fIndustry]);
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
-      if (removed.has(r.symbol)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      if (fMcap !== "all" && !mcapPass(r.market_cap)) return false;
       if (q && !`${r.symbol} ${r.company || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
     });
@@ -2501,7 +2514,7 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, q, sort, removed]);
+  }, [rows, fSector, fIndustry, fMcap, q, sort]);
 
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
@@ -2512,9 +2525,9 @@ function WatchlistTableCard({
   const groups = useMemo(() => {
     if (view === "stocks") return [];
     const base = rows.filter(r => {
-      if (removed.has(r.symbol)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      if (fMcap !== "all" && !mcapPass(r.market_cap)) return false;
       return true;
     });
     const map = new Map();
@@ -2574,7 +2587,7 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return arr;
-  }, [rows, view, groupKey, fSector, fIndustry, gsort, removed]);
+  }, [rows, view, groupKey, fSector, fIndustry, fMcap, gsort]);
   const GCOLS = [{
     k: "name",
     label: view === "sectors" ? "Sector" : "Industry"
@@ -2826,7 +2839,15 @@ function WatchlistTableCard({
   }, "All industries"), industryOpts.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
-  }, s))), /*#__PURE__*/React.createElement("span", {
+  }, s))), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fMcap,
+    onChange: e => setFMcap(e.target.value),
+    title: "Filter by market cap (Finviz-style buckets)"
+  }, MCAP_BUCKETS.map(([v, label]) => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, label))), /*#__PURE__*/React.createElement("span", {
     className: "muted",
     style: {
       fontSize: 12
@@ -3863,23 +3884,68 @@ function TabBar({
   onChange,
   ticker,
   earnDate,
-  earnDays
+  earnDays,
+  tabs,
+  onReorder
 }) {
   const hasEarn = earnDate != null;
   const soon = earnDays != null && earnDays >= 0 && earnDays <= 7;
+  const list = tabs && tabs.length ? tabs : TABS;
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
+  const drop = targetId => {
+    if (!onReorder || !dragId || dragId === targetId) {
+      setDragId(null);
+      setOverId(null);
+      return;
+    }
+    const ids = list.map(t => t.id);
+    const from = ids.indexOf(dragId),
+      to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) {
+      setDragId(null);
+      setOverId(null);
+      return;
+    }
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    onReorder(ids);
+    setDragId(null);
+    setOverId(null);
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "tab-bar",
     role: "tablist",
     "aria-label": "Dashboard sections",
-    title: "Switch sections. Each tab shows only its own cards. Cards stay live in the background, so switching is instant and nothing reloads. Your tab choice is remembered."
-  }, TABS.map(t => /*#__PURE__*/React.createElement("button", {
+    title: "Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads."
+  }, list.map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     type: "button",
     role: "tab",
     "aria-selected": active === t.id,
-    className: `tab-btn ${active === t.id ? "active" : ""}`,
+    className: `tab-btn ${active === t.id ? "active" : ""}${dragId === t.id ? " dragging" : ""}${overId === t.id && dragId && overId !== dragId ? " drop-target" : ""}`,
     onClick: () => onChange(t.id),
-    title: `Show the ${t.label} section.`
+    draggable: !!onReorder,
+    onDragStart: e => {
+      setDragId(t.id);
+      try {
+        e.dataTransfer.effectAllowed = "move";
+      } catch (_) {}
+    },
+    onDragOver: e => {
+      if (dragId) {
+        e.preventDefault();
+        setOverId(t.id);
+      }
+    },
+    onDrop: e => {
+      e.preventDefault();
+      drop(t.id);
+    },
+    onDragEnd: () => {
+      setDragId(null);
+      setOverId(null);
+    },
+    title: `Show the ${t.label} section. Drag to reorder.`
   }, t.label)), hasEarn && /*#__PURE__*/React.createElement("div", {
     className: `tab-earn ${soon ? "soon" : ""}`,
     title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
