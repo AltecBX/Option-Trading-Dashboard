@@ -25,6 +25,7 @@ import math
 import os
 import sys
 import socket
+import functools
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1791,6 +1792,38 @@ def _strike_for_delta(spot: float, target_delta: float, T: float, sigma: float,
 # implied move (synthetic ATM straddle as % of spot) vs realized move
 # (actual abs % move next day).
 # ─────────────────────────────────────────────────────────────────────────
+def _ttl_memoize(ttl_seconds: float):
+    """In-memory TTL memoization for pure-ish per-symbol builders. Keys on the
+    call args, serves a cached result while fresh, and never caches failures
+    (None or a dict carrying an "error" key) so one upstream hiccup can't pin a
+    bad result. Thread-safe."""
+    def deco(fn):
+        store: dict = {}
+        lock = threading.Lock()
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                key = (args, tuple(sorted(kwargs.items())))
+            except Exception:
+                return fn(*args, **kwargs)   # unhashable args — skip cache
+            now = time.time()
+            with lock:
+                hit = store.get(key)
+                if hit is not None and (now - hit[0]) < ttl_seconds:
+                    return hit[1]
+            val = fn(*args, **kwargs)
+            if val is not None and not (isinstance(val, dict) and val.get("error")):
+                with lock:
+                    store[key] = (time.time(), val)
+                    if len(store) > 256:
+                        store.pop(min(store, key=lambda k: store[k][0]), None)
+            return val
+        return wrapper
+    return deco
+
+
+@_ttl_memoize(900)        # earnings dates don't change intraday
 def build_earnings_ladder(symbol: str, n_events: int = 8) -> dict:
     """For the past N earnings events on `symbol`, compute:
         - implied_move_pct: synthetic ATM straddle / spot the day before
@@ -2364,6 +2397,7 @@ def build_scan_snapshot(symbol: str) -> dict:
     return out
 
 
+@_ttl_memoize(60)         # basing profile only shifts on new bars
 def build_basing_profile(symbol: str, lookback_weeks: int = 12) -> dict:
     """Build a mean-reversion / basing profile for today's session.
 
@@ -2898,6 +2932,11 @@ _TICKER_LG_MAX = 40
 # few seconds of staleness on the heavy payload (bars/chain/earnings) is fine.
 _TICKER_FRESH: dict = {}
 _TICKER_TTL = 10.0  # seconds
+# Per-symbol swing analysis is a full year of pivots + a UW flow read; cache so
+# flipping back to a symbol (or the Patterns tab re-mounting) is instant.
+_SWINGS_CACHE: dict = {}
+_SWINGS_LOCK = threading.Lock()
+_SWINGS_TTL = 90.0  # seconds
 
 def build_payload(
     ticker: str,
@@ -5414,6 +5453,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except (TypeError, ValueError):
                 mm = 15.0
             period = qs.get("period", ["1y"])[0]
+            pctc = max(0.03, min(0.30, pct))
+            mmc = max(1.0, min(60.0, mm))
+            skey = (symbol, period, round(pctc, 4), round(mmc, 2))
+            now = time.time()
+            with _SWINGS_LOCK:
+                hit = _SWINGS_CACHE.get(skey)
+            if hit is not None and (now - hit[0]) < _SWINGS_TTL:
+                self._send_json(hit[1])
+                return
             # Best-effort UW options-flow read, folded into the swing scores.
             # One cached per-ticker call; degrades silently if UW is off.
             flow = None
@@ -5426,10 +5474,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn(symbol, "api/swings.flow", exc)
                 flow = None
             try:
-                self._send_json(_swings.analyze(symbol, period=period,
-                                                pct=max(0.03, min(0.30, pct)),
-                                                min_move_pct=max(1.0, min(60.0, mm)),
-                                                flow=flow))
+                res = _swings.analyze(symbol, period=period, pct=pctc,
+                                      min_move_pct=mmc, flow=flow)
+                with _SWINGS_LOCK:
+                    _SWINGS_CACHE[skey] = (time.time(), res)
+                    if len(_SWINGS_CACHE) > 128:
+                        _SWINGS_CACHE.pop(min(_SWINGS_CACHE,
+                                             key=lambda k: _SWINGS_CACHE[k][0]), None)
+                self._send_json(res)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/swings", exc)
                 self._send_json({"error": str(exc)}, status=500)
