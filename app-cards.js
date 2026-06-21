@@ -1300,7 +1300,8 @@ function TVAdvancedChart({
 function SwingChart({
   data,
   focusKey,
-  onPickSwing
+  onPickSwing,
+  onClearFocus
 }) {
   const LC = window.LightweightCharts;
   const wrapRef = useRef(null);
@@ -1318,7 +1319,7 @@ function SwingChart({
     down: false,
     current: true,
     targets: true,
-    labels: false
+    labels: true
   });
   const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= 900);
   const bars = data && data.bars || [];
@@ -1385,7 +1386,12 @@ function SwingChart({
       borderUpColor: UPC,
       borderDownColor: DNC,
       wickUpColor: UPC,
-      wickDownColor: DNC
+      wickDownColor: DNC,
+      // We draw our own "now" price line, so hide the candle's built-in
+      // last-value label + price line (they duplicated/overlapped the
+      // now/median/aggr/inval labels and made the right edge unreadable).
+      lastValueVisible: false,
+      priceLineVisible: false
     });
     const vol = chart.addHistogramSeries({
       priceFormat: {
@@ -1565,7 +1571,10 @@ function SwingChart({
       [k]: !s[k]
     }))
   }, lbl)), /*#__PURE__*/React.createElement("button", {
-    onClick: () => applyHome()
+    onClick: () => {
+      applyHome();
+      if (onClearFocus) onClearFocus();
+    }
   }, "Reset"))), !collapsed && !LC && /*#__PURE__*/React.createElement("div", {
     className: "ab-status muted"
   }, "Chart library didn't load (offline?). The swing table above has the full data."), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
@@ -2246,7 +2255,11 @@ function SwingPatternCard({
     fallback: /*#__PURE__*/React.createElement(SwingChart, {
       data: data,
       focusKey: focusKey,
-      onPickSwing: pickSwingByTime
+      onPickSwing: pickSwingByTime,
+      onClearFocus: () => {
+        setFocusKey(null);
+        setOpenRow(null);
+      }
     })
   }));
 }
