@@ -6868,24 +6868,33 @@ function RollManagerCard({
   useEffect(() => {
     setFlowScore(null);
   }, [ticker]);
+  // Latest price via ref so the fetch URL stays current WITHOUT making
+  // currentPrice an effect dependency (which refetched on every 5s quote tick).
+  const flowPriceRef = React.useRef(currentPrice);
+  flowPriceRef.current = currentPrice;
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) {
       setFlowScore(null);
       return;
     }
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
-        const r = await apiFetch(`/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}&price=${currentPrice || 0}`);
+        const r = await apiFetch(`/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}&price=${flowPriceRef.current || 0}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         if (!cancelled) setFlowScore(j);
       } catch {}
-    })();
+    };
+    load();
+    const id = setInterval(() => {
+      if (!document.hidden) load();
+    }, 60000);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
-  }, [ticker, currentPrice, uwHealth?.connected]);
+  }, [ticker, uwHealth?.connected]);
 
   // Active short calls on the displayed ticker
   const shortCalls = (positions || []).filter(p => p.status === "open" && p.ticker === ticker).flatMap(p => (p.legs || []).filter(l => l.type === "call" && l.qty < 0).map(l => ({
@@ -7277,13 +7286,18 @@ function FlowScoreCard({
       return false;
     }
   };
+
+  // Latest price via ref so polling uses the current price without making
+  // currentPrice a dependency (which double-fetched on every 5s quote tick).
+  const scorePriceRef = React.useRef(currentPrice);
+  scorePriceRef.current = currentPrice;
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) return;
     let cancelled = false;
     const poll = async () => {
       try {
         setLoading(true);
-        const url = `/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}` + (currentPrice ? `&price=${currentPrice}` : "");
+        const url = `/api/uw/flow_score?symbol=${encodeURIComponent(ticker)}` + (scorePriceRef.current ? `&price=${scorePriceRef.current}` : "");
         const r = await apiFetch(url);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
@@ -7307,7 +7321,7 @@ function FlowScoreCard({
       cancelled = true;
       clearInterval(id);
     };
-  }, [ticker, currentPrice, uwHealth?.connected]);
+  }, [ticker, uwHealth?.connected]);
 
   // CRITICAL: when ticker changes, the cached flowTrades and score
   // belong to the OLD ticker. Clear them so the user never sees stale
@@ -8333,13 +8347,18 @@ function AnalystCard({
     setError(null);
     if (onData) onData(null);
   }, [ticker]);
+
+  // Latest price via ref — analyst ratings barely move with intraday price,
+  // so we don't want to refetch on every 5s quote tick (deps below).
+  const analystPriceRef = React.useRef(currentPrice);
+  analystPriceRef.current = currentPrice;
   useEffect(() => {
     if (!ticker) return;
     let cancelled = false;
     const fetchData = async () => {
       try {
         setLoading(true);
-        const url = `/api/analyst?symbol=${encodeURIComponent(ticker)}` + (currentPrice ? `&price=${currentPrice}` : "") + (refreshKey > 0 ? `&force=1` : "");
+        const url = `/api/analyst?symbol=${encodeURIComponent(ticker)}` + (analystPriceRef.current ? `&price=${analystPriceRef.current}` : "") + (refreshKey > 0 ? `&force=1` : "");
         const r = await apiFetch(url);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
@@ -8366,7 +8385,7 @@ function AnalystCard({
     return () => {
       cancelled = true;
     };
-  }, [ticker, currentPrice, refreshKey]);
+  }, [ticker, refreshKey]);
 
   // Color-coded action pills
   const actionClass = action => ({
