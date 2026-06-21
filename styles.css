@@ -8303,3 +8303,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .swing-pred-grid { grid-template-columns: 1fr; }
   .swing-pred-paths { grid-template-columns: 1fr; }
 }
+
+/* Swing prediction: entry-timing line + structural levels row. */
+.swing-pred-timing { font-family: var(--font-mono); font-size: 12px; font-weight: 600; margin-top: 5px; color: var(--fg-2, #aeb6c2); }
+.swing-pred-timing.up { color: #22c55e; } .swing-pred-timing.down { color: #ef4444; }
+.swing-pred-levels { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-family: var(--font-mono); font-size: 12px; }
+.swing-pred-lvl { color: var(--fg-1, #e6e9ef); font-weight: 600; }
