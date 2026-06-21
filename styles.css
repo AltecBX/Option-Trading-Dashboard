@@ -8343,3 +8343,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: var(--bg-2, #11141b); border-top: 1px solid var(--line, #2a2f3a);
 }
 .wl-more:hover { color: var(--accent, #22c55e); }
+
+/* "N not in last scan" reconcile hint on the watchlist header. */
+.wl-newhint { color: #f59e0b; font-size: 12px; }
+.wl-rescan-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: #f59e0b; font: inherit; text-decoration: underline;
+}
+.wl-rescan-link:hover { color: var(--accent, #22c55e); }
