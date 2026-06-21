@@ -1995,6 +1995,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "symbol", label: "Symbol" }, { k: "company", label: "Company" },
     { k: "edge", label: "Edge", num: true }, { k: "setup", label: "Setup" },
     { k: "prem_sell", label: "Premium" },
+    { k: "swing_dir", label: "Swing" }, { k: "swing_stage", label: "Timing" },
     { k: "last", label: "Price", num: true }, { k: "market_cap", label: "Mkt Cap", num: true },
     { k: "pe", label: "P/E", num: true }, { k: "forward_pe", label: "Fwd P/E", num: true },
     { k: "industry", label: "Industry" }, { k: "sector", label: "Sector" },
@@ -2014,7 +2015,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
     { k: "from_ma200", label: "%200DMA", num: true },
   ];
-  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
 
   // Industry dropdown is scoped to the selected sector so it only lists
@@ -2161,6 +2162,21 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     const cls = r.edge_dir === "long" ? "up" : r.edge_dir === "short" ? "down" : "muted";
     return <span className={cls}>{r.edge_er ? "⚠ " : ""}{r.setup}</span>;
   };
+  // Price-swing direction (long/short bias) + how far along the move is.
+  const swingCell = (r) => {
+    if (!r.swing_dir) return <span className="muted">—</span>;
+    const long = r.swing_dir === "long";
+    const tip = r.swing_pct != null ? `${long ? "Up" : "Down"} move ${r.swing_pct}% over ${r.swing_days}d` : "";
+    return <span className={long ? "up" : "down"} title={tip}>{long ? "Long" : "Short"}</span>;
+  };
+  const timingCell = (r) => {
+    if (!r.swing_stage) return <span className="muted">—</span>;
+    const cls = r.swing_stage === "early" ? "up" : r.swing_stage === "late" ? "down" : "muted";
+    const tip = r.swing_stage === "early" ? "Near the start of the move — best entry"
+      : r.swing_stage === "late" ? "Extended — don't chase; wait for a pullback"
+      : "Mid-move — enter on a pullback";
+    return <span className={cls} title={tip}>{r.swing_stage}</span>;
+  };
 
   return (
     <div className="card ab-card">
@@ -2298,6 +2314,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   <td className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>
                   <td className="wl-txt" title={r.edge_tip || ""}>{setupCell(r)}</td>
                   <td className="wl-txt">{r.prem_sell || "—"}</td>
+                  <td className="wl-txt">{swingCell(r)}</td>
+                  <td className="wl-txt">{timingCell(r)}</td>
                   <td className="scan-num">{fmtUsd(r.last, 2)}</td>
                   <td className="scan-num">{fmtMktCap(r.market_cap)}</td>
                   <td className="scan-num">{r.pe != null ? r.pe : "—"}</td>

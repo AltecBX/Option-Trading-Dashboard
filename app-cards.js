@@ -2903,6 +2903,12 @@ function WatchlistTableCard({
     k: "prem_sell",
     label: "Premium"
   }, {
+    k: "swing_dir",
+    label: "Swing"
+  }, {
+    k: "swing_stage",
+    label: "Timing"
+  }, {
     k: "last",
     label: "Price",
     num: true
@@ -3031,7 +3037,7 @@ function WatchlistTableCard({
     label: "%200DMA",
     num: true
   }];
-  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell"]);
+  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = k => setSort(s => s.key === k ? {
     key: k,
     dir: s.dir === "asc" ? "desc" : "asc"
@@ -3297,6 +3303,29 @@ function WatchlistTableCard({
       className: cls
     }, r.edge_er ? "⚠ " : "", r.setup);
   };
+  // Price-swing direction (long/short bias) + how far along the move is.
+  const swingCell = r => {
+    if (!r.swing_dir) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    const long = r.swing_dir === "long";
+    const tip = r.swing_pct != null ? `${long ? "Up" : "Down"} move ${r.swing_pct}% over ${r.swing_days}d` : "";
+    return /*#__PURE__*/React.createElement("span", {
+      className: long ? "up" : "down",
+      title: tip
+    }, long ? "Long" : "Short");
+  };
+  const timingCell = r => {
+    if (!r.swing_stage) return /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, "—");
+    const cls = r.swing_stage === "early" ? "up" : r.swing_stage === "late" ? "down" : "muted";
+    const tip = r.swing_stage === "early" ? "Near the start of the move — best entry" : r.swing_stage === "late" ? "Extended — don't chase; wait for a pullback" : "Mid-move — enter on a pullback";
+    return /*#__PURE__*/React.createElement("span", {
+      className: cls,
+      title: tip
+    }, r.swing_stage);
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3502,6 +3531,10 @@ function WatchlistTableCard({
   }, setupCell(r)), /*#__PURE__*/React.createElement("td", {
     className: "wl-txt"
   }, r.prem_sell || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt"
+  }, swingCell(r)), /*#__PURE__*/React.createElement("td", {
+    className: "wl-txt"
+  }, timingCell(r)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, fmtUsd(r.last, 2)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
