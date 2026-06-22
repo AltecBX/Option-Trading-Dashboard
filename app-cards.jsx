@@ -2071,6 +2071,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "flow_cc_risk", label: "CC Risk", num: true }, { k: "flow_verdict", label: "Verdict" },
     { k: "next_earnings", label: "Earnings", num: true },
     { k: "change", label: "Chg%", num: true },
+    { k: "from_open", label: "% From Open", num: true },
     { k: "wtd", label: "WTD%", num: true }, { k: "mtd", label: "MTD%", num: true },
     { k: "qtd", label: "QTD%", num: true }, { k: "ytd", label: "YTD%", num: true },
     { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
@@ -2097,7 +2098,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     call_sweeps: "Call sweep count", put_sweeps: "Put sweep count", flow_alerts: "Unusual-flow alert count",
     flow_quality: "Flow conviction 0-100 (0 noise, 100 high-conviction)", flow_cc_risk: "Covered-call risk 0-100 (high = avoid selling calls)",
     flow_verdict: "Decision-engine verdict", next_earnings: "Next earnings date (days away)",
-    change: "Change % today (live)", wtd: "Week-to-date % (live)", mtd: "Month-to-date % (live)",
+    change: "Change % today (live)", from_open: "% from today's open — (live price − open) / open. Sort to rank intraday gainers from the open (live).",
+    wtd: "Week-to-date % (live)", mtd: "Month-to-date % (live)",
     qtd: "Quarter-to-date % (live)", ytd: "Year-to-date % (live)",
     from_ma20: "% from the 20-day moving average (live)", from_ma50: "% from the 50-day MA (live)", from_ma200: "% from the 200-day MA (live)",
   };
@@ -2144,6 +2146,19 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     if (fIndustry !== "all" && !industryOpts.includes(fIndustry)) setFIndustry("all");
   }, [industryOpts, fIndustry]);
 
+  // Live-price overlay state + helpers. The batch poll that fills liveQ is
+  // further down (it needs `shown`); the state lives here so `filtered` can
+  // sort by the live "% From Open".
+  const [liveQ, setLiveQ] = useState({});          // symbol -> live last price
+  const liveLast = (r) => (liveQ[r.symbol] != null ? liveQ[r.symbol] : r.last);
+  const reb = (r, oldPct) => {
+    const live = liveQ[r.symbol];
+    if (live == null || !r.last || oldPct == null) return oldPct;
+    return ((live / r.last) * (1 + oldPct / 100) - 1) * 100;
+  };
+  // % from today's open — open is fixed intraday, so rebase against live price.
+  const foVal = (r) => (r.open && liveLast(r) != null) ? ((liveLast(r) - r.open) / r.open) * 100 : null;
+
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
       if (primeOnly && !isPrime(r)) return false;
@@ -2155,14 +2170,17 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     });
     const { key, dir } = sort, mul = dir === "asc" ? 1 : -1;
     out = out.slice().sort((a, b) => {
-      let av = a[key], bv = b[key];
+      // "% From Open" sorts on the LIVE value so the biggest intraday gainers
+      // float up as prices move; everything else sorts on the row field.
+      let av = key === "from_open" ? foVal(a) : a[key];
+      let bv = key === "from_open" ? foVal(b) : b[key];
       if (av == null && bv == null) return 0;
       if (av == null) return 1; if (bv == null) return -1;
       if (typeof av === "string") return av.localeCompare(bv) * mul;
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly]);
+  }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly, liveQ]);
 
   // Progressive rendering: the stocks table can hold ~550 rows × 40+ columns.
   // Painting them all (and re-painting on every sort/filter) is the table's
@@ -2173,9 +2191,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   // sticky first column, so windowing would make columns jitter horizontally.
   const WL_CHUNK = 120;
   const [visN, setVisN] = useState(WL_CHUNK);
-  // Reset to the top whenever the result set changes (sort / filter / search /
-  // new scan data) so you're not deep in a stale, longer list.
-  useEffect(() => { setVisN(WL_CHUNK); }, [filtered]);
+  // Reset to the top when the result set genuinely changes (sort / filter /
+  // search / new scan) — NOT on live-price re-sorts, which would otherwise
+  // yank the scroll back to the top every poll.
+  useEffect(() => { setVisN(WL_CHUNK); }, [sort, q, fSector, fIndustry, fMcap, primeOnly, rows]);
   const wlScrollRef = useRef(null);
   const onWlScroll = (e) => {
     if (visN >= filtered.length) return;
@@ -2186,14 +2205,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   };
   const shown = view === "stocks" ? filtered.slice(0, visN) : filtered;
 
-  // ── Live price overlay for the % columns ────────────────────────────────
-  // CHG%/WTD/MTD/QTD/YTD and %20/50/200-DMA are all (price − base)/base, where
-  // the base (prev close, period-start close, the moving average) is fixed
-  // intraday. So given a live price we rebase the scan's % without refetching:
-  //   livePct = (live / scanLast) · (1 + scanPct/100) − 1.
-  // We batch-poll /api/quote (25 symbols/call, Schwab-cached) for the rows on
-  // screen and recompute client-side — no backend change, no re-scan.
-  const [liveQ, setLiveQ] = useState({});          // symbol -> live last price
+  // ── Live price overlay: batch-poll /api/quote for the on-screen rows ────
+  // CHG%/WTD/MTD/QTD/YTD, the %DMAs and % From Open are all (price − base)/base
+  // with a base that's fixed intraday, so we rebase against the live price —
+  // no re-scan. 25 symbols/call, Schwab-cached; pauses when hidden.
   const shownSymsKey = view === "stocks" ? shown.map(r => r.symbol).join(",") : "";
   useEffect(() => {
     if (view !== "stocks" || !shownSymsKey) return;
@@ -2221,12 +2236,6 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     const id = setInterval(poll, 20000);   // 20s; quote cache is 25s
     return () => { stop = true; clearInterval(id); };
   }, [shownSymsKey, view]);
-  const liveLast = (r) => (liveQ[r.symbol] != null ? liveQ[r.symbol] : r.last);
-  const reb = (r, oldPct) => {
-    const live = liveQ[r.symbol];
-    if (live == null || !r.last || oldPct == null) return oldPct;
-    return ((live / r.last) * (1 + oldPct / 100) - 1) * 100;
-  };
 
   // How many of the user's tracked symbols aren't in the last scan's board —
   // either added since the scan, or skipped because the data source returned
@@ -2442,6 +2451,9 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       case "flow_cc_risk": return <td key={k} className={`scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`}>{numOr(r.flow_cc_risk)}</td>;
       case "flow_verdict": return <td key={k} className="wl-txt" title={r.flow_verdict || ""}>{r.flow_verdict || "—"}</td>;
       case "next_earnings": return <td key={k} className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>;
+      case "from_open": {
+        const v = foVal(r); return <td key={k} className={`scan-num ${pctCls(v)}`} title={r.open != null ? `Open ${fmtUsd(r.open, 2)}` : "Open n/a"}>{pct(v)}</td>;
+      }
       case "change": case "wtd": case "mtd": case "qtd": case "ytd":
       case "from_ma20": case "from_ma50": case "from_ma200": {
         const v = reb(r, r[k]); return <td key={k} className={`scan-num ${pctCls(v)}`}>{pct(v)}</td>;
