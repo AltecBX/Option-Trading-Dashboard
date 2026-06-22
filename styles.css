@@ -8144,7 +8144,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wl-table td { white-space: nowrap; }
 .wl-row { cursor: pointer; }
 .wl-row:hover { background: color-mix(in oklch, var(--accent) 6%, transparent); }
-.wl-sym { font-weight: 700; font-family: var(--font-mono); position: sticky; left: 0; background: var(--bg-2); }
+.wl-sym { font-weight: 700; font-family: var(--font-mono); }
+/* Freeze whichever column is FIRST (columns are reorderable), not Symbol
+   specifically, so the frozen-left column follows the user's chosen order. */
+.wl-table tbody td:first-child { position: sticky; left: 0; background: var(--bg-2); z-index: 1; }
+.wl-th { cursor: pointer; }
+.wl-th[draggable="true"]:active { cursor: grabbing; }
 .wl-co, .wl-txt { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); }
 .wl-table thead th:first-child { position: sticky; left: 0; background: var(--bg-2); z-index: 1; }
 
