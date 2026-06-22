@@ -2158,6 +2158,12 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   };
   // % from today's open — open is fixed intraday, so rebase against live price.
   const foVal = (r) => (r.open && liveLast(r) != null) ? ((liveLast(r) - r.open) / r.open) * 100 : null;
+  // Columns whose displayed value is the LIVE-rebased % (not the raw scan
+  // field). Sorting must use the same live value or the order won't match what
+  // the user sees.
+  const REB_KEYS = new Set(["change", "wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
+  const sortValOf = (r, key) => key === "from_open" ? foVal(r)
+    : (REB_KEYS.has(key) ? reb(r, r[key]) : r[key]);
 
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
@@ -2170,10 +2176,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     });
     const { key, dir } = sort, mul = dir === "asc" ? 1 : -1;
     out = out.slice().sort((a, b) => {
-      // "% From Open" sorts on the LIVE value so the biggest intraday gainers
-      // float up as prices move; everything else sorts on the row field.
-      let av = key === "from_open" ? foVal(a) : a[key];
-      let bv = key === "from_open" ? foVal(b) : b[key];
+      // Live %-columns (Chg/WTD/MTD/QTD/YTD/%DMAs/% From Open) sort on the LIVE
+      // value so the order matches the live numbers shown; others sort the field.
+      let av = sortValOf(a, key);
+      let bv = sortValOf(b, key);
       if (av == null && bv == null) return 0;
       if (av == null) return 1; if (bv == null) return -1;
       if (typeof av === "string") return av.localeCompare(bv) * mul;
