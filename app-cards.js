@@ -3304,9 +3304,15 @@ function WatchlistTableCard({
   };
   // Columns whose displayed value is the LIVE-rebased % (not the raw scan
   // field). Sorting must use the same live value or the order won't match what
-  // the user sees. ("change" is handled separately via the quote.)
+  // Every column that DISPLAYS a live value must SORT on that same live value,
+  // or the order won't match what's on screen:
+  //   last       -> liveLast (live price)
+  //   change     -> chgVal   (live quote's daily change)
+  //   from_open  -> foVal    (live, vs today's open)
+  //   wtd..%DMAs -> reb      (live, rebased to the live price)
+  // Everything else sorts on the scanned field.
   const REB_KEYS = new Set(["wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
-  const sortValOf = (r, key) => key === "from_open" ? foVal(r) : key === "change" ? chgVal(r) : REB_KEYS.has(key) ? reb(r, r[key]) : r[key];
+  const sortValOf = (r, key) => key === "from_open" ? foVal(r) : key === "change" ? chgVal(r) : key === "last" ? liveLast(r) : REB_KEYS.has(key) ? reb(r, r[key]) : r[key];
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
       if (primeOnly && !isPrime(r)) return false;
