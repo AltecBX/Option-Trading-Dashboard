@@ -6672,6 +6672,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             if q and q.get("last"):
                                 results[sym] = {
                                     "last": float(q["last"]),
+                                    "open": q.get("open"),   # today's open — for "% From Open"
                                     "change_pct": q.get("change_pct"),
                                     "session": q.get("session", "regular"),
                                     "source": "schwab",
@@ -6690,8 +6691,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         if not h.empty:
                             last = float(h["Close"].iloc[-1])
                             prev = float(h["Close"].iloc[-2]) if len(h) >= 2 else last
+                            try:
+                                opn = float(h["Open"].iloc[-1])
+                            except Exception:
+                                opn = None
                             results[sym] = {
                                 "last": last,
+                                "open": opn,   # today's open — for "% From Open"
                                 "change_pct": ((last - prev) / prev) * 100.0 if prev else 0.0,
                                 "source": "yfinance",
                             }

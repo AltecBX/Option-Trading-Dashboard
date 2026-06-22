@@ -2150,14 +2150,22 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   // further down (it needs `shown`); the state lives here so `filtered` can
   // sort by the live "% From Open".
   const [liveQ, setLiveQ] = useState({});          // symbol -> live last price
-  const liveLast = (r) => (liveQ[r.symbol] != null ? liveQ[r.symbol] : r.last);
+  const liveLast = (r) => { const q = liveQ[r.symbol]; return (q && q.last != null) ? q.last : r.last; };
   const reb = (r, oldPct) => {
-    const live = liveQ[r.symbol];
+    const q = liveQ[r.symbol];
+    const live = q && q.last != null ? q.last : null;
     if (live == null || !r.last || oldPct == null) return oldPct;
     return ((live / r.last) * (1 + oldPct / 100) - 1) * 100;
   };
-  // % from today's open — open is fixed intraday, so rebase against live price.
-  const foVal = (r) => (r.open && liveLast(r) != null) ? ((liveLast(r) - r.open) / r.open) * 100 : null;
+  // % from today's open. Prefer the live quote's open (always today's), fall
+  // back to the scan's open; rebase against the live price (open is fixed
+  // intraday). Works as soon as quotes arrive — no re-scan needed.
+  const foVal = (r) => {
+    const q = liveQ[r.symbol];
+    const open = (q && q.open != null) ? q.open : r.open;
+    const last = liveLast(r);
+    return (open && last != null) ? ((last - open) / open) * 100 : null;
+  };
   // Columns whose displayed value is the LIVE-rebased % (not the raw scan
   // field). Sorting must use the same live value or the order won't match what
   // the user sees.
@@ -2232,7 +2240,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           const res = j.results || {};
           setLiveQ(prev => {
             const next = { ...prev };
-            for (const s of batch) { const q = res[s]; if (q && q.last) next[s] = q.last; }
+            for (const s of batch) { const q = res[s]; if (q && q.last) next[s] = { last: q.last, open: q.open != null ? q.open : null }; }
             return next;
           });
         } catch (_) {}
