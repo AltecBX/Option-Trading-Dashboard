@@ -1634,7 +1634,7 @@ body {
   font-family: var(--font-mono); font-size: 12px;
   text-align: center;
 }
-.scan-table-wrap { overflow-x: auto; }
+.scan-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .scan-table {
   width: 100%; border-collapse: collapse;
   font-family: var(--font-mono); font-size: 12px;
@@ -8351,3 +8351,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   color: #f59e0b; font: inherit; text-decoration: underline;
 }
 .wl-rescan-link:hover { color: var(--accent, #22c55e); }
+
+/* Mobile (touch) hardening — Phase C safe subset.
+   On touch devices :hover styles "stick" after a tap, leaving rows/buttons
+   looking selected. Neutralize the common hover backgrounds where there's no
+   real hover (pointer:coarse / hover:none). Desktop is unaffected. */
+@media (hover: none) {
+  .wl-row:hover, .scan-row:hover, .ab-row:hover { background: transparent; }
+}

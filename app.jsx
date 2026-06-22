@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.23";
+const APP_VERSION = "2.24";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -20,6 +20,13 @@ Object.assign(window, { APP_VERSION });
 // keep working unchanged.
 const _API_CACHE = new Map();   // url -> { ts, promise<{status, text}> }
 const API_CACHE_TTL = 4000;     // ms — shorter than every polling interval
+
+// Run low-priority work after the browser is idle (or shortly after, on Safari
+// versions without requestIdleCallback) so the first paint + /api/ticker win
+// the network ahead of non-critical badge/status polls.
+const idleRun = (fn) => (typeof window !== "undefined" && window.requestIdleCallback)
+  ? window.requestIdleCallback(fn, { timeout: 1500 })
+  : setTimeout(fn, 600);
 
 // ── Dev-only performance instrument ─────────────────────────────────────────
 // OFF in normal production. Enable with localStorage.setItem("jerryDebug","1")
@@ -235,7 +242,7 @@ function App() {
         if (!cancelled) setDataSource(j);
       } catch (_) {}
     };
-    poll();
+    idleRun(poll);  // non-critical badge — defer first fetch off the load path
     const id = setInterval(skipWhenHidden(poll), 30000);  // refresh every 30s
     return () => { cancelled = true; clearInterval(id); };
   }, []);
@@ -253,7 +260,7 @@ function App() {
         if (!cancelled) setUwHealth(j);
       } catch (_) {}
     };
-    poll();
+    idleRun(poll);  // non-critical status pill — defer first fetch off the load path
     const id = setInterval(skipWhenHidden(poll), 60000);  // refresh every 60s
     return () => { cancelled = true; clearInterval(id); };
   }, []);
