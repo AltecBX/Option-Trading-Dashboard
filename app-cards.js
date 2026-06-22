@@ -3680,6 +3680,8 @@ function WatchlistTableCard({
   }, "$", /*#__PURE__*/React.createElement("input", {
     className: "wl-acct",
     type: "number",
+    inputMode: "numeric",
+    enterKeyHint: "done",
     min: "0",
     step: "1000",
     value: acct,
@@ -3690,6 +3692,8 @@ function WatchlistTableCard({
   }, "risk", /*#__PURE__*/React.createElement("input", {
     className: "wl-risk",
     type: "number",
+    inputMode: "decimal",
+    enterKeyHint: "done",
     min: "0",
     step: "0.1",
     value: riskPct,

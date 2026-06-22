@@ -8199,7 +8199,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Watchlist: make the table its own scroll container so the sticky <thead>
    actually freezes (Excel-style frozen header row) instead of scrolling
    away with the page. Applies to Stocks + Sectors/Industries tables. */
-.wl-scroll { max-height: calc(100vh - 200px); overflow: auto; }
+.wl-scroll { max-height: calc(100vh - 200px); overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .wl-table thead th {
   position: sticky; top: 0; z-index: 3;
   background: var(--bg-2);            /* opaque so body rows don't bleed through */
