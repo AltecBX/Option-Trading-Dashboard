@@ -3167,6 +3167,90 @@ function WatchlistTableCard({
     dir: STR.has(k) ? "asc" : "desc"
   });
 
+  // Per-column header tooltips.
+  const COL_TIPS = {
+    symbol: "Ticker symbol (★ = Prime setup). Click a row to open it.",
+    company: "Company name",
+    edge: "Edge — signed options-flow conviction (+long / −short), size-normalized. Sort to rank morning buys vs sells.",
+    setup: "Plain-English read of the edge drivers",
+    prem_sell: "Suggested premium-selling side",
+    swing_dir: "Active price-swing direction (long/short)",
+    swing_stage: "Where in the swing the move is (early/mid/late)",
+    tk_ev: "Expected value per trade in R (win-rate × reward:risk − loss odds)",
+    tk_size: "Risk-based position size (account × risk% ÷ stop distance)",
+    rvol_rank: "Realized-vol rank 0-100 vs the stock's own year (↑ rich → sell premium, ↓ cheap → buy)",
+    last: "Last price (live during market hours)",
+    market_cap: "Market capitalization",
+    pe: "Trailing P/E",
+    forward_pe: "Forward P/E",
+    industry: "Industry",
+    sector: "Sector",
+    rsi: "RSI(14)",
+    rel_vol: "Relative volume vs 20-day average",
+    flow_net: "Net options-flow direction/score",
+    flow_agree: "Does flow agree with the price move?",
+    flow_bull: "Bullish flow sub-score",
+    flow_bear: "Bearish flow sub-score",
+    call_prem: "Total call premium today",
+    put_prem: "Total put premium today",
+    net_prem: "Net (call − put) premium",
+    pc_ratio: "Put/Call premium ratio",
+    ask_call_prem: "Ask-side (aggressive) call premium",
+    ask_put_prem: "Ask-side (aggressive) put premium",
+    call_sweeps: "Call sweep count",
+    put_sweeps: "Put sweep count",
+    flow_alerts: "Unusual-flow alert count",
+    flow_quality: "Flow conviction 0-100 (0 noise, 100 high-conviction)",
+    flow_cc_risk: "Covered-call risk 0-100 (high = avoid selling calls)",
+    flow_verdict: "Decision-engine verdict",
+    next_earnings: "Next earnings date (days away)",
+    change: "Change % today (live)",
+    wtd: "Week-to-date % (live)",
+    mtd: "Month-to-date % (live)",
+    qtd: "Quarter-to-date % (live)",
+    ytd: "Year-to-date % (live)",
+    from_ma20: "% from the 20-day moving average (live)",
+    from_ma50: "% from the 50-day MA (live)",
+    from_ma200: "% from the 200-day MA (live)"
+  };
+  // Movable columns — drag a header to reorder; order persists per device.
+  const COL_ORDER_KEY = "jerry_wl_colorder_v1";
+  const _defaultOrder = COLS.map(c => c.k);
+  const [colOrder, setColOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COL_ORDER_KEY) || "null");
+      if (Array.isArray(saved)) {
+        const known = new Set(_defaultOrder);
+        const kept = saved.filter(k => known.has(k));
+        const added = _defaultOrder.filter(k => !kept.includes(k)); // surface new columns
+        return [...kept, ...added];
+      }
+    } catch (_) {}
+    return _defaultOrder;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(COL_ORDER_KEY, JSON.stringify(colOrder));
+    } catch (_) {}
+  }, [colOrder]);
+  const _colByKey = {};
+  COLS.forEach(c => {
+    _colByKey[c.k] = c;
+  });
+  const orderedCols = colOrder.map(k => _colByKey[k]).filter(Boolean);
+  const dragColKey = useRef(null);
+  const onColDrop = targetK => {
+    const from = dragColKey.current;
+    dragColKey.current = null;
+    if (!from || from === targetK) return;
+    setColOrder(prev => {
+      const arr = prev.filter(k => k !== from);
+      const idx = arr.indexOf(targetK);
+      arr.splice(idx < 0 ? arr.length : idx, 0, from);
+      return arr;
+    });
+  };
+
   // Industry dropdown is scoped to the selected sector so it only lists
   // industries that actually live in that sector.
   const industryOpts = useMemo(() => {
@@ -3471,7 +3555,7 @@ function WatchlistTableCard({
     };
   }, [ctx]);
   const pctCls = v => v == null ? "" : v >= 0 ? "up" : "down";
-  const pct = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+  const pct = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100) / 100}%`;
   const flowCell = r => {
     if (!r.flow_available || r.flow_net == null) return /*#__PURE__*/React.createElement("span", {
       className: "muted"
@@ -3583,6 +3667,217 @@ function WatchlistTableCard({
     }, r.tk_size.toLocaleString(), /*#__PURE__*/React.createElement("small", {
       className: "muted"
     }, " sh"));
+  };
+
+  // One <td> for a (column, row) pair — data-driven so columns can be reordered.
+  const renderCell = (c, r) => {
+    const k = c.k;
+    switch (k) {
+      case "symbol":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-sym"
+        }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
+          className: "wl-prime-star",
+          title: "Prime setup — flow + swing agree, move is early"
+        }, "★ "), r.symbol);
+      case "company":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-co"
+        }, r.company || "—");
+      case "edge":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num",
+          title: r.edge_tip || ""
+        }, edgeCell(r));
+      case "setup":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt",
+          title: r.edge_tip || ""
+        }, setupCell(r));
+      case "prem_sell":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, r.prem_sell || "—");
+      case "swing_dir":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, swingCell(r));
+      case "swing_stage":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, timingCell(r));
+      case "tk_ev":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, evCell(r));
+      case "tk_size":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, sizeCell(r));
+      case "rvol_rank":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, volCell(r));
+      case "last":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num",
+          title: liveQ[r.symbol] != null ? "Live" : "Last scan"
+        }, fmtUsd(liveLast(r), 2));
+      case "market_cap":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, fmtMktCap(r.market_cap));
+      case "pe":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.pe != null ? r.pe : "—");
+      case "forward_pe":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.forward_pe != null ? r.forward_pe : "—");
+      case "industry":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, r.industry || "—");
+      case "sector":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, r.sector || "—");
+      case "rsi":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.rsi != null ? r.rsi : "—");
+      case "rel_vol":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.rel_vol != null ? r.rel_vol + "x" : "—");
+      case "flow_net":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, flowCell(r));
+      case "flow_agree":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, agreeCell(r));
+      case "flow_bull":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num up"
+        }, numOr(r.flow_bull));
+      case "flow_bear":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num down"
+        }, numOr(r.flow_bear));
+      case "call_prem":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num up"
+        }, prem$(r.call_prem));
+      case "put_prem":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num down"
+        }, prem$(r.put_prem));
+      case "net_prem":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${pctCls(r.net_prem)}`
+        }, prem$(r.net_prem));
+      case "pc_ratio":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.pc_ratio != null ? r.pc_ratio : "—");
+      case "ask_call_prem":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, prem$(r.ask_call_prem));
+      case "ask_put_prem":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, prem$(r.ask_put_prem));
+      case "call_sweeps":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, numOr(r.call_sweeps));
+      case "put_sweeps":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, numOr(r.put_sweeps));
+      case "flow_alerts":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, numOr(r.flow_alerts));
+      case "flow_quality":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, numOr(r.flow_quality));
+      case "flow_cc_risk":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`
+        }, numOr(r.flow_cc_risk));
+      case "flow_verdict":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt",
+          title: r.flow_verdict || ""
+        }, r.flow_verdict || "—");
+      case "next_earnings":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.next_earnings ? fmtUSDate(r.next_earnings) : "—", r.days_to_earnings != null ? /*#__PURE__*/React.createElement("span", {
+          className: "muted"
+        }, " (", r.days_to_earnings, "d)") : "");
+      case "change":
+      case "wtd":
+      case "mtd":
+      case "qtd":
+      case "ytd":
+      case "from_ma20":
+      case "from_ma50":
+      case "from_ma200":
+        {
+          const v = reb(r, r[k]);
+          return /*#__PURE__*/React.createElement("td", {
+            key: k,
+            className: `scan-num ${pctCls(v)}`
+          }, pct(v));
+        }
+      default:
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, "—");
+    }
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
@@ -3814,11 +4109,24 @@ function WatchlistTableCard({
     onScroll: onWlScroll
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table wl-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, COLS.map(c => /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, orderedCols.map(c => /*#__PURE__*/React.createElement("th", {
     key: c.k,
+    draggable: true,
+    onDragStart: e => {
+      dragColKey.current = c.k;
+      e.dataTransfer.effectAllowed = "move";
+    },
+    onDragOver: e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    },
+    onDrop: e => {
+      e.preventDefault();
+      onColDrop(c.k);
+    },
     className: `${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`,
     onClick: () => setSortKey(c.k),
-    title: "Click to sort"
+    title: `${COL_TIPS[c.k] || c.label} · click to sort · drag to reorder`
   }, c.label, sort.key === c.k ? sort.dir === "asc" ? " ▲" : " ▼" : "")))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
     className: "scan-row wl-row",
@@ -3832,102 +4140,7 @@ function WatchlistTableCard({
       });
     },
     title: `Open ${r.symbol} · right-click to remove`
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "wl-sym"
-  }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
-    className: "wl-prime-star",
-    title: "Prime setup — flow + swing agree, move is early"
-  }, "★ "), r.symbol), /*#__PURE__*/React.createElement("td", {
-    className: "wl-co"
-  }, r.company || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: r.edge_tip || ""
-  }, edgeCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt",
-    title: r.edge_tip || ""
-  }, setupCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt"
-  }, r.prem_sell || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt"
-  }, swingCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt"
-  }, timingCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, evCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, sizeCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, volCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: liveQ[r.symbol] != null ? "Live" : "Last scan"
-  }, fmtUsd(liveLast(r), 2)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, fmtMktCap(r.market_cap)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, r.pe != null ? r.pe : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, r.forward_pe != null ? r.forward_pe : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt"
-  }, r.industry || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt"
-  }, r.sector || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, r.rsi != null ? r.rsi : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, r.rel_vol != null ? r.rel_vol + "x" : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, flowCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt"
-  }, agreeCell(r)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num up"
-  }, numOr(r.flow_bull)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num down"
-  }, numOr(r.flow_bear)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num up"
-  }, prem$(r.call_prem)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num down"
-  }, prem$(r.put_prem)), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(r.net_prem)}`
-  }, prem$(r.net_prem)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, r.pc_ratio != null ? r.pc_ratio : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, prem$(r.ask_call_prem)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, prem$(r.ask_put_prem)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, numOr(r.call_sweeps)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, numOr(r.put_sweeps)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, numOr(r.flow_alerts)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, numOr(r.flow_quality)), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`
-  }, numOr(r.flow_cc_risk)), /*#__PURE__*/React.createElement("td", {
-    className: "wl-txt",
-    title: r.flow_verdict || ""
-  }, r.flow_verdict || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num"
-  }, r.next_earnings ? fmtUSDate(r.next_earnings) : "—", r.days_to_earnings != null ? /*#__PURE__*/React.createElement("span", {
-    className: "muted"
-  }, " (", r.days_to_earnings, "d)") : ""), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.change))}`
-  }, pct(reb(r, r.change))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.wtd))}`
-  }, pct(reb(r, r.wtd))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.mtd))}`
-  }, pct(reb(r, r.mtd))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.qtd))}`
-  }, pct(reb(r, r.qtd))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.ytd))}`
-  }, pct(reb(r, r.ytd))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.from_ma20))}`
-  }, pct(reb(r, r.from_ma20))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.from_ma50))}`
-  }, pct(reb(r, r.from_ma50))), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${pctCls(reb(r, r.from_ma200))}`
-  }, pct(reb(r, r.from_ma200))))))), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
+  }, orderedCols.map(c => renderCell(c, r)))))), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
     className: "wl-more",
     onClick: () => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))
   }, "Showing ", visN, " of ", filtered.length, " — scroll or click for more")) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {

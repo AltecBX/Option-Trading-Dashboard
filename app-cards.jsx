@@ -2079,6 +2079,58 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
 
+  // Per-column header tooltips.
+  const COL_TIPS = {
+    symbol: "Ticker symbol (★ = Prime setup). Click a row to open it.",
+    company: "Company name", edge: "Edge — signed options-flow conviction (+long / −short), size-normalized. Sort to rank morning buys vs sells.",
+    setup: "Plain-English read of the edge drivers", prem_sell: "Suggested premium-selling side",
+    swing_dir: "Active price-swing direction (long/short)", swing_stage: "Where in the swing the move is (early/mid/late)",
+    tk_ev: "Expected value per trade in R (win-rate × reward:risk − loss odds)", tk_size: "Risk-based position size (account × risk% ÷ stop distance)",
+    rvol_rank: "Realized-vol rank 0-100 vs the stock's own year (↑ rich → sell premium, ↓ cheap → buy)",
+    last: "Last price (live during market hours)", market_cap: "Market capitalization",
+    pe: "Trailing P/E", forward_pe: "Forward P/E", industry: "Industry", sector: "Sector",
+    rsi: "RSI(14)", rel_vol: "Relative volume vs 20-day average",
+    flow_net: "Net options-flow direction/score", flow_agree: "Does flow agree with the price move?",
+    flow_bull: "Bullish flow sub-score", flow_bear: "Bearish flow sub-score",
+    call_prem: "Total call premium today", put_prem: "Total put premium today", net_prem: "Net (call − put) premium",
+    pc_ratio: "Put/Call premium ratio", ask_call_prem: "Ask-side (aggressive) call premium", ask_put_prem: "Ask-side (aggressive) put premium",
+    call_sweeps: "Call sweep count", put_sweeps: "Put sweep count", flow_alerts: "Unusual-flow alert count",
+    flow_quality: "Flow conviction 0-100 (0 noise, 100 high-conviction)", flow_cc_risk: "Covered-call risk 0-100 (high = avoid selling calls)",
+    flow_verdict: "Decision-engine verdict", next_earnings: "Next earnings date (days away)",
+    change: "Change % today (live)", wtd: "Week-to-date % (live)", mtd: "Month-to-date % (live)",
+    qtd: "Quarter-to-date % (live)", ytd: "Year-to-date % (live)",
+    from_ma20: "% from the 20-day moving average (live)", from_ma50: "% from the 50-day MA (live)", from_ma200: "% from the 200-day MA (live)",
+  };
+  // Movable columns — drag a header to reorder; order persists per device.
+  const COL_ORDER_KEY = "jerry_wl_colorder_v1";
+  const _defaultOrder = COLS.map(c => c.k);
+  const [colOrder, setColOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COL_ORDER_KEY) || "null");
+      if (Array.isArray(saved)) {
+        const known = new Set(_defaultOrder);
+        const kept = saved.filter(k => known.has(k));
+        const added = _defaultOrder.filter(k => !kept.includes(k));  // surface new columns
+        return [...kept, ...added];
+      }
+    } catch (_) {}
+    return _defaultOrder;
+  });
+  useEffect(() => { try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(colOrder)); } catch (_) {} }, [colOrder]);
+  const _colByKey = {}; COLS.forEach(c => { _colByKey[c.k] = c; });
+  const orderedCols = colOrder.map(k => _colByKey[k]).filter(Boolean);
+  const dragColKey = useRef(null);
+  const onColDrop = (targetK) => {
+    const from = dragColKey.current; dragColKey.current = null;
+    if (!from || from === targetK) return;
+    setColOrder(prev => {
+      const arr = prev.filter(k => k !== from);
+      const idx = arr.indexOf(targetK);
+      arr.splice(idx < 0 ? arr.length : idx, 0, from);
+      return arr;
+    });
+  };
+
   // Industry dropdown is scoped to the selected sector so it only lists
   // industries that actually live in that sector.
   const industryOpts = useMemo(() => {
@@ -2284,7 +2336,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   }, [ctx]);
 
   const pctCls = (v) => v == null ? "" : v >= 0 ? "up" : "down";
-  const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${v}%`;
+  const pct = (v) => v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100) / 100}%`;
   const flowCell = (r) => {
     if (!r.flow_available || r.flow_net == null) return <span className="muted">—</span>;
     const d = r.flow_dir;
@@ -2349,6 +2401,53 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     const dir = r.swing_dir === "long" ? "Buy" : "Short";
     const tip = `${dir} ${r.tk_size} sh · risk $${r.tk_riskUsd?.toLocaleString()} → reward $${r.tk_rewardUsd?.toLocaleString()} · R:R ${r.tk_rr} · target $${r.tk_target} / stop $${r.tk_stop}`;
     return <span title={tip}>{r.tk_size.toLocaleString()}<small className="muted"> sh</small></span>;
+  };
+
+  // One <td> for a (column, row) pair — data-driven so columns can be reordered.
+  const renderCell = (c, r) => {
+    const k = c.k;
+    switch (k) {
+      case "symbol": return <td key={k} className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}</td>;
+      case "company": return <td key={k} className="wl-co">{r.company || "—"}</td>;
+      case "edge": return <td key={k} className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>;
+      case "setup": return <td key={k} className="wl-txt" title={r.edge_tip || ""}>{setupCell(r)}</td>;
+      case "prem_sell": return <td key={k} className="wl-txt">{r.prem_sell || "—"}</td>;
+      case "swing_dir": return <td key={k} className="wl-txt">{swingCell(r)}</td>;
+      case "swing_stage": return <td key={k} className="wl-txt">{timingCell(r)}</td>;
+      case "tk_ev": return <td key={k} className="scan-num">{evCell(r)}</td>;
+      case "tk_size": return <td key={k} className="scan-num">{sizeCell(r)}</td>;
+      case "rvol_rank": return <td key={k} className="scan-num">{volCell(r)}</td>;
+      case "last": return <td key={k} className="scan-num" title={liveQ[r.symbol] != null ? "Live" : "Last scan"}>{fmtUsd(liveLast(r), 2)}</td>;
+      case "market_cap": return <td key={k} className="scan-num">{fmtMktCap(r.market_cap)}</td>;
+      case "pe": return <td key={k} className="scan-num">{r.pe != null ? r.pe : "—"}</td>;
+      case "forward_pe": return <td key={k} className="scan-num">{r.forward_pe != null ? r.forward_pe : "—"}</td>;
+      case "industry": return <td key={k} className="wl-txt">{r.industry || "—"}</td>;
+      case "sector": return <td key={k} className="wl-txt">{r.sector || "—"}</td>;
+      case "rsi": return <td key={k} className="scan-num">{r.rsi != null ? r.rsi : "—"}</td>;
+      case "rel_vol": return <td key={k} className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>;
+      case "flow_net": return <td key={k} className="scan-num">{flowCell(r)}</td>;
+      case "flow_agree": return <td key={k} className="wl-txt">{agreeCell(r)}</td>;
+      case "flow_bull": return <td key={k} className="scan-num up">{numOr(r.flow_bull)}</td>;
+      case "flow_bear": return <td key={k} className="scan-num down">{numOr(r.flow_bear)}</td>;
+      case "call_prem": return <td key={k} className="scan-num up">{prem$(r.call_prem)}</td>;
+      case "put_prem": return <td key={k} className="scan-num down">{prem$(r.put_prem)}</td>;
+      case "net_prem": return <td key={k} className={`scan-num ${pctCls(r.net_prem)}`}>{prem$(r.net_prem)}</td>;
+      case "pc_ratio": return <td key={k} className="scan-num">{r.pc_ratio != null ? r.pc_ratio : "—"}</td>;
+      case "ask_call_prem": return <td key={k} className="scan-num">{prem$(r.ask_call_prem)}</td>;
+      case "ask_put_prem": return <td key={k} className="scan-num">{prem$(r.ask_put_prem)}</td>;
+      case "call_sweeps": return <td key={k} className="scan-num">{numOr(r.call_sweeps)}</td>;
+      case "put_sweeps": return <td key={k} className="scan-num">{numOr(r.put_sweeps)}</td>;
+      case "flow_alerts": return <td key={k} className="scan-num">{numOr(r.flow_alerts)}</td>;
+      case "flow_quality": return <td key={k} className="scan-num">{numOr(r.flow_quality)}</td>;
+      case "flow_cc_risk": return <td key={k} className={`scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`}>{numOr(r.flow_cc_risk)}</td>;
+      case "flow_verdict": return <td key={k} className="wl-txt" title={r.flow_verdict || ""}>{r.flow_verdict || "—"}</td>;
+      case "next_earnings": return <td key={k} className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>;
+      case "change": case "wtd": case "mtd": case "qtd": case "ytd":
+      case "from_ma20": case "from_ma50": case "from_ma200": {
+        const v = reb(r, r[k]); return <td key={k} className={`scan-num ${pctCls(v)}`}>{pct(v)}</td>;
+      }
+      default: return <td key={k} className="scan-num">—</td>;
+    }
   };
 
   return (
@@ -2493,9 +2592,14 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
         <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }} ref={wlScrollRef} onScroll={onWlScroll}>
           <table className="scan-table wl-table">
             <thead><tr>
-              {COLS.map(c => (
-                <th key={c.k} className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`}
-                    onClick={() => setSortKey(c.k)} title="Click to sort">
+              {orderedCols.map(c => (
+                <th key={c.k} draggable
+                    onDragStart={(e) => { dragColKey.current = c.k; e.dataTransfer.effectAllowed = "move"; }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+                    onDrop={(e) => { e.preventDefault(); onColDrop(c.k); }}
+                    className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`}
+                    onClick={() => setSortKey(c.k)}
+                    title={`${COL_TIPS[c.k] || c.label} · click to sort · drag to reorder`}>
                   {c.label}{sort.key === c.k ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
                 </th>
               ))}
@@ -2505,49 +2609,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                 <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                     onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, symbol: r.symbol }); }}
                     title={`Open ${r.symbol} · right-click to remove`}>
-                  <td className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}</td>
-                  <td className="wl-co">{r.company || "—"}</td>
-                  <td className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>
-                  <td className="wl-txt" title={r.edge_tip || ""}>{setupCell(r)}</td>
-                  <td className="wl-txt">{r.prem_sell || "—"}</td>
-                  <td className="wl-txt">{swingCell(r)}</td>
-                  <td className="wl-txt">{timingCell(r)}</td>
-                  <td className="scan-num">{evCell(r)}</td>
-                  <td className="scan-num">{sizeCell(r)}</td>
-                  <td className="scan-num">{volCell(r)}</td>
-                  <td className="scan-num" title={liveQ[r.symbol] != null ? "Live" : "Last scan"}>{fmtUsd(liveLast(r), 2)}</td>
-                  <td className="scan-num">{fmtMktCap(r.market_cap)}</td>
-                  <td className="scan-num">{r.pe != null ? r.pe : "—"}</td>
-                  <td className="scan-num">{r.forward_pe != null ? r.forward_pe : "—"}</td>
-                  <td className="wl-txt">{r.industry || "—"}</td>
-                  <td className="wl-txt">{r.sector || "—"}</td>
-                  <td className="scan-num">{r.rsi != null ? r.rsi : "—"}</td>
-                  <td className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>
-                  <td className="scan-num">{flowCell(r)}</td>
-                  <td className="wl-txt">{agreeCell(r)}</td>
-                  <td className="scan-num up">{numOr(r.flow_bull)}</td>
-                  <td className="scan-num down">{numOr(r.flow_bear)}</td>
-                  <td className="scan-num up">{prem$(r.call_prem)}</td>
-                  <td className="scan-num down">{prem$(r.put_prem)}</td>
-                  <td className={`scan-num ${pctCls(r.net_prem)}`}>{prem$(r.net_prem)}</td>
-                  <td className="scan-num">{r.pc_ratio != null ? r.pc_ratio : "—"}</td>
-                  <td className="scan-num">{prem$(r.ask_call_prem)}</td>
-                  <td className="scan-num">{prem$(r.ask_put_prem)}</td>
-                  <td className="scan-num">{numOr(r.call_sweeps)}</td>
-                  <td className="scan-num">{numOr(r.put_sweeps)}</td>
-                  <td className="scan-num">{numOr(r.flow_alerts)}</td>
-                  <td className="scan-num">{numOr(r.flow_quality)}</td>
-                  <td className={`scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`}>{numOr(r.flow_cc_risk)}</td>
-                  <td className="wl-txt" title={r.flow_verdict || ""}>{r.flow_verdict || "—"}</td>
-                  <td className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.change))}`}>{pct(reb(r, r.change))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.wtd))}`}>{pct(reb(r, r.wtd))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.mtd))}`}>{pct(reb(r, r.mtd))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.qtd))}`}>{pct(reb(r, r.qtd))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.ytd))}`}>{pct(reb(r, r.ytd))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.from_ma20))}`}>{pct(reb(r, r.from_ma20))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.from_ma50))}`}>{pct(reb(r, r.from_ma50))}</td>
-                  <td className={`scan-num ${pctCls(reb(r, r.from_ma200))}`}>{pct(reb(r, r.from_ma200))}</td>
+                  {orderedCols.map(c => renderCell(c, r))}
                 </tr>
               ))}
             </tbody>
