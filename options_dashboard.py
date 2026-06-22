@@ -2938,6 +2938,32 @@ _SWINGS_CACHE: dict = {}
 _SWINGS_LOCK = threading.Lock()
 _SWINGS_TTL = 90.0  # seconds
 
+# yfinance .info is the slowest yfinance call; its fields (name / sector / P/E /
+# valuation / dividend) change slowly. Cache 12h so /api/ticker doesn't pay for
+# it on every load. Only good results are cached (a throttled empty isn't pinned).
+_INFO_CACHE: dict = {}
+_INFO_LOCK = threading.Lock()
+_INFO_TTL = 12 * 3600
+
+
+def _ticker_info(symbol: str) -> dict:
+    now = time.time()
+    with _INFO_LOCK:
+        hit = _INFO_CACHE.get(symbol)
+        if hit is not None and (now - hit[0]) < _INFO_TTL:
+            return hit[1]
+    try:
+        info = yf.Ticker(symbol).info or {}
+    except Exception:
+        info = {}
+    if info.get("shortName") or info.get("longName") or info.get("marketCap"):
+        with _INFO_LOCK:
+            _INFO_CACHE[symbol] = (now, info)
+            if len(_INFO_CACHE) > 2000:
+                _INFO_CACHE.pop(next(iter(_INFO_CACHE)))
+    return info
+
+
 def build_payload(
     ticker: str,
     weeks: int,
@@ -2961,10 +2987,7 @@ def build_payload(
     # builds an independent Ticker per call and the Schwab client is read-mostly
     # with its own TTL cache, so this is safe.
     def _load_info():
-        try:
-            return yf.Ticker(ticker).info or {}
-        except Exception:
-            return {}
+        return _ticker_info(ticker)   # 12h-cached; .info is the slow yfinance call
 
     with ThreadPoolExecutor(max_workers=6) as _ex:
         f_current = _ex.submit(load_current_week, ticker, friday_baseline)
