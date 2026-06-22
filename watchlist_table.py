@@ -203,7 +203,29 @@ def _num(v):
         return None
 
 
+_FUND_CACHE: dict = {}
+_FUND_TTL = 12 * 3600  # 12h — sector/industry/cap/PE/earnings change slowly
+
+
 def _fundamentals(symbol: str) -> dict:
+    # Cache the slow yfinance .info + earnings lookup per symbol. This is the
+    # dominant per-symbol cost of a full watchlist scan (with retries/backoff on
+    # throttle), so caching it turns a repeat "Scan now" from minutes into a
+    # quick refresh. Only GOOD results are cached (a thin/throttled blank is not
+    # pinned), and the earnings countdown is recomputed on every hit so it never
+    # drifts.
+    now = time.time()
+    hit = _FUND_CACHE.get(symbol)
+    if hit is not None and (now - hit[0]) < _FUND_TTL:
+        cached = dict(hit[1])
+        ne = cached.get("next_earnings")
+        if ne:
+            try:
+                nd = datetime.strptime(ne, "%Y-%m-%d").date()
+                cached["days_to_earnings"] = (nd - date.today()).days
+            except Exception:
+                pass
+        return cached
     out = {"company": None, "market_cap": None, "pe": None, "forward_pe": None,
            "sector": None, "industry": None, "next_earnings": None, "days_to_earnings": None}
     try:
@@ -264,6 +286,12 @@ def _fundamentals(symbol: str) -> dict:
             pass
     except Exception:
         pass
+    # Only cache a result that actually resolved (name present) so a transient
+    # throttle doesn't pin a blank row for 12h.
+    if out.get("company"):
+        _FUND_CACHE[symbol] = (now, dict(out))
+        if len(_FUND_CACHE) > 4000:
+            _FUND_CACHE.pop(next(iter(_FUND_CACHE)))
     return out
 
 
