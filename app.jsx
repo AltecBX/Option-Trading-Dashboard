@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.18";
+const APP_VERSION = "2.19";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -906,6 +906,21 @@ function App() {
         if (!r.ok) {
           const txt = await r.text().catch(() => "");
           console.error("Watchlist save failed:", r.status, txt);
+          if (r.status === 409) {
+            // Server blocked a destructive shrink — our local copy is stale and
+            // smaller than the saved list. Heal by adopting the server's
+            // authoritative list instead of fighting it.
+            try {
+              const sr = await apiFetch("/api/watchlist", { noCache: true });
+              if (sr.ok) {
+                const sd = await sr.json();
+                if (sd && Array.isArray(sd.symbols)) {
+                  pendingSaveRef.current = false;
+                  setWatchlistData({ version: 1, symbols: sd.symbols, tag_order: sd.tag_order || [] });
+                }
+              }
+            } catch (_) {}
+          }
         } else {
           pendingSaveRef.current = false;
         }

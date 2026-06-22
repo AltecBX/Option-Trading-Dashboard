@@ -4085,6 +4085,27 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 clean = _validate_watchlist_payload(payload)
                 if clean is None:
                     raise ValueError("malformed watchlist payload")
+                # Anti-clobber guard: a stale or freshly-reset client can PUT a
+                # tiny list over a large saved one and wipe it (this is what
+                # kept happening). Reject a destructive shrink — losing >50% of
+                # a 20+ symbol list in one save — unless ?force=1 is set. Normal
+                # adds/removes and any growth pass through untouched. This is the
+                # server-side backstop the frontend guard alone can't provide.
+                force = (parse_qs(parsed.query).get("force", ["0"])[0] == "1")
+                new_n = len(clean.get("symbols", []))
+                if not force:
+                    try:
+                        cur_n = len(_load_watchlist().get("symbols", []))
+                    except Exception:
+                        cur_n = 0
+                    if cur_n >= 20 and new_n < cur_n * 0.5:
+                        print(f"[watchlist] BLOCKED destructive shrink "
+                              f"{cur_n} -> {new_n}", file=sys.stderr)
+                        self._send_json({"ok": False, "rejected": "shrink_guard",
+                                         "current": cur_n, "attempted": new_n,
+                                         "hint": "re-send with ?force=1 to override"},
+                                        status=409)
+                        return
                 ok = _save_watchlist(clean)
                 if not ok:
                     raise RuntimeError("save failed")
