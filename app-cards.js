@@ -2862,24 +2862,6 @@ function computeTicket(r, acct, riskPct) {
 // Global cooldown so the watchlist board's auto-reconcile scan can't thrash
 // across tab switches / remounts.
 let _wlLastAutoScan = 0;
-
-// Reactive "is this a narrow/phone viewport" flag via matchMedia, so a card can
-// render a compact mobile layout instead of a 40-column table without touching
-// the desktop path. Updates live on resize/rotate.
-function useIsNarrow(bp = 760) {
-  const get = () => typeof window !== "undefined" && window.matchMedia ? window.matchMedia(`(max-width:${bp}px)`).matches : false;
-  const [narrow, setNarrow] = useState(get);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia(`(max-width:${bp}px)`);
-    const fn = e => setNarrow(e.matches);
-    if (mq.addEventListener) mq.addEventListener("change", fn);else mq.addListener(fn);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", fn);else mq.removeListener(fn);
-    };
-  }, [bp]);
-  return narrow;
-}
 function WatchlistTableCard({
   apiFetch,
   onSwitchTicker,
@@ -3552,42 +3534,6 @@ function WatchlistTableCard({
       className: "muted"
     }, " sh"));
   };
-
-  // Compact mobile card for one watchlist row — surfaces the decision-critical
-  // fields (symbol, price, edge, setup, swing/timing, EV, size, vol) so phones
-  // don't need a 40-column horizontal scroll. Reuses the same cell renderers as
-  // the desktop table, so values/colors are identical. No trading data hidden.
-  const wlCard = r => /*#__PURE__*/React.createElement("div", {
-    key: r.symbol,
-    className: "wl-card",
-    onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
-    onContextMenu: e => {
-      e.preventDefault();
-      setCtx({
-        x: e.clientX,
-        y: e.clientY,
-        symbol: r.symbol
-      });
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "wl-card-top"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "wl-card-sym"
-  }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
-    className: "wl-prime-star",
-    title: "Prime setup"
-  }, "★ "), r.symbol), /*#__PURE__*/React.createElement("span", {
-    className: "wl-card-px"
-  }, fmtUsd(r.last, 2), " ", /*#__PURE__*/React.createElement("b", {
-    className: pctCls(r.change)
-  }, pct(r.change))), /*#__PURE__*/React.createElement("span", {
-    className: "wl-card-edge"
-  }, edgeCell(r))), r.company ? /*#__PURE__*/React.createElement("div", {
-    className: "wl-card-co"
-  }, r.company) : null, /*#__PURE__*/React.createElement("div", {
-    className: "wl-card-grid"
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", null, "Setup"), " ", setupCell(r)), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", null, "Prem"), " ", r.prem_sell || "—"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", null, "Swing"), " ", swingCell(r), " · ", timingCell(r)), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", null, "EV"), " ", evCell(r)), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", null, "Size"), " ", sizeCell(r)), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", null, "Vol"), " ", volCell(r))));
-  const narrow = useIsNarrow();
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3809,14 +3755,7 @@ function WatchlistTableCard({
     className: "scan-num"
   }, g.alerts || "—")))))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, "No flow data to aggregate yet — run a scan.") : filtered.length > 0 ? narrow ? /*#__PURE__*/React.createElement("div", {
-    className: "wl-cards",
-    ref: wlScrollRef,
-    onScroll: onWlScroll
-  }, shown.map(wlCard), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
-    className: "wl-more",
-    onClick: () => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))
-  }, "Showing ", visN, " of ", filtered.length, " — scroll or tap for more")) : /*#__PURE__*/React.createElement("div", {
+  }, "No flow data to aggregate yet — run a scan.") : filtered.length > 0 ? /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap wl-scroll",
     style: {
       marginTop: 10
