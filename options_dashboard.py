@@ -420,6 +420,69 @@ def load_current_week(symbol: str, friday_baseline: bool) -> dict | None:
     }
 
 
+def _append_today_bar(df, symbol: str):
+    """Daily history feeds (Schwab get_price_history, yfinance) usually only
+    expose the prior session's close until well after the bell, so charts can
+    sit a day behind even though the live quote is current. When today's bar
+    is missing, synthesize it from the live Schwab quote (open/high/low +
+    current last as close) so indicators and the rendered candle include the
+    in-progress session. No-op on weekends/holidays, when today is already
+    present, or when the quote didn't actually trade today."""
+    if _ET is None or df is None or df.empty:
+        return df
+    today = datetime.now(_ET).date()
+    if today.weekday() >= 5:  # Sat/Sun — no session to add
+        return df
+    try:
+        if df.index[-1].date() >= today:
+            return df  # already current
+    except Exception:
+        return df
+    sc = _schwab()
+    if sc is None:
+        return df
+    try:
+        q = (sc.get_quotes([symbol]) or {}).get(symbol)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[schwab] _append_today_bar quote failed: {exc}", file=sys.stderr)
+        return df
+    if not q:
+        return df
+    # Only append when the quote genuinely traded today — guards against
+    # market holidays, where the quote echoes the prior session.
+    tt = q.get("trade_time_ms")
+    if not tt:
+        return df
+    try:
+        if datetime.fromtimestamp(tt / 1000, _ET).date() != today:
+            return df
+    except Exception:
+        return df
+    last = q.get("last")
+    if last is None:
+        return df
+    last = float(last)
+    op = q.get("open")
+    op = float(op) if op is not None else last
+    hi = q.get("high")
+    hi = float(hi) if hi is not None else max(op, last)
+    lo = q.get("low")
+    lo = float(lo) if lo is not None else min(op, last)
+    # Keep the bar internally consistent if the live last pierced the
+    # session range Schwab reported.
+    hi = max(hi, op, last)
+    lo = min(lo, op, last)
+    vol = q.get("volume")
+    try:
+        df.loc[pd.Timestamp(today), ["Open", "High", "Low", "Close", "Volume"]] = [
+            op, hi, lo, last, float(vol) if vol is not None else 0.0,
+        ]
+        df.sort_index(inplace=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[schwab] _append_today_bar append failed: {exc}", file=sys.stderr)
+    return df
+
+
 def load_daily(symbol: str, days: int = 90) -> list[dict]:
     """Fetch daily OHLC for `days` of display, with extra leading bars used
     only for indicator warmup (MACD plus 200-day MA). Each row carries
@@ -459,6 +522,10 @@ def load_daily(symbol: str, days: int = 90) -> list[dict]:
         if df.empty:
             return []
         df.index = pd.to_datetime(df.index).tz_localize(None)
+
+    # The history feed often lags the live session by a day; splice in
+    # today's in-progress bar from the live quote when it's missing.
+    df = _append_today_bar(df, symbol)
     closes = df["Close"].astype(float).tolist()
 
     def ema(vals, period):
