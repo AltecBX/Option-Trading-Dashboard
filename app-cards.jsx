@@ -1462,6 +1462,10 @@ function SwingPatternCard({ apiFetch, ticker }) {
     } catch (e) { setErr(String(e)); }
     setLoading(false);
   };
+  // Clear the previous symbol's swings the instant the ticker changes so the
+  // card shows its loading skeleton instead of stale data from another symbol
+  // (which could be misread). Not cleared on a sensitivity tweak.
+  useEffect(() => { setData(null); setErr(null); }, [ticker]);
   useEffect(() => { load(ticker, sens); /* eslint-disable-next-line */ }, [ticker, sens]);
 
   // Resizable columns (desktop only). Adds a drag handle to each header cell
