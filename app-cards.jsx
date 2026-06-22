@@ -2134,6 +2134,48 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   };
   const shown = view === "stocks" ? filtered.slice(0, visN) : filtered;
 
+  // ── Live price overlay for the % columns ────────────────────────────────
+  // CHG%/WTD/MTD/QTD/YTD and %20/50/200-DMA are all (price − base)/base, where
+  // the base (prev close, period-start close, the moving average) is fixed
+  // intraday. So given a live price we rebase the scan's % without refetching:
+  //   livePct = (live / scanLast) · (1 + scanPct/100) − 1.
+  // We batch-poll /api/quote (25 symbols/call, Schwab-cached) for the rows on
+  // screen and recompute client-side — no backend change, no re-scan.
+  const [liveQ, setLiveQ] = useState({});          // symbol -> live last price
+  const shownSymsKey = view === "stocks" ? shown.map(r => r.symbol).join(",") : "";
+  useEffect(() => {
+    if (view !== "stocks" || !shownSymsKey) return;
+    const syms = shownSymsKey.split(",");
+    let stop = false;
+    const poll = async () => {
+      if (document.hidden) return;
+      for (let i = 0; i < syms.length && !stop; i += 25) {
+        const batch = syms.slice(i, i + 25);
+        try {
+          const r = await apiFetch(`/api/quote?tickers=${encodeURIComponent(batch.join(","))}`);
+          if (!r.ok) continue;
+          const j = await r.json();
+          if (stop) return;
+          const res = j.results || {};
+          setLiveQ(prev => {
+            const next = { ...prev };
+            for (const s of batch) { const q = res[s]; if (q && q.last) next[s] = q.last; }
+            return next;
+          });
+        } catch (_) {}
+      }
+    };
+    poll();
+    const id = setInterval(poll, 20000);   // 20s; quote cache is 25s
+    return () => { stop = true; clearInterval(id); };
+  }, [shownSymsKey, view]);
+  const liveLast = (r) => (liveQ[r.symbol] != null ? liveQ[r.symbol] : r.last);
+  const reb = (r, oldPct) => {
+    const live = liveQ[r.symbol];
+    if (live == null || !r.last || oldPct == null) return oldPct;
+    return ((live / r.last) * (1 + oldPct / 100) - 1) * 100;
+  };
+
   // How many of the user's tracked symbols aren't in the last scan's board —
   // either added since the scan, or skipped because the data source returned
   // no price for them. Surfaced so the count gap never looks like missing data.
@@ -2473,7 +2515,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   <td className="scan-num">{evCell(r)}</td>
                   <td className="scan-num">{sizeCell(r)}</td>
                   <td className="scan-num">{volCell(r)}</td>
-                  <td className="scan-num">{fmtUsd(r.last, 2)}</td>
+                  <td className="scan-num" title={liveQ[r.symbol] != null ? "Live" : "Last scan"}>{fmtUsd(liveLast(r), 2)}</td>
                   <td className="scan-num">{fmtMktCap(r.market_cap)}</td>
                   <td className="scan-num">{r.pe != null ? r.pe : "—"}</td>
                   <td className="scan-num">{r.forward_pe != null ? r.forward_pe : "—"}</td>
@@ -2498,14 +2540,14 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   <td className={`scan-num ${r.flow_cc_risk != null && r.flow_cc_risk >= 60 ? "down" : ""}`}>{numOr(r.flow_cc_risk)}</td>
                   <td className="wl-txt" title={r.flow_verdict || ""}>{r.flow_verdict || "—"}</td>
                   <td className="scan-num">{r.next_earnings ? fmtUSDate(r.next_earnings) : "—"}{r.days_to_earnings != null ? <span className="muted"> ({r.days_to_earnings}d)</span> : ""}</td>
-                  <td className={`scan-num ${pctCls(r.change)}`}>{pct(r.change)}</td>
-                  <td className={`scan-num ${pctCls(r.wtd)}`}>{pct(r.wtd)}</td>
-                  <td className={`scan-num ${pctCls(r.mtd)}`}>{pct(r.mtd)}</td>
-                  <td className={`scan-num ${pctCls(r.qtd)}`}>{pct(r.qtd)}</td>
-                  <td className={`scan-num ${pctCls(r.ytd)}`}>{pct(r.ytd)}</td>
-                  <td className={`scan-num ${pctCls(r.from_ma20)}`}>{pct(r.from_ma20)}</td>
-                  <td className={`scan-num ${pctCls(r.from_ma50)}`}>{pct(r.from_ma50)}</td>
-                  <td className={`scan-num ${pctCls(r.from_ma200)}`}>{pct(r.from_ma200)}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.change))}`}>{pct(reb(r, r.change))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.wtd))}`}>{pct(reb(r, r.wtd))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.mtd))}`}>{pct(reb(r, r.mtd))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.qtd))}`}>{pct(reb(r, r.qtd))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.ytd))}`}>{pct(reb(r, r.ytd))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.from_ma20))}`}>{pct(reb(r, r.from_ma20))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.from_ma50))}`}>{pct(reb(r, r.from_ma50))}</td>
+                  <td className={`scan-num ${pctCls(reb(r, r.from_ma200))}`}>{pct(reb(r, r.from_ma200))}</td>
                 </tr>
               ))}
             </tbody>
