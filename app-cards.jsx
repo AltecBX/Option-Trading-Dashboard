@@ -1971,6 +1971,10 @@ function computeTicket(r, acct, riskPct) {
            tk_wr: Math.round(wr * 100) };
 }
 
+// Global cooldown so the watchlist board's auto-reconcile scan can't thrash
+// across tab switches / remounts.
+let _wlLastAutoScan = 0;
+
 function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, watchlistSymbols }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -2138,6 +2142,20 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     const boardSet = new Set(allRows.map(r => String(r.symbol).toUpperCase()));
     return watchlistSymbols.filter(s => !boardSet.has(String(s).toUpperCase())).length;
   }, [allRows, watchlistSymbols]);
+
+  // Auto-reconcile: if the board is badly out of sync with the watchlist (lots
+  // of tracked symbols missing — e.g. after a restore or bulk add), kick a
+  // scan automatically so the table fills itself in, instead of making the
+  // user find "Scan now". Bounded by a 10-minute global cooldown so it can't
+  // thrash, and only fires once the board has actually loaded.
+  useEffect(() => {
+    if (scanning || !board) return;
+    if (notScanned < 25) return;
+    const now = Date.now();
+    if (now - _wlLastAutoScan < 10 * 60 * 1000) return;
+    _wlLastAutoScan = now;
+    startScan();
+  }, [notScanned, scanning, board]);
 
   // Sector / industry rollup. Sums the per-stock premium fields (all from
   // the flow_alerts call already made — no extra UW cost) so you can see
