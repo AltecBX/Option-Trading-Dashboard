@@ -242,8 +242,9 @@ hit("POST", "/api/watchlist_alerts/dismiss", {"id": "smoke-test-id"})
 hit("POST", "/api/push/test", {})
 hit("POST", "/api/push/roll_flag", {"symbol": S, "strike": 105, "kind": "call"})
 
-# PUT watchlist — read current shape, write it back.
-hit("PUT", "/api/watchlist", {"version": 1, "symbols": [
+# PUT watchlist — force=1 to bypass the destructive-shrink guard (this test
+# intentionally writes a tiny 1-symbol list over the seeded default).
+hit("PUT", "/api/watchlist?force=1", {"version": 1, "symbols": [
     {"symbol": "SPY", "tags": ["etf"], "notes": "", "preferred_strategy": None,
      "starred": True, "added_at": 1781056495}]})
 
