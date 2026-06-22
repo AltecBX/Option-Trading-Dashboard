@@ -16,12 +16,23 @@ from __future__ import annotations
 import gc
 import json
 import math
+import os
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+# Per-symbol enrichment (fundamentals + UW flow) within a scan chunk runs
+# concurrently with a bounded pool. The UW client is thread-safe and rate-limit
+# aware, and _fundamentals is cached + retried, so this is safe. Tune/disable
+# via WLT_SCAN_CONCURRENCY (set 1 to fall back to fully serial).
+try:
+    _SCAN_CONCURRENCY = max(1, int(os.environ.get("WLT_SCAN_CONCURRENCY", "6")))
+except Exception:
+    _SCAN_CONCURRENCY = 6
 
 try:
     import yfinance as yf
@@ -464,6 +475,47 @@ def set_flow_provider(fn) -> None:
     _FLOW_FN = fn
 
 
+def _scan_one(sym: str, sub, flow_fn) -> dict | None:
+    """Build one watchlist row from its slice of the batched OHLC download.
+    Pure per-symbol work (price metrics + fundamentals + swing read + optional
+    UW flow) — safe to run concurrently. Identical logic to the former inline
+    serial loop; only relocated so a thread pool can fan it out."""
+    try:
+        close = sub["Close"].dropna()
+        vol = sub["Volume"] if "Volume" in sub else None
+    except Exception:
+        return None
+    pm = _price_metrics(close, vol)
+    if not pm:
+        return None
+    row = {"symbol": sym}
+    row.update(pm)
+    row.update(_fundamentals(sym))
+    # Active swing direction + entry timing (free — runs on the OHLC in hand).
+    try:
+        H, L, C = [], [], []
+        for hi, lo, cl in zip(sub["High"].tolist(), sub["Low"].tolist(), sub["Close"].tolist()):
+            if hi == hi and lo == lo and cl == cl:   # drop NaN rows
+                H.append(float(hi)); L.append(float(lo)); C.append(float(cl))
+        sw = _swing_read(H, L, C)
+        if sw:
+            row.update(sw)
+    except Exception:
+        pass
+    # Options-flow agreement (best-effort; UW client is thread-safe + throttled).
+    if flow_fn is not None:
+        try:
+            fl = flow_fn(sym, pm.get("last") or 0.0)
+        except Exception:
+            fl = None
+        base = pm.get("wtd")
+        if base is None:
+            base = pm.get("change")
+        pdir = ("up" if (base or 0) > 0 else "down" if (base or 0) < 0 else None)
+        row.update(_flow_metrics(fl, pdir))
+    return row
+
+
 def _scan_worker(symbols: list[str]) -> None:
     flow_fn = _FLOW_FN
     analyst_board.HEAVY_SCAN_LOCK.acquire()
@@ -479,54 +531,35 @@ def _scan_worker(symbols: list[str]) -> None:
                 df = yf.download(" ".join(part), period="1y", interval="1d",
                                  progress=False, group_by="ticker", threads=False)
                 multi = isinstance(df.columns, pd.MultiIndex)
+                # Slice each symbol's OHLC from the batch, then enrich the chunk
+                # concurrently with a bounded pool. The per-symbol work is the
+                # slow part (fundamentals + UW flow); fanning it out cuts a full
+                # scan from ~30 min toward the UW rate-limit floor. The download
+                # above stays batched; only enrichment is parallelized.
+                subs = []
                 for sym in part:
                     try:
                         sub = df[sym] if multi else df
-                        close = sub["Close"].dropna()
-                        vol = sub["Volume"] if "Volume" in sub else None
                     except Exception:
+                        sub = None
+                    subs.append((sym, sub))
+                with ThreadPoolExecutor(max_workers=_SCAN_CONCURRENCY) as ex:
+                    futs = {}
+                    for sym, sub in subs:
+                        if sub is None:
+                            done += 1
+                            continue
+                        futs[ex.submit(_scan_one, sym, sub, flow_fn)] = sym
+                    for fut in as_completed(futs):
                         done += 1
-                        continue
-                    pm = _price_metrics(close, vol)
-                    if not pm:
-                        done += 1
-                        continue
-                    fund = _fundamentals(sym)
-                    row = {"symbol": sym}
-                    row.update(pm)
-                    row.update(fund)
-                    # Active swing direction + entry timing (free — runs on the
-                    # OHLC already in hand). Skips silently on bad/short data.
-                    try:
-                        H, L, C = [], [], []
-                        for hi, lo, cl in zip(sub["High"].tolist(), sub["Low"].tolist(), sub["Close"].tolist()):
-                            if hi == hi and lo == lo and cl == cl:   # drop NaN rows
-                                H.append(float(hi)); L.append(float(lo)); C.append(float(cl))
-                        sw = _swing_read(H, L, C)
-                        if sw:
-                            row.update(sw)
-                    except Exception:
-                        pass
-                    # Options-flow agreement (best-effort; UW client
-                    # self-throttles, so a big list just runs slower).
-                    if flow_fn is not None:
+                        with _LOCK:
+                            _STATE["scanned"] = done
                         try:
-                            fl = flow_fn(sym, pm.get("last") or 0.0)
+                            row = fut.result()
                         except Exception:
-                            fl = None
-                        base = pm.get("wtd")
-                        if base is None:
-                            base = pm.get("change")
-                        pdir = ("up" if (base or 0) > 0
-                                else "down" if (base or 0) < 0 else None)
-                        row.update(_flow_metrics(fl, pdir))
-                    rows.append(row)
-                    done += 1
-                    with _LOCK:
-                        _STATE["scanned"] = done
-                    # Gentle throttle between per-symbol .info calls so
-                    # Yahoo doesn't start 429-ing and blanking out rows.
-                    time.sleep(0.15)
+                            row = None
+                        if row:
+                            rows.append(row)
             except Exception:
                 done = min(len(symbols), i + CHUNK)
             finally:
