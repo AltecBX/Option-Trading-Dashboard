@@ -3707,6 +3707,7 @@ from storage import (  # noqa: F401
     _load_watchlist,
     _save_watchlist,
     _validate_watchlist_payload,
+    _watchlist_diag,
     _load_prefs,
     _save_prefs,
     _validate_prefs_payload,
@@ -4539,6 +4540,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if parsed.path == "/api/watchlist/diag":
+            try:
+                self._send_json(_watchlist_diag())
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/watchlist":
             try:

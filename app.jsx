@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.17";
+const APP_VERSION = "2.18";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -951,10 +951,14 @@ function App() {
         if (pendingSaveRef.current) return;
         const incoming = { version: 1, symbols: data.symbols, tag_order: data.tag_order || [] };
         const local = latestWatchlistRef.current || { symbols: [] };
-        // Guard: if the server handed back a fresh seed/default that is SMALLER
-        // than what we have locally, do NOT adopt it — push ours back instead so
-        // a transient server reset can never wipe the user's list.
-        if (data.seeded && (local.symbols || []).length > incoming.symbols.length) {
+        const localN = (local.symbols || []).length;
+        const inN = incoming.symbols.length;
+        // Guard against a server reset wiping the list: never adopt a server
+        // copy that is drastically smaller than ours — either a flagged
+        // seed/default, or any shrink to under half of a non-trivial local
+        // list. Instead push ours back to heal the server. A genuine bulk
+        // delete on another device is rare and resolved by a manual reload.
+        if (localN >= 20 && (data.seeded || inN < localN * 0.5)) {
           flushWatchlist();
           return;
         }
