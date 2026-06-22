@@ -2166,11 +2166,20 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     const last = liveLast(r);
     return (open && last != null) ? ((last - open) / open) * 100 : null;
   };
+  // Daily change %. Use the live quote's own change (always measured vs the
+  // PRIOR SESSION's close — Friday on a Monday) rather than rebasing the scan's
+  // `change`, whose base is the scan's previous daily bar — which is Thursday
+  // when the scan ran pre-open Monday, making CHG% wrongly include Friday.
+  const chgVal = (r) => {
+    const q = liveQ[r.symbol];
+    return (q && q.chg != null) ? q.chg : reb(r, r.change);
+  };
   // Columns whose displayed value is the LIVE-rebased % (not the raw scan
   // field). Sorting must use the same live value or the order won't match what
-  // the user sees.
-  const REB_KEYS = new Set(["change", "wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
+  // the user sees. ("change" is handled separately via the quote.)
+  const REB_KEYS = new Set(["wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
   const sortValOf = (r, key) => key === "from_open" ? foVal(r)
+    : key === "change" ? chgVal(r)
     : (REB_KEYS.has(key) ? reb(r, r[key]) : r[key]);
 
   const filtered = useMemo(() => {
@@ -2240,7 +2249,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           const res = j.results || {};
           setLiveQ(prev => {
             const next = { ...prev };
-            for (const s of batch) { const q = res[s]; if (q && q.last) next[s] = { last: q.last, open: q.open != null ? q.open : null }; }
+            for (const s of batch) { const q = res[s]; if (q && q.last) next[s] = { last: q.last, open: q.open != null ? q.open : null, chg: q.change_pct != null ? q.change_pct : null }; }
             return next;
           });
         } catch (_) {}
@@ -2468,7 +2477,10 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       case "from_open": {
         const v = foVal(r); return <td key={k} className={`scan-num ${pctCls(v)}`} title={r.open != null ? `Open ${fmtUsd(r.open, 2)}` : "Open n/a"}>{pct(v)}</td>;
       }
-      case "change": case "wtd": case "mtd": case "qtd": case "ytd":
+      case "change": {
+        const v = chgVal(r); return <td key={k} className={`scan-num ${pctCls(v)}`}>{pct(v)}</td>;
+      }
+      case "wtd": case "mtd": case "qtd": case "ytd":
       case "from_ma20": case "from_ma50": case "from_ma200": {
         const v = reb(r, r[k]); return <td key={k} className={`scan-num ${pctCls(v)}`}>{pct(v)}</td>;
       }
