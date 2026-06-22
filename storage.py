@@ -43,7 +43,30 @@ _WATCHLIST_PATH = _STABLE_DIR / "watchlist.json"
 # repo-baked seed (survives a wiped/ephemeral data dir on redeploy). Load order
 # on a missing/bad main file: backup -> repo seed -> built-in 5 defaults.
 _WATCHLIST_BAK = _STABLE_DIR / "watchlist.json.bak"
-_WATCHLIST_SEED = Path(__file__).resolve().parent / "watchlist_seed.json"
+
+
+def _find_seed() -> "Path | None":
+    """Locate the repo-baked seed robustly — the deployed working directory
+    isn't guaranteed to match this module's path, and if the seed isn't found
+    we'd wrongly fall to the bare 5-symbol default and lose the user's list."""
+    cands = [
+        Path(__file__).resolve().parent / "watchlist_seed.json",
+        Path.cwd() / "watchlist_seed.json",
+        Path("/app/watchlist_seed.json"),
+    ]
+    for p in cands:
+        try:
+            if p.exists():
+                return p
+        except Exception:
+            continue
+    return None
+
+
+_WATCHLIST_SEED = _find_seed() or (Path(__file__).resolve().parent / "watchlist_seed.json")
+# Records which recovery branch the last load took, for the /api/watchlist/diag
+# endpoint so persistence problems are diagnosable in production.
+_WATCHLIST_LOAD_INFO = {"branch": None, "seed_path": str(_WATCHLIST_SEED)}
 
 # ── Request log (v1.39) ─────────────────────────────────────────────
 # One line per /api request with method, path, status, and duration in
@@ -367,29 +390,56 @@ def _load_watchlist() -> dict:
     with _watchlist_lock():
         data = _read_watchlist_file(_WATCHLIST_PATH)
         if data is not None:
+            _WATCHLIST_LOAD_INFO["branch"] = "main"
             return data
         # 2 — restore from the backup mirror (real data, not a seed)
         bak = _read_watchlist_file(_WATCHLIST_BAK)
         if bak is not None and bak.get("symbols"):
             print("[watchlist] main missing/corrupt — restored from .bak", file=sys.stderr)
+            _WATCHLIST_LOAD_INFO["branch"] = "bak"
             _save_watchlist(bak)
             return bak
-        # 3 — restore from the repo-baked seed (survives an ephemeral data dir)
-        seed = _read_watchlist_file(_WATCHLIST_SEED)
+        # 3 — restore from the repo-baked seed (survives an ephemeral data dir).
+        # Re-resolve the path each time in case the working dir differs at runtime.
+        seed_path = _find_seed() or _WATCHLIST_SEED
+        _WATCHLIST_LOAD_INFO["seed_path"] = str(seed_path)
+        seed = _read_watchlist_file(seed_path)
         if seed is not None and seed.get("symbols"):
             print(f"[watchlist] no saved file — seeded {len(seed['symbols'])} "
-                  "symbols from watchlist_seed.json", file=sys.stderr)
+                  f"symbols from {seed_path}", file=sys.stderr)
+            _WATCHLIST_LOAD_INFO["branch"] = "seed"
             _save_watchlist(seed)
             out = dict(seed)
             out["_seeded"] = True
             return out
         # 4 — last resort: built-in defaults
-        print("[watchlist] no saved file or seed — using built-in defaults", file=sys.stderr)
+        print(f"[watchlist] no saved file or seed (looked at {seed_path}) — "
+              "using built-in defaults", file=sys.stderr)
+        _WATCHLIST_LOAD_INFO["branch"] = "default"
         wl = _default_watchlist()
         _save_watchlist(wl)
         out = dict(wl)
         out["_seeded"] = True
         return out
+
+
+def _watchlist_diag() -> dict:
+    """Snapshot of the watchlist persistence state for production debugging:
+    where the data dir is, what files exist + their counts, the resolved seed
+    path, and which branch the last load used."""
+    def _count(p):
+        d = _read_watchlist_file(p)
+        return len(d["symbols"]) if d and isinstance(d.get("symbols"), list) else None
+    seed_p = _find_seed()
+    return {
+        "data_dir": str(_STABLE_DIR),
+        "jerry_data_dir_env": os.environ.get("JERRY_DATA_DIR") or None,
+        "main_exists": _WATCHLIST_PATH.exists(), "main_count": _count(_WATCHLIST_PATH),
+        "bak_exists": _WATCHLIST_BAK.exists(), "bak_count": _count(_WATCHLIST_BAK),
+        "seed_path": str(seed_p) if seed_p else None,
+        "seed_exists": bool(seed_p), "seed_count": _count(seed_p) if seed_p else None,
+        "last_load_branch": _WATCHLIST_LOAD_INFO.get("branch"),
+    }
 
 
 def _save_watchlist(data: dict) -> bool:
