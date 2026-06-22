@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.20";
+const APP_VERSION = "2.21";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -20,6 +20,43 @@ Object.assign(window, { APP_VERSION });
 // keep working unchanged.
 const _API_CACHE = new Map();   // url -> { ts, promise<{status, text}> }
 const API_CACHE_TTL = 4000;     // ms — shorter than every polling interval
+
+// ── Dev-only performance instrument ─────────────────────────────────────────
+// OFF in normal production. Enable with localStorage.setItem("jerryDebug","1")
+// or by adding ?debug to the URL. Logs boot time, time-to-usable, per-endpoint
+// API timing, payload sizes, and API-call counts per first-load / tab change /
+// ticker change. Never spams logs unless explicitly enabled.
+const _PERF = (() => {
+  let on = false;
+  try { on = localStorage.getItem("jerryDebug") === "1" || /[?&]debug\b/.test(location.search); } catch (_) {}
+  const ep = {};                 // endpoint -> { n, ms, bytes, cached }
+  const ctr = { boot: 0, tab: 0, ticker: 0 };  // rolling API-call counters
+  const since = (window.performance && performance.now) ? () => performance.now() : () => Date.now();
+  const fmt = (b) => b > 1024 ? (b / 1024).toFixed(1) + "KB" : b + "B";
+  const api = {
+    on,
+    record(path, ms, bytes, cached) {
+      if (!on) return;
+      const e = ep[path] || (ep[path] = { n: 0, ms: 0, bytes: 0, cached: 0 });
+      e.n++; e.ms += ms; e.bytes += bytes || 0; if (cached) e.cached++;
+      ctr.boot++; ctr.tab++; ctr.ticker++;
+      console.debug(`[perf] ${cached ? "cache" : "net  "} ${path} ${Math.round(ms)}ms ${fmt(bytes || 0)}`);
+    },
+    mark(label) { if (on) console.log(`%c[perf] ${label} @ ${Math.round(since())}ms`, "color:#22c55e"); },
+    resetCounter(which) { if (!on) return; const v = ctr[which]; ctr[which] = 0; return v; },
+    report(label) {
+      if (!on) return;
+      const rows = Object.entries(ep).map(([k, v]) => ({
+        endpoint: k, calls: v.n, cacheHits: v.cached,
+        avgMs: Math.round(v.ms / v.n), totalKB: +(v.bytes / 1024).toFixed(1),
+      })).sort((a, b) => b.calls - a.calls);
+      console.log(`%c[perf] report ${label || ""} — boot calls so far: ${ctr.boot}`, "color:#22c55e;font-weight:bold");
+      if (console.table) console.table(rows); else console.log(rows);
+    },
+  };
+  if (on) { try { window.__PERF = api; } catch (_) {} api.mark("app.js evaluated"); }
+  return api;
+})();
 
 // Live ET wall clock, isolated so its 1-second tick re-renders ONLY this tiny
 // node instead of the whole App. Pauses while the tab is hidden.
@@ -70,24 +107,37 @@ function App() {
     const headers = { ...(opts.headers || {}) };
     if (cfg.apiKey) headers["X-API-Key"] = cfg.apiKey;
     const method = (opts.method || "GET").toUpperCase();
+    const ep = path.split("?")[0];                       // endpoint key for dev timing
+    const t0 = _PERF.on ? (performance.now ? performance.now() : Date.now()) : 0;
     // Only GETs are safe to dedupe/cache. Mutations, signalled (abortable),
     // or explicitly opted-out requests go straight to the network.
     if (method !== "GET" || opts.signal || opts.noCache) {
-      return fetch(url, { ...opts, headers });
+      const p = fetch(url, { ...opts, headers });
+      if (_PERF.on) p.then(r => r.clone().text().then(t => _PERF.record(ep, (performance.now() || Date.now()) - t0, t.length, false)).catch(() => {}));
+      return p;
     }
     const now = Date.now();
     const hit = _API_CACHE.get(url);
     if (hit && (now - hit.ts) < API_CACHE_TTL) {
+      if (_PERF.on) hit.promise.then(({ text }) => _PERF.record(ep, (performance.now() || Date.now()) - t0, (text || "").length, true));
       return hit.promise.then(({ status, text }) => new Response(text, { status }));
     }
     const promise = fetch(url, { ...opts, headers }).then(async (r) => {
       const text = await r.text();
       if (!r.ok) _API_CACHE.delete(url);   // never cache failures
+      if (_PERF.on) _PERF.record(ep, (performance.now() || Date.now()) - t0, text.length, false);
       return { status: r.status, text };
     }).catch((e) => { _API_CACHE.delete(url); throw e; });
     _API_CACHE.set(url, { ts: now, promise });
     if (_API_CACHE.size > 200) _API_CACHE.delete(_API_CACHE.keys().next().value);
     return promise.then(({ status, text }) => new Response(text, { status }));
+  }, []);
+  // Dev perf: mark first render and dump a first-load report (no-op unless enabled).
+  React.useEffect(() => {
+    if (!_PERF.on) return;
+    _PERF.mark("App mounted (first usable shell)");
+    const id = setTimeout(() => _PERF.report("~3s after first load"), 3000);
+    return () => clearTimeout(id);
   }, []);
   const TWEAK_KEY = "weeklyOptionsTimer.tweaks.v1";
   const persistedTweaks = (() => {
@@ -1382,6 +1432,8 @@ function App() {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
+    const _tFetch = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (_PERF.on) { _PERF.resetCounter("ticker"); _PERF.mark(`ticker → ${ticker}: /api/ticker fetch start`); }
     let url = `/api/ticker?symbol=${encodeURIComponent(ticker)}`
             + `&weeks=${weeks}&baseline=${baseline}`;
     if (expiration) url += `&expiration=${encodeURIComponent(expiration)}`;
@@ -1394,6 +1446,11 @@ function App() {
         setDataVersion(v => v + 1);
         setLastFetched(Date.now());
         setLoading(false);
+        if (_PERF.on) {
+          const ms = ((window.performance && performance.now) ? performance.now() : Date.now()) - _tFetch;
+          _PERF.mark(`ticker ${ticker}: Trade tab usable (+${Math.round(ms)}ms for /api/ticker)`);
+          setTimeout(() => _PERF.report(`after ticker ${ticker}`), 1500);
+        }
       })
       .catch(err => {
         if (cancelled) return;

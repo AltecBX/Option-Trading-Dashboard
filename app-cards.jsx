@@ -2402,8 +2402,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   title="Prime setups: options flow and price-swing agree on direction AND the move is just starting — your highest-conviction, beginning-of-move trades.">
             ★ Prime{primeCount ? ` (${primeCount})` : ""}
           </button>
-          <label className="wl-acct-wrap" title="Account size — used to size each trade by risk">$<input className="wl-acct" type="number" min="0" step="1000" value={acct} onChange={e => setAcct(Number(e.target.value) || 0)} /></label>
-          <label className="wl-acct-wrap" title="Risk per trade (% of account). Position size = this ÷ stop distance.">risk<input className="wl-risk" type="number" min="0" step="0.1" value={riskPct} onChange={e => setRiskPct(Number(e.target.value) || 0)} />%</label>
+          <label className="wl-acct-wrap" title="Account size — used to size each trade by risk">$<input className="wl-acct" type="number" inputMode="numeric" enterKeyHint="done" min="0" step="1000" value={acct} onChange={e => setAcct(Number(e.target.value) || 0)} /></label>
+          <label className="wl-acct-wrap" title="Risk per trade (% of account). Position size = this ÷ stop distance.">risk<input className="wl-risk" type="number" inputMode="decimal" enterKeyHint="done" min="0" step="0.1" value={riskPct} onChange={e => setRiskPct(Number(e.target.value) || 0)} />%</label>
           <span className="muted" style={{ fontSize: 12 }}>{view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`}</span>
         </div>
       )}
