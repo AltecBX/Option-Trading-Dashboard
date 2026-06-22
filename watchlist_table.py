@@ -534,6 +534,14 @@ def _scan_worker(symbols: list[str]) -> None:
                 gc.collect()
             with _LOCK:
                 _STATE["scanned"] = min(len(symbols), max(done, i + len(part)))
+            # Publish + persist partial progress after every chunk. A full scan
+            # is minutes long; without this, a restart/redeploy mid-scan threw
+            # away everything and the board reverted to a tiny stale snapshot.
+            # Now the board fills in live AND survives interruption. (_persist
+            # saves only rows/last_scan, never the scanning flag.)
+            with _LOCK:
+                _STATE["rows"] = sorted(rows, key=lambda r: -(r.get("market_cap") or 0))
+            _persist()
         rows.sort(key=lambda r: -(r.get("market_cap") or 0))
         with _LOCK:
             _STATE["rows"] = rows
