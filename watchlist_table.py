@@ -490,6 +490,15 @@ def _scan_one(sym: str, sub, flow_fn) -> dict | None:
         return None
     row = {"symbol": sym}
     row.update(pm)
+    # Today's open (last daily bar's open) for the "% From Open" column. During
+    # market hours the last bar is today; the value is fixed intraday so the
+    # frontend rebases it against the live price. Pre-open scans carry the prior
+    # session's open until a during-/after-hours scan supersedes them.
+    try:
+        o = sub["Open"].dropna()
+        row["open"] = round(float(o.iloc[-1]), 4) if len(o) else None
+    except Exception:
+        row["open"] = None
     row.update(_fundamentals(sym))
     # Active swing direction + entry timing (free — runs on the OHLC in hand).
     try:
