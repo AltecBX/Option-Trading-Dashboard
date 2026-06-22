@@ -262,7 +262,7 @@
       "tags": [],
       "notes": "",
       "preferred_strategy": null,
-      "starred": false,
+      "starred": true,
       "added_at": 1782068390
     },
     {
@@ -898,14 +898,6 @@
       "added_at": 1782068390
     },
     {
-      "symbol": "DBRG",
-      "tags": [],
-      "notes": "",
-      "preferred_strategy": null,
-      "starred": false,
-      "added_at": 1782068390
-    },
-    {
       "symbol": "HL",
       "tags": [],
       "notes": "",
@@ -1347,14 +1339,6 @@
     },
     {
       "symbol": "HRL",
-      "tags": [],
-      "notes": "",
-      "preferred_strategy": null,
-      "starred": false,
-      "added_at": 1782068390
-    },
-    {
-      "symbol": "CWAN",
       "tags": [],
       "notes": "",
       "preferred_strategy": null,
@@ -3182,7 +3166,7 @@
       "tags": [],
       "notes": "",
       "preferred_strategy": null,
-      "starred": false,
+      "starred": true,
       "added_at": 1782068390
     },
     {
@@ -3814,7 +3798,7 @@
       "tags": [],
       "notes": "",
       "preferred_strategy": null,
-      "starred": false,
+      "starred": true,
       "added_at": 1782068390
     },
     {
@@ -4054,7 +4038,7 @@
       "tags": [],
       "notes": "",
       "preferred_strategy": null,
-      "starred": false,
+      "starred": true,
       "added_at": 1782068390
     },
     {
@@ -4318,7 +4302,7 @@
       "tags": [],
       "notes": "",
       "preferred_strategy": null,
-      "starred": false,
+      "starred": true,
       "added_at": 1782068390
     },
     {
@@ -4400,6 +4384,14 @@
       "preferred_strategy": null,
       "starred": false,
       "added_at": 1782068390
+    },
+    {
+      "symbol": "NUE",
+      "tags": [],
+      "notes": "",
+      "preferred_strategy": null,
+      "starred": false,
+      "added_at": 1782069790
     }
   ],
   "tag_order": []
