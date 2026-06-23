@@ -149,6 +149,9 @@ const TABS = [{
   id: "watchlist",
   label: "Watchlist"
 }, {
+  id: "calendar",
+  label: "Market Calendar"
+}, {
   id: "manage",
   label: "Manage"
 }];

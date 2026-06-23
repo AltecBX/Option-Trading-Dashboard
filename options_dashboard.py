@@ -4083,6 +4083,354 @@ _migrate_legacy_watchlist()
 # could not see them.
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Market Calendar — watchlist earnings calendar + economic calendar.
+# Powers the "Market Calendar" tab. Earnings data is layered on top of the
+# already-enriched watchlist board (company/sector/industry/market-cap/
+# returns) plus a per-symbol EPS & revenue detail fetch. Economic events
+# come from yfinance's Reuters-sourced calendar, classified into
+# importance tiers with curated market-impact notes.
+# ──────────────────────────────────────────────────────────────────────
+
+def _mc_float(x):
+    """yfinance hands back NaN floats and numpy types — normalize to a clean
+    Python float or None so JSON stays tidy."""
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f  # drop NaN
+
+
+@_ttl_memoize(6 * 3600)
+def _earnings_detail(symbol: str, target_date: str | None = None) -> dict:
+    """EPS & revenue estimates/actuals plus report-time (BMO/AMC) for the
+    earnings event nearest `target_date` (ISO). yfinance-sourced, cached 6h.
+    Every field degrades to None when the data isn't published yet."""
+    out = {
+        "report_time": None, "eps_estimate": None, "eps_actual": None,
+        "eps_surprise": None, "revenue_estimate": None, "revenue_actual": None,
+        "revenue_surprise": None,
+    }
+    try:
+        tk = yf.Ticker(symbol)
+    except Exception:
+        return out
+
+    tgt = None
+    if target_date:
+        try:
+            tgt = datetime.strptime(target_date[:10], "%Y-%m-%d").date()
+        except Exception:
+            tgt = None
+
+    # EPS estimate / actual / surprise + report time, from the tz-aware
+    # earnings_dates table (index holds the ET datetime of the print).
+    try:
+        ed = tk.get_earnings_dates(limit=16)
+    except Exception:
+        ed = None
+    if ed is not None and not ed.empty:
+        try:
+            pairs = [(ts, ts.date()) for ts in ed.index]
+            ev_ts = None
+            if tgt is not None:
+                best = min(pairs, key=lambda p: abs((p[1] - tgt).days))
+                if abs((best[1] - tgt).days) <= 4:
+                    ev_ts = best[0]
+            if ev_ts is None:
+                fut = sorted([p for p in pairs if p[1] >= date.today()], key=lambda p: p[1])
+                ev_ts = fut[0][0] if fut else pairs[0][0]
+            erow = ed.loc[ev_ts]
+            out["eps_estimate"] = _mc_float(erow.get("EPS Estimate"))
+            out["eps_actual"] = _mc_float(erow.get("Reported EPS"))
+            out["eps_surprise"] = _mc_float(erow.get("Surprise(%)"))
+            try:
+                hr = int(ev_ts.hour)
+                if hr == 0:
+                    out["report_time"] = None          # midnight = time not supplied
+                elif hr < 12:
+                    out["report_time"] = "BMO"
+                elif hr >= 16:
+                    out["report_time"] = "AMC"
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    # Revenue estimate (and EPS estimate fallback) from the analyst calendar.
+    try:
+        cal = tk.calendar or {}
+        out["revenue_estimate"] = out["revenue_estimate"] or _mc_float(cal.get("Revenue Average"))
+        if out["eps_estimate"] is None:
+            out["eps_estimate"] = _mc_float(cal.get("Earnings Average"))
+    except Exception:
+        pass
+
+    # Actual revenue — only meaningful once the quarter has been reported.
+    if out["eps_actual"] is not None:
+        try:
+            qis = tk.quarterly_income_stmt
+            if qis is not None and not qis.empty and "Total Revenue" in qis.index:
+                out["revenue_actual"] = _mc_float(qis.loc["Total Revenue"].iloc[0])
+        except Exception:
+            pass
+
+    # Fill in surprises we can compute ourselves.
+    if out["eps_surprise"] is None and out["eps_actual"] is not None and out["eps_estimate"]:
+        try:
+            out["eps_surprise"] = round(
+                (out["eps_actual"] - out["eps_estimate"]) / abs(out["eps_estimate"]) * 100.0, 2)
+        except Exception:
+            pass
+    if out["revenue_actual"] is not None and out["revenue_estimate"]:
+        try:
+            out["revenue_surprise"] = round(
+                (out["revenue_actual"] - out["revenue_estimate"]) / abs(out["revenue_estimate"]) * 100.0, 2)
+        except Exception:
+            pass
+    return out
+
+
+@_ttl_memoize(10 * 60)
+def build_watchlist_earnings(days: int = 14) -> dict:
+    """Every watchlist symbol whose next earnings falls inside `days` (plus a
+    2-day look-back so just-reported names still show), enriched from the live
+    watchlist board and a per-symbol EPS/revenue detail fetch."""
+    today = date.today()
+    horizon = today + timedelta(days=max(1, min(45, days)))
+    board = {}
+    if _WLTABLE_AVAILABLE and _wltable is not None:
+        try:
+            board = _wltable.get_board() or {}
+        except Exception:
+            board = {}
+    brows = board.get("rows") or []
+    status = board.get("status") or {}
+
+    cands = []
+    for r in brows:
+        ne = r.get("next_earnings")
+        if not ne:
+            continue
+        try:
+            ned = datetime.strptime(str(ne)[:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if ned < today - timedelta(days=2) or ned > horizon:
+            continue
+        cands.append((r, ned))
+
+    def _entry_for(item):
+        r, ned = item
+        sym = r.get("symbol")
+        d = _earnings_detail(sym, ned.strftime("%Y-%m-%d"))
+        return {
+            "symbol": sym,
+            "company": r.get("company"),
+            "earnings_date": ned.strftime("%Y-%m-%d"),
+            "days_to_earnings": (ned - today).days,
+            "report_time": d.get("report_time"),
+            "eps_estimate": d.get("eps_estimate"),
+            "eps_actual": d.get("eps_actual"),
+            "eps_surprise": d.get("eps_surprise"),
+            "revenue_estimate": d.get("revenue_estimate"),
+            "revenue_actual": d.get("revenue_actual"),
+            "revenue_surprise": d.get("revenue_surprise"),
+            "market_cap": r.get("market_cap"),
+            "sector": r.get("sector"),
+            "industry": r.get("industry"),
+            "last": r.get("last"),
+            "open": r.get("open"),
+            "change": r.get("change"),
+            "wtd": r.get("wtd"), "mtd": r.get("mtd"),
+            "qtd": r.get("qtd"), "ytd": r.get("ytd"),
+            "reported": (d.get("eps_actual") is not None) or (ned < today),
+        }
+
+    entries, sectors, industries = [], set(), set()
+    if cands:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(cands))) as ex:
+            for e in ex.map(_entry_for, cands):
+                if not e:
+                    continue
+                entries.append(e)
+                if e.get("sector"):
+                    sectors.add(e["sector"])
+                if e.get("industry"):
+                    industries.add(e["industry"])
+    entries.sort(key=lambda e: (e["earnings_date"], -(e.get("market_cap") or 0)))
+    return {
+        "as_of": (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat()),
+        "days": days,
+        "count": len(entries),
+        "entries": entries,
+        "sectors": sorted(sectors),
+        "industries": sorted(industries),
+        "board_status": status,
+    }
+
+
+@_ttl_memoize(3 * 3600)
+def build_earnings_extra(symbol: str) -> dict:
+    """Heavy per-symbol earnings extras computed lazily (on card expand):
+    implied move (ATM straddle), average realized post-earnings move, and
+    total options volume. Cached 3h; each field degrades to None."""
+    out = {"implied_move_pct": None, "avg_post_earnings_move_pct": None,
+           "options_volume": None}
+    try:
+        wr = build_weekly_range(symbol)
+        if isinstance(wr, dict):
+            out["implied_move_pct"] = wr.get("implied_move_pct")
+    except Exception:
+        pass
+    try:
+        lad = build_earnings_ladder(symbol)
+        if isinstance(lad, dict):
+            out["avg_post_earnings_move_pct"] = (lad.get("summary") or {}).get("avg_realized")
+    except Exception:
+        pass
+    try:
+        if _UW_AVAILABLE and _uw_client is not None:
+            uw = _uw_client.get_client()
+            if uw is not None:
+                raw = uw.ticker_options_volume(symbol)
+                rec = None
+                if isinstance(raw, list) and raw:
+                    s = [x for x in raw if isinstance(x, dict)]
+                    s.sort(key=lambda x: x.get("date") or "", reverse=True)
+                    rec = s[0] if s else None
+                elif isinstance(raw, dict):
+                    rec = raw
+                if isinstance(rec, dict):
+                    for k in ("total_volume", "volume", "options_volume",
+                              "total_options_volume"):
+                        v = rec.get(k)
+                        if v is not None:
+                            try:
+                                out["options_volume"] = int(float(v))
+                                break
+                            except (TypeError, ValueError):
+                                continue
+    except Exception:
+        pass
+    return out
+
+
+# Economic-event classification: first matching rule wins. Importance tiers
+# drive color-coding and the default "hide low-importance noise" filter.
+_ECON_RULES = [
+    (("fomc", "fed funds", "interest rate decision", "rate decision", "fed interest"),
+     "high", "Fed policy decision — the single biggest scheduled macro event; sets the rate path."),
+    (("non-farm payroll", "nonfarm payroll", "private payrolls", "unemployment rate",
+      "average earnings", "manufacturing payrolls", "government payrolls"),
+     "high", "Monthly jobs report — top-tier mover; shapes rate-cut odds and risk sentiment."),
+    (("core pce", "pce price"),
+     "high", "Fed's preferred inflation gauge — pivotal for the rate path."),
+    (("cpi", "consumer price"),
+     "high", "Consumer inflation — major rates and equities catalyst."),
+    (("ppi", "producer price"),
+     "high", "Wholesale inflation — leads CPI; bond-market sensitive."),
+    (("gdp",),
+     "high", "Headline growth — broad risk-sentiment driver."),
+    (("ism n-mfg", "ism non-mfg", "ism services", "ism n-mfg pmi"),
+     "high", "Services-sector health — the largest slice of the economy."),
+    (("ism manufacturing", "ism mfg", "ism manuf"),
+     "high", "Factory-sector health — a leading growth indicator."),
+    (("retail sales",),
+     "high", "Consumer-spending pulse — a key growth signal."),
+    (("fomc minutes", "fed minutes"),
+     "medium", "Detail behind the last Fed decision — can reset rate expectations."),
+    (("powell", "fed chair", "fed speak", "fed's ", "speaks", "speech"),
+     "medium", "Fed commentary — can shift rate expectations intraday."),
+    (("initial jobless", "continuing jobless", "jobless clm", "continued claims", "cont jobless"),
+     "medium", "Weekly labor read — watched for trend shifts."),
+    (("adp",),
+     "medium", "Private-payrolls preview ahead of the jobs report."),
+    (("consumer confidence", "u mich sentiment", "michigan sentiment", "consumer sentiment",
+      "u mich expectations", "u mich conditions"),
+     "medium", "Sentiment gauge — signals future spending."),
+    (("durable goods",),
+     "medium", "Business-investment proxy."),
+    (("housing starts", "building permits"),
+     "medium", "Housing-sector activity."),
+    (("new home sales",),
+     "medium", "New-home demand."),
+    (("existing home sales",),
+     "medium", "Resale-housing demand."),
+    (("treasury", "auction", "note auction", "bond auction", "bill auction"),
+     "medium", "Treasury auction — gauges demand for U.S. debt; moves yields."),
+    (("chicago pmi", "empire state", "philly fed", "philadelphia fed", "dallas fed",
+      "kc fed", "richmond fed", "national activity"),
+     "medium", "Regional Fed survey — an early read on national PMIs."),
+    (("factory orders", "construction spending", "wholesale", "international trade",
+      "trade balance", "consumer credit"),
+     "low", "Secondary activity gauge."),
+    (("case shiller", "caseshiller", "home price"),
+     "low", "Home-price trend."),
+]
+
+
+def _classify_econ(name: str):
+    """Return (importance, note) for an economic event name."""
+    n = (name or "").lower()
+    for subs, imp, note in _ECON_RULES:
+        if any(s in n for s in subs):
+            return imp, note
+    return "low", ""
+
+
+@_ttl_memoize(20 * 60)
+def build_economic_calendar(days: int = 21) -> dict:
+    """Upcoming U.S. economic events from yfinance (Reuters-sourced),
+    classified into importance tiers with curated market-impact notes.
+    Cached 20 min."""
+    days = max(1, min(45, days))
+    try:
+        cals = yf.Calendars()
+        today = date.today()
+        end = today + timedelta(days=days)
+        df = cals.get_economic_events_calendar(start=str(today), end=str(end), limit=100)
+    except Exception as exc:  # noqa: BLE001
+        return {"events": [], "days": days, "error": str(exc)}
+    if df is None or df.empty:
+        return {"events": [], "days": days, "count": 0}
+
+    events = []
+    for name, row in df.iterrows():
+        try:
+            ts = pd.Timestamp(row.get("Event Time"))
+            if ts.tzinfo is None:
+                ts = ts.tz_localize("UTC")
+            ts_et = ts.tz_convert(_ET) if _ET else ts
+            imp, note = _classify_econ(str(name))
+            period = row.get("For")
+            events.append({
+                "event": str(name).replace("*", "").strip(),
+                "country": row.get("Region") or "US",
+                "date": ts_et.strftime("%Y-%m-%d"),
+                "time": ts_et.strftime("%-I:%M %p").lstrip("0"),
+                "datetime": ts.isoformat(),
+                "period": (str(period) if period == period and period is not None else None),
+                "importance": imp,
+                "note": note,
+                "actual": _mc_float(row.get("Actual")),
+                "forecast": _mc_float(row.get("Expected")),
+                "previous": _mc_float(row.get("Last")),
+                "revised": _mc_float(row.get("Revised")),
+            })
+        except Exception:
+            continue
+    events.sort(key=lambda e: e["datetime"])
+    return {
+        "as_of": (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat()),
+        "days": days,
+        "count": len(events),
+        "events": events,
+    }
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
     weeks = 12
     friday_baseline = False
@@ -5334,6 +5682,44 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/market_calendar/earnings":
+            qs = parse_qs(parsed.query)
+            try:
+                days = int(qs.get("days", ["14"])[0])
+            except (TypeError, ValueError):
+                days = 14
+            days = max(1, min(45, days))
+            try:
+                self._send_json(build_watchlist_earnings(days))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/market_calendar/earnings", exc)
+                self._send_json({"error": str(exc), "entries": []}, status=500)
+            return
+        if parsed.path == "/api/market_calendar/earnings_extra":
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                self._send_json(build_earnings_extra(symbol))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/market_calendar/earnings_extra", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/market_calendar/economic":
+            qs = parse_qs(parsed.query)
+            try:
+                days = int(qs.get("days", ["21"])[0])
+            except (TypeError, ValueError):
+                days = 21
+            days = max(1, min(45, days))
+            try:
+                self._send_json(build_economic_calendar(days))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/market_calendar/economic", exc)
+                self._send_json({"error": str(exc), "events": []}, status=500)
             return
         if parsed.path == "/api/strategy/ema_pullback":
             qs = parse_qs(parsed.query)

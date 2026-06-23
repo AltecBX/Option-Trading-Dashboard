@@ -8083,6 +8083,445 @@ function AddPositionForm({ ticker, activeExpDate, sugCall, sugPut, callAtSug, pu
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Market Calendar — watchlist earnings calendar (weekly grid of stock
+// cards) + economic calendar. A scannable "market command center" for the
+// week ahead. Backed by /api/market_calendar/{earnings,economic} and a
+// lazy /api/market_calendar/earnings_extra for the heavy per-symbol moves.
+// ──────────────────────────────────────────────────────────────────────
+
+// ── shared little formatters ──────────────────────────────────────────
+function mcEtToday() {
+  // The trading day in US/Eastern, as YYYY-MM-DD, regardless of the
+  // browser's own timezone.
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  } catch (_) { return new Date().toISOString().slice(0, 10); }
+}
+function mcDateObj(s) { return new Date(String(s).slice(0, 10) + "T12:00:00"); }
+function mcMondayOf(d) {
+  const x = new Date(d.getTime());
+  const wd = (x.getDay() + 6) % 7;     // 0 = Monday
+  x.setDate(x.getDate() - wd);
+  x.setHours(12, 0, 0, 0);
+  return x;
+}
+function mcIso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function mcWeekday(s) { return mcDateObj(s).toLocaleDateString(undefined, { weekday: "short" }); }
+function mcDayLabel(s) { return mcDateObj(s).toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+function mcPct(v, d = 2) { return (v == null || isNaN(v)) ? "—" : `${v >= 0 ? "+" : ""}${(Math.round(v * 100) / 100).toFixed(d)}%`; }
+function mcEps(v) { return (v == null || isNaN(v)) ? "—" : `${v < 0 ? "-$" : "$"}${Math.abs(v).toFixed(2)}`; }
+function mcBigUSD(v) {
+  if (v == null || isNaN(v)) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+  if (a >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+  return `$${Math.round(v).toLocaleString()}`;
+}
+function mcInt(v) {
+  if (v == null || isNaN(v)) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return String(Math.round(v));
+}
+// Report-time chip styling.
+function mcTimeMeta(t, reported) {
+  if (reported) return { cls: "mc-rt-reported", label: "Reported", dot: "●" };
+  if (t === "BMO") return { cls: "mc-rt-bmo", label: "Before Open", dot: "☀" };
+  if (t === "AMC") return { cls: "mc-rt-amc", label: "After Close", dot: "🌙" };
+  return { cls: "mc-rt-tas", label: "Time TBD", dot: "•" };
+}
+
+// One stock card inside a weekday column.
+function MarketEarningsCard({ e, expanded, extra, live, compact, onToggle, onSwitchTicker }) {
+  const liveLast = (live && live.last != null) ? live.last : e.last;
+  const liveOpen = (live && live.open != null) ? live.open : e.open;
+  const liveChg = (live && live.chg != null) ? live.chg : e.change;
+  const fromOpen = (liveOpen && liveLast != null) ? ((liveLast - liveOpen) / liveOpen) * 100 : null;
+  const rt = mcTimeMeta(e.report_time, e.reported);
+  const big = (e.market_cap || 0) >= 10e9;     // index-mover flag
+  const mega = (e.market_cap || 0) >= 200e9;
+  const open = expanded;
+  return (
+    <div className={`mc-ecard ${rt.cls} ${open ? "open" : ""}`}>
+      <div className="mc-ecard-top" onClick={onToggle} title="Click to expand earnings detail">
+        <div className="mc-ecard-id">
+          <button className="mc-sym" onClick={(ev) => { ev.stopPropagation(); onSwitchTicker && onSwitchTicker(e.symbol); }}
+                  title={`Open ${e.symbol} on the Trade tab`}>{e.symbol}</button>
+          {mega ? <span className="mc-star" title="Mega-cap — high-importance print">★</span>
+            : big ? <span className="mc-star dim" title="Large-cap — notable print">★</span> : null}
+        </div>
+        <span className={`mc-rt-badge ${rt.cls}`} title={rt.label}>
+          <span className="mc-rt-dot">{rt.dot}</span>{rt.label}
+        </span>
+      </div>
+      {!compact && e.company ? <div className="mc-co" title={e.company}>{e.company}</div> : null}
+      <div className="mc-ecard-quick">
+        <span className="mc-cap" title="Market cap">{fmtMktCap(e.market_cap)}</span>
+        <span className={`mc-fo ${fromOpen == null ? "" : fromOpen >= 0 ? "up" : "down"}`} title="% from today's open">
+          {mcPct(fromOpen)}
+        </span>
+      </div>
+      {!compact ? (
+        <div className="mc-badges">
+          {e.sector ? <span className="mc-tag mc-tag-sector" title={`Sector: ${e.sector}`}>{e.sector}</span> : null}
+          {e.industry ? <span className="mc-tag mc-tag-ind" title={`Industry: ${e.industry}`}>{e.industry}</span> : null}
+        </div>
+      ) : null}
+      {open ? (
+        <div className="mc-ecard-detail">
+          <div className="mc-stat-grid">
+            <div className="mc-stat"><span className="mc-stat-k">EPS est.</span><span className="mc-stat-v">{mcEps(e.eps_estimate)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">EPS act.</span><span className="mc-stat-v">{mcEps(e.eps_actual)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">EPS surp.</span><span className={`mc-stat-v ${e.eps_surprise == null ? "" : e.eps_surprise >= 0 ? "up" : "down"}`}>{mcPct(e.eps_surprise)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Rev est.</span><span className="mc-stat-v">{mcBigUSD(e.revenue_estimate)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Rev act.</span><span className="mc-stat-v">{mcBigUSD(e.revenue_actual)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Rev surp.</span><span className={`mc-stat-v ${e.revenue_surprise == null ? "" : e.revenue_surprise >= 0 ? "up" : "down"}`}>{mcPct(e.revenue_surprise)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Price</span><span className="mc-stat-v">{liveLast == null ? "—" : `$${Number(liveLast).toFixed(2)}`}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Change</span><span className={`mc-stat-v ${liveChg == null ? "" : liveChg >= 0 ? "up" : "down"}`}>{mcPct(liveChg)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">% from open</span><span className={`mc-stat-v ${fromOpen == null ? "" : fromOpen >= 0 ? "up" : "down"}`}>{mcPct(fromOpen)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">WTD</span><span className={`mc-stat-v ${e.wtd == null ? "" : e.wtd >= 0 ? "up" : "down"}`}>{mcPct(e.wtd)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">MTD</span><span className={`mc-stat-v ${e.mtd == null ? "" : e.mtd >= 0 ? "up" : "down"}`}>{mcPct(e.mtd)}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">YTD</span><span className={`mc-stat-v ${e.ytd == null ? "" : e.ytd >= 0 ? "up" : "down"}`}>{mcPct(e.ytd)}</span></div>
+          </div>
+          <div className="mc-stat-grid mc-stat-extra">
+            <div className="mc-stat"><span className="mc-stat-k">Implied move</span><span className="mc-stat-v accent">{extra ? (extra.implied_move_pct == null ? "—" : `±${extra.implied_move_pct}%`) : "…"}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Avg post-ER</span><span className="mc-stat-v">{extra ? (extra.avg_post_earnings_move_pct == null ? "—" : `${extra.avg_post_earnings_move_pct}%`) : "…"}</span></div>
+            <div className="mc-stat"><span className="mc-stat-k">Options vol</span><span className="mc-stat-v">{extra ? mcInt(extra.options_volume) : "…"}</span></div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MarketCalendarCard({ apiFetch, onSwitchTicker }) {
+  // ── data ────────────────────────────────────────────────────────────
+  const [earn, setEarn] = useState(null);
+  const [econ, setEcon] = useState(null);
+  const [loadingE, setLoadingE] = useState(false);
+  const [loadingM, setLoadingM] = useState(false);
+  const [err, setErr] = useState(null);
+  const [extras, setExtras] = useState({});      // symbol -> {implied_move_pct, ...}
+  const [liveQ, setLiveQ] = useState({});        // symbol -> {last, open, chg}
+  const [expanded, setExpanded] = useState({});  // symbol -> bool
+
+  // ── earnings controls ───────────────────────────────────────────────
+  const [weekOff, setWeekOff] = useState(0);     // 0 = current week, 1 = next, ...
+  const [view, setView] = useState("expanded");  // "compact" | "expanded"
+  const [fSector, setFSector] = useState("all");
+  const [fIndustry, setFIndustry] = useState("all");
+  const [fMcap, setFMcap] = useState("all");
+  const [sortKey, setSortKey] = useState("mcap"); // mcap | move | optvol | fromopen
+  // ── economic controls ───────────────────────────────────────────────
+  const [econImp, setEconImp] = useState("med");  // all | med | high
+
+  const loadEarn = () => {
+    setLoadingE(true); setErr(null);
+    apiFetch("/api/market_calendar/earnings?days=35")
+      .then(r => r.json())
+      .then(d => { setEarn(d); })
+      .catch(e => setErr(String(e)))
+      .finally(() => setLoadingE(false));
+  };
+  const loadEcon = () => {
+    setLoadingM(true);
+    apiFetch("/api/market_calendar/economic?days=28")
+      .then(r => r.json())
+      .then(d => { setEcon(d); })
+      .catch(() => {})
+      .finally(() => setLoadingM(false));
+  };
+  useEffect(() => { loadEarn(); loadEcon(); }, []);
+
+  const entries = (earn && Array.isArray(earn.entries)) ? earn.entries : [];
+  const today = mcEtToday();
+
+  // Week window — Mon..Fri for the selected offset.
+  const weekDays = useMemo(() => {
+    const base = mcMondayOf(new Date(today + "T12:00:00"));
+    base.setDate(base.getDate() + weekOff * 7);
+    const out = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(base.getTime());
+      d.setDate(d.getDate() + i);
+      out.push(mcIso(d));
+    }
+    return out;
+  }, [today, weekOff]);
+  const weekSet = useMemo(() => new Set(weekDays), [weekDays]);
+
+  // Entries inside the selected week, after filters.
+  const weekEntries = useMemo(() => {
+    return entries.filter(e =>
+      weekSet.has(e.earnings_date) &&
+      (fSector === "all" || e.sector === fSector) &&
+      (fIndustry === "all" || e.industry === fIndustry) &&
+      (fMcap === "all" || (MCAP_PRED[fMcap] || MCAP_PRED.all)(e.market_cap || 0))
+    );
+  }, [entries, weekSet, fSector, fIndustry, fMcap]);
+
+  // Sorting comparator shared by the grid columns and highlight rails.
+  const sortVal = (e) => {
+    if (sortKey === "move") { const x = extras[e.symbol]; return x && x.implied_move_pct != null ? x.implied_move_pct : -1; }
+    if (sortKey === "optvol") { const x = extras[e.symbol]; return x && x.options_volume != null ? x.options_volume : -1; }
+    if (sortKey === "fromopen") {
+      const q = liveQ[e.symbol]; const op = q && q.open != null ? q.open : e.open; const la = q && q.last != null ? q.last : e.last;
+      return (op && la != null) ? Math.abs((la - op) / op) : -1;
+    }
+    return e.market_cap || 0;
+  };
+  const sortEntries = (arr) => arr.slice().sort((a, b) => sortVal(b) - sortVal(a));
+
+  // Background fill of the heavy per-symbol extras for the visible week,
+  // throttled so we never hammer the option-chain endpoint.
+  useEffect(() => {
+    let cancelled = false;
+    const need = weekEntries.map(e => e.symbol).filter(s => !(s in extras));
+    if (!need.length) return;
+    let i = 0;
+    const CONC = 3;
+    const runOne = async () => {
+      while (!cancelled && i < need.length) {
+        const sym = need[i++];
+        try {
+          const r = await apiFetch(`/api/market_calendar/earnings_extra?symbol=${encodeURIComponent(sym)}`);
+          const d = await r.json();
+          if (!cancelled) setExtras(prev => ({ ...prev, [sym]: d || {} }));
+        } catch (_) { if (!cancelled) setExtras(prev => ({ ...prev, [sym]: {} })); }
+      }
+    };
+    const ps = []; for (let k = 0; k < CONC; k++) ps.push(runOne());
+    return () => { cancelled = true; };
+    // eslint-disable-next-line
+  }, [weekEntries]);
+
+  // Live quote overlay for the visible week (current price + % from open).
+  useEffect(() => {
+    let stop = false, timer = null;
+    const syms = Array.from(new Set(weekEntries.map(e => e.symbol)));
+    if (!syms.length) return;
+    const tick = async () => {
+      try {
+        const next = {};
+        for (let i = 0; i < syms.length; i += 25) {
+          const batch = syms.slice(i, i + 25);
+          const r = await apiFetch(`/api/quote?symbols=${batch.join(",")}`);
+          const d = await r.json();
+          const res = (d && d.results) || {};
+          for (const s of batch) {
+            const q = res[s];
+            if (q) next[s] = { last: q.last, open: q.open != null ? q.open : null, chg: q.change_pct != null ? q.change_pct : null };
+          }
+        }
+        if (!stop) setLiveQ(next);
+      } catch (_) {}
+      if (!stop) timer = setTimeout(tick, 30000);
+    };
+    tick();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, [weekEntries]);
+
+  const toggle = (sym) => setExpanded(p => ({ ...p, [sym]: !p[sym] }));
+
+  // Highlight rails (operate on the filtered week).
+  const todayEntries = sortEntries(weekEntries.filter(e => e.earnings_date === today));
+  const importantEntries = weekEntries.slice().sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)).slice(0, 6);
+  const moveEntries = weekEntries
+    .filter(e => extras[e.symbol] && extras[e.symbol].implied_move_pct != null)
+    .sort((a, b) => extras[b.symbol].implied_move_pct - extras[a.symbol].implied_move_pct)
+    .slice(0, 6);
+
+  const sectors = (earn && earn.sectors) || [];
+  const industries = (earn && earn.industries) || [];
+  const weekLabel = weekOff === 0 ? "This week" : weekOff === 1 ? "Next week" : `+${weekOff} weeks`;
+  const scanning = earn && earn.board_status && earn.board_status.scanning;
+
+  // ── economic calendar grouped by date ───────────────────────────────
+  const econEvents = (econ && Array.isArray(econ.events)) ? econ.events : [];
+  const econFiltered = econEvents.filter(ev =>
+    econImp === "all" ? true : econImp === "high" ? ev.importance === "high" : ev.importance !== "low"
+  );
+  const econByDate = useMemo(() => {
+    const m = new Map();
+    for (const ev of econFiltered) {
+      if (!m.has(ev.date)) m.set(ev.date, []);
+      m.get(ev.date).push(ev);
+    }
+    return Array.from(m.entries());
+  }, [econFiltered]);
+  const impMeta = (imp) => imp === "high" ? { cls: "mc-imp-high", label: "High" }
+    : imp === "medium" ? { cls: "mc-imp-med", label: "Med" } : { cls: "mc-imp-low", label: "Low" };
+
+  const miniCard = (e) => {
+    const live = liveQ[e.symbol];
+    const liveLast = live && live.last != null ? live.last : e.last;
+    const liveOpen = live && live.open != null ? live.open : e.open;
+    const fo = (liveOpen && liveLast != null) ? ((liveLast - liveOpen) / liveOpen) * 100 : null;
+    const x = extras[e.symbol];
+    const rt = mcTimeMeta(e.report_time, e.reported);
+    return (
+      <button key={e.symbol} className={`mc-mini ${rt.cls}`} onClick={() => onSwitchTicker && onSwitchTicker(e.symbol)}
+              title={`${e.company || e.symbol} — ${mcDayLabel(e.earnings_date)} ${rt.label}`}>
+        <span className="mc-mini-sym">{e.symbol}</span>
+        <span className="mc-mini-meta">{fmtMktCap(e.market_cap)}</span>
+        {x && x.implied_move_pct != null ? <span className="mc-mini-move">±{x.implied_move_pct}%</span>
+          : <span className={`mc-mini-move ${fo == null ? "" : fo >= 0 ? "up" : "down"}`}>{mcPct(fo)}</span>}
+      </button>
+    );
+  };
+
+  return (
+    <div className="mc-wrap">
+      {/* ============ EARNINGS CALENDAR ============ */}
+      <div className="card mc-card">
+        <div className="card-head mc-head">
+          <div>
+            <span className="kicker">Watchlist</span>
+            <div className="card-title">Earnings Calendar</div>
+          </div>
+          <div className="mc-head-controls">
+            <div className="mc-weeknav">
+              <button onClick={() => setWeekOff(w => Math.max(0, w - 1))} disabled={weekOff === 0} title="Previous week">‹</button>
+              <span className="mc-week-label">{weekLabel}</span>
+              <button onClick={() => setWeekOff(w => Math.min(3, w + 1))} disabled={weekOff >= 3} title="Next week">›</button>
+            </div>
+            <div className="seg">
+              <button className={view === "compact" ? "active" : ""} onClick={() => setView("compact")}>Compact</button>
+              <button className={view === "expanded" ? "active" : ""} onClick={() => setView("expanded")}>Expanded</button>
+            </div>
+            <button className="mc-refresh" onClick={loadEarn} disabled={loadingE} title="Reload earnings">{loadingE ? "…" : "↻"}</button>
+          </div>
+        </div>
+
+        {err ? <div className="mc-error">Couldn't load earnings: {err}</div> : null}
+        {scanning ? <div className="mc-hint">Watchlist board is still scanning — more names will appear as data fills in.</div> : null}
+
+        {/* Filters + sort */}
+        <div className="mc-filters">
+          <select value={fSector} onChange={e => setFSector(e.target.value)} title="Filter by sector">
+            <option value="all">All sectors</option>
+            {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fIndustry} onChange={e => setFIndustry(e.target.value)} title="Filter by industry">
+            <option value="all">All industries</option>
+            {industries.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fMcap} onChange={e => setFMcap(e.target.value)} title="Filter by market cap">
+            {MCAP_BUCKETS.map(b => <option key={b[0]} value={b[0]}>{b[1]}</option>)}
+          </select>
+          <select value={sortKey} onChange={e => setSortKey(e.target.value)} title="Sort cards within each day">
+            <option value="mcap">Sort: Market cap</option>
+            <option value="move">Sort: Expected move</option>
+            <option value="optvol">Sort: Options volume</option>
+            <option value="fromopen">Sort: % from open</option>
+          </select>
+        </div>
+
+        {/* Highlight rails */}
+        <div className="mc-rails">
+          <div className="mc-rail">
+            <div className="mc-rail-title">📅 Watchlist Earnings Today</div>
+            <div className="mc-rail-body">{todayEntries.length ? todayEntries.map(miniCard) : <span className="mc-empty">No watchlist names report today.</span>}</div>
+          </div>
+          <div className="mc-rail">
+            <div className="mc-rail-title">⭐ Most Important This Week</div>
+            <div className="mc-rail-body">{importantEntries.length ? importantEntries.map(miniCard) : <span className="mc-empty">No earnings this week.</span>}</div>
+          </div>
+          <div className="mc-rail">
+            <div className="mc-rail-title">🚀 Biggest Expected Move</div>
+            <div className="mc-rail-body">{moveEntries.length ? moveEntries.map(miniCard) : <span className="mc-empty">Loading expected moves…</span>}</div>
+          </div>
+        </div>
+
+        {/* Weekly grid */}
+        <div className="mc-grid">
+          {weekDays.map(day => {
+            const dayEntries = sortEntries(weekEntries.filter(e => e.earnings_date === day));
+            const isToday = day === today;
+            return (
+              <div key={day} className={`mc-col ${isToday ? "mc-col-today" : ""}`}>
+                <div className="mc-col-head">
+                  <span className="mc-col-wd">{mcWeekday(day)}</span>
+                  <span className="mc-col-date">{mcDayLabel(day)}</span>
+                  <span className="mc-col-count">{dayEntries.length || ""}</span>
+                </div>
+                <div className="mc-col-body">
+                  {dayEntries.length ? dayEntries.map(e => (
+                    <MarketEarningsCard key={e.symbol} e={e}
+                      expanded={!!expanded[e.symbol]} extra={extras[e.symbol]}
+                      live={liveQ[e.symbol]} compact={view === "compact"}
+                      onToggle={() => toggle(e.symbol)} onSwitchTicker={onSwitchTicker} />
+                  )) : <div className="mc-col-empty">—</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {!loadingE && entries.length === 0 ? (
+          <div className="mc-empty-all">No watchlist earnings found in the next 4 weeks.</div>
+        ) : null}
+      </div>
+
+      {/* ============ ECONOMIC CALENDAR ============ */}
+      <div className="card mc-card mc-econ">
+        <div className="card-head mc-head">
+          <div>
+            <span className="kicker">Macro</span>
+            <div className="card-title">Economic Calendar</div>
+          </div>
+          <div className="mc-head-controls">
+            <div className="seg">
+              <button className={econImp === "high" ? "active" : ""} onClick={() => setEconImp("high")}>High</button>
+              <button className={econImp === "med" ? "active" : ""} onClick={() => setEconImp("med")}>Med+</button>
+              <button className={econImp === "all" ? "active" : ""} onClick={() => setEconImp("all")}>All</button>
+            </div>
+            <button className="mc-refresh" onClick={loadEcon} disabled={loadingM} title="Reload events">{loadingM ? "…" : "↻"}</button>
+          </div>
+        </div>
+        {econ && econ.error ? <div className="mc-error">Economic data unavailable: {econ.error}</div> : null}
+        {econByDate.length === 0 && !loadingM ? <div className="mc-empty-all">No events at this importance level.</div> : null}
+        <div className="mc-econ-list">
+          {econByDate.map(([date, evs]) => (
+            <div key={date} className={`mc-econ-day ${date === today ? "mc-econ-today" : ""}`}>
+              <div className="mc-econ-dayhead">
+                <span className="mc-econ-wd">{mcWeekday(date)}</span>
+                <span className="mc-econ-date">{mcDayLabel(date)}</span>
+                {date === today ? <span className="mc-econ-todaytag">Today</span> : null}
+              </div>
+              <div className="mc-econ-rows">
+                {evs.map((ev, i) => {
+                  const im = impMeta(ev.importance);
+                  return (
+                    <div key={i} className={`mc-econ-row ${im.cls}`} title={ev.note || ""}>
+                      <span className="mc-econ-time">{ev.time}</span>
+                      <span className={`mc-imp-dot ${im.cls}`} title={`${im.label} importance`}></span>
+                      <span className="mc-econ-name">{ev.event}{ev.period ? <span className="mc-econ-for"> ({ev.period})</span> : null}
+                        <span className="mc-econ-ctry">{ev.country}</span>
+                      </span>
+                      <span className="mc-econ-vals">
+                        <span className="mc-econ-val"><b>A</b>{ev.actual == null ? "—" : ev.actual}</span>
+                        <span className="mc-econ-val"><b>F</b>{ev.forecast == null ? "—" : ev.forecast}</span>
+                        <span className="mc-econ-val"><b>P</b>{ev.previous == null ? "—" : ev.previous}{ev.revised != null ? <span className="mc-econ-rev"> (r {ev.revised})</span> : null}</span>
+                      </span>
+                      {ev.note ? <span className="mc-econ-note">{ev.note}</span> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Memoize the heavy, self-contained ticker cards so unrelated App state
 // changes (hovers, sidebar, other tabs) don't re-render them. Their props
 // (apiFetch, switchTicker, ticker) are stable identities from App.
@@ -8111,4 +8550,5 @@ Object.assign(window, { TickerLogo,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),
-  PositionsCard: _memo(PositionsCard), AddPositionForm });
+  PositionsCard: _memo(PositionsCard), AddPositionForm,
+  MarketCalendarCard: _memo(MarketCalendarCard) });
