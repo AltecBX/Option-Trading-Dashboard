@@ -11259,8 +11259,8 @@ function NewsTicker({
   }, []);
   if (!items.length) return null; // unconfigured / empty → no strip
 
-  // Steady reading speed: duration scales with how many headlines there are.
-  const dur = Math.max(40, items.length * 5);
+  // Steady, easy reading speed: duration scales with how many headlines.
+  const dur = Math.max(55, items.length * 6.5);
   const Seq = ({
     hidden
   }) => /*#__PURE__*/React.createElement("div", {
@@ -11288,7 +11288,7 @@ function NewsTicker({
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-badge",
     title: "Live news — Finviz Elite feed"
-  }, "FINVIZ"), /*#__PURE__*/React.createElement("div", {
+  }, "NEWS"), /*#__PURE__*/React.createElement("div", {
     className: "nt-viewport"
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-track",
