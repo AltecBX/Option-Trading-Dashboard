@@ -30,6 +30,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import sys
 import threading
 import time
 import urllib.request
@@ -531,6 +532,7 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
             _STATE["actions"] = actions
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
+        _persist_board()  # survive restarts/redeploys so the board is re-readable
     except Exception as exc:  # noqa: BLE001
         with _LOCK:
             _STATE["error"] = str(exc)
@@ -682,3 +684,51 @@ def get_board() -> dict:
         "actions": actions,
         "summary": _build_summary(actions),
     }
+
+
+# ── Disk persistence ──────────────────────────────────────────────────
+# The board lives in memory, so without this a Railway restart/redeploy (or
+# idle recycle) wipes the morning scan and the user has to re-scan. Persist
+# the ranked actions to the stable data dir after every scan and restore
+# them on startup so the board is still there when you come back.
+def _persist_path() -> Path:
+    return _data_dir() / "analyst_board.json"
+
+
+def _persist_board() -> None:
+    with _LOCK:
+        payload = {
+            "actions": _STATE["actions"],
+            "last_scan": _STATE["last_scan"],
+            "recent_days": _STATE["recent_days"],
+            "universe_size": _STATE["universe_size"],
+        }
+    try:
+        path = _persist_path()
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload))
+        tmp.replace(path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[analyst_board] persist failed: {exc}", file=sys.stderr)
+
+
+def _restore_board() -> None:
+    try:
+        path = _persist_path()
+        if not path.exists():
+            return
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            return
+        with _LOCK:
+            _STATE["actions"] = data.get("actions") or []
+            _STATE["last_scan"] = data.get("last_scan")
+            _STATE["recent_days"] = data.get("recent_days") or _STATE["recent_days"]
+            _STATE["universe_size"] = data.get("universe_size") or 0
+        print(f"[analyst_board] restored {len(_STATE['actions'])} cached actions "
+              f"(last scan {_STATE['last_scan']})", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[analyst_board] cache load failed: {exc}", file=sys.stderr)
+
+
+_restore_board()
