@@ -4192,52 +4192,131 @@ def _earnings_detail(symbol: str, target_date: str | None = None) -> dict:
     return out
 
 
+@_ttl_memoize(15 * 60)
+def _bulk_earnings_map(days: int) -> dict:
+    """symbol -> {date, timing(BMO/AMC), eps_estimate, eps_actual,
+    eps_surprise, company, market_cap} for every company reporting in the
+    next `days`, from yfinance's bulk (Reuters-sourced) earnings calendar.
+    This is the AUTHORITATIVE earnings-date source — independent of the
+    watchlist board scan, whose per-symbol earnings field can come back
+    empty. Paginated (YF caps each page at 100); cached 15 min."""
+    out = {}
+    try:
+        cals = yf.Calendars()
+        today = date.today()
+        end = today + timedelta(days=days)
+        off = 0
+        for _ in range(40):  # safety cap (~4000 names)
+            df = cals.get_earnings_calendar(
+                start=str(today), end=str(end), limit=100, offset=off,
+                filter_most_active=False)
+            if df is None or df.empty:
+                break
+            for sym, row in df.iterrows():
+                s = str(sym).upper().strip()
+                if not s or s in out:
+                    continue
+                try:
+                    dstr = str(pd.Timestamp(row.get("Event Start Date")).date())
+                except Exception:
+                    dstr = str(row.get("Event Start Date"))[:10]
+                tim = row.get("Timing")
+                tim = str(tim).upper().strip() if (tim is not None and tim == tim) else None
+                if tim not in ("BMO", "AMC"):
+                    tim = None
+                comp = row.get("Company")
+                out[s] = {
+                    "date": dstr,
+                    "timing": tim,
+                    "eps_estimate": _mc_float(row.get("EPS Estimate")),
+                    "eps_actual": _mc_float(row.get("Reported EPS")),
+                    "eps_surprise": _mc_float(row.get("Surprise(%)")),
+                    "company": (str(comp) if (comp is not None and comp == comp) else None),
+                    "market_cap": _mc_float(row.get("Marketcap")),
+                }
+            if len(df) < 100:
+                break
+            off += 100
+    except Exception as exc:  # noqa: BLE001
+        print(f"[earnings] bulk calendar failed: {exc}", file=sys.stderr)
+    return out
+
+
 @_ttl_memoize(10 * 60)
 def build_watchlist_earnings(days: int = 14) -> dict:
-    """Every watchlist symbol whose next earnings falls inside `days` (plus a
-    2-day look-back so just-reported names still show), enriched from the live
-    watchlist board and a per-symbol EPS/revenue detail fetch."""
+    """Every watchlist symbol reporting inside `days` (plus a 2-day look-back
+    so just-reported names still show). Earnings dates/times/EPS come from the
+    authoritative bulk earnings calendar; the watchlist board only supplies
+    enrichment (price, returns, sector/industry); revenue detail is a
+    per-symbol fetch."""
     today = date.today()
-    horizon = today + timedelta(days=max(1, min(45, days)))
-    board = {}
+    days = max(1, min(45, days))
+    horizon = today + timedelta(days=days)
+
+    # Full watchlist symbol list (NOT just the scanned board, which may lag).
+    syms = []
+    try:
+        wl = _load_watchlist()
+        for s in (wl.get("symbols") or []):
+            sym = (s.get("symbol") if isinstance(s, dict) else str(s)) or ""
+            sym = sym.upper().strip()
+            if sym and sym not in syms:
+                syms.append(sym)
+    except Exception:
+        syms = []
+
+    # Board rows for enrichment only, keyed by symbol.
+    brow, status = {}, {}
     if _WLTABLE_AVAILABLE and _wltable is not None:
         try:
             board = _wltable.get_board() or {}
+            status = board.get("status") or {}
+            for r in (board.get("rows") or []):
+                if r.get("symbol"):
+                    brow[str(r["symbol"]).upper()] = r
         except Exception:
-            board = {}
-    brows = board.get("rows") or []
-    status = board.get("status") or {}
+            pass
+
+    bulk = _bulk_earnings_map(days)
 
     cands = []
-    for r in brows:
-        ne = r.get("next_earnings")
-        if not ne:
+    for sym in syms:
+        info = bulk.get(sym)
+        if not info or not info.get("date"):
             continue
         try:
-            ned = datetime.strptime(str(ne)[:10], "%Y-%m-%d").date()
+            ned = datetime.strptime(info["date"], "%Y-%m-%d").date()
         except Exception:
             continue
         if ned < today - timedelta(days=2) or ned > horizon:
             continue
-        cands.append((r, ned))
+        cands.append((sym, ned, info))
 
     def _entry_for(item):
-        r, ned = item
-        sym = r.get("symbol")
+        sym, ned, info = item
+        r = brow.get(sym, {})
         d = _earnings_detail(sym, ned.strftime("%Y-%m-%d"))
+        # Bulk calendar is authoritative for the matched event; per-symbol
+        # detail backfills anything the bulk feed left blank.
+        eps_est = info.get("eps_estimate")
+        eps_est = eps_est if eps_est is not None else d.get("eps_estimate")
+        eps_act = info.get("eps_actual")
+        eps_act = eps_act if eps_act is not None else d.get("eps_actual")
+        eps_sur = info.get("eps_surprise")
+        eps_sur = eps_sur if eps_sur is not None else d.get("eps_surprise")
         return {
             "symbol": sym,
-            "company": r.get("company"),
+            "company": r.get("company") or info.get("company"),
             "earnings_date": ned.strftime("%Y-%m-%d"),
             "days_to_earnings": (ned - today).days,
-            "report_time": d.get("report_time"),
-            "eps_estimate": d.get("eps_estimate"),
-            "eps_actual": d.get("eps_actual"),
-            "eps_surprise": d.get("eps_surprise"),
+            "report_time": info.get("timing") or d.get("report_time"),
+            "eps_estimate": eps_est,
+            "eps_actual": eps_act,
+            "eps_surprise": eps_sur,
             "revenue_estimate": d.get("revenue_estimate"),
             "revenue_actual": d.get("revenue_actual"),
             "revenue_surprise": d.get("revenue_surprise"),
-            "market_cap": r.get("market_cap"),
+            "market_cap": r.get("market_cap") or info.get("market_cap"),
             "sector": r.get("sector"),
             "industry": r.get("industry"),
             "last": r.get("last"),
@@ -4245,13 +4324,13 @@ def build_watchlist_earnings(days: int = 14) -> dict:
             "change": r.get("change"),
             "wtd": r.get("wtd"), "mtd": r.get("mtd"),
             "qtd": r.get("qtd"), "ytd": r.get("ytd"),
-            "reported": (d.get("eps_actual") is not None) or (ned < today),
+            "reported": (eps_act is not None) or (ned < today),
         }
 
     entries, sectors, industries = [], set(), set()
     if cands:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(8, len(cands))) as ex:
+        with ThreadPoolExecutor(max_workers=min(12, len(cands))) as ex:
             for e in ex.map(_entry_for, cands):
                 if not e:
                     continue
@@ -4270,6 +4349,7 @@ def build_watchlist_earnings(days: int = 14) -> dict:
         "industries": sorted(industries),
         "board_status": status,
     }
+
 
 
 @_ttl_memoize(3 * 3600)
