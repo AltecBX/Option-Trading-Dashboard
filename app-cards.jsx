@@ -8543,8 +8543,8 @@ function NewsTicker({ apiFetch }) {
 
   if (!items.length) return null;  // unconfigured / empty → no strip
 
-  // Steady reading speed: duration scales with how many headlines there are.
-  const dur = Math.max(40, items.length * 5);
+  // Steady, easy reading speed: duration scales with how many headlines.
+  const dur = Math.max(55, items.length * 6.5);
   const Seq = ({ hidden }) => (
     <div className="nt-seq" aria-hidden={hidden || undefined}>
       {items.map((it, i) => (
@@ -8560,7 +8560,7 @@ function NewsTicker({ apiFetch }) {
   );
   return (
     <div className="newsticker" aria-label="Finviz news feed">
-      <div className="nt-badge" title="Live news — Finviz Elite feed">FINVIZ</div>
+      <div className="nt-badge" title="Live news — Finviz Elite feed">NEWS</div>
       <div className="nt-viewport">
         <div className="nt-track" style={{ animationDuration: `${dur}s` }}>
           <Seq />
