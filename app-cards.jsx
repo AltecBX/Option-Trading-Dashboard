@@ -8560,7 +8560,7 @@ function NewsTicker({ apiFetch }) {
   );
   return (
     <div className="newsticker" aria-label="Finviz news feed">
-      <div className="nt-badge" title="Live news — Finviz Elite feed">NEWS</div>
+      <div className="nt-badge" title="Live market news feed">Market News</div>
       <div className="nt-viewport">
         <div className="nt-track" style={{ animationDuration: `${dur}s` }}>
           <Seq />

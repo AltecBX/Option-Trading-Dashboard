@@ -11287,8 +11287,8 @@ function NewsTicker({
     "aria-label": "Finviz news feed"
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-badge",
-    title: "Live news — Finviz Elite feed"
-  }, "NEWS"), /*#__PURE__*/React.createElement("div", {
+    title: "Live market news feed"
+  }, "Market News"), /*#__PURE__*/React.createElement("div", {
     className: "nt-viewport"
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-track",
