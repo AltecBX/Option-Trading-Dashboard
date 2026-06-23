@@ -41,8 +41,28 @@ def _fetch_csv(view: str, token: str) -> str:
         return r.read().decode("utf-8", "replace")
 
 
+def _parse_csv(text: str, limit: int) -> list:
+    items = []
+    for row in csv.DictReader(io.StringIO(text)):
+        g = {(k or "").strip().lower(): (v.strip() if isinstance(v, str) else v)
+             for k, v in row.items()}
+        title = g.get("title") or g.get("headline")
+        url = g.get("url") or g.get("link")
+        if not title or not url:
+            continue
+        items.append({
+            "title": title,
+            "url": url,
+            "source": g.get("source") or "",
+            "date": g.get("date") or "",
+            "category": g.get("category") or "",
+            "ticker": g.get("ticker") or "",
+        })
+    return items[:max(1, limit)]
+
+
 def get_news(limit: int = 60) -> dict:
-    """Returns {configured, error, count, items[], as_of}. Each item:
+    """Returns {configured, error, count, items[], view, as_of}. Each item:
     {title, url, source, date, category, ticker}. Never raises."""
     token = _token()
     if not token:
@@ -55,43 +75,40 @@ def get_news(limit: int = 60) -> dict:
         if cached is not None and (now - _CACHE["ts"]) < _TTL:
             return cached
 
-    view = (os.environ.get("FINVIZ_NEWS_V", "3").strip() or "3")
-    try:
-        text = _fetch_csv(view, token)
-    except Exception as exc:  # noqa: BLE001
-        return {"configured": True, "error": f"fetch failed: {exc}",
-                "count": 0, "items": []}
+    # The news EXPORT only returns rows for view "3"; the news *page*'s v=
+    # (e.g. v=6) is a display layout, not an export view, and yields an empty
+    # CSV. So try the configured view, then fall back to "3" so a bad
+    # FINVIZ_NEWS_V can never silently kill the feed.
+    want = (os.environ.get("FINVIZ_NEWS_V", "3").strip() or "3")
+    views = [want] + (["3"] if want != "3" else [])
+    items, used_view, last_err = [], None, None
+    for view in views:
+        try:
+            text = _fetch_csv(view, token)
+        except Exception as exc:  # noqa: BLE001
+            last_err = f"fetch failed: {exc}"
+            continue
+        if text.lstrip().startswith("<"):
+            last_err = "auth rejected (got HTML, not CSV) — check FINVIZ_AUTH_TOKEN"
+            continue
+        try:
+            parsed = _parse_csv(text, limit)
+        except Exception as exc:  # noqa: BLE001
+            last_err = f"parse failed: {exc}"
+            continue
+        if parsed:
+            items, used_view, last_err = parsed, view, None
+            break
+        used_view = view  # parsed cleanly but empty — try the fallback view
 
-    # A bad/expired token gets the Elite login HTML instead of CSV.
-    if text.lstrip().startswith("<"):
+    if not items:
         return {"configured": True,
-                "error": "auth rejected (got HTML, not CSV) — check FINVIZ_AUTH_TOKEN",
-                "count": 0, "items": []}
+                "error": last_err or f"no headlines for view v={want}",
+                "count": 0, "items": [], "view": used_view}
 
-    items = []
-    try:
-        for row in csv.DictReader(io.StringIO(text)):
-            g = {(k or "").strip().lower(): (v.strip() if isinstance(v, str) else v)
-                 for k, v in row.items()}
-            title = g.get("title") or g.get("headline")
-            url = g.get("url") or g.get("link")
-            if not title or not url:
-                continue
-            items.append({
-                "title": title,
-                "url": url,
-                "source": g.get("source") or "",
-                "date": g.get("date") or "",
-                "category": g.get("category") or "",
-                "ticker": g.get("ticker") or "",
-            })
-    except Exception as exc:  # noqa: BLE001
-        return {"configured": True, "error": f"parse failed: {exc}",
-                "count": 0, "items": []}
-
-    items = items[:max(1, limit)]
     out = {"configured": True, "error": None, "count": len(items),
-           "items": items, "as_of": datetime.now(timezone.utc).isoformat()}
+           "items": items, "view": used_view,
+           "as_of": datetime.now(timezone.utc).isoformat()}
     with _LOCK:
         _CACHE["ts"] = now
         _CACHE["data"] = out
