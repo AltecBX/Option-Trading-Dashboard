@@ -4192,6 +4192,23 @@ def _earnings_detail(symbol: str, target_date: str | None = None) -> dict:
     return out
 
 
+@_ttl_memoize(12 * 3600)
+def _symbol_profile(symbol: str) -> dict:
+    """company / sector / industry / market cap from yfinance .info, cached
+    12h. Used to backfill a candidate's profile when the watchlist board's
+    fundamentals came back incomplete (e.g. a None sector)."""
+    out = {"company": None, "sector": None, "industry": None, "market_cap": None}
+    try:
+        info = yf.Ticker(symbol).info or {}
+        out["company"] = info.get("longName") or info.get("shortName")
+        out["sector"] = info.get("sector")
+        out["industry"] = info.get("industry")
+        out["market_cap"] = _mc_float(info.get("marketCap"))
+    except Exception:
+        pass
+    return out
+
+
 @_ttl_memoize(15 * 60)
 def _bulk_earnings_map(days: int) -> dict:
     """symbol -> {date, timing(BMO/AMC), eps_estimate, eps_actual,
@@ -4304,9 +4321,22 @@ def build_watchlist_earnings(days: int = 14) -> dict:
         eps_act = eps_act if eps_act is not None else d.get("eps_actual")
         eps_sur = info.get("eps_surprise")
         eps_sur = eps_sur if eps_sur is not None else d.get("eps_surprise")
+        # Profile (company/sector/industry/cap) — prefer the board, then the
+        # bulk feed, then a per-symbol .info backfill so no card is missing a
+        # sector/industry tag just because the board's scan was incomplete.
+        company = r.get("company") or info.get("company")
+        sector = r.get("sector")
+        industry = r.get("industry")
+        market_cap = r.get("market_cap") or info.get("market_cap")
+        if not (company and sector and industry and market_cap):
+            prof = _symbol_profile(sym)
+            company = company or prof.get("company")
+            sector = sector or prof.get("sector")
+            industry = industry or prof.get("industry")
+            market_cap = market_cap or prof.get("market_cap")
         return {
             "symbol": sym,
-            "company": r.get("company") or info.get("company"),
+            "company": company,
             "earnings_date": ned.strftime("%Y-%m-%d"),
             "days_to_earnings": (ned - today).days,
             "report_time": info.get("timing") or d.get("report_time"),
@@ -4316,9 +4346,9 @@ def build_watchlist_earnings(days: int = 14) -> dict:
             "revenue_estimate": d.get("revenue_estimate"),
             "revenue_actual": d.get("revenue_actual"),
             "revenue_surprise": d.get("revenue_surprise"),
-            "market_cap": r.get("market_cap") or info.get("market_cap"),
-            "sector": r.get("sector"),
-            "industry": r.get("industry"),
+            "market_cap": market_cap,
+            "sector": sector,
+            "industry": industry,
             "last": r.get("last"),
             "open": r.get("open"),
             "change": r.get("change"),
