@@ -127,6 +127,16 @@ except Exception as _exc:  # noqa: BLE001
     _ANALYST_BOARD_AVAILABLE = False
     _analyst_board = None  # type: ignore
 
+# Top-of-app news ticker — the user's Finviz Elite news feed (needs
+# FINVIZ_AUTH_TOKEN). Optional; the ticker simply hides when unconfigured.
+try:
+    import finviz_news as _finviz_news
+    _FINVIZ_NEWS_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[finviz_news] module load failed: {_exc}", file=sys.stderr)
+    _FINVIZ_NEWS_AVAILABLE = False
+    _finviz_news = None  # type: ignore
+
 # Pre-market movers scanner — batch-quotes the universe for the biggest
 # gappers, enriches top movers, tags catalysts.
 try:
@@ -6129,6 +6139,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/news", exc)
                 self._send_json({"error": str(exc), "items": []}, status=500)
+            return
+        if parsed.path == "/api/finviz_news":
+            if not _FINVIZ_NEWS_AVAILABLE:
+                self._send_json({"configured": False, "error": "finviz news unavailable", "items": []})
+                return
+            qs = parse_qs(parsed.query)
+            try:
+                limit = int(qs.get("limit", ["60"])[0])
+            except (TypeError, ValueError):
+                limit = 60
+            try:
+                self._send_json(_finviz_news.get_news(limit=max(1, min(120, limit))))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/finviz_news", exc)
+                self._send_json({"configured": True, "error": str(exc), "items": []}, status=500)
             return
         if parsed.path == "/api/watchlist_table":
             if not _WLTABLE_AVAILABLE:

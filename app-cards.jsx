@@ -8522,6 +8522,55 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// Top-of-app news ticker tape — the user's Finviz Elite feed. Hides itself
+// entirely until FINVIZ_AUTH_TOKEN is configured and headlines arrive, so it
+// never shows an empty strip. Headlines scroll right-to-left; hover pauses.
+function NewsTicker({ apiFetch }) {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    let stop = false, timer = null;
+    const tick = async () => {
+      try {
+        const r = await apiFetch("/api/finviz_news?limit=60");
+        const d = await r.json();
+        if (!stop) setItems(Array.isArray(d && d.items) ? d.items : []);
+      } catch (_) { /* keep last items */ }
+      if (!stop) timer = setTimeout(tick, 60000);
+    };
+    tick();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, []);
+
+  if (!items.length) return null;  // unconfigured / empty → no strip
+
+  // Steady reading speed: duration scales with how many headlines there are.
+  const dur = Math.max(40, items.length * 5);
+  const Seq = ({ hidden }) => (
+    <div className="nt-seq" aria-hidden={hidden || undefined}>
+      {items.map((it, i) => (
+        <a key={i} className="nt-item" href={it.url} target="_blank" rel="noopener noreferrer"
+           title={`${it.source || ""}${it.date ? " · " + it.date : ""}`}>
+          {it.ticker ? <span className="nt-tkr">{it.ticker}</span> : null}
+          {it.source ? <span className="nt-src">{it.source}</span> : null}
+          <span className="nt-ttl">{it.title}</span>
+          <span className="nt-sep">●</span>
+        </a>
+      ))}
+    </div>
+  );
+  return (
+    <div className="newsticker" aria-label="Finviz news feed">
+      <div className="nt-badge" title="Live news — Finviz Elite feed">FINVIZ</div>
+      <div className="nt-viewport">
+        <div className="nt-track" style={{ animationDuration: `${dur}s` }}>
+          <Seq />
+          <Seq hidden />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Memoize the heavy, self-contained ticker cards so unrelated App state
 // changes (hovers, sidebar, other tabs) don't re-render them. Their props
 // (apiFetch, switchTicker, ticker) are stable identities from App.
@@ -8551,4 +8600,4 @@ Object.assign(window, { TickerLogo,
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),
   PositionsCard: _memo(PositionsCard), AddPositionForm,
-  MarketCalendarCard: _memo(MarketCalendarCard) });
+  MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker) });
