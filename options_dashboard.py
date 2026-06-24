@@ -469,19 +469,28 @@ def _append_today_bar(df, symbol: str):
     except Exception:
         return df
     last = q.get("last")
-    if last is None:
+    if last is None or float(last) <= 0:
         return df
     last = float(last)
-    op = q.get("open")
-    op = float(op) if op is not None else last
-    hi = q.get("high")
-    hi = float(hi) if hi is not None else max(op, last)
-    lo = q.get("low")
-    lo = float(lo) if lo is not None else min(op, last)
+    # Treat 0 / missing as "no value" — pre-market, Schwab reports openPrice
+    # and low/high as 0 until the regular session opens.
+    def _pos(v):
+        try:
+            v = float(v)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+    op = _pos(q.get("open"))
+    # No real session open yet (pre-market/pre-open): don't synthesize a bar,
+    # or it renders as a giant 0 -> price candle. Wait for a true open.
+    if op is None:
+        return df
+    hi = _pos(q.get("high"))
+    lo = _pos(q.get("low"))
     # Keep the bar internally consistent if the live last pierced the
-    # session range Schwab reported.
-    hi = max(hi, op, last)
-    lo = min(lo, op, last)
+    # session range Schwab reported (and ignore any zero/None bounds).
+    hi = max(v for v in (hi, op, last) if v is not None)
+    lo = min(v for v in (lo, op, last) if v is not None)
     vol = q.get("volume")
     try:
         df.loc[pd.Timestamp(today), ["Open", "High", "Low", "Close", "Volume"]] = [
