@@ -11558,7 +11558,7 @@ function NewsTicker({
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-badge",
     title: "Live market news feed"
-  }, "Market News"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "Market"), /*#__PURE__*/React.createElement("span", null, "News")), /*#__PURE__*/React.createElement("div", {
     className: "nt-viewport"
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-track",
