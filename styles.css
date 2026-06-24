@@ -8559,3 +8559,61 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .nt-viewport { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .nt-seq[aria-hidden] { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   WATCHLIST · ANALYST ACTIONS — fresh upgrades/downgrades section + badge.
+   ══════════════════════════════════════════════════════════════════════ */
+.wa-card { margin-bottom: 16px; padding: 16px 18px; }
+.wa-head { align-items: center; }
+.wa-head-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wa-head-controls select { font-family: var(--font-body); font-size: 12.5px; color: var(--fg-2);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.wa-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+.wa-empty { color: var(--fg-3); font-size: 13px; padding: 22px 0; text-align: center; }
+
+.wa-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.wa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wa-table thead th { position: sticky; top: 0; background: var(--bg-3); z-index: 1;
+  text-align: left; padding: 9px 12px; font-family: var(--font-mono); font-size: 10.5px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--fg-3);
+  border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wa-table th.num, .wa-table td.num { text-align: right; }
+.wa-table tbody tr { cursor: pointer; border-bottom: 1px solid var(--line); transition: background 0.1s ease; }
+.wa-table tbody tr:last-child { border-bottom: 0; }
+.wa-table tbody tr:hover { background: var(--bg-3); }
+.wa-table td { padding: 9px 12px; white-space: nowrap; color: var(--fg-2); }
+/* Fresh-today rows stand out with an accent left edge + subtle tint. */
+.wa-row.wa-fresh { background: color-mix(in oklch, var(--accent) 7%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.wa-row.wa-fresh:hover { background: color-mix(in oklch, var(--accent) 12%, transparent); }
+.wa-sym { font-family: var(--font-mono); font-weight: 800; color: var(--fg); }
+.wa-bolt { color: var(--warn); margin-right: 4px; }
+.wa-multi { margin-left: 6px; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--accent); background: color-mix(in oklch, var(--accent) 14%, transparent);
+  border-radius: 5px; padding: 1px 5px; }
+.wa-co { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.wa-date, .wa-firm { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
+.wa-grade { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
+.wa-src { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); text-transform: capitalize; }
+.wa-type { display: inline-block; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.wa-type-bull { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 60%); background: color-mix(in oklch, var(--up) 10%, transparent); }
+.wa-type-bear { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 60%); background: color-mix(in oklch, var(--down) 10%, transparent); }
+.wa-type-neutral { color: var(--fg-2); background: var(--bg-3); }
+.wa-table td.up { color: var(--up); font-weight: 700; }
+.wa-table td.down { color: var(--down); font-weight: 700; }
+.wa-score { display: inline-block; min-width: 26px; text-align: center; font-family: var(--font-mono);
+  font-weight: 800; font-size: 12px; border-radius: 6px; padding: 1px 6px; }
+.wa-imp-high { color: #fff; background: var(--down); }
+.wa-imp-medium { color: var(--fg); background: color-mix(in oklch, var(--warn) 45%, transparent); }
+.wa-imp-low { color: var(--fg-3); background: var(--bg-3); }
+
+/* Badge next to a watchlist row's symbol when it has a fresh action today. */
+.wl-analyst-badge { margin-left: 5px; font-size: 12px; cursor: help; }
+.wl-an-bull { filter: hue-rotate(0deg); }
+.wl-an-bear { opacity: 0.95; }
+
+@media (max-width: 760px) {
+  .wa-table { font-size: 12px; }
+  .wa-table td, .wa-table thead th { padding: 7px 9px; }
+  .wa-co { max-width: 120px; }
+}

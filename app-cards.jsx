@@ -1992,7 +1992,23 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   useEffect(() => { try { localStorage.setItem("jerry_riskpct", String(riskPct)); } catch {} }, [riskPct]);
   const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
   const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
+  const [analystBy, setAnalystBy] = useState({}); // symbol -> fresh-action summary (badge)
   const pollRef = useRef(null);
+
+  // Fresh-analyst-action map for the in-table badge (cheap, server-cached).
+  useEffect(() => {
+    let stop = false;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/watchlist_analyst");
+        const d = await r.json();
+        if (!stop) setAnalystBy((d && d.by_symbol) || {});
+      } catch (_) { /* badge is best-effort */ }
+    };
+    grab();
+    const t = setInterval(grab, 5 * 60 * 1000);
+    return () => { stop = true; clearInterval(t); };
+  }, []);
 
   const load = async () => {
     try { const r = await apiFetch("/api/watchlist_table"); const d = await r.json(); setBoard(d); setErr(null); return d; }
@@ -2446,7 +2462,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   const renderCell = (c, r) => {
     const k = c.k;
     switch (k) {
-      case "symbol": return <td key={k} className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}</td>;
+      case "symbol": {
+        const an = analystBy[r.symbol];
+        const fresh = an && an.fresh_today;
+        return <td key={k} className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}{fresh && <span className={`wl-analyst-badge wl-an-${an.direction || "neutral"}`} title={`Fresh analyst action today: ${an.action_type || "action"}${an.count > 1 ? ` (${an.count} firms)` : ""} · impact ${Math.round(an.score || 0)}`}>⚡</span>}</td>;
+      }
       case "company": return <td key={k} className="wl-co">{r.company || "—"}</td>;
       case "edge": return <td key={k} className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>;
       case "setup": return <td key={k} className="wl-txt" title={r.edge_tip || ""}>{setupCell(r)}</td>;
@@ -8522,6 +8542,146 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// Watchlist Analyst Actions — fresh upgrades/downgrades/PT changes/initiations
+// for watchlist names, drawn from the morning analyst-board scan. Today's
+// actions are highlighted so the morning read is instant.
+function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
+  const [data, setData] = useState(null);
+  const [scope, setScope] = useState("today");   // today | recent
+  const [type, setType] = useState("all");        // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
+  const [sortKey, setSortKey] = useState("impact"); // impact|upside|date|symbol
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/watchlist_analyst");
+      const d = await r.json();
+      setData(d);
+      return d;
+    } catch (_) { return null; }
+  };
+  useEffect(() => {
+    load();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const startScan = async () => {
+    setBusy(true);
+    try { await apiFetch("/api/analyst_board/scan?days=2&force=1"); } catch (_) {}
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.scanning) { clearInterval(pollRef.current); pollRef.current = null; setBusy(false); }
+    }, 4000);
+  };
+
+  const actions = (data && data.actions) || [];
+  const isScanning = busy || (data && data.scanning);
+  const detected = (data && data.detected_at)
+    ? new Date(data.detected_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : null;
+
+  const typePass = (a) => {
+    switch (type) {
+      case "upgrade": return a.action_type === "upgrade";
+      case "downgrade": return a.action_type === "downgrade";
+      case "pt_up": return a.target_change_pct != null && a.target_change_pct > 0;
+      case "pt_cut": return a.target_change_pct != null && a.target_change_pct < 0;
+      case "initiate": return a.action_type === "initiate";
+      case "high": return a.importance === "high";
+      case "multi": return (a.multi_count || 1) > 1;
+      default: return true;
+    }
+  };
+  const filtered = actions.filter(a => (scope === "today" ? a.fresh_today : true) && typePass(a));
+  const sorted = filtered.slice().sort((x, y) => {
+    if (sortKey === "upside") return (y.upside_pct == null ? -1e9 : y.upside_pct) - (x.upside_pct == null ? -1e9 : x.upside_pct);
+    if (sortKey === "date") return String(y.action_date).localeCompare(String(x.action_date));
+    if (sortKey === "symbol") return String(x.symbol).localeCompare(String(y.symbol));
+    return (y.impact_score || 0) - (x.impact_score || 0);
+  });
+  const freshCount = actions.filter(a => a.fresh_today).length;
+
+  const AT = { upgrade: "Upgrade", downgrade: "Downgrade", initiate: "Initiation", reiterate: "Reiteration", target_change: "PT change" };
+  const ptf = (v) => v == null ? "—" : "$" + Number(v).toFixed(2);
+  const pctf = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
+  const FILTERS = [["all", "All"], ["upgrade", "Upgrades"], ["downgrade", "Downgrades"],
+    ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"],
+    ["high", "High impact"], ["multi", "Multi-firm"]];
+
+  return (
+    <div className="card wa-card">
+      <div className="card-head wa-head">
+        <div>
+          <span className="kicker">Watchlist · {freshCount} fresh today{detected ? ` · scanned ${detected}` : ""}</span>
+          <div className="card-title">Analyst Actions</div>
+        </div>
+        <div className="wa-head-controls">
+          <div className="seg">
+            <button className={scope === "today" ? "active" : ""} onClick={() => setScope("today")}>Today</button>
+            <button className={scope === "recent" ? "active" : ""} onClick={() => setScope("recent")}>Recent</button>
+          </div>
+          <select value={sortKey} onChange={e => setSortKey(e.target.value)} title="Sort actions">
+            <option value="impact">Sort: Impact</option>
+            <option value="upside">Sort: Upside</option>
+            <option value="date">Sort: Action date</option>
+            <option value="symbol">Sort: Symbol</option>
+          </select>
+          <button className="scan-run-btn" onClick={startScan} disabled={isScanning}>{isScanning ? "Scanning…" : "Scan now"}</button>
+        </div>
+      </div>
+
+      <div className="wa-filters">
+        {FILTERS.map(([k, lbl]) => (
+          <button key={k} className={`preset-pill ${type === k ? "active" : ""}`} onClick={() => setType(k)}>{lbl}</button>
+        ))}
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="wa-empty">
+          {isScanning ? "Scanning for analyst actions…"
+            : actions.length === 0
+              ? <>No analyst actions cached yet — <button className="wl-rescan-link" onClick={startScan}>Scan now</button> to build today's board.</>
+              : "No actions match this filter."}
+        </div>
+      ) : (
+        <div className="wa-table-wrap">
+          <table className="wa-table">
+            <thead><tr>
+              <th>Symbol</th><th>Company</th><th>Date</th><th>Firm</th><th>Type</th>
+              <th>From</th><th>To</th><th className="num">Prev PT</th><th className="num">New PT</th>
+              <th className="num">Upside</th><th className="num">Impact</th><th>Source</th>
+            </tr></thead>
+            <tbody>
+              {sorted.map((a, i) => (
+                <tr key={a.symbol + i} className={`wa-row ${a.fresh_today ? "wa-fresh" : ""} wa-${a.direction || "neutral"}`}
+                    onClick={() => onSwitchTicker && onSwitchTicker(a.symbol)} title={(a.reasons || []).join(" · ")}>
+                  <td className="wa-sym">
+                    {a.fresh_today && <span className="wa-bolt" title="Fresh today">⚡</span>}{a.symbol}
+                    {(a.multi_count || 1) > 1 && <span className="wa-multi" title={`${a.multi_count} firms acted`}>×{a.multi_count}</span>}
+                  </td>
+                  <td className="wa-co" title={a.company || ""}>{a.company || "—"}</td>
+                  <td className="wa-date">{a.action_date || "—"}</td>
+                  <td className="wa-firm">{a.firm}</td>
+                  <td><span className={`wa-type wa-type-${a.direction || "neutral"}`}>{AT[a.action_type] || a.action_type || "—"}</span></td>
+                  <td className="wa-grade">{a.rating_from || "—"}</td>
+                  <td className="wa-grade">{a.rating_to || "—"}</td>
+                  <td className="num">{ptf(a.prev_target)}</td>
+                  <td className="num">{ptf(a.new_target)}</td>
+                  <td className={`num ${a.upside_pct == null ? "" : a.upside_pct >= 0 ? "up" : "down"}`}>{pctf(a.upside_pct)}</td>
+                  <td className="num"><span className={`wa-score wa-imp-${a.importance || "low"}`}>{a.impact_score != null ? Math.round(a.impact_score) : "—"}</span></td>
+                  <td className="wa-src">{a.source}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Top-of-app news ticker tape — the user's Finviz Elite feed. Hides itself
 // entirely until FINVIZ_AUTH_TOKEN is configured and headlines arrive, so it
 // never shows an empty strip. Headlines scroll right-to-left; hover pauses.
@@ -8600,4 +8760,5 @@ Object.assign(window, { TickerLogo,
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),
   PositionsCard: _memo(PositionsCard), AddPositionForm,
-  MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker) });
+  MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker),
+  WatchlistAnalystCard: _memo(WatchlistAnalystCard) });

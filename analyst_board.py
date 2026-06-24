@@ -504,12 +504,14 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
         client = analyst_client.get_client()
         # Pass 1 — collect recent action rows per ticker (cheap, cached).
         raw: dict[str, list[dict]] = {}
+        src_by_sym: dict[str, str] = {}
         for i, sym in enumerate(symbols):
             try:
                 data = client.get_analyst_data(sym)
                 rows = _recent_rows(data.get("history") or [], recent_days)
                 if rows:
                     raw[sym] = rows
+                    src_by_sym[sym] = data.get("source") or "analyst"
             except Exception:
                 pass
             with _LOCK:
@@ -524,6 +526,7 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
             enrich = _enrich(sym)
             multi = len(rows)
             for r in rows:
+                r.setdefault("source", src_by_sym.get(sym, "analyst"))
                 actions.append(score_action(r, enrich, multi))
             time.sleep(0.1)
 
