@@ -11,6 +11,7 @@ Responsibilities:
 This module has no third-party dependencies — uses stdlib urllib only.
 """
 import base64
+import gzip
 import json
 import os
 import sys
@@ -65,6 +66,48 @@ def _migrate_legacy_token():
 
 
 _migrate_legacy_token()
+
+
+def _seed_token_from_env() -> None:
+    """Bootstrap the token from a SCHWAB_TOKEN_JSON env var. This is how you
+    re-authenticate on a host where you can't drop a file onto the volume
+    (e.g. Railway): run schwab_auth.py locally, paste the resulting
+    schwab_token.json contents into the SCHWAB_TOKEN_JSON variable, redeploy.
+    We only overwrite the on-disk token when the env carries a DIFFERENT
+    refresh_token (a fresh re-auth) or there's no token on disk — so a normal
+    rotated access token on the volume isn't clobbered on every restart."""
+    raw = os.environ.get("SCHWAB_TOKEN_JSON", "").strip()
+    if not raw:
+        return
+    try:
+        env_tok = json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[schwab] SCHWAB_TOKEN_JSON parse failed: {exc}", file=sys.stderr)
+        return
+    if not isinstance(env_tok, dict) or "refresh_token" not in env_tok:
+        return
+    disk_tok = {}
+    if TOKEN_PATH.exists():
+        try:
+            disk_tok = json.loads(TOKEN_PATH.read_text())
+        except Exception:
+            disk_tok = {}
+    if disk_tok.get("refresh_token") == env_tok.get("refresh_token"):
+        return  # same token already on disk — leave the rotated copy alone
+    env_tok.setdefault("obtained_at", int(time.time()))
+    env_tok.setdefault("expires_in", 1800)
+    try:
+        TOKEN_PATH.write_text(json.dumps(env_tok))
+        try:
+            os.chmod(TOKEN_PATH, 0o600)
+        except Exception:
+            pass
+        print("[schwab] seeded token from SCHWAB_TOKEN_JSON env", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[schwab] env token seed failed: {exc}", file=sys.stderr)
+
+
+_seed_token_from_env()
 
 API_BASE = "https://api.schwabapi.com"
 TOKEN_URL = f"{API_BASE}/v1/oauth/token"
@@ -121,6 +164,8 @@ class SchwabClient:
         self._lock = threading.RLock()
         self._cache: dict = {}  # key -> (expires_at_epoch, value)
         self._req_log: list = []  # epoch timestamps for rate accounting
+        self._refresh_blocked_until = 0.0  # cooldown after a failed refresh
+        self._auth_error: str | None = None  # last refresh failure (for status)
         env = _load_env()
         self.app_key = env.get("SCHWAB_APP_KEY", "").strip()
         self.app_secret = env.get("SCHWAB_APP_SECRET", "").strip()
@@ -194,6 +239,8 @@ class SchwabClient:
             "access_remaining_sec": access_remaining,
             "refresh_remaining_days": round(refresh_remaining_days, 2),
             "needs_refresh_soon": refresh_remaining_days < 1,
+            "auth_error": self._auth_error,
+            "needs_reauth": bool(self._auth_error),
         }
 
     def _access_token_valid(self) -> bool:
@@ -221,6 +268,10 @@ class SchwabClient:
             # may have refreshed between our caller's check and our acquire.
             if self._access_token_valid():
                 return True
+            # After a failure (e.g. expired refresh token) back off so we
+            # don't hammer Schwab and flood the log on every single request.
+            if time.time() < self._refresh_blocked_until:
+                return False
             refresh_token = self.token_data["refresh_token"]
             auth_header = base64.b64encode(
                 f"{self.app_key}:{self.app_secret}".encode()
@@ -243,13 +294,27 @@ class SchwabClient:
                 if "refresh_token" in new_data:
                     self.token_data["refresh_token"] = new_data["refresh_token"]
                 self._save_token_to_disk()
+                self._auth_error = None
                 return True
             except urllib.error.HTTPError as e:
-                body_txt = e.read().decode("utf-8", errors="replace")[:200]
-                print(f"[schwab] token refresh failed ({e.code}): {body_txt}", file=sys.stderr)
+                raw = e.read()
+                if (e.headers.get("Content-Encoding") or "").lower() == "gzip":
+                    try:
+                        raw = gzip.decompress(raw)
+                    except Exception:
+                        pass
+                body_txt = raw.decode("utf-8", errors="replace")[:200]
+                # Expired/invalid refresh token (Schwab refresh tokens last
+                # 7 days). Back off 5 min so we don't spam; re-auth needed.
+                self._refresh_blocked_until = time.time() + 300
+                self._auth_error = f"refresh failed ({e.code}): {body_txt}"
+                print(f"[schwab] token refresh failed ({e.code}); pausing 5 min — "
+                      f"re-auth needed if this persists: {body_txt}", file=sys.stderr)
                 return False
             except Exception as exc:  # noqa: BLE001
-                print(f"[schwab] token refresh error: {exc}", file=sys.stderr)
+                self._refresh_blocked_until = time.time() + 60
+                self._auth_error = f"refresh error: {exc}"
+                print(f"[schwab] token refresh error; pausing 60s: {exc}", file=sys.stderr)
                 return False
 
     def _ensure_token(self) -> str | None:
