@@ -4589,8 +4589,29 @@ def build_watchlist_analyst() -> dict:
             for r in ((_wltable.get_board() or {}).get("rows") or []):
                 s = str(r.get("symbol") or "").upper()
                 if s:
-                    px[s] = r.get("last")
+                    if r.get("last") is not None:
+                        px[s] = r.get("last")
                     comp[s] = r.get("company")
+        except Exception:
+            pass
+
+    # Schwab quote fallback for action symbols the board hasn't priced yet
+    # (it scans incrementally, so upside would otherwise be blank mid-scan).
+    need_px = sorted({
+        str(a.get("ticker") or "").upper() for a in all_actions
+        if str(a.get("ticker") or "").upper()
+        and (not wlset or str(a.get("ticker") or "").upper() in wlset)
+        and px.get(str(a.get("ticker") or "").upper()) is None
+    })
+    if need_px:
+        try:
+            sc = _schwab()
+            if sc is not None:
+                for i in range(0, len(need_px), 25):
+                    quotes = sc.get_quotes(need_px[i:i + 25]) or {}
+                    for s, qq in quotes.items():
+                        if qq and qq.get("last") is not None:
+                            px[str(s).upper()] = qq.get("last")
         except Exception:
             pass
 

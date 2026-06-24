@@ -8643,7 +8643,9 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
           {isScanning ? "Scanning for analyst actions…"
             : actions.length === 0
               ? <>No analyst actions cached yet — <button className="wl-rescan-link" onClick={startScan}>Scan now</button> to build today's board.</>
-              : "No actions match this filter."}
+              : (scope === "today" && type === "all")
+                ? <>No analyst actions dated today yet — {actions.length} recent {actions.length === 1 ? "action" : "actions"} on your watchlist. <button className="wl-rescan-link" onClick={() => setScope("recent")}>Show recent</button></>
+                : "No actions match this filter."}
         </div>
       ) : (
         <div className="wa-table-wrap">
