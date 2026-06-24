@@ -2911,7 +2911,26 @@ function WatchlistTableCard({
   }, [riskPct]);
   const [removed, setRemoved] = useState(() => new Set()); // optimistic hide after delete
   const [ctx, setCtx] = useState(null); // right-click menu: { x, y, symbol }
+  const [analystBy, setAnalystBy] = useState({}); // symbol -> fresh-action summary (badge)
   const pollRef = useRef(null);
+
+  // Fresh-analyst-action map for the in-table badge (cheap, server-cached).
+  useEffect(() => {
+    let stop = false;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/watchlist_analyst");
+        const d = await r.json();
+        if (!stop) setAnalystBy(d && d.by_symbol || {});
+      } catch (_) {/* badge is best-effort */}
+    };
+    grab();
+    const t = setInterval(grab, 5 * 60 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, []);
   const load = async () => {
     try {
       const r = await apiFetch("/api/watchlist_table");
@@ -3719,13 +3738,20 @@ function WatchlistTableCard({
     const k = c.k;
     switch (k) {
       case "symbol":
-        return /*#__PURE__*/React.createElement("td", {
-          key: k,
-          className: "wl-sym"
-        }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
-          className: "wl-prime-star",
-          title: "Prime setup — flow + swing agree, move is early"
-        }, "★ "), r.symbol);
+        {
+          const an = analystBy[r.symbol];
+          const fresh = an && an.fresh_today;
+          return /*#__PURE__*/React.createElement("td", {
+            key: k,
+            className: "wl-sym"
+          }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
+            className: "wl-prime-star",
+            title: "Prime setup — flow + swing agree, move is early"
+          }, "★ "), r.symbol, fresh && /*#__PURE__*/React.createElement("span", {
+            className: `wl-analyst-badge wl-an-${an.direction || "neutral"}`,
+            title: `Fresh analyst action today: ${an.action_type || "action"}${an.count > 1 ? ` (${an.count} firms)` : ""} · impact ${Math.round(an.score || 0)}`
+          }, "⚡"));
+        }
       case "company":
         return /*#__PURE__*/React.createElement("td", {
           key: k,
@@ -11233,6 +11259,194 @@ function MarketCalendarCard({
   })))))));
 }
 
+// Watchlist Analyst Actions — fresh upgrades/downgrades/PT changes/initiations
+// for watchlist names, drawn from the morning analyst-board scan. Today's
+// actions are highlighted so the morning read is instant.
+function WatchlistAnalystCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [data, setData] = useState(null);
+  const [scope, setScope] = useState("today"); // today | recent
+  const [type, setType] = useState("all"); // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
+  const [sortKey, setSortKey] = useState("impact"); // impact|upside|date|symbol
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef(null);
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/watchlist_analyst");
+      const d = await r.json();
+      setData(d);
+      return d;
+    } catch (_) {
+      return null;
+    }
+  };
+  useEffect(() => {
+    load();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const startScan = async () => {
+    setBusy(true);
+    try {
+      await apiFetch("/api/analyst_board/scan?days=2&force=1");
+    } catch (_) {}
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.scanning) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setBusy(false);
+      }
+    }, 4000);
+  };
+  const actions = data && data.actions || [];
+  const isScanning = busy || data && data.scanning;
+  const detected = data && data.detected_at ? new Date(data.detected_at).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }) : null;
+  const typePass = a => {
+    switch (type) {
+      case "upgrade":
+        return a.action_type === "upgrade";
+      case "downgrade":
+        return a.action_type === "downgrade";
+      case "pt_up":
+        return a.target_change_pct != null && a.target_change_pct > 0;
+      case "pt_cut":
+        return a.target_change_pct != null && a.target_change_pct < 0;
+      case "initiate":
+        return a.action_type === "initiate";
+      case "high":
+        return a.importance === "high";
+      case "multi":
+        return (a.multi_count || 1) > 1;
+      default:
+        return true;
+    }
+  };
+  const filtered = actions.filter(a => (scope === "today" ? a.fresh_today : true) && typePass(a));
+  const sorted = filtered.slice().sort((x, y) => {
+    if (sortKey === "upside") return (y.upside_pct == null ? -1e9 : y.upside_pct) - (x.upside_pct == null ? -1e9 : x.upside_pct);
+    if (sortKey === "date") return String(y.action_date).localeCompare(String(x.action_date));
+    if (sortKey === "symbol") return String(x.symbol).localeCompare(String(y.symbol));
+    return (y.impact_score || 0) - (x.impact_score || 0);
+  });
+  const freshCount = actions.filter(a => a.fresh_today).length;
+  const AT = {
+    upgrade: "Upgrade",
+    downgrade: "Downgrade",
+    initiate: "Initiation",
+    reiterate: "Reiteration",
+    target_change: "PT change"
+  };
+  const ptf = v => v == null ? "—" : "$" + Number(v).toFixed(2);
+  const pctf = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
+  const FILTERS = [["all", "All"], ["upgrade", "Upgrades"], ["downgrade", "Downgrades"], ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"], ["high", "High impact"], ["multi", "Multi-firm"]];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card wa-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head wa-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "kicker"
+  }, "Watchlist · ", freshCount, " fresh today", detected ? ` · scanned ${detected}` : ""), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Analyst Actions")), /*#__PURE__*/React.createElement("div", {
+    className: "wa-head-controls"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "seg"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: scope === "today" ? "active" : "",
+    onClick: () => setScope("today")
+  }, "Today"), /*#__PURE__*/React.createElement("button", {
+    className: scope === "recent" ? "active" : "",
+    onClick: () => setScope("recent")
+  }, "Recent")), /*#__PURE__*/React.createElement("select", {
+    value: sortKey,
+    onChange: e => setSortKey(e.target.value),
+    title: "Sort actions"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "impact"
+  }, "Sort: Impact"), /*#__PURE__*/React.createElement("option", {
+    value: "upside"
+  }, "Sort: Upside"), /*#__PURE__*/React.createElement("option", {
+    value: "date"
+  }, "Sort: Action date"), /*#__PURE__*/React.createElement("option", {
+    value: "symbol"
+  }, "Sort: Symbol")), /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: isScanning
+  }, isScanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
+    className: "wa-filters"
+  }, FILTERS.map(([k, lbl]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: `preset-pill ${type === k ? "active" : ""}`,
+    onClick: () => setType(k)
+  }, lbl))), sorted.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "wa-empty"
+  }, isScanning ? "Scanning for analyst actions…" : actions.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions cached yet — ", /*#__PURE__*/React.createElement("button", {
+    className: "wl-rescan-link",
+    onClick: startScan
+  }, "Scan now"), " to build today's board.") : "No actions match this filter.") : /*#__PURE__*/React.createElement("div", {
+    className: "wa-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "wa-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Company"), /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Firm"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "From"), /*#__PURE__*/React.createElement("th", null, "To"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Prev PT"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "New PT"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Upside"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Impact"), /*#__PURE__*/React.createElement("th", null, "Source"))), /*#__PURE__*/React.createElement("tbody", null, sorted.map((a, i) => /*#__PURE__*/React.createElement("tr", {
+    key: a.symbol + i,
+    className: `wa-row ${a.fresh_today ? "wa-fresh" : ""} wa-${a.direction || "neutral"}`,
+    onClick: () => onSwitchTicker && onSwitchTicker(a.symbol),
+    title: (a.reasons || []).join(" · ")
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "wa-sym"
+  }, a.fresh_today && /*#__PURE__*/React.createElement("span", {
+    className: "wa-bolt",
+    title: "Fresh today"
+  }, "⚡"), a.symbol, (a.multi_count || 1) > 1 && /*#__PURE__*/React.createElement("span", {
+    className: "wa-multi",
+    title: `${a.multi_count} firms acted`
+  }, "×", a.multi_count)), /*#__PURE__*/React.createElement("td", {
+    className: "wa-co",
+    title: a.company || ""
+  }, a.company || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "wa-date"
+  }, a.action_date || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "wa-firm"
+  }, a.firm), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: `wa-type wa-type-${a.direction || "neutral"}`
+  }, AT[a.action_type] || a.action_type || "—")), /*#__PURE__*/React.createElement("td", {
+    className: "wa-grade"
+  }, a.rating_from || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "wa-grade"
+  }, a.rating_to || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, ptf(a.prev_target)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, ptf(a.new_target)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${a.upside_pct == null ? "" : a.upside_pct >= 0 ? "up" : "down"}`
+  }, pctf(a.upside_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `wa-score wa-imp-${a.importance || "low"}`
+  }, a.impact_score != null ? Math.round(a.impact_score) : "—")), /*#__PURE__*/React.createElement("td", {
+    className: "wa-src"
+  }, a.source)))))));
+}
+
 // Top-of-app news ticker tape — the user's Finviz Elite feed. Hides itself
 // entirely until FINVIZ_AUTH_TOKEN is configured and headlines arrive, so it
 // never shows an empty strip. Headlines scroll right-to-left; hover pauses.
@@ -11354,6 +11568,7 @@ Object.assign(window, {
   PositionsCard: _memo(PositionsCard),
   AddPositionForm,
   MarketCalendarCard: _memo(MarketCalendarCard),
-  NewsTicker: _memo(NewsTicker)
+  NewsTicker: _memo(NewsTicker),
+  WatchlistAnalystCard: _memo(WatchlistAnalystCard)
 });
 })();

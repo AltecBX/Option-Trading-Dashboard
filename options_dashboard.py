@@ -4551,6 +4551,119 @@ def build_economic_calendar(days: int = 21) -> dict:
     }
 
 
+def build_watchlist_analyst() -> dict:
+    """Fresh analyst actions (upgrades/downgrades/initiations/reiterations/
+    PT changes) for watchlist symbols, drawn from the morning analyst-board
+    scan. Returns the full action rows for the Watchlist tab's Analyst Action
+    section plus a compact per-symbol summary for the in-table badge."""
+    today = (datetime.now(_ET).date().isoformat() if _ET
+             else datetime.utcnow().date().isoformat())
+
+    # Watchlist symbol set.
+    wlset = set()
+    try:
+        wl = _load_watchlist()
+        for s in (wl.get("symbols") or []):
+            sym = (s.get("symbol") if isinstance(s, dict) else str(s)) or ""
+            sym = sym.upper().strip()
+            if sym:
+                wlset.add(sym)
+    except Exception:
+        pass
+
+    # Analyst board (scored actions) + scan status.
+    board = {}
+    if _ANALYST_BOARD_AVAILABLE and _analyst_board is not None:
+        try:
+            board = _analyst_board.get_board() or {}
+        except Exception:
+            board = {}
+    status = board.get("status") or {}
+    detected_at = status.get("last_scan")
+    all_actions = board.get("actions") or []
+
+    # Current price + company from the watchlist board for upside math.
+    px, comp = {}, {}
+    if _WLTABLE_AVAILABLE and _wltable is not None:
+        try:
+            for r in ((_wltable.get_board() or {}).get("rows") or []):
+                s = str(r.get("symbol") or "").upper()
+                if s:
+                    px[s] = r.get("last")
+                    comp[s] = r.get("company")
+        except Exception:
+            pass
+
+    actions = []
+    for a in all_actions:
+        sym = str(a.get("ticker") or "").upper()
+        if not sym or (wlset and sym not in wlset):
+            continue
+        adate = str(a.get("date") or "")[:10]
+        new_t = a.get("new_target")
+        cur = px.get(sym)
+        upside = None
+        try:
+            if new_t and cur:
+                upside = round((float(new_t) - float(cur)) / float(cur) * 100.0, 1)
+        except (TypeError, ValueError, ZeroDivisionError):
+            upside = None
+        actions.append({
+            "symbol": sym,
+            "company": a.get("company") or comp.get(sym),
+            "action_date": adate,
+            "firm": a.get("firm") or "—",
+            "action_type": a.get("action_class"),
+            "direction": a.get("direction"),
+            "rating_from": a.get("prior_grade"),
+            "rating_to": a.get("new_grade"),
+            "prev_target": a.get("prior_target"),
+            "new_target": new_t,
+            "target_change_pct": a.get("target_change_pct"),
+            "current_price": cur,
+            "upside_pct": upside,
+            "impact_score": a.get("score"),
+            "importance": a.get("importance"),
+            "multi_count": a.get("multi_count", 1),
+            "source": a.get("source") or "analyst",
+            "reasons": a.get("reasons") or [],
+            "fresh_today": adate == today,
+        })
+
+    # Sort: today's first, then by impact score.
+    actions.sort(key=lambda r: (0 if r["fresh_today"] else 1, -(r["impact_score"] or 0)))
+
+    # Compact per-symbol summary for the in-table badge (best action wins).
+    by_symbol = {}
+    for r in actions:
+        s = r["symbol"]
+        cur = by_symbol.get(s)
+        if cur is None:
+            by_symbol[s] = {
+                "count": 1,
+                "fresh_today": r["fresh_today"],
+                "direction": r["direction"],
+                "action_type": r["action_type"],
+                "score": r["impact_score"],
+                "importance": r["importance"],
+            }
+        else:
+            cur["count"] += 1
+            cur["fresh_today"] = cur["fresh_today"] or r["fresh_today"]
+            if (r["impact_score"] or 0) > (cur["score"] or 0):
+                cur.update({"direction": r["direction"], "action_type": r["action_type"],
+                            "score": r["impact_score"], "importance": r["importance"]})
+
+    return {
+        "as_of": (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat()),
+        "detected_at": detected_at,
+        "scanning": bool(status.get("scanning")),
+        "count": len(actions),
+        "actions": actions,
+        "by_symbol": by_symbol,
+    }
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
     weeks = 12
     friday_baseline = False
@@ -6258,6 +6371,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/movers/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/watchlist_analyst":
+            # Fresh analyst actions filtered to the watchlist, for the
+            # Watchlist tab's Analyst Action section + in-table badge.
+            try:
+                self._send_json(build_watchlist_analyst())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/watchlist_analyst", exc)
+                self._send_json({"error": str(exc), "actions": [], "by_symbol": {}}, status=500)
             return
         if parsed.path == "/api/analyst_board":
             # Morning analyst board: ranked actions + game-plan summary.
