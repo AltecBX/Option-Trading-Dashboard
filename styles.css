@@ -8572,11 +8572,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wa-empty { color: var(--fg-3); font-size: 13px; padding: 22px 0; text-align: center; }
 
 .wa-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
-.wa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.wa-table thead th { position: sticky; top: 0; background: var(--bg-3); z-index: 1;
-  text-align: left; padding: 9px 12px; font-family: var(--font-mono); font-size: 10.5px;
-  font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--fg-3);
-  border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wa-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 920px; }
+.wa-table thead th { background: var(--bg-3); text-align: left; padding: 10px 12px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--fg-2); border-bottom: 2px solid var(--line-2);
+  white-space: nowrap; vertical-align: middle; }
 .wa-table th.num, .wa-table td.num { text-align: right; }
 .wa-table tbody tr { cursor: pointer; border-bottom: 1px solid var(--line); transition: background 0.1s ease; }
 .wa-table tbody tr:last-child { border-bottom: 0; }
