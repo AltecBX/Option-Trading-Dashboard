@@ -3765,6 +3765,11 @@ function App() {
     tab: "news",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Company profile"
+  }, /*#__PURE__*/React.createElement(StockProfileCard, {
+    apiFetch: apiFetch,
+    ticker: ticker
+  })), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "News"
   }, /*#__PURE__*/React.createElement(NewsHub, {
     apiFetch: apiFetch,

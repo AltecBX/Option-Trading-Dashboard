@@ -2917,6 +2917,9 @@ function App() {
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="news" active={activeTab}>
+          <CardErrorBoundary label="Company profile">
+            <StockProfileCard apiFetch={apiFetch} ticker={ticker} />
+          </CardErrorBoundary>
           <CardErrorBoundary label="News">
             <NewsHub apiFetch={apiFetch} ticker={ticker} companyName={loadError ? "" : (current && current.name) || ""} />
           </CardErrorBoundary>
