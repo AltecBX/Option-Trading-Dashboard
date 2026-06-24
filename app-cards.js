@@ -11347,6 +11347,11 @@ function WatchlistAnalystCard({
     target_change: "PT change"
   };
   const ptf = v => v == null ? "—" : "$" + Number(v).toFixed(2);
+  const usDate = s => {
+    if (!s) return "—";
+    const p = String(s).slice(0, 10).split("-"); // YYYY-MM-DD -> M-D-YYYY
+    return p.length === 3 ? `${+p[1]}-${+p[2]}-${p[0]}` : s;
+  };
   const pctf = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
   const FILTERS = [["all", "All"], ["upgrade", "Upgrades"], ["downgrade", "Downgrades"], ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"], ["high", "High impact"], ["multi", "Multi-firm"]];
   return /*#__PURE__*/React.createElement("div", {
@@ -11427,7 +11432,7 @@ function WatchlistAnalystCard({
     title: a.company || ""
   }, a.company || "—"), /*#__PURE__*/React.createElement("td", {
     className: "wa-date"
-  }, a.action_date || "—"), /*#__PURE__*/React.createElement("td", {
+  }, usDate(a.action_date)), /*#__PURE__*/React.createElement("td", {
     className: "wa-firm"
   }, a.firm), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
     className: `wa-type wa-type-${a.direction || "neutral"}`

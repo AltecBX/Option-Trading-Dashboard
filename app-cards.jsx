@@ -8605,6 +8605,11 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
 
   const AT = { upgrade: "Upgrade", downgrade: "Downgrade", initiate: "Initiation", reiterate: "Reiteration", target_change: "PT change" };
   const ptf = (v) => v == null ? "—" : "$" + Number(v).toFixed(2);
+  const usDate = (s) => {
+    if (!s) return "—";
+    const p = String(s).slice(0, 10).split("-");   // YYYY-MM-DD -> M-D-YYYY
+    return p.length === 3 ? `${+p[1]}-${+p[2]}-${p[0]}` : s;
+  };
   const pctf = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
   const FILTERS = [["all", "All"], ["upgrade", "Upgrades"], ["downgrade", "Downgrades"],
     ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"],
@@ -8664,7 +8669,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
                     {(a.multi_count || 1) > 1 && <span className="wa-multi" title={`${a.multi_count} firms acted`}>×{a.multi_count}</span>}
                   </td>
                   <td className="wa-co" title={a.company || ""}>{a.company || "—"}</td>
-                  <td className="wa-date">{a.action_date || "—"}</td>
+                  <td className="wa-date">{usDate(a.action_date)}</td>
                   <td className="wa-firm">{a.firm}</td>
                   <td><span className={`wa-type wa-type-${a.direction || "neutral"}`}>{AT[a.action_type] || a.action_type || "—"}</span></td>
                   <td className="wa-grade">{a.rating_from || "—"}</td>
