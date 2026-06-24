@@ -4880,6 +4880,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api/") and not self._check_api_key():
             self._send_unauthorized()
             return
+        # ── Schwab in-app reconnect: exchange the pasted redirect URL ──
+        if parsed.path == "/api/broker/schwab/exchange":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 100_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                redirect_url = (payload.get("redirect_url") or "").strip()
+                c = _get_schwab_client() if (_SCHWAB_AVAILABLE and _get_schwab_client) else None
+                if c is None:
+                    self._send_json({"ok": False, "error": "Schwab not configured"}, status=400)
+                    return
+                ok, err = c.exchange_code(redirect_url)
+                self._send_json({"ok": ok, "error": err}, status=200 if ok else 400)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
         # ── Dismiss a watchlist alert (v1.15) ──────────────────────
         if parsed.path == "/api/watchlist_alerts/dismiss":
             try:
@@ -5162,8 +5179,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
-        # Gate every /api/* path behind the API key when set
-        if parsed.path.startswith("/api/") and not self._check_api_key():
+        # Gate every /api/* path behind the API key when set. The Schwab OAuth
+        # callback is hit by the browser redirect (no key header), and only
+        # accepts a Schwab-issued code, so it's exempt.
+        if (parsed.path.startswith("/api/")
+                and parsed.path != "/api/broker/schwab/callback"
+                and not self._check_api_key()):
             self._send_unauthorized()
             return
         # Top-level safety net: any uncaught exception in an /api/ handler
@@ -5346,6 +5367,47 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             body = _dumps(payload).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self._cors_headers()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if parsed.path == "/api/broker/schwab/authorize_url":
+            try:
+                c = _get_schwab_client() if (_SCHWAB_AVAILABLE and _get_schwab_client) else None
+                url = c.authorize_url() if c else None
+                if not url:
+                    self._send_json({"error": "Schwab app key not configured"}, status=400)
+                    return
+                self._send_json({"url": url})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/broker/schwab/callback":
+            # One-click flow (when SCHWAB_REDIRECT_URI points here): Schwab
+            # redirects the browser back with ?code=...; exchange + save.
+            qs = parse_qs(parsed.query)
+            code = (qs.get("code", [""])[0] or "").strip()
+            ok, err = False, "Schwab not configured"
+            try:
+                c = _get_schwab_client() if (_SCHWAB_AVAILABLE and _get_schwab_client) else None
+                if c is not None:
+                    ok, err = c.exchange_code(code)
+            except Exception as exc:  # noqa: BLE001
+                ok, err = False, str(exc)
+            page = ("<!doctype html><meta charset=utf-8><title>Schwab</title>"
+                    "<body style='font-family:system-ui;background:#0f1115;color:#e8e8e8;"
+                    "display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
+                    "<div style='text-align:center'>"
+                    + ("<h2 style='color:#3ec78f'>Schwab reconnected ✓</h2>"
+                       "<p>You can close this tab and return to the dashboard.</p>"
+                       if ok else
+                       f"<h2 style='color:#e06666'>Reconnect failed</h2><p>{(err or '')[:300]}</p>")
+                    + "</div></body>")
+            body = page.encode("utf-8")
+            self.send_response(200 if ok else 400)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self._cors_headers()
             self.send_header("Content-Length", str(len(body)))

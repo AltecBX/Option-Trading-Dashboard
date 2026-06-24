@@ -11604,6 +11604,116 @@ function StockProfileCard({
   }, fmtPay(o.pay) || "—")))));
 }
 
+// Schwab in-app reconnect. Schwab refresh tokens die every 7 days; this turns
+// the re-auth into a ~20s in-browser action: open login, paste the redirect
+// URL back, done — no terminal, no Railway edits. Renders as a top banner
+// only when reconnect is needed; as a full panel in the Manage tab always.
+function SchwabReconnect({
+  apiFetch,
+  placement
+}) {
+  const [st, setSt] = useState(null); // data_source.schwab
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // {ok, text}
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/data_source");
+      const d = await r.json();
+      setSt(d && d.schwab || null);
+    } catch (_) {}
+  };
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, []);
+  const needs = !!(st && st.needs_reauth);
+  if (placement === "banner" && !needs) return null; // banner only when broken
+
+  const openLogin = async () => {
+    setMsg(null);
+    try {
+      const r = await apiFetch("/api/broker/schwab/authorize_url");
+      const d = await r.json();
+      if (d.url) window.open(d.url, "_blank", "noopener");else setMsg({
+        ok: false,
+        text: d.error || "Could not start Schwab login"
+      });
+    } catch (e) {
+      setMsg({
+        ok: false,
+        text: String(e)
+      });
+    }
+  };
+  const complete = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await apiFetch("/api/broker/schwab/exchange", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          redirect_url: url
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setMsg({
+          ok: true,
+          text: "Schwab reconnected ✓"
+        });
+        setUrl("");
+        load();
+      } else setMsg({
+        ok: false,
+        text: d.error || "Reconnect failed"
+      });
+    } catch (e) {
+      setMsg({
+        ok: false,
+        text: String(e)
+      });
+    }
+    setBusy(false);
+  };
+  const connected = !!(st && st.configured && !needs);
+  const cls = placement === "banner" ? "schwab-reauth schwab-banner" : "card schwab-reauth";
+  return /*#__PURE__*/React.createElement("div", {
+    className: cls
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "schwab-reauth-head"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "schwab-reauth-title"
+  }, "Schwab connection"), /*#__PURE__*/React.createElement("span", {
+    className: `schwab-dot ${connected ? "ok" : needs ? "bad" : "warn"}`
+  }, connected ? "Connected" : needs ? "Disconnected — re-authorize" : "Checking…")), /*#__PURE__*/React.createElement("ol", {
+    className: "schwab-steps"
+  }, /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: openLogin
+  }, "Open Schwab login"), /*#__PURE__*/React.createElement("span", {
+    className: "schwab-hint"
+  }, " log in & approve. Your browser lands on a ", /*#__PURE__*/React.createElement("b", null, "127.0.0.1"), " page that won't load — that's expected.")), /*#__PURE__*/React.createElement("li", null, "Copy that full URL and paste it here:", /*#__PURE__*/React.createElement("div", {
+    className: "schwab-paste"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: url,
+    onChange: e => setUrl(e.target.value),
+    placeholder: "https://127.0.0.1:8182/?code=…"
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: complete,
+    disabled: busy || !url
+  }, busy ? "…" : "Complete")))), msg && /*#__PURE__*/React.createElement("div", {
+    className: `schwab-msg ${msg.ok ? "ok" : "bad"}`
+  }, msg.text), connected && st && st.refresh_remaining_days != null && /*#__PURE__*/React.createElement("div", {
+    className: "schwab-note"
+  }, "Re-authorization will be needed again within ~7 days."));
+}
+
 // News tab shell: headlines by default (so the News tab opens on the news),
 // with the company profile tucked behind a toggle so it has its own view.
 function NewsHub({
@@ -11861,6 +11971,7 @@ Object.assign(window, {
   NewsTicker: _memo(NewsTicker),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard),
   StockProfileCard: _memo(StockProfileCard),
-  NewsHub: _memo(NewsHub)
+  NewsHub: _memo(NewsHub),
+  SchwabReconnect: _memo(SchwabReconnect)
 });
 })();
