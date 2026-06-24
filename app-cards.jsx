@@ -8655,6 +8655,14 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
       ) : (
         <div className="wa-table-wrap">
           <table className="wa-table">
+            <colgroup>
+              <col style={{ width: "7%" }} /><col style={{ width: "16%" }} />
+              <col style={{ width: "8%" }} /><col style={{ width: "13%" }} />
+              <col style={{ width: "9%" }} /><col style={{ width: "8%" }} />
+              <col style={{ width: "9%" }} /><col style={{ width: "7%" }} />
+              <col style={{ width: "7%" }} /><col style={{ width: "7%" }} />
+              <col style={{ width: "5%" }} /><col style={{ width: "8%" }} />
+            </colgroup>
             <thead><tr>
               <th>Symbol</th><th>Company</th><th>Date</th><th>Firm</th><th>Type</th>
               <th>From</th><th>To</th><th className="num">Prev PT</th><th className="num">New PT</th>

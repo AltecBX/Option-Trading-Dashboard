@@ -8572,16 +8572,16 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wa-empty { color: var(--fg-3); font-size: 13px; padding: 22px 0; text-align: center; }
 
 .wa-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
-.wa-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 920px; }
+.wa-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 920px; table-layout: fixed; }
 .wa-table thead th { background: var(--bg-3); text-align: left; padding: 10px 12px;
   font-family: var(--font-mono); font-size: 11px; font-weight: 800; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--fg-2); border-bottom: 2px solid var(--line-2);
-  white-space: nowrap; vertical-align: middle; }
+  white-space: nowrap; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; }
 .wa-table th.num, .wa-table td.num { text-align: right; }
 .wa-table tbody tr { cursor: pointer; border-bottom: 1px solid var(--line); transition: background 0.1s ease; }
 .wa-table tbody tr:last-child { border-bottom: 0; }
 .wa-table tbody tr:hover { background: var(--bg-3); }
-.wa-table td { padding: 9px 12px; white-space: nowrap; color: var(--fg-2); }
+.wa-table td { padding: 9px 12px; white-space: nowrap; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; }
 /* Fresh-today rows stand out with an accent left edge + subtle tint. */
 .wa-row.wa-fresh { background: color-mix(in oklch, var(--accent) 7%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 .wa-row.wa-fresh:hover { background: color-mix(in oklch, var(--accent) 12%, transparent); }
