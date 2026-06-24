@@ -11507,7 +11507,8 @@ function WatchlistAnalystCard({
 // doesn't add a top-row tab. Description, sector/industry, HQ, website, execs.
 function StockProfileCard({
   apiFetch,
-  ticker
+  ticker,
+  alwaysShow
 }) {
   const [p, setP] = useState(null);
   const [open, setOpen] = useState(false);
@@ -11527,7 +11528,15 @@ function StockProfileCard({
       stop = true;
     };
   }, [ticker]);
-  if (!p || !p.summary && !p.sector && !p.industry) return null;
+  const empty = !p || !p.summary && !p.sector && !p.industry;
+  if (empty) {
+    if (!alwaysShow) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card prof-card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "prof-summary"
+    }, p ? "No profile available for this symbol." : "Loading profile…"));
+  }
   const fmtEmp = n => n == null ? null : Number(n).toLocaleString();
   const fmtPay = n => n == null ? null : n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : "$" + Number(n).toLocaleString();
   const site = p.website ? p.website.startsWith("http") ? p.website : `https://${p.website}` : null;
@@ -11560,9 +11569,17 @@ function StockProfileCard({
     className: "prof-m"
   }, /*#__PURE__*/React.createElement("span", null, "Employees"), /*#__PURE__*/React.createElement("b", null, fmtEmp(p.employees))), p.address && /*#__PURE__*/React.createElement("div", {
     className: "prof-m"
-  }, /*#__PURE__*/React.createElement("span", null, "Headquarters"), /*#__PURE__*/React.createElement("b", null, p.address)), p.phone && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "Headquarters"), /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement("a", {
+    className: "prof-link",
+    href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address)}`,
+    target: "_blank",
+    rel: "noopener noreferrer"
+  }, p.address))), p.phone && /*#__PURE__*/React.createElement("div", {
     className: "prof-m"
-  }, /*#__PURE__*/React.createElement("span", null, "Phone"), /*#__PURE__*/React.createElement("b", null, p.phone))), summary && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "Phone"), /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement("a", {
+    className: "prof-link",
+    href: `tel:${String(p.phone).replace(/[^0-9+]/g, "")}`
+  }, p.phone)))), summary && /*#__PURE__*/React.createElement("div", {
     className: "prof-summary"
   }, open ? summary : clamped, summary.length > 340 && /*#__PURE__*/React.createElement("button", {
     className: "prof-more",
@@ -11571,16 +11588,49 @@ function StockProfileCard({
     className: "prof-execs"
   }, /*#__PURE__*/React.createElement("div", {
     className: "prof-execs-title"
-  }, "Key executives"), p.officers.map((o, i) => /*#__PURE__*/React.createElement("div", {
+  }, "Key executives"), /*#__PURE__*/React.createElement("div", {
+    className: "prof-exec prof-exec-head"
+  }, /*#__PURE__*/React.createElement("span", null, "Name"), /*#__PURE__*/React.createElement("span", null, "Title"), /*#__PURE__*/React.createElement("span", {
+    className: "prof-exec-pay"
+  }, "Pay")), p.officers.map((o, i) => /*#__PURE__*/React.createElement("div", {
     className: "prof-exec",
     key: i
   }, /*#__PURE__*/React.createElement("span", {
     className: "prof-exec-name"
   }, o.name), /*#__PURE__*/React.createElement("span", {
     className: "prof-exec-title"
-  }, o.title || ""), fmtPay(o.pay) && /*#__PURE__*/React.createElement("span", {
+  }, o.title || "—"), /*#__PURE__*/React.createElement("span", {
     className: "prof-exec-pay"
-  }, fmtPay(o.pay))))));
+  }, fmtPay(o.pay) || "—")))));
+}
+
+// News tab shell: headlines by default (so the News tab opens on the news),
+// with the company profile tucked behind a toggle so it has its own view.
+function NewsHub({
+  apiFetch,
+  ticker,
+  companyName
+}) {
+  const [view, setView] = useState("news"); // news | profile
+  return /*#__PURE__*/React.createElement("div", {
+    className: "newshub"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "seg newshub-seg"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: view === "news" ? "active" : "",
+    onClick: () => setView("news")
+  }, "Headlines"), /*#__PURE__*/React.createElement("button", {
+    className: view === "profile" ? "active" : "",
+    onClick: () => setView("profile")
+  }, "Profile")), view === "news" ? /*#__PURE__*/React.createElement(NewsCard, {
+    apiFetch: apiFetch,
+    ticker: ticker,
+    companyName: companyName
+  }) : /*#__PURE__*/React.createElement(StockProfileCard, {
+    apiFetch: apiFetch,
+    ticker: ticker,
+    alwaysShow: true
+  }));
 }
 
 // Top-of-app news ticker tape — the user's Finviz Elite feed. Hides itself
@@ -11695,7 +11745,7 @@ function NewsTicker({
     className: "nt-sep"
   }, "●"))));
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(40, qsyms.length * 4);
+  const qdur = Math.max(36, qsyms.length * 3.5); // a touch faster than the news tape
   const QSeq = ({
     hidden
   }) => /*#__PURE__*/React.createElement("div", {
@@ -11810,6 +11860,7 @@ Object.assign(window, {
   MarketCalendarCard: _memo(MarketCalendarCard),
   NewsTicker: _memo(NewsTicker),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard),
-  StockProfileCard: _memo(StockProfileCard)
+  StockProfileCard: _memo(StockProfileCard),
+  NewsHub: _memo(NewsHub)
 });
 })();
