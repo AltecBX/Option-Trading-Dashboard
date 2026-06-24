@@ -11394,7 +11394,10 @@ function WatchlistAnalystCard({
   }, isScanning ? "Scanning for analyst actions…" : actions.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions cached yet — ", /*#__PURE__*/React.createElement("button", {
     className: "wl-rescan-link",
     onClick: startScan
-  }, "Scan now"), " to build today's board.") : "No actions match this filter.") : /*#__PURE__*/React.createElement("div", {
+  }, "Scan now"), " to build today's board.") : scope === "today" && type === "all" ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions dated today yet — ", actions.length, " recent ", actions.length === 1 ? "action" : "actions", " on your watchlist. ", /*#__PURE__*/React.createElement("button", {
+    className: "wl-rescan-link",
+    onClick: () => setScope("recent")
+  }, "Show recent")) : "No actions match this filter.") : /*#__PURE__*/React.createElement("div", {
     className: "wa-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "wa-table"
