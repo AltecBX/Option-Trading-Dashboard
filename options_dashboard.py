@@ -3050,6 +3050,42 @@ def _ticker_info(symbol: str) -> dict:
     return info
 
 
+def build_profile(symbol: str) -> dict:
+    """Company profile (description, sector/industry, HQ, website, key
+    executives) — the Yahoo Finance "Profile" page, from the cached .info."""
+    info = _ticker_info(symbol) or {}
+    officers = []
+    for o in (info.get("companyOfficers") or [])[:6]:
+        if not o.get("name"):
+            continue
+        officers.append({
+            "name": o.get("name"),
+            "title": o.get("title"),
+            "pay": o.get("totalPay"),
+            "age": o.get("age"),
+        })
+    addr = ", ".join(str(x) for x in [
+        info.get("address1"), info.get("city"), info.get("state"),
+        info.get("zip"), info.get("country")] if x)
+    return {
+        "symbol": symbol,
+        "name": info.get("longName") or info.get("shortName"),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "summary": info.get("longBusinessSummary"),
+        "website": info.get("website"),
+        "ir_website": info.get("irWebsite"),
+        "employees": info.get("fullTimeEmployees"),
+        "country": info.get("country"),
+        "city": info.get("city"),
+        "address": addr,
+        "phone": info.get("phone"),
+        "market_cap": info.get("marketCap"),
+        "exchange": info.get("fullExchangeName") or info.get("exchange"),
+        "officers": officers,
+    }
+
+
 def build_payload(
     ticker: str,
     weeks: int,
@@ -6282,6 +6318,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/news", exc)
                 self._send_json({"error": str(exc), "items": []}, status=500)
+            return
+        if parsed.path == "/api/profile":
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                self._send_json(build_profile(symbol))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/profile", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/finviz_news":
             if not _FINVIZ_NEWS_AVAILABLE:

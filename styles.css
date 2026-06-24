@@ -3147,7 +3147,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .tab-bar {
   grid-column: 1 / -1;
   position: sticky;
-  top: 48px;            /* park just below the pinned news ticker */
+  top: var(--mn-h, 0px);   /* park just below the pinned news/ticker stack */
   z-index: 40;
   display: flex;
   align-items: center;
@@ -8518,17 +8518,20 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* ══════════════════════════════════════════════════════════════════════
    NEWS TICKER TAPE — top-of-app Finviz Elite feed (full-width marquee).
    ══════════════════════════════════════════════════════════════════════ */
-.newsticker {
+.mn-stack {                       /* sticky wrapper: news tape + ticker tape */
   grid-column: 1 / -1;
+  display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px;
+  position: sticky; top: 0; z-index: 250;   /* always visible while scrolling */
+}
+.newsticker {
   display: flex; align-items: stretch;
-  height: 36px; margin: 0 0 12px;
+  height: 36px;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-card);
-  position: sticky; top: 0; z-index: 250;   /* always visible while scrolling */
 }
 .nt-badge {
   flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center;
-  align-items: flex-start; padding: 0 12px;
+  align-items: center; text-align: center; padding: 0 12px;
   font-family: var(--font-mono); font-size: 10.5px; font-weight: 800; line-height: 1.05;
   letter-spacing: 0.04em; color: #fff; background: #1C799E; white-space: nowrap;
 }
@@ -8623,6 +8626,53 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* On small screens the news ticker stays in normal flow (scrolls away) so it
    doesn't eat the limited vertical space; the tab bar drops its ticker offset. */
 @media (max-width: 900px) {
-  .newsticker { position: static; }
+  .mn-stack { position: static; }
   .tab-bar { top: 4px; }
+}
+
+/* ── Mentioned-tickers tape (Bloomberg/CNBC style, below the news tape) ── */
+.mnq-bar { height: 30px; }
+.mnq-badge { background: var(--bg-3); color: var(--fg-2); border-right: 1px solid var(--line); }
+.mnq-item { display: inline-flex; align-items: baseline; gap: 7px; padding: 0 14px;
+  background: transparent; border: 0; cursor: pointer; white-space: nowrap;
+  border-right: 1px solid var(--line); height: 100%; }
+.mnq-item:hover .mnq-sym { color: var(--accent); }
+.mnq-sym { font-family: var(--font-mono); font-size: 12px; font-weight: 800; color: var(--fg); }
+.mnq-px { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2); }
+.mnq-chg { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; }
+.mnq-chg.up { color: var(--up); }
+.mnq-chg.down { color: var(--down); }
+
+/* ── Company profile card (inside the News tab) ── */
+.prof-card { margin-bottom: var(--row-gap); }
+.prof-site { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--accent);
+  text-decoration: none; white-space: nowrap; }
+.prof-site:hover { text-decoration: underline; }
+.prof-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.prof-tag { font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding: 3px 9px;
+  border-radius: 999px; background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent), transparent 60%); }
+.prof-tag-ind { background: var(--bg-3); color: var(--fg-2); border-color: var(--line); }
+.prof-tag.prof-muted { background: transparent; color: var(--fg-3); border-color: var(--line); font-weight: 600; }
+.prof-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-bottom: 12px; }
+.prof-m { display: flex; flex-direction: column; gap: 1px; }
+.prof-m span { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--fg-3); }
+.prof-m b { font-size: 13px; color: var(--fg); font-weight: 600; }
+.prof-summary { font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.prof-more { background: transparent; border: 0; color: var(--accent); cursor: pointer;
+  font-size: 13px; font-weight: 600; padding: 0; }
+.prof-more:hover { text-decoration: underline; }
+.prof-execs { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.prof-execs-title { font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--fg-3); font-weight: 700; margin-bottom: 8px; }
+.prof-exec { display: grid; grid-template-columns: 1.3fr 2fr auto; gap: 12px; align-items: baseline;
+  padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 13px; }
+.prof-exec:last-child { border-bottom: 0; }
+.prof-exec-name { font-weight: 600; color: var(--fg); }
+.prof-exec-title { color: var(--fg-3); }
+.prof-exec-pay { font-family: var(--font-mono); color: var(--fg-2); text-align: right; }
+@media (max-width: 760px) {
+  .prof-exec { grid-template-columns: 1fr auto; }
+  .prof-exec-title { grid-column: 1 / -1; font-size: 12px; }
 }
