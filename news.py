@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import html as _htmlmod
 import threading
 import time
 import urllib.parse
@@ -241,12 +243,83 @@ def _google_news(symbol: str, name: str | None) -> list[dict]:
     return out
 
 
+try:
+    from zoneinfo import ZoneInfo as _ZI
+    _NY = _ZI("America/New_York")
+except Exception:
+    _NY = None
+
+_FINVIZ_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+
+def _finviz_quote_news(symbol: str) -> list[dict]:
+    """Per-ticker news straight from Finviz's public quote page — the freshest
+    source for the press-release wires (Business Wire, GlobeNewswire, etc.)
+    that Yahoo Finance and Finnhub lag on."""
+    url = f"https://finviz.com/quote.ashx?t={urllib.parse.quote(symbol)}&p=d"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _FINVIZ_UA})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            page = resp.read().decode("utf-8", "replace")
+    except Exception:
+        return []
+    i = page.find('id="news-table"')
+    if i < 0:
+        return []
+    seg = page[i:page.find("</table>", i)]
+    now_et = datetime.now(_NY) if _NY else datetime.now(timezone.utc)
+    out, cur_date = [], None
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", seg, re.S):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        if not cells:
+            continue
+        datetxt = re.sub(r"<[^>]+>", "", cells[0]).strip()
+        link = re.search(r'<a [^>]*class="tab-link-news"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', row, re.S)
+        if not link:
+            continue
+        href = link.group(1).strip()
+        title = _htmlmod.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", link.group(2))).strip())
+        if not title or not href:
+            continue
+        srcm = re.search(r'news-link-right[^>]*>\s*(?:<span[^>]*>)?\s*\(?\s*([^<()]+?)\s*\)?\s*<', row)
+        source = (srcm.group(1).strip() if srcm else "") or "Finviz"
+        # Date cell: "Today 06:30AM" | "Jun-22-26 06:30PM" | "06:30AM" (carry date).
+        parts = datetxt.split()
+        timetok = parts[-1] if parts else ""
+        datetok = parts[0] if len(parts) >= 2 else None
+        if datetok:
+            if datetok.lower() == "today":
+                cur_date = now_et.date()
+            else:
+                try:
+                    cur_date = datetime.strptime(datetok, "%b-%d-%y").date()
+                except Exception:
+                    pass
+        try:
+            t = datetime.strptime(timetok, "%I:%M%p").time()
+        except Exception:
+            t = datetime.min.time()
+        d = cur_date or now_et.date()
+        try:
+            dt = datetime.combine(d, t).replace(tzinfo=_NY or timezone.utc)
+            ts = dt.timestamp()
+        except Exception:
+            ts = 0.0
+        out.append({"title": title, "source": source, "url": href, "ts": ts,
+                    "summary": "", "image": None, "origin": "Finviz"})
+        if len(out) >= 40:
+            break
+    return out
+
+
 def _key(title: str) -> str:
     return "".join(ch.lower() for ch in title if ch.isalnum())[:80]
 
 
 def _build(symbol: str, name: str | None, limit: int) -> dict:
-    items = _yf_news(symbol) + _finnhub_news(symbol) + _google_news(symbol, name)
+    items = (_yf_news(symbol) + _finnhub_news(symbol) + _google_news(symbol, name)
+             + _finviz_quote_news(symbol))
     seen: dict[str, dict] = {}
     for it in items:
         k = _key(it["title"])

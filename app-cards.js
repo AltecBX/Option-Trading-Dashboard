@@ -11745,7 +11745,7 @@ function NewsTicker({
     className: "nt-sep"
   }, "●"))));
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(36, qsyms.length * 3.5); // a touch faster than the news tape
+  const qdur = Math.max(34, qsyms.length * 3.3); // a touch faster than the news tape
   const QSeq = ({
     hidden
   }) => /*#__PURE__*/React.createElement("div", {
