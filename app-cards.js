@@ -11406,7 +11406,55 @@ function WatchlistAnalystCard({
     className: "wa-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "wa-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Company"), /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Firm"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "From"), /*#__PURE__*/React.createElement("th", null, "To"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("colgroup", null, /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "7%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "16%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "8%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "13%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "9%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "8%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "9%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "7%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "7%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "7%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "5%"
+    }
+  }), /*#__PURE__*/React.createElement("col", {
+    style: {
+      width: "8%"
+    }
+  })), /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Company"), /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Firm"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "From"), /*#__PURE__*/React.createElement("th", null, "To"), /*#__PURE__*/React.createElement("th", {
     className: "num"
   }, "Prev PT"), /*#__PURE__*/React.createElement("th", {
     className: "num"
