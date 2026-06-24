@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.55";
+const APP_VERSION = "2.56";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2903,6 +2903,10 @@ function App() {
 
       {/* ── MAIN ──────────────────────────────────────────────────────────── */}
       <main className="main">
+        {/* Shows only when Schwab needs re-authorization — one-click reconnect. */}
+        <CardErrorBoundary label="Schwab reconnect">
+          <SchwabReconnect apiFetch={apiFetch} placement="banner" />
+        </CardErrorBoundary>
         <TabPanel tab="discover" active={activeTab}>
           <CardErrorBoundary label="Discovery screeners">
             <ScreenersHub
@@ -3812,6 +3816,9 @@ function App() {
             against the current chain (or BS estimate when chain misses).
             Manual entry only; broker import is a future ship. */}
         <TabPanel tab="manage" active={activeTab}>
+        <CardErrorBoundary label="Schwab connection">
+          <SchwabReconnect apiFetch={apiFetch} placement="panel" />
+        </CardErrorBoundary>
         <div id="jump-positions" className="jump-anchor" aria-hidden="true"></div>
         <PositionsCard
           positions={positions}

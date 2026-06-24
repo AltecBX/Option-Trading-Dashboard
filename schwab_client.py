@@ -111,6 +111,11 @@ _seed_token_from_env()
 
 API_BASE = "https://api.schwabapi.com"
 TOKEN_URL = f"{API_BASE}/v1/oauth/token"
+AUTHORIZE_URL = f"{API_BASE}/v1/oauth/authorize"
+# Must match a callback registered on your Schwab app. Default is the
+# loopback used by schwab_auth.py; override with SCHWAB_REDIRECT_URI if you
+# register the deployed app's /api/broker/schwab/callback for one-click auth.
+REDIRECT_URI = os.environ.get("SCHWAB_REDIRECT_URI", "https://127.0.0.1:8182").strip()
 QUOTES_URL = f"{API_BASE}/marketdata/v1/quotes"
 CHAINS_URL = f"{API_BASE}/marketdata/v1/chains"
 HISTORY_URL_TPL = f"{API_BASE}/marketdata/v1/pricehistory"
@@ -316,6 +321,66 @@ class SchwabClient:
                 self._auth_error = f"refresh error: {exc}"
                 print(f"[schwab] token refresh error; pausing 60s: {exc}", file=sys.stderr)
                 return False
+
+    def authorize_url(self) -> str | None:
+        """Schwab login URL for the in-app reconnect flow."""
+        if not self.app_key:
+            return None
+        return AUTHORIZE_URL + "?" + urllib.parse.urlencode({
+            "client_id": self.app_key, "redirect_uri": REDIRECT_URI,
+        })
+
+    def exchange_code(self, redirect_url: str) -> tuple:
+        """Exchange the authorization-code redirect (the full URL Schwab sent
+        the browser to, containing ?code=...) — or a bare code — for a fresh
+        token set, and persist it. Returns (ok, error)."""
+        if not self.app_key or not self.app_secret:
+            return False, "Schwab app key/secret not configured"
+        raw = (redirect_url or "").strip()
+        code = ""
+        if "code=" in raw:
+            try:
+                q = urllib.parse.urlparse(raw).query or raw.split("?", 1)[-1]
+                code = urllib.parse.parse_qs(q).get("code", [""])[0]
+            except Exception:
+                code = ""
+        else:
+            code = raw
+        code = code.strip()
+        if not code:
+            return False, "No authorization code found in the pasted URL"
+        auth_header = base64.b64encode(
+            f"{self.app_key}:{self.app_secret}".encode()).decode()
+        body = urllib.parse.urlencode({
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT_URI,
+        }).encode()
+        req = urllib.request.Request(TOKEN_URL, data=body, method="POST")
+        req.add_header("Authorization", f"Basic {auth_header}")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            rb = e.read()
+            if (e.headers.get("Content-Encoding") or "").lower() == "gzip":
+                try:
+                    rb = gzip.decompress(rb)
+                except Exception:
+                    pass
+            return False, f"{e.code}: {rb.decode('utf-8', 'replace')[:200]}"
+        except Exception as exc:  # noqa: BLE001
+            return False, str(exc)
+        if "access_token" not in data or "refresh_token" not in data:
+            return False, "Schwab response missing tokens"
+        data["obtained_at"] = int(time.time())
+        with self._lock:
+            self.token_data = data
+            self._refresh_blocked_until = 0.0
+            self._auth_error = None
+            self._save_token_to_disk()
+        return True, None
 
     def _ensure_token(self) -> str | None:
         """Returns a valid access token or None if we can't get one."""

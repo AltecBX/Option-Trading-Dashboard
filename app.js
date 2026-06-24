@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.55";
+const APP_VERSION = "2.56";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3745,7 +3745,12 @@ function App() {
     className: "sb-expiry-dte"
   }, FRONT_DTE, "d")))), /*#__PURE__*/React.createElement("main", {
     className: "main"
-  }, /*#__PURE__*/React.createElement(TabPanel, {
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Schwab reconnect"
+  }, /*#__PURE__*/React.createElement(SchwabReconnect, {
+    apiFetch: apiFetch,
+    placement: "banner"
+  })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "discover",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
@@ -4864,7 +4869,12 @@ function App() {
   })))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "manage",
     active: activeTab
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Schwab connection"
+  }, /*#__PURE__*/React.createElement(SchwabReconnect, {
+    apiFetch: apiFetch,
+    placement: "panel"
+  })), /*#__PURE__*/React.createElement("div", {
     id: "jump-positions",
     className: "jump-anchor",
     "aria-hidden": "true"
