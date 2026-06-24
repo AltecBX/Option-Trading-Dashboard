@@ -8699,7 +8699,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
 
 // Company profile (Yahoo "Profile" page) — shown inside the News tab so it
 // doesn't add a top-row tab. Description, sector/industry, HQ, website, execs.
-function StockProfileCard({ apiFetch, ticker }) {
+function StockProfileCard({ apiFetch, ticker, alwaysShow }) {
   const [p, setP] = useState(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -8716,7 +8716,11 @@ function StockProfileCard({ apiFetch, ticker }) {
     return () => { stop = true; };
   }, [ticker]);
 
-  if (!p || (!p.summary && !p.sector && !p.industry)) return null;
+  const empty = !p || (!p.summary && !p.sector && !p.industry);
+  if (empty) {
+    if (!alwaysShow) return null;
+    return <div className="card prof-card"><div className="prof-summary">{p ? "No profile available for this symbol." : "Loading profile…"}</div></div>;
+  }
 
   const fmtEmp = (n) => n == null ? null : Number(n).toLocaleString();
   const fmtPay = (n) => n == null ? null : n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : "$" + Number(n).toLocaleString();
@@ -8740,8 +8744,11 @@ function StockProfileCard({ apiFetch, ticker }) {
       </div>
       <div className="prof-meta">
         {fmtEmp(p.employees) && <div className="prof-m"><span>Employees</span><b>{fmtEmp(p.employees)}</b></div>}
-        {p.address && <div className="prof-m"><span>Headquarters</span><b>{p.address}</b></div>}
-        {p.phone && <div className="prof-m"><span>Phone</span><b>{p.phone}</b></div>}
+        {p.address && <div className="prof-m"><span>Headquarters</span><b>
+          <a className="prof-link" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address)}`}
+             target="_blank" rel="noopener noreferrer">{p.address}</a></b></div>}
+        {p.phone && <div className="prof-m"><span>Phone</span><b>
+          <a className="prof-link" href={`tel:${String(p.phone).replace(/[^0-9+]/g, "")}`}>{p.phone}</a></b></div>}
       </div>
       {summary && (
         <div className="prof-summary">
@@ -8754,15 +8761,35 @@ function StockProfileCard({ apiFetch, ticker }) {
       {p.officers && p.officers.length > 0 && (
         <div className="prof-execs">
           <div className="prof-execs-title">Key executives</div>
+          <div className="prof-exec prof-exec-head">
+            <span>Name</span><span>Title</span><span className="prof-exec-pay">Pay</span>
+          </div>
           {p.officers.map((o, i) => (
             <div className="prof-exec" key={i}>
               <span className="prof-exec-name">{o.name}</span>
-              <span className="prof-exec-title">{o.title || ""}</span>
-              {fmtPay(o.pay) && <span className="prof-exec-pay">{fmtPay(o.pay)}</span>}
+              <span className="prof-exec-title">{o.title || "—"}</span>
+              <span className="prof-exec-pay">{fmtPay(o.pay) || "—"}</span>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// News tab shell: headlines by default (so the News tab opens on the news),
+// with the company profile tucked behind a toggle so it has its own view.
+function NewsHub({ apiFetch, ticker, companyName }) {
+  const [view, setView] = useState("news");   // news | profile
+  return (
+    <div className="newshub">
+      <div className="seg newshub-seg">
+        <button className={view === "news" ? "active" : ""} onClick={() => setView("news")}>Headlines</button>
+        <button className={view === "profile" ? "active" : ""} onClick={() => setView("profile")}>Profile</button>
+      </div>
+      {view === "news"
+        ? <NewsCard apiFetch={apiFetch} ticker={ticker} companyName={companyName} />
+        : <StockProfileCard apiFetch={apiFetch} ticker={ticker} alwaysShow />}
     </div>
   );
 }
@@ -8851,7 +8878,7 @@ function NewsTicker({ apiFetch, onSwitchTicker }) {
   );
 
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(40, qsyms.length * 4);
+  const qdur = Math.max(36, qsyms.length * 3.5);   // a touch faster than the news tape
   const QSeq = ({ hidden }) => (
     <div className="nt-seq" aria-hidden={hidden || undefined}>
       {qsyms.map((s, i) => {
@@ -8926,4 +8953,5 @@ Object.assign(window, { TickerLogo,
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),
   PositionsCard: _memo(PositionsCard), AddPositionForm,
   MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker),
-  WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard) });
+  WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard),
+  NewsHub: _memo(NewsHub) });

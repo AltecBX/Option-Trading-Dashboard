@@ -8632,7 +8632,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* ── Mentioned-tickers tape (Bloomberg/CNBC style, below the news tape) ── */
 .mnq-bar { height: 30px; }
-.mnq-badge { background: var(--bg-3); color: var(--fg-2); border-right: 1px solid var(--line); }
+.mnq-badge { background: #1C799E; color: #fff; }   /* match the Market News badge */
 .mnq-item { display: inline-flex; align-items: baseline; gap: 7px; padding: 0 14px;
   background: transparent; border: 0; cursor: pointer; white-space: nowrap;
   border-right: 1px solid var(--line); height: 100%; }
@@ -8666,13 +8666,20 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .prof-execs { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
 .prof-execs-title { font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase;
   letter-spacing: 0.05em; color: var(--fg-3); font-weight: 700; margin-bottom: 8px; }
-.prof-exec { display: grid; grid-template-columns: 1.3fr 2fr auto; gap: 12px; align-items: baseline;
-  padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 13px; }
+.prof-link { color: var(--accent); text-decoration: none; }
+.prof-link:hover { text-decoration: underline; }
+.prof-exec { display: grid; grid-template-columns: 1.4fr 2.2fr 90px; gap: 12px; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 13px; }
 .prof-exec:last-child { border-bottom: 0; }
+.prof-exec-head { border-bottom: 1px solid var(--line); padding-bottom: 7px; }
+.prof-exec-head span { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--fg-3); font-weight: 700; }
 .prof-exec-name { font-weight: 600; color: var(--fg); }
 .prof-exec-title { color: var(--fg-3); }
 .prof-exec-pay { font-family: var(--font-mono); color: var(--fg-2); text-align: right; }
+.newshub-seg { margin-bottom: 12px; }
 @media (max-width: 760px) {
-  .prof-exec { grid-template-columns: 1fr auto; }
+  .prof-exec { grid-template-columns: 1fr 70px; }
   .prof-exec-title { grid-column: 1 / -1; font-size: 12px; }
+  .prof-exec-head .prof-exec-title { display: none; }
 }
