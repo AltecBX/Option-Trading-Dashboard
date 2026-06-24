@@ -11355,15 +11355,15 @@ function WatchlistAnalystCard({
   const pctf = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
   const FILTERS = [["all", "All"], ["upgrade", "Upgrades"], ["downgrade", "Downgrades"], ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"], ["high", "High impact"], ["multi", "Multi-firm"]];
   return /*#__PURE__*/React.createElement("div", {
-    className: "card wa-card"
+    className: "card waa-card"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "card-head wa-head"
+    className: "card-head waa-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "kicker"
   }, "Watchlist · ", freshCount, " fresh today", detected ? ` · scanned ${detected}` : ""), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Analyst Actions")), /*#__PURE__*/React.createElement("div", {
-    className: "wa-head-controls"
+    className: "waa-head-controls"
   }, /*#__PURE__*/React.createElement("div", {
     className: "seg"
   }, /*#__PURE__*/React.createElement("button", {
@@ -11389,13 +11389,13 @@ function WatchlistAnalystCard({
     onClick: startScan,
     disabled: isScanning
   }, isScanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
-    className: "wa-filters"
+    className: "waa-filters"
   }, FILTERS.map(([k, lbl]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     className: `preset-pill ${type === k ? "active" : ""}`,
     onClick: () => setType(k)
   }, lbl))), sorted.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "wa-empty"
+    className: "waa-empty"
   }, isScanning ? "Scanning for analyst actions…" : actions.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions cached yet — ", /*#__PURE__*/React.createElement("button", {
     className: "wl-rescan-link",
     onClick: startScan
@@ -11403,9 +11403,9 @@ function WatchlistAnalystCard({
     className: "wl-rescan-link",
     onClick: () => setScope("recent")
   }, "Show recent")) : "No actions match this filter.") : /*#__PURE__*/React.createElement("div", {
-    className: "wa-table-wrap"
+    className: "waa-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "wa-table"
+    className: "waa-table"
   }, /*#__PURE__*/React.createElement("colgroup", null, /*#__PURE__*/React.createElement("col", {
     style: {
       width: "7%"
@@ -11464,30 +11464,30 @@ function WatchlistAnalystCard({
     className: "num"
   }, "Impact"), /*#__PURE__*/React.createElement("th", null, "Source"))), /*#__PURE__*/React.createElement("tbody", null, sorted.map((a, i) => /*#__PURE__*/React.createElement("tr", {
     key: a.symbol + i,
-    className: `wa-row ${a.fresh_today ? "wa-fresh" : ""} wa-${a.direction || "neutral"}`,
+    className: `waa-row ${a.fresh_today ? "waa-fresh" : ""} waa-${a.direction || "neutral"}`,
     onClick: () => onSwitchTicker && onSwitchTicker(a.symbol),
     title: (a.reasons || []).join(" · ")
   }, /*#__PURE__*/React.createElement("td", {
-    className: "wa-sym"
+    className: "waa-sym"
   }, a.fresh_today && /*#__PURE__*/React.createElement("span", {
-    className: "wa-bolt",
+    className: "waa-bolt",
     title: "Fresh today"
   }, "⚡"), a.symbol, (a.multi_count || 1) > 1 && /*#__PURE__*/React.createElement("span", {
-    className: "wa-multi",
+    className: "waa-multi",
     title: `${a.multi_count} firms acted`
   }, "×", a.multi_count)), /*#__PURE__*/React.createElement("td", {
-    className: "wa-co",
+    className: "waa-co",
     title: a.company || ""
   }, a.company || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "wa-date"
+    className: "waa-date"
   }, usDate(a.action_date)), /*#__PURE__*/React.createElement("td", {
-    className: "wa-firm"
+    className: "waa-firm"
   }, a.firm), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-    className: `wa-type wa-type-${a.direction || "neutral"}`
+    className: `waa-type waa-type-${a.direction || "neutral"}`
   }, AT[a.action_type] || a.action_type || "—")), /*#__PURE__*/React.createElement("td", {
-    className: "wa-grade"
+    className: "waa-grade"
   }, a.rating_from || "—"), /*#__PURE__*/React.createElement("td", {
-    className: "wa-grade"
+    className: "waa-grade"
   }, a.rating_to || "—"), /*#__PURE__*/React.createElement("td", {
     className: "num"
   }, ptf(a.prev_target)), /*#__PURE__*/React.createElement("td", {
@@ -11497,9 +11497,9 @@ function WatchlistAnalystCard({
   }, pctf(a.upside_pct)), /*#__PURE__*/React.createElement("td", {
     className: "num"
   }, /*#__PURE__*/React.createElement("span", {
-    className: `wa-score wa-imp-${a.importance || "low"}`
+    className: `waa-score waa-imp-${a.importance || "low"}`
   }, a.impact_score != null ? Math.round(a.impact_score) : "—")), /*#__PURE__*/React.createElement("td", {
-    className: "wa-src"
+    className: "waa-src"
   }, a.source)))))));
 }
 

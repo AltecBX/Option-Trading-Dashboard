@@ -8616,13 +8616,13 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     ["high", "High impact"], ["multi", "Multi-firm"]];
 
   return (
-    <div className="card wa-card">
-      <div className="card-head wa-head">
+    <div className="card waa-card">
+      <div className="card-head waa-head">
         <div>
           <span className="kicker">Watchlist · {freshCount} fresh today{detected ? ` · scanned ${detected}` : ""}</span>
           <div className="card-title">Analyst Actions</div>
         </div>
-        <div className="wa-head-controls">
+        <div className="waa-head-controls">
           <div className="seg">
             <button className={scope === "today" ? "active" : ""} onClick={() => setScope("today")}>Today</button>
             <button className={scope === "recent" ? "active" : ""} onClick={() => setScope("recent")}>Recent</button>
@@ -8637,14 +8637,14 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
         </div>
       </div>
 
-      <div className="wa-filters">
+      <div className="waa-filters">
         {FILTERS.map(([k, lbl]) => (
           <button key={k} className={`preset-pill ${type === k ? "active" : ""}`} onClick={() => setType(k)}>{lbl}</button>
         ))}
       </div>
 
       {sorted.length === 0 ? (
-        <div className="wa-empty">
+        <div className="waa-empty">
           {isScanning ? "Scanning for analyst actions…"
             : actions.length === 0
               ? <>No analyst actions cached yet — <button className="wl-rescan-link" onClick={startScan}>Scan now</button> to build today's board.</>
@@ -8653,8 +8653,8 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
                 : "No actions match this filter."}
         </div>
       ) : (
-        <div className="wa-table-wrap">
-          <table className="wa-table">
+        <div className="waa-table-wrap">
+          <table className="waa-table">
             <colgroup>
               <col style={{ width: "7%" }} /><col style={{ width: "16%" }} />
               <col style={{ width: "8%" }} /><col style={{ width: "13%" }} />
@@ -8670,23 +8670,23 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
             </tr></thead>
             <tbody>
               {sorted.map((a, i) => (
-                <tr key={a.symbol + i} className={`wa-row ${a.fresh_today ? "wa-fresh" : ""} wa-${a.direction || "neutral"}`}
+                <tr key={a.symbol + i} className={`waa-row ${a.fresh_today ? "waa-fresh" : ""} waa-${a.direction || "neutral"}`}
                     onClick={() => onSwitchTicker && onSwitchTicker(a.symbol)} title={(a.reasons || []).join(" · ")}>
-                  <td className="wa-sym">
-                    {a.fresh_today && <span className="wa-bolt" title="Fresh today">⚡</span>}{a.symbol}
-                    {(a.multi_count || 1) > 1 && <span className="wa-multi" title={`${a.multi_count} firms acted`}>×{a.multi_count}</span>}
+                  <td className="waa-sym">
+                    {a.fresh_today && <span className="waa-bolt" title="Fresh today">⚡</span>}{a.symbol}
+                    {(a.multi_count || 1) > 1 && <span className="waa-multi" title={`${a.multi_count} firms acted`}>×{a.multi_count}</span>}
                   </td>
-                  <td className="wa-co" title={a.company || ""}>{a.company || "—"}</td>
-                  <td className="wa-date">{usDate(a.action_date)}</td>
-                  <td className="wa-firm">{a.firm}</td>
-                  <td><span className={`wa-type wa-type-${a.direction || "neutral"}`}>{AT[a.action_type] || a.action_type || "—"}</span></td>
-                  <td className="wa-grade">{a.rating_from || "—"}</td>
-                  <td className="wa-grade">{a.rating_to || "—"}</td>
+                  <td className="waa-co" title={a.company || ""}>{a.company || "—"}</td>
+                  <td className="waa-date">{usDate(a.action_date)}</td>
+                  <td className="waa-firm">{a.firm}</td>
+                  <td><span className={`waa-type waa-type-${a.direction || "neutral"}`}>{AT[a.action_type] || a.action_type || "—"}</span></td>
+                  <td className="waa-grade">{a.rating_from || "—"}</td>
+                  <td className="waa-grade">{a.rating_to || "—"}</td>
                   <td className="num">{ptf(a.prev_target)}</td>
                   <td className="num">{ptf(a.new_target)}</td>
                   <td className={`num ${a.upside_pct == null ? "" : a.upside_pct >= 0 ? "up" : "down"}`}>{pctf(a.upside_pct)}</td>
-                  <td className="num"><span className={`wa-score wa-imp-${a.importance || "low"}`}>{a.impact_score != null ? Math.round(a.impact_score) : "—"}</span></td>
-                  <td className="wa-src">{a.source}</td>
+                  <td className="num"><span className={`waa-score waa-imp-${a.importance || "low"}`}>{a.impact_score != null ? Math.round(a.impact_score) : "—"}</span></td>
+                  <td className="waa-src">{a.source}</td>
                 </tr>
               ))}
             </tbody>
