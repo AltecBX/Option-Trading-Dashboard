@@ -10964,7 +10964,7 @@ function MarketCalendarCard({
         const next = {};
         for (let i = 0; i < syms.length; i += 25) {
           const batch = syms.slice(i, i + 25);
-          const r = await apiFetch(`/api/quote?symbols=${batch.join(",")}`);
+          const r = await apiFetch(`/api/quote?tickers=${batch.join(",")}`);
           const d = await r.json();
           const res = d && d.results || {};
           for (const s of batch) {
@@ -11503,13 +11503,96 @@ function WatchlistAnalystCard({
   }, a.source)))))));
 }
 
+// Company profile (Yahoo "Profile" page) — shown inside the News tab so it
+// doesn't add a top-row tab. Description, sector/industry, HQ, website, execs.
+function StockProfileCard({
+  apiFetch,
+  ticker
+}) {
+  const [p, setP] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let stop = false;
+    setP(null);
+    setOpen(false);
+    if (!ticker) return;
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/profile?symbol=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (!stop) setP(d);
+      } catch (_) {}
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [ticker]);
+  if (!p || !p.summary && !p.sector && !p.industry) return null;
+  const fmtEmp = n => n == null ? null : Number(n).toLocaleString();
+  const fmtPay = n => n == null ? null : n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : "$" + Number(n).toLocaleString();
+  const site = p.website ? p.website.startsWith("http") ? p.website : `https://${p.website}` : null;
+  const summary = p.summary || "";
+  const clamped = summary.length > 340 ? summary.slice(0, 340).trimEnd() + "…" : summary;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card prof-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Company profile"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, p.name || p.symbol)), site && /*#__PURE__*/React.createElement("a", {
+    className: "prof-site",
+    href: site,
+    target: "_blank",
+    rel: "noopener noreferrer"
+  }, "Website ↗")), /*#__PURE__*/React.createElement("div", {
+    className: "prof-tags"
+  }, p.sector && /*#__PURE__*/React.createElement("span", {
+    className: "prof-tag"
+  }, p.sector), p.industry && /*#__PURE__*/React.createElement("span", {
+    className: "prof-tag prof-tag-ind"
+  }, p.industry), p.exchange && /*#__PURE__*/React.createElement("span", {
+    className: "prof-tag prof-muted"
+  }, p.exchange)), /*#__PURE__*/React.createElement("div", {
+    className: "prof-meta"
+  }, fmtEmp(p.employees) && /*#__PURE__*/React.createElement("div", {
+    className: "prof-m"
+  }, /*#__PURE__*/React.createElement("span", null, "Employees"), /*#__PURE__*/React.createElement("b", null, fmtEmp(p.employees))), p.address && /*#__PURE__*/React.createElement("div", {
+    className: "prof-m"
+  }, /*#__PURE__*/React.createElement("span", null, "Headquarters"), /*#__PURE__*/React.createElement("b", null, p.address)), p.phone && /*#__PURE__*/React.createElement("div", {
+    className: "prof-m"
+  }, /*#__PURE__*/React.createElement("span", null, "Phone"), /*#__PURE__*/React.createElement("b", null, p.phone))), summary && /*#__PURE__*/React.createElement("div", {
+    className: "prof-summary"
+  }, open ? summary : clamped, summary.length > 340 && /*#__PURE__*/React.createElement("button", {
+    className: "prof-more",
+    onClick: () => setOpen(o => !o)
+  }, open ? " Show less" : " Show more")), p.officers && p.officers.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "prof-execs"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "prof-execs-title"
+  }, "Key executives"), p.officers.map((o, i) => /*#__PURE__*/React.createElement("div", {
+    className: "prof-exec",
+    key: i
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "prof-exec-name"
+  }, o.name), /*#__PURE__*/React.createElement("span", {
+    className: "prof-exec-title"
+  }, o.title || ""), fmtPay(o.pay) && /*#__PURE__*/React.createElement("span", {
+    className: "prof-exec-pay"
+  }, fmtPay(o.pay))))));
+}
+
 // Top-of-app news ticker tape — the user's Finviz Elite feed. Hides itself
 // entirely until FINVIZ_AUTH_TOKEN is configured and headlines arrive, so it
 // never shows an empty strip. Headlines scroll right-to-left; hover pauses.
 function NewsTicker({
-  apiFetch
+  apiFetch,
+  onSwitchTicker
 }) {
   const [items, setItems] = useState([]);
+  const [quotes, setQuotes] = useState({}); // SYM -> {last, chg}
+  const stackRef = useRef(null);
   useEffect(() => {
     let stop = false,
       timer = null;
@@ -11527,9 +11610,68 @@ function NewsTicker({
       if (timer) clearTimeout(timer);
     };
   }, []);
+
+  // Tickers mentioned across the headlines (Finviz tags them, comma-joined).
+  const symbols = useMemo(() => {
+    const seen = new Set(),
+      out = [];
+    for (const it of items) {
+      for (const raw of String(it.ticker || "").split(/[,\s]+/)) {
+        const s = raw.toUpperCase().trim();
+        if (s && /^[A-Z][A-Z.\-]{0,5}$/.test(s) && !seen.has(s)) {
+          seen.add(s);
+          out.push(s);
+        }
+      }
+      if (out.length >= 40) break;
+    }
+    return out;
+  }, [items]);
+
+  // Live quotes for the mentioned tickers — Bloomberg/CNBC-style tape below.
+  useEffect(() => {
+    let stop = false,
+      timer = null;
+    if (!symbols.length) {
+      setQuotes({});
+      return;
+    }
+    const tick = async () => {
+      try {
+        const next = {};
+        for (let i = 0; i < symbols.length; i += 25) {
+          const batch = symbols.slice(i, i + 25);
+          const r = await apiFetch(`/api/quote?tickers=${batch.join(",")}`);
+          const d = await r.json();
+          const res = d && d.results || {};
+          for (const s of batch) if (res[s]) next[s] = {
+            last: res[s].last,
+            chg: res[s].change_pct
+          };
+        }
+        if (!stop) setQuotes(next);
+      } catch (_) {}
+      if (!stop) timer = setTimeout(tick, 30000);
+    };
+    tick();
+    return () => {
+      stop = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [symbols]);
+
+  // Keep the tab bar parked just below however tall the (sticky) stack is —
+  // 0 when nothing renders. Measured each render so it's always in sync.
+  useEffect(() => {
+    const el = stackRef.current;
+    const h = el ? el.offsetHeight + 8 : 0;
+    document.documentElement.style.setProperty("--mn-h", h ? `${h}px` : "0px");
+    return () => {
+      document.documentElement.style.setProperty("--mn-h", "0px");
+    };
+  });
   if (!items.length) return null; // unconfigured / empty → no strip
 
-  // Steady, easy reading speed: duration scales with how many headlines.
   const dur = Math.max(55, items.length * 6.5);
   const Seq = ({
     hidden
@@ -11552,9 +11694,36 @@ function NewsTicker({
   }, it.title), /*#__PURE__*/React.createElement("span", {
     className: "nt-sep"
   }, "●"))));
+  const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
+  const qdur = Math.max(40, qsyms.length * 4);
+  const QSeq = ({
+    hidden
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "nt-seq",
+    "aria-hidden": hidden || undefined
+  }, qsyms.map((s, i) => {
+    const q = quotes[s],
+      up = (q.chg || 0) >= 0;
+    return /*#__PURE__*/React.createElement("button", {
+      key: s + i,
+      className: "mnq-item",
+      onClick: () => onSwitchTicker && onSwitchTicker(s),
+      title: `Open ${s}`
+    }, /*#__PURE__*/React.createElement("b", {
+      className: "mnq-sym"
+    }, s), /*#__PURE__*/React.createElement("span", {
+      className: "mnq-px"
+    }, "$", Number(q.last).toFixed(2)), /*#__PURE__*/React.createElement("span", {
+      className: `mnq-chg ${up ? "up" : "down"}`
+    }, q.chg == null ? "" : `${up ? "▲" : "▼"} ${Math.abs(q.chg).toFixed(2)}%`));
+  }));
   return /*#__PURE__*/React.createElement("div", {
+    className: "mn-stack",
+    ref: stackRef,
+    "aria-label": "Market news and ticker tape"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "newsticker",
-    "aria-label": "Finviz news feed"
+    "aria-label": "Market news feed"
   }, /*#__PURE__*/React.createElement("div", {
     className: "nt-badge",
     title: "Live market news feed"
@@ -11567,7 +11736,22 @@ function NewsTicker({
     }
   }, /*#__PURE__*/React.createElement(Seq, null), /*#__PURE__*/React.createElement(Seq, {
     hidden: true
-  }))));
+  })))), qsyms.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "newsticker mnq-bar",
+    "aria-label": "Mentioned tickers"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "nt-badge mnq-badge",
+    title: "Live quotes for tickers in the news"
+  }, /*#__PURE__*/React.createElement("span", null, "Tickers")), /*#__PURE__*/React.createElement("div", {
+    className: "nt-viewport"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "nt-track",
+    style: {
+      animationDuration: `${qdur}s`
+    }
+  }, /*#__PURE__*/React.createElement(QSeq, null), /*#__PURE__*/React.createElement(QSeq, {
+    hidden: true
+  })))));
 }
 
 // Memoize the heavy, self-contained ticker cards so unrelated App state
@@ -11625,6 +11809,7 @@ Object.assign(window, {
   AddPositionForm,
   MarketCalendarCard: _memo(MarketCalendarCard),
   NewsTicker: _memo(NewsTicker),
-  WatchlistAnalystCard: _memo(WatchlistAnalystCard)
+  WatchlistAnalystCard: _memo(WatchlistAnalystCard),
+  StockProfileCard: _memo(StockProfileCard)
 });
 })();
