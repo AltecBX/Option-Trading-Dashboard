@@ -150,6 +150,72 @@ def _period_ret(close: "pd.Series", start: date):
         return None
 
 
+def _streak_metrics(closes: list) -> dict:
+    """Consecutive up/down-day streak analysis vs the symbol's OWN history.
+    Current streak (direction + length), the longest up/down runs ever seen
+    in the window, and — for prior runs that reached the current length —
+    how often it happened and the forward 1/3/5-day returns + win rate. Lets
+    the UI flag streaks that are extreme relative to the stock's own record."""
+    out = {
+        "streak_dir": None, "streak_count": 0, "longest_up": 0, "longest_down": 0,
+        "streak_times_before": None, "streak_fwd1": None, "streak_fwd3": None,
+        "streak_fwd5": None, "streak_winrate": None,
+    }
+    n = len(closes)
+    if n < 30:
+        return out
+    sign = [0] * n
+    for i in range(1, n):
+        if closes[i] > closes[i - 1]:
+            sign[i] = 1
+        elif closes[i] < closes[i - 1]:
+            sign[i] = -1
+    run = [0] * n
+    rdir = [0] * n
+    for i in range(1, n):
+        s = sign[i]
+        if s == 0:
+            run[i], rdir[i] = 0, 0
+        elif sign[i - 1] == s:
+            run[i], rdir[i] = run[i - 1] + 1, s
+        else:
+            run[i], rdir[i] = 1, s
+    cur_dir, cur_count = rdir[n - 1], run[n - 1]
+    out["streak_dir"] = {1: "up", -1: "down", 0: "flat"}[cur_dir]
+    out["streak_count"] = cur_count
+    out["longest_up"] = max([run[i] for i in range(n) if rdir[i] == 1] or [0])
+    out["longest_down"] = max([run[i] for i in range(n) if rdir[i] == -1] or [0])
+    if cur_dir != 0 and cur_count > 0:
+        f1, f3, f5, wins5, tot5, times = [], [], [], 0, 0, 0
+        # Each prior run that reached >= cur_count passes through run==cur_count
+        # exactly once — count/measure forward returns from that day.
+        for i in range(1, n - 1):
+            if rdir[i] == cur_dir and run[i] == cur_count:
+                times += 1
+                base = closes[i]
+                if not base:
+                    continue
+                if i + 1 < n:
+                    f1.append((closes[i + 1] / base - 1) * 100.0)
+                if i + 3 < n:
+                    f3.append((closes[i + 3] / base - 1) * 100.0)
+                if i + 5 < n:
+                    f5.append((closes[i + 5] / base - 1) * 100.0)
+                    tot5 += 1
+                    if closes[i + 5] > base:
+                        wins5 += 1
+        out["streak_times_before"] = times
+        if f1:
+            out["streak_fwd1"] = round(sum(f1) / len(f1), 2)
+        if f3:
+            out["streak_fwd3"] = round(sum(f3) / len(f3), 2)
+        if f5:
+            out["streak_fwd5"] = round(sum(f5) / len(f5), 2)
+        if tot5:
+            out["streak_winrate"] = round(wins5 / tot5 * 100.0)
+    return out
+
+
 def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
     closes = [float(x) for x in close.dropna().tolist()]
     if len(closes) < 20:
@@ -195,6 +261,7 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
         "rvol_rank": rvol_rank,
         "rsi": round(rsi, 1) if rsi is not None else None,
         "rel_vol": round(vols[-1] / avgvol, 2) if (avgvol and vols and vols[-1]) else None,
+        "volume": int(vols[-1]) if (vols and vols[-1] == vols[-1]) else None,
         "from_ma20": round((last - ma20) / ma20 * 100.0, 1) if ma20 else None,
         "from_ma50": round((last - ma50) / ma50 * 100.0, 1) if ma50 else None,
         "from_ma200": round((last - ma200) / ma200 * 100.0, 1) if ma200 else None,
@@ -202,6 +269,7 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
         "mtd": _period_ret(close, mo_start),
         "qtd": _period_ret(close, qt_start),
         "ytd": _period_ret(close, yr_start),
+        **_streak_metrics(closes),
     }
 
 
@@ -537,7 +605,7 @@ def _scan_worker(symbols: list[str]) -> None:
             part = symbols[i:i + CHUNK]
             df = None
             try:
-                df = yf.download(" ".join(part), period="1y", interval="1d",
+                df = yf.download(" ".join(part), period="2y", interval="1d",
                                  progress=False, group_by="ticker", threads=False)
                 multi = isinstance(df.columns, pd.MultiIndex)
                 # Slice each symbol's OHLC from the batch, then enrich the chunk

@@ -11604,6 +11604,293 @@ function StockProfileCard({
   }, fmtPay(o.pay) || "—")))));
 }
 
+// Streaks scanner — consecutive up/down day runs for every watchlist name,
+// judged against each stock's OWN history (not a fixed 5/6/8), to surface
+// names that may be near exhaustion / due for mean reversion.
+function WatchlistStreaksCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [board, setBoard] = useState(null);
+  const [liveQ, setLiveQ] = useState({});
+  const [dir, setDir] = useState("all"); // all | up | down
+  const [fSector, setFSector] = useState("all");
+  const [minCount, setMinCount] = useState(3);
+  const [flagOnly, setFlagOnly] = useState(false);
+  const [sortKey, setSortKey] = useState("extremity");
+  const pollRef = useRef(null);
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/watchlist_table");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (_) {
+      return null;
+    }
+  };
+  useEffect(() => {
+    load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(load, 5 * 60 * 1000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const rows = board && board.rows || [];
+  const status = board && board.status || {};
+
+  // Flag/extremity logic — relative to each stock's own record.
+  const decorate = r => {
+    const longestSame = r.streak_dir === "up" ? r.longest_up || 0 : r.longest_down || 0;
+    const ext = longestSame > 0 ? r.streak_count / longestSame : 0;
+    const nearRecord = longestSame >= 4 && r.streak_count >= longestSame - 1;
+    const atRecord = longestSame >= 4 && r.streak_count >= longestSame;
+    const rare = r.streak_times_before != null && r.streak_times_before <= 3 && r.streak_count >= 4;
+    const flags = [];
+    if (r.streak_dir === "down" && nearRecord) {
+      flags.push(atRecord ? "Record Down Streak" : "Near Record Down Streak");
+      flags.push("Possible Exhaustion Setup");
+    }
+    if (r.streak_dir === "up" && nearRecord) flags.push(atRecord ? "Record Up Streak" : "Near Record Up Streak");
+    if (rare) flags.push("Rare Streak");
+    if (r.streak_dir === "down" && (nearRecord || rare)) flags.push("Mean Reversion Watch");
+    return {
+      ...r,
+      ext,
+      nearRecord,
+      rare,
+      flags
+    };
+  };
+  const liveVal = r => {
+    const q = liveQ[r.symbol] || {};
+    const last = q.last != null ? q.last : r.last;
+    const open = q.open != null ? q.open : r.open;
+    const chg = q.change_pct != null ? q.change_pct : r.change;
+    const fromOpen = open && last != null ? (last - open) / open * 100 : null;
+    return {
+      last,
+      chg,
+      fromOpen
+    };
+  };
+  const sectors = useMemo(() => Array.from(new Set(rows.map(r => r.sector).filter(Boolean))).sort(), [rows]);
+  const view = useMemo(() => {
+    let v = rows.filter(r => r.streak_dir && r.streak_dir !== "flat" && (r.streak_count || 0) >= minCount).filter(r => dir === "all" || r.streak_dir === dir).filter(r => fSector === "all" || r.sector === fSector).map(decorate);
+    if (flagOnly) v = v.filter(r => r.flags.length > 0);
+    const sv = r => {
+      switch (sortKey) {
+        case "count":
+          return r.streak_count || 0;
+        case "winrate":
+          return r.streak_winrate == null ? -1 : r.streak_winrate;
+        case "fwd5":
+          return r.streak_fwd5 == null ? -1e9 : r.streak_fwd5;
+        case "rsi":
+          return r.rsi == null ? -1 : r.rsi;
+        case "rare":
+          return r.streak_times_before == null ? 1e9 : r.streak_times_before;
+        // fewest first
+        default:
+          return r.ext;
+        // extremity
+      }
+    };
+    const asc = sortKey === "rare";
+    return v.sort((a, b) => asc ? sv(a) - sv(b) : sv(b) - sv(a));
+  }, [rows, dir, fSector, minCount, flagOnly, sortKey, liveQ]);
+
+  // Live overlay for the visible names (price + % from open + day change).
+  useEffect(() => {
+    let stop = false,
+      timer = null;
+    const syms = Array.from(new Set(view.slice(0, 50).map(r => r.symbol)));
+    if (!syms.length) return;
+    const tick = async () => {
+      try {
+        const next = {};
+        for (let i = 0; i < syms.length; i += 25) {
+          const r = await apiFetch(`/api/quote?tickers=${syms.slice(i, i + 25).join(",")}`);
+          const d = await r.json();
+          const res = d && d.results || {};
+          for (const s of syms.slice(i, i + 25)) if (res[s]) next[s] = res[s];
+        }
+        if (!stop) setLiveQ(next);
+      } catch (_) {}
+      if (!stop) timer = setTimeout(tick, 30000);
+    };
+    tick();
+    return () => {
+      stop = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line
+  }, [view.length]);
+  const pct = (v, d = 2) => v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}%`;
+  const fmtV = v => v == null ? "—" : v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : String(Math.round(v));
+  const FLAG_CLS = {
+    "Possible Exhaustion Setup": "warn",
+    "Mean Reversion Watch": "warn",
+    "Rare Streak": "rare",
+    "Near Record Down Streak": "bear",
+    "Record Down Streak": "bear",
+    "Near Record Up Streak": "bull",
+    "Record Up Streak": "bull"
+  };
+  const scanning = !!status.scanning;
+  const nearCount = view.filter(r => r.flags.length).length;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card wstk-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head wstk-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "kicker"
+  }, "Watchlist · ", view.length, " streaks · ", nearCount, " flagged"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Streak Exhaustion Scanner")), /*#__PURE__*/React.createElement("div", {
+    className: "wstk-controls"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "seg"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: dir === "all" ? "active" : "",
+    onClick: () => setDir("all")
+  }, "All"), /*#__PURE__*/React.createElement("button", {
+    className: dir === "up" ? "active" : "",
+    onClick: () => setDir("up")
+  }, "Up"), /*#__PURE__*/React.createElement("button", {
+    className: dir === "down" ? "active" : "",
+    onClick: () => setDir("down")
+  }, "Down")), /*#__PURE__*/React.createElement("select", {
+    value: fSector,
+    onChange: e => setFSector(e.target.value),
+    title: "Filter by sector"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All sectors"), sectors.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s))), /*#__PURE__*/React.createElement("label", {
+    className: "wstk-min",
+    title: "Minimum consecutive days"
+  }, "≥ ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: "20",
+    value: minCount,
+    onChange: e => setMinCount(Math.max(1, Math.min(20, +e.target.value || 1)))
+  }), " days"), /*#__PURE__*/React.createElement("button", {
+    className: `preset-pill ${flagOnly ? "active" : ""}`,
+    onClick: () => setFlagOnly(f => !f),
+    title: "Only stocks flagged near a historical extreme"
+  }, "Flagged only"), /*#__PURE__*/React.createElement("select", {
+    value: sortKey,
+    onChange: e => setSortKey(e.target.value),
+    title: "Sort"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "extremity"
+  }, "Sort: Extremity"), /*#__PURE__*/React.createElement("option", {
+    value: "count"
+  }, "Sort: Streak length"), /*#__PURE__*/React.createElement("option", {
+    value: "rare"
+  }, "Sort: Rarest"), /*#__PURE__*/React.createElement("option", {
+    value: "winrate"
+  }, "Sort: Win rate"), /*#__PURE__*/React.createElement("option", {
+    value: "fwd5"
+  }, "Sort: Next-5d avg"), /*#__PURE__*/React.createElement("option", {
+    value: "rsi"
+  }, "Sort: RSI")))), scanning ? /*#__PURE__*/React.createElement("div", {
+    className: "wstk-hint"
+  }, "Watchlist board is scanning — streaks fill in as data lands.") : null, !scanning && rows.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "wstk-empty"
+  }, "No board data yet. Open the Watchlist tab and run a scan to build it.") : null, view.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "wstk-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "wstk-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Company"), /*#__PURE__*/React.createElement("th", null, "Streak"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Rec ↑/↓"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Seen"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Nx1"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Nx3"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Nx5"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Win5"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Price"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "%Open"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Day"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Vol"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "RVol"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "RSI"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "20DMA"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "50DMA"), /*#__PURE__*/React.createElement("th", null, "Sector"), /*#__PURE__*/React.createElement("th", null, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, view.map((r, i) => {
+    const lv = liveVal(r);
+    const dirCls = r.streak_dir === "up" ? "up" : "down";
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.symbol + i,
+      className: `wstk-row ${r.flags.length ? "wstk-flagged" : ""}`,
+      onClick: () => onSwitchTicker && onSwitchTicker(r.symbol)
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "wstk-sym"
+    }, r.symbol), /*#__PURE__*/React.createElement("td", {
+      className: "wstk-co",
+      title: r.company || ""
+    }, r.company || "—"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+      className: `wstk-streak ${dirCls}`
+    }, r.streak_dir === "up" ? "▲" : "▼", " ", r.streak_count, "d")), /*#__PURE__*/React.createElement("td", {
+      className: "num wstk-rec"
+    }, r.longest_up || "—", "/", r.longest_down || "—"), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, r.streak_times_before == null ? "—" : r.streak_times_before, r.rare ? "★" : ""), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.streak_fwd1 == null ? "" : r.streak_fwd1 >= 0 ? "up" : "down"}`
+    }, pct(r.streak_fwd1, 1)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.streak_fwd3 == null ? "" : r.streak_fwd3 >= 0 ? "up" : "down"}`
+    }, pct(r.streak_fwd3, 1)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.streak_fwd5 == null ? "" : r.streak_fwd5 >= 0 ? "up" : "down"}`
+    }, pct(r.streak_fwd5, 1)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, r.streak_winrate == null ? "—" : r.streak_winrate + "%"), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, lv.last == null ? "—" : "$" + Number(lv.last).toFixed(2)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${lv.fromOpen == null ? "" : lv.fromOpen >= 0 ? "up" : "down"}`
+    }, pct(lv.fromOpen, 1)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${lv.chg == null ? "" : lv.chg >= 0 ? "up" : "down"}`
+    }, pct(lv.chg, 1)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmtV(r.volume)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, r.rel_vol == null ? "—" : r.rel_vol + "x"), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, r.rsi == null ? "—" : Math.round(r.rsi)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.from_ma20 == null ? "" : r.from_ma20 >= 0 ? "up" : "down"}`
+    }, pct(r.from_ma20, 1)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.from_ma50 == null ? "" : r.from_ma50 >= 0 ? "up" : "down"}`
+    }, pct(r.from_ma50, 1)), /*#__PURE__*/React.createElement("td", {
+      className: "wstk-sec",
+      title: r.industry || ""
+    }, r.sector || "—"), /*#__PURE__*/React.createElement("td", {
+      className: "wstk-flags"
+    }, r.flags.map((f, j) => /*#__PURE__*/React.createElement("span", {
+      key: j,
+      className: `wstk-flag wstk-f-${FLAG_CLS[f] || "warn"}`
+    }, f))));
+  })))), !scanning && rows.length > 0 && view.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "wstk-empty"
+  }, "No streaks match these filters."));
+}
+
 // Schwab in-app reconnect. Schwab refresh tokens die every 7 days; this turns
 // the re-auth into a ~20s in-browser action: open login, paste the redirect
 // URL back, done — no terminal, no Railway edits. Renders as a top banner
@@ -11855,7 +12142,7 @@ function NewsTicker({
     className: "nt-sep"
   }, "●"))));
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(34, qsyms.length * 3.3); // a touch faster than the news tape
+  const qdur = Math.max(33, qsyms.length * 3.2); // a touch faster than the news tape
   const QSeq = ({
     hidden
   }) => /*#__PURE__*/React.createElement("div", {
@@ -11972,6 +12259,7 @@ Object.assign(window, {
   WatchlistAnalystCard: _memo(WatchlistAnalystCard),
   StockProfileCard: _memo(StockProfileCard),
   NewsHub: _memo(NewsHub),
-  SchwabReconnect: _memo(SchwabReconnect)
+  SchwabReconnect: _memo(SchwabReconnect),
+  WatchlistStreaksCard: _memo(WatchlistStreaksCard)
 });
 })();
