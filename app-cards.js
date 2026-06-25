@@ -12345,7 +12345,9 @@ function LeftRail52W({
     style: {
       animationDuration: `${dur}s`
     }
-  }, /*#__PURE__*/React.createElement(Col, null), /*#__PURE__*/React.createElement(Col, {
+  }, /*#__PURE__*/React.createElement(Col, {
+    inner: true
+  }), /*#__PURE__*/React.createElement(Col, {
     hidden: true
   }))));
 }

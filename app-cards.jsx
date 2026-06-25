@@ -9280,7 +9280,7 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
       <div className="lrail-title" title="Watchlist stocks within 3% of their 52-week high">NEAR 52W HIGH</div>
       <div className="lrail-vp" ref={vpRef}>
         <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
-          <Col />
+          <Col inner />
           <Col hidden />
         </div>
       </div>

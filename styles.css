@@ -8766,7 +8766,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (min-width: 1900px) {
   .lrail { position: fixed; left: 6px; top: 10px; bottom: 10px; width: 132px; z-index: 30;
     display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line);
-    border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; }
+    border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; max-height: calc(100vh - 20px); }
 }
 .lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em;
   color: #fff; background: #199424; text-align: center; padding: 6px 4px; cursor: help; }
