@@ -8719,10 +8719,10 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
 // doesn't add a top-row tab. Description, sector/industry, HQ, website, execs.
 function StockProfileCard({ apiFetch, ticker, alwaysShow }) {
   const [p, setP] = useState(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);   // description expanded by default
   useEffect(() => {
     let stop = false;
-    setP(null); setOpen(false);
+    setP(null); setOpen(true);
     if (!ticker) return;
     (async () => {
       try {
@@ -9172,7 +9172,7 @@ function NewsTicker({ apiFetch, onSwitchTicker }) {
   );
 
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(33, qsyms.length * 3.2);   // a touch faster than the news tape
+  const qdur = Math.max(32, qsyms.length * 3.1);   // a touch faster than the news tape
   const QSeq = ({ hidden }) => (
     <div className="nt-seq" aria-hidden={hidden || undefined}>
       {qsyms.map((s, i) => {
@@ -9217,6 +9217,59 @@ function NewsTicker({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// Left-margin vertical ticker (wide screens only): watchlist names closest to
+// their 52-week high, scrolling top→bottom. Ticker · price · change · %-from-52WH.
+function LeftRail52W({ apiFetch, onSwitchTicker }) {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    let stop = false, t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/watchlist_table");
+        const d = await r.json();
+        const all = (d && d.rows) || [];
+        const near = all
+          .filter(x => x.from_52wh != null && x.from_52wh >= -3 && x.last != null)
+          .sort((a, b) => b.from_52wh - a.from_52wh)
+          .slice(0, 40);
+        if (!stop) setRows(near);
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, 60000);
+    };
+    load();
+    return () => { stop = true; if (t) clearTimeout(t); };
+  }, []);
+
+  if (!rows.length) return null;
+  const dur = Math.max(40, rows.length * 3.5);
+  const Col = ({ hidden }) => (
+    <div className="lr-col" aria-hidden={hidden || undefined}>
+      {rows.map((r, i) => (
+        <button key={i} className="lr-item" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                title={`${r.company || r.symbol} — ${r.from_52wh >= 0 ? "at" : Math.abs(r.from_52wh) + "% below"} 52-week high ($${r.high_52w != null ? r.high_52w : "?"})`}>
+          <span className="lr-sym">{r.symbol}</span>
+          <span className="lr-px">${Number(r.last).toFixed(2)}</span>
+          <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
+            {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${r.change}%`}
+          </span>
+          <span className="lr-52">{r.from_52wh >= 0 ? "AT 52W HIGH" : `${r.from_52wh}% ↓52WH`}</span>
+        </button>
+      ))}
+    </div>
+  );
+  return (
+    <div className="lrail" aria-label="Watchlist names near 52-week high">
+      <div className="lrail-title" title="Watchlist stocks within 3% of their 52-week high">NEAR 52W HIGH</div>
+      <div className="lrail-vp">
+        <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
+          <Col />
+          <Col hidden />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Memoize the heavy, self-contained ticker cards so unrelated App state
 // changes (hovers, sidebar, other tabs) don't re-render them. Their props
 // (apiFetch, switchTicker, ticker) are stable identities from App.
@@ -9249,4 +9302,4 @@ Object.assign(window, { TickerLogo,
   MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard),
   NewsHub: _memo(NewsHub), SchwabReconnect: _memo(SchwabReconnect),
-  WatchlistStreaksCard: _memo(WatchlistStreaksCard) });
+  WatchlistStreaksCard: _memo(WatchlistStreaksCard), LeftRail52W: _memo(LeftRail52W) });
