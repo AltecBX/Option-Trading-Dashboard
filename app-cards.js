@@ -12302,7 +12302,7 @@ function LeftRail52W({
     };
   }, [rows]);
   if (!rows.length) return null;
-  const colH = Math.max(vpH || 0, rows.length * 48);
+  const colH = Math.max(vpH || 0, rows.length * 62);
   const dur = Math.max(16, Math.round(colH / 36)); // ~36 px/s
   const Col = ({
     hidden
@@ -12330,7 +12330,10 @@ function LeftRail52W({
   }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${r.change}%`), /*#__PURE__*/React.createElement("span", {
     className: "lr-52",
     title: "% from 52-week high"
-  }, r.from_52wh >= 0 ? "HIGH" : `${r.from_52wh}%`)))));
+  }, r.from_52wh >= 0 ? "HIGH" : `${r.from_52wh}%`)), /*#__PURE__*/React.createElement("span", {
+    className: "lr-line3",
+    title: `${r.sector || ""}${r.industry ? " · " + r.industry : ""}`
+  }, r.sector || "—", r.industry ? ` · ${r.industry}` : ""))));
   return /*#__PURE__*/React.createElement("div", {
     className: "lrail",
     "aria-label": "Watchlist names near 52-week high"

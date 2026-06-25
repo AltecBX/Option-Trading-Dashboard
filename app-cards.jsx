@@ -9254,7 +9254,7 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
   }, [rows]);
 
   if (!rows.length) return null;
-  const colH = Math.max(vpH || 0, rows.length * 48);
+  const colH = Math.max(vpH || 0, rows.length * 62);
   const dur = Math.max(16, Math.round(colH / 36));   // ~36 px/s
   const Col = ({ hidden }) => (
     <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
@@ -9270,6 +9270,9 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
               {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${r.change}%`}
             </span>
             <span className="lr-52" title="% from 52-week high">{r.from_52wh >= 0 ? "HIGH" : `${r.from_52wh}%`}</span>
+          </span>
+          <span className="lr-line3" title={`${r.sector || ""}${r.industry ? " · " + r.industry : ""}`}>
+            {r.sector || "—"}{r.industry ? ` · ${r.industry}` : ""}
           </span>
         </button>
       ))}
