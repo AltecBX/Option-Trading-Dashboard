@@ -12264,8 +12264,8 @@ function LeftRail52W({
   onSwitchTicker
 }) {
   const [rows, setRows] = useState([]);
-  const [vpH, setVpH] = useState(null);
-  const colRef = useRef(null);
+  const [vpH, setVpH] = useState(0);
+  const vpRef = useRef(null);
   useEffect(() => {
     let stop = false,
       t = null;
@@ -12286,31 +12286,32 @@ function LeftRail52W({
     };
   }, []);
 
-  // Size the scroll window to AT MOST one list height, so the same symbol can
-  // never be on screen twice — a symbol leaves the top before its copy enters.
+  // Measure the (full-height) viewport. Each list copy is forced to AT LEAST
+  // this height (min-height + space-evenly), so the rail always fills top to
+  // bottom AND the same symbol never shows twice (one copy = one viewport).
   useEffect(() => {
     const measure = () => {
-      const colH = colRef.current ? colRef.current.offsetHeight : 0;
-      const avail = window.innerHeight - 10 /*top*/ - 10 /*bottom*/ - 26 /*title*/;
-      if (colH > 0) setVpH(Math.max(80, Math.min(colH, avail)));
+      if (vpRef.current) setVpH(vpRef.current.offsetHeight);
     };
     measure();
     window.addEventListener("resize", measure);
-    const id = setTimeout(measure, 60); // after layout settles
+    const id = setTimeout(measure, 80);
     return () => {
       window.removeEventListener("resize", measure);
       clearTimeout(id);
     };
   }, [rows]);
   if (!rows.length) return null;
-  const dur = Math.max(24, rows.length * 2.4); // faster than before
+  const colH = Math.max(vpH || 0, rows.length * 48);
+  const dur = Math.max(16, Math.round(colH / 36)); // ~36 px/s
   const Col = ({
-    inner,
     hidden
   }) => /*#__PURE__*/React.createElement("div", {
     className: "lr-col",
-    ref: inner ? colRef : undefined,
-    "aria-hidden": hidden || undefined
+    "aria-hidden": hidden || undefined,
+    style: vpH ? {
+      minHeight: `${vpH}px`
+    } : undefined
   }, rows.map((r, i) => /*#__PURE__*/React.createElement("button", {
     key: i,
     className: "lr-item",
@@ -12327,8 +12328,9 @@ function LeftRail52W({
   }, /*#__PURE__*/React.createElement("span", {
     className: `lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`
   }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${r.change}%`), /*#__PURE__*/React.createElement("span", {
-    className: "lr-52"
-  }, r.from_52wh >= 0 ? "AT 52W HIGH" : `${r.from_52wh}% ↓52WH`)))));
+    className: "lr-52",
+    title: "% from 52-week high"
+  }, r.from_52wh >= 0 ? "HIGH" : `${r.from_52wh}%`)))));
   return /*#__PURE__*/React.createElement("div", {
     className: "lrail",
     "aria-label": "Watchlist names near 52-week high"
@@ -12337,9 +12339,7 @@ function LeftRail52W({
     title: "Watchlist stocks within 3% of their 52-week high"
   }, "NEAR 52W HIGH"), /*#__PURE__*/React.createElement("div", {
     className: "lrail-vp",
-    style: vpH ? {
-      height: `${vpH}px`
-    } : undefined
+    ref: vpRef
   }, /*#__PURE__*/React.createElement("div", {
     className: "lrail-track",
     style: {
