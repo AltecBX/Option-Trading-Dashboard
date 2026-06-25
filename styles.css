@@ -8787,4 +8787,6 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .lr-chg { font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
 .lr-chg.up { color: var(--up); } .lr-chg.down { color: var(--down); }
 .lr-52 { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.lr-line3 { font-family: var(--font-mono); font-size: 8.5px; color: var(--fg-3); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; }
 @media (prefers-reduced-motion: reduce) { .lrail-track { animation: none; } .lrail-vp { overflow-y: auto; } }
