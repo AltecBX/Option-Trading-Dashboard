@@ -2465,7 +2465,16 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       case "symbol": {
         const an = analystBy[r.symbol];
         const fresh = an && an.fresh_today;
-        return <td key={k} className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}{fresh && <span className={`wl-analyst-badge wl-an-${an.direction || "neutral"}`} title={`Fresh analyst action today: ${an.action_type || "action"}${an.count > 1 ? ` (${an.count} firms)` : ""} · impact ${Math.round(an.score || 0)}`}>⚡</span>}</td>;
+        // Streak badge when the current run is near the stock's own record.
+        const sdir = r.streak_dir, scount = r.streak_count || 0;
+        const srec = sdir === "up" ? (r.longest_up || 0) : sdir === "down" ? (r.longest_down || 0) : 0;
+        const sNear = (sdir === "up" || sdir === "down") && srec >= 4 && scount >= srec - 1;
+        const sBadge = sNear ? (
+          <span className={`wl-streak-badge ${sdir === "up" ? "up" : "down"}`}
+                title={`${scount}-day ${sdir} streak — near its 2y record of ${srec}${sdir === "down" ? " (possible exhaustion / mean-reversion watch)" : ""}`}>
+            {sdir === "up" ? "▲" : "▼"}{scount}
+          </span>) : null;
+        return <td key={k} className="wl-sym">{isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}{r.symbol}{fresh && <span className={`wl-analyst-badge wl-an-${an.direction || "neutral"}`} title={`Fresh analyst action today: ${an.action_type || "action"}${an.count > 1 ? ` (${an.count} firms)` : ""} · impact ${Math.round(an.score || 0)}`}>⚡</span>}{sBadge}</td>;
       }
       case "company": return <td key={k} className="wl-co">{r.company || "—"}</td>;
       case "edge": return <td key={k} className="scan-num" title={r.edge_tip || ""}>{edgeCell(r)}</td>;
@@ -8920,11 +8929,25 @@ function WatchlistStreaksCard({ apiFetch, onSwitchTicker }) {
         <div className="wstk-wrap">
           <table className="wstk-table">
             <thead><tr>
-              <th>Symbol</th><th>Company</th><th>Streak</th><th className="num">Rec ↑/↓</th>
-              <th className="num">Seen</th><th className="num">Nx1</th><th className="num">Nx3</th><th className="num">Nx5</th>
-              <th className="num">Win5</th><th className="num">Price</th><th className="num">%Open</th><th className="num">Day</th>
-              <th className="num">Vol</th><th className="num">RVol</th><th className="num">RSI</th>
-              <th className="num">20DMA</th><th className="num">50DMA</th><th>Sector</th><th>Flags</th>
+              <th title="Ticker — click a row to open it on the Trade tab">Symbol</th>
+              <th title="Company name">Company</th>
+              <th title="Current consecutive up/down day streak (direction + number of days)">Streak</th>
+              <th className="num" title="Longest up streak / longest down streak ever seen in the last 2 years">Rec ↑/↓</th>
+              <th className="num" title="How many times this stock previously reached a streak this long in the same direction (★ = rare, ≤3 times)">Seen</th>
+              <th className="num" title="Average next-1-day return after similar past streaks">Nx1</th>
+              <th className="num" title="Average next-3-day return after similar past streaks">Nx3</th>
+              <th className="num" title="Average next-5-day return after similar past streaks">Nx5</th>
+              <th className="num" title="Win rate — % of similar past streaks that were higher 5 days later">Win5</th>
+              <th className="num" title="Current price (live)">Price</th>
+              <th className="num" title="% change from today's open (live)">%Open</th>
+              <th className="num" title="Daily % change (live)">Day</th>
+              <th className="num" title="Latest daily volume">Vol</th>
+              <th className="num" title="Relative volume — today's volume vs its 20-day average">RVol</th>
+              <th className="num" title="RSI(14)">RSI</th>
+              <th className="num" title="Distance from the 20-day moving average">20DMA</th>
+              <th className="num" title="Distance from the 50-day moving average">50DMA</th>
+              <th title="Sector (hover a cell for industry)">Sector</th>
+              <th title="Exhaustion / mean-reversion flags vs this stock's own record">Flags</th>
             </tr></thead>
             <tbody>
               {view.map((r, i) => {
