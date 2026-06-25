@@ -11255,11 +11255,14 @@ function MarketCalendarCard({
     }, ev.country)), /*#__PURE__*/React.createElement("span", {
       className: "mc-econ-vals"
     }, /*#__PURE__*/React.createElement("span", {
-      className: "mc-econ-val"
+      className: "mc-econ-val",
+      title: "Actual — the released figure (blank until reported)"
     }, /*#__PURE__*/React.createElement("b", null, "A"), ev.actual == null ? "—" : ev.actual), /*#__PURE__*/React.createElement("span", {
-      className: "mc-econ-val"
+      className: "mc-econ-val",
+      title: "Forecast — consensus estimate"
     }, /*#__PURE__*/React.createElement("b", null, "F"), ev.forecast == null ? "—" : ev.forecast), /*#__PURE__*/React.createElement("span", {
-      className: "mc-econ-val"
+      className: "mc-econ-val",
+      title: "Previous — last period's figure (r = revised)"
     }, /*#__PURE__*/React.createElement("b", null, "P"), ev.previous == null ? "—" : ev.previous, ev.revised != null ? /*#__PURE__*/React.createElement("span", {
       className: "mc-econ-rev"
     }, " (r ", ev.revised, ")") : null)), ev.note ? /*#__PURE__*/React.createElement("span", {
@@ -11463,15 +11466,35 @@ function WatchlistAnalystCard({
     style: {
       width: "8%"
     }
-  })), /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Company"), /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Firm"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "From"), /*#__PURE__*/React.createElement("th", null, "To"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+  })), /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Ticker — click a row to open it on the Trade tab"
+  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    title: "Company name"
+  }, "Company"), /*#__PURE__*/React.createElement("th", {
+    title: "Date of the analyst action"
+  }, "Date"), /*#__PURE__*/React.createElement("th", {
+    title: "Brokerage / research firm"
+  }, "Firm"), /*#__PURE__*/React.createElement("th", {
+    title: "Action type — upgrade, downgrade, initiation, reiteration, or price-target change"
+  }, "Type"), /*#__PURE__*/React.createElement("th", {
+    title: "Prior analyst rating"
+  }, "From"), /*#__PURE__*/React.createElement("th", {
+    title: "New analyst rating"
+  }, "To"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Previous price target"
   }, "Prev PT"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "New price target"
   }, "New PT"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "% upside/downside from the current price to the new target"
   }, "Upside"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "Impact"), /*#__PURE__*/React.createElement("th", null, "Source"))), /*#__PURE__*/React.createElement("tbody", null, sorted.map((a, i) => /*#__PURE__*/React.createElement("tr", {
+    className: "num",
+    title: "Impact score (0–100) — firm tier, market cap, PT move size, multi-firm agreement"
+  }, "Impact"), /*#__PURE__*/React.createElement("th", {
+    title: "Data source"
+  }, "Source"))), /*#__PURE__*/React.createElement("tbody", null, sorted.map((a, i) => /*#__PURE__*/React.createElement("tr", {
     key: a.symbol + i,
     className: `waa-row ${a.fresh_today ? "waa-fresh" : ""} waa-${a.direction || "neutral"}`,
     onClick: () => onSwitchTicker && onSwitchTicker(a.symbol),

@@ -8534,9 +8534,9 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker }) {
                         <span className="mc-econ-ctry">{ev.country}</span>
                       </span>
                       <span className="mc-econ-vals">
-                        <span className="mc-econ-val"><b>A</b>{ev.actual == null ? "—" : ev.actual}</span>
-                        <span className="mc-econ-val"><b>F</b>{ev.forecast == null ? "—" : ev.forecast}</span>
-                        <span className="mc-econ-val"><b>P</b>{ev.previous == null ? "—" : ev.previous}{ev.revised != null ? <span className="mc-econ-rev"> (r {ev.revised})</span> : null}</span>
+                        <span className="mc-econ-val" title="Actual — the released figure (blank until reported)"><b>A</b>{ev.actual == null ? "—" : ev.actual}</span>
+                        <span className="mc-econ-val" title="Forecast — consensus estimate"><b>F</b>{ev.forecast == null ? "—" : ev.forecast}</span>
+                        <span className="mc-econ-val" title="Previous — last period's figure (r = revised)"><b>P</b>{ev.previous == null ? "—" : ev.previous}{ev.revised != null ? <span className="mc-econ-rev"> (r {ev.revised})</span> : null}</span>
                       </span>
                       {ev.note ? <span className="mc-econ-note">{ev.note}</span> : null}
                     </div>
@@ -8673,9 +8673,18 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
               <col style={{ width: "5%" }} /><col style={{ width: "8%" }} />
             </colgroup>
             <thead><tr>
-              <th>Symbol</th><th>Company</th><th>Date</th><th>Firm</th><th>Type</th>
-              <th>From</th><th>To</th><th className="num">Prev PT</th><th className="num">New PT</th>
-              <th className="num">Upside</th><th className="num">Impact</th><th>Source</th>
+              <th title="Ticker — click a row to open it on the Trade tab">Symbol</th>
+              <th title="Company name">Company</th>
+              <th title="Date of the analyst action">Date</th>
+              <th title="Brokerage / research firm">Firm</th>
+              <th title="Action type — upgrade, downgrade, initiation, reiteration, or price-target change">Type</th>
+              <th title="Prior analyst rating">From</th>
+              <th title="New analyst rating">To</th>
+              <th className="num" title="Previous price target">Prev PT</th>
+              <th className="num" title="New price target">New PT</th>
+              <th className="num" title="% upside/downside from the current price to the new target">Upside</th>
+              <th className="num" title="Impact score (0–100) — firm tier, market cap, PT move size, multi-firm agreement">Impact</th>
+              <th title="Data source">Source</th>
             </tr></thead>
             <tbody>
               {sorted.map((a, i) => (
