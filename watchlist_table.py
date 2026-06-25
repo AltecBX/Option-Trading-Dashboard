@@ -235,6 +235,9 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
     rsi = _rsi(closes)
     chg = (round((closes[-1] - closes[-2]) / closes[-2] * 100.0, 2)
            if len(closes) >= 2 and closes[-2] else None)
+    # 52-week high (≈252 trading days) and how far below it we are now (<=0).
+    hi52 = max(closes[-252:]) if len(closes) >= 30 else None
+    from_52wh = round((last / hi52 - 1) * 100.0, 2) if hi52 else None
     # Realized-volatility regime: 20d annualized vol, ranked 0-100 vs its own
     # 1y history. High = elevated vol (option premium likely rich → favor
     # selling); low = calm/cheap (favor buying / directional). Free from OHLC.
@@ -265,6 +268,8 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
         "from_ma20": round((last - ma20) / ma20 * 100.0, 1) if ma20 else None,
         "from_ma50": round((last - ma50) / ma50 * 100.0, 1) if ma50 else None,
         "from_ma200": round((last - ma200) / ma200 * 100.0, 1) if ma200 else None,
+        "high_52w": round(hi52, 2) if hi52 else None,
+        "from_52wh": from_52wh,
         "wtd": _period_ret(close, wk_start),
         "mtd": _period_ret(close, mo_start),
         "qtd": _period_ret(close, qt_start),
