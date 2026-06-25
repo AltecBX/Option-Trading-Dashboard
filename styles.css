@@ -8632,7 +8632,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* ── Mentioned-tickers tape (Bloomberg/CNBC style, below the news tape) ── */
 .mnq-bar { height: 30px; }
-.mnq-badge { background: #1C799E; color: #fff; }   /* match the Market News badge */
+.mnq-badge { background: color-mix(in srgb, #1C799E 80%, var(--bg-2)); color: #fff; }   /* a touch softer than Market News */
 .mnq-item { display: inline-flex; align-items: baseline; gap: 7px; padding: 0 14px;
   background: transparent; border: 0; cursor: pointer; white-space: nowrap;
   border-right: 1px solid var(--line); height: 100%; }
@@ -8706,3 +8706,46 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .schwab-msg { margin-top: 10px; font-size: 12.5px; font-weight: 600; }
 .schwab-msg.ok { color: var(--up); } .schwab-msg.bad { color: var(--down); }
 .schwab-note { margin-top: 8px; font-size: 11.5px; color: var(--fg-3); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   STREAKS — consecutive up/down-day exhaustion scanner.
+   ══════════════════════════════════════════════════════════════════════ */
+.wstk-card { padding: 16px 18px; }
+.wstk-head { align-items: center; }
+.wstk-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wstk-controls select { font-family: var(--font-body); font-size: 12.5px; color: var(--fg-2);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.wstk-min { font-size: 12px; color: var(--fg-3); display: inline-flex; align-items: center; gap: 4px; }
+.wstk-min input { width: 44px; font-family: var(--font-mono); font-size: 12.5px; text-align: center;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); padding: 5px 4px; }
+.wstk-hint { color: var(--fg-3); font-size: 12px; font-style: italic; margin: 4px 0 10px; }
+.wstk-empty { color: var(--fg-3); font-size: 13px; text-align: center; padding: 26px 0; }
+.wstk-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 12px; }
+.wstk-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1100px; }
+.wstk-table thead th { background: var(--bg-3); text-align: left; padding: 9px 10px;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.03em; color: var(--fg-2); border-bottom: 2px solid var(--line-2); white-space: nowrap; }
+.wstk-table th.num, .wstk-table td.num { text-align: right; }
+.wstk-table tbody tr { cursor: pointer; border-bottom: 1px solid var(--line); }
+.wstk-table tbody tr:last-child { border-bottom: 0; }
+.wstk-table tbody tr:hover { background: var(--bg-3); }
+.wstk-table td { padding: 8px 10px; white-space: nowrap; color: var(--fg-2); }
+.wstk-row.wstk-flagged { background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 3px 0 0 var(--warn); }
+.wstk-row.wstk-flagged:hover { background: color-mix(in srgb, var(--warn) 13%, transparent); }
+.wstk-sym { font-family: var(--font-mono); font-weight: 800; color: var(--fg); }
+.wstk-co { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.wstk-sec { max-width: 130px; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: var(--fg-3); }
+.wstk-rec { font-family: var(--font-mono); color: var(--fg-3); }
+.wstk-streak { font-family: var(--font-mono); font-weight: 800; font-size: 12.5px; padding: 2px 8px; border-radius: 6px; }
+.wstk-streak.up { color: var(--up); background: color-mix(in oklch, var(--up) 12%, transparent); }
+.wstk-streak.down { color: var(--down); background: color-mix(in oklch, var(--down) 12%, transparent); }
+.wstk-table td.up { color: var(--up); font-weight: 600; }
+.wstk-table td.down { color: var(--down); font-weight: 600; }
+.wstk-flags { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; min-width: 160px; }
+.wstk-flag { font-family: var(--font-mono); font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 5px;
+  border: 1px solid; white-space: nowrap; }
+.wstk-f-warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 55%); background: color-mix(in oklch, var(--warn) 12%, transparent); }
+.wstk-f-bear { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%); background: color-mix(in oklch, var(--down) 12%, transparent); }
+.wstk-f-bull { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); background: color-mix(in oklch, var(--up) 12%, transparent); }
+.wstk-f-rare { color: var(--accent); border-color: color-mix(in oklch, var(--accent), transparent 55%); background: color-mix(in oklch, var(--accent) 12%, transparent); }
+@media (max-width: 760px) { .wstk-table { font-size: 11.5px; } .wstk-table td, .wstk-table thead th { padding: 6px 7px; } }
