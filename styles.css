@@ -8530,8 +8530,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-card);
 }
 .nt-badge {
-  flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center;
-  align-items: center; text-align: center; padding: 0 12px;
+  flex: 0 0 auto; width: 66px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: center;
+  align-items: center; text-align: center; padding: 0 6px;
   font-family: var(--font-mono); font-size: 10.5px; font-weight: 800; line-height: 1.05;
   letter-spacing: 0.04em; color: #fff; background: #1C799E; white-space: nowrap;
 }
@@ -8632,7 +8633,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* ── Mentioned-tickers tape (Bloomberg/CNBC style, below the news tape) ── */
 .mnq-bar { height: 30px; }
-.mnq-badge { background: color-mix(in srgb, #1C799E 80%, var(--bg-2)); color: #fff; }   /* a touch softer than Market News */
+.mnq-badge { background: #1C799E; color: #fff; }   /* exact same blue + width as Market News */
 .mnq-item { display: inline-flex; align-items: baseline; gap: 7px; padding: 0 14px;
   background: transparent; border: 0; cursor: pointer; white-space: nowrap;
   border-right: 1px solid var(--line); height: 100%; }
@@ -8749,3 +8750,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wstk-f-bull { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); background: color-mix(in oklch, var(--up) 12%, transparent); }
 .wstk-f-rare { color: var(--accent); border-color: color-mix(in oklch, var(--accent), transparent 55%); background: color-mix(in oklch, var(--accent) 12%, transparent); }
 @media (max-width: 760px) { .wstk-table { font-size: 11.5px; } .wstk-table td, .wstk-table thead th { padding: 6px 7px; } }
+
+/* Streak badge on the main watchlist symbol cell (near a 2y record streak). */
+.wl-streak-badge { margin-left: 5px; font-family: var(--font-mono); font-size: 10px; font-weight: 800;
+  padding: 1px 5px; border-radius: 5px; border: 1px solid; cursor: help; white-space: nowrap; }
+.wl-streak-badge.up { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%);
+  background: color-mix(in oklch, var(--up) 12%, transparent); }
+.wl-streak-badge.down { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%);
+  background: color-mix(in oklch, var(--down) 12%, transparent); }

@@ -3741,6 +3741,15 @@ function WatchlistTableCard({
         {
           const an = analystBy[r.symbol];
           const fresh = an && an.fresh_today;
+          // Streak badge when the current run is near the stock's own record.
+          const sdir = r.streak_dir,
+            scount = r.streak_count || 0;
+          const srec = sdir === "up" ? r.longest_up || 0 : sdir === "down" ? r.longest_down || 0 : 0;
+          const sNear = (sdir === "up" || sdir === "down") && srec >= 4 && scount >= srec - 1;
+          const sBadge = sNear ? /*#__PURE__*/React.createElement("span", {
+            className: `wl-streak-badge ${sdir === "up" ? "up" : "down"}`,
+            title: `${scount}-day ${sdir} streak — near its 2y record of ${srec}${sdir === "down" ? " (possible exhaustion / mean-reversion watch)" : ""}`
+          }, sdir === "up" ? "▲" : "▼", scount) : null;
           return /*#__PURE__*/React.createElement("td", {
             key: k,
             className: "wl-sym"
@@ -3750,7 +3759,7 @@ function WatchlistTableCard({
           }, "★ "), r.symbol, fresh && /*#__PURE__*/React.createElement("span", {
             className: `wl-analyst-badge wl-an-${an.direction || "neutral"}`,
             title: `Fresh analyst action today: ${an.action_type || "action"}${an.count > 1 ? ` (${an.count} firms)` : ""} · impact ${Math.round(an.score || 0)}`
-          }, "⚡"));
+          }, "⚡"), sBadge);
         }
       case "company":
         return /*#__PURE__*/React.createElement("td", {
@@ -11807,35 +11816,59 @@ function WatchlistStreaksCard({
     className: "wstk-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "wstk-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Company"), /*#__PURE__*/React.createElement("th", null, "Streak"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Ticker — click a row to open it on the Trade tab"
+  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    title: "Company name"
+  }, "Company"), /*#__PURE__*/React.createElement("th", {
+    title: "Current consecutive up/down day streak (direction + number of days)"
+  }, "Streak"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Longest up streak / longest down streak ever seen in the last 2 years"
   }, "Rec ↑/↓"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "How many times this stock previously reached a streak this long in the same direction (★ = rare, ≤3 times)"
   }, "Seen"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Average next-1-day return after similar past streaks"
   }, "Nx1"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Average next-3-day return after similar past streaks"
   }, "Nx3"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Average next-5-day return after similar past streaks"
   }, "Nx5"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Win rate — % of similar past streaks that were higher 5 days later"
   }, "Win5"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Current price (live)"
   }, "Price"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "% change from today's open (live)"
   }, "%Open"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Daily % change (live)"
   }, "Day"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Latest daily volume"
   }, "Vol"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Relative volume — today's volume vs its 20-day average"
   }, "RVol"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "RSI(14)"
   }, "RSI"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Distance from the 20-day moving average"
   }, "20DMA"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "50DMA"), /*#__PURE__*/React.createElement("th", null, "Sector"), /*#__PURE__*/React.createElement("th", null, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, view.map((r, i) => {
+    className: "num",
+    title: "Distance from the 50-day moving average"
+  }, "50DMA"), /*#__PURE__*/React.createElement("th", {
+    title: "Sector (hover a cell for industry)"
+  }, "Sector"), /*#__PURE__*/React.createElement("th", {
+    title: "Exhaustion / mean-reversion flags vs this stock's own record"
+  }, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, view.map((r, i) => {
     const lv = liveVal(r);
     const dirCls = r.streak_dir === "up" ? "up" : "down";
     return /*#__PURE__*/React.createElement("tr", {
