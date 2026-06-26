@@ -845,6 +845,44 @@ class SchwabClient:
     # The hash is a non-PII surrogate the API uses instead of the raw
     # account number. We always fetch the full positions list since
     # filtering happens client-side.
+    def diag_accounts(self) -> dict:
+        """Non-PII diagnostic for the account-list call. Surfaces the HTTP
+        status and response shape (no account numbers) so we can tell an
+        OAuth-scope error (403) apart from an empty list or a rate block."""
+        out = {"token": False, "rate_ok": True, "status": None,
+               "kind": None, "count": None, "error": None}
+        token = self._ensure_token()
+        out["token"] = bool(token)
+        if not token:
+            out["error"] = "no access token"
+            return out
+        if not self._rate_check():
+            out["rate_ok"] = False
+            out["error"] = "rate limited (110/min cap hit)"
+            return out
+        url = "https://api.schwabapi.com/trader/v1/accounts/accountNumbers"
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                out["status"] = getattr(resp, "status", 200)
+                body = json.loads(resp.read())
+                out["kind"] = type(body).__name__
+                if isinstance(body, (list, dict)):
+                    out["count"] = len(body)
+                if isinstance(body, dict):
+                    out["error"] = str(body.get("message") or body.get("error") or "")[:200] or None
+        except urllib.error.HTTPError as e:
+            out["status"] = e.code
+            try:
+                out["error"] = e.read().decode("utf-8", "replace")[:200]
+            except Exception:
+                out["error"] = f"HTTP {e.code}"
+        except Exception as exc:  # noqa: BLE001
+            out["error"] = str(exc)[:200]
+        return out
+
     def get_account_numbers(self) -> list | None:
         """Returns list of account dicts {accountNumber, hashValue}.
         None on failure or when not configured. The hashValue is what

@@ -7050,6 +7050,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn("*", "api/broker/owned", exc)
                 self._send_json({"error": str(exc), "symbols": []}, status=500)
             return
+        if parsed.path == "/api/broker/diag":
+            # Non-PII diagnostic for why the owned-highlight may be empty:
+            # reports whether Schwab is configured and what the account-list
+            # call returns (status/shape/error) — no account numbers leaked.
+            try:
+                sc = _schwab()
+                if sc is None:
+                    self._send_json({"configured": False,
+                                     "reason": "Schwab not configured / no valid token"})
+                    return
+                self._send_json({"configured": True, "accounts": sc.diag_accounts()})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+            return
         if parsed.path == "/api/daily_highs":
             # Watchlist stocks AT or near today's session high (the intraday
             # twin of the 52W rail). Live quotes for the whole watchlist are
