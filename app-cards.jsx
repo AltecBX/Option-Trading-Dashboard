@@ -9787,7 +9787,22 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
   const [rows, setRows] = useState([]);
   const [owned, setOwned] = useState(() => new Set());
   const [vpH, setVpH] = useState(0);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const vpRef = useRef(null);
+  // Tick once every 5s so the "time since it hit the high" ages live without
+  // re-fetching (CSS scroll animation keeps running — only text changes).
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 5000);
+    return () => clearInterval(id);
+  }, []);
+  // Compact "time since last at the high": 35s, 5m, 2h.
+  const ageStr = (ts) => {
+    if (!ts) return "";
+    const s = Math.max(0, nowSec - Math.floor(ts));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return `${Math.floor(s / 3600)}h`;
+  };
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
@@ -9837,7 +9852,9 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
                 title={`${r.company || r.symbol} — ${from >= 0 ? "at" : Math.abs(from) + "% below"} today's high ($${r.day_high != null ? Number(r.day_high).toFixed(2) : "?"})${isOwned ? " · you own this (Schwab)" : ""}`}>
           <span className="lr-line1">
             <span className="lr-sym">{r.symbol}</span>
+            <span className="lr-dash">-</span>
             <span className="lr-px">${Number(r.last).toFixed(2)}</span>
+            <span className="lr-age" title="Time since it last touched today's high">{ageStr(r.hit_ts)}</span>
           </span>
           <span className="lr-line2">
             <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>

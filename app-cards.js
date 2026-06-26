@@ -12916,7 +12916,22 @@ function LeftRailDailyHigh({
   const [rows, setRows] = useState([]);
   const [owned, setOwned] = useState(() => new Set());
   const [vpH, setVpH] = useState(0);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const vpRef = useRef(null);
+  // Tick once every 5s so the "time since it hit the high" ages live without
+  // re-fetching (CSS scroll animation keeps running — only text changes).
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 5000);
+    return () => clearInterval(id);
+  }, []);
+  // Compact "time since last at the high": 35s, 5m, 2h.
+  const ageStr = ts => {
+    if (!ts) return "";
+    const s = Math.max(0, nowSec - Math.floor(ts));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return `${Math.floor(s / 3600)}h`;
+  };
   useEffect(() => {
     let stop = false,
       t = null;
@@ -12989,8 +13004,13 @@ function LeftRailDailyHigh({
     }, /*#__PURE__*/React.createElement("span", {
       className: "lr-sym"
     }, r.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "lr-dash"
+    }, "-"), /*#__PURE__*/React.createElement("span", {
       className: "lr-px"
-    }, "$", Number(r.last).toFixed(2))), /*#__PURE__*/React.createElement("span", {
+    }, "$", Number(r.last).toFixed(2)), /*#__PURE__*/React.createElement("span", {
+      className: "lr-age",
+      title: "Time since it last touched today's high"
+    }, ageStr(r.hit_ts))), /*#__PURE__*/React.createElement("span", {
       className: "lr-line2"
     }, /*#__PURE__*/React.createElement("span", {
       className: `lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`

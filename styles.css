@@ -8886,8 +8886,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .lrail--daily { left: 144px; }
 }
 .lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em;
-  color: #fff; background: #199424; text-align: center; padding: 6px 4px; cursor: help; }
-.lrail-title--daily { background: #1C799E; }
+  color: #fff; background: #3A9E31; text-align: center; padding: 6px 4px; cursor: help; }
+.lrail-title--daily { background: #46B33D; }
 .lrail-vp { position: relative; flex: 1 1 auto; overflow: hidden;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
           mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%); }
@@ -8904,6 +8904,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .lr-item.owned:hover { background: color-mix(in srgb, #f5c451 26%, transparent); }
 .lr-item.owned .lr-sym { color: #f5c451; }
 .lr-line1 { display: flex; align-items: baseline; gap: 16px; white-space: nowrap; overflow: hidden; }
+/* Daily-high rail line 1: "SYM - $price   age" */
+.lrail--daily .lr-line1 { gap: 6px; }
+.lr-dash { color: var(--fg-3); }
+.lr-age { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
 .lr-line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; overflow: hidden; }
 .lr-sym { font-family: var(--font-mono); font-weight: 800; font-size: 14px; color: var(--fg); }
 .lr-px { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); }

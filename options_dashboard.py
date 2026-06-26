@@ -251,6 +251,10 @@ _OWNED_LOCK = threading.Lock()
 # watchlist are batched server-side; recomputed at most every ~20s.
 _DHIGH_CACHE: tuple | None = None
 _DHIGH_LOCK = threading.Lock()
+# Per-symbol "last time it touched today's high": {SYM: {"high": float,
+# "ts": epoch}}. Updated each time we recompute the rail — when the session
+# high advances or the live price is sitting on the high, we stamp `now`.
+_DHIGH_SEEN: dict = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -7017,7 +7021,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 now = time.time()
                 with _OWNED_LOCK:
                     cached = _OWNED_CACHE
-                if cached and (now - cached[0]) < 300:
+                # Serve a non-empty result for 5 min, but an empty one for only
+                # 45s — a transient miss right after a deploy/token refresh must
+                # not blank out the owned-highlight for the next five minutes.
+                if cached and (now - cached[0]) < (300 if cached[1] else 45):
                     self._send_json({"configured": True, "symbols": cached[1]})
                     return
                 sc = _schwab()
@@ -7058,7 +7065,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json({"rows": cached[1]})
                     return
                 wl = _load_watchlist()
-                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                wsyms = wl.get("symbols") or []
+                syms = [s.get("symbol") for s in wsyms if s.get("symbol")]
+                # Tag is read straight from the watchlist item (CSV import is the
+                # source of truth) so it matches the rest of the app exactly.
+                tag_map = {s.get("symbol"): (s.get("tag") or "") for s in wsyms if s.get("symbol")}
                 quotes = {}
                 sc = _schwab()
                 if sc is not None and syms:
@@ -7069,13 +7080,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             quotes.update(q)
                         except Exception:
                             continue
-                # Tag/company from the scan board (best-effort).
-                bmap = {}
+                # Company name from the scan board (best-effort).
+                cmap = {}
                 if _WLTABLE_AVAILABLE:
                     try:
                         for r in ((_wltable.get_board() or {}).get("rows") or []):
                             if r.get("symbol"):
-                                bmap[r["symbol"]] = r
+                                cmap[r["symbol"]] = r.get("company") or ""
                     except Exception:
                         pass
                 rows = []
@@ -7096,15 +7107,31 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     # Within ~1% of today's high counts as "near the daily high".
                     if from_high < -1.0:
                         continue
-                    b = bmap.get(sym) or {}
+                    # Stamp the last time this name touched today's high: when the
+                    # session high advances, when the price is sitting on the high
+                    # now, or on first sight / a new session (high reset lower).
+                    prev = _DHIGH_SEEN.get(sym)
+                    at_high = (last / high) >= 0.999
+                    if prev is None:
+                        ts = now
+                    elif high > prev["high"] * 1.0001:
+                        ts = now            # new session high just printed
+                    elif high < prev["high"] * 0.9:
+                        ts = now            # high reset (new trading day)
+                    elif at_high:
+                        ts = now            # still riding the high
+                    else:
+                        ts = prev["ts"]
+                    _DHIGH_SEEN[sym] = {"high": high, "ts": ts}
                     rows.append({
                         "symbol": sym,
                         "last": last,
                         "change": q.get("change_pct"),
                         "day_high": high,
                         "from_high": from_high,
-                        "tag": b.get("tag") or "",
-                        "company": q.get("name") or b.get("company") or "",
+                        "tag": tag_map.get(sym) or "",
+                        "company": q.get("name") or cmap.get(sym) or "",
+                        "hit_ts": ts,
                     })
                 rows.sort(key=lambda r: -r["from_high"])
                 rows = rows[:60]
