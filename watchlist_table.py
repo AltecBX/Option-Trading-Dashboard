@@ -216,10 +216,42 @@ def _streak_metrics(closes: list) -> dict:
     return out
 
 
+def _despike(closes: list) -> list:
+    """Remove isolated bad prints from a daily close series. yfinance
+    occasionally returns a single bar that is wildly off (a stray 10x print,
+    a 0, a duplicated row) which then poisons last / 52-week-high / % moves.
+    A point is replaced by the median of its neighbors only when it deviates
+    >35% from BOTH neighbors in the SAME direction (a spike that reverts) —
+    real earnings gaps don't revert the next day, so they're left intact.
+    The last bar has no right neighbor, so we compare it to the median of
+    the prior 5 bars and clamp only an implausible (>35%) lone move."""
+    if len(closes) < 5:
+        return closes
+    out = list(closes)
+    for i in range(1, len(out) - 1):
+        a, b, c = out[i - 1], out[i], out[i + 1]
+        if a <= 0 or c <= 0 or b <= 0:
+            continue
+        up = b / a - 1.0
+        dn = b / c - 1.0
+        # spike: jumps >35% vs prev AND falls back >35% vs next (same sign)
+        if abs(up) > 0.35 and abs(dn) > 0.35 and (up > 0) == (dn > 0):
+            out[i] = (a + c) / 2.0
+    # Last-bar guard: a lone final print that is >35% off the recent median
+    # is almost always a bad/partial bar from the data feed.
+    tail = [x for x in out[-6:-1] if x > 0]
+    if tail and out[-1] > 0:
+        med = sorted(tail)[len(tail) // 2]
+        if med > 0 and abs(out[-1] / med - 1.0) > 0.35:
+            out[-1] = med
+    return out
+
+
 def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
     closes = [float(x) for x in close.dropna().tolist()]
     if len(closes) < 20:
         return None
+    closes = _despike(closes)
     last = closes[-1]
     sma = lambda n: float(np.mean(closes[-n:])) if len(closes) >= n else None
     ma20, ma50, ma200 = sma(20), sma(50), sma(200)

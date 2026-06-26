@@ -266,6 +266,21 @@ body {
 }
 .preset-pill:hover { color: var(--fg); border-color: var(--line-2); }
 .preset-pill.active { background: var(--accent); color: var(--accent-text); }
+/* Editable presets: pill becomes a container with a go-button + remove (×). */
+.preset-pill { display: inline-flex; align-items: center; gap: 3px; }
+.preset-pill-go { font: inherit; letter-spacing: inherit; background: none; border: 0;
+  color: inherit; cursor: pointer; padding: 0; }
+.preset-pill-x { background: none; border: 0; color: var(--down); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 1px; }
+.preset-pill-x:hover { filter: brightness(1.2); }
+.sb-preset-edit { background: none; border: 1px solid var(--line); color: var(--fg-3);
+  border-radius: 5px; font-size: 10.5px; padding: 2px 8px; cursor: pointer; font-family: var(--font-mono); }
+.sb-preset-edit:hover { color: var(--fg); border-color: var(--fg-3); }
+.sb-preset-add { display: flex; gap: 6px; margin-top: 8px; }
+.sb-preset-input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 11px;
+  padding: 5px 8px; border-radius: 6px; background: var(--bg-3); border: 1px solid var(--line); color: var(--fg); }
+.sb-preset-addbtn { font-family: var(--font-mono); font-size: 11px; padding: 5px 10px;
+  border-radius: 6px; background: var(--accent); color: var(--accent-text); border: 0; cursor: pointer; }
 
 /* sidebar slider */
 .sb-slider {
@@ -8871,13 +8886,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .lr-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   padding: 7px 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
 .lr-item:hover { background: var(--bg-3); }
-.lr-line1 { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; overflow: hidden; }
+/* Owned in the Schwab portfolio — highlight in yellow. */
+.lr-item.owned { background: color-mix(in srgb, #f5c451 16%, transparent);
+  border-left: 3px solid #f5c451; padding-left: 7px; }
+.lr-item.owned:hover { background: color-mix(in srgb, #f5c451 26%, transparent); }
+.lr-item.owned .lr-sym { color: #f5c451; }
+.lr-line1 { display: flex; align-items: baseline; gap: 16px; white-space: nowrap; overflow: hidden; }
 .lr-line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; overflow: hidden; }
 .lr-sym { font-family: var(--font-mono); font-weight: 800; font-size: 14px; color: var(--fg); }
 .lr-px { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); }
 .lr-chg { font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
 .lr-chg.up { color: var(--up); } .lr-chg.down { color: var(--down); }
 .lr-52 { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
-.lr-line3 { font-family: var(--font-mono); font-size: 8.5px; color: var(--fg-3); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; }
+.lr-line3 { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: #1C799E; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; letter-spacing: 0.02em; }
 @media (prefers-reduced-motion: reduce) { .lrail-track { animation: none; } .lrail-vp { overflow-y: auto; } }

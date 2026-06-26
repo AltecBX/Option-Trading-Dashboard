@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.64";
+const APP_VERSION = "2.65";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -388,6 +388,13 @@ function App() {
   // every device. Loaded from /api/prefs on mount; unknown ids are dropped
   // and any newly-shipped tabs are appended so nothing disappears.
   const [tabOrder, setTabOrder] = useState(() => TABS.map(t => t.id));
+  // Editable quick-access Presets (sidebar). Default to the built-in list,
+  // override from server prefs so the set syncs across devices.
+  const _defaultPresets = useMemo(
+    () => Object.keys((window.MockData && window.MockData.PRESETS) || {}), []);
+  const [presets, setPresets] = useState(() => _defaultPresets);
+  const [presetsEditing, setPresetsEditing] = useState(false);
+  const [presetInput, setPresetInput] = useState("");
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -400,10 +407,30 @@ function App() {
         const ordered = saved.filter(id => known.has(id));
         for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         if (ordered.length && !cancelled) setTabOrder(ordered);
+        if (!cancelled && Array.isArray(p && p.presets) && p.presets.length) {
+          setPresets(p.presets);
+        }
       } catch (_) { /* fall back to default order */ }
     })();
     return () => { cancelled = true; };
   }, []);
+  const savePresets = (next) => {
+    setPresets(next);
+    try {
+      apiFetch("/api/prefs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ presets: next }),
+      }).catch(() => {});
+    } catch (_) {}
+  };
+  const addPreset = (sym) => {
+    const s = (sym || "").toUpperCase().trim();
+    if (!s || !/^[A-Z0-9.\-]{1,12}$/.test(s)) return;
+    if (presets.includes(s)) return;
+    savePresets([...presets, s]);
+  };
+  const removePreset = (sym) => savePresets(presets.filter(p => p !== sym));
   const saveTabOrder = (order) => {
     setTabOrder(order);
     try {
@@ -2876,16 +2903,42 @@ function App() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label">Presets</div>
-          <div className="sb-preset-row">
-            {Object.keys(window.MockData.PRESETS).map(t => (
-              <button
-                key={t}
-                className={`preset-pill ${ticker === t ? "active" : ""}`}
-                onClick={() => { setTicker(t); setTickerInput(t); }}
-              >{t}</button>
-            ))}
+          <div className="sb-row h">
+            <span className="sb-label">Presets</span>
+            <button className="sb-preset-edit" onClick={() => setPresetsEditing(e => !e)}
+                    title={presetsEditing ? "Done editing presets" : "Edit your preset tickers"}>
+              {presetsEditing ? "Done" : "Edit"}
+            </button>
           </div>
+          <div className="sb-preset-row">
+            {presets.map(t => (
+              <span key={t} className={`preset-pill ${ticker === t ? "active" : ""}${presetsEditing ? " editing" : ""}`}>
+                <button className="preset-pill-go"
+                  onClick={() => { setTicker(t); setTickerInput(t); }}
+                  onContextMenu={(e) => { e.preventDefault(); removePreset(t); }}
+                  title={presetsEditing ? "Click × to remove" : "Click to switch · right-click to remove"}
+                >{t}</button>
+                {presetsEditing && (
+                  <button className="preset-pill-x" onClick={() => removePreset(t)}
+                          title={`Remove ${t} from presets`}>×</button>
+                )}
+              </span>
+            ))}
+            {presets.length === 0 && (
+              <div className="sb-watchlist-empty">No presets. Add one below.</div>
+            )}
+          </div>
+          {presetsEditing && (
+            <div className="sb-preset-add">
+              <input type="text" className="sb-preset-input"
+                     placeholder="Add ticker (e.g. AMD)"
+                     value={presetInput}
+                     onChange={e => setPresetInput(e.target.value)}
+                     onKeyDown={e => { if (e.key === "Enter") { addPreset(presetInput); setPresetInput(""); } }} />
+              <button className="sb-preset-addbtn"
+                      onClick={() => { addPreset(presetInput); setPresetInput(""); }}>Add</button>
+            </div>
+          )}
         </div>
 
         <div className="sb-section">
