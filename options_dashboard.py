@@ -247,6 +247,11 @@ OUT = HERE / "options_dashboard.html"
 _OWNED_CACHE: tuple | None = None
 _OWNED_LOCK = threading.Lock()
 
+# Daily-high rail cache: (timestamp, [rows]). Live quotes for the whole
+# watchlist are batched server-side; recomputed at most every ~20s.
+_DHIGH_CACHE: tuple | None = None
+_DHIGH_LOCK = threading.Lock()
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Mirrors of the Streamlit logic (same formulas, same baseline toggle)
@@ -7037,6 +7042,78 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/broker/owned", exc)
                 self._send_json({"error": str(exc), "symbols": []}, status=500)
+            return
+        if parsed.path == "/api/daily_highs":
+            # Watchlist stocks AT or near today's session high (the intraday
+            # twin of the 52W rail). Live quotes for the whole watchlist are
+            # batched through the Schwab quote cache, then ranked by how close
+            # the live price is to today's high. Tag/company are merged from
+            # the scan board. Result cached ~20s.
+            try:
+                global _DHIGH_CACHE
+                now = time.time()
+                with _DHIGH_LOCK:
+                    cached = _DHIGH_CACHE
+                if cached and (now - cached[0]) < 20:
+                    self._send_json({"rows": cached[1]})
+                    return
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                quotes = {}
+                sc = _schwab()
+                if sc is not None and syms:
+                    for i in range(0, len(syms), 250):
+                        part = syms[i:i + 250]
+                        try:
+                            q = sc.get_quotes(part) or {}
+                            quotes.update(q)
+                        except Exception:
+                            continue
+                # Tag/company from the scan board (best-effort).
+                bmap = {}
+                if _WLTABLE_AVAILABLE:
+                    try:
+                        for r in ((_wltable.get_board() or {}).get("rows") or []):
+                            if r.get("symbol"):
+                                bmap[r["symbol"]] = r
+                    except Exception:
+                        pass
+                rows = []
+                for sym in syms:
+                    q = quotes.get(sym) or quotes.get(sym.upper())
+                    if not q:
+                        continue
+                    last = q.get("last")
+                    high = q.get("high")
+                    try:
+                        last = float(last) if last is not None else None
+                        high = float(high) if high is not None else None
+                    except (TypeError, ValueError):
+                        continue
+                    if last is None or high is None or high <= 0:
+                        continue
+                    from_high = round((last / high - 1.0) * 100.0, 2)
+                    # Within ~1% of today's high counts as "near the daily high".
+                    if from_high < -1.0:
+                        continue
+                    b = bmap.get(sym) or {}
+                    rows.append({
+                        "symbol": sym,
+                        "last": last,
+                        "change": q.get("change_pct"),
+                        "day_high": high,
+                        "from_high": from_high,
+                        "tag": b.get("tag") or "",
+                        "company": q.get("name") or b.get("company") or "",
+                    })
+                rows.sort(key=lambda r: -r["from_high"])
+                rows = rows[:60]
+                with _DHIGH_LOCK:
+                    _DHIGH_CACHE = (now, rows)
+                self._send_json({"rows": rows})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/daily_highs", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
             return
         if parsed.path == "/api/backtest":
             qs = parse_qs(parsed.query)
