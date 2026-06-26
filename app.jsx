@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.63";
+const APP_VERSION = "2.64";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -1248,6 +1248,62 @@ function App() {
       return { ...prev, symbols: [...prev.symbols, ...added] };
     });
     return tokens.length;
+  };
+  // Import a parsed/cleaned CSV stock list. `rows` is an array of
+  // {symbol, tag, industry, sector, weekly} (weekly: true|false|null).
+  // mode "replace" makes the watchlist exactly the imported set (symbols
+  // not in the CSV are dropped); mode "update" merges — existing symbols
+  // get their CSV fields refreshed and new ones are appended, but nothing
+  // is removed. Either way we preserve each symbol's existing tags/notes/
+  // strategy/starred/added_at so the import only touches CSV-owned fields.
+  const wlImportCsv = (rows, mode = "update") => {
+    if (!Array.isArray(rows) || !rows.length) return 0;
+    watchlistDirtyRef.current = true;
+    let count = 0;
+    setWatchlistData(prev => {
+      const now = Math.floor(Date.now() / 1000);
+      const existing = new Map(prev.symbols.map(s => [s.symbol, s]));
+      // Dedupe imported rows by symbol (last one wins).
+      const bySym = new Map();
+      for (const r of rows) {
+        const symbol = (r.symbol || "").toUpperCase().trim();
+        if (symbol) bySym.set(symbol, r);
+      }
+      const applyCsv = (base, r) => ({
+        ...base,
+        tag: (r.tag || "").trim(),
+        industry: (r.industry || "").trim(),
+        sector: (r.sector || "").trim(),
+        weekly: r.weekly === true ? true : r.weekly === false ? false : null,
+      });
+      const out = [];
+      if (mode === "replace") {
+        for (const [symbol, r] of bySym) {
+          const base = existing.get(symbol) || {
+            symbol, tags: [], notes: "", preferred_strategy: null,
+            starred: false, added_at: now,
+          };
+          out.push(applyCsv(base, r));
+        }
+        count = out.length;
+      } else {
+        // update: keep existing order, refresh matched, append new
+        for (const s of prev.symbols) {
+          const r = bySym.get(s.symbol);
+          if (r) { out.push(applyCsv(s, r)); bySym.delete(s.symbol); count++; }
+          else out.push(s);
+        }
+        for (const [symbol, r] of bySym) {
+          out.push(applyCsv({
+            symbol, tags: [], notes: "", preferred_strategy: null,
+            starred: false, added_at: now,
+          }, r));
+          count++;
+        }
+      }
+      return { ...prev, symbols: out };
+    });
+    return count;
   };
   // Setter compat for legacy callers — treats their array as a "starred"
   // re-ordering and ensures all symbols exist in the watchlist.
@@ -2970,6 +3026,7 @@ function App() {
                 onToggleStar={wlToggleStar}
                 onUpdate={wlUpdateSymbol}
                 onBulkAdd={wlBulkAdd}
+                onImportCsv={wlImportCsv}
                 onSwitchTicker={(t) => { setTicker(t); setTickerInput(t); setShowWatchlistManager(false); }}
               />
             </div>
