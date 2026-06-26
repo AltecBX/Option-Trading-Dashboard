@@ -242,6 +242,11 @@ HERE = Path(__file__).resolve().parent
 TEMPLATE = HERE / "index.html"
 OUT = HERE / "options_dashboard.html"
 
+# Owned-symbols cache: (timestamp, [symbols]) across all Schwab accounts.
+# Refreshed at most every 5 min so highlighting owned names is cheap.
+_OWNED_CACHE: tuple | None = None
+_OWNED_LOCK = threading.Lock()
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Mirrors of the Streamlit logic (same formulas, same baseline toggle)
@@ -6996,6 +7001,42 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/broker/positions", exc)
                 self._send_json({"error": str(exc), "positions": []}, status=500)
+            return
+        if parsed.path == "/api/broker/owned":
+            # Aggregate the set of owned underlying symbols across all Schwab
+            # accounts (equities + option underlyings), cached ~5 min. Used to
+            # highlight owned names in the UI (e.g. the 52W rail). Exposes only
+            # the symbol set — no account hashes, sizes, or P/L.
+            try:
+                global _OWNED_CACHE
+                now = time.time()
+                with _OWNED_LOCK:
+                    cached = _OWNED_CACHE
+                if cached and (now - cached[0]) < 300:
+                    self._send_json({"configured": True, "symbols": cached[1]})
+                    return
+                sc = _schwab()
+                if sc is None or not sc.is_configured():
+                    self._send_json({"configured": False, "symbols": []})
+                    return
+                from schwab_client import SchwabClient
+                owned = set()
+                for a in (sc.get_account_numbers() or []):
+                    h = a.get("hashValue")
+                    if not h:
+                        continue
+                    payload = sc.get_account_positions(h)
+                    for pos in SchwabClient.normalize_positions(payload or {}):
+                        t = (pos.get("ticker") or "").upper().strip()
+                        if t:
+                            owned.add(t)
+                syms = sorted(owned)
+                with _OWNED_LOCK:
+                    _OWNED_CACHE = (now, syms)
+                self._send_json({"configured": True, "symbols": syms})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/broker/owned", exc)
+                self._send_json({"error": str(exc), "symbols": []}, status=500)
             return
         if parsed.path == "/api/backtest":
             qs = parse_qs(parsed.query)

@@ -556,18 +556,34 @@ def _save_prefs(data: dict) -> bool:
 
 def _validate_prefs_payload(data) -> dict | None:
     """Sanitize posted UI prefs. Only known keys are kept. tab_order is a
-    short list of slug-like tab ids."""
+    short list of slug-like tab ids; presets is a short list of ticker
+    symbols (the sidebar quick-access buttons). A partial PUT (only one
+    key) preserves the others so saving tabs never wipes presets, etc."""
     if not isinstance(data, dict):
         return None
-    tab_order = []
-    raw = data.get("tab_order")
-    if isinstance(raw, list):
-        seen = set()
-        for t in raw[:40]:
+    cur = _load_prefs() or {}
+    out = {
+        "version": 1,
+        "tab_order": cur.get("tab_order") if isinstance(cur.get("tab_order"), list) else [],
+        "presets": cur.get("presets") if isinstance(cur.get("presets"), list) else [],
+    }
+    if "tab_order" in data and isinstance(data.get("tab_order"), list):
+        tab_order, seen = [], set()
+        for t in data["tab_order"][:40]:
             if isinstance(t, str):
                 s = t.strip().lower()
                 if s and len(s) <= 24 and s not in seen and all(c.isalnum() or c in "-_" for c in s):
                     seen.add(s)
                     tab_order.append(s)
-    return {"version": 1, "tab_order": tab_order}
+        out["tab_order"] = tab_order
+    if "presets" in data and isinstance(data.get("presets"), list):
+        presets, seen = [], set()
+        for t in data["presets"][:60]:
+            if isinstance(t, str):
+                s = t.strip().upper()
+                if s and len(s) <= 12 and s not in seen and all(c.isalnum() or c in ".-" for c in s):
+                    seen.add(s)
+                    presets.append(s)
+        out["presets"] = presets
+    return out
 

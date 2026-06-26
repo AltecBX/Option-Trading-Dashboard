@@ -12694,9 +12694,14 @@ function LeftRail52W({
   apiFetch,
   onSwitchTicker
 }) {
-  const [rows, setRows] = useState([]);
+  const [scanRows, setScanRows] = useState([]);
+  const [liveQ, setLiveQ] = useState({}); // symbol -> {last, chg}
+  const [owned, setOwned] = useState(() => new Set()); // Schwab-held symbols
   const [vpH, setVpH] = useState(0);
   const vpRef = useRef(null);
+  // Pull the scan board (cheap, cached) for 52W-high context: high_52w plus a
+  // candidate set near the high. We display LIVE price/change (below) so a
+  // stale or corrupt scan `last` never shows a price the stock never traded.
   useEffect(() => {
     let stop = false,
       t = null;
@@ -12705,8 +12710,11 @@ function LeftRail52W({
         const r = await apiFetch("/api/watchlist_table");
         const d = await r.json();
         const all = d && d.rows || [];
-        const near = all.filter(x => x.from_52wh != null && x.from_52wh >= -3 && x.last != null).sort((a, b) => b.from_52wh - a.from_52wh).slice(0, 40);
-        if (!stop) setRows(near);
+        // Candidates: anything the scan thinks is within ~6% of its high (a
+        // touch wider than the display threshold so a live intraday push to a
+        // new high still qualifies once live prices arrive).
+        const near = all.filter(x => x.from_52wh != null && x.from_52wh >= -6 && x.high_52w != null).sort((a, b) => b.from_52wh - a.from_52wh).slice(0, 60);
+        if (!stop) setScanRows(near);
       } catch (_) {}
       if (!stop) t = setTimeout(load, 60000);
     };
@@ -12716,6 +12724,94 @@ function LeftRail52W({
       if (t) clearTimeout(t);
     };
   }, []);
+
+  // Owned symbols from the Schwab portfolio (cached server-side ~5 min).
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/broker/owned");
+        const d = await r.json();
+        if (!stop && d && Array.isArray(d.symbols)) {
+          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
+        }
+      } catch (_) {/* highlight is best-effort */}
+      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
+    };
+    grab();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+
+  // Live-quote overlay for the candidate set (batched, pauses when hidden).
+  const candKey = scanRows.map(r => r.symbol).join(",");
+  useEffect(() => {
+    if (!candKey) return;
+    const syms = candKey.split(",");
+    let stop = false,
+      t = null;
+    const poll = async () => {
+      if (!document.hidden) {
+        for (let i = 0; i < syms.length && !stop; i += 25) {
+          const batch = syms.slice(i, i + 25);
+          try {
+            const r = await apiFetch(`/api/quote?tickers=${encodeURIComponent(batch.join(","))}`);
+            if (!r.ok) continue;
+            const j = await r.json();
+            if (stop) return;
+            const res = j.results || {};
+            setLiveQ(prev => {
+              const next = {
+                ...prev
+              };
+              for (const s of batch) {
+                const q = res[s];
+                if (q && q.last != null) next[s] = {
+                  last: q.last,
+                  chg: q.change_pct != null ? q.change_pct : null
+                };
+              }
+              return next;
+            });
+          } catch (_) {}
+        }
+      }
+      if (!stop) t = setTimeout(poll, 30000);
+    };
+    poll();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, [candKey]);
+
+  // Build display rows: prefer the live price/change; recompute "% from 52W
+  // high" against the live price so the rail reflects reality intraday and a
+  // bad scan bar can't keep a stock pinned at a high it isn't near. Then apply
+  // the real display threshold (within 3% of the high) and sort by closeness.
+  const rows = useMemo(() => {
+    const out = [];
+    for (const r of scanRows) {
+      const q = liveQ[r.symbol];
+      const last = q && q.last != null ? q.last : r.last;
+      if (last == null) continue;
+      const chg = q && q.chg != null ? q.chg : r.change;
+      const hi = r.high_52w;
+      const from = hi ? Math.round((last / hi - 1) * 1000) / 10 : r.from_52wh;
+      if (from == null || from < -3) continue;
+      out.push({
+        ...r,
+        _last: last,
+        _chg: chg,
+        _from: from
+      });
+    }
+    out.sort((a, b) => b._from - a._from);
+    return out.slice(0, 40);
+  }, [scanRows, liveQ]);
 
   // Measure the (full-height) viewport. Each list copy is forced to AT LEAST
   // this height (min-height + space-evenly), so the rail always fills top to
@@ -12734,7 +12830,7 @@ function LeftRail52W({
   }, [rows]);
   if (!rows.length) return null;
   const colH = Math.max(vpH || 0, rows.length * 62);
-  const dur = Math.max(16, Math.round(colH / 36)); // ~36 px/s
+  const dur = Math.max(16, Math.round(colH / 35)); // ~35 px/s (a hair slower)
   const Col = ({
     hidden
   }) => /*#__PURE__*/React.createElement("div", {
@@ -12743,28 +12839,31 @@ function LeftRail52W({
     style: vpH ? {
       minHeight: `${vpH}px`
     } : undefined
-  }, rows.map((r, i) => /*#__PURE__*/React.createElement("button", {
-    key: i,
-    className: "lr-item",
-    onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
-    title: `${r.company || r.symbol} — ${r.from_52wh >= 0 ? "at" : Math.abs(r.from_52wh) + "% below"} 52-week high ($${r.high_52w != null ? r.high_52w : "?"})`
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "lr-line1"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "lr-sym"
-  }, r.symbol), /*#__PURE__*/React.createElement("span", {
-    className: "lr-px"
-  }, "$", Number(r.last).toFixed(2))), /*#__PURE__*/React.createElement("span", {
-    className: "lr-line2"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: `lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`
-  }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${r.change}%`), /*#__PURE__*/React.createElement("span", {
-    className: "lr-52",
-    title: "% from 52-week high"
-  }, r.from_52wh >= 0 ? "HIGH" : `${r.from_52wh}%`)), /*#__PURE__*/React.createElement("span", {
-    className: "lr-line3",
-    title: `${r.sector || ""}${r.industry ? " · " + r.industry : ""}`
-  }, r.sector || "—", r.industry ? ` · ${r.industry}` : ""))));
+  }, rows.map((r, i) => {
+    const isOwned = owned.has(String(r.symbol).toUpperCase());
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      className: `lr-item${isOwned ? " owned" : ""}`,
+      onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+      title: `${r.company || r.symbol} — ${r._from >= 0 ? "at" : Math.abs(r._from) + "% below"} 52-week high ($${r.high_52w != null ? r.high_52w : "?"})${isOwned ? " · you own this (Schwab)" : ""}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-line1"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-sym"
+    }, r.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "lr-px"
+    }, "$", Number(r._last).toFixed(2))), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `lr-chg ${(r._chg || 0) >= 0 ? "up" : "down"}`
+    }, r._chg == null ? "—" : `${r._chg >= 0 ? "+" : ""}${Number(r._chg).toFixed(2)}%`), /*#__PURE__*/React.createElement("span", {
+      className: "lr-52",
+      title: "% from 52-week high"
+    }, r._from >= 0 ? "HIGH" : `${r._from}%`)), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line3",
+      title: r.tag ? `Tag: ${r.tag}` : "No tag"
+    }, r.tag || "—"));
+  }));
   return /*#__PURE__*/React.createElement("div", {
     className: "lrail",
     "aria-label": "Watchlist names near 52-week high"
