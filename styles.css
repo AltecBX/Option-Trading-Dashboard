@@ -8886,8 +8886,13 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .lrail--daily { left: 144px; }
 }
 .lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em;
-  color: #fff; background: #3A9E31; text-align: center; padding: 6px 4px; cursor: help; }
+  color: #fff; background: #358F2E; text-align: center; padding: 6px 4px; cursor: help; }
 .lrail-title--daily { background: #46B33D; }
+/* Sub-header under each rail title: the most-common Tag on the current list. */
+.lrail-subtag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.03em; color: #1C799E; background: var(--bg-3);
+  text-align: center; padding: 3px 4px; border-bottom: 1px solid var(--line);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
 .lrail-vp { position: relative; flex: 1 1 auto; overflow: hidden;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
           mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%); }

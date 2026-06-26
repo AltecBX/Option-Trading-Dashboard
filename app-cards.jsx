@@ -9623,6 +9623,19 @@ function NewsTicker({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// Most-frequent Tag among a rail's current rows → {tag, n} (or null). Powers
+// the sub-header that tells you which group is dominating the list right now.
+function lrailTopTag(rows) {
+  const counts = {};
+  for (const r of (rows || [])) {
+    const t = r && r.tag;
+    if (t) counts[t] = (counts[t] || 0) + 1;
+  }
+  let best = null, n = 0;
+  for (const t in counts) if (counts[t] > n) { n = counts[t]; best = t; }
+  return best ? { tag: best, n } : null;
+}
+
 // Left-margin vertical ticker (wide screens only): watchlist names closest to
 // their 52-week high, scrolling top→bottom. Ticker · price · change · %-from-52WH.
 function LeftRail52W({ apiFetch, onSwitchTicker }) {
@@ -9740,6 +9753,7 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
   if (!rows.length) return null;
   const colH = Math.max(vpH || 0, rows.length * 62);
   const dur = Math.max(16, Math.round(colH / 35));   // ~35 px/s (a hair slower)
+  const topTag = lrailTopTag(rows);
   const Col = ({ hidden }) => (
     <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
       {rows.map((r, i) => {
@@ -9768,6 +9782,11 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
   return (
     <div className="lrail" aria-label="Watchlist names near 52-week high">
       <div className="lrail-title" title="Watchlist stocks within 3% of their 52-week high">NEAR 52W HIGH</div>
+      {topTag && (
+        <div className="lrail-subtag" title={`Most-represented tag near the 52-week high right now: ${topTag.tag} (${topTag.n})`}>
+          {topTag.tag} · {topTag.n}
+        </div>
+      )}
       <div className="lrail-vp" ref={vpRef}>
         <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
           <Col inner />
@@ -9842,6 +9861,7 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
   if (!rows.length) return null;
   const colH = Math.max(vpH || 0, rows.length * 62);
   const dur = Math.max(16, Math.round(colH / 35));
+  const topTag = lrailTopTag(rows);
   const Col = ({ hidden }) => (
     <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
       {rows.map((r, i) => {
@@ -9854,7 +9874,6 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
             <span className="lr-sym">{r.symbol}</span>
             <span className="lr-dash">-</span>
             <span className="lr-px">${Number(r.last).toFixed(2)}</span>
-            <span className="lr-age" title="Time since it last touched today's high">{ageStr(r.hit_ts)}</span>
           </span>
           <span className="lr-line2">
             <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
@@ -9873,6 +9892,11 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
   return (
     <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily high">
       <div className="lrail-title lrail-title--daily" title="Watchlist stocks at or within 1% of today's session high">DAILY HIGH</div>
+      {topTag && (
+        <div className="lrail-subtag" title={`Most-represented tag at the daily high right now: ${topTag.tag} (${topTag.n})`}>
+          {topTag.tag} · {topTag.n}
+        </div>
+      )}
       <div className="lrail-vp" ref={vpRef}>
         <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
           <Col inner />
