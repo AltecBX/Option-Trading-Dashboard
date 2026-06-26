@@ -13015,9 +13015,9 @@ function LeftRailDailyHigh({
     }, /*#__PURE__*/React.createElement("span", {
       className: `lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`
     }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`), /*#__PURE__*/React.createElement("span", {
-      className: "lr-52",
-      title: "% from today's high"
-    }, from >= 0 ? "HIGH" : `${from}%`)), /*#__PURE__*/React.createElement("span", {
+      className: "lr-age",
+      title: "Time since it last touched today's high"
+    }, ageStr(r.hit_ts))), /*#__PURE__*/React.createElement("span", {
       className: "lr-line3",
       title: r.tag ? `Tag: ${r.tag}` : "No tag"
     }, r.tag || "—"));
