@@ -4824,9 +4824,14 @@ function CsvImportPanel({ data, onImportCsv, onClose }) {
         }
         if (!rows.length) { setError("No valid rows with a Symbol were found."); return; }
         const existing = new Set(data.symbols.map(s => s.symbol));
-        const newCount = rows.filter(r => !existing.has(r.symbol)).length;
-        setParsed({ rows, dupes, badWeekly, skippedNoSymbol, newCount,
-                    updateCount: rows.length - newCount });
+        const fileSet = new Set(rows.map(r => r.symbol));
+        // Exact symbol lists so we can tell the user precisely what changes.
+        const addedSyms = rows.filter(r => !existing.has(r.symbol)).map(r => r.symbol);
+        const updatedSyms = rows.filter(r => existing.has(r.symbol)).map(r => r.symbol);
+        const removedSyms = data.symbols.map(s => s.symbol).filter(s => !fileSet.has(s));
+        setParsed({ rows, dupes, badWeekly, skippedNoSymbol,
+                    newCount: addedSyms.length, updateCount: updatedSyms.length,
+                    addedSyms, updatedSyms, removedSyms });
         setStage("preview");
       } catch (err) {
         setError("Could not read the CSV: " + (err && err.message || err));
@@ -4840,6 +4845,11 @@ function CsvImportPanel({ data, onImportCsv, onClose }) {
     const n = onImportCsv(parsed.rows, mode);
     onClose(n);
   };
+  // Compact symbol list: show all up to `max`, then "+N more".
+  const symList = (arr, max = 40) => (
+    arr.length <= max ? arr.join(", ")
+      : arr.slice(0, max).join(", ") + ` +${arr.length - max} more`
+  );
 
   return (
     <div className="wlm-csv-panel">
@@ -4872,6 +4882,30 @@ function CsvImportPanel({ data, onImportCsv, onClose }) {
             <b>{parsed.rows.length}</b> valid symbol{parsed.rows.length === 1 ? "" : "s"} in
             <span className="wlm-csv-fname"> {fileName}</span>
             {" — "}{parsed.newCount} new, {parsed.updateCount} already on your list.
+          </div>
+          {/* Exactly what this import changes — by symbol. */}
+          <div className="wlm-csv-changes">
+            {parsed.addedSyms.length > 0 && (
+              <div className="wlm-csv-change add">
+                <b>+ {parsed.addedSyms.length} added:</b> {symList(parsed.addedSyms)}
+              </div>
+            )}
+            {parsed.updatedSyms.length > 0 && (
+              <div className="wlm-csv-change upd">
+                <b>↻ {parsed.updatedSyms.length} updated:</b> {symList(parsed.updatedSyms)}
+              </div>
+            )}
+            {mode === "replace" && parsed.removedSyms.length > 0 && (
+              <div className="wlm-csv-change rem">
+                <b>− {parsed.removedSyms.length} removed:</b> {symList(parsed.removedSyms)}
+              </div>
+            )}
+            {mode === "update" && parsed.removedSyms.length > 0 && (
+              <div className="wlm-csv-change keep">
+                <b>{parsed.removedSyms.length} kept</b> (not in file, left untouched):{" "}
+                {symList(parsed.removedSyms)}
+              </div>
+            )}
           </div>
           {(parsed.badWeekly > 0 || parsed.dupes.length > 0 || parsed.skippedNoSymbol > 0) && (
             <div className="wlm-csv-warn">
@@ -4932,11 +4966,11 @@ function CsvImportPanel({ data, onImportCsv, onClose }) {
               Replace all <span className="wlm-csv-mode-note">(remove symbols not in the file)</span>
             </label>
           </div>
-          {mode === "replace" && parsed.updateCount < data.symbols.length && (
+          {mode === "replace" && parsed.removedSyms.length > 0 && (
             <div className="wlm-csv-warn">
-              ⚠ Replace will remove {data.symbols.length - parsed.updateCount} symbol
-              {data.symbols.length - parsed.updateCount === 1 ? "" : "s"} currently on your watchlist
-              that aren't in this file.
+              ⚠ Replace will remove {parsed.removedSyms.length} symbol
+              {parsed.removedSyms.length === 1 ? "" : "s"} currently on your watchlist
+              that aren't in this file: <b>{symList(parsed.removedSyms)}</b>
             </div>
           )}
           <div className="wlm-csv-actions">
