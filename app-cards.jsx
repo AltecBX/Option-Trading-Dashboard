@@ -9854,13 +9854,12 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
             <span className="lr-sym">{r.symbol}</span>
             <span className="lr-dash">-</span>
             <span className="lr-px">${Number(r.last).toFixed(2)}</span>
-            <span className="lr-age" title="Time since it last touched today's high">{ageStr(r.hit_ts)}</span>
           </span>
           <span className="lr-line2">
             <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
               {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`}
             </span>
-            <span className="lr-52" title="% from today's high">{from >= 0 ? "HIGH" : `${from}%`}</span>
+            <span className="lr-age" title="Time since it last touched today's high">{ageStr(r.hit_ts)}</span>
           </span>
           <span className="lr-line3" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>
             {r.tag || "—"}
