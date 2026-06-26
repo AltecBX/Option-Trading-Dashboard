@@ -9778,6 +9778,94 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// Twin of LeftRail52W, but for stocks AT or near TODAY'S session high. The
+// server (/api/daily_highs) does the heavy lifting: it batches live quotes for
+// the whole watchlist, computes "% from today's high", filters + ranks, and
+// merges in each symbol's Tag. Everything else (owned-yellow highlight, the
+// 3-line layout, the seamless scroll) mirrors the 52W rail exactly.
+function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
+  const [rows, setRows] = useState([]);
+  const [owned, setOwned] = useState(() => new Set());
+  const [vpH, setVpH] = useState(0);
+  const vpRef = useRef(null);
+  useEffect(() => {
+    let stop = false, t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/daily_highs");
+        const d = await r.json();
+        if (!stop) setRows((d && d.rows) || []);
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, 30000);
+    };
+    load();
+    return () => { stop = true; if (t) clearTimeout(t); };
+  }, []);
+  useEffect(() => {
+    let stop = false, t = null;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/broker/owned");
+        const d = await r.json();
+        if (!stop && d && Array.isArray(d.symbols)) {
+          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
+    };
+    grab();
+    return () => { stop = true; if (t) clearTimeout(t); };
+  }, []);
+  useEffect(() => {
+    const measure = () => { if (vpRef.current) setVpH(vpRef.current.offsetHeight); };
+    measure();
+    window.addEventListener("resize", measure);
+    const id = setTimeout(measure, 80);
+    return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
+  }, [rows]);
+
+  if (!rows.length) return null;
+  const colH = Math.max(vpH || 0, rows.length * 62);
+  const dur = Math.max(16, Math.round(colH / 35));
+  const Col = ({ hidden }) => (
+    <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
+      {rows.map((r, i) => {
+        const isOwned = owned.has(String(r.symbol).toUpperCase());
+        const from = r.from_high;
+        return (
+        <button key={i} className={`lr-item${isOwned ? " owned" : ""}`} onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                title={`${r.company || r.symbol} — ${from >= 0 ? "at" : Math.abs(from) + "% below"} today's high ($${r.day_high != null ? Number(r.day_high).toFixed(2) : "?"})${isOwned ? " · you own this (Schwab)" : ""}`}>
+          <span className="lr-line1">
+            <span className="lr-sym">{r.symbol}</span>
+            <span className="lr-px">${Number(r.last).toFixed(2)}</span>
+          </span>
+          <span className="lr-line2">
+            <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
+              {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`}
+            </span>
+            <span className="lr-52" title="% from today's high">{from >= 0 ? "HIGH" : `${from}%`}</span>
+          </span>
+          <span className="lr-line3" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>
+            {r.tag || "—"}
+          </span>
+        </button>
+        );
+      })}
+    </div>
+  );
+  return (
+    <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily high">
+      <div className="lrail-title lrail-title--daily" title="Watchlist stocks at or within 1% of today's session high">DAILY HIGH</div>
+      <div className="lrail-vp" ref={vpRef}>
+        <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
+          <Col inner />
+          <Col hidden />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Memoize the heavy, self-contained ticker cards so unrelated App state
 // changes (hovers, sidebar, other tabs) don't re-render them. Their props
 // (apiFetch, switchTicker, ticker) are stable identities from App.
@@ -9810,4 +9898,5 @@ Object.assign(window, { TickerLogo,
   MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard),
   NewsHub: _memo(NewsHub), SchwabReconnect: _memo(SchwabReconnect),
-  WatchlistStreaksCard: _memo(WatchlistStreaksCard), LeftRail52W: _memo(LeftRail52W) });
+  WatchlistStreaksCard: _memo(WatchlistStreaksCard), LeftRail52W: _memo(LeftRail52W),
+  LeftRailDailyHigh: _memo(LeftRailDailyHigh) });

@@ -12904,6 +12904,125 @@ function LeftRail52W({
   }))));
 }
 
+// Twin of LeftRail52W, but for stocks AT or near TODAY'S session high. The
+// server (/api/daily_highs) does the heavy lifting: it batches live quotes for
+// the whole watchlist, computes "% from today's high", filters + ranks, and
+// merges in each symbol's Tag. Everything else (owned-yellow highlight, the
+// 3-line layout, the seamless scroll) mirrors the 52W rail exactly.
+function LeftRailDailyHigh({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [rows, setRows] = useState([]);
+  const [owned, setOwned] = useState(() => new Set());
+  const [vpH, setVpH] = useState(0);
+  const vpRef = useRef(null);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/daily_highs");
+        const d = await r.json();
+        if (!stop) setRows(d && d.rows || []);
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, 30000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/broker/owned");
+        const d = await r.json();
+        if (!stop && d && Array.isArray(d.symbols)) {
+          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
+    };
+    grab();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    const measure = () => {
+      if (vpRef.current) setVpH(vpRef.current.offsetHeight);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const id = setTimeout(measure, 80);
+    return () => {
+      window.removeEventListener("resize", measure);
+      clearTimeout(id);
+    };
+  }, [rows]);
+  if (!rows.length) return null;
+  const colH = Math.max(vpH || 0, rows.length * 62);
+  const dur = Math.max(16, Math.round(colH / 35));
+  const Col = ({
+    hidden
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "lr-col",
+    "aria-hidden": hidden || undefined,
+    style: vpH ? {
+      minHeight: `${vpH}px`
+    } : undefined
+  }, rows.map((r, i) => {
+    const isOwned = owned.has(String(r.symbol).toUpperCase());
+    const from = r.from_high;
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      className: `lr-item${isOwned ? " owned" : ""}`,
+      onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+      title: `${r.company || r.symbol} — ${from >= 0 ? "at" : Math.abs(from) + "% below"} today's high ($${r.day_high != null ? Number(r.day_high).toFixed(2) : "?"})${isOwned ? " · you own this (Schwab)" : ""}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-line1"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-sym"
+    }, r.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "lr-px"
+    }, "$", Number(r.last).toFixed(2))), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`
+    }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`), /*#__PURE__*/React.createElement("span", {
+      className: "lr-52",
+      title: "% from today's high"
+    }, from >= 0 ? "HIGH" : `${from}%`)), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line3",
+      title: r.tag ? `Tag: ${r.tag}` : "No tag"
+    }, r.tag || "—"));
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "lrail lrail--daily",
+    "aria-label": "Watchlist names at today's daily high"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lrail-title lrail-title--daily",
+    title: "Watchlist stocks at or within 1% of today's session high"
+  }, "DAILY HIGH"), /*#__PURE__*/React.createElement("div", {
+    className: "lrail-vp",
+    ref: vpRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lrail-track",
+    style: {
+      animationDuration: `${dur}s`
+    }
+  }, /*#__PURE__*/React.createElement(Col, {
+    inner: true
+  }), /*#__PURE__*/React.createElement(Col, {
+    hidden: true
+  }))));
+}
+
 // Memoize the heavy, self-contained ticker cards so unrelated App state
 // changes (hovers, sidebar, other tabs) don't re-render them. Their props
 // (apiFetch, switchTicker, ticker) are stable identities from App.
@@ -12964,6 +13083,7 @@ Object.assign(window, {
   NewsHub: _memo(NewsHub),
   SchwabReconnect: _memo(SchwabReconnect),
   WatchlistStreaksCard: _memo(WatchlistStreaksCard),
-  LeftRail52W: _memo(LeftRail52W)
+  LeftRail52W: _memo(LeftRail52W),
+  LeftRailDailyHigh: _memo(LeftRailDailyHigh)
 });
 })();

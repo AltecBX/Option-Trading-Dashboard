@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.66";
+const APP_VERSION = "2.67";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2593,6 +2593,7 @@ function App() {
       <NewsTicker apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       {/* Left-margin vertical ticker — near-52W-high names (wide screens only). */}
       <LeftRail52W apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      <LeftRailDailyHigh apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       {/* Mobile sticky header (phones/tablets only; hidden on desktop via CSS) */}
       <header className="mobile-header">
         <button className="mh-btn mh-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}>☰</button>
