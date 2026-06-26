@@ -2882,6 +2882,7 @@ function WatchlistTableCard({
   const [view, setView] = useState("stocks"); // stocks | sectors | industries
   const [fSector, setFSector] = useState("all");
   const [fIndustry, setFIndustry] = useState("all");
+  const [fTag, setFTag] = useState("all");
   const [q, setQ] = useState("");
   const [fMcap, setFMcap] = useState("all");
   const [primeOnly, setPrimeOnly] = useState(false); // confluence shortlist
@@ -3014,12 +3015,19 @@ function WatchlistTableCard({
   const scanning = !!status.scanning;
   const sectors = board && board.sectors || [];
   const industries = board && board.industries || [];
+  const tagOpts = board && board.tags || [];
   const COLS = [{
     k: "symbol",
     label: "Symbol"
   }, {
     k: "company",
     label: "Company"
+  }, {
+    k: "tag",
+    label: "Tag"
+  }, {
+    k: "weekly",
+    label: "Weekly"
   }, {
     k: "edge",
     label: "Edge",
@@ -3181,7 +3189,7 @@ function WatchlistTableCard({
     label: "%200DMA",
     num: true
   }];
-  const STR = new Set(["symbol", "company", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
+  const STR = new Set(["symbol", "company", "tag", "weekly", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = k => setSort(s => s.key === k ? {
     key: k,
     dir: s.dir === "asc" ? "desc" : "asc"
@@ -3194,6 +3202,8 @@ function WatchlistTableCard({
   const COL_TIPS = {
     symbol: "Ticker symbol (★ = Prime setup). Click a row to open it.",
     company: "Company name",
+    tag: "Your category from the imported CSV — use the Tag filter to group your list.",
+    weekly: "Whether the stock has weekly options (from your CSV). Yes / No / blank.",
     edge: "Edge — signed options-flow conviction (+long / −short), size-normalized. Sort to rank morning buys vs sells.",
     setup: "Plain-English read of the edge drivers",
     prem_sell: "Suggested premium-selling side",
@@ -3337,6 +3347,7 @@ function WatchlistTableCard({
       if (primeOnly && !isPrime(r)) return false;
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      if (fTag !== "all" && (r.tag || "") !== fTag) return false;
       if (fMcap !== "all" && !mcapPass(r.market_cap)) return false;
       if (q && !`${r.symbol} ${r.company || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
       return true;
@@ -3358,7 +3369,7 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return out;
-  }, [rows, fSector, fIndustry, fMcap, q, sort, primeOnly, liveQ]);
+  }, [rows, fSector, fIndustry, fTag, fMcap, q, sort, primeOnly, liveQ]);
 
   // Progressive rendering: the stocks table can hold ~550 rows × 40+ columns.
   // Painting them all (and re-painting on every sort/filter) is the table's
@@ -3374,7 +3385,7 @@ function WatchlistTableCard({
   // yank the scroll back to the top every poll.
   useEffect(() => {
     setVisN(WL_CHUNK);
-  }, [sort, q, fSector, fIndustry, fMcap, primeOnly, rows]);
+  }, [sort, q, fSector, fIndustry, fTag, fMcap, primeOnly, rows]);
   const wlScrollRef = useRef(null);
   const onWlScroll = e => {
     if (visN >= filtered.length) return;
@@ -3463,6 +3474,7 @@ function WatchlistTableCard({
     const base = rows.filter(r => {
       if (fSector !== "all" && r.sector !== fSector) return false;
       if (fIndustry !== "all" && r.industry !== fIndustry) return false;
+      if (fTag !== "all" && (r.tag || "") !== fTag) return false;
       if (fMcap !== "all" && !mcapPass(r.market_cap)) return false;
       return true;
     });
@@ -3523,7 +3535,7 @@ function WatchlistTableCard({
       return (av - bv) * mul;
     });
     return arr;
-  }, [rows, view, groupKey, fSector, fIndustry, fMcap, gsort]);
+  }, [rows, view, groupKey, fSector, fIndustry, fTag, fMcap, gsort]);
   const GCOLS = [{
     k: "name",
     label: view === "sectors" ? "Sector" : "Industry"
@@ -3766,6 +3778,20 @@ function WatchlistTableCard({
           key: k,
           className: "wl-co"
         }, r.company || "—");
+      case "tag":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt"
+        }, r.tag ? /*#__PURE__*/React.createElement("span", {
+          className: "wl-tag-chip",
+          title: "Your category: " + r.tag
+        }, r.tag) : "—");
+      case "weekly":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt",
+          title: r.weekly === true ? "Has weekly options" : r.weekly === false ? "No weekly options" : "Unknown"
+        }, r.weekly === true ? "Yes" : r.weekly === false ? "No" : "—");
       case "edge":
         return /*#__PURE__*/React.createElement("td", {
           key: k,
@@ -4102,7 +4128,17 @@ function WatchlistTableCard({
   }, "All industries"), industryOpts.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
-  }, s))), /*#__PURE__*/React.createElement("select", {
+  }, s))), tagOpts.length > 0 && /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fTag,
+    onChange: e => setFTag(e.target.value),
+    title: "Filter by your Tag (category from CSV import)"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All tags"), tagOpts.map(t => /*#__PURE__*/React.createElement("option", {
+    key: t,
+    value: t
+  }, t))), /*#__PURE__*/React.createElement("select", {
     className: "sb-select",
     value: fMcap,
     onChange: e => setFMcap(e.target.value),
@@ -6766,6 +6802,272 @@ function StrategyReferenceCard() {
     }, "Tap to read full breakdown"));
   })));
 }
+
+// ── CSV helpers for the Manage Stocks importer ─────────────────────
+// Required columns (case-insensitive, any order): Symbol, Tag, Industry,
+// Sector, Weekly. Symbol is mandatory per row; Tag/Industry/Sector may be
+// blank; Weekly must be Yes/No (anything else is flagged before import).
+const WLM_CSV_COLUMNS = ["Symbol", "Tag", "Industry", "Sector", "Weekly"];
+
+// Minimal RFC-4180-ish CSV parser: handles quoted fields, escaped quotes
+// (""), and commas/newlines inside quotes. Returns an array of string rows.
+function parseCsv(text) {
+  const rows = [];
+  let row = [],
+    field = "",
+    inQuotes = false;
+  const s = (text || "").replace(/^﻿/, ""); // strip BOM
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (s[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && s[i + 1] === "\n") i++;
+      row.push(field);
+      field = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== "" || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+// Normalize a Weekly cell to true / false / null(unknown) + a flag for
+// "present but not Yes/No" so we can warn before importing.
+function normalizeWeekly(raw) {
+  const v = (raw || "").trim().toLowerCase();
+  if (v === "") return {
+    weekly: null,
+    bad: false
+  };
+  if (["yes", "y", "true", "1"].includes(v)) return {
+    weekly: true,
+    bad: false
+  };
+  if (["no", "n", "false", "0"].includes(v)) return {
+    weekly: false,
+    bad: false
+  };
+  return {
+    weekly: null,
+    bad: true
+  };
+}
+function csvEscape(v) {
+  const s = String(v == null ? "" : v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// Build the export CSV (same column format) from the current watchlist.
+function watchlistToCsv(symbols) {
+  const lines = [WLM_CSV_COLUMNS.join(",")];
+  for (const s of symbols) {
+    lines.push([csvEscape(s.symbol), csvEscape(s.tag || ""), csvEscape(s.industry || ""), csvEscape(s.sector || ""), csvEscape(s.weekly === true ? "Yes" : s.weekly === false ? "No" : "")].join(","));
+  }
+  return lines.join("\r\n");
+}
+function CsvImportPanel({
+  data,
+  onImportCsv,
+  onClose
+}) {
+  const [stage, setStage] = useState("pick"); // pick | preview
+  const [fileName, setFileName] = useState("");
+  const [parsed, setParsed] = useState(null); // {rows, missing, badWeekly, dupes, mode}
+  const [mode, setMode] = useState("update"); // update | replace
+  const [error, setError] = useState("");
+  const fileRef = React.useRef(null);
+  const handleFile = file => {
+    if (!file) return;
+    setError("");
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const grid = parseCsv(String(e.target.result || ""));
+        if (!grid.length) {
+          setError("The file appears to be empty.");
+          return;
+        }
+        const header = grid[0].map(h => h.trim().toLowerCase());
+        const idx = {};
+        for (const col of WLM_CSV_COLUMNS) idx[col] = header.indexOf(col.toLowerCase());
+        const missing = WLM_CSV_COLUMNS.filter(c => idx[c] === -1);
+        if (missing.length) {
+          setError("Missing required column" + (missing.length > 1 ? "s" : "") + ": " + missing.join(", ") + ". Found: " + grid[0].map(h => h.trim()).filter(Boolean).join(", "));
+          return;
+        }
+        const seen = new Set();
+        const rows = [],
+          dupes = [];
+        let badWeekly = 0,
+          skippedNoSymbol = 0;
+        for (let r = 1; r < grid.length; r++) {
+          const cells = grid[r];
+          const symbol = (cells[idx.Symbol] || "").trim().toUpperCase();
+          if (!symbol) {
+            skippedNoSymbol++;
+            continue;
+          }
+          const wk = normalizeWeekly(cells[idx.Weekly]);
+          if (wk.bad) badWeekly++;
+          if (seen.has(symbol)) {
+            dupes.push(symbol);
+            continue;
+          }
+          seen.add(symbol);
+          rows.push({
+            symbol,
+            tag: (cells[idx.Tag] || "").trim(),
+            industry: (cells[idx.Industry] || "").trim(),
+            sector: (cells[idx.Sector] || "").trim(),
+            weekly: wk.weekly,
+            weeklyRaw: (cells[idx.Weekly] || "").trim(),
+            weeklyBad: wk.bad
+          });
+        }
+        if (!rows.length) {
+          setError("No valid rows with a Symbol were found.");
+          return;
+        }
+        const existing = new Set(data.symbols.map(s => s.symbol));
+        const newCount = rows.filter(r => !existing.has(r.symbol)).length;
+        setParsed({
+          rows,
+          dupes,
+          badWeekly,
+          skippedNoSymbol,
+          newCount,
+          updateCount: rows.length - newCount
+        });
+        setStage("preview");
+      } catch (err) {
+        setError("Could not read the CSV: " + (err && err.message || err));
+      }
+    };
+    reader.onerror = () => setError("Could not read the file.");
+    reader.readAsText(file);
+  };
+  const doImport = () => {
+    const n = onImportCsv(parsed.rows, mode);
+    onClose(n);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-panel"
+  }, stage === "pick" && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-pick"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-help"
+  }, "Import a CSV with columns ", /*#__PURE__*/React.createElement("b", null, "Symbol, Tag, Industry, Sector, Weekly"), ". Symbols are cleaned (trimmed + uppercased) and de-duplicated. Weekly must be ", /*#__PURE__*/React.createElement("b", null, "Yes"), " or ", /*#__PURE__*/React.createElement("b", null, "No"), ". Industry & Sector from the file become the source of truth across the app."), /*#__PURE__*/React.createElement("input", {
+    ref: fileRef,
+    type: "file",
+    accept: ".csv,text/csv",
+    className: "wlm-csv-file",
+    onChange: e => handleFile(e.target.files && e.target.files[0])
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-pick-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "wlm-csv-btn",
+    title: "Choose a .csv file from your device",
+    onClick: () => fileRef.current && fileRef.current.click()
+  }, "Choose CSV file."), /*#__PURE__*/React.createElement("button", {
+    className: "wlm-csv-cancel",
+    onClick: () => onClose(0)
+  }, "Cancel")), fileName && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-fname"
+  }, fileName), error && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-error"
+  }, error)), stage === "preview" && parsed && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-preview"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-summary"
+  }, /*#__PURE__*/React.createElement("b", null, parsed.rows.length), " valid symbol", parsed.rows.length === 1 ? "" : "s", " in", /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-fname"
+  }, " ", fileName), " — ", parsed.newCount, " new, ", parsed.updateCount, " already on your list."), (parsed.badWeekly > 0 || parsed.dupes.length > 0 || parsed.skippedNoSymbol > 0) && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-warn"
+  }, parsed.badWeekly > 0 && /*#__PURE__*/React.createElement("div", null, "⚠ ", parsed.badWeekly, " row", parsed.badWeekly === 1 ? "" : "s", " have a Weekly value that isn't Yes/No — those will be imported as blank (unknown)."), parsed.dupes.length > 0 && /*#__PURE__*/React.createElement("div", null, "⚠ ", parsed.dupes.length, " duplicate symbol", parsed.dupes.length === 1 ? "" : "s", " in the file were collapsed: ", Array.from(new Set(parsed.dupes)).slice(0, 10).join(", "), parsed.dupes.length > 10 ? "…" : "", "."), parsed.skippedNoSymbol > 0 && /*#__PURE__*/React.createElement("div", null, "⚠ ", parsed.skippedNoSymbol, " row", parsed.skippedNoSymbol === 1 ? "" : "s", " had no Symbol and were skipped.")), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "wlm-csv-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Ticker symbol (cleaned: trimmed + uppercased)"
+  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    title: "Your custom category for grouping this stock"
+  }, "Tag"), /*#__PURE__*/React.createElement("th", {
+    title: "Industry (becomes source of truth)"
+  }, "Industry"), /*#__PURE__*/React.createElement("th", {
+    title: "Sector (becomes source of truth)"
+  }, "Sector"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether weekly options exist (Yes/No)"
+  }, "Weekly"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 200).map((r, i) => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol + i
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "wlm-csv-sym"
+  }, r.symbol), /*#__PURE__*/React.createElement("td", null, r.tag || /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-blank"
+  }, "—")), /*#__PURE__*/React.createElement("td", null, r.industry || /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-blank"
+  }, "—")), /*#__PURE__*/React.createElement("td", null, r.sector || /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-blank"
+  }, "—")), /*#__PURE__*/React.createElement("td", {
+    className: r.weeklyBad ? "wlm-csv-badwk" : ""
+  }, r.weekly === true ? "Yes" : r.weekly === false ? "No" : r.weeklyBad ? r.weeklyRaw + " ⚠" : /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-blank"
+  }, "—")))))), parsed.rows.length > 200 && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-more"
+  }, "…and ", parsed.rows.length - 200, " more (all will be imported).")), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-mode"
+  }, /*#__PURE__*/React.createElement("label", {
+    title: "Refresh matching symbols and add new ones; keep symbols not in the file"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "radio",
+    name: "wlm-csv-mode",
+    checked: mode === "update",
+    onChange: () => setMode("update")
+  }), "Update & add ", /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-mode-note"
+  }, "(keep symbols not in the file)")), /*#__PURE__*/React.createElement("label", {
+    title: "Make the watchlist exactly the imported list; symbols not in the file are removed"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "radio",
+    name: "wlm-csv-mode",
+    checked: mode === "replace",
+    onChange: () => setMode("replace")
+  }), "Replace all ", /*#__PURE__*/React.createElement("span", {
+    className: "wlm-csv-mode-note"
+  }, "(remove symbols not in the file)"))), mode === "replace" && parsed.updateCount < data.symbols.length && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-warn"
+  }, "⚠ Replace will remove ", data.symbols.length - parsed.updateCount, " symbol", data.symbols.length - parsed.updateCount === 1 ? "" : "s", " currently on your watchlist that aren't in this file."), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "wlm-csv-btn wlm-csv-confirm",
+    onClick: doImport,
+    title: mode === "replace" ? "Replace your watchlist with this file" : "Merge this file into your watchlist"
+  }, mode === "replace" ? "Replace watchlist" : "Import", " (", parsed.rows.length, ")"), /*#__PURE__*/React.createElement("button", {
+    className: "wlm-csv-cancel",
+    onClick: () => {
+      setStage("pick");
+      setParsed(null);
+    }
+  }, "Back"), /*#__PURE__*/React.createElement("button", {
+    className: "wlm-csv-cancel",
+    onClick: () => onClose(0)
+  }, "Cancel"))));
+}
 function WatchlistManager({
   data,
   onAdd,
@@ -6773,6 +7075,7 @@ function WatchlistManager({
   onToggleStar,
   onUpdate,
   onBulkAdd,
+  onImportCsv,
   onSwitchTicker
 }) {
   const [search, setSearch] = useState("");
@@ -6781,7 +7084,24 @@ function WatchlistManager({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editing, setEditing] = useState(null); // symbol being edited
   const [sortBy, setSortBy] = useState("starred"); // starred | symbol | added
-  // Derived: all unique tags with counts
+  const [csvOpen, setCsvOpen] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const exportCsv = () => {
+    const csv = watchlistToCsv([...data.symbols].sort((a, b) => a.symbol.localeCompare(b.symbol)));
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "watchlist.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const [catFilter, setCatFilter] = useState(""); // CSV "Tag" category filter
+  // Derived: all unique free-form tags with counts
   const allTags = useMemo(() => {
     const counts = {};
     for (const s of data.symbols) {
@@ -6789,14 +7109,21 @@ function WatchlistManager({
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [data.symbols]);
+  // Derived: all unique CSV categories (the first-class "Tag" field)
+  const allCats = useMemo(() => {
+    const set = new Set();
+    for (const s of data.symbols) if (s.tag) set.add(s.tag);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [data.symbols]);
   // Filtered + sorted view
   const visible = useMemo(() => {
     const q = search.trim().toUpperCase();
     let rows = data.symbols.filter(s => {
-      if (q && !s.symbol.includes(q) && !(s.notes || "").toUpperCase().includes(q) && !(s.tags || []).some(t => t.toUpperCase().includes(q))) {
+      if (q && !s.symbol.includes(q) && !(s.notes || "").toUpperCase().includes(q) && !(s.tag || "").toUpperCase().includes(q) && !(s.sector || "").toUpperCase().includes(q) && !(s.industry || "").toUpperCase().includes(q) && !(s.tags || []).some(t => t.toUpperCase().includes(q))) {
         return false;
       }
       if (tagFilter && !(s.tags || []).includes(tagFilter)) return false;
+      if (catFilter && (s.tag || "") !== catFilter) return false;
       return true;
     });
     if (sortBy === "starred") {
@@ -6805,9 +7132,11 @@ function WatchlistManager({
       rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
     } else if (sortBy === "added") {
       rows.sort((a, b) => (b.added_at || 0) - (a.added_at || 0));
+    } else if (sortBy === "tag") {
+      rows.sort((a, b) => (a.tag || "~").localeCompare(b.tag || "~") || a.symbol.localeCompare(b.symbol));
     }
     return rows;
-  }, [data.symbols, search, tagFilter, sortBy]);
+  }, [data.symbols, search, tagFilter, catFilter, sortBy]);
   return /*#__PURE__*/React.createElement("div", {
     className: "wlm-body"
   }, /*#__PURE__*/React.createElement("div", {
@@ -6829,10 +7158,43 @@ function WatchlistManager({
     value: "symbol"
   }, "A-Z"), /*#__PURE__*/React.createElement("option", {
     value: "added"
-  }, "Recently added")), /*#__PURE__*/React.createElement("button", {
+  }, "Recently added"), /*#__PURE__*/React.createElement("option", {
+    value: "tag"
+  }, "By tag")), allCats.length > 0 && /*#__PURE__*/React.createElement("select", {
+    className: "wlm-sort",
+    value: catFilter,
+    onChange: e => setCatFilter(e.target.value),
+    title: "Filter by your Tag (category)"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "All tags"), allCats.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }, c))), /*#__PURE__*/React.createElement("button", {
     className: `wlm-bulk-toggle${bulkOpen ? " active" : ""}`,
-    onClick: () => setBulkOpen(o => !o)
-  }, bulkOpen ? "Close bulk add" : "+ Bulk add")), allTags.length > 0 && /*#__PURE__*/React.createElement("div", {
+    onClick: () => setBulkOpen(o => !o),
+    title: "Paste many tickers at once"
+  }, bulkOpen ? "Close bulk add" : "+ Bulk add"), /*#__PURE__*/React.createElement("button", {
+    className: `wlm-bulk-toggle${csvOpen ? " active" : ""}`,
+    onClick: () => {
+      setCsvOpen(o => !o);
+      setImportMsg("");
+    },
+    title: "Import a stock list from a CSV (Symbol, Tag, Industry, Sector, Weekly)"
+  }, csvOpen ? "Close import" : "⇪ Import CSV"), /*#__PURE__*/React.createElement("button", {
+    className: "wlm-bulk-toggle",
+    onClick: exportCsv,
+    title: "Download your current list as a CSV you can edit and re-import"
+  }, "⇩ Export CSV")), csvOpen && /*#__PURE__*/React.createElement(CsvImportPanel, {
+    data: data,
+    onImportCsv: onImportCsv,
+    onClose: n => {
+      setCsvOpen(false);
+      if (n > 0) setImportMsg(`Imported ${n} symbol${n === 1 ? "" : "s"} from CSV.`);
+    }
+  }), importMsg && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-done"
+  }, importMsg), allTags.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "wlm-tags-row"
   }, /*#__PURE__*/React.createElement("button", {
     className: `wlm-tag-chip${!tagFilter ? " active" : ""}`,
@@ -6916,12 +7278,20 @@ function WatchlistRow({
   const [tagsInput, setTagsInput] = useState((entry.tags || []).join(", "));
   const [notesInput, setNotesInput] = useState(entry.notes || "");
   const [strategyInput, setStrategyInput] = useState(entry.preferred_strategy || "");
+  const [tagInput, setTagInput] = useState(entry.tag || "");
+  const [sectorInput, setSectorInput] = useState(entry.sector || "");
+  const [industryInput, setIndustryInput] = useState(entry.industry || "");
+  const [weeklyInput, setWeeklyInput] = useState(entry.weekly === true ? "Yes" : entry.weekly === false ? "No" : "");
   // Reset local state when entering edit mode
   useEffect(() => {
     if (isEditing) {
       setTagsInput((entry.tags || []).join(", "));
       setNotesInput(entry.notes || "");
       setStrategyInput(entry.preferred_strategy || "");
+      setTagInput(entry.tag || "");
+      setSectorInput(entry.sector || "");
+      setIndustryInput(entry.industry || "");
+      setWeeklyInput(entry.weekly === true ? "Yes" : entry.weekly === false ? "No" : "");
     }
   }, [isEditing, entry.symbol]);
   const saveEdits = () => {
@@ -6929,7 +7299,11 @@ function WatchlistRow({
     onUpdate({
       tags: Array.from(new Set(tags)),
       notes: notesInput.slice(0, 500),
-      preferred_strategy: strategyInput.trim() || null
+      preferred_strategy: strategyInput.trim() || null,
+      tag: tagInput.trim().slice(0, 40),
+      sector: sectorInput.trim().slice(0, 80),
+      industry: industryInput.trim().slice(0, 80),
+      weekly: weeklyInput === "Yes" ? true : weeklyInput === "No" ? false : null
     });
     onCloseEdit();
   };
@@ -6972,7 +7346,19 @@ function WatchlistRow({
     title: "Switch dashboard to this ticker"
   }, entry.symbol), /*#__PURE__*/React.createElement("div", {
     className: "wlm-row-meta"
-  }, (entry.tags || []).map(t => /*#__PURE__*/React.createElement("span", {
+  }, entry.tag && /*#__PURE__*/React.createElement("span", {
+    className: "wlm-cat-pill",
+    title: "Your category (from CSV import)"
+  }, entry.tag), entry.weekly === true && /*#__PURE__*/React.createElement("span", {
+    className: "wlm-wk-pill",
+    title: "Has weekly options"
+  }, "Wk"), entry.sector && /*#__PURE__*/React.createElement("span", {
+    className: "wlm-sec-pill",
+    title: "Sector: " + entry.sector
+  }, entry.sector), entry.industry && /*#__PURE__*/React.createElement("span", {
+    className: "wlm-ind-pill",
+    title: "Industry: " + entry.industry
+  }, entry.industry), (entry.tags || []).map(t => /*#__PURE__*/React.createElement("span", {
     key: t,
     className: "wlm-tag-pill"
   }, t)), entry.preferred_strategy && /*#__PURE__*/React.createElement("span", {
@@ -6993,7 +7379,52 @@ function WatchlistRow({
     className: "wlm-edit-panel"
   }, /*#__PURE__*/React.createElement("div", {
     className: "wlm-edit-row"
-  }, /*#__PURE__*/React.createElement("label", null, "Tags"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("label", {
+    title: "Your custom category for grouping this stock"
+  }, "Tag"), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: tagInput,
+    maxLength: 40,
+    placeholder: "Your category, e.g. Core, Swing, AI",
+    onChange: e => setTagInput(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-edit-row"
+  }, /*#__PURE__*/React.createElement("label", {
+    title: "Whether weekly options exist (source of truth)"
+  }, "Weekly"), /*#__PURE__*/React.createElement("select", {
+    value: weeklyInput,
+    onChange: e => setWeeklyInput(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "(unknown)"), /*#__PURE__*/React.createElement("option", {
+    value: "Yes"
+  }, "Yes"), /*#__PURE__*/React.createElement("option", {
+    value: "No"
+  }, "No"))), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-edit-row"
+  }, /*#__PURE__*/React.createElement("label", {
+    title: "Sector (overrides external data across the app)"
+  }, "Sector"), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: sectorInput,
+    maxLength: 80,
+    placeholder: "e.g. Technology",
+    onChange: e => setSectorInput(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-edit-row"
+  }, /*#__PURE__*/React.createElement("label", {
+    title: "Industry (overrides external data across the app)"
+  }, "Industry"), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: industryInput,
+    maxLength: 80,
+    placeholder: "e.g. Semiconductors",
+    onChange: e => setIndustryInput(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-edit-row"
+  }, /*#__PURE__*/React.createElement("label", {
+    title: "Free-form labels for filtering (comma-separated)"
+  }, "Tags"), /*#__PURE__*/React.createElement("input", {
     type: "text",
     value: tagsInput,
     placeholder: "comma-separated. e.g. semis, mega-cap, earnings-soon",

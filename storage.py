@@ -498,6 +498,12 @@ def _validate_watchlist_payload(data) -> dict | None:
         out_syms.append({
             "symbol": sym,
             "tags": tags,
+            # CSV-import fields (v2): the user's own category + sector/industry
+            # source-of-truth + weekly-options flag. All optional/back-compat.
+            "tag": (str(entry.get("tag")).strip()[:40] if entry.get("tag") not in (None, "") else ""),
+            "sector": (str(entry.get("sector")).strip()[:80] if entry.get("sector") not in (None, "") else ""),
+            "industry": (str(entry.get("industry")).strip()[:80] if entry.get("industry") not in (None, "") else ""),
+            "weekly": (True if entry.get("weekly") is True else False if entry.get("weekly") is False else None),
             "notes": (entry.get("notes") or "")[:500] if isinstance(entry.get("notes"), str) else "",
             "preferred_strategy": (entry.get("preferred_strategy") or None) if isinstance(entry.get("preferred_strategy"), (str, type(None))) else None,
             "starred": bool(entry.get("starred")),

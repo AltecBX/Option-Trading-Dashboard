@@ -3859,6 +3859,49 @@ from storage import (  # noqa: F401
 )
 
 
+def _watchlist_overrides(wl: dict | None = None) -> dict:
+    """Build the CSV-source-of-truth override map for the watchlist table
+    scanner: ``{SYMBOL: {tag, sector, industry, weekly}}``.
+
+    These come from the user's imported CSV (persisted per-symbol in the
+    watchlist) and take priority over Yahoo/Schwab so we don't re-fetch
+    sector/industry the user already supplied. Only non-empty values are
+    included so the scanner falls back to live data when a field is blank.
+    """
+    if wl is None:
+        try:
+            wl = _load_watchlist()
+        except Exception:
+            return {}
+    out: dict = {}
+    for item in (wl.get("symbols") or []):
+        sym = (item.get("symbol") or "").upper().strip()
+        if not sym:
+            continue
+        ov: dict = {}
+        if item.get("tag"):
+            ov["tag"] = item["tag"]
+        if item.get("sector"):
+            ov["sector"] = item["sector"]
+        if item.get("industry"):
+            ov["industry"] = item["industry"]
+        if item.get("weekly") is not None:
+            ov["weekly"] = item["weekly"]
+        if ov:
+            out[sym] = ov
+    return out
+
+
+def _push_watchlist_overrides(wl: dict | None = None) -> None:
+    """Recompute and push the CSV override map into the table scanner."""
+    if not _WLTABLE_AVAILABLE:
+        return
+    try:
+        _wltable.set_overrides(_watchlist_overrides(wl))
+    except Exception:
+        pass
+
+
 
 
 
@@ -4846,6 +4889,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 ok = _save_watchlist(clean)
                 if not ok:
                     raise RuntimeError("save failed")
+                # Refresh the CSV source-of-truth overrides so the table
+                # scanner immediately uses any newly imported/edited
+                # tag/sector/industry/weekly values.
+                _push_watchlist_overrides(clean)
                 body = _dumps({"ok": True, "count": len(clean["symbols"])}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -6426,7 +6473,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 wl = _load_watchlist()
                 syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
                 force = parse_qs(parsed.query).get("force", ["0"])[0] in ("1", "true")
-                self._send_json(_wltable.trigger_scan(syms, force=force))
+                self._send_json(_wltable.trigger_scan(
+                    syms, force=force, overrides=_watchlist_overrides(wl)))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/watchlist_table/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
@@ -7705,6 +7753,9 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                         print(f"[watchlist_table] push failed: {e}", file=sys.stderr)
 
             _wltable.set_notify_provider(_wlt_notify)
+            # Seed the CSV source-of-truth overrides at startup so the first
+            # scheduled scan already honors imported tag/sector/industry.
+            _push_watchlist_overrides()
             _wltable.start_scheduler(_wlt_syms)
         except Exception as exc:  # noqa: BLE001
             print(f"[watchlist_table] scheduler start failed: {exc}", file=sys.stderr)

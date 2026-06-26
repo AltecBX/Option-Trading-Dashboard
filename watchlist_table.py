@@ -290,6 +290,24 @@ def _num(v):
 _FUND_CACHE: dict = {}
 _FUND_TTL = 12 * 3600  # 12h — sector/industry/cap/PE/earnings change slowly
 
+# CSV-import overrides: {SYMBOL: {tag, sector, industry, weekly}}. When set,
+# these are the source of truth for tag/sector/industry/weekly on each row —
+# the scan still fetches company/market-cap/P/E/earnings, but no longer trusts
+# yfinance for sector/industry when the imported list supplies them.
+_OVERRIDES: dict = {}
+_OVERRIDES_LOCK = threading.Lock()
+
+
+def set_overrides(overrides: dict) -> None:
+    global _OVERRIDES
+    clean = {}
+    if isinstance(overrides, dict):
+        for sym, ov in overrides.items():
+            if isinstance(sym, str) and isinstance(ov, dict):
+                clean[sym.upper().strip()] = ov
+    with _OVERRIDES_LOCK:
+        _OVERRIDES = clean
+
 
 def _fundamentals(symbol: str) -> dict:
     # Cache the slow yfinance .info + earnings lookup per symbol. This is the
@@ -573,6 +591,17 @@ def _scan_one(sym: str, sub, flow_fn) -> dict | None:
     except Exception:
         row["open"] = None
     row.update(_fundamentals(sym))
+    # CSV import is the source of truth for tag/sector/industry/weekly. Override
+    # whatever yfinance returned (and fill it in even when .info came back blank).
+    with _OVERRIDES_LOCK:
+        ov = _OVERRIDES.get(sym)
+    row["tag"] = (ov or {}).get("tag") or ""
+    row["weekly"] = (ov or {}).get("weekly") if ov else None
+    if ov:
+        if ov.get("sector"):
+            row["sector"] = ov["sector"]
+        if ov.get("industry"):
+            row["industry"] = ov["industry"]
     # Active swing direction + entry timing (free — runs on the OHLC in hand).
     try:
         H, L, C = [], [], []
@@ -684,8 +713,10 @@ def _scan_worker(symbols: list[str]) -> None:
         analyst_board.HEAVY_SCAN_LOCK.release()
 
 
-def trigger_scan(symbols: list[str], force: bool = False) -> dict:
+def trigger_scan(symbols: list[str], force: bool = False, overrides: dict | None = None) -> dict:
     global _THREAD
+    if overrides is not None:
+        set_overrides(overrides)
     syms = list(dict.fromkeys([s.upper().strip() for s in (symbols or []) if s]))
     with _LOCK:
         if _STATE["scanning"] and not force:
@@ -707,8 +738,9 @@ def get_board() -> dict:
         }
     sectors = sorted({r["sector"] for r in rows if r.get("sector")})
     industries = sorted({r["industry"] for r in rows if r.get("industry")})
+    tags = sorted({r["tag"] for r in rows if r.get("tag")})
     return {"as_of": _now_iso(), "status": status, "count": len(rows),
-            "rows": rows, "sectors": sectors, "industries": industries}
+            "rows": rows, "sectors": sectors, "industries": industries, "tags": tags}
 
 
 # ── Auto-refresh scheduler ──────────────────────────────────────────
