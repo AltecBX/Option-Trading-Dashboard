@@ -6945,14 +6945,21 @@ function CsvImportPanel({
           return;
         }
         const existing = new Set(data.symbols.map(s => s.symbol));
-        const newCount = rows.filter(r => !existing.has(r.symbol)).length;
+        const fileSet = new Set(rows.map(r => r.symbol));
+        // Exact symbol lists so we can tell the user precisely what changes.
+        const addedSyms = rows.filter(r => !existing.has(r.symbol)).map(r => r.symbol);
+        const updatedSyms = rows.filter(r => existing.has(r.symbol)).map(r => r.symbol);
+        const removedSyms = data.symbols.map(s => s.symbol).filter(s => !fileSet.has(s));
         setParsed({
           rows,
           dupes,
           badWeekly,
           skippedNoSymbol,
-          newCount,
-          updateCount: rows.length - newCount
+          newCount: addedSyms.length,
+          updateCount: updatedSyms.length,
+          addedSyms,
+          updatedSyms,
+          removedSyms
         });
         setStage("preview");
       } catch (err) {
@@ -6966,6 +6973,8 @@ function CsvImportPanel({
     const n = onImportCsv(parsed.rows, mode);
     onClose(n);
   };
+  // Compact symbol list: show all up to `max`, then "+N more".
+  const symList = (arr, max = 40) => arr.length <= max ? arr.join(", ") : arr.slice(0, max).join(", ") + ` +${arr.length - max} more`;
   return /*#__PURE__*/React.createElement("div", {
     className: "wlm-csv-panel"
   }, stage === "pick" && /*#__PURE__*/React.createElement("div", {
@@ -6997,7 +7006,17 @@ function CsvImportPanel({
     className: "wlm-csv-summary"
   }, /*#__PURE__*/React.createElement("b", null, parsed.rows.length), " valid symbol", parsed.rows.length === 1 ? "" : "s", " in", /*#__PURE__*/React.createElement("span", {
     className: "wlm-csv-fname"
-  }, " ", fileName), " — ", parsed.newCount, " new, ", parsed.updateCount, " already on your list."), (parsed.badWeekly > 0 || parsed.dupes.length > 0 || parsed.skippedNoSymbol > 0) && /*#__PURE__*/React.createElement("div", {
+  }, " ", fileName), " — ", parsed.newCount, " new, ", parsed.updateCount, " already on your list."), /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-changes"
+  }, parsed.addedSyms.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-change add"
+  }, /*#__PURE__*/React.createElement("b", null, "+ ", parsed.addedSyms.length, " added:"), " ", symList(parsed.addedSyms)), parsed.updatedSyms.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-change upd"
+  }, /*#__PURE__*/React.createElement("b", null, "↻ ", parsed.updatedSyms.length, " updated:"), " ", symList(parsed.updatedSyms)), mode === "replace" && parsed.removedSyms.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-change rem"
+  }, /*#__PURE__*/React.createElement("b", null, "− ", parsed.removedSyms.length, " removed:"), " ", symList(parsed.removedSyms)), mode === "update" && parsed.removedSyms.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "wlm-csv-change keep"
+  }, /*#__PURE__*/React.createElement("b", null, parsed.removedSyms.length, " kept"), " (not in file, left untouched):", " ", symList(parsed.removedSyms))), (parsed.badWeekly > 0 || parsed.dupes.length > 0 || parsed.skippedNoSymbol > 0) && /*#__PURE__*/React.createElement("div", {
     className: "wlm-csv-warn"
   }, parsed.badWeekly > 0 && /*#__PURE__*/React.createElement("div", null, "⚠ ", parsed.badWeekly, " row", parsed.badWeekly === 1 ? "" : "s", " have a Weekly value that isn't Yes/No — those will be imported as blank (unknown)."), parsed.dupes.length > 0 && /*#__PURE__*/React.createElement("div", null, "⚠ ", parsed.dupes.length, " duplicate symbol", parsed.dupes.length === 1 ? "" : "s", " in the file were collapsed: ", Array.from(new Set(parsed.dupes)).slice(0, 10).join(", "), parsed.dupes.length > 10 ? "…" : "", "."), parsed.skippedNoSymbol > 0 && /*#__PURE__*/React.createElement("div", null, "⚠ ", parsed.skippedNoSymbol, " row", parsed.skippedNoSymbol === 1 ? "" : "s", " had no Symbol and were skipped.")), /*#__PURE__*/React.createElement("div", {
     className: "wlm-csv-table-wrap"
@@ -7049,9 +7068,9 @@ function CsvImportPanel({
     onChange: () => setMode("replace")
   }), "Replace all ", /*#__PURE__*/React.createElement("span", {
     className: "wlm-csv-mode-note"
-  }, "(remove symbols not in the file)"))), mode === "replace" && parsed.updateCount < data.symbols.length && /*#__PURE__*/React.createElement("div", {
+  }, "(remove symbols not in the file)"))), mode === "replace" && parsed.removedSyms.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "wlm-csv-warn"
-  }, "⚠ Replace will remove ", data.symbols.length - parsed.updateCount, " symbol", data.symbols.length - parsed.updateCount === 1 ? "" : "s", " currently on your watchlist that aren't in this file."), /*#__PURE__*/React.createElement("div", {
+  }, "⚠ Replace will remove ", parsed.removedSyms.length, " symbol", parsed.removedSyms.length === 1 ? "" : "s", " currently on your watchlist that aren't in this file: ", /*#__PURE__*/React.createElement("b", null, symList(parsed.removedSyms))), /*#__PURE__*/React.createElement("div", {
     className: "wlm-csv-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "wlm-csv-btn wlm-csv-confirm",
