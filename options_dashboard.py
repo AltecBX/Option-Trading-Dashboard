@@ -256,6 +256,11 @@ _DHIGH_LOCK = threading.Lock()
 # high advances or the live price is sitting on the high, we stamp `now`.
 _DHIGH_SEEN: dict = {}
 
+# Daily-LOW rail — mirror of the daily-high caches, for the right-side rail.
+_DLOW_CACHE: tuple | None = None
+_DLOW_LOCK = threading.Lock()
+_DLOW_SEEN: dict = {}
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Mirrors of the Streamlit logic (same formulas, same baseline toggle)
@@ -7154,6 +7159,90 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json({"rows": rows})
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/daily_highs", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/daily_lows":
+            # Mirror of /api/daily_highs for the right-side rail: watchlist
+            # stocks AT or near today's session LOW. `from_low` is how far ABOVE
+            # the day's low the live price is (>=0; 0 = sitting on the low).
+            try:
+                global _DLOW_CACHE
+                now = time.time()
+                with _DLOW_LOCK:
+                    cached = _DLOW_CACHE
+                if cached and (now - cached[0]) < 20:
+                    self._send_json({"rows": cached[1]})
+                    return
+                wl = _load_watchlist()
+                wsyms = wl.get("symbols") or []
+                syms = [s.get("symbol") for s in wsyms if s.get("symbol")]
+                tag_map = {s.get("symbol"): (s.get("tag") or "") for s in wsyms if s.get("symbol")}
+                quotes = {}
+                sc = _schwab()
+                if sc is not None and syms:
+                    for i in range(0, len(syms), 250):
+                        part = syms[i:i + 250]
+                        try:
+                            q = sc.get_quotes(part) or {}
+                            quotes.update(q)
+                        except Exception:
+                            continue
+                cmap = {}
+                if _WLTABLE_AVAILABLE:
+                    try:
+                        for r in ((_wltable.get_board() or {}).get("rows") or []):
+                            if r.get("symbol"):
+                                cmap[r["symbol"]] = r.get("company") or ""
+                    except Exception:
+                        pass
+                rows = []
+                for sym in syms:
+                    q = quotes.get(sym) or quotes.get(sym.upper())
+                    if not q:
+                        continue
+                    last = q.get("last")
+                    low = q.get("low")
+                    try:
+                        last = float(last) if last is not None else None
+                        low = float(low) if low is not None else None
+                    except (TypeError, ValueError):
+                        continue
+                    if last is None or low is None or low <= 0:
+                        continue
+                    from_low = round((last / low - 1.0) * 100.0, 2)
+                    # Within ~1% above today's low counts as "near the daily low".
+                    if from_low > 1.0:
+                        continue
+                    prev = _DLOW_SEEN.get(sym)
+                    at_low = (last / low) <= 1.001
+                    if prev is None:
+                        ts = now
+                    elif low < prev["low"] * 0.9999:
+                        ts = now            # new session low just printed
+                    elif low > prev["low"] * 1.1:
+                        ts = now            # low reset (new trading day)
+                    elif at_low:
+                        ts = now            # still riding the low
+                    else:
+                        ts = prev["ts"]
+                    _DLOW_SEEN[sym] = {"low": low, "ts": ts}
+                    rows.append({
+                        "symbol": sym,
+                        "last": last,
+                        "change": q.get("change_pct"),
+                        "day_low": low,
+                        "from_low": from_low,
+                        "tag": tag_map.get(sym) or "",
+                        "company": q.get("name") or cmap.get(sym) or "",
+                        "hit_ts": ts,
+                    })
+                rows.sort(key=lambda r: r["from_low"])
+                rows = rows[:60]
+                with _DLOW_LOCK:
+                    _DLOW_CACHE = (now, rows)
+                self._send_json({"rows": rows})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/daily_lows", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
             return
         if parsed.path == "/api/backtest":

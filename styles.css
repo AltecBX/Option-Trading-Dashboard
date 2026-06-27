@@ -8884,10 +8884,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
     border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; max-height: calc(100vh - 20px); }
   /* Second rail sits immediately to the right of the first, same width. */
   .lrail--daily { left: 144px; }
+  /* Right-side mirror rails (52W LOW + DAILY LOW). Order matters: these come
+     after .lrail--daily so they win the equal-specificity `left` override. */
+  .rrail { left: auto; right: 6px; }
+  .rrail--daily { left: auto; right: 144px; }
 }
 .lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em;
   color: #fff; background: #2C7527; text-align: center; padding: 6px 4px; cursor: help; }
 .lrail-title--daily { background: #46B33D; }
+/* Low rails: red, the visual opposite of the green high rails. */
+.lrail-title--low { background: #9E2C2C; }
+.lrail-title--lowdaily { background: #B33D3D; }
+.lrail-subtag--low { color: #c8615b; }
 /* Sub-header under each rail title: the most-common Tag on the current list. */
 .lrail-subtag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
   letter-spacing: 0.03em; color: #1C799E; background: var(--bg-3);
