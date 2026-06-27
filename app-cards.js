@@ -13068,6 +13068,323 @@ function LeftRailDailyHigh({
   }))));
 }
 
+// Right-side mirror of LeftRail52W: watchlist names closest to their 52-week
+// LOW. `from_52wl` is how far ABOVE the low we are (>=0; 0 = at a new low).
+function RightRail52WLow({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [scanRows, setScanRows] = useState([]);
+  const [liveQ, setLiveQ] = useState({});
+  const [owned, setOwned] = useState(() => new Set());
+  const [vpH, setVpH] = useState(0);
+  const vpRef = useRef(null);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/watchlist_table");
+        const d = await r.json();
+        const all = d && d.rows || [];
+        // Candidates: within ~6% above the 52W low (wider than the 3% display
+        // threshold so a live intraday drop to a new low still qualifies).
+        const near = all.filter(x => x.from_52wl != null && x.from_52wl <= 6 && x.low_52w != null).sort((a, b) => a.from_52wl - b.from_52wl).slice(0, 60);
+        if (!stop) setScanRows(near);
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, 60000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/broker/owned");
+        const d = await r.json();
+        if (!stop && d && Array.isArray(d.symbols)) {
+          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
+    };
+    grab();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  const candKey = scanRows.map(r => r.symbol).join(",");
+  useEffect(() => {
+    if (!candKey) return;
+    const syms = candKey.split(",");
+    let stop = false,
+      t = null;
+    const poll = async () => {
+      if (!document.hidden) {
+        for (let i = 0; i < syms.length && !stop; i += 25) {
+          const batch = syms.slice(i, i + 25);
+          try {
+            const r = await apiFetch(`/api/quote?tickers=${encodeURIComponent(batch.join(","))}`);
+            if (!r.ok) continue;
+            const j = await r.json();
+            if (stop) return;
+            const res = j.results || {};
+            setLiveQ(prev => {
+              const next = {
+                ...prev
+              };
+              for (const s of batch) {
+                const q = res[s];
+                if (q && q.last != null) next[s] = {
+                  last: q.last,
+                  chg: q.change_pct != null ? q.change_pct : null
+                };
+              }
+              return next;
+            });
+          } catch (_) {}
+        }
+      }
+      if (!stop) t = setTimeout(poll, 30000);
+    };
+    poll();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, [candKey]);
+  const rows = useMemo(() => {
+    const out = [];
+    for (const r of scanRows) {
+      const q = liveQ[r.symbol];
+      const last = q && q.last != null ? q.last : r.last;
+      if (last == null) continue;
+      const chg = q && q.chg != null ? q.chg : r.change;
+      const lo = r.low_52w;
+      const from = lo ? Math.round((last / lo - 1) * 1000) / 10 : r.from_52wl;
+      if (from == null || from > 3) continue;
+      out.push({
+        ...r,
+        _last: last,
+        _chg: chg,
+        _from: from
+      });
+    }
+    out.sort((a, b) => a._from - b._from);
+    return out.slice(0, 40);
+  }, [scanRows, liveQ]);
+  useEffect(() => {
+    const measure = () => {
+      if (vpRef.current) setVpH(vpRef.current.offsetHeight);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const id = setTimeout(measure, 80);
+    return () => {
+      window.removeEventListener("resize", measure);
+      clearTimeout(id);
+    };
+  }, [rows]);
+  if (!rows.length) return null;
+  const colH = Math.max(vpH || 0, rows.length * 62);
+  const dur = Math.max(16, Math.round(colH / 35));
+  const topTag = lrailTopTag(rows);
+  const Col = ({
+    hidden
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "lr-col",
+    "aria-hidden": hidden || undefined,
+    style: vpH ? {
+      minHeight: `${vpH}px`
+    } : undefined
+  }, rows.map((r, i) => {
+    const isOwned = owned.has(String(r.symbol).toUpperCase());
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      className: `lr-item${isOwned ? " owned" : ""}`,
+      onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+      title: `${r.company || r.symbol} — ${r._from <= 0 ? "at" : r._from + "% above"} 52-week low ($${r.low_52w != null ? r.low_52w : "?"})${isOwned ? " · you own this (Schwab)" : ""}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-line1"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-sym"
+    }, r.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "lr-px"
+    }, "$", Number(r._last).toFixed(2))), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `lr-chg ${(r._chg || 0) >= 0 ? "up" : "down"}`
+    }, r._chg == null ? "—" : `${r._chg >= 0 ? "+" : ""}${Number(r._chg).toFixed(2)}%`), /*#__PURE__*/React.createElement("span", {
+      className: "lr-52",
+      title: "% above 52-week low"
+    }, r._from <= 0 ? "LOW" : `+${r._from}%`)), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line3",
+      title: r.tag ? `Tag: ${r.tag}` : "No tag"
+    }, r.tag || "—"));
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "lrail rrail",
+    "aria-label": "Watchlist names near 52-week low"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lrail-title lrail-title--low",
+    title: "Watchlist stocks within 3% of their 52-week low"
+  }, "NEAR 52W LOW"), topTag && /*#__PURE__*/React.createElement("div", {
+    className: "lrail-subtag lrail-subtag--low",
+    title: `Most-represented tag near the 52-week low right now: ${topTag.tag} (${topTag.n})`
+  }, topTag.tag, " · ", topTag.n), /*#__PURE__*/React.createElement("div", {
+    className: "lrail-vp",
+    ref: vpRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lrail-track",
+    style: {
+      animationDuration: `${dur}s`
+    }
+  }, /*#__PURE__*/React.createElement(Col, {
+    inner: true
+  }), /*#__PURE__*/React.createElement(Col, {
+    hidden: true
+  }))));
+}
+
+// Right-side mirror of LeftRailDailyHigh: stocks AT or near TODAY'S session LOW.
+function RightRailDailyLow({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [rows, setRows] = useState([]);
+  const [owned, setOwned] = useState(() => new Set());
+  const [vpH, setVpH] = useState(0);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  const vpRef = useRef(null);
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 5000);
+    return () => clearInterval(id);
+  }, []);
+  const ageStr = ts => {
+    if (!ts) return "";
+    const s = Math.max(0, nowSec - Math.floor(ts));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return `${Math.floor(s / 3600)}h`;
+  };
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/daily_lows");
+        const d = await r.json();
+        if (!stop) setRows(d && d.rows || []);
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, 30000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const grab = async () => {
+      try {
+        const r = await apiFetch("/api/broker/owned");
+        const d = await r.json();
+        if (!stop && d && Array.isArray(d.symbols)) {
+          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
+    };
+    grab();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    const measure = () => {
+      if (vpRef.current) setVpH(vpRef.current.offsetHeight);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const id = setTimeout(measure, 80);
+    return () => {
+      window.removeEventListener("resize", measure);
+      clearTimeout(id);
+    };
+  }, [rows]);
+  if (!rows.length) return null;
+  const colH = Math.max(vpH || 0, rows.length * 62);
+  const dur = Math.max(16, Math.round(colH / 35));
+  const topTag = lrailTopTag(rows);
+  const Col = ({
+    hidden
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "lr-col",
+    "aria-hidden": hidden || undefined,
+    style: vpH ? {
+      minHeight: `${vpH}px`
+    } : undefined
+  }, rows.map((r, i) => {
+    const isOwned = owned.has(String(r.symbol).toUpperCase());
+    const from = r.from_low;
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      className: `lr-item${isOwned ? " owned" : ""}`,
+      onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+      title: `${r.company || r.symbol} — ${from <= 0 ? "at" : from + "% above"} today's low ($${r.day_low != null ? Number(r.day_low).toFixed(2) : "?"})${isOwned ? " · you own this (Schwab)" : ""}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-line1"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lr-sym"
+    }, r.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "lr-dash"
+    }, "-"), /*#__PURE__*/React.createElement("span", {
+      className: "lr-px"
+    }, "$", Number(r.last).toFixed(2))), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`
+    }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`), /*#__PURE__*/React.createElement("span", {
+      className: "lr-age",
+      title: "Time since it last touched today's low"
+    }, ageStr(r.hit_ts))), /*#__PURE__*/React.createElement("span", {
+      className: "lr-line3",
+      title: r.tag ? `Tag: ${r.tag}` : "No tag"
+    }, r.tag || "—"));
+  }));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "lrail lrail--daily rrail rrail--daily",
+    "aria-label": "Watchlist names at today's daily low"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lrail-title lrail-title--low lrail-title--lowdaily",
+    title: "Watchlist stocks at or within 1% of today's session low"
+  }, "DAILY LOW"), topTag && /*#__PURE__*/React.createElement("div", {
+    className: "lrail-subtag lrail-subtag--low",
+    title: `Most-represented tag at the daily low right now: ${topTag.tag} (${topTag.n})`
+  }, topTag.tag, " · ", topTag.n), /*#__PURE__*/React.createElement("div", {
+    className: "lrail-vp",
+    ref: vpRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lrail-track",
+    style: {
+      animationDuration: `${dur}s`
+    }
+  }, /*#__PURE__*/React.createElement(Col, {
+    inner: true
+  }), /*#__PURE__*/React.createElement(Col, {
+    hidden: true
+  }))));
+}
+
 // Memoize the heavy, self-contained ticker cards so unrelated App state
 // changes (hovers, sidebar, other tabs) don't re-render them. Their props
 // (apiFetch, switchTicker, ticker) are stable identities from App.
@@ -13129,6 +13446,8 @@ Object.assign(window, {
   SchwabReconnect: _memo(SchwabReconnect),
   WatchlistStreaksCard: _memo(WatchlistStreaksCard),
   LeftRail52W: _memo(LeftRail52W),
-  LeftRailDailyHigh: _memo(LeftRailDailyHigh)
+  LeftRailDailyHigh: _memo(LeftRailDailyHigh),
+  RightRail52WLow: _memo(RightRail52WLow),
+  RightRailDailyLow: _memo(RightRailDailyLow)
 });
 })();
