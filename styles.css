@@ -8889,23 +8889,26 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   white-space: nowrap; letter-spacing: 0.02em; }
 
 /* ── Vertical high/low tickers (very wide screens only) ────────────────
-   Two rails per side flank the centered 1600px shell. Each rail is 118px and
-   the pair occupies ~260px per side, so they fit without overlapping once the
-   viewport is ≥ 1600 + 2×~264px ≈ 2128px. The breakpoint is set to exactly
-   that fit threshold, so the rails appear precisely when there's room for them
-   (never a half-overlap state). Narrower-than-before rails give real slack at
-   ~80% zoom — they show there, hide at 90%/100%, and never collide. */
+   Two rails per side flank the centered 1600px shell. Instead of a fixed
+   width, each rail AUTO-SIZES to fill the empty margin: the half-margin beyond
+   the shell is (100vw − 1600)/2; minus the 6px edge gap, 6px inter-rail gap and
+   ~8px shell gap, each of the two rails gets (100vw − 1600)/4 − 10px, capped at
+   190px so they don't get absurd on huge monitors. They appear once that gives
+   each rail ≥ 110px (≈ 2080px viewport) and grow from there — so they always use
+   the available space without overlapping, at any zoom, with no manual tuning. */
 .lrail { display: none; }
-@media (min-width: 2128px) {
-  .lrail { position: fixed; left: 6px; top: 10px; bottom: 10px; width: 124px; z-index: 30;
+@media (min-width: 2080px) {
+  .lrail {
+    --rail-w: min(calc((100vw - 1600px) / 4 - 10px), 190px);
+    position: fixed; left: 6px; top: 10px; bottom: 10px; width: var(--rail-w); z-index: 30;
     display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line);
     border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; max-height: calc(100vh - 20px); }
-  /* Second rail sits immediately to the right of the first, same width. */
-  .lrail--daily { left: 136px; }
-  /* Right-side mirror rails (52W LOW + DAILY LOW). Order matters: these come
-     after .lrail--daily so they win the equal-specificity `left` override. */
+  /* Second rail sits one rail-width + the two 6px gaps to the right. */
+  .lrail--daily { left: calc(var(--rail-w) + 12px); }
+  /* Right-side mirror rails (52W LOW outermost, DAILY LOW inner). Order matters:
+     these come after .lrail--daily so they win the equal-specificity override. */
   .rrail { left: auto; right: 6px; }
-  .rrail--daily { left: auto; right: 136px; }
+  .rrail--daily { left: auto; right: calc(var(--rail-w) + 12px); }
 }
 .lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 12.5px; font-weight: 800; letter-spacing: 0.04em;
   color: #fff; background: #2C7527; text-align: center; padding: 6px 4px; cursor: help; }
