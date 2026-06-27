@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.75";
+const APP_VERSION = "2.76";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -144,9 +144,24 @@ function LiveClock() {
       second: "2-digit",
       hour12: true
     }).format(d);
-    return `${dateFmt}  |  ${timeFmt}`;
+    // Three flex parts so the "|" sits at the exact horizontal center (aligned
+    // with the gap between the Schwab/UW badges below), regardless of how long
+    // the date vs time strings are.
+    return /*#__PURE__*/React.createElement("span", {
+      className: "lc-wrap"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lc-date"
+    }, "Live. ", dateFmt), /*#__PURE__*/React.createElement("span", {
+      className: "lc-bar"
+    }, "|"), /*#__PURE__*/React.createElement("span", {
+      className: "lc-time"
+    }, timeFmt));
   } catch {
-    return new Date(now).toString();
+    return /*#__PURE__*/React.createElement("span", {
+      className: "lc-wrap"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "lc-date"
+    }, new Date(now).toString()));
   }
 }
 function App() {
@@ -3403,7 +3418,7 @@ function App() {
     className: "sb-brand-text"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sb-status"
-  }, loading ? "Fetching." : window.__LIVE ? /*#__PURE__*/React.createElement(React.Fragment, null, "Live. ", /*#__PURE__*/React.createElement(LiveClock, null)) : "Static snapshot"), loadError && /*#__PURE__*/React.createElement("div", {
+  }, loading ? "Fetching." : window.__LIVE ? /*#__PURE__*/React.createElement(LiveClock, null) : "Static snapshot"), loadError && /*#__PURE__*/React.createElement("div", {
     className: "sb-status err"
   }, loadError), /*#__PURE__*/React.createElement("div", {
     className: "sb-source-badges"

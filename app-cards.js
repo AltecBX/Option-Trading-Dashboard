@@ -2375,7 +2375,8 @@ function SwingPatternCard({
   }), /*#__PURE__*/React.createElement("div", {
     className: "skel skel-bar"
   })), a && a.decision && /*#__PURE__*/React.createElement("div", {
-    className: `swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`
+    className: `swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`,
+    title: "The decision engine's recommended action for this setup, with the drivers behind it"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swing-decision-action"
   }, a.decision.action), (a.decision.drivers || []).length > 0 && /*#__PURE__*/React.createElement("span", {
@@ -2410,13 +2411,19 @@ function SwingPatternCard({
     className: "swing-live-grid"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
     k: isUp ? "swing_low" : "swing_high"
-  }, "From ", a.from_label)), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.from_price), " ", /*#__PURE__*/React.createElement("small", null, "· ", fmtSwingDate(a.from_date)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Current price"), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.current_price))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+  }, "From ", a.from_label)), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.from_price), " ", /*#__PURE__*/React.createElement("small", null, "· ", fmtSwingDate(a.from_date)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "The latest traded price"
+  }, "Current price"), /*#__PURE__*/React.createElement("b", null, fmtUsd2(a.current_price))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
     k: "current_move"
   }, "Move so far")), /*#__PURE__*/React.createElement("b", {
     className: dirTone
-  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, a.days_active === 1 ? "day" : "days"))), a.vs_history && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
+  }, sgn(a.current_move_pct), a.current_move_pct, "% ", /*#__PURE__*/React.createElement("small", null, "· ", a.days_active, a.days_active === 1 ? "day" : "days"))), a.vs_history && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "How this move's size compares to the stock's median historical swing (100% = typical)"
+  }, "vs typical move"), /*#__PURE__*/React.createElement("b", null, a.vs_history.pct_of_median_move, "% of median"), /*#__PURE__*/React.createElement("small", {
     className: "swing-sub"
-  }, "med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d")), a.targets && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Median target"), /*#__PURE__*/React.createElement("b", {
+  }, "med ", a.vs_history.median_pct, "% / ", a.vs_history.median_days, "d")), a.targets && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "Where past moves of this size typically ended — the middle (most likely) projection"
+  }, "Median target"), /*#__PURE__*/React.createElement("b", {
     className: dirTone
   }, fmtUsd2(a.targets[1].price), " ", /*#__PURE__*/React.createElement("small", null, sgn(a.targets[1].from_here_pct), a.targets[1].from_here_pct, "% away"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "RSI · rel-vol"), /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
     k: "rsi14"
@@ -2458,11 +2465,19 @@ function SwingPatternCard({
     className: a.flow.agrees_with_price === "agrees" ? isUp ? "up" : "down" : a.flow.agrees_with_price === "disagrees" ? "warn" : ""
   }, a.flow.label, " · flow ", a.flow.agrees_with_price === "agrees" ? "agrees with price" : a.flow.agrees_with_price === "disagrees" ? "disagrees with price" : "neutral vs price")), /*#__PURE__*/React.createElement("div", {
     className: "swing-flowagree-grid"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Bullish premium"), /*#__PURE__*/React.createElement("b", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "Total premium in bullish options flow today (calls bought / puts sold)"
+  }, "Bullish premium"), /*#__PURE__*/React.createElement("b", {
     className: "up"
-  }, fmtUsd(a.flow.bull_premium, 1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Bearish premium"), /*#__PURE__*/React.createElement("b", {
+  }, fmtUsd(a.flow.bull_premium, 1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "Total premium in bearish options flow today (puts bought / calls sold)"
+  }, "Bearish premium"), /*#__PURE__*/React.createElement("b", {
     className: "down"
-  }, fmtUsd(a.flow.bear_premium, 1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Call sweep pressure"), /*#__PURE__*/React.createElement("b", null, a.flow.call_sweep_pressure, " ", /*#__PURE__*/React.createElement("small", null, "(", a.flow.call_sweeps, ")"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Put hedge pressure"), /*#__PURE__*/React.createElement("b", null, a.flow.put_hedge_pressure, " ", /*#__PURE__*/React.createElement("small", null, "(", a.flow.put_sweeps, ")"))))), a.signal_note && /*#__PURE__*/React.createElement("div", {
+  }, fmtUsd(a.flow.bear_premium, 1))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "How aggressive call buying is — sweeps hit several exchanges at once (sweep count in parentheses)"
+  }, "Call sweep pressure"), /*#__PURE__*/React.createElement("b", null, a.flow.call_sweep_pressure, " ", /*#__PURE__*/React.createElement("small", null, "(", a.flow.call_sweeps, ")"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    title: "How aggressive put buying / hedging is (sweep count in parentheses)"
+  }, "Put hedge pressure"), /*#__PURE__*/React.createElement("b", null, a.flow.put_hedge_pressure, " ", /*#__PURE__*/React.createElement("small", null, "(", a.flow.put_sweeps, ")"))))), a.signal_note && /*#__PURE__*/React.createElement("div", {
     className: "swing-signal"
   }, a.signal_note), a.status === "no_rhythm" && a.note && /*#__PURE__*/React.createElement("div", {
     className: "swing-signal"
@@ -2508,14 +2523,20 @@ function SwingPatternCard({
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table swing-table mtable"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Projection tier — conservative, median, aggressive, or extreme"
+  }, "Target"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: `Percent ${isUp ? "gain" : "drop"} from the swing origin to this target`
   }, isUp ? "Upside" : "Downside", " %"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Projected price at this target"
   }, "Price"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Percent move still needed from the current price ('reached' if already hit)"
   }, "From here"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Estimated date this target is reached, based on similar past moves"
   }, "By (est.)"), /*#__PURE__*/React.createElement("th", {
     className: "scan-th-num"
   }, /*#__PURE__*/React.createElement(Term, {
@@ -2552,7 +2573,8 @@ function SwingPatternCard({
   }, "Confidence: ", a.confidence.level)), " ", /*#__PURE__*/React.createElement("span", null, "because ", (a.confidence.reasons || []).join(", "), "."))), a && a.status === "ok" && a.trade_plan && /*#__PURE__*/React.createElement("div", {
     className: "swing-plan"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "swing-subtitle"
+    className: "swing-subtitle",
+    title: "A concrete plan for this setup: where to enter, where it's wrong, targets, and how long to hold"
   }, a.trade_plan.side === "long" ? "Long" : "Short", " trade plan"), /*#__PURE__*/React.createElement("div", {
     className: "swing-plan-grid"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
@@ -2588,11 +2610,13 @@ function SwingPatternCard({
   }, a.trade_plan.invalidation_note), /*#__PURE__*/React.createElement("div", {
     className: "swing-plan-cols"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "swing-plan-h up"
+    className: "swing-plan-h up",
+    title: "Factors that support staying in / adding to this trade"
   }, "Reasons to stay"), /*#__PURE__*/React.createElement("ul", null, a.trade_plan.reason_to_stay.map((r, i) => /*#__PURE__*/React.createElement("li", {
     key: i
   }, r)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "swing-plan-h warn"
+    className: "swing-plan-h warn",
+    title: "Signs that argue for taking profits or exiting"
   }, "Exit warnings"), /*#__PURE__*/React.createElement("ul", null, a.trade_plan.exit_warnings.map((r, i) => /*#__PURE__*/React.createElement("li", {
     key: i
   }, r))))), a.similar_move && /*#__PURE__*/React.createElement("div", {
@@ -2607,11 +2631,13 @@ function SwingPatternCard({
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: tab === "up" ? "active" : "",
-    onClick: () => setTab("up")
+    onClick: () => setTab("up"),
+    title: "Past upward swings in this stock's history (count)"
   }, "Up-swings (", upSwings.length, ")"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: tab === "down" ? "active" : "",
-    onClick: () => setTab("down")
+    onClick: () => setTab("down"),
+    title: "Past downward swings in this stock's history (count)"
   }, "Down-swings (", downSwings.length, ")")), (upSwings.length > 0 || downSwings.length > 0) && /*#__PURE__*/React.createElement("div", {
     className: "swing-filters",
     title: "Narrow the history to setups like the one happening now"
@@ -12649,7 +12675,7 @@ function NewsTicker({
     className: "nt-sep"
   }, "●"))));
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(32, qsyms.length * 3.1); // a touch faster than the news tape
+  const qdur = Math.max(31, qsyms.length * 3.0); // a touch faster than the news tape
   const QSeq = ({
     hidden
   }) => /*#__PURE__*/React.createElement("div", {

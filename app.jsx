@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.75";
+const APP_VERSION = "2.76";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -86,9 +86,18 @@ function LiveClock() {
     const timeFmt = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York", hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
     }).format(d);
-    return `${dateFmt}  |  ${timeFmt}`;
+    // Three flex parts so the "|" sits at the exact horizontal center (aligned
+    // with the gap between the Schwab/UW badges below), regardless of how long
+    // the date vs time strings are.
+    return (
+      <span className="lc-wrap">
+        <span className="lc-date">Live. {dateFmt}</span>
+        <span className="lc-bar">|</span>
+        <span className="lc-time">{timeFmt}</span>
+      </span>
+    );
   } catch {
-    return new Date(now).toString();
+    return <span className="lc-wrap"><span className="lc-date">{new Date(now).toString()}</span></span>;
   }
 }
 
@@ -2631,7 +2640,7 @@ function App() {
               {loading
                 ? "Fetching."
                 : window.__LIVE
-                  ? <>Live. <LiveClock /></>
+                  ? <LiveClock />
                   : "Static snapshot"}
             </div>
             {loadError && <div className="sb-status err">{loadError}</div>}

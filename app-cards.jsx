@@ -1610,7 +1610,8 @@ function SwingPatternCard({ apiFetch, ticker }) {
 
       {/* ── Decision banner ─────────────────────────────────────────────── */}
       {a && a.decision && (
-        <div className={`swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`}>
+        <div className={`swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`}
+             title="The decision engine's recommended action for this setup, with the drivers behind it">
           <span className="swing-decision-action">{a.decision.action}</span>
           {(a.decision.drivers || []).length > 0 && (
             <span className="swing-decision-because">because {a.decision.drivers.join(" · ")}</span>
@@ -1641,16 +1642,16 @@ function SwingPatternCard({ apiFetch, ticker }) {
           <div className="swing-live-grid">
             <div><span><Term k={isUp ? "swing_low" : "swing_high"}>From {a.from_label}</Term></span>
               <b>{fmtUsd2(a.from_price)} <small>· {fmtSwingDate(a.from_date)}</small></b></div>
-            <div><span>Current price</span><b>{fmtUsd2(a.current_price)}</b></div>
+            <div><span title="The latest traded price">Current price</span><b>{fmtUsd2(a.current_price)}</b></div>
             <div><span><Term k="current_move">Move so far</Term></span>
               <b className={dirTone}>{sgn(a.current_move_pct)}{a.current_move_pct}% <small>· {a.days_active}{a.days_active === 1 ? "day" : "days"}</small></b></div>
             {a.vs_history && (
-              <div><span>vs typical move</span>
+              <div><span title="How this move's size compares to the stock's median historical swing (100% = typical)">vs typical move</span>
                 <b>{a.vs_history.pct_of_median_move}% of median</b>
                 <small className="swing-sub">med {a.vs_history.median_pct}% / {a.vs_history.median_days}d</small></div>
             )}
             {a.targets && (
-              <div><span>Median target</span>
+              <div><span title="Where past moves of this size typically ended — the middle (most likely) projection">Median target</span>
                 <b className={dirTone}>{fmtUsd2(a.targets[1].price)} <small>{sgn(a.targets[1].from_here_pct)}{a.targets[1].from_here_pct}% away</small></b></div>
             )}
             <div><span>RSI · rel-vol</span>
@@ -1693,10 +1694,10 @@ function SwingPatternCard({ apiFetch, ticker }) {
                 </b>
               </div>
               <div className="swing-flowagree-grid">
-                <div><span>Bullish premium</span><b className="up">{fmtUsd(a.flow.bull_premium, 1)}</b></div>
-                <div><span>Bearish premium</span><b className="down">{fmtUsd(a.flow.bear_premium, 1)}</b></div>
-                <div><span>Call sweep pressure</span><b>{a.flow.call_sweep_pressure} <small>({a.flow.call_sweeps})</small></b></div>
-                <div><span>Put hedge pressure</span><b>{a.flow.put_hedge_pressure} <small>({a.flow.put_sweeps})</small></b></div>
+                <div><span title="Total premium in bullish options flow today (calls bought / puts sold)">Bullish premium</span><b className="up">{fmtUsd(a.flow.bull_premium, 1)}</b></div>
+                <div><span title="Total premium in bearish options flow today (puts bought / calls sold)">Bearish premium</span><b className="down">{fmtUsd(a.flow.bear_premium, 1)}</b></div>
+                <div><span title="How aggressive call buying is — sweeps hit several exchanges at once (sweep count in parentheses)">Call sweep pressure</span><b>{a.flow.call_sweep_pressure} <small>({a.flow.call_sweeps})</small></b></div>
+                <div><span title="How aggressive put buying / hedging is (sweep count in parentheses)">Put hedge pressure</span><b>{a.flow.put_hedge_pressure} <small>({a.flow.put_sweeps})</small></b></div>
               </div>
             </div>
           )}
@@ -1734,11 +1735,11 @@ function SwingPatternCard({ apiFetch, ticker }) {
           <table className="scan-table swing-table mtable">
             <thead>
               <tr>
-                <th>Target</th>
-                <th className="scan-th-num">{isUp ? "Upside" : "Downside"} %</th>
-                <th className="scan-th-num">Price</th>
-                <th className="scan-th-num">From here</th>
-                <th className="scan-th-num">By (est.)</th>
+                <th title="Projection tier — conservative, median, aggressive, or extreme">Target</th>
+                <th className="scan-th-num" title={`Percent ${isUp ? "gain" : "drop"} from the swing origin to this target`}>{isUp ? "Upside" : "Downside"} %</th>
+                <th className="scan-th-num" title="Projected price at this target">Price</th>
+                <th className="scan-th-num" title="Percent move still needed from the current price ('reached' if already hit)">From here</th>
+                <th className="scan-th-num" title="Estimated date this target is reached, based on similar past moves">By (est.)</th>
                 <th className="scan-th-num"><Term k="confidence_rating">Confidence</Term></th>
               </tr>
             </thead>
@@ -1768,7 +1769,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
       {/* ── Trade plan ──────────────────────────────────────────────────── */}
       {a && a.status === "ok" && a.trade_plan && (
         <div className="swing-plan">
-          <div className="swing-subtitle">{a.trade_plan.side === "long" ? "Long" : "Short"} trade plan</div>
+          <div className="swing-subtitle" title="A concrete plan for this setup: where to enter, where it's wrong, targets, and how long to hold">{a.trade_plan.side === "long" ? "Long" : "Short"} trade plan</div>
           <div className="swing-plan-grid">
             <div><span><Term k="trade_entry_zone">Entry zone</Term></span><b>{fmtUsd2(a.trade_plan.entry_zone[0])} – {fmtUsd2(a.trade_plan.entry_zone[1])}</b></div>
             <div><span><Term k="trade_invalidation">Invalidation</Term></span><b className="down">{fmtUsd2(a.trade_plan.invalidation)}</b></div>
@@ -1788,11 +1789,11 @@ function SwingPatternCard({ apiFetch, ticker }) {
           <div className="swing-plan-note muted">{a.trade_plan.invalidation_note}</div>
           <div className="swing-plan-cols">
             <div>
-              <div className="swing-plan-h up">Reasons to stay</div>
+              <div className="swing-plan-h up" title="Factors that support staying in / adding to this trade">Reasons to stay</div>
               <ul>{a.trade_plan.reason_to_stay.map((r, i) => <li key={i}>{r}</li>)}</ul>
             </div>
             <div>
-              <div className="swing-plan-h warn">Exit warnings</div>
+              <div className="swing-plan-h warn" title="Signs that argue for taking profits or exiting">Exit warnings</div>
               <ul>{a.trade_plan.exit_warnings.map((r, i) => <li key={i}>{r}</li>)}</ul>
             </div>
           </div>
@@ -1802,8 +1803,8 @@ function SwingPatternCard({ apiFetch, ticker }) {
 
       {/* ── History table (up / down toggle + filters) ──────────────────── */}
       <div className="swing-histnav" style={{ marginTop: 14 }}>
-        <button type="button" className={tab === "up" ? "active" : ""} onClick={() => setTab("up")}>Up-swings ({upSwings.length})</button>
-        <button type="button" className={tab === "down" ? "active" : ""} onClick={() => setTab("down")}>Down-swings ({downSwings.length})</button>
+        <button type="button" className={tab === "up" ? "active" : ""} onClick={() => setTab("up")} title="Past upward swings in this stock's history (count)">Up-swings ({upSwings.length})</button>
+        <button type="button" className={tab === "down" ? "active" : ""} onClick={() => setTab("down")} title="Past downward swings in this stock's history (count)">Down-swings ({downSwings.length})</button>
       </div>
 
       {(upSwings.length > 0 || downSwings.length > 0) && (
@@ -9579,7 +9580,7 @@ function NewsTicker({ apiFetch, onSwitchTicker }) {
   );
 
   const qsyms = symbols.filter(s => quotes[s] && quotes[s].last != null);
-  const qdur = Math.max(32, qsyms.length * 3.1);   // a touch faster than the news tape
+  const qdur = Math.max(31, qsyms.length * 3.0);   // a touch faster than the news tape
   const QSeq = ({ hidden }) => (
     <div className="nt-seq" aria-hidden={hidden || undefined}>
       {qsyms.map((s, i) => {
