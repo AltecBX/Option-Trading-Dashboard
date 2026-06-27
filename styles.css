@@ -3267,11 +3267,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   flex-wrap: wrap;
   padding: 6px;
   margin: 0 0 14px;
-  background: color-mix(in oklch, var(--bg) 86%, transparent);
+  /* Fully opaque so page content scrolls under it and disappears, instead of
+     bleeding through the old 86%-transparent + blur backdrop. */
+  background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(8px) saturate(1.1);
 }
 .tab-btn {
   font-family: var(--font-body);
@@ -8632,7 +8633,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    ══════════════════════════════════════════════════════════════════════ */
 .mn-stack {                       /* sticky wrapper: news tape + ticker tape */
   grid-column: 1 / -1;
-  display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  /* Opaque page-bg fills the gaps between/below the tapes so scrolling content
+     can't show through, and the bottom padding (not margin) keeps that fill
+     contiguous down to the tab bar that parks just beneath it. */
+  background: var(--bg); padding-bottom: 12px; margin: 0;
   position: sticky; top: 0; z-index: 250;   /* always visible while scrolling */
 }
 .newsticker {
@@ -8895,7 +8900,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .rrail { left: auto; right: 6px; }
   .rrail--daily { left: auto; right: 130px; }
 }
-.lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em;
+.lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 12.5px; font-weight: 800; letter-spacing: 0.04em;
   color: #fff; background: #2C7527; text-align: center; padding: 6px 4px; cursor: help; }
 .lrail-title--daily { background: #46B33D; }
 /* Low rails: red, the visual opposite of the green high rails. */
@@ -8903,7 +8908,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .lrail-title--lowdaily { background: #B33D3D; }
 .lrail-subtag--low { color: #c8615b; }
 /* Sub-header under each rail title: the most-common Tag on the current list. */
-.lrail-subtag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
+.lrail-subtag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
   letter-spacing: 0.03em; color: #1C799E; background: var(--bg-3);
   text-align: center; padding: 3px 4px; border-bottom: 1px solid var(--line);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
@@ -8915,24 +8920,24 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @keyframes lr-scroll { from { transform: translateY(0); } to { transform: translateY(-50%); } }
 .lr-col { display: flex; flex-direction: column; justify-content: space-evenly; }
 .lr-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
-  padding: 7px 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
+  padding: 7px 8px; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; }
 .lr-item:hover { background: var(--bg-3); }
 /* Owned in the Schwab portfolio — highlight in yellow. */
 .lr-item.owned { background: color-mix(in srgb, #f5c451 16%, transparent);
-  border-left: 3px solid #f5c451; padding-left: 7px; }
+  border-left: 3px solid #f5c451; padding-left: 5px; }
 .lr-item.owned:hover { background: color-mix(in srgb, #f5c451 26%, transparent); }
 .lr-item.owned .lr-sym { color: #f5c451; }
-.lr-line1 { display: flex; align-items: baseline; gap: 16px; white-space: nowrap; overflow: hidden; }
+.lr-line1 { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; overflow: hidden; }
 /* Daily-high rail line 1: "SYM - $price   age" */
-.lrail--daily .lr-line1 { gap: 6px; }
+.lrail--daily .lr-line1 { gap: 5px; }
 .lr-dash { color: var(--fg-3); }
-.lr-age { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.lr-age { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
 .lr-line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; overflow: hidden; }
-.lr-sym { font-family: var(--font-mono); font-weight: 800; font-size: 14px; color: var(--fg); }
-.lr-px { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); }
-.lr-chg { font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
+.lr-sym { font-family: var(--font-mono); font-weight: 800; font-size: 15px; color: var(--fg); }
+.lr-px { font-family: var(--font-mono); font-size: 14px; color: var(--fg-2); }
+.lr-chg { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
 .lr-chg.up { color: var(--up); } .lr-chg.down { color: var(--down); }
-.lr-52 { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
-.lr-line3 { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: #1C799E; white-space: nowrap;
+.lr-52 { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
+.lr-line3 { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #1C799E; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; letter-spacing: 0.02em; }
 @media (prefers-reduced-motion: reduce) { .lrail-track { animation: none; } .lrail-vp { overflow-y: auto; } }

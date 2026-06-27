@@ -9551,11 +9551,12 @@ function NewsTicker({ apiFetch, onSwitchTicker }) {
     return () => { stop = true; if (timer) clearTimeout(timer); };
   }, [symbols]);
 
-  // Keep the tab bar parked just below however tall the (sticky) stack is —
-  // 0 when nothing renders. Measured each render so it's always in sync.
+  // Keep the tab bar parked flush against the bottom of the (sticky) stack so
+  // there's no transparent seam between them — the stack's own padding-bottom
+  // provides the visual gap. 0 when nothing renders. Measured each render.
   useEffect(() => {
     const el = stackRef.current;
-    const h = el ? el.offsetHeight + 8 : 0;
+    const h = el ? el.offsetHeight : 0;
     document.documentElement.style.setProperty("--mn-h", h ? `${h}px` : "0px");
     return () => { document.documentElement.style.setProperty("--mn-h", "0px"); };
   });
