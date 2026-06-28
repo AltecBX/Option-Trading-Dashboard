@@ -1728,6 +1728,42 @@ function SwingPatternCard({ apiFetch, ticker }) {
         </div>
       )}
 
+      {/* ── Odds & risk/reward — decision synthesis from this stock's history ─ */}
+      {a && a.status === "ok" && a.odds && (() => {
+        const o = a.odds;
+        const vClass = ({ favorable: "up", unfavorable: "down", balanced: "warn" }[o.verdict]) || "muted";
+        return (
+          <div className={`swing-odds odds-${vClass}`}>
+            <div className="swing-odds-head">
+              <span className="swing-subtitle" title="A trade-decision read built only from this stock's OWN past swings of the same direction — how good the reward-to-risk is, how often a move this far went on to the next target, and the resulting expected value. Not generic; specific to this name's rhythm.">Odds &amp; risk / reward</span>
+              <span className={`swing-odds-verdict ${vClass}`} title="Overall read combining reward:risk with the historical hit rate. Favorable = positive expected value and healthy R:R.">{o.verdict}</span>
+            </div>
+            <div className="swing-odds-grid">
+              <div title="Reward-to-risk at the planned entry: distance from entry to the next target ÷ distance from entry to the invalidation (stop). 'from here' uses the current price instead of the planned entry.">
+                <span>Reward : risk</span>
+                <b className={o.reward_risk >= 1.5 ? "up" : o.reward_risk < 1 ? "down" : ""}>{o.reward_risk != null ? `${o.reward_risk} : 1` : "—"}</b>
+                {o.reward_risk_now != null && <small className="swing-sub">{o.reward_risk_now} : 1 from here</small>}
+              </div>
+              <div title={`Of the ${o.sample} past ${o.target_label ? a.direction + "-" : ""}moves that ran at least this far, the share that went on to reach the ${o.target_label} target.`}>
+                <span>Hit rate</span>
+                <b className={o.win_pct >= 55 ? "up" : o.win_pct < 40 ? "down" : ""}>{o.win_pct != null ? `${o.win_pct}%` : "—"}</b>
+                <small className="swing-sub">{o.sample} similar move{o.sample === 1 ? "" : "s"}</small>
+              </div>
+              <div title="Expected value per attempt in R (risk units): hit-rate × reward:risk − miss-rate. Above 0 means the setup pays out over many tries.">
+                <span>Expected value</span>
+                <b className={o.expectancy_r > 0 ? "up" : o.expectancy_r < 0 ? "down" : ""}>{o.expectancy_r != null ? `${o.expectancy_r > 0 ? "+" : ""}${o.expectancy_r}R` : "—"}</b>
+              </div>
+              <div title="The reward leg (next ladder rung beyond the current move) and the stop where the thesis is invalidated.">
+                <span>Target / stop</span>
+                <b className={isUp ? "up" : "down"}>{fmtUsd2(o.target_price)}</b>
+                <small className="swing-sub">stop {fmtUsd2(o.risk_price)}</small>
+              </div>
+            </div>
+            <div className="swing-odds-note">{o.note}</div>
+          </div>
+        );
+      })()}
+
 
       {/* ── Target ladder ───────────────────────────────────────────────── */}
       {a && a.status === "ok" && (

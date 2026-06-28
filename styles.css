@@ -7986,6 +7986,39 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 .swing-subtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; color: var(--fg-2); }
 
+/* ── Odds & risk/reward panel — the trade-decision synthesis ──────────── */
+.swing-odds {
+  margin-top: 14px; padding: 14px 16px;
+  border: 1px solid var(--line); border-left: 3px solid var(--fg-4);
+  border-radius: var(--radius); background: var(--bg-2);
+}
+.swing-odds.odds-up   { border-left-color: var(--up); }
+.swing-odds.odds-down { border-left-color: var(--down); }
+.swing-odds.odds-warn { border-left-color: var(--warn); }
+.swing-odds-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.swing-odds-head .swing-subtitle { margin-bottom: 0; }
+.swing-odds-verdict {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in oklch, var(--fg-3) 16%, transparent); color: var(--fg-2);
+}
+.swing-odds-verdict.up   { background: color-mix(in oklch, var(--up) 18%, transparent);   color: var(--up); }
+.swing-odds-verdict.down { background: color-mix(in oklch, var(--down) 18%, transparent); color: var(--down); }
+.swing-odds-verdict.warn { background: color-mix(in oklch, var(--warn) 20%, transparent); color: var(--warn); }
+.swing-odds-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 12px 0 4px;
+}
+.swing-odds-grid > div { display: flex; flex-direction: column; gap: 2px; cursor: help; }
+.swing-odds-grid span {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3);
+}
+.swing-odds-grid b { font-family: var(--font-mono); font-size: 18px; white-space: nowrap; }
+.swing-odds-grid b.up { color: var(--up); } .swing-odds-grid b.down { color: var(--down); }
+.swing-odds-grid .swing-sub { font-family: var(--font-mono); font-size: 11px; color: var(--fg-4); font-weight: 500; }
+.swing-odds-note { font-size: 12.5px; line-height: 1.5; color: var(--fg-2); margin-top: 8px; }
+@media (max-width: 680px) { .swing-odds-grid { grid-template-columns: 1fr 1fr; } }
+
 /* ── Trade plan ──────────────────────────────────────────────────────── */
 .swing-plan {
   margin-top: 14px; padding: 12px 14px; border-radius: 12px;

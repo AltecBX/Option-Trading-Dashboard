@@ -2517,7 +2517,51 @@ function SwingPatternCard({
     score: a.exhaustion_score,
     tone: "warn",
     factors: a.exhaustion_factors
-  }))), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
+  }))), a && a.status === "ok" && a.odds && (() => {
+    const o = a.odds;
+    const vClass = {
+      favorable: "up",
+      unfavorable: "down",
+      balanced: "warn"
+    }[o.verdict] || "muted";
+    return /*#__PURE__*/React.createElement("div", {
+      className: `swing-odds odds-${vClass}`
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "swing-odds-head"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "swing-subtitle",
+      title: "A trade-decision read built only from this stock's OWN past swings of the same direction — how good the reward-to-risk is, how often a move this far went on to the next target, and the resulting expected value. Not generic; specific to this name's rhythm."
+    }, "Odds & risk / reward"), /*#__PURE__*/React.createElement("span", {
+      className: `swing-odds-verdict ${vClass}`,
+      title: "Overall read combining reward:risk with the historical hit rate. Favorable = positive expected value and healthy R:R."
+    }, o.verdict)), /*#__PURE__*/React.createElement("div", {
+      className: "swing-odds-grid"
+    }, /*#__PURE__*/React.createElement("div", {
+      title: "Reward-to-risk at the planned entry: distance from entry to the next target ÷ distance from entry to the invalidation (stop). 'from here' uses the current price instead of the planned entry."
+    }, /*#__PURE__*/React.createElement("span", null, "Reward : risk"), /*#__PURE__*/React.createElement("b", {
+      className: o.reward_risk >= 1.5 ? "up" : o.reward_risk < 1 ? "down" : ""
+    }, o.reward_risk != null ? `${o.reward_risk} : 1` : "—"), o.reward_risk_now != null && /*#__PURE__*/React.createElement("small", {
+      className: "swing-sub"
+    }, o.reward_risk_now, " : 1 from here")), /*#__PURE__*/React.createElement("div", {
+      title: `Of the ${o.sample} past ${o.target_label ? a.direction + "-" : ""}moves that ran at least this far, the share that went on to reach the ${o.target_label} target.`
+    }, /*#__PURE__*/React.createElement("span", null, "Hit rate"), /*#__PURE__*/React.createElement("b", {
+      className: o.win_pct >= 55 ? "up" : o.win_pct < 40 ? "down" : ""
+    }, o.win_pct != null ? `${o.win_pct}%` : "—"), /*#__PURE__*/React.createElement("small", {
+      className: "swing-sub"
+    }, o.sample, " similar move", o.sample === 1 ? "" : "s")), /*#__PURE__*/React.createElement("div", {
+      title: "Expected value per attempt in R (risk units): hit-rate × reward:risk − miss-rate. Above 0 means the setup pays out over many tries."
+    }, /*#__PURE__*/React.createElement("span", null, "Expected value"), /*#__PURE__*/React.createElement("b", {
+      className: o.expectancy_r > 0 ? "up" : o.expectancy_r < 0 ? "down" : ""
+    }, o.expectancy_r != null ? `${o.expectancy_r > 0 ? "+" : ""}${o.expectancy_r}R` : "—")), /*#__PURE__*/React.createElement("div", {
+      title: "The reward leg (next ladder rung beyond the current move) and the stop where the thesis is invalidated."
+    }, /*#__PURE__*/React.createElement("span", null, "Target / stop"), /*#__PURE__*/React.createElement("b", {
+      className: isUp ? "up" : "down"
+    }, fmtUsd2(o.target_price)), /*#__PURE__*/React.createElement("small", {
+      className: "swing-sub"
+    }, "stop ", fmtUsd2(o.risk_price)))), /*#__PURE__*/React.createElement("div", {
+      className: "swing-odds-note"
+    }, o.note));
+  })(), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12
     }

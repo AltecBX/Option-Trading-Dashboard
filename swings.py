@@ -769,6 +769,93 @@ def _levels_block(pivots, dates, cur_price, direction, med_price=None):
     }
 
 
+def _odds_block(swings, cur_abs, direction, cur_price, from_p, plan, r):
+    """Decision synthesis the rest of the card doesn't give: reward:risk at the
+    entry, the historical odds a move THIS FAR goes on to the next target, the
+    resulting expected value in R, and a plain verdict — all from this stock's
+    OWN past swings of the same direction. Pure/additive; returns None if it
+    can't be computed so the UI just hides it."""
+    try:
+        # Precedents: past moves that reached at least where this one is now.
+        comparable = sorted(abs(s["pct_change"]) for s in swings
+                            if abs(s.get("pct_change") or 0) >= cur_abs - 0.001)
+        sample = len(comparable)
+        # Reward target = the first ladder rung strictly beyond the current move.
+        ladder = [("median", r.get("pct_median")), ("aggressive", r.get("pct_p75")),
+                  ("stretch", r.get("pct_max"))]
+        tgt_label, tgt_mag = None, None
+        for lbl, mag in ladder:
+            if mag and mag > cur_abs + 0.001:
+                tgt_label, tgt_mag = lbl, mag
+                break
+        if tgt_mag is None:
+            return None  # already at/through the extreme — no meaningful upside left
+        tgt_price = from_p * (1 + tgt_mag / 100.0) if direction == "up" \
+            else from_p * (1 - tgt_mag / 100.0)
+        inval = plan.get("invalidation")
+        ez = plan.get("entry_zone") or [from_p, from_p]
+        entry_mid = (ez[0] + ez[1]) / 2.0
+        if not inval:
+            return None
+
+        def _rr(entry):
+            risk = abs(entry - inval)
+            return round(abs(tgt_price - entry) / risk, 2) if risk > 1e-9 else None
+
+        reward_risk = _rr(entry_mid)        # the setup's inherent quality (ideal entry)
+        reward_risk_now = _rr(cur_price)    # if you entered right here, right now
+
+        win_rate = expectancy = followthrough = None
+        if sample >= 1:
+            reached = sum(1 for m in comparable if m >= tgt_mag - 0.001)
+            win_rate = round(reached / sample, 2)
+            if reward_risk is not None:
+                expectancy = round(win_rate * reward_risk - (1 - win_rate), 2)
+            med_final = comparable[sample // 2]
+            followthrough = round(max(0.0, med_final - cur_abs), 1)
+
+        if sample < 4 or win_rate is None or reward_risk is None:
+            verdict = "thin sample"
+        elif expectancy is not None and expectancy >= 0.3 and reward_risk >= 1.5:
+            verdict = "favorable"
+        elif expectancy is not None and expectancy <= -0.1:
+            verdict = "unfavorable"
+        else:
+            verdict = "balanced"
+
+        wpct = round(win_rate * 100) if win_rate is not None else None
+        if verdict == "thin sample":
+            note = (f"Only {sample} comparable past move{'' if sample == 1 else 's'} "
+                    f"this far along — odds are unreliable; lean on structure and flow.")
+        elif verdict == "favorable":
+            note = (f"≈{reward_risk}:1 reward-to-risk, and {wpct}% of {sample} similar past "
+                    f"moves reached the {tgt_label} target — positive edge (+{expectancy}R expected).")
+        elif verdict == "unfavorable":
+            note = (f"Only {wpct}% of {sample} similar moves reached the {tgt_label} target at "
+                    f"≈{reward_risk}:1 — negative expectancy ({expectancy}R); wait for a better entry.")
+        else:
+            note = (f"≈{reward_risk}:1 reward-to-risk with {wpct}% of {sample} similar moves "
+                    f"reaching the {tgt_label} target — roughly fair ({expectancy:+}R).")
+
+        return {
+            "verdict": verdict,
+            "reward_risk": reward_risk,
+            "reward_risk_now": reward_risk_now,
+            "target_label": tgt_label,
+            "target_price": round(tgt_price, 2),
+            "risk_price": round(inval, 2),
+            "entry_mid": round(entry_mid, 2),
+            "sample": sample,
+            "win_rate": win_rate,
+            "win_pct": wpct,
+            "expectancy_r": expectancy,
+            "median_followthrough_pct": followthrough,
+            "note": note,
+        }
+    except Exception:
+        return None
+
+
 def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                     up_swings, down_swings, up_rhythm, down_rhythm, ind,
                     bench=None, earnings=None, flow=None):
@@ -1018,6 +1105,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
         "confidence": confidence,
         "decision": decision,
         "trade_plan": plan,
+        "odds": _odds_block(swings, cur_abs, direction, cur_price, from_p, plan, r),
     })
     return block
 
