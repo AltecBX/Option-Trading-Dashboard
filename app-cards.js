@@ -2403,7 +2403,23 @@ function SwingPatternCard({
     className: "swing-decision-action"
   }, a.decision.action), (a.decision.drivers || []).length > 0 && /*#__PURE__*/React.createElement("span", {
     className: "swing-decision-because"
-  }, "because ", a.decision.drivers.join(" · "))), a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
+  }, "because ", a.decision.drivers.join(" · "))), a && a.status === "ok" && (() => {
+    const reasons = [];
+    if (a.odds && a.odds.expectancy_r != null && a.odds.expectancy_r < 0) reasons.push(`negative expectancy (${a.odds.expectancy_r}R)`);
+    if (a.flow && a.flow.agrees_with_price === "disagrees") reasons.push("options flow disagrees with the move");
+    if (a.exhaustion_score != null && a.exhaustion_score >= 60) reasons.push(`high exhaustion risk (${a.exhaustion_score}/100)`);
+    if (a.maturity && /late|extend|over/i.test(a.maturity)) reasons.push(`move is ${a.maturity}`);
+    if (reasons.length < 2) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "swing-veto",
+      role: "alert",
+      title: "Shown only when several independent negatives line up — a one-glance 'don't chase this' signal. Wait for a cleaner setup or a better price."
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "swing-veto-tag"
+    }, "⚠ Avoid / wait"), /*#__PURE__*/React.createElement("span", {
+      className: "swing-veto-why"
+    }, "Low-quality entry — ", reasons.slice(0, 3).join(" · "), "."));
+  })(), a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
     className: `swing-live swing-${dirTone}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-live-head"
@@ -2467,7 +2483,23 @@ function SwingPatternCard({
     className: "swing-levelnote"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "key_levels"
-  }, "⊟ Level read:"), " ", a.key_levels.note), (a.broke_resistance || a.after_earnings) && /*#__PURE__*/React.createElement("div", {
+  }, "⊟ Level read:"), " ", a.key_levels.note), a.level_stats && (() => {
+    const ls = a.level_stats;
+    const held = ls.hold_rate >= 0.5;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "swing-levelstat",
+      title: `From this stock's own history: of ${ls.touches} times price reached the ${ls.kind} near $${ls.level}, it ${held ? "held (bounced)" : "broke through"} more often. 'Held' = reversed away from the level before closing decisively through it.`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "swing-levelstat-ico",
+      "aria-hidden": "true"
+    }, "⟲"), "At $", ls.level, ": held ", /*#__PURE__*/React.createElement("b", {
+      className: held ? "up" : "down"
+    }, Math.round(ls.hold_rate * 100), "%"), " of ", ls.touches, " past touch", ls.touches === 1 ? "" : "es", ls.median_bounce_pct != null && held && /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, " · typical bounce +", ls.median_bounce_pct, "%", ls.median_bounce_days ? ` over ${ls.median_bounce_days}d` : ""), !held && /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, " · breaks through more than it holds"));
+  })(), (a.broke_resistance || a.after_earnings) && /*#__PURE__*/React.createElement("div", {
     className: "swing-tags"
   }, a.broke_resistance && /*#__PURE__*/React.createElement("span", {
     className: "swing-tag up"
