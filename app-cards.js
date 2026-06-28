@@ -8620,7 +8620,7 @@ function PullbackBacktest({
     onClick: runBacktest,
     disabled: loading,
     title: "Run the backtest with the values above"
-  }, loading ? "Running." : "Run")), error && /*#__PURE__*/React.createElement("div", {
+  }, loading ? "Running…" : "Run")), error && /*#__PURE__*/React.createElement("div", {
     className: "research-error",
     style: {
       marginTop: 8
@@ -10132,7 +10132,7 @@ function BasingCard({
       style: {
         padding: "16px 0"
       }
-    }, loading ? "Loading." : "No data."));
+    }, loading ? "Loading…" : "No data."));
   }
   const fmt$ = v => v == null ? "—" : "$" + v.toFixed(2);
 
@@ -13444,15 +13444,15 @@ Object.assign(window, {
   LevelRepriceCard: _memo(LevelRepriceCard),
   WinRateCard: _memo(WinRateCard),
   EarningsCrushCard: _memo(EarningsCrushCard),
-  PushSettingsCard,
-  BrokerImportCard,
-  StrategyReferenceCard,
+  PushSettingsCard: _memo(PushSettingsCard),
+  BrokerImportCard: _memo(BrokerImportCard),
+  StrategyReferenceCard: _memo(StrategyReferenceCard),
   WatchlistManager,
   QuickAddRow,
   WatchlistRow,
   FlashOnChange,
   SortableTh,
-  PercentCalc,
+  PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
   FlowScoreCard: _memo(FlowScoreCard),
   PullbackBacktest,
