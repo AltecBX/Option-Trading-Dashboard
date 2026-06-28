@@ -2,6 +2,20 @@
 // Loads before app.js; every binding is published to window so later
 // files resolve bare references exactly as they did in one file.
 
+// Shared in-card state block — one consistent look for loading / empty / error
+// across every card, with an optional retry. Replaces ad-hoc inline strings.
+function CardNote({ kind = "empty", onRetry, retryLabel = "Try again", children }) {
+  return (
+    <div className={`card-note card-note-${kind}`} role={kind === "error" ? "alert" : undefined}>
+      {kind === "loading" && <span className="card-note-spin" aria-hidden="true" />}
+      <div className="card-note-msg">{children}</div>
+      {onRetry && (
+        <button type="button" className="card-note-retry" onClick={onRetry}>{retryLabel}</button>
+      )}
+    </div>
+  );
+}
+
 function TickerLogo({ ticker }) {
   // Fallback chain — try several free logo CDNs in order, fall back to
   // text if all fail. We track loaded/error state explicitly because
@@ -3287,7 +3301,7 @@ function WatchlistAlertsCard({ apiFetch, onSwitchTicker }) {
         </div>
       </div>
       {error && (
-        <div className="wa-error">Error loading alerts: {error}</div>
+        <CardNote kind="error" onRetry={fetchAlerts}>Couldn't load alerts — {error}</CardNote>
       )}
       {!collapsed && (
         <div className="wa-list">
@@ -4191,7 +4205,7 @@ function EarningsCrushCard({ apiFetch, onSwitchTicker }) {
           {loading ? "Loading…" : "Refresh"}
         </button>
       </div>
-      {error && <div className="ec-error">Error: {error}</div>}
+      {error && <CardNote kind="error" onRetry={fetchCrush}>Couldn't load earnings vol crush — {error}</CardNote>}
       {rows.length > 0 && (
         <div className="ec-table">
           <div className="ec-head">
@@ -6039,9 +6053,9 @@ function FlowScoreCard({ ticker, currentPrice, apiFetch, uwHealth }) {
             <div className="card-title">Flow Score</div>
           </div>
         </div>
-        <div className="muted" style={{padding: "16px 0"}}>
-          UW connection error: {uwHealth?.error || "unknown"}
-        </div>
+        <CardNote kind="error">
+          Can't reach Unusual Whales right now — flow returns once the connection recovers.
+        </CardNote>
       </div>
     );
   }
@@ -6054,7 +6068,7 @@ function FlowScoreCard({ ticker, currentPrice, apiFetch, uwHealth }) {
             <div className="card-title">Flow Score</div>
           </div>
         </div>
-        <div className="muted" style={{padding: "16px 0"}}>Loading flow data.</div>
+        <CardNote kind="loading">Loading flow data…</CardNote>
       </div>
     );
   }

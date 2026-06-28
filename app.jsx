@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.78";
+const APP_VERSION = "2.79";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -1527,8 +1527,13 @@ function App() {
   }, [tweaks.values]);
 
   // Live fetch from /api/ticker (served by options_dashboard.py --serve).
+  // Aborts the previous request on a fast ticker/param switch so the heavy
+  // chain fetch never queues the new symbol behind a stale one (the old
+  // request would otherwise hold one of the browser's ~6 connections). The
+  // `cancelled` flag still guards state; the AbortController frees the socket.
   useEffect(() => {
     let cancelled = false;
+    const ac = new AbortController();
     setLoading(true);
     setLoadError(null);
     const _tFetch = (window.performance && performance.now) ? performance.now() : Date.now();
@@ -1536,7 +1541,7 @@ function App() {
     let url = `/api/ticker?symbol=${encodeURIComponent(ticker)}`
             + `&weeks=${weeks}&baseline=${baseline}`;
     if (expiration) url += `&expiration=${encodeURIComponent(expiration)}`;
-    apiFetch(url)
+    apiFetch(url, { signal: ac.signal })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
       .then(payload => {
         if (cancelled) return;
@@ -1552,7 +1557,8 @@ function App() {
         }
       })
       .catch(err => {
-        if (cancelled) return;
+        // Aborted by a newer switch — not an error, just drop it silently.
+        if (cancelled || err?.name === "AbortError") return;
         const msg = err?.error || err?.message || "Fetch failed";
         const offline = /Failed to fetch|NetworkError|TypeError/.test(msg);
         const havePreset = !!window.MockData?.PRESETS?.[ticker];
@@ -1569,7 +1575,7 @@ function App() {
         }
         setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; ac.abort(); };
   }, [ticker, weeks, baseline, expiration, reloadNonce]);
 
   // Reset expiration override whenever the ticker changes — different
