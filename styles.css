@@ -19,12 +19,16 @@
   --fg: oklch(0.20 0.01 90);
   --fg-2: oklch(0.42 0.01 90);
   --fg-3: oklch(0.58 0.01 90);
+  --fg-4: oklch(0.70 0.008 90);   /* faintest tier — captions, "—", de-emphasis */
 
   --shadow-card: 0 1px 0 rgba(0,0,0,0.02), 0 1px 2px rgba(15,15,15,0.04), 0 8px 24px -12px rgba(15,15,15,0.06);
   --shadow-hover: 0 1px 0 rgba(0,0,0,0.03), 0 2px 6px rgba(15,15,15,0.06), 0 18px 40px -18px rgba(15,15,15,0.14);
   --sheen: rgba(255,255,255,0);
+  --accent-ring: color-mix(in oklch, var(--accent), transparent 65%);  /* focus ring */
+  --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 16px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);   /* gentle, premium easing */
 
   --font-display: "Inter", "Helvetica Neue", system-ui, sans-serif;
   --font-body: "Inter", "Helvetica Neue", system-ui, sans-serif;
@@ -42,15 +46,18 @@
   --bg: #0e1014;
   --bg-2: #161922;
   --bg-3: #1c2030;
-  --line: oklch(0.28 0.01 250);
-  --line-2: oklch(0.34 0.01 250);
+  --line: oklch(0.30 0.012 250);     /* a touch crisper card edges */
+  --line-2: oklch(0.37 0.014 250);
   --fg: oklch(0.96 0.005 250);
-  --fg-2: oklch(0.78 0.01 250);
-  --fg-3: oklch(0.62 0.01 250);
+  --fg-2: oklch(0.80 0.01 250);      /* slightly brighter secondary text */
+  --fg-3: oklch(0.65 0.012 250);     /* brighter tertiary — flagged as faint */
+  --fg-4: oklch(0.52 0.012 250);     /* faintest tier */
   --accent-soft: oklch(0.28 0.06 var(--accent-h));
-  --shadow-card: 0 1px 0 rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -16px rgba(0,0,0,0.6);
-  --shadow-hover: 0 1px 0 rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.4), 0 22px 48px -20px rgba(0,0,0,0.8);
-  --sheen: rgba(255,255,255,0.045);
+  --accent-ring: color-mix(in oklch, var(--accent), transparent 55%);
+  /* Softer, more diffuse elevation — premium depth without heavy borders. */
+  --shadow-card: 0 1px 0 rgba(0,0,0,0.25), 0 2px 6px -2px rgba(0,0,0,0.35), 0 14px 40px -18px rgba(0,0,0,0.7);
+  --shadow-hover: 0 1px 0 rgba(0,0,0,0.4), 0 6px 16px -4px rgba(0,0,0,0.5), 0 28px 60px -22px rgba(0,0,0,0.85);
+  --sheen: rgba(255,255,255,0.05);
 }
 
 [data-density="compact"] {
@@ -89,6 +96,52 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* ─── Global polish: numbers, focus, selection, scrollbars, motion ─────────
+   These cascade across every card/table without touching component logic. */
+
+/* Monospace = financial data → always tabular so columns of digits line up. */
+.font-mono, code, kbd, [class*="-num"], [class*="-px"], [class*="-chg"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "cv01" 1;
+}
+
+/* Keyboard focus: a single, consistent accent ring everywhere (mouse clicks
+   stay clean via :focus-visible). Big legibility + accessibility win. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+button:focus:not(:focus-visible), a:focus:not(:focus-visible),
+input:focus:not(:focus-visible), select:focus:not(:focus-visible) { outline: none; }
+
+::selection { background: color-mix(in oklch, var(--accent), transparent 70%); color: var(--fg); }
+
+/* Thin, unobtrusive scrollbars on every scroll surface (was sidebar-only). */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-2); border-radius: 6px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--fg-4); background-clip: content-box; }
+
+/* Snappy, consistent interaction transitions on the controls users touch most. */
+button, .preset-pill, .tab-btn, .pill, .chip, .seg button, .src-badge,
+input, select, textarea {
+  transition: background-color 140ms var(--ease), border-color 140ms var(--ease),
+              color 140ms var(--ease), box-shadow 180ms var(--ease),
+              transform 140ms var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+  }
 }
 
 /* ─── Shell layout: sidebar + main ─────────────────────────────────────── */
@@ -8084,6 +8137,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
     position: sticky; top: 56px; z-index: 210;
   }
   .tab-bar::-webkit-scrollbar { display: none; }
+  /* Fade the right edge so it's obvious more tabs scroll off-screen. */
+  .tab-bar {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent 100%);
+            mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent 100%);
+  }
   .tab-btn { flex: 0 0 auto; padding: 9px 15px !important; min-height: 42px; }
   .tab-earn { display: none !important; }  /* earnings shown elsewhere; save row space */
 
@@ -8093,6 +8151,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   }
   select, .sb-select { font-size: 16px !important; }  /* iOS no-zoom */
   .news-srcnav button, .swing-histnav button, .screener-subnav button { min-height: 38px; }
+  /* Pills are real controls — give them a thumb-sized tap target on mobile. */
+  .preset-pill { min-height: 34px; padding: 7px 12px; }
+  .preset-pill-x { min-width: 26px; min-height: 26px; }
+  /* Lift the faintest labels to a readable floor on small screens. */
+  .rec-kicker, .strategy-mode-kicker, .earn-dot,
+  .gex-total-lbl, .metric .lbl { font-size: 11px !important; }
 }
 
 /* Phones: trim oversized headers, tighten further. */

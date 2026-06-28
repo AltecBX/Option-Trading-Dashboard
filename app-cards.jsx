@@ -6359,7 +6359,7 @@ function PullbackBacktest({ ticker, direction, defaultTarget, apiFetch }) {
                 onClick={runBacktest}
                 disabled={loading}
                 title="Run the backtest with the values above">
-          {loading ? "Running." : "Run"}
+          {loading ? "Running…" : "Run"}
         </button>
       </div>
       {error && <div className="research-error" style={{marginTop: 8}}>Error: {error}</div>}
@@ -7733,7 +7733,7 @@ function BasingCard({ ticker, weeks, apiFetch, livePrice }) {
             <div className="card-title">Intraday basing levels</div>
           </div>
         </div>
-        <div className="muted" style={{padding: "16px 0"}}>{loading ? "Loading." : "No data."}</div>
+        <div className="muted" style={{padding: "16px 0"}}>{loading ? "Loading…" : "No data."}</div>
       </div>
     );
   }
@@ -10177,9 +10177,11 @@ Object.assign(window, { TickerLogo,
   TrendCard: _memo(TrendCard), IVRankCard: _memo(IVRankCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard), TabBar, TabPanel, WeatherBadge,
   LevelRepriceCard: _memo(LevelRepriceCard), WinRateCard: _memo(WinRateCard),
-  EarningsCrushCard: _memo(EarningsCrushCard), PushSettingsCard, BrokerImportCard,
-  StrategyReferenceCard, WatchlistManager, QuickAddRow, WatchlistRow, FlashOnChange,
-  SortableTh, PercentCalc, RollManagerCard: _memo(RollManagerCard),
+  EarningsCrushCard: _memo(EarningsCrushCard),
+  PushSettingsCard: _memo(PushSettingsCard), BrokerImportCard: _memo(BrokerImportCard),
+  StrategyReferenceCard: _memo(StrategyReferenceCard), WatchlistManager, QuickAddRow,
+  WatchlistRow, FlashOnChange, SortableTh, PercentCalc: _memo(PercentCalc),
+  RollManagerCard: _memo(RollManagerCard),
   FlowScoreCard: _memo(FlowScoreCard), PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),

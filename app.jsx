@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.77";
+const APP_VERSION = "2.78";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2638,7 +2638,7 @@ function App() {
           <div className="sb-brand-text">
             <div className="sb-status">
               {loading
-                ? "Fetching."
+                ? "Loading…"
                 : window.__LIVE
                   ? <LiveClock />
                   : "Static snapshot"}
@@ -3579,7 +3579,7 @@ function App() {
                     </div>
                     <div className="chart-stat-sub">
                       {ivRankInfo?.iv_rank == null
-                        ? (ivRankInfo?.iv_rank_days > 0 ? `${ivRankInfo.iv_rank_days}/20 days` : "loading")
+                        ? (ivRankInfo?.iv_rank_days > 0 ? `${ivRankInfo.iv_rank_days}/20 days` : "building…")
                         : ivRankInfo.iv_rank >= 70 ? "premium rich"
                         : ivRankInfo.iv_rank <= 30 ? "premium cheap"
                         : "neutral"}
@@ -6036,7 +6036,7 @@ function App() {
                         setEarningsLoading(false);
                       }
                     }}>
-              {earningsLoading ? "Loading." : earningsLadder ? "Refresh" : "Run analysis"}
+              {earningsLoading ? "Loading…" : earningsLadder ? "Refresh" : "Run analysis"}
             </button>
           </div>
           {!earningsLadder && !earningsError && !earningsLoading && (
@@ -6159,7 +6159,7 @@ function App() {
                           setBacktestLoading(false);
                         }
                       }}>
-                {backtestLoading ? "Running." : backtest ? "Refresh" : "Run backtest"}
+                {backtestLoading ? "Running…" : backtest ? "Refresh" : "Run backtest"}
               </button>
             </div>
           </div>

@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.77";
+const APP_VERSION = "2.78";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3418,7 +3418,7 @@ function App() {
     className: "sb-brand-text"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sb-status"
-  }, loading ? "Fetching." : window.__LIVE ? /*#__PURE__*/React.createElement(LiveClock, null) : "Static snapshot"), loadError && /*#__PURE__*/React.createElement("div", {
+  }, loading ? "Loading…" : window.__LIVE ? /*#__PURE__*/React.createElement(LiveClock, null) : "Static snapshot"), loadError && /*#__PURE__*/React.createElement("div", {
     className: "sb-status err"
   }, loadError), /*#__PURE__*/React.createElement("div", {
     className: "sb-source-badges"
@@ -4654,7 +4654,7 @@ function App() {
       className: `chart-stat-val ${ivRankInfo?.iv_rank == null ? "" : ivRankInfo.iv_rank >= 70 ? "up" : ivRankInfo.iv_rank <= 30 ? "down" : ""}`
     }, ivRankInfo?.iv_rank == null ? "—" : ivRankInfo.iv_rank.toFixed(0)), /*#__PURE__*/React.createElement("div", {
       className: "chart-stat-sub"
-    }, ivRankInfo?.iv_rank == null ? ivRankInfo?.iv_rank_days > 0 ? `${ivRankInfo.iv_rank_days}/20 days` : "loading" : ivRankInfo.iv_rank >= 70 ? "premium rich" : ivRankInfo.iv_rank <= 30 ? "premium cheap" : "neutral")));
+    }, ivRankInfo?.iv_rank == null ? ivRankInfo?.iv_rank_days > 0 ? `${ivRankInfo.iv_rank_days}/20 days` : "building…" : ivRankInfo.iv_rank >= 70 ? "premium rich" : ivRankInfo.iv_rank <= 30 ? "premium cheap" : "neutral")));
   })(), /*#__PURE__*/React.createElement("div", {
     className: "expected-move-card chart-em-section"
   }, /*#__PURE__*/React.createElement("div", {
@@ -7582,7 +7582,7 @@ function App() {
         setEarningsLoading(false);
       }
     }
-  }, earningsLoading ? "Loading." : earningsLadder ? "Refresh" : "Run analysis")), !earningsLadder && !earningsError && !earningsLoading && /*#__PURE__*/React.createElement("div", {
+  }, earningsLoading ? "Loading…" : earningsLadder ? "Refresh" : "Run analysis")), !earningsLadder && !earningsError && !earningsLoading && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
   }, "Click ", /*#__PURE__*/React.createElement("b", null, "Run analysis"), " to compute implied vs realized moves for the past 8 earnings reports on ", ticker, "."), earningsError && /*#__PURE__*/React.createElement("div", {
     className: "research-error"
@@ -7707,7 +7707,7 @@ function App() {
         setBacktestLoading(false);
       }
     }
-  }, backtestLoading ? "Running." : backtest ? "Refresh" : "Run backtest"))), !backtest && !backtestError && !backtestLoading && /*#__PURE__*/React.createElement("div", {
+  }, backtestLoading ? "Running…" : backtest ? "Refresh" : "Run backtest"))), !backtest && !backtestError && !backtestLoading && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
   }, "Pick a strategy and click ", /*#__PURE__*/React.createElement("b", null, "Run backtest"), ". Each Monday the system \"opens\" the strategy at 0.20 delta strikes, holds to Friday, and marks P/L from synthetic prices."), backtestError && /*#__PURE__*/React.createElement("div", {
     className: "research-error"
