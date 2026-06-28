@@ -856,6 +856,62 @@ def _odds_block(swings, cur_abs, direction, cur_price, from_p, plan, r):
         return None
 
 
+def _level_stats(closes, level, kind, band=0.015, ahead=10, confirm=0.02, bounce_min=0.03):
+    """How this stock has historically behaved AT a given price level: of the
+    times price approached it, how often it HELD (bounced) vs BROKE through, and
+    the typical bounce size/speed. Answers 'is this floor/ceiling real?' from the
+    name's own close history. Returns None when there aren't enough touches.
+
+    kind: 'support' (approached from above) or 'resistance' (from below)."""
+    try:
+        if not level or level <= 0 or len(closes) < 40:
+            return None
+        lo, hi = level * (1 - band), level * (1 + band)
+        holds = breaks = 0
+        bounce_pcts, bounce_days = [], []
+        n = len(closes)
+        i = 1
+        while i < n - 1:
+            c, prev = closes[i], closes[i - 1]
+            entering = (lo <= c <= hi) and not (lo <= prev <= hi)
+            side_ok = (prev > hi) if kind == "support" else (prev < lo)
+            if entering and side_ok:
+                outcome = None
+                for j in range(i + 1, min(i + 1 + ahead, n)):
+                    cj = closes[j]
+                    if kind == "support":
+                        if cj <= level * (1 - confirm):
+                            outcome = ("break", None, None); break
+                        if cj >= level * (1 + bounce_min):
+                            outcome = ("hold", (cj - level) / level * 100.0, j - i); break
+                    else:
+                        if cj >= level * (1 + confirm):
+                            outcome = ("break", None, None); break
+                        if cj <= level * (1 - bounce_min):
+                            outcome = ("hold", (level - cj) / level * 100.0, j - i); break
+                if outcome:
+                    if outcome[0] == "hold":
+                        holds += 1; bounce_pcts.append(outcome[1]); bounce_days.append(outcome[2])
+                    else:
+                        breaks += 1
+                i += ahead  # skip the resolved window so one touch isn't counted twice
+            else:
+                i += 1
+        total = holds + breaks
+        if total < 2:
+            return None
+        med_b = round(sorted(bounce_pcts)[len(bounce_pcts) // 2], 1) if bounce_pcts else None
+        med_d = int(sorted(bounce_days)[len(bounce_days) // 2]) if bounce_days else None
+        return {
+            "level": round(level, 2), "kind": kind, "touches": total,
+            "holds": holds, "breaks": breaks,
+            "hold_rate": round(holds / total, 2),
+            "median_bounce_pct": med_b, "median_bounce_days": med_d,
+        }
+    except Exception:
+        return None
+
+
 def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
                     up_swings, down_swings, up_rhythm, down_rhythm, ind,
                     bench=None, earnings=None, flow=None):
@@ -1002,6 +1058,11 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
     # real next decision point, and the median target may sit beyond it.
     block["key_levels"] = _levels_block(pivots, dates, cur_price, direction,
                                         median_t["price"])
+    # Historical hold-vs-break behavior at the next decision level — "is this
+    # floor/ceiling real?" Additive; None when there aren't enough touches.
+    _nl = block["key_levels"].get("next")
+    if _nl and _nl.get("price"):
+        block["level_stats"] = _level_stats(closes, _nl["price"], _nl.get("kind") or "support")
 
     # "Do not sell / cover too early" guard: structure still favors continuation
     # and the move hasn't reached its usual exhaustion zone.

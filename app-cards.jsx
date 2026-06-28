@@ -1633,6 +1633,27 @@ function SwingPatternCard({ apiFetch, ticker }) {
         </div>
       )}
 
+      {/* ── Avoid-this-trade veto: fires only when several negatives align ── */}
+      {a && a.status === "ok" && (() => {
+        const reasons = [];
+        if (a.odds && a.odds.expectancy_r != null && a.odds.expectancy_r < 0)
+          reasons.push(`negative expectancy (${a.odds.expectancy_r}R)`);
+        if (a.flow && a.flow.agrees_with_price === "disagrees")
+          reasons.push("options flow disagrees with the move");
+        if (a.exhaustion_score != null && a.exhaustion_score >= 60)
+          reasons.push(`high exhaustion risk (${a.exhaustion_score}/100)`);
+        if (a.maturity && /late|extend|over/i.test(a.maturity))
+          reasons.push(`move is ${a.maturity}`);
+        if (reasons.length < 2) return null;
+        return (
+          <div className="swing-veto" role="alert"
+               title="Shown only when several independent negatives line up — a one-glance 'don't chase this' signal. Wait for a cleaner setup or a better price.">
+            <span className="swing-veto-tag">⚠ Avoid / wait</span>
+            <span className="swing-veto-why">Low-quality entry — {reasons.slice(0, 3).join(" · ")}.</span>
+          </div>
+        );
+      })()}
+
       {/* ── Live decision box ───────────────────────────────────────────── */}
       {a && (a.status === "ok" || a.status === "no_rhythm") && (
         <div className={`swing-live swing-${dirTone}`}>
@@ -1691,6 +1712,22 @@ function SwingPatternCard({ apiFetch, ticker }) {
           {a.key_levels && a.key_levels.note && (
             <div className="swing-levelnote"><Term k="key_levels">⊟ Level read:</Term> {a.key_levels.note}</div>
           )}
+
+          {a.level_stats && (() => {
+            const ls = a.level_stats;
+            const held = ls.hold_rate >= 0.5;
+            return (
+              <div className="swing-levelstat"
+                   title={`From this stock's own history: of ${ls.touches} times price reached the ${ls.kind} near $${ls.level}, it ${held ? "held (bounced)" : "broke through"} more often. 'Held' = reversed away from the level before closing decisively through it.`}>
+                <span className="swing-levelstat-ico" aria-hidden="true">⟲</span>
+                At ${ls.level}: held <b className={held ? "up" : "down"}>{Math.round(ls.hold_rate * 100)}%</b> of {ls.touches} past touch{ls.touches === 1 ? "" : "es"}
+                {ls.median_bounce_pct != null && held && (
+                  <span className="muted"> · typical bounce +{ls.median_bounce_pct}%{ls.median_bounce_days ? ` over ${ls.median_bounce_days}d` : ""}</span>
+                )}
+                {!held && <span className="muted"> · breaks through more than it holds</span>}
+              </div>
+            );
+          })()}
 
           {(a.broke_resistance || a.after_earnings) && (
             <div className="swing-tags">

@@ -8019,6 +8019,28 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-odds-note { font-size: 12.5px; line-height: 1.5; color: var(--fg-2); margin-top: 8px; }
 @media (max-width: 680px) { .swing-odds-grid { grid-template-columns: 1fr 1fr; } }
 
+/* Bounce-at-level stat line under the level read. */
+.swing-levelstat {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--fg-2); margin-top: 6px;
+}
+.swing-levelstat-ico { color: var(--fg-3); }
+.swing-levelstat b { font-family: var(--font-mono); font-weight: 800; }
+.swing-levelstat b.up { color: var(--up); } .swing-levelstat b.down { color: var(--down); }
+
+/* Avoid-this-trade veto banner — red, prominent, only on negative confluence. */
+.swing-veto {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 10px 14px; border-radius: var(--radius);
+  background: color-mix(in oklch, var(--down) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--down) 45%, transparent);
+}
+.swing-veto-tag {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--down); white-space: nowrap;
+}
+.swing-veto-why { font-size: 13px; line-height: 1.45; color: color-mix(in oklch, var(--down), var(--fg) 35%); }
+
 /* ── Trade plan ──────────────────────────────────────────────────────── */
 .swing-plan {
   margin-top: 14px; padding: 12px 14px; border-radius: 12px;
