@@ -3,6 +3,28 @@
 // Loads before app.js; every binding is published to window so later
 // files resolve bare references exactly as they did in one file.
 
+// Shared in-card state block — one consistent look for loading / empty / error
+// across every card, with an optional retry. Replaces ad-hoc inline strings.
+function CardNote({
+  kind = "empty",
+  onRetry,
+  retryLabel = "Try again",
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: `card-note card-note-${kind}`,
+    role: kind === "error" ? "alert" : undefined
+  }, kind === "loading" && /*#__PURE__*/React.createElement("span", {
+    className: "card-note-spin",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "card-note-msg"
+  }, children), onRetry && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "card-note-retry",
+    onClick: onRetry
+  }, retryLabel));
+}
 function TickerLogo({
   ticker
 }) {
@@ -5137,9 +5159,10 @@ function WatchlistAlertsCard({
     className: "wa-collapse-btn",
     onClick: () => setCollapsed(v => !v),
     title: collapsed ? "Expand the alerts list." : "Collapse the alerts list."
-  }, collapsed ? "Expand" : "Collapse"))), error && /*#__PURE__*/React.createElement("div", {
-    className: "wa-error"
-  }, "Error loading alerts: ", error), !collapsed && /*#__PURE__*/React.createElement("div", {
+  }, collapsed ? "Expand" : "Collapse"))), error && /*#__PURE__*/React.createElement(CardNote, {
+    kind: "error",
+    onRetry: fetchAlerts
+  }, "Couldn't load alerts — ", error), !collapsed && /*#__PURE__*/React.createElement("div", {
     className: "wa-list"
   }, alerts.map(a => /*#__PURE__*/React.createElement("div", {
     key: a.id,
@@ -6326,9 +6349,10 @@ function EarningsCrushCard({
     disabled: loading,
     onClick: fetchCrush,
     title: "Re-fetch earnings dates and recompute crush samples. Slower than the rest of the dashboard since it pulls daily history per ticker."
-  }, loading ? "Loading…" : "Refresh")), error && /*#__PURE__*/React.createElement("div", {
-    className: "ec-error"
-  }, "Error: ", error), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, loading ? "Loading…" : "Refresh")), error && /*#__PURE__*/React.createElement(CardNote, {
+    kind: "error",
+    onRetry: fetchCrush
+  }, "Couldn't load earnings vol crush — ", error), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "ec-table"
   }, /*#__PURE__*/React.createElement("div", {
     className: "ec-head"
@@ -8255,12 +8279,9 @@ function FlowScoreCard({
       className: "kicker"
     }, "Unusual Whales · real-time options flow"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
-    }, "Flow Score"))), /*#__PURE__*/React.createElement("div", {
-      className: "muted",
-      style: {
-        padding: "16px 0"
-      }
-    }, "UW connection error: ", uwHealth?.error || "unknown"));
+    }, "Flow Score"))), /*#__PURE__*/React.createElement(CardNote, {
+      kind: "error"
+    }, "Can't reach Unusual Whales right now — flow returns once the connection recovers."));
   }
   if (!score && loading) {
     return /*#__PURE__*/React.createElement("div", {
@@ -8271,12 +8292,9 @@ function FlowScoreCard({
       className: "kicker"
     }, "Unusual Whales · real-time options flow"), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
-    }, "Flow Score"))), /*#__PURE__*/React.createElement("div", {
-      className: "muted",
-      style: {
-        padding: "16px 0"
-      }
-    }, "Loading flow data."));
+    }, "Flow Score"))), /*#__PURE__*/React.createElement(CardNote, {
+      kind: "loading"
+    }, "Loading flow data…"));
   }
   if (!score) return null;
   if (!score.data_available) {

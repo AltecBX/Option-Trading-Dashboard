@@ -8952,6 +8952,33 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: #1C799E; color: #fff; padding: 1px 6px; border-radius: 7px;
   white-space: nowrap; letter-spacing: 0.02em; }
 
+/* ── Shared in-card state (loading / empty / error) ───────────────────── */
+.card-note {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; margin: 8px 0;
+  border-radius: var(--radius-sm);
+  font-size: 13px; line-height: 1.45; color: var(--fg-2);
+}
+.card-note-msg { flex: 1 1 auto; min-width: 0; }
+.card-note-empty { color: var(--fg-3); justify-content: center; text-align: center; }
+.card-note-error {
+  background: color-mix(in oklch, var(--down) 12%, transparent);
+  color: color-mix(in oklch, var(--down), var(--fg) 25%);
+}
+.card-note-loading { color: var(--fg-3); }
+.card-note-retry {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm); padding: 5px 12px; cursor: pointer;
+}
+.card-note-retry:hover { border-color: var(--fg-3); }
+.card-note-spin {
+  flex: 0 0 auto; width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--line-2); border-top-color: var(--accent);
+  animation: card-note-spin 0.7s linear infinite;
+}
+@keyframes card-note-spin { to { transform: rotate(360deg); } }
+
 /* ── Vertical high/low tickers (very wide screens only) ────────────────
    Two rails per side flank the centered 1600px shell. Instead of a fixed
    width, each rail AUTO-SIZES to fill the empty margin: the half-margin beyond
