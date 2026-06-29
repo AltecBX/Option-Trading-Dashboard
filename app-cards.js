@@ -25,6 +25,103 @@ function CardNote({
     onClick: onRetry
   }, retryLabel));
 }
+
+// Tiny inline sparkline (SVG). Stroke + faint area fill, colored by direction.
+function Spark({
+  data,
+  up
+}) {
+  if (!data || data.length < 2) return null;
+  const w = 100,
+    h = 30;
+  let min = Infinity,
+    max = -Infinity;
+  for (const v of data) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  const rng = max - min || 1;
+  const pts = data.map((v, i) => `${(i / (data.length - 1) * w).toFixed(1)},${(h - (v - min) / rng * (h - 2) - 1).toFixed(1)}`);
+  const line = pts.join(" ");
+  const color = up ? "var(--up)" : "var(--down)";
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "mko-spark",
+    viewBox: `0 0 ${w} ${h}`,
+    preserveAspectRatio: "none",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("polygon", {
+    points: `0,${h} ${line} ${w},${h}`,
+    fill: color,
+    opacity: "0.10"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    points: line,
+    fill: "none",
+    stroke: color,
+    strokeWidth: "1.5",
+    vectorEffect: "non-scaling-stroke",
+    strokeLinejoin: "round",
+    strokeLinecap: "round"
+  }));
+}
+
+// Top-of-page macro command strip: futures, VIX, 10Y, gold, oil, bitcoin.
+function MarketOverview({
+  apiFetch
+}) {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/market_overview");
+        const d = await r.json();
+        if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
+      } catch (_) {/* strip is best-effort */}
+      if (!stop) t = setTimeout(load, 45000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  if (!items.length) return null;
+  const fmt = (v, suffix) => v == null ? "—" : Number(v).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }) + (suffix || "");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mko-grid",
+    "aria-label": "Market overview"
+  }, items.map(it => {
+    const up = (it.change_pct || 0) >= 0;
+    const has = it.last != null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: it.key,
+      className: `mko-tile${has ? "" : " mko-empty"}`,
+      title: `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day`
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "mko-head"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mko-label"
+    }, it.label), has && /*#__PURE__*/React.createElement("span", {
+      className: `mko-chg ${up ? "up" : "down"}`
+    }, up ? "▲" : "▼", " ", Math.abs(it.change_pct).toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
+      className: "mko-row2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mko-price"
+    }, fmt(it.last, it.suffix)), has && /*#__PURE__*/React.createElement("span", {
+      className: `mko-pts ${up ? "up" : "down"}`
+    }, up ? "+" : "", Number(it.change_pts).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }))), /*#__PURE__*/React.createElement(Spark, {
+      data: it.spark,
+      up: up
+    }));
+  }));
+}
 function TickerLogo({
   ticker
 }) {
@@ -12661,8 +12758,10 @@ function NewsHub({
 // never shows an empty strip. Headlines scroll right-to-left; hover pauses.
 function NewsTicker({
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  placement
 }) {
+  const atBottom = placement === "bottom";
   const [items, setItems] = useState([]);
   const [quotes, setQuotes] = useState({}); // SYM -> {last, chg}
   const stackRef = useRef(null);
@@ -12737,6 +12836,12 @@ function NewsTicker({
   // there's no transparent seam between them — the stack's own padding-bottom
   // provides the visual gap. 0 when nothing renders. Measured each render.
   useEffect(() => {
+    // Only the TOP placement drives --mn-h (the tab bar parks under it). The
+    // bottom copy sits in normal flow, so it leaves --mn-h at 0.
+    if (atBottom) {
+      document.documentElement.style.setProperty("--mn-h", "0px");
+      return;
+    }
     const el = stackRef.current;
     const h = el ? el.offsetHeight : 0;
     document.documentElement.style.setProperty("--mn-h", h ? `${h}px` : "0px");
@@ -12792,7 +12897,7 @@ function NewsTicker({
     }, q.chg == null ? "" : `${up ? "▲" : "▼"} ${Math.abs(q.chg).toFixed(2)}%`));
   }));
   return /*#__PURE__*/React.createElement("div", {
-    className: "mn-stack",
+    className: `mn-stack${atBottom ? " mn-bottom" : ""}`,
     ref: stackRef,
     "aria-label": "Market news and ticker tape"
   }, /*#__PURE__*/React.createElement("div", {
@@ -13569,6 +13674,7 @@ Object.assign(window, {
   LeftRail52W: _memo(LeftRail52W),
   LeftRailDailyHigh: _memo(LeftRailDailyHigh),
   RightRail52WLow: _memo(RightRail52WLow),
-  RightRailDailyLow: _memo(RightRailDailyLow)
+  RightRailDailyLow: _memo(RightRailDailyLow),
+  MarketOverview: _memo(MarketOverview)
 });
 })();

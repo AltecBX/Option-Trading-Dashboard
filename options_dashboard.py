@@ -261,6 +261,80 @@ _DLOW_CACHE: tuple | None = None
 _DLOW_LOCK = threading.Lock()
 _DLOW_SEEN: dict = {}
 
+# Top-of-page market overview (futures/indices/rates/commodities). Cached ~45s.
+_MKT_CACHE: tuple | None = None
+_MKT_LOCK = threading.Lock()
+# (yfinance symbol, display label, value suffix). Order = display order.
+_MKT_INSTRUMENTS = [
+    ("ES=F",  "S&P Futures",  ""),
+    ("NQ=F",  "NASDAQ Fut.",  ""),
+    ("YM=F",  "Dow Futures",  ""),
+    ("^VIX",  "VIX",          ""),
+    ("BTC=F", "Bitcoin Fut.", ""),
+    ("GC=F",  "Gold Futures", ""),
+    ("^TNX",  "10Y Treasury", "%"),
+    ("CL=F",  "Crude Oil",    ""),
+]
+
+
+def _market_overview() -> list:
+    """Last / day-change / intraday sparkline for the macro dashboard strip.
+    yfinance is the right source here (Schwab doesn't carry futures/indices).
+    Two cheap batched downloads: 5d daily for last+change, 1d/5m for the spark
+    (falls back to the daily closes when intraday is empty pre-market)."""
+    syms = [s for s, _, _ in _MKT_INSTRUMENTS]
+    daily = intraday = None
+    try:
+        daily = yf.download(" ".join(syms), period="5d", interval="1d",
+                            progress=False, group_by="ticker", threads=False)
+    except Exception:
+        daily = None
+    try:
+        intraday = yf.download(" ".join(syms), period="1d", interval="5m",
+                              progress=False, group_by="ticker", threads=False)
+    except Exception:
+        intraday = None
+
+    def col(df, sym, field):
+        if df is None:
+            return None
+        try:
+            s = df[sym][field] if hasattr(df.columns, "levels") else df[field]
+            return [float(x) for x in s.dropna().tolist()]
+        except Exception:
+            return None
+
+    out = []
+    for sym, label, suffix in _MKT_INSTRUMENTS:
+        closes = col(daily, sym, "Close")
+        if not closes:
+            out.append({"key": sym, "label": label, "suffix": suffix,
+                        "last": None, "change_pct": None, "change_pts": None, "spark": []})
+            continue
+        spark = col(intraday, sym, "Close") or closes[-30:]
+        # ^TNX is sometimes quoted x10 (43.8 == 4.38% yield). Normalize to %.
+        if sym == "^TNX" and closes and max(closes) > 25:
+            closes = [c / 10.0 for c in closes]
+            spark = [c / 10.0 for c in spark] if spark else spark
+        last = closes[-1]
+        prev = closes[-2] if len(closes) >= 2 else last
+        if spark:
+            last = spark[-1]
+        chg_pts = last - prev
+        chg_pct = (chg_pts / prev * 100.0) if prev else 0.0
+        # Down-sample the spark to ~40 points to keep the payload small.
+        if len(spark) > 40:
+            step = len(spark) / 40.0
+            spark = [spark[int(i * step)] for i in range(40)]
+        out.append({
+            "key": sym, "label": label, "suffix": suffix,
+            "last": round(last, 2),
+            "change_pct": round(chg_pct, 2),
+            "change_pts": round(chg_pts, 2),
+            "spark": [round(x, 2) for x in spark],
+        })
+    return out
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Mirrors of the Streamlit logic (same formulas, same baseline toggle)
@@ -7244,6 +7318,28 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/daily_lows", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/market_overview":
+            # Macro strip at the top of the page: futures, VIX, 10Y, gold, oil,
+            # bitcoin. Cached ~45s so the 8-symbol batch stays cheap.
+            try:
+                global _MKT_CACHE
+                now = time.time()
+                with _MKT_LOCK:
+                    cached = _MKT_CACHE
+                if cached and (now - cached[0]) < 45:
+                    self._send_json({"instruments": cached[1]})
+                    return
+                data = _market_overview()
+                # Only cache a result that actually has prices (avoid pinning an
+                # all-null batch from a transient yfinance miss).
+                if any(d.get("last") is not None for d in data):
+                    with _MKT_LOCK:
+                        _MKT_CACHE = (now, data)
+                self._send_json({"instruments": data})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/market_overview", exc)
+                self._send_json({"error": str(exc), "instruments": []}, status=500)
             return
         if parsed.path == "/api/backtest":
             qs = parse_qs(parsed.query)

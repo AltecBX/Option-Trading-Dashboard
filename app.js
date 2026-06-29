@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.81";
+const APP_VERSION = "2.82";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3358,9 +3358,8 @@ function App() {
   const _isStale = _staleMin != null && _staleMin >= 5;
   return /*#__PURE__*/React.createElement("div", {
     className: "shell"
-  }, /*#__PURE__*/React.createElement(NewsTicker, {
-    apiFetch: apiFetch,
-    onSwitchTicker: switchTicker
+  }, /*#__PURE__*/React.createElement(MarketOverview, {
+    apiFetch: apiFetch
   }), /*#__PURE__*/React.createElement(LeftRail52W, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
@@ -9344,7 +9343,11 @@ function App() {
       value: "swapped",
       label: "Swapped"
     }]
-  })))), /*#__PURE__*/React.createElement("nav", {
+  })))), /*#__PURE__*/React.createElement(NewsTicker, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker,
+    placement: "bottom"
+  }), /*#__PURE__*/React.createElement("nav", {
     className: "mobile-bottombar",
     "aria-label": "Quick actions"
   }, /*#__PURE__*/React.createElement("button", {
