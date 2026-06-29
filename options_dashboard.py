@@ -261,29 +261,41 @@ _DLOW_CACHE: tuple | None = None
 _DLOW_LOCK = threading.Lock()
 _DLOW_SEEN: dict = {}
 
-# Top-of-page market overview (futures/indices/rates/commodities). Cached ~45s.
+# Top-of-page market overview (futures/indices/rates/commodities). Cached ~15s.
 _MKT_CACHE: tuple | None = None
 _MKT_LOCK = threading.Lock()
-# (yfinance symbol, display label, value suffix). Order = display order.
+# (key/yfinance symbol, Schwab symbol, display label, value suffix). The Schwab
+# symbol (real-time) is tried first; yfinance is the delayed fallback + spark.
+# Schwab: futures use "/XX", index/yield use "$X.X".
 _MKT_INSTRUMENTS = [
-    ("ES=F",  "S&P Futures",  ""),
-    ("NQ=F",  "NASDAQ Fut.",  ""),
-    ("YM=F",  "Dow Futures",  ""),
-    ("^VIX",  "VIX",          ""),
-    ("BTC=F", "Bitcoin Fut.", ""),
-    ("GC=F",  "Gold Futures", ""),
-    ("^TNX",  "10Y Treasury", "%"),
-    ("CL=F",  "Crude Oil",    ""),
+    ("ES=F",  "/ES",     "S&P Futures",  ""),
+    ("NQ=F",  "/NQ",     "NASDAQ Fut.",  ""),
+    ("YM=F",  "/YM",     "Dow Futures",  ""),
+    ("^VIX",  "$VIX.X",  "VIX",          ""),
+    ("BTC=F", "/BTC",    "Bitcoin Fut.", ""),
+    ("GC=F",  "/GC",     "Gold Futures", ""),
+    ("^TNX",  "$TNX.X",  "10Y Treasury", "%"),
+    ("CL=F",  "/CL",     "Crude Oil",    ""),
 ]
 
 
 def _market_overview() -> list:
     """Last / day-change / intraday sparkline for the macro dashboard strip.
-    yfinance is the right source here (Schwab doesn't carry futures/indices).
-    Two cheap batched downloads: 5d daily for last+change, 1d/5m for the spark
-    (falls back to the daily closes when intraday is empty pre-market)."""
-    syms = [s for s, _, _ in _MKT_INSTRUMENTS]
+    Real-time quote comes from Schwab when it carries the symbol (futures via
+    "/ES", indices/yields via "$VIX.X"); yfinance is the delayed fallback and
+    always supplies the intraday sparkline."""
+    # Real-time quotes via Schwab (best-effort, batched).
+    sw_q: dict = {}
+    try:
+        sc = _schwab()
+        if sc is not None:
+            sw_q = sc.get_quotes([s for _, s, _, _ in _MKT_INSTRUMENTS]) or {}
+    except Exception:
+        sw_q = {}
+
+    # yfinance: fallback last/change + the sparkline.
     daily = intraday = None
+    syms = [s for s, _, _, _ in _MKT_INSTRUMENTS]
     try:
         daily = yf.download(" ".join(syms), period="5d", interval="1d",
                             progress=False, group_by="ticker", threads=False)
@@ -304,33 +316,52 @@ def _market_overview() -> list:
         except Exception:
             return None
 
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
     out = []
-    for sym, label, suffix in _MKT_INSTRUMENTS:
+    for sym, sw_sym, label, suffix in _MKT_INSTRUMENTS:
         closes = col(daily, sym, "Close")
-        if not closes:
-            out.append({"key": sym, "label": label, "suffix": suffix,
+        spark = col(intraday, sym, "Close") or (closes[-30:] if closes else [])
+        if sym == "^TNX":  # yfinance ^TNX is sometimes x10 (43.8 == 4.38%)
+            if closes and max(closes) > 25: closes = [c / 10.0 for c in closes]
+            if spark and max(spark) > 25:   spark = [c / 10.0 for c in spark]
+
+        last = chg_pts = chg_pct = None
+        source = None
+        q = sw_q.get(sw_sym)
+        sw_last = _num(q.get("last")) if q else None
+        if sw_last is not None:                      # ── real-time (Schwab) ──
+            last = sw_last
+            chg_pts = _num(q.get("change"))
+            chg_pct = _num(q.get("change_pct"))
+            if sym == "^TNX" and last > 25:          # normalize a x10 yield
+                last /= 10.0
+                if chg_pts is not None: chg_pts /= 10.0
+            source = "schwab"
+        elif closes:                                  # ── delayed (yfinance) ──
+            last = spark[-1] if spark else closes[-1]
+            prev = closes[-2] if len(closes) >= 2 else last
+            chg_pts = last - prev
+            chg_pct = (chg_pts / prev * 100.0) if prev else 0.0
+            source = "yfinance"
+
+        if last is None:
+            out.append({"key": sym, "label": label, "suffix": suffix, "source": None,
                         "last": None, "change_pct": None, "change_pts": None, "spark": []})
             continue
-        spark = col(intraday, sym, "Close") or closes[-30:]
-        # ^TNX is sometimes quoted x10 (43.8 == 4.38% yield). Normalize to %.
-        if sym == "^TNX" and closes and max(closes) > 25:
-            closes = [c / 10.0 for c in closes]
-            spark = [c / 10.0 for c in spark] if spark else spark
-        last = closes[-1]
-        prev = closes[-2] if len(closes) >= 2 else last
-        if spark:
-            last = spark[-1]
-        chg_pts = last - prev
-        chg_pct = (chg_pts / prev * 100.0) if prev else 0.0
         # Down-sample the spark to ~40 points to keep the payload small.
         if len(spark) > 40:
             step = len(spark) / 40.0
             spark = [spark[int(i * step)] for i in range(40)]
         out.append({
-            "key": sym, "label": label, "suffix": suffix,
+            "key": sym, "label": label, "suffix": suffix, "source": source,
             "last": round(last, 2),
-            "change_pct": round(chg_pct, 2),
-            "change_pts": round(chg_pts, 2),
+            "change_pct": round(chg_pct, 2) if chg_pct is not None else None,
+            "change_pts": round(chg_pts, 2) if chg_pts is not None else None,
             "spark": [round(x, 2) for x in spark],
         })
     return out
@@ -7327,7 +7358,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 now = time.time()
                 with _MKT_LOCK:
                     cached = _MKT_CACHE
-                if cached and (now - cached[0]) < 45:
+                if cached and (now - cached[0]) < 15:
                     self._send_json({"instruments": cached[1]})
                     return
                 data = _market_overview()

@@ -8795,7 +8795,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .mko-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .mko-label { font-size: 12px; font-weight: 600; color: var(--fg-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: inline-flex; align-items: center; gap: 5px; }
+/* live(green)/delayed(amber) source dot */
+.mko-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.mko-dot.live { background: var(--up); box-shadow: 0 0 0 0 color-mix(in oklch, var(--up), transparent 40%);
+  animation: mko-pulse 2.4s ease-out infinite; }
+.mko-dot.delayed { background: var(--warn); }
+@keyframes mko-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--up), transparent 30%); }
+  70% { box-shadow: 0 0 0 5px color-mix(in oklch, var(--up), transparent 100%); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--up), transparent 100%); }
+}
 .mko-chg { font-family: var(--font-mono); font-size: 12px; font-weight: 800; white-space: nowrap; }
 .mko-chg.up, .mko-pts.up { color: var(--up); }
 .mko-chg.down, .mko-pts.down { color: var(--down); }

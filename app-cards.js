@@ -124,12 +124,17 @@ function MarketOverview({
         const d = await r.json();
         if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
       } catch (_) {/* strip is best-effort */}
-      if (!stop) t = setTimeout(load, 45000);
+      if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
     };
     load();
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       stop = true;
       if (t) clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
   const regime = useMemo(() => mkoRegime(items), [items]);
@@ -154,7 +159,9 @@ function MarketOverview({
     const has = it.last != null;
     const proxy = MKO_PROXY[it.key];
     const click = proxy && onSwitchTicker ? () => onSwitchTicker(proxy[0]) : null;
-    const title = `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day` + (click ? ` · click to open ${proxy[0]} (${proxy[1]}) on the chart` : "");
+    const live = it.source === "schwab";
+    const srcNote = live ? "real-time (Schwab)" : it.source === "yfinance" ? "delayed ~15m (yfinance)" : "";
+    const title = `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day` + (srcNote ? ` · ${srcNote}` : "") + (click ? ` · click to open ${proxy[0]} (${proxy[1]}) on the chart` : "");
     return /*#__PURE__*/React.createElement("div", {
       key: it.key,
       className: `mko-tile${has ? "" : " mko-empty"}${click ? " mko-click" : ""}`,
@@ -172,7 +179,10 @@ function MarketOverview({
       className: "mko-head"
     }, /*#__PURE__*/React.createElement("span", {
       className: "mko-label"
-    }, it.label), has && /*#__PURE__*/React.createElement("span", {
+    }, has && /*#__PURE__*/React.createElement("span", {
+      className: `mko-dot ${live ? "live" : "delayed"}`,
+      "aria-hidden": "true"
+    }), it.label), has && /*#__PURE__*/React.createElement("span", {
       className: `mko-chg ${up ? "up" : "down"}`
     }, up ? "▲" : "▼", " ", Math.abs(it.change_pct).toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
       className: "mko-row2"
