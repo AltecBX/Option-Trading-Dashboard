@@ -375,6 +375,12 @@ def _schwab_extract(block: dict):
             chg_pct = (chg_pts / reg_close) * 100.0
         except (TypeError, ZeroDivisionError):
             pass
+    # Schwab returns netPercentChange=null for FUTURE assets (only indices
+    # carry it). Derive it from the point change so futures show a % too.
+    if chg_pct is None and chg_pts is not None and last is not None:
+        prev = last - chg_pts
+        if prev:
+            chg_pct = (chg_pts / prev) * 100.0
     return last, chg_pts, chg_pct
 
 
@@ -422,11 +428,16 @@ def _market_overview(debug: bool = False):
                 chg_pct = (chg_pts / yprev * 100.0) if yprev else 0.0
             source = "yahoo"
 
-        # ^TNX is sometimes quoted x10 (43.8 == 4.38% yield). Normalize to %.
-        if sym == "^TNX" and last is not None and last > 25:
-            last /= 10.0
-            if chg_pts is not None: chg_pts /= 10.0
-            spark = [c / 10.0 for c in spark] if spark else spark
+        # ^TNX is sometimes quoted x10 (43.8 == 4.38% yield). Schwab returns
+        # the x10 form ($TNX=43.8) while Yahoo's spark is already in %-scale
+        # (4.38), so normalize last and the spark INDEPENDENTLY by their own
+        # magnitude — otherwise a Yahoo spark gets wrongly divided to 0.44.
+        if sym == "^TNX":
+            if last is not None and last > 25:
+                last /= 10.0
+                if chg_pts is not None: chg_pts /= 10.0
+            if spark and max(spark) > 25:
+                spark = [c / 10.0 for c in spark]
 
         if last is None:
             out.append({"key": sym, "label": label, "suffix": suffix, "source": None,
