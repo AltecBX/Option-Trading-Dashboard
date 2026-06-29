@@ -264,18 +264,23 @@ _DLOW_SEEN: dict = {}
 # Top-of-page market overview (futures/indices/rates/commodities). Cached ~15s.
 _MKT_CACHE: tuple | None = None
 _MKT_LOCK = threading.Lock()
-# (key/yfinance symbol, Schwab symbol, display label, value suffix). The Schwab
-# symbol (real-time) is tried first; yfinance is the delayed fallback + spark.
-# Schwab: futures use "/XX", index/yield use "$X.X".
+# (key/yfinance symbol, [Schwab candidate symbols], display label, suffix).
+# Schwab (real-time) is tried first; Yahoo's live chart endpoint is the
+# fallback (and always supplies the sparkline). Multiple Schwab candidates
+# are sent per instrument because the exact symbol Schwab wants varies:
+#   - Futures: "/ES" (continuous front month). Schwab may echo the active
+#     contract key back ("/ESM25"), so matching is prefix-based.
+#   - Indices/yields: the Trader API uses "$VIX"/"$TNX"; the ".X" suffix is
+#     thinkorswim-desktop notation. We send both and match either.
 _MKT_INSTRUMENTS = [
-    ("ES=F",  "/ES",     "S&P Futures",  ""),
-    ("NQ=F",  "/NQ",     "NASDAQ Fut.",  ""),
-    ("YM=F",  "/YM",     "Dow Futures",  ""),
-    ("^VIX",  "$VIX.X",  "VIX",          ""),
-    ("BTC=F", "/BTC",    "Bitcoin Fut.", ""),
-    ("GC=F",  "/GC",     "Gold Futures", ""),
-    ("^TNX",  "$TNX.X",  "10Y Treasury", "%"),
-    ("CL=F",  "/CL",     "Crude Oil",    ""),
+    ("ES=F",  ["/ES"],            "S&P Futures",  ""),
+    ("NQ=F",  ["/NQ"],            "NASDAQ Fut.",  ""),
+    ("YM=F",  ["/YM"],            "Dow Futures",  ""),
+    ("^VIX",  ["$VIX", "$VIX.X"], "VIX",          ""),
+    ("BTC=F", ["/BTC"],           "Bitcoin Fut.", ""),
+    ("GC=F",  ["/GC"],            "Gold Futures", ""),
+    ("^TNX",  ["$TNX", "$TNX.X"], "10Y Treasury", "%"),
+    ("CL=F",  ["/CL"],            "Crude Oil",    ""),
 ]
 
 
@@ -314,19 +319,80 @@ def _yahoo_quote(sym: str):
         return None, None, []
 
 
-def _market_overview() -> list:
+def _schwab_match(raw: dict, candidates: list):
+    """Find a symbol's quote block in a raw Schwab quotes response, tolerating
+    the symbol drift that breaks an exact dict lookup:
+      1. exact key (case-insensitive),
+      2. futures-root prefix — ask "/ES", Schwab answers under "/ESM25",
+      3. index ".X" suffix variants — "$VIX" vs "$VIX.X".
+    Returns the raw block (with quote/reference/extended sub-objects) or None."""
+    if not raw:
+        return None
+    keys = list(raw.keys())
+    upper = {str(k).upper(): k for k in keys}
+    for cand in candidates:
+        cu = cand.upper()
+        # 1. exact
+        if cu in upper:
+            return raw[upper[cu]]
+        # 2. futures root prefix
+        if cu.startswith("/"):
+            for ku, orig in upper.items():
+                if ku.startswith(cu):
+                    return raw[orig]
+        # 3. index suffix variants — compare with ".X" stripped both ways
+        base = cu[:-2] if cu.endswith(".X") else cu
+        for ku, orig in upper.items():
+            kb = ku[:-2] if ku.endswith(".X") else ku
+            if kb == base:
+                return raw[orig]
+    return None
+
+
+def _schwab_extract(block: dict):
+    """Pull (last, change_pts, change_pct) from a raw Schwab quote block,
+    preferring the freshest extended-session print when it is newer than the
+    regular print. Futures put data under "quote"; some asset types use
+    "regular". Falls back to mark/close so we never drop a live instrument."""
+    if not block:
+        return None, None, None
+    q = block.get("quote") or block.get("regular") or {}
+    ext = block.get("extended") or {}
+    reg_last = _num(q.get("lastPrice"))
+    reg_close = _num(q.get("closePrice"))
+    reg_tt = q.get("tradeTime") or q.get("quoteTime") or 0
+    ext_last = _num(ext.get("lastPrice"))
+    ext_tt = ext.get("tradeTime") or ext.get("quoteTime") or 0
+    use_ext = ext_last is not None and ext_last > 0 and ext_tt > reg_tt
+    last = ext_last if use_ext else reg_last
+    if last is None:
+        last = _num(q.get("mark")) or _num(q.get("closePrice"))
+    chg_pts = _num(q.get("netChange"))
+    chg_pct = _num(q.get("netPercentChange"))
+    if use_ext and reg_close:
+        try:
+            chg_pts = ext_last - reg_close
+            chg_pct = (chg_pts / reg_close) * 100.0
+        except (TypeError, ZeroDivisionError):
+            pass
+    return last, chg_pts, chg_pct
+
+
+def _market_overview(debug: bool = False):
     """Last / day-change / intraday sparkline for the macro dashboard strip.
     Real-time price comes from Schwab when the account is entitled (futures via
-    "/ES", indices via "$VIX.X"); otherwise from Yahoo's live chart endpoint
+    "/ES", indices via "$VIX"); otherwise from Yahoo's live chart endpoint
     (regularMarketPrice), fetched in parallel so the strip ticks in near real
-    time. yfinance daily download was the old, frozen-looking source."""
-    sw_q: dict = {}
+    time. Pass debug=True to also return the raw Schwab response keys so the
+    exact futures/index symbols Schwab serves can be inspected in-browser."""
+    raw: dict = {}
     try:
         sc = _schwab()
         if sc is not None:
-            sw_q = sc.get_quotes([s for _, s, _, _ in _MKT_INSTRUMENTS]) or {}
+            all_cands = [c for _, cands, _, _ in _MKT_INSTRUMENTS for c in cands]
+            raw = sc.get_quotes_raw(all_cands) or {}
     except Exception:
-        sw_q = {}
+        raw = {}
 
     yahoo: dict = {}
     syms = [s for s, _, _, _ in _MKT_INSTRUMENTS]
@@ -338,16 +404,16 @@ def _market_overview() -> list:
         yahoo = {}
 
     out = []
-    for sym, sw_sym, label, suffix in _MKT_INSTRUMENTS:
+    for sym, cands, label, suffix in _MKT_INSTRUMENTS:
         ylast, yprev, spark = yahoo.get(sym, (None, None, []))
         last = chg_pts = chg_pct = None
         source = None
-        q = sw_q.get(sw_sym)
-        sw_last = _num(q.get("last")) if q else None
-        if sw_last is not None:                       # Schwab real-time
+        block = _schwab_match(raw, cands)
+        sw_last, sw_pts, sw_pct = _schwab_extract(block)
+        if sw_last is not None and sw_last > 0:       # Schwab real-time
             last = sw_last
-            chg_pts = _num(q.get("change"))
-            chg_pct = _num(q.get("change_pct"))
+            chg_pts = sw_pts
+            chg_pct = sw_pct
             source = "schwab"
         elif ylast is not None:                       # Yahoo live
             last = ylast
@@ -379,6 +445,20 @@ def _market_overview() -> list:
             "change_pts": round(chg_pts, 2) if chg_pts is not None else None,
             "spark": [round(x, 2) for x in spark],
         })
+    if debug:
+        # Surface what Schwab actually returned so the live symbol format can
+        # be confirmed in-browser (the sandbox can't reach the Schwab API).
+        sample = {}
+        for k, v in (raw or {}).items():
+            q = (v or {}).get("quote") or (v or {}).get("regular") or {}
+            sample[k] = {
+                "assetMainType": (v or {}).get("assetMainType"),
+                "lastPrice": q.get("lastPrice"),
+                "netChange": q.get("netChange"),
+                "netPercentChange": q.get("netPercentChange"),
+            }
+        return {"instruments": out, "schwab_keys": list((raw or {}).keys()),
+                "schwab_sample": sample}
     return out
 
 
@@ -7370,6 +7450,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             # bitcoin. Cached ~45s so the 8-symbol batch stays cheap.
             try:
                 global _MKT_CACHE
+                qs = parse_qs(parsed.query)
+                if qs.get("debug", ["0"])[0] not in ("0", "", "false"):
+                    # Bypass cache; return raw Schwab keys for symbol diagnosis.
+                    self._send_json(_market_overview(debug=True))
+                    return
                 now = time.time()
                 with _MKT_LOCK:
                     cached = _MKT_CACHE

@@ -619,6 +619,28 @@ class SchwabClient:
             self._cache_set(f"quote:{sym}", entry, TTL_QUOTE)
         return out
 
+    def get_quotes_raw(self, symbols: list[str]) -> dict | None:
+        """Raw multi-symbol quote passthrough. Returns the Schwab response
+        dict keyed by whatever symbol Schwab echoes back (which, for
+        futures, may be the active-contract key — e.g. you ask for "/ES"
+        and Schwab answers under "/ESM25"). No caching, no strict
+        per-symbol matching — the caller decides how to match keys.
+        Used by the market-overview strip so futures/index quotes resolve
+        even when Schwab normalizes or rolls the symbol.
+        """
+        if not symbols:
+            return {}
+        clean = [s.strip() for s in symbols if s and s.strip()]
+        if not clean:
+            return {}
+        data = self._get(QUOTES_URL, {
+            "symbols": ",".join(clean),
+            "fields": "quote,reference,extended",
+        })
+        if not data or not isinstance(data, dict):
+            return None
+        return data
+
     def get_option_chain(self, symbol: str, expiration: str | None = None,
                          strike_count: int = 60) -> dict | None:
         """Returns a chain payload normalized to the dashboard's expected
