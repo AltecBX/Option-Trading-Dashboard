@@ -102,8 +102,10 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
           const has = it.last != null;
           const proxy = MKO_PROXY[it.key];
           const click = (proxy && onSwitchTicker) ? () => onSwitchTicker(proxy[0]) : null;
-          const live = it.source === "schwab";
-          const srcNote = live ? "real-time (Schwab)" : it.source === "yfinance" ? "delayed ~15m (yfinance)" : "";
+          const live = it.source === "schwab" || it.source === "yahoo";
+          const srcNote = it.source === "schwab" ? "real-time (Schwab)"
+            : it.source === "yahoo" ? "live (Yahoo)"
+            : it.source === "yfinance" ? "delayed (yfinance)" : "";
           const title = `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day`
             + (srcNote ? ` · ${srcNote}` : "")
             + (click ? ` · click to open ${proxy[0]} (${proxy[1]}) on the chart` : "");
