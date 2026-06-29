@@ -64,9 +64,55 @@ function Spark({
   }));
 }
 
+// Tradable proxy for each macro instrument — clicking a tile loads it on the
+// chart (the dashboard can't chart futures/indices directly, but these ETFs
+// track them closely).
+const MKO_PROXY = {
+  "ES=F": ["SPY", "S&P 500 ETF"],
+  "NQ=F": ["QQQ", "Nasdaq-100 ETF"],
+  "YM=F": ["DIA", "Dow ETF"],
+  "^VIX": ["VIXY", "VIX short-term futures ETF"],
+  "BTC=F": ["IBIT", "spot-Bitcoin ETF"],
+  "GC=F": ["GLD", "gold ETF"],
+  "^TNX": ["IEF", "7-10yr Treasury ETF"],
+  "CL=F": ["USO", "crude-oil ETF"]
+};
+
+// One-line read of the macro tape: risk-on / risk-off / mixed, from the
+// equity futures vs VIX (and gold as a defensive tell).
+function mkoRegime(items) {
+  const by = {};
+  for (const i of items) if (i.change_pct != null) by[i.key] = i.change_pct;
+  const eq = ["ES=F", "NQ=F", "YM=F"].map(k => by[k]).filter(v => v != null);
+  if (!eq.length) return null;
+  const eqAvg = eq.reduce((a, b) => a + b, 0) / eq.length;
+  const vix = by["^VIX"],
+    gold = by["GC=F"];
+  let tone, label;
+  if (eqAvg >= 0.15 && (vix == null || vix <= 0.5)) {
+    tone = "on";
+    label = "Risk-on";
+  } else if (eqAvg <= -0.15 && (vix == null || vix >= -0.5)) {
+    tone = "off";
+    label = "Risk-off";
+  } else {
+    tone = "mixed";
+    label = "Mixed";
+  }
+  const bits = [`futures ${eqAvg >= 0.05 ? "bid" : eqAvg <= -0.05 ? "soft" : "flat"}`];
+  if (vix != null) bits.push(`VIX ${vix >= 0.5 ? "bid" : vix <= -0.5 ? "easing" : "flat"}`);
+  if (gold != null && Math.abs(gold) >= 0.4) bits.push(`gold ${gold > 0 ? "bid" : "soft"}`);
+  return {
+    tone,
+    label,
+    text: bits.join(" · ")
+  };
+}
+
 // Top-of-page macro command strip: futures, VIX, 10Y, gold, oil, bitcoin.
 function MarketOverview({
-  apiFetch
+  apiFetch,
+  onSwitchTicker
 }) {
   const [items, setItems] = useState([]);
   useEffect(() => {
@@ -86,21 +132,42 @@ function MarketOverview({
       if (t) clearTimeout(t);
     };
   }, []);
+  const regime = useMemo(() => mkoRegime(items), [items]);
   if (!items.length) return null;
   const fmt = (v, suffix) => v == null ? "—" : Number(v).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }) + (suffix || "");
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, regime && /*#__PURE__*/React.createElement("div", {
+    className: `mko-regime regime-${regime.tone}`,
+    title: "A quick read of the tape from the equity futures vs the VIX (and gold as a defensive tell). Risk-on = futures bid + VIX easing; risk-off = the reverse."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mko-regime-dot",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("b", null, regime.label), /*#__PURE__*/React.createElement("span", {
+    className: "mko-regime-why"
+  }, " — ", regime.text)), /*#__PURE__*/React.createElement("div", {
     className: "mko-grid",
     "aria-label": "Market overview"
   }, items.map(it => {
     const up = (it.change_pct || 0) >= 0;
     const has = it.last != null;
+    const proxy = MKO_PROXY[it.key];
+    const click = proxy && onSwitchTicker ? () => onSwitchTicker(proxy[0]) : null;
+    const title = `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day` + (click ? ` · click to open ${proxy[0]} (${proxy[1]}) on the chart` : "");
     return /*#__PURE__*/React.createElement("div", {
       key: it.key,
-      className: `mko-tile${has ? "" : " mko-empty"}`,
-      title: `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day`
+      className: `mko-tile${has ? "" : " mko-empty"}${click ? " mko-click" : ""}`,
+      title: title,
+      role: click ? "button" : undefined,
+      tabIndex: click ? 0 : undefined,
+      onClick: click || undefined,
+      onKeyDown: click ? e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          click();
+        }
+      } : undefined
     }, /*#__PURE__*/React.createElement("div", {
       className: "mko-head"
     }, /*#__PURE__*/React.createElement("span", {
@@ -119,8 +186,10 @@ function MarketOverview({
     }))), /*#__PURE__*/React.createElement(Spark, {
       data: it.spark,
       up: up
-    }));
-  }));
+    }), click && /*#__PURE__*/React.createElement("span", {
+      className: "mko-proxy"
+    }, proxy[0]));
+  })));
 }
 function TickerLogo({
   ticker
@@ -12837,9 +12906,12 @@ function NewsTicker({
   // provides the visual gap. 0 when nothing renders. Measured each render.
   useEffect(() => {
     // Only the TOP placement drives --mn-h (the tab bar parks under it). The
-    // bottom copy sits in normal flow, so it leaves --mn-h at 0.
+    // bottom copy is a fixed footer on desktop — publish its height so the page
+    // and the side rails reserve room and never hide behind it.
     if (atBottom) {
       document.documentElement.style.setProperty("--mn-h", "0px");
+      const el = stackRef.current;
+      document.documentElement.style.setProperty("--mn-footer-h", el ? `${el.offsetHeight + 12}px` : "0px");
       return;
     }
     const el = stackRef.current;
@@ -13131,7 +13203,7 @@ function LeftRail52W({
     }, r.tag || "—"));
   }));
   return /*#__PURE__*/React.createElement("div", {
-    className: "lrail",
+    className: "lrail rrail",
     "aria-label": "Watchlist names near 52-week high"
   }, /*#__PURE__*/React.createElement("div", {
     className: "lrail-title",
@@ -13271,7 +13343,7 @@ function LeftRailDailyHigh({
     }, r.tag || "—"));
   }));
   return /*#__PURE__*/React.createElement("div", {
-    className: "lrail lrail--daily",
+    className: "lrail lrail--daily rrail rrail--daily",
     "aria-label": "Watchlist names at today's daily high"
   }, /*#__PURE__*/React.createElement("div", {
     className: "lrail-title lrail-title--daily",
@@ -13455,7 +13527,7 @@ function RightRail52WLow({
     }, r.tag || "—"));
   }));
   return /*#__PURE__*/React.createElement("div", {
-    className: "lrail rrail",
+    className: "lrail",
     "aria-label": "Watchlist names near 52-week low"
   }, /*#__PURE__*/React.createElement("div", {
     className: "lrail-title lrail-title--low",
@@ -13588,7 +13660,7 @@ function RightRailDailyLow({
     }, r.tag || "—"));
   }));
   return /*#__PURE__*/React.createElement("div", {
-    className: "lrail lrail--daily rrail rrail--daily",
+    className: "lrail lrail--daily",
     "aria-label": "Watchlist names at today's daily low"
   }, /*#__PURE__*/React.createElement("div", {
     className: "lrail-title lrail-title--low lrail-title--lowdaily",

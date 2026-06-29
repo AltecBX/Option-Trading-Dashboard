@@ -8766,8 +8766,22 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: var(--bg); padding-bottom: 12px; margin: 0;
   position: sticky; top: 0; z-index: 250;   /* always visible while scrolling */
 }
-/* Bottom placement: normal page flow, not sticky (the macro strip owns top). */
-.mn-stack.mn-bottom { position: static; z-index: auto; padding-bottom: 0; margin-top: 16px; }
+/* Bottom placement: a fixed footer ticker, ALWAYS visible (the macro strip owns
+   the top). The page reserves --mn-footer-h so content never hides behind it. */
+.mn-stack.mn-bottom {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 235;
+  margin: 0; padding: 8px 12px;
+  background: var(--bg); border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px -14px rgba(0,0,0,0.55);
+}
+body { padding-bottom: var(--mn-footer-h, 0px); }
+/* On phones/tablets the mobile bottom bar owns the bottom edge — drop the tapes
+   back into normal flow so two fixed bars don't eat the small screen. */
+@media (max-width: 900px) {
+  .mn-stack.mn-bottom { position: static; box-shadow: none; padding: 0;
+    margin-top: 16px; border-top: 0; }
+  body { padding-bottom: 0; }
+}
 
 /* ── Top-of-page macro command strip ──────────────────────────────────── */
 .mko-grid {
@@ -8793,6 +8807,27 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mko-pts { font-family: var(--font-mono); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .mko-spark { width: 100%; height: 30px; margin-top: 5px; display: block; }
 .mko-tile.mko-empty { opacity: 0.45; }
+/* Clickable tiles → load the tradable proxy on the chart. */
+.mko-tile.mko-click { cursor: pointer; }
+.mko-tile.mko-click:hover { border-color: var(--line-2); box-shadow: var(--shadow-hover); }
+.mko-proxy {
+  position: absolute; top: 8px; right: 10px;
+  font-family: var(--font-mono); font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em;
+  color: var(--fg-4); opacity: 0; transition: opacity 140ms var(--ease);
+}
+.mko-tile.mko-click:hover .mko-proxy { opacity: 1; }
+/* Market-regime one-liner above the strip. */
+.mko-regime {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--fg-2); margin: 0 0 8px;
+}
+.mko-regime b { font-weight: 800; }
+.mko-regime-why { color: var(--fg-3); }
+.mko-regime-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); flex: 0 0 auto; }
+.mko-regime.regime-on   b { color: var(--up); }   .mko-regime.regime-on   .mko-regime-dot { background: var(--up); }
+.mko-regime.regime-off  b { color: var(--down); } .mko-regime.regime-off  .mko-regime-dot { background: var(--down); }
+.mko-regime.regime-mixed b { color: var(--warn); } .mko-regime.regime-mixed .mko-regime-dot { background: var(--warn); }
 @media (max-width: 760px) {
   .mko-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .mko-price { font-size: 19px; } .mko-tile { min-height: 80px; }
@@ -9077,7 +9112,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (min-width: 2080px) {
   .lrail {
     --rail-w: min(calc((100vw - 1600px) / 4 - 10px), 190px);
-    position: fixed; left: 6px; top: 10px; bottom: 10px; width: var(--rail-w); z-index: 30;
+    position: fixed; left: 6px; top: 10px; width: var(--rail-w); z-index: 30;
+    bottom: calc(var(--mn-footer-h, 0px) + 12px);   /* clear the fixed news footer */
     display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line);
     border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; max-height: calc(100vh - 20px); }
   /* Second rail sits one rail-width + the two 6px gaps to the right. */
