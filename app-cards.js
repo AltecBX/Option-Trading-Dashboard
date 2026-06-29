@@ -12906,12 +12906,9 @@ function NewsTicker({
   // provides the visual gap. 0 when nothing renders. Measured each render.
   useEffect(() => {
     // Only the TOP placement drives --mn-h (the tab bar parks under it). The
-    // bottom copy is a fixed footer on desktop — publish its height so the page
-    // and the side rails reserve room and never hide behind it.
+    // bottom copy sits in normal flow, so it leaves --mn-h at 0.
     if (atBottom) {
       document.documentElement.style.setProperty("--mn-h", "0px");
-      const el = stackRef.current;
-      document.documentElement.style.setProperty("--mn-footer-h", el ? `${el.offsetHeight + 12}px` : "0px");
       return;
     }
     const el = stackRef.current;

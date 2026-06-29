@@ -8766,22 +8766,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: var(--bg); padding-bottom: 12px; margin: 0;
   position: sticky; top: 0; z-index: 250;   /* always visible while scrolling */
 }
-/* Bottom placement: a fixed footer ticker, ALWAYS visible (the macro strip owns
-   the top). The page reserves --mn-footer-h so content never hides behind it. */
-.mn-stack.mn-bottom {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 235;
-  margin: 0; padding: 8px 12px;
-  background: var(--bg); border-top: 1px solid var(--line);
-  box-shadow: 0 -8px 24px -14px rgba(0,0,0,0.55);
-}
-body { padding-bottom: var(--mn-footer-h, 0px); }
-/* On phones/tablets the mobile bottom bar owns the bottom edge — drop the tapes
-   back into normal flow so two fixed bars don't eat the small screen. */
-@media (max-width: 900px) {
-  .mn-stack.mn-bottom { position: static; box-shadow: none; padding: 0;
-    margin-top: 16px; border-top: 0; }
-  body { padding-bottom: 0; }
-}
+/* Bottom placement: normal page flow at the end of the page (scroll to reach).
+   (An always-on fixed footer caused a layout regression and was reverted.) */
+.mn-stack.mn-bottom { position: static; z-index: auto; padding-bottom: 0; margin-top: 16px; }
 
 /* ── Top-of-page macro command strip ──────────────────────────────────── */
 .mko-grid {
@@ -9112,8 +9099,7 @@ body { padding-bottom: var(--mn-footer-h, 0px); }
 @media (min-width: 2080px) {
   .lrail {
     --rail-w: min(calc((100vw - 1600px) / 4 - 10px), 190px);
-    position: fixed; left: 6px; top: 10px; width: var(--rail-w); z-index: 30;
-    bottom: calc(var(--mn-footer-h, 0px) + 12px);   /* clear the fixed news footer */
+    position: fixed; left: 6px; top: 10px; bottom: 10px; width: var(--rail-w); z-index: 30;
     display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line);
     border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; max-height: calc(100vh - 20px); }
   /* Second rail sits one rail-width + the two 6px gaps to the right. */
