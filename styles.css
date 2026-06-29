@@ -8766,9 +8766,20 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: var(--bg); padding-bottom: 12px; margin: 0;
   position: sticky; top: 0; z-index: 250;   /* always visible while scrolling */
 }
-/* Bottom placement: normal page flow at the end of the page (scroll to reach).
-   (An always-on fixed footer caused a layout regression and was reverted.) */
-.mn-stack.mn-bottom { position: static; z-index: auto; padding-bottom: 0; margin-top: 16px; }
+/* Bottom placement: STICKY to the viewport bottom so the tapes stay visible
+   while you scroll, then settle naturally at the page end. Sticky stays IN
+   FLOW (reserves its own space), so unlike a fixed footer it can never blank
+   the page — worst case it just sits at the bottom (scroll-to-see). */
+.mn-stack.mn-bottom {
+  position: sticky; bottom: 0; z-index: 200;
+  margin-top: 16px; padding: 8px 0 2px;
+  background: var(--bg); border-top: 1px solid var(--line);
+}
+/* On phones/tablets the mobile bottom bar owns the bottom edge — keep the tapes
+   in plain normal flow so the two don't fight. */
+@media (max-width: 900px) {
+  .mn-stack.mn-bottom { position: static; z-index: auto; padding: 0; border-top: 0; }
+}
 
 /* ── Top-of-page macro command strip ──────────────────────────────────── */
 .mko-grid {
