@@ -279,12 +279,47 @@ _MKT_INSTRUMENTS = [
 ]
 
 
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _yahoo_quote(sym: str):
+    """Near-real-time quote via Yahoo's chart endpoint (public, no crumb).
+    meta.regularMarketPrice updates continuously — unlike the daily/5m
+    download — so the strip actually ticks. Returns (last, prev_close, spark)."""
+    try:
+        u = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+             + urllib.parse.quote(sym) + "?interval=2m&range=1d")
+        req = urllib.request.Request(u, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+        res = (data.get("chart", {}).get("result") or [None])[0]
+        if not res:
+            return None, None, []
+        meta = res.get("meta", {}) or {}
+        last = _num(meta.get("regularMarketPrice"))
+        prev = _num(meta.get("chartPreviousClose")) or _num(meta.get("previousClose"))
+        q = ((res.get("indicators", {}) or {}).get("quote") or [{}])[0] or {}
+        spark = [float(c) for c in (q.get("close") or []) if c is not None]
+        if last is None and spark:
+            last = spark[-1]
+        return last, prev, spark
+    except Exception:
+        return None, None, []
+
+
 def _market_overview() -> list:
     """Last / day-change / intraday sparkline for the macro dashboard strip.
-    Real-time quote comes from Schwab when it carries the symbol (futures via
-    "/ES", indices/yields via "$VIX.X"); yfinance is the delayed fallback and
-    always supplies the intraday sparkline."""
-    # Real-time quotes via Schwab (best-effort, batched).
+    Real-time price comes from Schwab when the account is entitled (futures via
+    "/ES", indices via "$VIX.X"); otherwise from Yahoo's live chart endpoint
+    (regularMarketPrice), fetched in parallel so the strip ticks in near real
+    time. yfinance daily download was the old, frozen-looking source."""
     sw_q: dict = {}
     try:
         sc = _schwab()
@@ -293,66 +328,46 @@ def _market_overview() -> list:
     except Exception:
         sw_q = {}
 
-    # yfinance: fallback last/change + the sparkline.
-    daily = intraday = None
+    yahoo: dict = {}
     syms = [s for s, _, _, _ in _MKT_INSTRUMENTS]
     try:
-        daily = yf.download(" ".join(syms), period="5d", interval="1d",
-                            progress=False, group_by="ticker", threads=False)
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for sym, res in zip(syms, ex.map(_yahoo_quote, syms)):
+                yahoo[sym] = res
     except Exception:
-        daily = None
-    try:
-        intraday = yf.download(" ".join(syms), period="1d", interval="5m",
-                              progress=False, group_by="ticker", threads=False)
-    except Exception:
-        intraday = None
-
-    def col(df, sym, field):
-        if df is None:
-            return None
-        try:
-            s = df[sym][field] if hasattr(df.columns, "levels") else df[field]
-            return [float(x) for x in s.dropna().tolist()]
-        except Exception:
-            return None
-
-    def _num(v):
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
+        yahoo = {}
 
     out = []
     for sym, sw_sym, label, suffix in _MKT_INSTRUMENTS:
-        closes = col(daily, sym, "Close")
-        spark = col(intraday, sym, "Close") or (closes[-30:] if closes else [])
-        if sym == "^TNX":  # yfinance ^TNX is sometimes x10 (43.8 == 4.38%)
-            if closes and max(closes) > 25: closes = [c / 10.0 for c in closes]
-            if spark and max(spark) > 25:   spark = [c / 10.0 for c in spark]
-
+        ylast, yprev, spark = yahoo.get(sym, (None, None, []))
         last = chg_pts = chg_pct = None
         source = None
         q = sw_q.get(sw_sym)
         sw_last = _num(q.get("last")) if q else None
-        if sw_last is not None:                      # ── real-time (Schwab) ──
+        if sw_last is not None:                       # Schwab real-time
             last = sw_last
             chg_pts = _num(q.get("change"))
             chg_pct = _num(q.get("change_pct"))
-            if sym == "^TNX" and last > 25:          # normalize a x10 yield
-                last /= 10.0
-                if chg_pts is not None: chg_pts /= 10.0
             source = "schwab"
-        elif closes:                                  # ── delayed (yfinance) ──
-            last = spark[-1] if spark else closes[-1]
-            prev = closes[-2] if len(closes) >= 2 else last
-            chg_pts = last - prev
-            chg_pct = (chg_pts / prev * 100.0) if prev else 0.0
-            source = "yfinance"
+        elif ylast is not None:                       # Yahoo live
+            last = ylast
+            if yprev:
+                chg_pts = ylast - yprev
+                chg_pct = (chg_pts / yprev * 100.0) if yprev else 0.0
+            source = "yahoo"
+
+        # ^TNX is sometimes quoted x10 (43.8 == 4.38% yield). Normalize to %.
+        if sym == "^TNX" and last is not None and last > 25:
+            last /= 10.0
+            if chg_pts is not None: chg_pts /= 10.0
+            spark = [c / 10.0 for c in spark] if spark else spark
 
         if last is None:
             out.append({"key": sym, "label": label, "suffix": suffix, "source": None,
                         "last": None, "change_pct": None, "change_pts": None, "spark": []})
             continue
+        if not spark:
+            spark = [last]
         # Down-sample the spark to ~40 points to keep the payload small.
         if len(spark) > 40:
             step = len(spark) / 40.0
