@@ -320,8 +320,6 @@ def _market_overview() -> list:
     "/ES", indices via "$VIX.X"); otherwise from Yahoo's live chart endpoint
     (regularMarketPrice), fetched in parallel so the strip ticks in near real
     time. yfinance daily download was the old, frozen-looking source."""
-    # Best-effort real-time via Schwab (usually empty for futures/indices unless
-    # the account has CME/CBOE entitlements).
     sw_q: dict = {}
     try:
         sc = _schwab()
@@ -330,7 +328,6 @@ def _market_overview() -> list:
     except Exception:
         sw_q = {}
 
-    # Yahoo live quotes for everything, fetched concurrently.
     yahoo: dict = {}
     syms = [s for s, _, _, _ in _MKT_INSTRUMENTS]
     try:
@@ -347,12 +344,12 @@ def _market_overview() -> list:
         source = None
         q = sw_q.get(sw_sym)
         sw_last = _num(q.get("last")) if q else None
-        if sw_last is not None:                       # ── Schwab real-time ──
+        if sw_last is not None:                       # Schwab real-time
             last = sw_last
             chg_pts = _num(q.get("change"))
             chg_pct = _num(q.get("change_pct"))
             source = "schwab"
-        elif ylast is not None:                       # ── Yahoo live ──
+        elif ylast is not None:                       # Yahoo live
             last = ylast
             if yprev:
                 chg_pts = ylast - yprev
