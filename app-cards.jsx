@@ -36,8 +36,37 @@ function Spark({ data, up }) {
   );
 }
 
+// Tradable proxy for each macro instrument — clicking a tile loads it on the
+// chart (the dashboard can't chart futures/indices directly, but these ETFs
+// track them closely).
+const MKO_PROXY = {
+  "ES=F": ["SPY", "S&P 500 ETF"], "NQ=F": ["QQQ", "Nasdaq-100 ETF"],
+  "YM=F": ["DIA", "Dow ETF"], "^VIX": ["VIXY", "VIX short-term futures ETF"],
+  "BTC=F": ["IBIT", "spot-Bitcoin ETF"], "GC=F": ["GLD", "gold ETF"],
+  "^TNX": ["IEF", "7-10yr Treasury ETF"], "CL=F": ["USO", "crude-oil ETF"],
+};
+
+// One-line read of the macro tape: risk-on / risk-off / mixed, from the
+// equity futures vs VIX (and gold as a defensive tell).
+function mkoRegime(items) {
+  const by = {};
+  for (const i of items) if (i.change_pct != null) by[i.key] = i.change_pct;
+  const eq = ["ES=F", "NQ=F", "YM=F"].map(k => by[k]).filter(v => v != null);
+  if (!eq.length) return null;
+  const eqAvg = eq.reduce((a, b) => a + b, 0) / eq.length;
+  const vix = by["^VIX"], gold = by["GC=F"];
+  let tone, label;
+  if (eqAvg >= 0.15 && (vix == null || vix <= 0.5)) { tone = "on"; label = "Risk-on"; }
+  else if (eqAvg <= -0.15 && (vix == null || vix >= -0.5)) { tone = "off"; label = "Risk-off"; }
+  else { tone = "mixed"; label = "Mixed"; }
+  const bits = [`futures ${eqAvg >= 0.05 ? "bid" : eqAvg <= -0.05 ? "soft" : "flat"}`];
+  if (vix != null) bits.push(`VIX ${vix >= 0.5 ? "bid" : vix <= -0.5 ? "easing" : "flat"}`);
+  if (gold != null && Math.abs(gold) >= 0.4) bits.push(`gold ${gold > 0 ? "bid" : "soft"}`);
+  return { tone, label, text: bits.join(" · ") };
+}
+
 // Top-of-page macro command strip: futures, VIX, 10Y, gold, oil, bitcoin.
-function MarketOverview({ apiFetch }) {
+function MarketOverview({ apiFetch, onSwitchTicker }) {
   const [items, setItems] = useState([]);
   useEffect(() => {
     let stop = false, t = null;
@@ -52,38 +81,57 @@ function MarketOverview({ apiFetch }) {
     load();
     return () => { stop = true; if (t) clearTimeout(t); };
   }, []);
+  const regime = useMemo(() => mkoRegime(items), [items]);
   if (!items.length) return null;
   const fmt = (v, suffix) => v == null ? "—"
     : Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (suffix || "");
   return (
-    <div className="mko-grid" aria-label="Market overview">
-      {items.map((it) => {
-        const up = (it.change_pct || 0) >= 0;
-        const has = it.last != null;
-        return (
-          <div key={it.key} className={`mko-tile${has ? "" : " mko-empty"}`}
-               title={`${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day`}>
-            <div className="mko-head">
-              <span className="mko-label">{it.label}</span>
-              {has && (
-                <span className={`mko-chg ${up ? "up" : "down"}`}>
-                  {up ? "▲" : "▼"} {Math.abs(it.change_pct).toFixed(2)}%
-                </span>
-              )}
+    <React.Fragment>
+      {regime && (
+        <div className={`mko-regime regime-${regime.tone}`}
+             title="A quick read of the tape from the equity futures vs the VIX (and gold as a defensive tell). Risk-on = futures bid + VIX easing; risk-off = the reverse.">
+          <span className="mko-regime-dot" aria-hidden="true" />
+          <b>{regime.label}</b><span className="mko-regime-why"> — {regime.text}</span>
+        </div>
+      )}
+      <div className="mko-grid" aria-label="Market overview">
+        {items.map((it) => {
+          const up = (it.change_pct || 0) >= 0;
+          const has = it.last != null;
+          const proxy = MKO_PROXY[it.key];
+          const click = (proxy && onSwitchTicker) ? () => onSwitchTicker(proxy[0]) : null;
+          const title = `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day`
+            + (click ? ` · click to open ${proxy[0]} (${proxy[1]}) on the chart` : "");
+          return (
+            <div key={it.key}
+                 className={`mko-tile${has ? "" : " mko-empty"}${click ? " mko-click" : ""}`}
+                 title={title}
+                 role={click ? "button" : undefined} tabIndex={click ? 0 : undefined}
+                 onClick={click || undefined}
+                 onKeyDown={click ? (e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); click(); } }) : undefined}>
+              <div className="mko-head">
+                <span className="mko-label">{it.label}</span>
+                {has && (
+                  <span className={`mko-chg ${up ? "up" : "down"}`}>
+                    {up ? "▲" : "▼"} {Math.abs(it.change_pct).toFixed(2)}%
+                  </span>
+                )}
+              </div>
+              <div className="mko-row2">
+                <span className="mko-price">{fmt(it.last, it.suffix)}</span>
+                {has && (
+                  <span className={`mko-pts ${up ? "up" : "down"}`}>
+                    {up ? "+" : ""}{Number(it.change_pts).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                )}
+              </div>
+              <Spark data={it.spark} up={up} />
+              {click && <span className="mko-proxy">{proxy[0]}</span>}
             </div>
-            <div className="mko-row2">
-              <span className="mko-price">{fmt(it.last, it.suffix)}</span>
-              {has && (
-                <span className={`mko-pts ${up ? "up" : "down"}`}>
-                  {up ? "+" : ""}{Number(it.change_pts).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              )}
-            </div>
-            <Spark data={it.spark} up={up} />
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    </React.Fragment>
   );
 }
 
@@ -9716,8 +9764,14 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
   // provides the visual gap. 0 when nothing renders. Measured each render.
   useEffect(() => {
     // Only the TOP placement drives --mn-h (the tab bar parks under it). The
-    // bottom copy sits in normal flow, so it leaves --mn-h at 0.
-    if (atBottom) { document.documentElement.style.setProperty("--mn-h", "0px"); return; }
+    // bottom copy is a fixed footer on desktop — publish its height so the page
+    // and the side rails reserve room and never hide behind it.
+    if (atBottom) {
+      document.documentElement.style.setProperty("--mn-h", "0px");
+      const el = stackRef.current;
+      document.documentElement.style.setProperty("--mn-footer-h", el ? `${el.offsetHeight + 12}px` : "0px");
+      return;
+    }
     const el = stackRef.current;
     const h = el ? el.offsetHeight : 0;
     document.documentElement.style.setProperty("--mn-h", h ? `${h}px` : "0px");
@@ -9944,7 +9998,7 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
     </div>
   );
   return (
-    <div className="lrail" aria-label="Watchlist names near 52-week high">
+    <div className="lrail rrail" aria-label="Watchlist names near 52-week high">
       <div className="lrail-title" title="Watchlist stocks within 3% of their 52-week high">NEAR 52W HIGH</div>
       {topTag && (
         <div className="lrail-subtag" title={`Most-represented tag near the 52-week high right now: ${topTag.tag} (${topTag.n})`}>
@@ -10054,7 +10108,7 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
     </div>
   );
   return (
-    <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily high">
+    <div className="lrail lrail--daily rrail rrail--daily" aria-label="Watchlist names at today's daily high">
       <div className="lrail-title lrail-title--daily" title="Watchlist stocks at or within 1% of today's session high">DAILY HIGH</div>
       {topTag && (
         <div className="lrail-subtag" title={`Most-represented tag at the daily high right now: ${topTag.tag} (${topTag.n})`}>
@@ -10198,7 +10252,7 @@ function RightRail52WLow({ apiFetch, onSwitchTicker }) {
     </div>
   );
   return (
-    <div className="lrail rrail" aria-label="Watchlist names near 52-week low">
+    <div className="lrail" aria-label="Watchlist names near 52-week low">
       <div className="lrail-title lrail-title--low" title="Watchlist stocks within 3% of their 52-week low">NEAR 52W LOW</div>
       {topTag && (
         <div className="lrail-subtag lrail-subtag--low" title={`Most-represented tag near the 52-week low right now: ${topTag.tag} (${topTag.n})`}>
@@ -10301,7 +10355,7 @@ function RightRailDailyLow({ apiFetch, onSwitchTicker }) {
     </div>
   );
   return (
-    <div className="lrail lrail--daily rrail rrail--daily" aria-label="Watchlist names at today's daily low">
+    <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily low">
       <div className="lrail-title lrail-title--low lrail-title--lowdaily" title="Watchlist stocks at or within 1% of today's session low">DAILY LOW</div>
       {topTag && (
         <div className="lrail-subtag lrail-subtag--low" title={`Most-represented tag at the daily low right now: ${topTag.tag} (${topTag.n})`}>
