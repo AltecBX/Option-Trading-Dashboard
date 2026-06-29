@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "2.81";
+const APP_VERSION = "2.82";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2603,9 +2603,9 @@ function App() {
 
   return (
     <div className="shell">
-      {/* Top-of-app news ticker tape (Finviz Elite). Spans full width; hides
-          itself until FINVIZ_AUTH_TOKEN is configured. */}
-      <NewsTicker apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      {/* Top-of-app macro command strip: futures, VIX, 10Y, gold, oil, BTC.
+          (The news/ticker tapes moved to the very bottom of the page.) */}
+      <MarketOverview apiFetch={apiFetch} />
       {/* Left-margin vertical ticker — near-52W-high names (wide screens only). */}
       <LeftRail52W apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       <LeftRailDailyHigh apiFetch={apiFetch} onSwitchTicker={switchTicker} />
@@ -7544,6 +7544,10 @@ function App() {
           </Tweaks>
         )}
       </main>
+
+      {/* Market News + Tickers tapes — moved to the very bottom of the page
+          (non-sticky here; the macro strip now owns the top). */}
+      <NewsTicker apiFetch={apiFetch} onSwitchTicker={switchTicker} placement="bottom" />
 
       {/* Mobile bottom action bar — thumb-reachable status + quick nav. */}
       <nav className="mobile-bottombar" aria-label="Quick actions">
