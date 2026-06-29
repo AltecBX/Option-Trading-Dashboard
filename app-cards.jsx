@@ -76,10 +76,12 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
         const d = await r.json();
         if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
       } catch (_) { /* strip is best-effort */ }
-      if (!stop) t = setTimeout(load, 45000);
+      if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
     };
     load();
-    return () => { stop = true; if (t) clearTimeout(t); };
+    const onVis = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; if (t) clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, []);
   const regime = useMemo(() => mkoRegime(items), [items]);
   if (!items.length) return null;
@@ -100,7 +102,10 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
           const has = it.last != null;
           const proxy = MKO_PROXY[it.key];
           const click = (proxy && onSwitchTicker) ? () => onSwitchTicker(proxy[0]) : null;
+          const live = it.source === "schwab";
+          const srcNote = live ? "real-time (Schwab)" : it.source === "yfinance" ? "delayed ~15m (yfinance)" : "";
           const title = `${it.label} — last ${fmt(it.last, it.suffix)}, ${up ? "up" : "down"} ${Math.abs(it.change_pct || 0).toFixed(2)}% on the day`
+            + (srcNote ? ` · ${srcNote}` : "")
             + (click ? ` · click to open ${proxy[0]} (${proxy[1]}) on the chart` : "");
           return (
             <div key={it.key}
@@ -110,7 +115,10 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
                  onClick={click || undefined}
                  onKeyDown={click ? (e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); click(); } }) : undefined}>
               <div className="mko-head">
-                <span className="mko-label">{it.label}</span>
+                <span className="mko-label">
+                  {has && <span className={`mko-dot ${live ? "live" : "delayed"}`} aria-hidden="true" />}
+                  {it.label}
+                </span>
                 {has && (
                   <span className={`mko-chg ${up ? "up" : "down"}`}>
                     {up ? "▲" : "▼"} {Math.abs(it.change_pct).toFixed(2)}%
