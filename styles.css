@@ -168,6 +168,9 @@ input, select, textarea {
      e.g. the tab strip and table wraps, keep working). */
   .shell { grid-template-columns: 1fr; overflow-x: clip; }
   .shell > * { min-width: 0; }
+  /* Single column here, so the macro strip spans it fully again (it sits in
+     column 2 only on the desktop two-column layout). */
+  .mko-grid, .mko-regime { grid-column: 1 / -1; }
   .sidebar { position: relative !important; max-height: none !important; }
 }
 
@@ -8793,8 +8796,12 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 
 /* ── Top-of-page macro command strip ──────────────────────────────────── */
+/* Lives in the MAIN column only (grid line 2 → end) so it lines up with the
+   content below it (the watchlist / cards), instead of spanning the sidebar
+   too. On mobile the shell collapses to one column and this is overridden to
+   span the full width (see the max-width:1080px block). */
 .mko-grid {
-  grid-column: 1 / -1;
+  grid-column: 2 / -1;
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 14px;
 }
 .mko-tile {
@@ -8838,7 +8845,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mko-tile.mko-click:hover .mko-proxy { opacity: 1; }
 /* Market-regime one-liner above the strip. */
 .mko-regime {
-  grid-column: 1 / -1;
+  grid-column: 2 / -1;
   display: flex; align-items: center; gap: 8px;
   font-size: 12.5px; color: var(--fg-2); margin: 0 0 8px;
 }
@@ -9182,4 +9189,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .lr-52 { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
 .lr-line3 { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #1C799E; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; letter-spacing: 0.02em; }
+/* Empty-state note when a daily rail has no names yet (e.g. pre-market). Keeps
+   the rail frame on screen instead of letting it disappear. */
+.lrail-empty {
+  flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 16px 12px;
+  font-size: 11.5px; line-height: 1.45; color: var(--fg-3);
+}
 @media (prefers-reduced-motion: reduce) { .lrail-track { animation: none; } .lrail-vp { overflow-y: auto; } }
