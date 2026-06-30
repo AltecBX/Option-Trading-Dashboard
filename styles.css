@@ -156,7 +156,18 @@ input, select, textarea {
   align-items: start;
 }
 @media (max-width: 1080px) {
-  .shell { grid-template-columns: 1fr; }
+  /* Single column below the sidebar breakpoint. A grid with one 1fr track is
+     vulnerable to "track inflation": any direct child whose min-content is wider
+     than the viewport (long futures numbers in the macro strip, the tab strip,
+     a chart) blows the lone track out to that width and — because every sibling
+     stretches to the track — balloons .main and .mko-grid to ~2× the viewport.
+     That is what pushed the right macro-strip column and every right-aligned
+     table value off-screen on phones. min-width:0 lets the track collapse back
+     to the viewport; overflow-x:clip contains any residual escape without
+     creating a scroll container (so sticky header/footer + inner scrollers,
+     e.g. the tab strip and table wraps, keep working). */
+  .shell { grid-template-columns: 1fr; overflow-x: clip; }
+  .shell > * { min-width: 0; }
   .sidebar { position: relative !important; max-height: none !important; }
 }
 
