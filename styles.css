@@ -8804,6 +8804,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-column: 2 / -1;
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 14px;
 }
+/* With 10 instruments, wide screens get a clean 5×2 grid; narrower desktops
+   stay at 4 columns (the 10 tiles wrap to 3 rows) and phones drop to 2. */
+@media (min-width: 1601px) { .mko-grid { grid-template-columns: repeat(5, 1fr); } }
 .mko-tile {
   position: relative; overflow: hidden;
   display: flex; flex-direction: column; gap: 2px;
