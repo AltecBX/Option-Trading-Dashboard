@@ -276,6 +276,11 @@ _MKT_INSTRUMENTS = [
     ("ES=F",  ["/ES"],            "S&P Futures",  ""),
     ("NQ=F",  ["/NQ"],            "NASDAQ Fut.",  ""),
     ("YM=F",  ["/YM"],            "Dow Futures",  ""),
+    # DXY (US Dollar Index) and HYG (high-yield credit) sit between the equity
+    # futures and the VIX. DXY: Schwab index "$DXY" (or "/DX" futures); Yahoo
+    # falls back to "DX-Y.NYB". HYG is a plain ETF, so the exact ticker resolves.
+    ("DX-Y.NYB", ["$DXY", "/DX", "$DXY.X"], "US Dollar",  ""),
+    ("HYG",      ["HYG"],                   "Hi-Yield",   ""),
     ("^VIX",  ["$VIX", "$VIX.X"], "VIX",          ""),
     ("BTC=F", ["/BTC"],           "Bitcoin Fut.", ""),
     ("GC=F",  ["/GC"],            "Gold Futures", ""),

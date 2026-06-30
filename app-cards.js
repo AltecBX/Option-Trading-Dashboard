@@ -75,7 +75,9 @@ const MKO_PROXY = {
   "BTC=F": ["IBIT", "spot-Bitcoin ETF"],
   "GC=F": ["GLD", "gold ETF"],
   "^TNX": ["IEF", "7-10yr Treasury ETF"],
-  "CL=F": ["USO", "crude-oil ETF"]
+  "CL=F": ["USO", "crude-oil ETF"],
+  "DX-Y.NYB": ["UUP", "US Dollar Index ETF"],
+  "HYG": ["HYG", "high-yield bond ETF"]
 };
 
 // One-line read of the macro tape: risk-on / risk-off / mixed, from the
