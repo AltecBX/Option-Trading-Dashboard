@@ -47,21 +47,41 @@ const MKO_PROXY = {
   "DX-Y.NYB": ["UUP", "US Dollar Index ETF"], "HYG": ["HYG", "high-yield bond ETF"],
 };
 
-// One-line read of the macro tape: risk-on / risk-off / mixed, from the
-// equity futures vs VIX (and gold as a defensive tell).
+// One-line read of the macro tape: risk-on / risk-off / mixed. Built from a
+// small vote model because the inputs move on wildly different scales (VIX
+// swings whole percent, HYG barely ticks) so a raw average can't blend them:
+//   · equity futures (ES/NQ/YM avg) — DIRECT, the anchor, double-weighted
+//   · VIX  — INVERSE (fear bid = risk-off)
+//   · DXY  — INVERSE (dollar bid = risk-off / tighter liquidity)
+//   · HYG  — DIRECT  (high-yield credit firm = risk-on; credit leads equities)
+//   · gold — descriptive tell only, never voted
+// Each indicator votes +1 (risk-on) / −1 (risk-off) / 0 on its own threshold;
+// net score ≥ +2 = Risk-on, ≤ −2 = Risk-off, else Mixed. So the credit/dollar
+// tells can confirm a move or knock it down to Mixed when they diverge from
+// equities.
 function mkoRegime(items) {
   const by = {};
   for (const i of items) if (i.change_pct != null) by[i.key] = i.change_pct;
   const eq = ["ES=F", "NQ=F", "YM=F"].map(k => by[k]).filter(v => v != null);
   if (!eq.length) return null;
   const eqAvg = eq.reduce((a, b) => a + b, 0) / eq.length;
-  const vix = by["^VIX"], gold = by["GC=F"];
+  const vix = by["^VIX"], dxy = by["DX-Y.NYB"], hyg = by["HYG"], gold = by["GC=F"];
+
+  let score = 0;
+  score += eqAvg >= 0.15 ? 2 : eqAvg <= -0.15 ? -2 : 0;          // equities (×2 anchor)
+  if (vix != null) score += vix <= -1.0 ? 1 : vix >= 1.0 ? -1 : 0;   // VIX (inverse)
+  if (dxy != null) score += dxy <= -0.25 ? 1 : dxy >= 0.25 ? -1 : 0; // dollar (inverse)
+  if (hyg != null) score += hyg >= 0.10 ? 1 : hyg <= -0.10 ? -1 : 0; // credit (direct)
+
   let tone, label;
-  if (eqAvg >= 0.15 && (vix == null || vix <= 0.5)) { tone = "on"; label = "Risk-on"; }
-  else if (eqAvg <= -0.15 && (vix == null || vix >= -0.5)) { tone = "off"; label = "Risk-off"; }
+  if (score >= 2) { tone = "on"; label = "Risk-on"; }
+  else if (score <= -2) { tone = "off"; label = "Risk-off"; }
   else { tone = "mixed"; label = "Mixed"; }
+
   const bits = [`futures ${eqAvg >= 0.05 ? "bid" : eqAvg <= -0.05 ? "soft" : "flat"}`];
   if (vix != null) bits.push(`VIX ${vix >= 0.5 ? "bid" : vix <= -0.5 ? "easing" : "flat"}`);
+  if (dxy != null && Math.abs(dxy) >= 0.2) bits.push(`dollar ${dxy > 0 ? "bid" : "soft"}`);
+  if (hyg != null && Math.abs(hyg) >= 0.1) bits.push(`credit ${hyg > 0 ? "firm" : "soft"}`);
   if (gold != null && Math.abs(gold) >= 0.4) bits.push(`gold ${gold > 0 ? "bid" : "soft"}`);
   return { tone, label, text: bits.join(" · ") };
 }
@@ -92,7 +112,7 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
     <React.Fragment>
       {regime && (
         <div className={`mko-regime regime-${regime.tone}`}
-             title="A quick read of the tape from the equity futures vs the VIX (and gold as a defensive tell). Risk-on = futures bid + VIX easing; risk-off = the reverse.">
+             title="A quick read of the tape. Indicators vote risk-on/off: equity futures (the anchor), VIX and the US dollar inversely (a bid in either = risk-off), and high-yield credit (HYG) directly (firm credit = risk-on). Gold is shown as a defensive tell. Net of the votes = Risk-on / Mixed / Risk-off.">
           <span className="mko-regime-dot" aria-hidden="true" />
           <b>{regime.label}</b><span className="mko-regime-why"> — {regime.text}</span>
         </div>
