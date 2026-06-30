@@ -10086,7 +10086,18 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
     return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
   }, [rows]);
 
-  if (!rows.length) return null;
+  // Keep the rail visible even with nothing at the daily high yet (e.g.
+  // pre-market, before the 9:30 open the session high isn't set so no name
+  // qualifies). Returning null made the whole rail vanish, which read as a
+  // missing feature — show the frame with a short note instead.
+  if (!rows.length) {
+    return (
+      <div className="lrail lrail--daily rrail rrail--daily" aria-label="Watchlist names at today's daily high">
+        <div className="lrail-title lrail-title--daily" title="Watchlist stocks at or within 1% of today's session high">DAILY HIGH</div>
+        <div className="lrail-empty" title="Nothing is at or near its intraday high right now — names appear once the session is underway.">No names at the daily high yet — they show up after the open.</div>
+      </div>
+    );
+  }
   const colH = Math.max(vpH || 0, rows.length * 62);
   const dur = Math.max(16, Math.round(colH / 35));
   const topTag = lrailTopTag(rows);
@@ -10333,7 +10344,17 @@ function RightRailDailyLow({ apiFetch, onSwitchTicker }) {
     return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
   }, [rows]);
 
-  if (!rows.length) return null;
+  // Keep the rail visible even with nothing at the daily low yet (pre-market
+  // the session low isn't set, so no name qualifies). Returning null made the
+  // whole rail vanish — show the frame with a short note instead.
+  if (!rows.length) {
+    return (
+      <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily low">
+        <div className="lrail-title lrail-title--low lrail-title--lowdaily" title="Watchlist stocks at or within 1% of today's session low">DAILY LOW</div>
+        <div className="lrail-empty" title="Nothing is at or near its intraday low right now — names appear once the session is underway.">No names at the daily low yet — they show up after the open.</div>
+      </div>
+    );
+  }
   const colH = Math.max(vpH || 0, rows.length * 62);
   const dur = Math.max(16, Math.round(colH / 35));
   const topTag = lrailTopTag(rows);
