@@ -14556,10 +14556,115 @@ function MarketBreadthCard({
     onLoadTicker: onLoadTicker
   }))));
 }
+
+// ── Market Context bar ────────────────────────────────────────────────────
+// Fills the band under the futures strip: is premium safe today (SPY gamma
+// regime), what can blow up today (macro events + watchlist earnings within a
+// week), and where the flow is rotating (sector ribbon from the board). One
+// always-on strip so you never trade blind into a Fed day or an earnings gap.
+function MarketContextBar({
+  apiFetch,
+  onSwitchTicker,
+  onOpenBreadth
+}) {
+  const [ctx, setCtx] = useState(null);
+  const [board, setBoard] = useState(null);
+  useEffect(() => {
+    let stop = false,
+      t1 = null,
+      t2 = null;
+    const grab = async (u, set, ms, ref) => {
+      try {
+        const r = await apiFetch(u);
+        const d = await r.json();
+        if (!stop) set(d);
+      } catch (_) {}
+      if (!stop) ref.id = setTimeout(() => grab(u, set, ms, ref), document.hidden ? ms * 3 : ms);
+    };
+    const r1 = {},
+      r2 = {};
+    grab("/api/market_context", setCtx, 120000, r1);
+    grab("/api/watchlist_table", setBoard, 60000, r2);
+    return () => {
+      stop = true;
+      clearTimeout(r1.id);
+      clearTimeout(r2.id);
+    };
+  }, []);
+  const rotation = useMemo(() => {
+    const scored = board && board.rows ? computeWatchlistEdges(board.rows) : [];
+    const agg = {};
+    scored.forEach(r => {
+      if (r.edge == null || !r.sector) return;
+      const s = agg[r.sector] || (agg[r.sector] = {
+        sector: r.sector,
+        net: 0,
+        n: 0
+      });
+      s.n++;
+      if (r.edge >= 25) s.net++;else if (r.edge <= -25) s.net--;
+    });
+    return Object.values(agg).filter(s => s.n >= 3).sort((a, b) => b.net - a.net);
+  }, [board]);
+  if (!ctx && !board) return /*#__PURE__*/React.createElement("div", {
+    className: "mctx mctx-skel"
+  });
+  const gamma = ctx && ctx.gamma;
+  const macro = ctx && ctx.macro || [];
+  const earn = ctx && ctx.earnings_soon || [];
+  const quiet = !macro.length && !earn.length;
+  const maxNet = Math.max(1, ...rotation.map(r => Math.abs(r.net)));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "mctx"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mctx-line"
+  }, gamma ? /*#__PURE__*/React.createElement("span", {
+    className: `mctx-gamma mctx-g-${gamma.regime}`,
+    title: gamma.regime === "long" ? `SPY dealers are LONG gamma (net GEX +$${gamma.net_gex}B) — expect pinning / mean-reversion. Premium-selling friendly.` : `SPY dealers are SHORT gamma (net GEX $${gamma.net_gex}B) — expect trending / explosive moves. Premium is a trap; favor buying or sizing down.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mctx-dot"
+  }), "GAMMA ", /*#__PURE__*/React.createElement("b", null, gamma.regime === "long" ? "Long γ · pinning" : "Short γ · explosive")) : /*#__PURE__*/React.createElement("span", {
+    className: "mctx-gamma mctx-g-na",
+    title: "SPY gamma read unavailable (needs the option chain)."
+  }, "GAMMA ", /*#__PURE__*/React.createElement("b", null, "—")), /*#__PURE__*/React.createElement("span", {
+    className: "mctx-events"
+  }, quiet && /*#__PURE__*/React.createElement("span", {
+    className: "mctx-quiet"
+  }, "No major catalysts today"), macro.map((e, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "mctx-ev",
+    title: `${e.event} — ${e.today ? "today " + (e.time || "") : "tomorrow"}. High-impact macro; expect a volatility spike.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mctx-ev-dot"
+  }), /*#__PURE__*/React.createElement("b", null, e.event), " ", e.today ? e.time || "today" : "tmrw")), earn.length > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "mctx-earn",
+    title: "Watchlist names reporting earnings within a week — do NOT sell premium or open a directional ticket whose expiry crosses these dates."
+  }, "⚠ earnings ", earn.slice(0, 5).map(x => /*#__PURE__*/React.createElement("button", {
+    key: x.sym,
+    className: "mctx-earn-sym",
+    onClick: () => onSwitchTicker && onSwitchTicker(x.sym),
+    title: `Load ${x.sym} — earnings in ${x.days}d`
+  }, x.sym, /*#__PURE__*/React.createElement("small", null, x.days, "d")))))), /*#__PURE__*/React.createElement("div", {
+    className: "mctx-ribbon",
+    onClick: onOpenBreadth,
+    title: "Sector rotation by options flow (net bullish − bearish EDGE). Click for the full Breadth view."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mctx-rlbl"
+  }, "Rotation"), rotation.slice(0, 14).map(r => /*#__PURE__*/React.createElement("span", {
+    key: r.sector,
+    className: `mctx-chip ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : "flat"}`,
+    style: {
+      opacity: 0.55 + 0.45 * Math.abs(r.net) / maxNet
+    }
+  }, r.sector, /*#__PURE__*/React.createElement("b", null, r.net > 0 ? "+" : "", r.net))), !rotation.length && /*#__PURE__*/React.createElement("span", {
+    className: "mctx-quiet"
+  }, "rotation pending scan…")));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
+  MarketContextBar: _memo(MarketContextBar),
   VolSkewCard: _memo(VolSkewCard),
   WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard),
