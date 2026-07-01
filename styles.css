@@ -8881,8 +8881,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   /* Context bar fills the band below the strip (col 2, row 3). The posture card
      spans all three rows in col 1 and defines the height; the strip + context
      bar stack to match it, so there's no dead space under the futures cards. */
-  .mctx { grid-column: 2 / -1; grid-row: 3; align-self: stretch; margin: 0; }
   .posture-card { grid-column: 1; grid-row: 1 / 4; align-self: start; margin: 0; }
+  /* NOTE: the .mctx desktop placement lives AFTER the base .mctx rule below,
+     so its grid-column isn't overridden by source order. */
 }
 .pc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pc-kicker { font-family: var(--font-mono); font-size: 10px; font-weight: 800; letter-spacing: 0.05em;
@@ -8974,6 +8975,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mctx-chip.neg { background: color-mix(in oklch, var(--down), transparent 82%); border-color: transparent; color: var(--fg); }
 .mctx-chip.neg b { color: var(--down); }
 .mctx-ribbon:hover .mctx-rlbl { color: var(--accent); }
+/* Desktop placement — must come after the base .mctx rule above so its
+   grid-column (col 2 only, below the strip) wins over the base 1/-1. */
+@media (min-width: 1081px) {
+  .mctx { grid-column: 2 / -1; grid-row: 3; align-self: stretch; margin: 0; }
+}
 
 /* ── Market Breadth scanner ────────────────────────────────────────────── */
 .mb-card { padding: 16px 18px; }
