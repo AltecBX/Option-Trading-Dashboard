@@ -8876,12 +8876,13 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   min-width: 0; overflow: hidden;
 }
 @media (min-width: 1081px) {
-  .mko-regime { grid-row: 1; }
-  .mko-grid { grid-row: 2; }
-  /* Spans the strip's two rows and defines its own height (it carries the most
-     content — three trade tickets). The strip aligns to the top of that height;
-     any small difference just breathes under the futures cards. */
-  .posture-card { grid-column: 1; grid-row: 1 / 3; align-self: start; margin: 0; }
+  .mko-regime { grid-column: 2 / -1; grid-row: 1; }
+  .mko-grid { grid-column: 2 / -1; grid-row: 2; }
+  /* Context bar fills the band below the strip (col 2, row 3). The posture card
+     spans all three rows in col 1 and defines the height; the strip + context
+     bar stack to match it, so there's no dead space under the futures cards. */
+  .mctx { grid-column: 2 / -1; grid-row: 3; align-self: stretch; margin: 0; }
+  .posture-card { grid-column: 1; grid-row: 1 / 4; align-self: start; margin: 0; }
 }
 .pc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pc-kicker { font-family: var(--font-mono); font-size: 10px; font-weight: 800; letter-spacing: 0.05em;
@@ -8938,6 +8939,41 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pc-rot-out { margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--down);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Market Context bar (gamma · catalysts · rotation) ─────────────────── */
+.mctx { grid-column: 1 / -1; display: flex; flex-direction: column; justify-content: center; gap: 7px;
+  padding: 9px 13px; margin: 0 0 14px; background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow-card); min-width: 0; overflow: hidden; }
+.mctx-skel { min-height: 60px; opacity: 0.5; }
+.mctx-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+.mctx-gamma { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px;
+  font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); cursor: help; white-space: nowrap; }
+.mctx-gamma b { font-size: 11.5px; }
+.mctx-dot { width: 7px; height: 7px; border-radius: 50%; }
+.mctx-g-long b { color: var(--up); } .mctx-g-long .mctx-dot { background: var(--up); }
+.mctx-g-short b { color: var(--down); } .mctx-g-short .mctx-dot { background: var(--down); }
+.mctx-g-na b { color: var(--fg-4); }
+.mctx-events { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
+.mctx-quiet { color: var(--fg-3); font-size: 11.5px; }
+.mctx-ev { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); font-size: 11.5px; white-space: nowrap; cursor: help; }
+.mctx-ev-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.mctx-ev b { color: var(--fg); font-weight: 700; }
+.mctx-earn { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-size: 11.5px; font-weight: 600; cursor: help; flex-wrap: wrap; }
+.mctx-earn-sym { display: inline-flex; align-items: baseline; gap: 3px; border: 1px solid color-mix(in oklch, var(--warn), transparent 60%);
+  background: color-mix(in oklch, var(--warn), transparent 88%); color: var(--fg); font-family: var(--font-mono);
+  font-weight: 800; font-size: 11px; padding: 0 5px; border-radius: 5px; cursor: pointer; }
+.mctx-earn-sym small { color: var(--warn); font-size: 9px; font-weight: 700; }
+.mctx-earn-sym:hover { border-color: var(--warn); }
+.mctx-ribbon { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; cursor: pointer; }
+.mctx-rlbl { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-4); margin-right: 3px; }
+.mctx-chip { display: inline-flex; align-items: baseline; gap: 5px; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-2); }
+.mctx-chip b { font-family: var(--font-mono); font-weight: 800; }
+.mctx-chip.pos { background: color-mix(in oklch, var(--up), transparent 82%); border-color: transparent; color: var(--fg); }
+.mctx-chip.pos b { color: var(--up); }
+.mctx-chip.neg { background: color-mix(in oklch, var(--down), transparent 82%); border-color: transparent; color: var(--fg); }
+.mctx-chip.neg b { color: var(--down); }
+.mctx-ribbon:hover .mctx-rlbl { color: var(--accent); }
 
 /* ── Market Breadth scanner ────────────────────────────────────────────── */
 .mb-card { padding: 16px 18px; }

@@ -265,6 +265,52 @@ _DLOW_SEEN: dict = {}
 _BREADTH_CACHE: tuple | None = None
 _BREADTH_LOCK = threading.Lock()
 
+# Market-context bar: SPY gamma regime + today's macro events + earnings soon.
+_CTX_CACHE: tuple | None = None
+_CTX_LOCK = threading.Lock()
+
+
+def _spy_gamma_regime():
+    """Market-level gamma read from the SPY option chain: Σ call γ·OI minus
+    Σ put γ·OI over the nearest expiries (same convention the Flow tab uses).
+    Positive = dealers long gamma → pinning / mean-reversion (premium-friendly);
+    negative = short gamma → trending / explosive (premium is a trap). Best-
+    effort; returns None if the chain or greeks aren't available."""
+    try:
+        sc = _schwab()
+        if sc is None:
+            return None
+        spot = None
+        q = sc.get_quote("SPY")
+        if q:
+            spot = _num(q.get("last"))
+        if not spot or spot <= 0:
+            return None
+        chain = sc.get_option_chain("SPY", strike_count=100)
+        if not chain:
+            return None
+        chains = chain.get("chains") or {}
+        exps = chain.get("expirations") or sorted(chains.keys())
+        if not exps:
+            return None
+        net = 0.0
+        for exp in exps[:2]:                      # nearest 2 expiries: most intraday gamma
+            leg = chains.get(exp) or {}
+            for c in (leg.get("calls") or []):
+                g, oi = _num(c.get("gamma")), _num(c.get("openInterest"))
+                if g and oi:
+                    net += g * oi * 100 * spot * spot * 0.01
+            for p in (leg.get("puts") or []):
+                g, oi = _num(p.get("gamma")), _num(p.get("openInterest"))
+                if g and oi:
+                    net -= g * oi * 100 * spot * spot * 0.01
+        if net == 0:
+            return None
+        return {"regime": "long" if net > 0 else "short",
+                "net_gex": round(net / 1e9, 2), "spot": round(spot, 2)}
+    except Exception:
+        return None
+
 # Top-of-page market overview (futures/indices/rates/commodities). Cached ~15s.
 _MKT_CACHE: tuple | None = None
 _MKT_LOCK = threading.Lock()
@@ -7534,6 +7580,55 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/market_breadth", exc)
                 self._send_json({"error": str(exc), "stocks": {}}, status=500)
+            return
+        if parsed.path == "/api/market_context":
+            # Always-on context bar: SPY gamma regime (is premium safe today?),
+            # today's high-impact macro events, and watchlist names with earnings
+            # inside a week (don't sell premium / enter into a known vol event).
+            # Cached ~2 min — the SPY chain fetch for gamma is the heavy part.
+            try:
+                global _CTX_CACHE
+                now = time.time()
+                with _CTX_LOCK:
+                    cached = _CTX_CACHE
+                if cached and (now - cached[0]) < 120:
+                    self._send_json(cached[1])
+                    return
+                gamma = _spy_gamma_regime()
+                # Today / next-day high-impact macro events.
+                macro = []
+                try:
+                    today_iso = date.today().isoformat()
+                    tom_iso = (date.today() + timedelta(days=1)).isoformat()
+                    for e in (build_economic_calendar(3).get("events") or []):
+                        if str(e.get("importance")).lower() != "high":
+                            continue
+                        if e.get("date") not in (today_iso, tom_iso):
+                            continue
+                        macro.append({"event": e.get("event"), "date": e.get("date"),
+                                      "time": e.get("time"), "today": e.get("date") == today_iso})
+                    macro = macro[:4]
+                except Exception:
+                    macro = []
+                # Watchlist names reporting earnings within 7 days (from the board).
+                earnings = []
+                if _WLTABLE_AVAILABLE:
+                    try:
+                        for r in ((_wltable.get_board() or {}).get("rows") or []):
+                            d = r.get("days_to_earnings")
+                            if d is not None and 0 <= d <= 7 and r.get("symbol"):
+                                earnings.append({"sym": r["symbol"], "days": d})
+                        earnings.sort(key=lambda x: x["days"])
+                        earnings = earnings[:8]
+                    except Exception:
+                        earnings = []
+                payload = {"gamma": gamma, "macro": macro, "earnings_soon": earnings}
+                with _CTX_LOCK:
+                    _CTX_CACHE = (now, payload)
+                self._send_json(payload)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/market_context", exc)
+                self._send_json({"error": str(exc), "gamma": None, "macro": [], "earnings_soon": []}, status=500)
             return
         if parsed.path == "/api/market_overview":
             # Macro strip at the top of the page: futures, VIX, 10Y, gold, oil,
