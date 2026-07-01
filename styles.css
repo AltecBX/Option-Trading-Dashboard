@@ -8930,6 +8930,14 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .pc-tkt.buy { color: var(--accent); } .pc-tkt.sell { color: var(--fg-2); }
 .pc-tkt-tgt { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-4); white-space: nowrap; }
 .pc-empty { font-size: 10.5px; color: var(--fg-3); padding: 2px 0; }
+/* Sector-rotation one-liner (flow leader vs laggard). */
+.pc-rot { display: flex; align-items: baseline; gap: 8px; cursor: help;
+  padding: 4px 0 1px; border-top: 1px solid var(--line); }
+.pc-rot-lbl { font-size: 9px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--fg-4); }
+.pc-rot-in { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--up);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-rot-out { margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--down);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Market Breadth scanner ────────────────────────────────────────────── */
 .mb-card { padding: 16px 18px; }
