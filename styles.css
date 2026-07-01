@@ -8862,6 +8862,66 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .mko-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .mko-price { font-size: 19px; } .mko-tile { min-height: 80px; }
 }
+
+/* ── Market posture card (top-left block, column 1) ────────────────────────
+   Mobile: a normal full-width card. Desktop: pinned into column 1 spanning the
+   strip's two rows, so it lines up with the futures cards. overflow:clip +
+   min-height:0 means it fills the strip's height and never inflates it. */
+.posture-card {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 9px 12px; margin: 0 0 14px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow-card);
+  min-width: 0; overflow: hidden;
+}
+@media (min-width: 1081px) {
+  .mko-regime { grid-row: 1; }
+  .mko-grid { grid-row: 2; }
+  .posture-card { grid-column: 1; grid-row: 1 / 3; align-self: stretch; margin: 0; min-height: 0; }
+}
+.pc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pc-kicker { font-family: var(--font-mono); font-size: 10px; font-weight: 800; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--fg-3); cursor: help; }
+.pc-src { font-family: var(--font-mono); font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--up); cursor: help; }
+.pc-verdict { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.pc-badge { font-size: 13px; font-weight: 800; padding: 1px 8px; border-radius: 999px;
+  background: var(--bg-3); color: var(--fg); white-space: nowrap; }
+.pc-verdict.pc-on   .pc-badge { background: color-mix(in oklch, var(--up), transparent 82%);   color: var(--up); }
+.pc-verdict.pc-off  .pc-badge { background: color-mix(in oklch, var(--down), transparent 82%); color: var(--down); }
+.pc-verdict.pc-mixed .pc-badge { background: color-mix(in oklch, var(--warn), transparent 82%); color: var(--warn); }
+.pc-why { font-size: 11px; color: var(--fg-3); line-height: 1.3; }
+.pc-on   { color: var(--up); }  .pc-off { color: var(--down); }  .pc-mixed { color: var(--warn); }
+.pc-scorewrap { display: flex; flex-direction: column; gap: 3px; cursor: help; }
+.pc-score-row { display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 11px; color: var(--fg-3); }
+.pc-score-row b { font-family: var(--font-mono); font-size: 16px; font-weight: 800; color: var(--fg); }
+.pc-score-row b small { font-size: 10px; font-weight: 600; color: var(--fg-4); }
+.pc-bar { height: 5px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+.pc-bar-fill { height: 100%; border-radius: 3px; background: var(--fg-3); transition: width 300ms var(--ease); }
+.pc-fill-on { background: var(--up); } .pc-fill-off { background: var(--down); } .pc-fill-mixed { background: var(--warn); }
+.pc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pc-stats > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; cursor: help; }
+.pc-stats span { font-size: 9px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--fg-4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-stats b { font-family: var(--font-mono); font-size: 14px; font-weight: 800; color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
+.pc-stats small { font-size: 9.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-stats small.up { color: var(--up); } .pc-stats small.down { color: var(--down); }
+.pc-picks { display: flex; flex-direction: column; gap: 3px; min-height: 0; }
+.pc-picks-h { font-size: 9px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+  color: var(--fg-4); cursor: help; }
+.pc-pick { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--bg-3); cursor: pointer; transition: border-color 120ms var(--ease); }
+.pc-pick:hover { border-color: var(--line-2); }
+.pc-pick-sym { font-family: var(--font-mono); font-weight: 800; font-size: 12.5px; color: var(--fg); }
+.pc-pick-edge { font-family: var(--font-mono); font-weight: 800; font-size: 11.5px; }
+.pc-pick-edge.up { color: var(--up); } .pc-pick-edge.down { color: var(--down); }
+.pc-pick-setup { margin-left: auto; font-size: 10.5px; color: var(--fg-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-empty { font-size: 10.5px; color: var(--fg-3); padding: 2px 0; }
 .newsticker {
   display: flex; align-items: stretch;
   height: 36px;
