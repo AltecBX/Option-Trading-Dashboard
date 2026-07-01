@@ -206,11 +206,68 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
     // ── IV rank (premium richness) ─────────────────────────────────────────
     const ivRows = (iv && iv.rows) || [];
     let ivMedian = null, ripe = 0, ivTotal = ivRows.length;
+    const ivBySym = {};
     if (ivRows.length) {
+      ivRows.forEach(r => { if (r.ticker) ivBySym[String(r.ticker).toUpperCase()] = r.rank; });
       const ranks = ivRows.map(r => r.rank).filter(v => v != null).sort((a, b) => a - b);
       if (ranks.length) ivMedian = Math.round(ranks[Math.floor(ranks.length / 2)]);
       ripe = ivRows.filter(r => (r.rank || 0) >= 50).length;
     }
+    // ── Options ticket per candidate ───────────────────────────────────────
+    // Turns "which name" into "which exact trade": BUY the directional option
+    // when premium is still cheap (early move + low/mid IV rank → capture delta
+    // AND the IV pop as the move accelerates), or SELL premium when IV is
+    // already rich. Strike = near-money in the move's direction (buys) or at the
+    // swing origin / a resistance cushion (sells). Expiration is sized to how
+    // long the move NORMALLY takes: buys get ~2.5× the days left so theta isn't
+    // the enemy; sells get a shorter tenor to harvest it. So a 3-day mover shows
+    // a few days out, a multi-week mover shows weeks out.
+    const roundStrike = (px) => {
+      if (!(px > 0)) return null;
+      const inc = px < 25 ? 0.5 : px < 200 ? 1 : 5;
+      return Math.round(px / inc) * inc;
+    };
+    const fmtK = (s) => s == null ? "?" : (s % 1 ? s.toFixed(1) : String(s));
+    const dteLabel = (d) => d < 10 ? `${Math.round(d)}d` : `${Math.round(d / 7)}wk`;
+    const buildTicket = (p) => {
+      const px = p.last;
+      if (!(px > 0)) return null;
+      const bull = p.swing_dir === "long";
+      // typical move duration: historical median days, else extrapolate from the
+      // current pace (we're swing_pct% in after swing_days days).
+      let medDays = p.swing_med_days;
+      if (!(medDays > 0) && p.swing_pct > 0 && p.swing_days > 0 && p.swing_med_pct > 0)
+        medDays = p.swing_days * (p.swing_med_pct / p.swing_pct);
+      if (!(medDays > 0)) medDays = 10;
+      const remainDays = Math.max(1, medDays - (p.swing_days || 0));
+      const ivr = ivBySym[String(p.symbol).toUpperCase()];
+      const rich = ivr != null && ivr >= 60;          // premium already expensive → sell it
+      const buy = !rich;                               // else buy it cheap for the vega pop
+      let strike, right, dte;
+      if (buy) {
+        right = bull ? "C" : "P";
+        strike = roundStrike(bull ? px * 1.02 : px * 0.98);   // just OTM: cheap + convex
+        dte = clip(Math.round(remainDays * 2.5), 5, 90);      // room + theta cushion
+      } else {
+        right = bull ? "P" : "C";
+        // sell OTM: puts down at the swing origin (support), calls up at a cushion
+        const base = bull ? Math.max(p.swing_from || px * 0.9, px * 0.90)
+                          : Math.min(p.swing_from || px * 1.1, px * 1.10);
+        strike = roundStrike(base);
+        dte = clip(Math.round(remainDays * 1.2), 3, 45);      // shorter → harvest theta
+      }
+      const tgt = roundStrike((p.swing_from || px) * (1 + (bull ? 1 : -1) * (p.swing_med_pct || 0) / 100));
+      return {
+        buy, right, strike, dte, tgt, ivr,
+        text: `${buy ? "Buy" : "Sell"} $${fmtK(strike)}${right} · ${dteLabel(dte)}`,
+        why: `${p.symbol}: ${bull ? "long" : "short"} setup, ${Math.round(p.swing_pct || 0)}% into a typical `
+           + `${Math.round(p.swing_med_pct || 0)}% / ${Math.round(medDays)}d move (~${Math.round(remainDays)}d left). `
+           + (buy ? `IV ${ivr != null ? "rank " + ivr + " " : ""}still cheap — buy the ${bull ? "call" : "put"} `
+                  + `near the money and let vega + delta expand as it accelerates. ${Math.round(dte)}d out (~2.5× the days left) so theta isn't the enemy.`
+                : `IV rank ${ivr} is rich — sell the ${bull ? "put" : "call"} at ${fmtK(strike)} to harvest it, ${Math.round(dte)}d out. `)
+           + ` Target ~$${fmtK(tgt)}.`,
+      };
+    };
     // ── EDGE board (direction + tilt), via the shared formula ──────────────
     const scored = board && board.rows ? computeWatchlistEdges(board.rows) : [];
     const actionable = scored.filter(r => r.edge != null && Math.abs(r.edge) >= 25);
@@ -232,7 +289,8 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
       r.swing_stage === "early" && r.edge != null && Math.abs(r.edge) >= 15);
     const earlyCount = earlyPool.length;
     const picks = earlyPool.map(r => ({ ...r, _es: earlyScore(r) }))
-      .sort((a, b) => b._es - a._es).slice(0, 3);
+      .sort((a, b) => b._es - a._es).slice(0, 3)
+      .map(r => ({ ...r, ticket: buildTicket(r) }));
     // ── Regime / VIX (macro tape) ──────────────────────────────────────────
     const items = (mkt && mkt.instruments) || [];
     const regime = mkoRegime(items);
@@ -305,12 +363,18 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
         <div className="pc-picks-h" title="Names whose move is just starting — ranked by conviction and room left to run, NOT names already extended. Click to load one on the chart.">Early movers — get in cheap</div>
         {v.picks.length ? v.picks.map((p, i) => {
           const long = p.swing_dir === "long";
+          const tk = p.ticket;
           return (
-          <button key={i} className="pc-pick" title={`${p.symbol} — ${long ? "long" : "short"} setup, only ${p.swing_pct != null ? Math.round(p.swing_pct) : "?"}% into a typical ${p.swing_med_pct != null ? Math.round(p.swing_med_pct) : "?"}% move. ${sellSide(p)}. Edge ${p.edge > 0 ? "+" : ""}${p.edge}.`}
+          <button key={i} className="pc-pick" title={tk ? tk.why : ""}
                   onClick={() => onSwitchTicker && onSwitchTicker(p.symbol)}>
-            <span className="pc-pick-sym">{p.symbol}</span>
-            <span className={`pc-pick-stage ${long ? "up" : "down"}`}>{long ? "▲" : "▼"} {p.swing_pct != null ? Math.round(p.swing_pct) : "?"}% in</span>
-            <span className="pc-pick-side">{sellSide(p)}</span>
+            <div className="pc-pick-l1">
+              <span className="pc-pick-sym">{p.symbol}</span>
+              <span className={`pc-pick-stage ${long ? "up" : "down"}`}>{long ? "▲" : "▼"} {p.swing_pct != null ? Math.round(p.swing_pct) : "?"}% in</span>
+            </div>
+            <div className="pc-pick-l2">
+              <span className={`pc-tkt ${tk && tk.buy ? "buy" : "sell"}`}>{tk ? tk.text : sellSide(p)}</span>
+              {tk && <span className="pc-tkt-tgt">{long ? "→" : "↓"} ${tk.tgt != null ? (tk.tgt % 1 ? tk.tgt.toFixed(1) : tk.tgt) : "?"}</span>}
+            </div>
           </button>
           );
         }) : <div className="pc-empty">No fresh setups — tape's extended, sit tight.</div>}
