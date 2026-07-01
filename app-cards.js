@@ -223,6 +223,206 @@ function MarketOverview({
     }, proxy[0]));
   })));
 }
+
+// ── Market posture card ────────────────────────────────────────────────────
+// Fills the empty top-left block. Answers "what do I do today?" BEFORE drilling
+// into a name: a premium-selling favorability verdict + 0-100 opportunity score,
+// three real stats, and the top live click-to-load candidates. Everything reuses
+// data the app already computes and caches — the IV-rank board (premium
+// richness), the watchlist EDGE board (via computeWatchlistEdges → the same
+// numbers the Watchlist tab shows), and the macro regime (VIX / risk tone). No
+// mocked numbers: a signal that isn't available shows "—", never a fake value.
+function MarketPosture({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [board, setBoard] = useState(null); // watchlist EDGE board
+  const [iv, setIv] = useState(null); // IV-rank board
+  const [mkt, setMkt] = useState(null); // macro strip (for regime + VIX)
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      const grab = async u => {
+        try {
+          const r = await apiFetch(u);
+          return await r.json();
+        } catch (_) {
+          return null;
+        }
+      };
+      const [b, v, m] = await Promise.all([grab("/api/watchlist_table"), grab("/api/ivrank"), grab("/api/market_overview")]);
+      if (!stop) {
+        setBoard(b);
+        setIv(v);
+        setMkt(m);
+        setLoading(false);
+      }
+      // If the IV-rank board is empty, kick a background scan so it populates
+      // for next time (best-effort; the card works without it).
+      if (!stop && v && (!v.rows || !v.rows.length) && !(v.status && v.status.scanning)) {
+        apiFetch("/api/ivrank/scan").catch(() => {});
+      }
+      if (!stop) t = setTimeout(load, document.hidden ? 120000 : 45000);
+    };
+    load();
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+  const view = useMemo(() => {
+    const clip = (x, a, b) => Math.max(a, Math.min(b, x));
+    // ── IV rank (premium richness) ─────────────────────────────────────────
+    const ivRows = iv && iv.rows || [];
+    let ivMedian = null,
+      ripe = 0,
+      ivTotal = ivRows.length;
+    if (ivRows.length) {
+      const ranks = ivRows.map(r => r.rank).filter(v => v != null).sort((a, b) => a - b);
+      if (ranks.length) ivMedian = Math.round(ranks[Math.floor(ranks.length / 2)]);
+      ripe = ivRows.filter(r => (r.rank || 0) >= 50).length;
+    }
+    // ── EDGE board (direction + top picks), via the shared formula ─────────
+    const scored = board && board.rows ? computeWatchlistEdges(board.rows) : [];
+    const actionable = scored.filter(r => r.edge != null && Math.abs(r.edge) >= 25);
+    const strongLong = actionable.filter(r => r.edge >= 50).length;
+    const strongShort = actionable.filter(r => r.edge <= -50).length;
+    const picks = actionable.slice().sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge)).slice(0, 3);
+    // ── Regime / VIX (macro tape) ──────────────────────────────────────────
+    const items = mkt && mkt.instruments || [];
+    const regime = mkoRegime(items);
+    const vixIt = items.find(i => i.key === "^VIX");
+    const vixLast = vixIt && vixIt.last != null ? vixIt.last : null;
+    const vixChg = vixIt ? vixIt.change_pct || 0 : null;
+    const vixBit = vixChg == null ? "—" : vixChg >= 0.5 ? "spiking" : vixChg <= -0.5 ? "easing" : "flat";
+    // ── Opportunity score for selling premium (0-100) ──────────────────────
+    // Anchor on IV-rank richness when we have it; nudge by VIX direction (a
+    // spiking VIX punishes short-vol, easing rewards it) and by how much of the
+    // book is throwing off actionable premium-sell setups.
+    const haveIv = ivMedian != null;
+    let score = haveIv ? ivMedian : 50;
+    if (vixChg != null) score += vixChg <= -0.5 ? 8 : vixChg >= 1.5 ? -18 : vixChg >= 0.5 ? -10 : 0;
+    score += clip(strongLong + strongShort - 6, -6, 10) * 0.8; // breadth of clean setups
+    score = Math.round(clip(score, 0, 100));
+    // ── Verdict ────────────────────────────────────────────────────────────
+    const vixSpiking = vixChg != null && vixChg >= 1.5;
+    let level, label, why;
+    if (vixSpiking) {
+      level = "off";
+      label = "Defensive";
+      why = "VIX spiking — premium is a trap, size down";
+    } else if (score >= 60 && (!haveIv || ivMedian >= 50)) {
+      level = "on";
+      label = "Favorable";
+      why = haveIv ? `IV rank elevated · ${ripe} names ripe` : "vol easing · setups clean";
+    } else if (score <= 35 || haveIv && ivMedian <= 30) {
+      level = "off";
+      label = "Thin premium";
+      why = haveIv ? "IV rank low — little to sell" : "quiet tape";
+    } else {
+      level = "mixed";
+      label = "Neutral";
+      why = haveIv ? `IV rank middling · ${ripe} ripe` : "mixed conditions";
+    }
+    // Directional tilt one-liner from the board.
+    const tilt = strongLong > strongShort * 1.5 ? "favors longs" : strongShort > strongLong * 1.5 ? "favors shorts" : "balanced";
+    const tiltTone = tilt === "favors longs" ? "up" : tilt === "favors shorts" ? "down" : "muted";
+    return {
+      level,
+      label,
+      why,
+      score,
+      ivMedian,
+      ripe,
+      ivTotal,
+      haveIv,
+      strongLong,
+      strongShort,
+      tilt,
+      tiltTone,
+      vixLast,
+      vixBit,
+      vixChg,
+      picks,
+      regime
+    };
+  }, [board, iv, mkt]);
+  if (loading) return /*#__PURE__*/React.createElement("div", {
+    className: "posture-card"
+  }, /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Reading the tape…"));
+  const v = view;
+  const sellSide = p => p.prem_sell && p.prem_sell !== "—" ? p.prem_sell : p.setup;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "posture-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pc-head"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pc-kicker",
+    title: "A market-wide read before you dig into names — reuses your Patterns favorability engine, IV-rank board, EDGE board and the macro tape."
+  }, "Market posture"), /*#__PURE__*/React.createElement("span", {
+    className: "pc-src",
+    title: "Live — built from your own scans (watchlist EDGE, IV rank) and the macro strip."
+  }, "live")), /*#__PURE__*/React.createElement("div", {
+    className: `pc-verdict pc-${v.level}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pc-badge"
+  }, v.label), /*#__PURE__*/React.createElement("span", {
+    className: "pc-why"
+  }, v.why)), /*#__PURE__*/React.createElement("div", {
+    className: "pc-scorewrap",
+    title: "0-100 favorability for selling premium right now: IV-rank richness, adjusted for VIX direction and how many clean setups your book is showing."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pc-score-row"
+  }, /*#__PURE__*/React.createElement("span", null, "Opportunity"), /*#__PURE__*/React.createElement("b", {
+    className: `pc-${v.level}`
+  }, v.score, /*#__PURE__*/React.createElement("small", null, "/100"))), /*#__PURE__*/React.createElement("div", {
+    className: "pc-bar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `pc-bar-fill pc-fill-${v.level}`,
+    style: {
+      width: `${v.score}%`
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "pc-stats"
+  }, /*#__PURE__*/React.createElement("div", {
+    title: "Median volatility rank across your scanned universe (premium richness), and how many names are ripe (rank ≥ 50)."
+  }, /*#__PURE__*/React.createElement("span", null, "IV rank"), /*#__PURE__*/React.createElement("b", null, v.haveIv ? v.ivMedian : "—"), /*#__PURE__*/React.createElement("small", null, v.haveIv ? `${v.ripe}/${v.ivTotal} ripe` : "scan pending")), /*#__PURE__*/React.createElement("div", {
+    title: "Net directional lean of your EDGE board — count of strong long vs short setups."
+  }, /*#__PURE__*/React.createElement("span", null, "Flow tilt"), /*#__PURE__*/React.createElement("b", {
+    className: `pc-${v.tiltTone === "up" ? "on" : v.tiltTone === "down" ? "off" : "mixed"}`
+  }, v.tilt.replace("favors ", "")), /*#__PURE__*/React.createElement("small", null, v.strongLong, "L · ", v.strongShort, "S")), /*#__PURE__*/React.createElement("div", {
+    title: "Spot VIX and today's direction — the seller's friend when easing, the enemy when spiking."
+  }, /*#__PURE__*/React.createElement("span", null, "VIX"), /*#__PURE__*/React.createElement("b", null, v.vixLast != null ? Number(v.vixLast).toFixed(2) : "—"), /*#__PURE__*/React.createElement("small", {
+    className: v.vixChg == null ? "" : v.vixChg <= -0.5 ? "up" : v.vixChg >= 0.5 ? "down" : ""
+  }, v.vixBit))), /*#__PURE__*/React.createElement("div", {
+    className: "pc-picks"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pc-picks-h",
+    title: "Highest-conviction names on your board right now (by EDGE). Click to load one on the chart."
+  }, "Top picks now"), v.picks.length ? v.picks.map((p, i) => /*#__PURE__*/React.createElement("button", {
+    key: i,
+    className: "pc-pick",
+    title: p.edge_tip || "",
+    onClick: () => onSwitchTicker && onSwitchTicker(p.symbol)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pc-pick-sym"
+  }, p.symbol), /*#__PURE__*/React.createElement("span", {
+    className: `pc-pick-edge ${p.edge >= 0 ? "up" : "down"}`
+  }, p.edge > 0 ? "+" : "", p.edge), /*#__PURE__*/React.createElement("span", {
+    className: "pc-pick-setup"
+  }, sellSide(p)))) : /*#__PURE__*/React.createElement("div", {
+    className: "pc-empty"
+  }, "No clean setups — scan or widen the book.")));
+}
 function TickerLogo({
   ticker
 }) {
@@ -13810,6 +14010,7 @@ Object.assign(window, {
   LeftRailDailyHigh: _memo(LeftRailDailyHigh),
   RightRail52WLow: _memo(RightRail52WLow),
   RightRailDailyLow: _memo(RightRailDailyLow),
-  MarketOverview: _memo(MarketOverview)
+  MarketOverview: _memo(MarketOverview),
+  MarketPosture: _memo(MarketPosture)
 });
 })();
