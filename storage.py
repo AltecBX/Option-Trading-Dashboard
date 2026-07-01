@@ -28,7 +28,14 @@ def _stable_data_dir() -> Path:
     env_dir = os.environ.get("JERRY_DATA_DIR", "").strip()
     if env_dir:
         d = Path(env_dir).expanduser().resolve()
+    elif Path("/data").is_dir():
+        # A Railway volume mounted at /data → persistent across deploys/restarts.
+        # Just attach the volume in the dashboard; no env var needed. This is
+        # what stops the scanned board / journal resetting on every redeploy.
+        d = Path("/data/jerry")
     else:
+        # Ephemeral fallback (no volume): survives within a running container but
+        # is wiped on redeploy. Fine for local/dev.
         d = (Path.home() / ".jerry-dashboard").resolve()
     try:
         d.mkdir(parents=True, exist_ok=True)

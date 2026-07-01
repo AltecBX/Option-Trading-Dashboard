@@ -34,6 +34,25 @@ try:
 except Exception:
     _SCAN_CONCURRENCY = 6
 
+# Flow budget: how many (priority-ordered) names get a FRESH Unusual Whales flow
+# lookup per scan. The rest reuse their most recent cached flow from the prior
+# board — real data, just not re-fetched — so a scan stays fast and UW usage is
+# bounded/predictable instead of one call per name × 1,285. 0 = unlimited (fresh
+# flow for everyone, the old behavior). Tune via WLT_FLOW_BUDGET.
+try:
+    _FLOW_BUDGET = max(0, int(os.environ.get("WLT_FLOW_BUDGET", "600")))
+except Exception:
+    _FLOW_BUDGET = 600
+
+# The flow-derived columns on a row — carried over verbatim when a name reuses
+# cached flow this scan (see _scan_one).
+_FLOW_KEYS = (
+    "flow_score", "flow_net", "flow_dir", "flow_agree", "flow_available",
+    "call_prem", "put_prem", "net_prem", "pc_ratio", "ask_call_prem",
+    "ask_put_prem", "call_sweeps", "put_sweeps", "flow_alerts", "flow_bull",
+    "flow_bear", "flow_quality", "flow_cc_risk", "flow_verdict",
+)
+
 try:
     import yfinance as yf
     import pandas as pd
@@ -606,11 +625,14 @@ def set_flow_provider(fn) -> None:
     _FLOW_FN = fn
 
 
-def _scan_one(sym: str, sub, flow_fn) -> dict | None:
+def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | None = None) -> dict | None:
     """Build one watchlist row from its slice of the batched OHLC download.
     Pure per-symbol work (price metrics + fundamentals + swing read + optional
-    UW flow) — safe to run concurrently. Identical logic to the former inline
-    serial loop; only relocated so a thread pool can fan it out."""
+    UW flow) — safe to run concurrently.
+
+    do_flow=False means this name is outside the per-scan flow budget: instead of
+    a fresh (rate-limited) UW call, carry its flow columns over from prior_row
+    (its last scan) so the board stays populated and the scan stays fast."""
     try:
         close = sub["Close"].dropna()
         vol = sub["Volume"] if "Volume" in sub else None
@@ -653,17 +675,28 @@ def _scan_one(sym: str, sub, flow_fn) -> dict | None:
             row.update(sw)
     except Exception:
         pass
-    # Options-flow agreement (best-effort; UW client is thread-safe + throttled).
-    if flow_fn is not None:
+    # Options-flow (best-effort; UW client is thread-safe + throttled).
+    base = pm.get("wtd")
+    if base is None:
+        base = pm.get("change")
+    pdir = ("up" if (base or 0) > 0 else "down" if (base or 0) < 0 else None)
+    if flow_fn is not None and do_flow:
         try:
             fl = flow_fn(sym, pm.get("last") or 0.0)
         except Exception:
             fl = None
-        base = pm.get("wtd")
-        if base is None:
-            base = pm.get("change")
-        pdir = ("up" if (base or 0) > 0 else "down" if (base or 0) < 0 else None)
         row.update(_flow_metrics(fl, pdir))
+    elif prior_row and prior_row.get("flow_available"):
+        # Outside the flow budget → reuse last scan's flow (no UW call), but
+        # re-judge agreement against TODAY's price direction, and flag it stale.
+        for k in _FLOW_KEYS:
+            if k in prior_row:
+                row[k] = prior_row[k]
+        fd = prior_row.get("flow_dir")
+        row["flow_agree"] = ("neutral" if (fd == "mixed" or not pdir)
+                             else "agrees" if ((pdir == "up" and fd == "bull") or (pdir == "down" and fd == "bear"))
+                             else "disagrees")
+        row["flow_cached"] = True
     return row
 
 
@@ -683,6 +716,13 @@ def _scan_worker(symbols: list[str]) -> None:
                 return -1.0                      # unscanned → back of the line
             return (r.get("market_cap") or 0) + abs(r.get("flow_net") or 0) * 5e9
         symbols = sorted(symbols, key=_prio, reverse=True)
+    # Flow budget: the first _FLOW_BUDGET priority names get a FRESH flow lookup;
+    # the rest reuse cached flow from `prior` (bounds UW usage, keeps it fast).
+    # A cold start (no prior board — first run, or a redeploy wiped the cache with
+    # no persistent volume) does a FULL flow pass ONCE to build a complete
+    # baseline; every rescan after that is fast + bounded. 0 = always unlimited.
+    cold = not prior
+    flow_syms = set(symbols) if (cold or _FLOW_BUDGET <= 0) else set(symbols[:_FLOW_BUDGET])
     flow_fn = _FLOW_FN
     analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:
@@ -715,7 +755,7 @@ def _scan_worker(symbols: list[str]) -> None:
                         if sub is None:
                             done += 1
                             continue
-                        futs[ex.submit(_scan_one, sym, sub, flow_fn)] = sym
+                        futs[ex.submit(_scan_one, sym, sub, flow_fn, sym in flow_syms, prior.get(sym))] = sym
                     for fut in as_completed(futs):
                         done += 1
                         with _LOCK:
