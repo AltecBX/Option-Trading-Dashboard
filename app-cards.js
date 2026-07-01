@@ -289,12 +289,28 @@ function MarketPosture({
       if (ranks.length) ivMedian = Math.round(ranks[Math.floor(ranks.length / 2)]);
       ripe = ivRows.filter(r => (r.rank || 0) >= 50).length;
     }
-    // ── EDGE board (direction + top picks), via the shared formula ─────────
+    // ── EDGE board (direction + tilt), via the shared formula ──────────────
     const scored = board && board.rows ? computeWatchlistEdges(board.rows) : [];
     const actionable = scored.filter(r => r.edge != null && Math.abs(r.edge) >= 25);
     const strongLong = actionable.filter(r => r.edge >= 50).length;
     const strongShort = actionable.filter(r => r.edge <= -50).length;
-    const picks = actionable.slice().sort((a, b) => Math.abs(b.edge) - Math.abs(a.edge)).slice(0, 3);
+    // ── EARLY-move candidates (the whole point) ────────────────────────────
+    // Only names whose swing is just STARTING — swing_stage "early", not
+    // extended/exhausted — so premium is still cheap and there's room to run.
+    // A name already +70% into its move (BIOA) is "late" and never shows here.
+    // Rank by conviction × flow/price confluence + how much of the typical move
+    // is still AHEAD (room). That's "get in before it explodes", not "chase".
+    const earlyScore = r => {
+      const conf = r.swing_dir === "long" && r.edge_dir === "long" || r.swing_dir === "short" && r.edge_dir === "short";
+      const room = r.swing_med_pct ? Math.max(0, 1 - (r.swing_pct || 0) / r.swing_med_pct) : 0.4;
+      return Math.abs(r.edge) * (conf ? 1.4 : 0.85) + room * 35;
+    };
+    const earlyPool = scored.filter(r => r.swing_stage === "early" && r.edge != null && Math.abs(r.edge) >= 15);
+    const earlyCount = earlyPool.length;
+    const picks = earlyPool.map(r => ({
+      ...r,
+      _es: earlyScore(r)
+    })).sort((a, b) => b._es - a._es).slice(0, 3);
     // ── Regime / VIX (macro tape) ──────────────────────────────────────────
     const items = mkt && mkt.instruments || [];
     const regime = mkoRegime(items);
@@ -351,6 +367,7 @@ function MarketPosture({
       vixBit,
       vixChg,
       picks,
+      earlyCount,
       regime
     };
   }, [board, iv, mkt]);
@@ -400,28 +417,31 @@ function MarketPosture({
   }, /*#__PURE__*/React.createElement("span", null, "Flow tilt"), /*#__PURE__*/React.createElement("b", {
     className: `pc-${v.tiltTone === "up" ? "on" : v.tiltTone === "down" ? "off" : "mixed"}`
   }, v.tilt.replace("favors ", "")), /*#__PURE__*/React.createElement("small", null, v.strongLong, "L · ", v.strongShort, "S")), /*#__PURE__*/React.createElement("div", {
-    title: "Spot VIX and today's direction — the seller's friend when easing, the enemy when spiking."
-  }, /*#__PURE__*/React.createElement("span", null, "VIX"), /*#__PURE__*/React.createElement("b", null, v.vixLast != null ? Number(v.vixLast).toFixed(2) : "—"), /*#__PURE__*/React.createElement("small", {
-    className: v.vixChg == null ? "" : v.vixChg <= -0.5 ? "up" : v.vixChg >= 0.5 ? "down" : ""
-  }, v.vixBit))), /*#__PURE__*/React.createElement("div", {
+    title: "Names whose move is just STARTING (early stage) with flow confirming — fresh entries with room to run and cheap premium. This is the pool your top picks come from."
+  }, /*#__PURE__*/React.createElement("span", null, "Early setups"), /*#__PURE__*/React.createElement("b", {
+    className: v.earlyCount > 0 ? "pc-on" : ""
+  }, v.earlyCount), /*#__PURE__*/React.createElement("small", null, "fresh entries"))), /*#__PURE__*/React.createElement("div", {
     className: "pc-picks"
   }, /*#__PURE__*/React.createElement("div", {
     className: "pc-picks-h",
-    title: "Highest-conviction names on your board right now (by EDGE). Click to load one on the chart."
-  }, "Top picks now"), v.picks.length ? v.picks.map((p, i) => /*#__PURE__*/React.createElement("button", {
-    key: i,
-    className: "pc-pick",
-    title: p.edge_tip || "",
-    onClick: () => onSwitchTicker && onSwitchTicker(p.symbol)
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "pc-pick-sym"
-  }, p.symbol), /*#__PURE__*/React.createElement("span", {
-    className: `pc-pick-edge ${p.edge >= 0 ? "up" : "down"}`
-  }, p.edge > 0 ? "+" : "", p.edge), /*#__PURE__*/React.createElement("span", {
-    className: "pc-pick-setup"
-  }, sellSide(p)))) : /*#__PURE__*/React.createElement("div", {
+    title: "Names whose move is just starting — ranked by conviction and room left to run, NOT names already extended. Click to load one on the chart."
+  }, "Early movers — get in cheap"), v.picks.length ? v.picks.map((p, i) => {
+    const long = p.swing_dir === "long";
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      className: "pc-pick",
+      title: `${p.symbol} — ${long ? "long" : "short"} setup, only ${p.swing_pct != null ? Math.round(p.swing_pct) : "?"}% into a typical ${p.swing_med_pct != null ? Math.round(p.swing_med_pct) : "?"}% move. ${sellSide(p)}. Edge ${p.edge > 0 ? "+" : ""}${p.edge}.`,
+      onClick: () => onSwitchTicker && onSwitchTicker(p.symbol)
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "pc-pick-sym"
+    }, p.symbol), /*#__PURE__*/React.createElement("span", {
+      className: `pc-pick-stage ${long ? "up" : "down"}`
+    }, long ? "▲" : "▼", " ", p.swing_pct != null ? Math.round(p.swing_pct) : "?", "% in"), /*#__PURE__*/React.createElement("span", {
+      className: "pc-pick-side"
+    }, sellSide(p)));
+  }) : /*#__PURE__*/React.createElement("div", {
     className: "pc-empty"
-  }, "No clean setups — scan or widen the book.")));
+  }, "No fresh setups — tape's extended, sit tight.")));
 }
 function TickerLogo({
   ticker

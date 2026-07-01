@@ -8916,10 +8916,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--bg-3); cursor: pointer; transition: border-color 120ms var(--ease); }
 .pc-pick:hover { border-color: var(--line-2); }
-.pc-pick-sym { font-family: var(--font-mono); font-weight: 800; font-size: 12.5px; color: var(--fg); }
-.pc-pick-edge { font-family: var(--font-mono); font-weight: 800; font-size: 11.5px; }
-.pc-pick-edge.up { color: var(--up); } .pc-pick-edge.down { color: var(--down); }
-.pc-pick-setup { margin-left: auto; font-size: 10.5px; color: var(--fg-3);
+.pc-pick-sym { font-family: var(--font-mono); font-weight: 800; font-size: 12.5px; color: var(--fg);
+  flex: 0 0 auto; }
+.pc-pick-stage { font-family: var(--font-mono); font-weight: 700; font-size: 11px; white-space: nowrap; }
+.pc-pick-stage.up { color: var(--up); } .pc-pick-stage.down { color: var(--down); }
+.pc-pick-side { margin-left: auto; font-size: 10.5px; color: var(--fg-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pc-empty { font-size: 10.5px; color: var(--fg-3); padding: 2px 0; }
 .newsticker {
