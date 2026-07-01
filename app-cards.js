@@ -1463,6 +1463,37 @@ const MCAP_PRED = Object.fromEntries(MCAP_BUCKETS.map(([v,, fn]) => [v, fn]));
 //    scores low even if it leans the same way (quality, premium rank, rel-vol,
 //    alert count, and price agreement drive conviction).
 //  - Risk gate: earnings within 7 days halves the score and flags the row.
+// How fresh is a row's options-flow? Names in the per-scan live-flow budget are
+// fetched fresh; the rest carry their last fetch time. Returns a tone + label
+// for the little dot next to EDGE so live vs cached is glanceable.
+function flowFreshness(ts) {
+  if (!ts) return null;
+  let ms;
+  try {
+    ms = Date.now() - new Date(ts).getTime();
+  } catch (_) {
+    return null;
+  }
+  if (!(ms >= 0)) return null;
+  const min = ms / 60000;
+  if (min < 20) return {
+    tone: "fresh",
+    label: "is live"
+  };
+  if (min < 60) return {
+    tone: "ok",
+    label: `${Math.round(min)}m old`
+  };
+  const hr = min / 60;
+  if (hr < 24) return {
+    tone: hr >= 6 ? "stale" : "ok",
+    label: `${Math.round(hr)}h old`
+  };
+  return {
+    tone: "stale",
+    label: `${Math.round(hr / 24)}d old`
+  };
+}
 function computeWatchlistEdges(rows) {
   if (!rows || !rows.length) return rows || [];
   const clip = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -3906,7 +3937,7 @@ function WatchlistTableCard({
     company: "Company name",
     tag: "Your category from the imported CSV — use the Tag filter to group your list.",
     weekly: "Whether the stock has weekly options (from your CSV). Yes / No / blank.",
-    edge: "Edge — signed options-flow conviction (+long / −short), size-normalized. Sort to rank morning buys vs sells.",
+    edge: "Edge — signed options-flow conviction (+long / −short), size-normalized. Sort to rank morning buys vs sells. The dot shows flow freshness: green = live this scan, grey = minutes old, amber = hours old (cached — outside this scan's live-flow budget).",
     setup: "Plain-English read of the edge drivers",
     prem_sell: "Suggested premium-selling side",
     swing_dir: "Active price-swing direction (long/short)",
@@ -4371,9 +4402,15 @@ function WatchlistTableCard({
       className: "muted"
     }, "—");
     const cls = r.edge >= 15 ? "up" : r.edge <= -15 ? "down" : "muted";
-    return /*#__PURE__*/React.createElement("b", {
+    const f = flowFreshness(r.flow_ts);
+    return /*#__PURE__*/React.createElement("span", {
+      className: "wt-edge"
+    }, /*#__PURE__*/React.createElement("b", {
       className: cls
-    }, r.edge > 0 ? "+" : "", r.edge);
+    }, r.edge > 0 ? "+" : "", r.edge), f && /*#__PURE__*/React.createElement("span", {
+      className: `wt-flowdot ${f.tone}`,
+      title: `Options flow ${f.label}${r.flow_cached ? " (cached — outside this scan's live-flow budget)" : " (live this scan)"}`
+    }));
   };
   const setupCell = r => {
     if (!r.setup) return /*#__PURE__*/React.createElement("span", {

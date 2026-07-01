@@ -686,6 +686,8 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
         except Exception:
             fl = None
         row.update(_flow_metrics(fl, pdir))
+        if row.get("flow_available"):
+            row["flow_ts"] = _now_iso()            # flow fetched just now
     elif prior_row and prior_row.get("flow_available"):
         # Outside the flow budget → reuse last scan's flow (no UW call), but
         # re-judge agreement against TODAY's price direction, and flag it stale.
@@ -697,6 +699,7 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
                              else "agrees" if ((pdir == "up" and fd == "bull") or (pdir == "down" and fd == "bear"))
                              else "disagrees")
         row["flow_cached"] = True
+        row["flow_ts"] = prior_row.get("flow_ts")  # keep the ORIGINAL fetch time
     return row
 
 
