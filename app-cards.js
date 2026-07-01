@@ -103,9 +103,15 @@ function mkoRegime(items) {
     hyg = by["HYG"],
     gold = by["GC=F"];
   let score = 0;
-  score += eqAvg >= 0.15 ? 2 : eqAvg <= -0.15 ? -2 : 0; // equities (×2 anchor)
-  if (vix != null) score += vix <= -1.0 ? 1 : vix >= 1.0 ? -1 : 0; // VIX (inverse)
-  if (dxy != null) score += dxy <= -0.25 ? 1 : dxy >= 0.25 ? -1 : 0; // dollar (inverse)
+  // Equities (anchor) — GRADED so a mild drag (e.g. one index red pulling the
+  // average to −0.18%) isn't treated the same as a real −0.5% rout. Needs
+  // genuine weakness for the full −2.
+  score += eqAvg >= 0.25 ? 2 : eqAvg >= 0.10 ? 1 : eqAvg <= -0.25 ? -2 : eqAvg <= -0.10 ? -1 : 0;
+  // VIX (inverse) — easing = risk-on, spiking = risk-off. Thresholds match the
+  // "easing/bid" wording below so the score agrees with the words (a −0.67% VIX
+  // reads "easing" AND now votes risk-on).
+  if (vix != null) score += vix <= -1.5 ? 2 : vix <= -0.5 ? 1 : vix >= 1.5 ? -2 : vix >= 0.5 ? -1 : 0;
+  if (dxy != null) score += dxy <= -0.3 ? 1 : dxy >= 0.3 ? -1 : 0; // dollar (inverse)
   if (hyg != null) score += hyg >= 0.10 ? 1 : hyg <= -0.10 ? -1 : 0; // credit (direct)
 
   let tone, label;
