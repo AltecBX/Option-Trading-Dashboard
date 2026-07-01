@@ -4130,6 +4130,8 @@ from storage import (  # noqa: F401
     _TRADE_JOURNAL_PATH,
     _load_trade_journal,
     _save_trade_journal,
+    _load_pick_journal,
+    _save_pick_journal,
     _FADE_STAGES_PATH,
     _load_fade_stages,
     _save_fade_stages,
@@ -5289,6 +5291,39 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _save_trade_journal(journal)
                 self._send_json({"ok": True, "count": len(journal),
                                    "replaced": replaced})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        # ── Pick journal: snapshot an early-mover suggestion (v3.02) ──
+        if parsed.path == "/api/pick_journal":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 200_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(payload, dict) or not payload.get("symbol"):
+                    raise ValueError("expected object with symbol")
+                # Stamp server time (the moment it was journaled) + an id.
+                now = datetime.now(_ET) if _ET else datetime.utcnow()
+                payload["saved_at"] = now.isoformat()
+                payload["id"] = f"{payload['symbol']}-{int(now.timestamp())}"
+                journal = _load_pick_journal()
+                journal.append(payload)
+                journal = journal[-1000:]           # cap
+                _save_pick_journal(journal)
+                self._send_json({"ok": True, "count": len(journal), "id": payload["id"]})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/pick_journal/delete":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                payload = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+                jid = payload.get("id")
+                journal = _load_pick_journal()
+                journal = [e for e in journal if e.get("id") != jid] if jid else []
+                _save_pick_journal(journal)
+                self._send_json({"ok": True, "count": len(journal)})
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
@@ -7049,6 +7084,43 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc), "trades": []}, status=500)
+            return
+        if parsed.path == "/api/pick_journal":
+            # Journaled early-mover picks, newest-first, each enriched with the
+            # LIVE price + % move since it was journaled — so you can see how
+            # accurate the pick was without any extra work.
+            try:
+                journal = _load_pick_journal()
+                syms = list({e.get("symbol") for e in journal if e.get("symbol")})
+                quotes = {}
+                sc = _schwab()
+                if sc is not None and syms:
+                    for i in range(0, len(syms), 250):
+                        try:
+                            quotes.update(sc.get_quotes(syms[i:i + 250]) or {})
+                        except Exception:
+                            continue
+                out = []
+                for e in journal:
+                    row = dict(e)
+                    q = quotes.get(e.get("symbol")) or quotes.get(str(e.get("symbol")).upper())
+                    now_px = _num(q.get("last")) if q else None
+                    row["now_price"] = round(now_px, 2) if now_px is not None else None
+                    p0 = _num(e.get("price"))
+                    if now_px is not None and p0 and p0 > 0:
+                        # Signed toward the trade thesis: long → up is good, short → down is good.
+                        raw = (now_px / p0 - 1.0) * 100.0
+                        row["pct_since"] = round(raw, 2)
+                        row["pct_toward"] = round(raw if e.get("dir") != "short" else -raw, 2)
+                    else:
+                        row["pct_since"] = None
+                        row["pct_toward"] = None
+                    out.append(row)
+                out.sort(key=lambda e: e.get("saved_at", ""), reverse=True)
+                self._send_json({"picks": out, "count": len(out)})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/pick_journal", exc)
+                self._send_json({"error": str(exc), "picks": []}, status=500)
             return
         if parsed.path == "/api/earnings_iv_crush":
             # Estimates typical post-earnings IV crush for symbols with

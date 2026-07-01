@@ -240,6 +240,8 @@ function MarketPosture({
   const [iv, setIv] = useState(null); // IV-rank board
   const [mkt, setMkt] = useState(null); // macro strip (for regime + VIX)
   const [loading, setLoading] = useState(true);
+  const [logged, setLogged] = useState(() => new Set()); // journaled this session
+
   useEffect(() => {
     let stop = false,
       t = null;
@@ -458,6 +460,46 @@ function MarketPosture({
   }, "Reading the tape…"));
   const v = view;
   const sellSide = p => p.prem_sell && p.prem_sell !== "—" ? p.prem_sell : p.setup;
+  // Snapshot a pick to the journal — captures everything on screen (price,
+  // ticket, the move context, the reasoning, the posture at that moment) plus a
+  // server timestamp, so accuracy can be reviewed later on the Journal tab.
+  const journalPick = async p => {
+    const tk = p.ticket || {};
+    const snap = {
+      symbol: p.symbol,
+      company: p.company || p.name || "",
+      sector: p.sector || "",
+      price: p.last,
+      dir: p.swing_dir,
+      swing_pct: p.swing_pct,
+      swing_med_pct: p.swing_med_pct,
+      swing_days: p.swing_days,
+      swing_med_days: p.swing_med_days,
+      edge: p.edge,
+      stage: p.swing_stage,
+      ticket: tk.text || sellSide(p),
+      action: tk.buy === undefined ? null : tk.buy ? "buy" : "sell",
+      right: tk.right,
+      strike: tk.strike,
+      dte: tk.dte,
+      target: tk.tgt,
+      why: tk.why || p.edge_tip || "",
+      posture: v.label,
+      score: v.score,
+      regime: v.regime ? v.regime.label : null
+    };
+    try {
+      await apiFetch("/api/pick_journal", {
+        method: "POST",
+        body: JSON.stringify(snap)
+      });
+      setLogged(s => {
+        const n = new Set(s);
+        n.add(p.symbol);
+        return n;
+      });
+    } catch (_) {/* best-effort */}
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "posture-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -517,11 +559,20 @@ function MarketPosture({
   }, "Early movers — get in cheap"), v.picks.length ? v.picks.map((p, i) => {
     const long = p.swing_dir === "long";
     const tk = p.ticket;
-    return /*#__PURE__*/React.createElement("button", {
+    const isLogged = logged.has(p.symbol);
+    return /*#__PURE__*/React.createElement("div", {
       key: i,
       className: "pc-pick",
+      role: "button",
+      tabIndex: 0,
       title: tk ? tk.why : "",
-      onClick: () => onSwitchTicker && onSwitchTicker(p.symbol)
+      onClick: () => onSwitchTicker && onSwitchTicker(p.symbol),
+      onKeyDown: e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSwitchTicker && onSwitchTicker(p.symbol);
+        }
+      }
     }, /*#__PURE__*/React.createElement("div", {
       className: "pc-pick-l1"
     }, /*#__PURE__*/React.createElement("span", {
@@ -534,7 +585,14 @@ function MarketPosture({
       className: `pc-tkt ${tk && tk.buy ? "buy" : "sell"}`
     }, tk ? tk.text : sellSide(p)), tk && /*#__PURE__*/React.createElement("span", {
       className: "pc-tkt-tgt"
-    }, long ? "→" : "↓", " $", tk.tgt != null ? tk.tgt % 1 ? tk.tgt.toFixed(1) : tk.tgt : "?")));
+    }, long ? "→" : "↓", " $", tk.tgt != null ? tk.tgt % 1 ? tk.tgt.toFixed(1) : tk.tgt : "?")), /*#__PURE__*/React.createElement("button", {
+      className: `pc-pick-log${isLogged ? " done" : ""}`,
+      title: isLogged ? "Logged to your Picks Journal — snapshotted price, time & thesis. Click to log again." : "Log this pick to your Picks Journal (captures price, time, the ticket and the full reasoning so you can score it later)",
+      onClick: e => {
+        e.stopPropagation();
+        journalPick(p);
+      }
+    }, isLogged ? "✓" : "＋"));
   }) : /*#__PURE__*/React.createElement("div", {
     className: "pc-empty"
   }, "No fresh setups — tape's extended, sit tight.")));
@@ -14660,11 +14718,143 @@ function MarketContextBar({
     className: "mctx-quiet"
   }, "rotation pending scan…")));
 }
+
+// ── Picks Journal ─────────────────────────────────────────────────────────
+// The log of every early-mover pick you snapshotted from the posture card:
+// what you saw (price, ticket, thesis, posture) at the moment you logged it,
+// plus the live price and how far it has moved toward the thesis since — so you
+// can actually score how good the picks were.
+function pjWhen(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric"
+    }) + ", " + d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  } catch (_) {
+    return iso || "—";
+  }
+}
+const pj2 = v => v != null && v === v ? Number(v).toFixed(2) : "—";
+function PicksJournalCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const load = React.useCallback(async () => {
+    try {
+      const r = await apiFetch("/api/pick_journal");
+      const d = await r.json();
+      setData(d);
+    } catch (_) {}
+    setLoading(false);
+  }, [apiFetch]);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const run = async () => {
+      await load();
+      if (!stop) t = setTimeout(run, document.hidden ? 120000 : 45000);
+    };
+    run();
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [load]);
+  const del = async id => {
+    try {
+      await apiFetch("/api/pick_journal/delete", {
+        method: "POST",
+        body: JSON.stringify({
+          id
+        })
+      });
+      load();
+    } catch (_) {}
+  };
+  const picks = data && data.picks || [];
+  const stats = useMemo(() => {
+    const scored = picks.filter(p => p.pct_toward != null);
+    const wins = scored.filter(p => p.pct_toward > 0).length;
+    const avg = scored.length ? scored.reduce((a, p) => a + p.pct_toward, 0) / scored.length : null;
+    return {
+      total: picks.length,
+      scored: scored.length,
+      hit: scored.length ? Math.round(wins / scored.length * 100) : null,
+      avg: avg != null ? Math.round(avg * 10) / 10 : null
+    };
+  }, [picks]);
+  if (loading && !data) return /*#__PURE__*/React.createElement("div", {
+    className: "card pj-card"
+  }, /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Loading your picks journal…"));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card pj-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pj-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pj-title",
+    title: "Every early-mover pick you logged from the Market Posture card, with how it has performed since."
+  }, "Picks Journal ", /*#__PURE__*/React.createElement("span", {
+    className: "pj-sub"
+  }, "score your early-mover picks")), /*#__PURE__*/React.createElement("div", {
+    className: "pj-summary"
+  }, /*#__PURE__*/React.createElement("b", null, stats.total), " logged", stats.scored ? /*#__PURE__*/React.createElement(React.Fragment, null, " · hit rate ", /*#__PURE__*/React.createElement("b", {
+    className: stats.hit >= 50 ? "up" : "down"
+  }, stats.hit, "%")) : null, stats.avg != null ? /*#__PURE__*/React.createElement(React.Fragment, null, " · avg ", /*#__PURE__*/React.createElement("b", {
+    className: stats.avg >= 0 ? "up" : "down"
+  }, stats.avg > 0 ? "+" : "", stats.avg, "%"), " toward thesis") : null)), !picks.length ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "empty"
+  }, "No picks logged yet. On the Market Posture card up top, hit the ＋ on an early mover to snapshot it here — price, time, the ticket and the full reasoning.") : /*#__PURE__*/React.createElement("div", {
+    className: "pj-list"
+  }, picks.map(p => {
+    const t = p.pct_toward;
+    return /*#__PURE__*/React.createElement("div", {
+      key: p.id,
+      className: "pj-entry"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "pj-row1"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "pj-sym",
+      onClick: () => onSwitchTicker && onSwitchTicker(p.symbol),
+      title: `Load ${p.symbol}`
+    }, p.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "pj-when",
+      title: "When you logged it"
+    }, pjWhen(p.saved_at)), /*#__PURE__*/React.createElement("span", {
+      className: `pj-tkt ${p.action === "buy" ? "buy" : "sell"}`
+    }, p.ticket), t != null && /*#__PURE__*/React.createElement("span", {
+      className: `pj-move ${t >= 0 ? "up" : "down"}`,
+      title: "Move toward the pick's thesis since you logged it (long → up is good, short → down is good)"
+    }, t > 0 ? "+" : "", t, "%"), /*#__PURE__*/React.createElement("button", {
+      className: "pj-del",
+      onClick: () => del(p.id),
+      title: "Remove from journal",
+      "aria-label": "Delete"
+    }, "✕")), /*#__PURE__*/React.createElement("div", {
+      className: "pj-row2"
+    }, "logged @ ", /*#__PURE__*/React.createElement("b", null, "$", pj2(p.price)), p.now_price != null && /*#__PURE__*/React.createElement(React.Fragment, null, " → now ", /*#__PURE__*/React.createElement("b", null, "$", pj2(p.now_price))), " · ", p.dir || "?", " · ", p.swing_pct != null ? Math.round(p.swing_pct) : "?", "% into a ", p.swing_med_pct != null ? Math.round(p.swing_med_pct) : "?", "% move", p.edge != null && /*#__PURE__*/React.createElement(React.Fragment, null, " · edge ", p.edge > 0 ? "+" : "", p.edge), p.posture ? /*#__PURE__*/React.createElement(React.Fragment, null, " · ", p.posture, p.score != null ? ` (${p.score})` : "") : null, p.regime ? ` · ${p.regime}` : ""), p.why && /*#__PURE__*/React.createElement("div", {
+      className: "pj-why"
+    }, p.why));
+  })));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
   MarketContextBar: _memo(MarketContextBar),
+  PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard),
   WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard),

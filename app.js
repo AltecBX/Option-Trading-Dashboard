@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.01";
+const APP_VERSION = "3.02";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3997,6 +3997,14 @@ function App() {
   }, /*#__PURE__*/React.createElement(MarketBreadthCard, {
     apiFetch: apiFetch,
     onLoadTicker: switchTicker
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "journal",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Journal"
+  }, /*#__PURE__*/React.createElement(PicksJournalCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker
   }))), showRef && /*#__PURE__*/React.createElement("div", {
     className: "hk-overlay",
     onClick: () => setShowRef(false)
