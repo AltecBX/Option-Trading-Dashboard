@@ -371,6 +371,24 @@ function MarketPosture({
       ...r,
       ticket: buildTicket(r)
     }));
+    // ── Sector rotation (from the board, no extra fetch) ───────────────────
+    // Net strong-long minus strong-short EDGE per sector → which sector the
+    // flow is rotating INTO (leader) and OUT OF (laggard). A compact read so
+    // you catch rotation without opening the Breadth tab.
+    const secAgg = {};
+    scored.forEach(r => {
+      if (r.edge == null || !r.sector) return;
+      const s = secAgg[r.sector] || (secAgg[r.sector] = {
+        sector: r.sector,
+        net: 0,
+        n: 0
+      });
+      s.n++;
+      if (r.edge >= 25) s.net++;else if (r.edge <= -25) s.net--;
+    });
+    const secList = Object.values(secAgg).filter(s => s.n >= 3).sort((a, b) => b.net - a.net);
+    const rotUp = secList.length && secList[0].net > 0 ? secList[0].sector : null;
+    const rotDown = secList.length && secList[secList.length - 1].net < 0 ? secList[secList.length - 1].sector : null;
     // ── Regime / VIX (macro tape) ──────────────────────────────────────────
     const items = mkt && mkt.instruments || [];
     const regime = mkoRegime(items);
@@ -428,6 +446,8 @@ function MarketPosture({
       vixChg,
       picks,
       earlyCount,
+      rotUp,
+      rotDown,
       regime
     };
   }, [board, iv, mkt]);
@@ -480,7 +500,16 @@ function MarketPosture({
     title: "Names whose move is just STARTING (early stage) with flow confirming — fresh entries with room to run and cheap premium. This is the pool your top picks come from."
   }, /*#__PURE__*/React.createElement("span", null, "Early setups"), /*#__PURE__*/React.createElement("b", {
     className: v.earlyCount > 0 ? "pc-on" : ""
-  }, v.earlyCount), /*#__PURE__*/React.createElement("small", null, "fresh entries"))), /*#__PURE__*/React.createElement("div", {
+  }, v.earlyCount), /*#__PURE__*/React.createElement("small", null, "fresh entries"))), (v.rotUp || v.rotDown) && /*#__PURE__*/React.createElement("div", {
+    className: "pc-rot",
+    title: "Where the options flow is rotating: the sector with the most net-bullish EDGE (into) vs the most net-bearish (out of). Full picture on the Breadth tab."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pc-rot-lbl"
+  }, "Rotation"), v.rotUp && /*#__PURE__*/React.createElement("span", {
+    className: "pc-rot-in"
+  }, "▲ ", v.rotUp), v.rotDown && /*#__PURE__*/React.createElement("span", {
+    className: "pc-rot-out"
+  }, "▼ ", v.rotDown)), /*#__PURE__*/React.createElement("div", {
     className: "pc-picks"
   }, /*#__PURE__*/React.createElement("div", {
     className: "pc-picks-h",

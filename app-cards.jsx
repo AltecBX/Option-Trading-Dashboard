@@ -291,6 +291,20 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
     const picks = earlyPool.map(r => ({ ...r, _es: earlyScore(r) }))
       .sort((a, b) => b._es - a._es).slice(0, 3)
       .map(r => ({ ...r, ticket: buildTicket(r) }));
+    // ── Sector rotation (from the board, no extra fetch) ───────────────────
+    // Net strong-long minus strong-short EDGE per sector → which sector the
+    // flow is rotating INTO (leader) and OUT OF (laggard). A compact read so
+    // you catch rotation without opening the Breadth tab.
+    const secAgg = {};
+    scored.forEach(r => {
+      if (r.edge == null || !r.sector) return;
+      const s = secAgg[r.sector] || (secAgg[r.sector] = { sector: r.sector, net: 0, n: 0 });
+      s.n++;
+      if (r.edge >= 25) s.net++; else if (r.edge <= -25) s.net--;
+    });
+    const secList = Object.values(secAgg).filter(s => s.n >= 3).sort((a, b) => b.net - a.net);
+    const rotUp = secList.length && secList[0].net > 0 ? secList[0].sector : null;
+    const rotDown = secList.length && secList[secList.length - 1].net < 0 ? secList[secList.length - 1].sector : null;
     // ── Regime / VIX (macro tape) ──────────────────────────────────────────
     const items = (mkt && mkt.instruments) || [];
     const regime = mkoRegime(items);
@@ -321,7 +335,8 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
       : strongShort > strongLong * 1.5 ? "favors shorts" : "balanced";
     const tiltTone = tilt === "favors longs" ? "up" : tilt === "favors shorts" ? "down" : "muted";
     return { level, label, why, score, ivMedian, ripe, ivTotal, haveIv, strongLong,
-             strongShort, tilt, tiltTone, vixLast, vixBit, vixChg, picks, earlyCount, regime };
+             strongShort, tilt, tiltTone, vixLast, vixBit, vixChg, picks, earlyCount,
+             rotUp, rotDown, regime };
   }, [board, iv, mkt]);
 
   if (loading) return <div className="posture-card"><CardNote kind="loading">Reading the tape…</CardNote></div>;
@@ -359,6 +374,13 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
           <small>fresh entries</small>
         </div>
       </div>
+      {(v.rotUp || v.rotDown) && (
+        <div className="pc-rot" title="Where the options flow is rotating: the sector with the most net-bullish EDGE (into) vs the most net-bearish (out of). Full picture on the Breadth tab.">
+          <span className="pc-rot-lbl">Rotation</span>
+          {v.rotUp && <span className="pc-rot-in">▲ {v.rotUp}</span>}
+          {v.rotDown && <span className="pc-rot-out">▼ {v.rotDown}</span>}
+        </div>
+      )}
       <div className="pc-picks">
         <div className="pc-picks-h" title="Names whose move is just starting — ranked by conviction and room left to run, NOT names already extended. Click to load one on the chart.">Early movers — get in cheap</div>
         {v.picks.length ? v.picks.map((p, i) => {
