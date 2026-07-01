@@ -149,6 +149,9 @@ const TABS = [{
   id: "breadth",
   label: "Breadth"
 }, {
+  id: "journal",
+  label: "Journal"
+}, {
   id: "watchlist",
   label: "Watchlist"
 }, {

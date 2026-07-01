@@ -8917,10 +8917,16 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .pc-picks { display: flex; flex-direction: column; gap: 3px; min-height: 0; }
 .pc-picks-h { font-size: 9px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
   color: var(--fg-4); cursor: help; }
-.pc-pick { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
-  padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+.pc-pick { position: relative; display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
+  padding: 4px 27px 4px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--bg-3); cursor: pointer; transition: border-color 120ms var(--ease); }
 .pc-pick:hover { border-color: var(--line-2); }
+.pc-pick-log { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 19px; height: 19px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-2); border-radius: 5px; background: var(--bg-2); color: var(--fg-3);
+  font-size: 12px; font-weight: 800; line-height: 1; cursor: pointer; transition: all 120ms var(--ease); }
+.pc-pick-log:hover { border-color: var(--accent); color: var(--accent); }
+.pc-pick-log.done { border-color: var(--up); color: var(--up); background: color-mix(in oklch, var(--up), transparent 85%); }
 .pc-pick-l1 { display: flex; align-items: baseline; gap: 8px; }
 .pc-pick-l2 { display: flex; align-items: baseline; gap: 8px; }
 .pc-pick-sym { font-family: var(--font-mono); font-weight: 800; font-size: 12.5px; color: var(--fg);
@@ -8980,6 +8986,31 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (min-width: 1081px) {
   .mctx { grid-column: 2 / -1; grid-row: 3; align-self: stretch; margin: 0; }
 }
+
+/* ── Picks Journal ─────────────────────────────────────────────────────── */
+.pj-card { padding: 16px 18px; }
+.pj-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.pj-title { font-family: var(--font-display); font-weight: 600; font-size: 17px; color: var(--fg); }
+.pj-sub { font-weight: 500; font-size: 12.5px; color: var(--fg-3); margin-left: 6px; }
+.pj-summary { font-size: 13px; color: var(--fg-2); }
+.pj-summary b { font-weight: 800; }
+.pj-list { display: flex; flex-direction: column; gap: 8px; }
+.pj-entry { border: 1px solid var(--line); border-radius: 11px; background: var(--bg-2); padding: 10px 13px; }
+.pj-row1 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pj-sym { font-family: var(--font-mono); font-weight: 800; font-size: 15px; color: var(--fg);
+  background: none; border: 0; padding: 0; cursor: pointer; }
+.pj-sym:hover { color: var(--accent); text-decoration: underline; }
+.pj-when { font-size: 11.5px; color: var(--fg-3); }
+.pj-tkt { font-family: var(--font-mono); font-weight: 800; font-size: 12.5px; }
+.pj-tkt.buy { color: var(--accent); } .pj-tkt.sell { color: var(--fg-2); }
+.pj-move { margin-left: auto; font-family: var(--font-mono); font-weight: 800; font-size: 13px; }
+.pj-move.up { color: var(--up); } .pj-move.down { color: var(--down); }
+.pj-del { border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-4); width: 22px; height: 22px;
+  border-radius: 6px; cursor: pointer; font-size: 11px; flex: 0 0 auto; }
+.pj-del:hover { border-color: var(--down); color: var(--down); }
+.pj-row2 { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-3); margin-top: 5px; line-height: 1.5; }
+.pj-row2 b { color: var(--fg); }
+.pj-why { font-size: 12px; color: var(--fg-2); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); line-height: 1.45; }
 
 /* ── Market Breadth scanner ────────────────────────────────────────────── */
 .mb-card { padding: 16px 18px; }

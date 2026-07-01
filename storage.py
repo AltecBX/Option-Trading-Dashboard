@@ -260,6 +260,32 @@ def _save_trade_journal(data: list) -> None:
         print(f"[trade_journal] write failed: {exc}", file=sys.stderr)
 
 
+# ── Pick journal (v3.02) — snapshots of the early-mover suggestions so their
+# accuracy can be reviewed later. Kept separate from the closed-trade journal
+# so it never affects win-rate math. Server-side → syncs across devices.
+_PICK_JOURNAL_PATH = _STABLE_DIR / "pick_journal.json"
+
+
+def _load_pick_journal() -> list:
+    if not _PICK_JOURNAL_PATH.exists():
+        return []
+    try:
+        data = json.loads(_PICK_JOURNAL_PATH.read_text())
+        return data if isinstance(data, list) else []
+    except Exception as exc:  # noqa: BLE001
+        print(f"[pick_journal] load failed: {exc}", file=sys.stderr)
+        return []
+
+
+def _save_pick_journal(data: list) -> None:
+    try:
+        tmp = _PICK_JOURNAL_PATH.with_suffix(_PICK_JOURNAL_PATH.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, separators=(",", ":")))
+        tmp.replace(_PICK_JOURNAL_PATH)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[pick_journal] write failed: {exc}", file=sys.stderr)
+
+
 _FADE_STAGES_PATH = _STABLE_DIR / "fade_stages.json"
 
 
