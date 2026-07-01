@@ -668,6 +668,21 @@ def _scan_one(sym: str, sub, flow_fn) -> dict | None:
 
 
 def _scan_worker(symbols: list[str]) -> None:
+    # Scan the most relevant names FIRST. The board is published + persisted
+    # after every chunk, so a slow or interrupted scan (e.g. a redeploy wipes
+    # the cache and it restarts) should surface the names that matter — the
+    # big, actively-traded ones — instead of a wall of alphabetical A-names.
+    # Priority comes from the PRIOR board: strong prior options-flow conviction
+    # and market cap go first; never-before-scanned names go last.
+    with _LOCK:
+        prior = {r.get("symbol"): r for r in _STATE.get("rows", []) if r.get("symbol")}
+    if prior:
+        def _prio(s):
+            r = prior.get(s)
+            if not r:
+                return -1.0                      # unscanned → back of the line
+            return (r.get("market_cap") or 0) + abs(r.get("flow_net") or 0) * 5e9
+        symbols = sorted(symbols, key=_prio, reverse=True)
     flow_fn = _FLOW_FN
     analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:
