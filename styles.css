@@ -1748,6 +1748,12 @@ input, select, textarea {
 .scan-row td { padding: 8px 10px; }
 .scan-sym { font-weight: 700; color: var(--fg); }
 .scan-num { text-align: right; }
+/* Options-flow freshness dot next to EDGE (live vs cached this scan). */
+.wt-edge { display: inline-flex; align-items: center; gap: 5px; justify-content: flex-end; }
+.wt-flowdot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; cursor: help; }
+.wt-flowdot.fresh { background: var(--up); }
+.wt-flowdot.ok { background: var(--fg-4); }
+.wt-flowdot.stale { background: var(--warn); }
 .scan-num.up { color: var(--up); }
 .scan-num.down { color: var(--down); }
 .scan-num.rich { color: var(--accent); font-weight: 700; }
