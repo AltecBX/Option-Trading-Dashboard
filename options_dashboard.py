@@ -261,6 +261,10 @@ _DLOW_CACHE: tuple | None = None
 _DLOW_LOCK = threading.Lock()
 _DLOW_SEEN: dict = {}
 
+# Market-breadth scanner: per-symbol live price + day/52w extremes + group meta.
+_BREADTH_CACHE: tuple | None = None
+_BREADTH_LOCK = threading.Lock()
+
 # Top-of-page market overview (futures/indices/rates/commodities). Cached ~15s.
 _MKT_CACHE: tuple | None = None
 _MKT_LOCK = threading.Lock()
@@ -7463,6 +7467,73 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/daily_lows", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/market_breadth":
+            # Per-symbol snapshot for the grouped HOD/LOD breadth scanner. Merges
+            # the cached watchlist board (sector/industry/tag/market-cap/name and
+            # 52-week extremes) with a live Schwab quote batch (price + today's
+            # session high/low + day change). The frontend does all the grouping
+            # and aggregation — this endpoint only assembles livePrices+stockMeta.
+            # Cached ~20s so the full-watchlist quote batch stays cheap.
+            try:
+                global _BREADTH_CACHE
+                now = time.time()
+                with _BREADTH_LOCK:
+                    cached = _BREADTH_CACHE
+                if cached and (now - cached[0]) < 20:
+                    self._send_json({"stocks": cached[1]})
+                    return
+                wl = _load_watchlist()
+                wsyms = wl.get("symbols") or []
+                syms = [s.get("symbol") for s in wsyms if s.get("symbol")]
+                tag_map = {s.get("symbol"): (s.get("tag") or "") for s in wsyms if s.get("symbol")}
+                # Board = sector/industry/company/market-cap/52w (best-effort).
+                board = {}
+                if _WLTABLE_AVAILABLE:
+                    try:
+                        for r in ((_wltable.get_board() or {}).get("rows") or []):
+                            if r.get("symbol"):
+                                board[r["symbol"]] = r
+                    except Exception:
+                        pass
+                # Live quotes (price + day high/low + change) in batches of 250.
+                quotes = {}
+                sc = _schwab()
+                if sc is not None and syms:
+                    for i in range(0, len(syms), 250):
+                        try:
+                            quotes.update(sc.get_quotes(syms[i:i + 250]) or {})
+                        except Exception:
+                            continue
+                stocks = {}
+                for sym in syms:
+                    q = quotes.get(sym) or quotes.get(sym.upper())
+                    b = board.get(sym) or {}
+                    price = _num(q.get("last")) if q else None
+                    if price is None:
+                        price = _num(b.get("last"))
+                    if price is None or price <= 0:
+                        continue
+                    stocks[sym] = {
+                        "price": round(price, 2),
+                        "dayHigh": _num(q.get("high")) if q else None,
+                        "dayLow": _num(q.get("low")) if q else None,
+                        "high52": _num(b.get("high_52w")),
+                        "low52": _num(b.get("low_52w")),
+                        "changePct": (_num(q.get("change_pct")) if q else None)
+                                     if (q and q.get("change_pct") is not None) else _num(b.get("change")),
+                        "marketCap": _num(b.get("market_cap")),
+                        "name": (q.get("name") if q else None) or b.get("company") or "",
+                        "sector": b.get("sector") or "",
+                        "industry": b.get("industry") or "",
+                        "tag": tag_map.get(sym) or b.get("tag") or "",
+                    }
+                with _BREADTH_LOCK:
+                    _BREADTH_CACHE = (now, stocks)
+                self._send_json({"stocks": stocks})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/market_breadth", exc)
+                self._send_json({"error": str(exc), "stocks": {}}, status=500)
             return
         if parsed.path == "/api/market_overview":
             # Macro strip at the top of the page: futures, VIX, 10Y, gold, oil,

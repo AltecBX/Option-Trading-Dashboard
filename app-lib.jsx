@@ -104,6 +104,7 @@ const TABS = [
   { id: "news", label: "News" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
+  { id: "breadth", label: "Breadth" },
   { id: "watchlist", label: "Watchlist" },
   { id: "streaks", label: "Streaks" },
   { id: "calendar", label: "Market Calendar" },

@@ -8930,6 +8930,81 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .pc-tkt.buy { color: var(--accent); } .pc-tkt.sell { color: var(--fg-2); }
 .pc-tkt-tgt { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-4); white-space: nowrap; }
 .pc-empty { font-size: 10.5px; color: var(--fg-3); padding: 2px 0; }
+
+/* ── Market Breadth scanner ────────────────────────────────────────────── */
+.mb-card { padding: 16px 18px; }
+.mb-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.mb-title { font-family: var(--font-display); font-weight: 600; font-size: 17px; color: var(--fg); }
+.mb-sub { font-weight: 500; font-size: 12.5px; color: var(--fg-3); margin-left: 6px; }
+.mb-summary { font-size: 12.5px; color: var(--fg-2); margin-top: 3px; }
+.mb-summary b { font-weight: 800; }
+.mb-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.mb-seg { display: inline-flex; background: var(--bg-3); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
+.mb-seg button { border: 0; background: transparent; color: var(--fg-2); font-size: 12.5px; font-weight: 600;
+  padding: 4px 12px; border-radius: 7px; cursor: pointer; }
+.mb-seg button.active { background: var(--accent); color: var(--accent-text); }
+.mb-min { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-3); }
+.mb-min b { color: var(--fg); font-family: var(--font-mono); }
+.mb-min input[type=range] { width: 96px; accent-color: var(--accent); }
+
+/* Rotation strength bars */
+.mb-bars { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+.mb-bar-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: transparent; border: 0; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.mb-bar-row:hover { background: var(--bg-3); }
+.mb-bar-lbl { flex: 0 0 148px; font-size: 12px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mb-bar-track { flex: 1 1 auto; height: 12px; background: var(--bg-3); border-radius: 4px; overflow: hidden; }
+.mb-bar-fill { display: block; height: 100%; border-radius: 4px; }
+.mb-bar-fill.pos { background: var(--up); } .mb-bar-fill.neg { background: var(--down); }
+.mb-bar-val { flex: 0 0 40px; text-align: right; font-family: var(--font-mono); font-weight: 800; font-size: 12px; }
+
+/* Heatmap tiles */
+.mb-heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 7px; margin-bottom: 16px; }
+.mb-heat-tile { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; text-align: left;
+  padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); cursor: pointer;
+  background: var(--bg-3); color: var(--fg-2); transition: transform 100ms var(--ease); }
+.mb-heat-tile:hover { transform: translateY(-1px); }
+.mb-heat-tile.mb-t-hh { background: color-mix(in oklch, var(--up), transparent 30%); border-color: transparent; color: #fff; }
+.mb-heat-tile.mb-t-h  { background: color-mix(in oklch, var(--up), transparent 68%); border-color: transparent; color: var(--fg); }
+.mb-heat-tile.mb-t-n  { background: var(--bg-3); }
+.mb-heat-tile.mb-t-l  { background: color-mix(in oklch, var(--down), transparent 68%); border-color: transparent; color: var(--fg); }
+.mb-heat-tile.mb-t-ll { background: color-mix(in oklch, var(--down), transparent 28%); border-color: transparent; color: #fff; }
+.mb-heat-name { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.mb-heat-str { font-family: var(--font-mono); font-weight: 800; font-size: 18px; line-height: 1.1; }
+.mb-heat-cnt { font-family: var(--font-mono); font-size: 10px; opacity: 0.85; }
+
+/* Data table */
+.mb-table th { cursor: pointer; white-space: nowrap; }
+.mb-table .mb-gname { font-weight: 700; color: var(--fg); }
+.mb-strcell { position: relative; }
+.mb-strbar { position: absolute; right: 6px; top: 4px; bottom: 4px; border-radius: 3px; z-index: 0; opacity: 0.20; }
+.mb-strbar.pos { background: var(--up); } .mb-strbar.neg { background: var(--down); }
+.mb-strcell b { position: relative; z-index: 1; }
+
+/* Drill-down */
+.mb-drill { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.mb-drill-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.mb-drill-top b { font-size: 15px; color: var(--fg); }
+.mb-drill-meta { font-size: 12px; color: var(--fg-3); }
+.mb-drill-x { margin-left: auto; border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-2);
+  width: 26px; height: 26px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+.mb-drill-x:hover { border-color: var(--fg-3); }
+.mb-drill-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.mb-drill-col { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+.mb-drill-h { font-size: 12px; font-weight: 700; padding: 7px 11px; }
+.mb-drill-n { font-family: var(--font-mono); opacity: 0.7; margin-left: 4px; }
+.mb-hod .mb-drill-h { background: color-mix(in oklch, var(--up), transparent 82%); color: var(--up); }
+.mb-lod .mb-drill-h { background: color-mix(in oklch, var(--down), transparent 82%); color: var(--down); }
+.mb-drill-table { font-size: 12px; }
+.mb-drill-table th { cursor: pointer; }
+.mb-drill-table .mb-name { color: var(--fg-3); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-drill-table tr.mb-52 { background: color-mix(in oklch, var(--accent), transparent 90%); }
+.mb-badge { font-family: var(--font-mono); font-size: 8.5px; font-weight: 800; padding: 0 4px; border-radius: 4px; margin-left: 5px; vertical-align: middle; }
+.mb-badge-h { background: var(--up); color: #fff; } .mb-badge-l { background: var(--down); color: #fff; }
+.mb-empty { font-size: 12.5px; color: var(--fg-3); padding: 10px 4px; }
+.mb-empty-cell { text-align: center; color: var(--fg-4); padding: 8px; }
+@media (max-width: 760px) { .mb-drill-grid { grid-template-columns: 1fr; } .mb-bar-lbl { flex-basis: 110px; } }
+
 .newsticker {
   display: flex; align-items: stretch;
   height: 36px;

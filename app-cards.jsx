@@ -10655,8 +10655,284 @@ Object.assign(window, {
 // staleness tick, sibling-card updates). memo only ever SKIPS a render when
 // props are shallow-equal, so it's safe for these pure components; small
 // helpers/rows are left unwrapped.
+// ── Market Breadth: grouped HOD/LOD rotation scanner ──────────────────────
+// A pure derived view: reads a per-symbol snapshot (price + day/52w extremes +
+// group meta) and aggregates it by sector / industry / tag to show which groups
+// are broadly making new highs vs lows (rotation strength). No API calls of its
+// own beyond fetching that one snapshot.
+const BREADTH_KEY = "jerry_breadth_v1";
+const BREADTH_THRESH = 0.0015;   // 0.15% — "at/near" tolerance for HOD/LOD
+const BREADTH_COLS = [
+  { k: "name", label: "Group", str: true, title: "Sector / industry / tag" },
+  { k: "strength", label: "Str", title: "Rotation strength: (HOD−LOD)/total × 100, −100…+100" },
+  { k: "hod", label: "HOD", title: "Names at/near their high of day" },
+  { k: "lod", label: "LOD", title: "Names at/near their low of day" },
+  { k: "net", label: "Net", title: "HOD − LOD" },
+  { k: "hodPct", label: "HOD%", title: "Share of the group at its high of day" },
+  { k: "lodPct", label: "LOD%", title: "Share of the group at its low of day" },
+  { k: "total", label: "Stk", title: "Stocks in the group" },
+  { k: "h52", label: "52H", title: "Names printing a new 52-week high" },
+  { k: "l52", label: "52L", title: "Names printing a new 52-week low" },
+];
+
+function aggregateBreadth(livePrices, stockMeta, view) {
+  const groups = {};
+  for (const sym in livePrices) {
+    if (sym[0] === "/" || sym[0] === "^") continue;         // futures / indices
+    const p = livePrices[sym];
+    if (!p || !(p.price > 0)) continue;
+    const meta = stockMeta[sym];
+    if (!meta) continue;
+    const key = String(meta[view] || "").trim();
+    if (!key || key === "ETF") continue;
+    const isHOD = p.dayHigh > 0 && p.price >= p.dayHigh * (1 - BREADTH_THRESH);
+    const isLOD = p.dayLow > 0 && p.price <= p.dayLow * (1 + BREADTH_THRESH);
+    const is52H = p.high52 > 0 && p.dayHigh > 0 && p.dayHigh >= p.high52 * 0.998;
+    const is52L = p.low52 > 0 && p.dayLow > 0 && p.dayLow <= p.low52 * 1.002;
+    const g = groups[key] || (groups[key] = {
+      name: key, total: 0, hod: 0, lod: 0, h52: 0, l52: 0, hodStocks: [], lodStocks: [] });
+    g.total++;
+    if (is52H) g.h52++;
+    if (is52L) g.l52++;
+    const rec = { sym, name: meta.name || sym, price: p.price, chg: p.changePct,
+                  mktCap: p.marketCap, is52H, is52L };
+    if (isHOD) { g.hod++; g.hodStocks.push(rec); }
+    if (isLOD) { g.lod++; g.lodStocks.push(rec); }
+  }
+  return Object.values(groups).map(g => ({
+    ...g, net: g.hod - g.lod,
+    hodPct: g.total ? g.hod / g.total : 0,
+    lodPct: g.total ? g.lod / g.total : 0,
+    strength: g.total ? Math.round((g.hod - g.lod) / g.total * 100) : 0,
+  }));
+}
+
+function strengthTier(s) {
+  return s > 30 ? "hh" : s > 10 ? "h" : s < -30 ? "ll" : s < -10 ? "l" : "n";
+}
+
+function BreadthStockList({ title, tone, stocks, sort, setSort, onLoadTicker }) {
+  const cols = [
+    { k: "sym", label: "Sym", str: true }, { k: "name", label: "Name", str: true },
+    { k: "price", label: "Price" }, { k: "chg", label: "Chg%" }, { k: "mktCap", label: "Cap" },
+  ];
+  const rows = stocks.slice().sort((a, b) => {
+    const c = cols.find(x => x.k === sort.k);
+    let av = a[sort.k], bv = b[sort.k], r;
+    r = c && c.str ? String(av || "").localeCompare(String(bv || "")) : (av || 0) - (bv || 0);
+    return sort.dir === "desc" ? -r : r;
+  });
+  const th = (c) => (
+    <th key={c.k} className={c.str ? "" : "num"} onClick={() =>
+      setSort(sort.k === c.k ? { k: c.k, dir: sort.dir === "desc" ? "asc" : "desc" }
+                             : { k: c.k, dir: c.str ? "asc" : "desc" })}
+      title="Sort">{c.label}{sort.k === c.k ? (sort.dir === "desc" ? " ↓" : " ↑") : ""}</th>
+  );
+  return (
+    <div className={`mb-drill-col mb-${tone}`}>
+      <div className="mb-drill-h">{title} <span className="mb-drill-n">{stocks.length}</span></div>
+      <div className="scan-table-wrap">
+        <table className="scan-table mb-drill-table">
+          <thead><tr>{cols.map(th)}</tr></thead>
+          <tbody>
+            {rows.map(s => (
+              <tr key={s.sym} className={`scan-row${s.is52H || s.is52L ? " mb-52" : ""}`}
+                  onClick={() => onLoadTicker && onLoadTicker(s.sym)} title={`Load ${s.sym}`}>
+                <td>
+                  <b>{s.sym}</b>
+                  {s.is52H && <span className="mb-badge mb-badge-h" title="New 52-week high">52H</span>}
+                  {s.is52L && <span className="mb-badge mb-badge-l" title="New 52-week low">52L</span>}
+                </td>
+                <td className="mb-name">{s.name}</td>
+                <td className="num">${s.price != null ? Number(s.price).toFixed(2) : "—"}</td>
+                <td className={`num ${(s.chg || 0) >= 0 ? "up" : "down"}`}>{s.chg == null ? "—" : `${s.chg >= 0 ? "+" : ""}${Number(s.chg).toFixed(2)}%`}</td>
+                <td className="num">{fmtMktCap(s.mktCap)}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={5} className="mb-empty-cell">none</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function MarketBreadthCard({ apiFetch, onLoadTicker }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(BREADTH_KEY)) || {}; } catch (_) { return {}; } })();
+  const [view, setView] = useState(saved.view || "sector");
+  const [sortCol, setSortCol] = useState(saved.sortCol || "net");
+  const [sortDir, setSortDir] = useState(saved.sortDir || "desc");
+  const [minStocks, setMinStocks] = useState(saved.minStocks || 3);
+  const [drill, setDrill] = useState(null);
+  const [hodSort, setHodSort] = useState({ k: "chg", dir: "desc" });
+  const [lodSort, setLodSort] = useState({ k: "chg", dir: "asc" });
+
+  useEffect(() => {
+    let stop = false, t = null;
+    const load = async () => {
+      try {
+        const r = await apiFetch("/api/market_breadth");
+        const d = await r.json();
+        if (!stop) { setData(d); setErr(d && d.error ? d.error : null); setLoading(false); }
+      } catch (e) { if (!stop) { setErr(String(e)); setLoading(false); } }
+      if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
+    };
+    load();
+    const onVis = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; if (t) clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
+  useEffect(() => {   // persist settings (debounced ~500ms)
+    const id = setTimeout(() => {
+      try { localStorage.setItem(BREADTH_KEY, JSON.stringify({ view, sortCol, sortDir, minStocks })); } catch (_) {}
+    }, 500);
+    return () => clearTimeout(id);
+  }, [view, sortCol, sortDir, minStocks]);
+
+  const { livePrices, stockMeta } = useMemo(() => {
+    const lp = {}, sm = {}, stocks = (data && data.stocks) || {};
+    for (const sym in stocks) {
+      const s = stocks[sym];
+      lp[sym] = { price: s.price, dayHigh: s.dayHigh, dayLow: s.dayLow, high52: s.high52,
+                  low52: s.low52, changePct: s.changePct, marketCap: s.marketCap };
+      sm[sym] = { name: s.name, sector: s.sector, industry: s.industry, tag: s.tag };
+    }
+    return { livePrices: lp, stockMeta: sm };
+  }, [data]);
+
+  const groups = useMemo(() => aggregateBreadth(livePrices, stockMeta, view), [livePrices, stockMeta, view]);
+  const filtered = useMemo(() => groups.filter(g => g.total >= minStocks), [groups, minStocks]);
+  const sorted = useMemo(() => {
+    const col = BREADTH_COLS.find(c => c.k === sortCol) || BREADTH_COLS[0];
+    const arr = filtered.slice().sort((a, b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      const r = col.str ? String(av || "").localeCompare(String(bv || "")) : (av || 0) - (bv || 0);
+      return sortDir === "desc" ? -r : r;
+    });
+    return arr;
+  }, [filtered, sortCol, sortDir]);
+  const byStrength = useMemo(() =>
+    filtered.slice().sort((a, b) => b.strength - a.strength), [filtered]);
+  const totals = useMemo(() => {
+    let H = 0, L = 0, T = 0;
+    filtered.forEach(g => { H += g.hod; L += g.lod; T += g.total; });
+    return { groups: filtered.length, hod: H, lod: L, total: T };
+  }, [filtered]);
+  const drillGroup = drill ? filtered.find(g => g.name === drill) : null;
+
+  const setSort = (k) => {
+    if (sortCol === k) setSortDir(sortDir === "desc" ? "asc" : "desc");
+    else { setSortCol(k); setSortDir(BREADTH_COLS.find(c => c.k === k) && BREADTH_COLS.find(c => c.k === k).str ? "asc" : "desc"); }
+  };
+  const maxStr = Math.max(1, ...byStrength.map(g => Math.abs(g.strength)));
+
+  if (loading) return <div className="card mb-card"><CardNote kind="loading">Reading breadth…</CardNote></div>;
+  if (err && !filtered.length) return <div className="card mb-card"><CardNote kind="error" onRetry={() => { setLoading(true); setData(null); }}>Breadth unavailable — {err}</CardNote></div>;
+
+  return (
+    <div className="card mb-card">
+      <div className="mb-head">
+        <div>
+          <div className="mb-title" title="Which groups are broadly making new highs vs lows right now — sector/industry rotation strength, live.">Market Breadth <span className="mb-sub">rotation by group</span></div>
+          <div className="mb-summary">{totals.groups} groups · <b className="up">{totals.hod} HOD</b> · <b className="down">{totals.lod} LOD</b> · {totals.total} stocks</div>
+        </div>
+        <div className="mb-controls">
+          <div className="mb-seg" role="tablist">
+            {["sector", "industry", "tag"].map(v => (
+              <button key={v} className={view === v ? "active" : ""} onClick={() => { setView(v); setDrill(null); }}
+                      title={`Group by ${v}`}>{v[0].toUpperCase() + v.slice(1)}</button>
+            ))}
+          </div>
+          <label className="mb-min" title="Hide groups with fewer than this many stocks">
+            min <b>{minStocks}</b>
+            <input type="range" min="1" max="10" value={minStocks}
+                   onChange={e => setMinStocks(Number(e.target.value))} />
+          </label>
+        </div>
+      </div>
+
+      {/* Rotation strength bar chart — top 15 by strength */}
+      <div className="mb-bars" title="Top 15 groups by rotation strength. Click a bar to drill in.">
+        {byStrength.slice(0, 15).map(g => (
+          <button key={g.name} className="mb-bar-row" onClick={() => setDrill(g.name)} title={`${g.name}: strength ${g.strength}`}>
+            <span className="mb-bar-lbl">{g.name}</span>
+            <span className="mb-bar-track">
+              <span className={`mb-bar-fill ${g.strength >= 0 ? "pos" : "neg"}`}
+                    style={{ width: `${Math.abs(g.strength) / maxStr * 100}%` }} />
+            </span>
+            <span className={`mb-bar-val ${g.strength >= 0 ? "up" : "down"}`}>{g.strength > 0 ? "+" : ""}{g.strength}</span>
+          </button>
+        ))}
+        {!byStrength.length && <div className="mb-empty">No groups meet the minimum — lower the slider or wait for the scan.</div>}
+      </div>
+
+      {/* Heatmap tiles */}
+      <div className="mb-heat">
+        {byStrength.map(g => (
+          <button key={g.name} className={`mb-heat-tile mb-t-${strengthTier(g.strength)}`}
+                  onClick={() => setDrill(g.name)} title={`${g.name} — strength ${g.strength} · ${g.hod} HOD / ${g.lod} LOD / ${g.total} stocks`}>
+            <span className="mb-heat-name">{g.name}</span>
+            <span className="mb-heat-str">{g.strength > 0 ? "+" : ""}{g.strength}</span>
+            <span className="mb-heat-cnt">{g.hod}H / {g.lod}L / {g.total}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Data table */}
+      <div className="scan-table-wrap">
+        <table className="scan-table mb-table">
+          <thead>
+            <tr>{BREADTH_COLS.map(c => (
+              <th key={c.k} className={c.str ? "" : "scan-th-num"} title={c.title}
+                  onClick={() => setSort(c.k)}>{c.label}{sortCol === c.k ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
+            ))}</tr>
+          </thead>
+          <tbody>
+            {sorted.map(g => (
+              <tr key={g.name} className="scan-row" onClick={() => setDrill(g.name)} title="Drill into this group">
+                <td className="mb-gname">{g.name}</td>
+                <td className="scan-num mb-strcell">
+                  <span className={`mb-strbar ${g.strength >= 0 ? "pos" : "neg"}`} style={{ width: `${Math.min(100, Math.abs(g.strength))}%` }} />
+                  <b className={g.strength >= 0 ? "up" : "down"}>{g.strength > 0 ? "+" : ""}{g.strength}</b>
+                </td>
+                <td className="scan-num up">{g.hod}</td>
+                <td className="scan-num down">{g.lod}</td>
+                <td className={`scan-num ${g.net >= 0 ? "up" : "down"}`}>{g.net > 0 ? "+" : ""}{g.net}</td>
+                <td className="scan-num">{Math.round(g.hodPct * 100)}%</td>
+                <td className="scan-num">{Math.round(g.lodPct * 100)}%</td>
+                <td className="scan-num">{g.total}</td>
+                <td className="scan-num up">{g.h52 || "·"}</td>
+                <td className="scan-num down">{g.l52 || "·"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Drill-down */}
+      {drillGroup && (
+        <div className="mb-drill">
+          <div className="mb-drill-top">
+            <b>{drillGroup.name}</b>
+            <span className="mb-drill-meta">strength {drillGroup.strength > 0 ? "+" : ""}{drillGroup.strength} · {drillGroup.hod} HOD / {drillGroup.lod} LOD / {drillGroup.total} stocks</span>
+            <button className="mb-drill-x" onClick={() => setDrill(null)} title="Close">✕</button>
+          </div>
+          <div className="mb-drill-grid">
+            <BreadthStockList title="At high of day" tone="hod" stocks={drillGroup.hodStocks} sort={hodSort} setSort={setHodSort} onLoadTicker={onLoadTicker} />
+            <BreadthStockList title="At low of day" tone="lod" stocks={drillGroup.lodStocks} sort={lodSort} setSort={setLodSort} onLoadTicker={onLoadTicker} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const _memo = React.memo;
-Object.assign(window, { TickerLogo,
+Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   VolSkewCard: _memo(VolSkewCard), WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard), MoversCard: _memo(MoversCard),
   TrendCard: _memo(TrendCard), IVRankCard: _memo(IVRankCard),
