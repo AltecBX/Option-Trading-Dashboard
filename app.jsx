@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.09";
+const APP_VERSION = "3.10";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4706,6 +4706,11 @@ function App() {
 
 
         <TabPanel tab="scanners" active={activeTab}>
+        {/* Open-reclaim reversal: dipped >=2% under the regular open, then
+            took the open back (the CRDO pattern). */}
+        <CardErrorBoundary label="Open reclaim">
+          <OpenReversalCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+        </CardErrorBoundary>
         {/* Market-wide UW scanner — finds tickers OFF the watchlist that
             have unusual flow today. Hides when UW disconnected. */}
         {uwHealth?.connected && (
