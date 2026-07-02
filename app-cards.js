@@ -6014,8 +6014,10 @@ function TabPanel({
   // fetch cost for sections you never open — faster initial load on mobile.
   const seen = useRef(active === tab);
   if (active === tab) seen.current = true;
+  // tp-in re-applies on every activation → the enter animation (a 180ms fade
+  // + rise, reduced-motion safe) replays on each tab switch.
   return /*#__PURE__*/React.createElement("div", {
-    className: "tab-panel",
+    className: `tab-panel${active === tab ? " tp-in" : ""}`,
     role: "tabpanel",
     "data-tab": tab,
     style: active === tab ? undefined : {
@@ -15239,12 +15241,235 @@ function ReversalAlerts({
     }
   }, "✕"))));
 }
+
+// ── Command palette (⌘K) ─────────────────────────────────────────────────
+// One search box that reaches everything: tabs (with plain-English blurbs —
+// doubles as first-time-user documentation), any watchlist symbol, any typed
+// ticker, and quick actions. Desktop: centered dialog. Phone: bottom sheet
+// (same component, CSS switches the presentation). Full keyboard support.
+const TAB_BLURBS = {
+  trade: "Strike cards, premium quotes and the covered-call / CSP workbench",
+  discover: "Screeners and idea feeds across your watchlist",
+  analyze: "Deep-dive analytics for the loaded symbol",
+  patterns: "Swing decision — where price is in its move, odds & trade plan",
+  news: "Headlines for the loaded symbol and your watchlist",
+  flow: "Options-flow intelligence from Unusual Whales",
+  scanners: "Open-reclaim reversals + market-wide unusual-flow scans",
+  breadth: "Which sectors are making highs vs lows — rotation map",
+  journal: "Your logged early-mover picks, scored against live prices",
+  watchlist: "Every tracked stock with full metrics, EDGE and setups",
+  streaks: "Consecutive up/down-day streaks vs each stock's history",
+  calendar: "Earnings dates + macro events for the weeks ahead",
+  manage: "Import/export the watchlist, tags and app settings"
+};
+function CommandPalette({
+  open,
+  onClose,
+  onSwitchTicker,
+  onChangeTab,
+  symbols,
+  apiFetch
+}) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (open) {
+      setQ("");
+      setSel(0);
+      setTimeout(() => inputRef.current && inputRef.current.focus(), 30);
+    }
+  }, [open]);
+  useEffect(() => {
+    // lock page scroll behind the palette
+    if (!open) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+  const items = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const score = text => {
+      const t = text.toLowerCase();
+      if (!needle) return 1;
+      if (t === needle) return 100;
+      if (t.startsWith(needle)) return 80;
+      if (t.split(/[\s·/-]+/).some(w => w.startsWith(needle))) return 60;
+      if (t.includes(needle)) return 40;
+      let i = 0; // subsequence
+      for (const ch of t) if (ch === needle[i]) i++;
+      return i === needle.length ? 15 : 0;
+    };
+    const out = [];
+    // Symbols — watchlist matches, plus the raw query as a loadable ticker.
+    const seen = new Set();
+    if (needle && /^[a-z.\-]{1,6}$/i.test(needle)) {
+      out.push({
+        kind: "sym",
+        label: needle.toUpperCase(),
+        hint: "Load on the chart",
+        s: 90
+      });
+      seen.add(needle.toUpperCase());
+    }
+    (symbols || []).forEach(sym => {
+      if (seen.has(sym)) return;
+      const s = score(sym);
+      if (s > 0 && needle) out.push({
+        kind: "sym",
+        label: sym,
+        hint: "Watchlist — load on the chart",
+        s: s + 2
+      });
+    });
+    // Tabs — always browsable when the query is empty.
+    (window.TABS || []).forEach(t => {
+      const s = Math.max(score(t.label), score(TAB_BLURBS[t.id] || "") * 0.5);
+      if (s > 0) out.push({
+        kind: "tab",
+        id: t.id,
+        label: t.label,
+        hint: TAB_BLURBS[t.id] || "",
+        s
+      });
+    });
+    // Actions.
+    [{
+      id: "rescan",
+      label: "Rescan watchlist now",
+      hint: "Kick a fresh full-metrics scan"
+    }, {
+      id: "journal",
+      label: "Open Picks Journal",
+      hint: "Score your logged early movers",
+      tab: "journal"
+    }, {
+      id: "breadth",
+      label: "Open Market Breadth",
+      hint: "Sector rotation map",
+      tab: "breadth"
+    }].forEach(a => {
+      const s = score(a.label);
+      if (s > 0) out.push({
+        kind: "act",
+        ...a,
+        s
+      });
+    });
+    out.sort((a, b) => b.s - a.s);
+    return out.slice(0, 12);
+  }, [q, symbols]);
+  useEffect(() => {
+    setSel(0);
+  }, [q]);
+  if (!open) return null;
+  const run = it => {
+    if (!it) return;
+    if (it.kind === "sym") onSwitchTicker && onSwitchTicker(it.label);else if (it.kind === "tab") onChangeTab && onChangeTab(it.id);else if (it.kind === "act") {
+      if (it.tab) onChangeTab && onChangeTab(it.tab);else if (it.id === "rescan") apiFetch("/api/watchlist_table/scan?force=1").catch(() => {});
+    }
+    onClose();
+  };
+  const onKey = e => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSel(s => Math.min(s + 1, items.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSel(s => Math.max(s - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      run(items[sel]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    }
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "cp-backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cp-modal",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Command palette",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cp-inputrow"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "cp-glass",
+    "aria-hidden": "true"
+  }, "⌕"), /*#__PURE__*/React.createElement("input", {
+    ref: inputRef,
+    className: "cp-input",
+    value: q,
+    onChange: e => setQ(e.target.value),
+    onKeyDown: onKey,
+    placeholder: "Type a ticker, tab or action…",
+    autoComplete: "off",
+    autoCorrect: "off",
+    autoCapitalize: "characters",
+    spellCheck: "false"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "cp-kbd"
+  }, "esc")), /*#__PURE__*/React.createElement("div", {
+    className: "cp-list",
+    role: "listbox"
+  }, items.map((it, i) => /*#__PURE__*/React.createElement("button", {
+    key: `${it.kind}-${it.label}-${i}`,
+    role: "option",
+    "aria-selected": i === sel,
+    className: `cp-item${i === sel ? " sel" : ""}`,
+    onMouseEnter: () => setSel(i),
+    onClick: () => run(it)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `cp-tag cp-tag-${it.kind}`
+  }, it.kind === "sym" ? "TICKER" : it.kind === "tab" ? "TAB" : "ACTION"), /*#__PURE__*/React.createElement("span", {
+    className: "cp-label"
+  }, it.label), /*#__PURE__*/React.createElement("span", {
+    className: "cp-hint"
+  }, it.hint))), !items.length && /*#__PURE__*/React.createElement("div", {
+    className: "cp-empty"
+  }, "Nothing matches \"", q, "\"")), /*#__PURE__*/React.createElement("div", {
+    className: "cp-foot"
+  }, "↑↓ navigate · enter select · ", /*#__PURE__*/React.createElement("b", null, "⌘K"), " or ", /*#__PURE__*/React.createElement("b", null, "/"), " opens this anywhere · ", /*#__PURE__*/React.createElement("b", null, "?"), " all shortcuts")));
+}
+
+// ── Keyboard-shortcuts sheet (?) ──────────────────────────────────────────
+function ShortcutsSheet({
+  open,
+  onClose
+}) {
+  if (!open) return null;
+  const rows = [["⌘K  or  /", "Open the command palette (tickers, tabs, actions)"], ["[  and  ]", "Previous / next tab"], ["?", "This shortcuts sheet"], ["esc", "Close any dialog"]];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "cp-backdrop",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cp-modal cp-help",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Keyboard shortcuts",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cp-help-title"
+  }, "Keyboard shortcuts"), rows.map(([k, d]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    className: "cp-help-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "cp-kbd"
+  }, k), /*#__PURE__*/React.createElement("span", null, d)))));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
   OpenReversalCard: _memo(OpenReversalCard),
   ReversalAlerts: _memo(ReversalAlerts),
+  CommandPalette,
+  ShortcutsSheet,
   MarketContextBar: _memo(MarketContextBar),
   PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard),

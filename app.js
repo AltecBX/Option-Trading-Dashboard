@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.12";
+const APP_VERSION = "3.13";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -321,6 +321,8 @@ function App() {
   const [loadError, setLoadError] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [navOpen, setNavOpen] = useState(false); // mobile sidebar drawer
+  const [palOpen, setPalOpen] = useState(false); // ⌘K command palette
+  const [helpOpen, setHelpOpen] = useState(false); // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
   // Stable ticker switcher (used as a memo-friendly prop for cards).
@@ -2049,6 +2051,61 @@ function App() {
     setNavOpen(false);
   }, [ticker]);
 
+  // Instant header on FRESH symbol switches: the heavy /api/ticker payload
+  // takes a moment, but a bare quote is ~100ms — fetch it in parallel and
+  // merge into liveQuotes so the sidebar/bottom-bar price paints immediately
+  // instead of holding the old symbol's number. (LRU re-selects are already
+  // instant; this covers first-time loads, and works after-hours too.)
+  useEffect(() => {
+    let stop = false;
+    sharedJson(apiFetch, `/api/quote?tickers=${encodeURIComponent(ticker)}`, 8000).then(d => {
+      if (stop || !d || !d.results || !d.results[ticker]) return;
+      const ts = Date.now();
+      setLiveQuotes(prev => ({
+        ...prev,
+        [ticker]: {
+          ...d.results[ticker],
+          ts
+        }
+      }));
+    }).catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, [ticker]);
+
+  // Global keyboard shortcuts. Never fire while typing in a field.
+  useEffect(() => {
+    const onKey = e => {
+      const t = e.target;
+      const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPalOpen(o => !o);
+        setHelpOpen(false);
+        return;
+      }
+      if (typing) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        setPalOpen(true);
+        setHelpOpen(false);
+      } else if (e.key === "?") {
+        e.preventDefault();
+        setHelpOpen(o => !o);
+        setPalOpen(false);
+      } else if (e.key === "[" || e.key === "]") {
+        const tabs = orderedTabs.length ? orderedTabs : window.TABS || [];
+        if (!tabs.length) return;
+        const i = tabs.findIndex(x => x.id === activeTab);
+        const n = (i + (e.key === "]" ? 1 : -1) + tabs.length) % tabs.length;
+        changeTab(tabs[n].id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [orderedTabs, activeTab, changeTab]);
+
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
     document.body.style.overflow = navOpen ? "hidden" : "";
@@ -3415,6 +3472,16 @@ function App() {
   }), /*#__PURE__*/React.createElement(ReversalAlerts, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
+  }), /*#__PURE__*/React.createElement(CommandPalette, {
+    open: palOpen,
+    onClose: () => setPalOpen(false),
+    onSwitchTicker: switchTicker,
+    onChangeTab: changeTab,
+    symbols: watchlist,
+    apiFetch: apiFetch
+  }), /*#__PURE__*/React.createElement(ShortcutsSheet, {
+    open: helpOpen,
+    onClose: () => setHelpOpen(false)
   }), /*#__PURE__*/React.createElement(MarketOverview, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
@@ -9435,13 +9502,13 @@ function App() {
     "aria-label": "Quick actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "mbb-btn",
-    onClick: () => setNavOpen(true),
-    "aria-label": "Menu"
+    onClick: () => setPalOpen(true),
+    "aria-label": "Search — tickers, tabs and actions"
   }, /*#__PURE__*/React.createElement("span", {
     className: "mbb-ico"
-  }, "☰"), /*#__PURE__*/React.createElement("span", {
+  }, "⌕"), /*#__PURE__*/React.createElement("span", {
     className: "mbb-lbl"
-  }, "Menu")), /*#__PURE__*/React.createElement("button", {
+  }, "Search")), /*#__PURE__*/React.createElement("button", {
     className: "mbb-status",
     onClick: () => setNavOpen(true),
     "aria-label": "Switch ticker"
