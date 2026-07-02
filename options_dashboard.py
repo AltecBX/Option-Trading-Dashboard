@@ -270,6 +270,10 @@ _BREADTH_LOCK = threading.Lock()
 _CTX_CACHE: tuple | None = None
 _CTX_LOCK = threading.Lock()
 
+# Open-reversal scanner: dip below the regular open, then reclaim it.
+_OPENREV_CACHE: tuple | None = None
+_OPENREV_LOCK = threading.Lock()
+
 
 def _spy_gamma_regime():
     """Market-level gamma read from the SPY option chain: Σ call γ·OI minus
@@ -7709,6 +7713,91 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/market_breadth", exc)
                 self._send_json({"error": str(exc), "stocks": {}}, status=500)
+            return
+        if parsed.path == "/api/scan/open_reversal":
+            # Intraday open-reversal scanner: the stock dropped >= dip% below
+            # its REGULAR-SESSION open, then reclaimed the open. Detection is
+            # quote-only for the whole watchlist (session low <= open*(1-dip)
+            # AND last > open — since price is above the open NOW, the dip
+            # necessarily came first), then 1-minute bars for just the hits to
+            # pin the reversal time (first bar after the low that closed back
+            # above the open). Cached ~60s.
+            try:
+                global _OPENREV_CACHE
+                qs = parse_qs(parsed.query)
+                try:
+                    dip = max(0.5, min(15.0, float(qs.get("dip", ["2"])[0])))
+                except (TypeError, ValueError):
+                    dip = 2.0
+                now = time.time()
+                cache_key = f"rev-{dip}"
+                with _OPENREV_LOCK:
+                    cached = _OPENREV_CACHE
+                if cached and cached[0] == cache_key and (now - cached[1]) < 60:
+                    self._send_json({"rows": cached[2], "dip": dip})
+                    return
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                quotes = {}
+                sc = _schwab()
+                if sc is not None and syms:
+                    for i in range(0, len(syms), 250):
+                        try:
+                            quotes.update(sc.get_quotes(syms[i:i + 250]) or {})
+                        except Exception:
+                            continue
+                hits = []
+                for sym in syms:
+                    q = quotes.get(sym) or quotes.get(sym.upper())
+                    if not q:
+                        continue
+                    o, lo, last = _num(q.get("open")), _num(q.get("low")), _num(q.get("last"))
+                    if not o or not lo or not last or o <= 0 or lo <= 0:
+                        continue
+                    drop_pct = (lo / o - 1.0) * 100.0
+                    if drop_pct <= -dip and last > o:
+                        hits.append({
+                            "symbol": sym, "open": round(o, 2), "low": round(lo, 2),
+                            "drop_pct": round(drop_pct, 2), "last": round(last, 2),
+                            "above_pct": round((last / o - 1.0) * 100.0, 2),
+                            "volume": q.get("volume"),
+                            "company": q.get("name") or "",
+                            "reversal_time": None,
+                        })
+                # Stage 2: 1-minute bars for just the hits → reversal timestamp
+                # (first bar after the session low whose close is back above the
+                # open). Best-effort — the row stands without it.
+                if hits:
+                    try:
+                        tickers = [h["symbol"] for h in hits[:40]]
+                        df = yf.download(" ".join(tickers), period="1d", interval="1m",
+                                         prepost=False, progress=False, group_by="ticker", threads=False)
+                        multi = isinstance(df.columns, pd.MultiIndex)
+                        for h in hits[:40]:
+                            try:
+                                sub = df[h["symbol"]] if multi else df
+                                lows = sub["Low"].dropna()
+                                closes = sub["Close"].dropna()
+                                if not len(lows):
+                                    continue
+                                li = lows.values.argmin()
+                                after = closes.iloc[li:]
+                                rev = after[after > h["open"]]
+                                if len(rev):
+                                    ts = rev.index[0]
+                                    ts_et = ts.tz_convert(_ET) if (_ET and ts.tzinfo) else ts
+                                    h["reversal_time"] = ts_et.strftime("%-I:%M %p")
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+                hits.sort(key=lambda h: -h["above_pct"])
+                with _OPENREV_LOCK:
+                    _OPENREV_CACHE = (cache_key, now, hits)
+                self._send_json({"rows": hits, "dip": dip})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/scan/open_reversal", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
             return
         if parsed.path == "/api/pick_ticket":
             # Snap a posture-card suggestion to a REAL listed contract: nearest

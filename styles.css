@@ -9041,6 +9041,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .pj-row2 b { color: var(--fg); }
 .pj-why { font-size: 12px; color: var(--fg-2); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); line-height: 1.45; }
 
+/* Open-reclaim reversal scanner */
+.orev-dip { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-3); }
+.orev-card .scan-row { cursor: pointer; }
+
 /* ── Mobile touch targets ──────────────────────────────────────────────────
    Fingers need ~40px; several small controls measured 14–26px tall on a phone
    (sidebar star/Manage/Edit, preset pills, retry buttons, journal ✕, pick ＋).

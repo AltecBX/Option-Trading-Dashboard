@@ -11253,8 +11253,87 @@ function PicksJournalCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// ── Open-reversal scanner ─────────────────────────────────────────────────
+// Finds the CRDO pattern: opened, sold off >= dip% below the REGULAR-SESSION
+// open, then reclaimed the open — the failed-breakdown / trapped-shorts
+// reversal. Order is guaranteed by construction (price is above the open NOW,
+// so the session low came first). Reversal time = first 1-minute close back
+// above the open after the low (server-side).
+function OpenReversalCard({ apiFetch, onSwitchTicker }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [dip, setDip] = useState(2);
+  useEffect(() => {
+    let stop = false, t = null;
+    const load = async () => {
+      try {
+        const d = await sharedJson(apiFetch, `/api/scan/open_reversal?dip=${dip}`, 45000);
+        if (!stop) { setData(d); setLoading(false); }
+      } catch (_) { if (!stop) setLoading(false); }
+      if (!stop) t = setTimeout(load, document.hidden ? 180000 : 60000);
+    };
+    load();
+    const onVis = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; if (t) clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
+  }, [dip]);
+  const rows = (data && data.rows) || [];
+  return (
+    <div className="card orev-card" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker" title="Watchlist stocks that sold off below the regular-session open, then reclaimed it — the failed-breakdown reversal (like CRDO: opened $260, dipped to $250, ran to $277).">Watchlist · intraday reversal</div>
+          <div className="card-title">Open reclaim — dip &amp; reverse</div>
+        </div>
+        <label className="orev-dip" title="Minimum sell-off below the open before the reclaim counts. Deeper dip = stronger trap, fewer hits.">
+          min dip
+          <select className="sb-select" value={dip} onChange={e => setDip(Number(e.target.value))}>
+            <option value={2}>2%</option><option value={3}>3%</option><option value={5}>5%</option>
+          </select>
+        </label>
+      </div>
+      {loading && !data ? <CardNote kind="loading">Scanning for open reclaims…</CardNote>
+      : !rows.length ? <CardNote kind="empty">No open-reclaim reversals right now — nothing on the watchlist has dipped {dip}% below its open and recovered it. Checks every minute during the session.</CardNote>
+      : (
+      <div className="scan-table-wrap">
+        <table className="scan-table mtable">
+          <thead>
+            <tr>
+              <th title="Ticker — click a row to load it on the chart">Symbol</th>
+              <th className="scan-th-num" title="Official regular-session opening price">Open</th>
+              <th className="scan-th-num" title="Lowest price printed after the open (the flush)">Low</th>
+              <th className="scan-th-num" title="Depth of the sell-off from the open to the low">Drop</th>
+              <th className="scan-th-num" title="Current price">Now</th>
+              <th className="scan-th-num" title="How far ABOVE the open it has reclaimed — the strength of the reversal">Above open</th>
+              <th className="scan-th-num" title="Time (ET) of the first 1-minute close back above the open after the low">Reversal</th>
+              <th className="scan-th-num" title="Session volume — conviction behind the reversal">Volume</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.symbol} className="scan-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                  title={`${r.company || r.symbol} — opened $${r.open}, flushed to $${r.low} (${r.drop_pct}%), now $${r.last} (+${r.above_pct}% above the open)${r.reversal_time ? `, reclaimed at ${r.reversal_time} ET` : ""}. Click to load.`}>
+                <td data-label="Symbol"><b>{r.symbol}</b></td>
+                <td data-label="Open" className="scan-num">${r.open}</td>
+                <td data-label="Low" className="scan-num down">${r.low}</td>
+                <td data-label="Drop" className="scan-num down">{r.drop_pct}%</td>
+                <td data-label="Now" className="scan-num">${r.last}</td>
+                <td data-label="Above open" className="scan-num up"><b>+{r.above_pct}%</b></td>
+                <td data-label="Reversal" className="scan-num">{r.reversal_time || "—"}</td>
+                <td data-label="Volume" className="scan-num">{fmtVol(r.volume)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      )}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
+  OpenReversalCard: _memo(OpenReversalCard),
   MarketContextBar: _memo(MarketContextBar), PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard), WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard), MoversCard: _memo(MoversCard),

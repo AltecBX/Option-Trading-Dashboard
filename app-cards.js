@@ -14976,10 +14976,138 @@ function PicksJournalCard({
     }, p.why));
   })));
 }
+
+// ── Open-reversal scanner ─────────────────────────────────────────────────
+// Finds the CRDO pattern: opened, sold off >= dip% below the REGULAR-SESSION
+// open, then reclaimed the open — the failed-breakdown / trapped-shorts
+// reversal. Order is guaranteed by construction (price is above the open NOW,
+// so the session low came first). Reversal time = first 1-minute close back
+// above the open after the low (server-side).
+function OpenReversalCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [dip, setDip] = useState(2);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      try {
+        const d = await sharedJson(apiFetch, `/api/scan/open_reversal?dip=${dip}`, 45000);
+        if (!stop) {
+          setData(d);
+          setLoading(false);
+        }
+      } catch (_) {
+        if (!stop) setLoading(false);
+      }
+      if (!stop) t = setTimeout(load, document.hidden ? 180000 : 60000);
+    };
+    load();
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [dip]);
+  const rows = data && data.rows || [];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card orev-card",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "Watchlist stocks that sold off below the regular-session open, then reclaimed it — the failed-breakdown reversal (like CRDO: opened $260, dipped to $250, ran to $277)."
+  }, "Watchlist · intraday reversal"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Open reclaim — dip & reverse")), /*#__PURE__*/React.createElement("label", {
+    className: "orev-dip",
+    title: "Minimum sell-off below the open before the reclaim counts. Deeper dip = stronger trap, fewer hits."
+  }, "min dip", /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: dip,
+    onChange: e => setDip(Number(e.target.value))
+  }, /*#__PURE__*/React.createElement("option", {
+    value: 2
+  }, "2%"), /*#__PURE__*/React.createElement("option", {
+    value: 3
+  }, "3%"), /*#__PURE__*/React.createElement("option", {
+    value: 5
+  }, "5%")))), loading && !data ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Scanning for open reclaims…") : !rows.length ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "empty"
+  }, "No open-reclaim reversals right now — nothing on the watchlist has dipped ", dip, "% below its open and recovered it. Checks every minute during the session.") : /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Ticker — click a row to load it on the chart"
+  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Official regular-session opening price"
+  }, "Open"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Lowest price printed after the open (the flush)"
+  }, "Low"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Depth of the sell-off from the open to the low"
+  }, "Drop"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Current price"
+  }, "Now"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "How far ABOVE the open it has reclaimed — the strength of the reversal"
+  }, "Above open"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Time (ET) of the first 1-minute close back above the open after the low"
+  }, "Reversal"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Session volume — conviction behind the reversal"
+  }, "Volume"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol,
+    className: "scan-row",
+    onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+    title: `${r.company || r.symbol} — opened $${r.open}, flushed to $${r.low} (${r.drop_pct}%), now $${r.last} (+${r.above_pct}% above the open)${r.reversal_time ? `, reclaimed at ${r.reversal_time} ET` : ""}. Click to load.`
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Symbol"
+  }, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Open",
+    className: "scan-num"
+  }, "$", r.open), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Low",
+    className: "scan-num down"
+  }, "$", r.low), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Drop",
+    className: "scan-num down"
+  }, r.drop_pct, "%"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Now",
+    className: "scan-num"
+  }, "$", r.last), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Above open",
+    className: "scan-num up"
+  }, /*#__PURE__*/React.createElement("b", null, "+", r.above_pct, "%")), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Reversal",
+    className: "scan-num"
+  }, r.reversal_time || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Volume",
+    className: "scan-num"
+  }, fmtVol(r.volume))))))));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
+  OpenReversalCard: _memo(OpenReversalCard),
   MarketContextBar: _memo(MarketContextBar),
   PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard),
