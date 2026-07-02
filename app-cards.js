@@ -12507,7 +12507,20 @@ function WatchlistAnalystCard({
   const [data, setData] = useState(null);
   const [scope, setScope] = useState("today"); // today | recent
   const [type, setType] = useState("all"); // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
-  const [sortKey, setSortKey] = useState("impact"); // impact|upside|date|symbol
+  const [sortKey, setSortKey] = useState("impact"); // legacy keys or any row field
+  const [sortDir, setSortDir] = useState("desc");
+  const waaSortBy = field => {
+    const cur = {
+      impact: "impact_score",
+      upside: "upside_pct",
+      date: "action_date",
+      symbol: "symbol"
+    }[sortKey] || sortKey;
+    if (cur === field) setSortDir(d => d === "desc" ? "asc" : "desc");else {
+      setSortKey(field);
+      setSortDir(["symbol", "company", "firm", "action_type", "rating_from", "rating_to", "source"].includes(field) ? "asc" : "desc");
+    }
+  };
   const [busy, setBusy] = useState(false);
   const pollRef = useRef(null);
   const load = async () => {
@@ -12570,11 +12583,26 @@ function WatchlistAnalystCard({
     }
   };
   const filtered = actions.filter(a => (scope === "today" ? a.fresh_today : true) && typePass(a));
+  // Column-header sorting: any column, asc/desc toggle. The Sort dropdown
+  // still works (it drives the same state via the legacy keys).
+  const WAA_NUM = {
+    prev_target: 1,
+    new_target: 1,
+    current_price: 1,
+    upside_pct: 1,
+    impact_score: 1
+  };
+  const sortField = {
+    impact: "impact_score",
+    upside: "upside_pct",
+    date: "action_date",
+    symbol: "symbol"
+  }[sortKey] || sortKey;
   const sorted = filtered.slice().sort((x, y) => {
-    if (sortKey === "upside") return (y.upside_pct == null ? -1e9 : y.upside_pct) - (x.upside_pct == null ? -1e9 : x.upside_pct);
-    if (sortKey === "date") return String(y.action_date).localeCompare(String(x.action_date));
-    if (sortKey === "symbol") return String(x.symbol).localeCompare(String(y.symbol));
-    return (y.impact_score || 0) - (x.impact_score || 0);
+    const a = x[sortField],
+      b = y[sortField];
+    const r = WAA_NUM[sortField] ? (a == null ? -1e18 : a) - (b == null ? -1e18 : b) : String(a || "").localeCompare(String(b || ""));
+    return sortDir === "asc" ? r : -r;
   });
   const freshCount = actions.filter(a => a.fresh_today).length;
   const AT = {
@@ -12692,35 +12720,15 @@ function WatchlistAnalystCard({
     style: {
       width: "8%"
     }
-  })), /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
-    title: "Ticker — click a row to open it on the Trade tab"
-  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
-    title: "Company name"
-  }, "Company"), /*#__PURE__*/React.createElement("th", {
-    title: "Date of the analyst action"
-  }, "Date"), /*#__PURE__*/React.createElement("th", {
-    title: "Brokerage / research firm"
-  }, "Firm"), /*#__PURE__*/React.createElement("th", {
-    title: "Action type — upgrade, downgrade, initiation, reiteration, or price-target change"
-  }, "Type"), /*#__PURE__*/React.createElement("th", {
-    title: "Prior analyst rating"
-  }, "From"), /*#__PURE__*/React.createElement("th", {
-    title: "New analyst rating"
-  }, "To"), /*#__PURE__*/React.createElement("th", {
-    className: "num",
-    title: "Previous price target"
-  }, "Prev PT"), /*#__PURE__*/React.createElement("th", {
-    className: "num",
-    title: "New price target"
-  }, "New PT"), /*#__PURE__*/React.createElement("th", {
-    className: "num",
-    title: "% upside/downside from the current price to the new target"
-  }, "Upside"), /*#__PURE__*/React.createElement("th", {
-    className: "num",
-    title: "Impact score (0–100) — firm tier, market cap, PT move size, multi-firm agreement"
-  }, "Impact"), /*#__PURE__*/React.createElement("th", {
-    title: "Data source"
-  }, "Source"))), /*#__PURE__*/React.createElement("tbody", null, sorted.map((a, i) => /*#__PURE__*/React.createElement("tr", {
+  })), /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, [["symbol", "Symbol", "Ticker — click a row to open it on the Trade tab"], ["company", "Company", "Company name"], ["action_date", "Date", "Date of the analyst action"], ["firm", "Firm", "Brokerage / research firm"], ["action_type", "Type", "Action type — upgrade, downgrade, initiation, reiteration, or price-target change"], ["rating_from", "From", "Prior analyst rating"], ["rating_to", "To", "New analyst rating"], ["current_price", "Now", "Current stock price — compare it to the targets at a glance", 1], ["prev_target", "Prev PT", "Previous price target", 1], ["new_target", "New PT", "New price target", 1], ["upside_pct", "Upside", "% upside/downside from the current price to the new target", 1], ["impact_score", "Impact", "Impact score (0–100) — firm tier, market cap, PT move size, multi-firm agreement", 1], ["source", "Source", "Data source"]].map(([f, label, tip, num]) => /*#__PURE__*/React.createElement("th", {
+    key: f,
+    className: num ? "num" : "",
+    style: {
+      cursor: "pointer"
+    },
+    title: `${tip} — click to sort`,
+    onClick: () => waaSortBy(f)
+  }, label, sortField === f ? sortDir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, sorted.map((a, i) => /*#__PURE__*/React.createElement("tr", {
     key: a.symbol + i,
     className: `waa-row ${a.fresh_today ? "waa-fresh" : ""} waa-${a.direction || "neutral"}`,
     onClick: () => onSwitchTicker && onSwitchTicker(a.symbol),
@@ -12747,6 +12755,9 @@ function WatchlistAnalystCard({
   }, a.rating_from || "—"), /*#__PURE__*/React.createElement("td", {
     className: "waa-grade"
   }, a.rating_to || "—"), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    title: "Current stock price"
+  }, ptf(a.current_price)), /*#__PURE__*/React.createElement("td", {
     className: "num"
   }, ptf(a.prev_target)), /*#__PURE__*/React.createElement("td", {
     className: "num"
@@ -14983,6 +14994,41 @@ function PicksJournalCard({
 // reversal. Order is guaranteed by construction (price is above the open NOW,
 // so the session low came first). Reversal time = first 1-minute close back
 // above the open after the low (server-side).
+const OREV_COLS = [{
+  k: "symbol",
+  label: "Symbol",
+  str: true,
+  title: "Ticker — click a row to load it on the chart"
+}, {
+  k: "open",
+  label: "Open",
+  title: "Official regular-session opening price"
+}, {
+  k: "low",
+  label: "Low",
+  title: "Lowest price printed after the open (the flush)"
+}, {
+  k: "drop_pct",
+  label: "Drop",
+  title: "Depth of the sell-off from the open to the low"
+}, {
+  k: "last",
+  label: "Now",
+  title: "Current price"
+}, {
+  k: "above_pct",
+  label: "Above open",
+  title: "How far ABOVE the open it has reclaimed — the strength of the reversal"
+}, {
+  k: "reversal_time",
+  label: "Reversal",
+  str: true,
+  title: "Time (ET) of the first intraday close back above the open after the low (~ = 5-minute resolution)"
+}, {
+  k: "volume",
+  label: "Volume",
+  title: "Session volume — conviction behind the reversal"
+}];
 function OpenReversalCard({
   apiFetch,
   onSwitchTicker
@@ -14990,6 +15036,10 @@ function OpenReversalCard({
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dip, setDip] = useState(2);
+  const [sort, setSort] = useState({
+    k: "above_pct",
+    dir: "desc"
+  });
   useEffect(() => {
     let stop = false,
       t = null;
@@ -15016,7 +15066,17 @@ function OpenReversalCard({
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [dip]);
-  const rows = data && data.rows || [];
+  const rows = useMemo(() => {
+    const arr = (data && data.rows || []).slice();
+    const col = OREV_COLS.find(c => c.k === sort.k) || OREV_COLS[5];
+    arr.sort((a, b) => {
+      const av = a[sort.k],
+        bv = b[sort.k];
+      const r = col.str ? String(av || "").localeCompare(String(bv || "")) : (av == null ? -1e18 : av) - (bv == null ? -1e18 : bv);
+      return sort.dir === "desc" ? -r : r;
+    });
+    return arr;
+  }, [data, sort]);
   return /*#__PURE__*/React.createElement("div", {
     className: "card orev-card",
     style: {
@@ -15036,13 +15096,10 @@ function OpenReversalCard({
     className: "sb-select",
     value: dip,
     onChange: e => setDip(Number(e.target.value))
-  }, /*#__PURE__*/React.createElement("option", {
-    value: 2
-  }, "2%"), /*#__PURE__*/React.createElement("option", {
-    value: 3
-  }, "3%"), /*#__PURE__*/React.createElement("option", {
-    value: 5
-  }, "5%")))), loading && !data ? /*#__PURE__*/React.createElement(CardNote, {
+  }, [1, 2, 3, 4, 5].map(v => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, v, "%"))))), loading && !data ? /*#__PURE__*/React.createElement(CardNote, {
     kind: "loading"
   }, "Scanning for open reclaims…") : !rows.length ? /*#__PURE__*/React.createElement(CardNote, {
     kind: "empty"
@@ -15050,30 +15107,21 @@ function OpenReversalCard({
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
-    title: "Ticker — click a row to load it on the chart"
-  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "Official regular-session opening price"
-  }, "Open"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "Lowest price printed after the open (the flush)"
-  }, "Low"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "Depth of the sell-off from the open to the low"
-  }, "Drop"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "Current price"
-  }, "Now"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "How far ABOVE the open it has reclaimed — the strength of the reversal"
-  }, "Above open"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "Time (ET) of the first 1-minute close back above the open after the low"
-  }, "Reversal"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num",
-    title: "Session volume — conviction behind the reversal"
-  }, "Volume"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, OREV_COLS.map(c => /*#__PURE__*/React.createElement("th", {
+    key: c.k,
+    className: c.str && c.k === "symbol" ? "" : "scan-th-num",
+    style: {
+      cursor: "pointer"
+    },
+    title: `${c.title} — click to sort`,
+    onClick: () => setSort(s => s.k === c.k ? {
+      k: c.k,
+      dir: s.dir === "desc" ? "asc" : "desc"
+    } : {
+      k: c.k,
+      dir: c.str ? "asc" : "desc"
+    })
+  }, c.label, sort.k === c.k ? sort.dir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
     className: "scan-row",
     onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
@@ -15103,11 +15151,96 @@ function OpenReversalCard({
     className: "scan-num"
   }, fmtVol(r.volume))))))));
 }
+
+// ── Reversal alerts (site-wide toasts) ────────────────────────────────────
+// Watches the open-reversal scanner from ANYWHERE in the app (mounted at the
+// shell level, not inside the lazily-mounted Scanners tab) and pops a toast
+// when a NEW symbol first reclaims its open. The first poll of the day
+// baselines silently (no spam for everything already triggered before you
+// opened the site); after that, each fresh reclaim gets one toast. Clicking a
+// toast loads the ticker. Seen-set is day-keyed in localStorage.
+function ReversalAlerts({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [toasts, setToasts] = useState([]);
+  const baselined = useRef(false);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const dayKey = () => "jerry_orev_seen_" + new Date().toISOString().slice(0, 10);
+    const load = async () => {
+      try {
+        const d = await sharedJson(apiFetch, "/api/scan/open_reversal?dip=2", 45000);
+        const rows = d && d.rows || [];
+        if (!stop && rows.length) {
+          let seen;
+          try {
+            seen = new Set(JSON.parse(localStorage.getItem(dayKey())) || []);
+          } catch (_) {
+            seen = new Set();
+          }
+          const fresh = rows.filter(r => !seen.has(r.symbol));
+          rows.forEach(r => seen.add(r.symbol));
+          try {
+            localStorage.setItem(dayKey(), JSON.stringify([...seen]));
+          } catch (_) {}
+          if (baselined.current && fresh.length) {
+            setToasts(ts => [...ts, ...fresh.slice(0, 3).map(r => ({
+              id: `${r.symbol}-${Date.now()}`,
+              sym: r.symbol,
+              msg: `reclaimed its open — dipped ${r.drop_pct}%, now +${r.above_pct}% above`
+            }))].slice(-3));
+          }
+          baselined.current = true;
+        } else if (!stop) {
+          baselined.current = true;
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, document.hidden ? 240000 : 90000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    // auto-dismiss oldest after 12s
+    if (!toasts.length) return undefined;
+    const id = setTimeout(() => setToasts(ts => ts.slice(1)), 12000);
+    return () => clearTimeout(id);
+  }, [toasts]);
+  if (!toasts.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "toast-stack",
+    "aria-live": "polite"
+  }, toasts.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    className: "toast toast-rev",
+    title: `${t.sym} triggered the open-reclaim reversal scanner. Click to load it on the chart.`,
+    onClick: () => {
+      setToasts(ts => ts.filter(x => x.id !== t.id));
+      onSwitchTicker && onSwitchTicker(t.sym);
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "toast-ico"
+  }, "⚡"), /*#__PURE__*/React.createElement("span", {
+    className: "toast-body"
+  }, /*#__PURE__*/React.createElement("b", null, t.sym), " ", t.msg), /*#__PURE__*/React.createElement("span", {
+    className: "toast-x",
+    onClick: e => {
+      e.stopPropagation();
+      setToasts(ts => ts.filter(x => x.id !== t.id));
+    }
+  }, "✕"))));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
   OpenReversalCard: _memo(OpenReversalCard),
+  ReversalAlerts: _memo(ReversalAlerts),
   MarketContextBar: _memo(MarketContextBar),
   PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard),

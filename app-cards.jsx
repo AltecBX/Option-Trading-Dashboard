@@ -9547,7 +9547,13 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
   const [data, setData] = useState(null);
   const [scope, setScope] = useState("today");   // today | recent
   const [type, setType] = useState("all");        // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
-  const [sortKey, setSortKey] = useState("impact"); // impact|upside|date|symbol
+  const [sortKey, setSortKey] = useState("impact"); // legacy keys or any row field
+  const [sortDir, setSortDir] = useState("desc");
+  const waaSortBy = (field) => {
+    const cur = { impact: "impact_score", upside: "upside_pct", date: "action_date", symbol: "symbol" }[sortKey] || sortKey;
+    if (cur === field) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(field); setSortDir(["symbol", "company", "firm", "action_type", "rating_from", "rating_to", "source"].includes(field) ? "asc" : "desc"); }
+  };
   const [busy, setBusy] = useState(false);
   const pollRef = useRef(null);
 
@@ -9593,11 +9599,16 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     }
   };
   const filtered = actions.filter(a => (scope === "today" ? a.fresh_today : true) && typePass(a));
+  // Column-header sorting: any column, asc/desc toggle. The Sort dropdown
+  // still works (it drives the same state via the legacy keys).
+  const WAA_NUM = { prev_target: 1, new_target: 1, current_price: 1, upside_pct: 1, impact_score: 1 };
+  const sortField = { impact: "impact_score", upside: "upside_pct", date: "action_date", symbol: "symbol" }[sortKey] || sortKey;
   const sorted = filtered.slice().sort((x, y) => {
-    if (sortKey === "upside") return (y.upside_pct == null ? -1e9 : y.upside_pct) - (x.upside_pct == null ? -1e9 : x.upside_pct);
-    if (sortKey === "date") return String(y.action_date).localeCompare(String(x.action_date));
-    if (sortKey === "symbol") return String(x.symbol).localeCompare(String(y.symbol));
-    return (y.impact_score || 0) - (x.impact_score || 0);
+    const a = x[sortField], b = y[sortField];
+    const r = WAA_NUM[sortField]
+      ? (a == null ? -1e18 : a) - (b == null ? -1e18 : b)
+      : String(a || "").localeCompare(String(b || ""));
+    return sortDir === "asc" ? r : -r;
   });
   const freshCount = actions.filter(a => a.fresh_today).length;
 
@@ -9662,18 +9673,24 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
               <col style={{ width: "5%" }} /><col style={{ width: "8%" }} />
             </colgroup>
             <thead><tr>
-              <th title="Ticker — click a row to open it on the Trade tab">Symbol</th>
-              <th title="Company name">Company</th>
-              <th title="Date of the analyst action">Date</th>
-              <th title="Brokerage / research firm">Firm</th>
-              <th title="Action type — upgrade, downgrade, initiation, reiteration, or price-target change">Type</th>
-              <th title="Prior analyst rating">From</th>
-              <th title="New analyst rating">To</th>
-              <th className="num" title="Previous price target">Prev PT</th>
-              <th className="num" title="New price target">New PT</th>
-              <th className="num" title="% upside/downside from the current price to the new target">Upside</th>
-              <th className="num" title="Impact score (0–100) — firm tier, market cap, PT move size, multi-firm agreement">Impact</th>
-              <th title="Data source">Source</th>
+              {[["symbol", "Symbol", "Ticker — click a row to open it on the Trade tab"],
+                ["company", "Company", "Company name"],
+                ["action_date", "Date", "Date of the analyst action"],
+                ["firm", "Firm", "Brokerage / research firm"],
+                ["action_type", "Type", "Action type — upgrade, downgrade, initiation, reiteration, or price-target change"],
+                ["rating_from", "From", "Prior analyst rating"],
+                ["rating_to", "To", "New analyst rating"],
+                ["current_price", "Now", "Current stock price — compare it to the targets at a glance", 1],
+                ["prev_target", "Prev PT", "Previous price target", 1],
+                ["new_target", "New PT", "New price target", 1],
+                ["upside_pct", "Upside", "% upside/downside from the current price to the new target", 1],
+                ["impact_score", "Impact", "Impact score (0–100) — firm tier, market cap, PT move size, multi-firm agreement", 1],
+                ["source", "Source", "Data source"]].map(([f, label, tip, num]) => (
+                <th key={f} className={num ? "num" : ""} style={{ cursor: "pointer" }}
+                    title={`${tip} — click to sort`} onClick={() => waaSortBy(f)}>
+                  {label}{sortField === f ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
+                </th>
+              ))}
             </tr></thead>
             <tbody>
               {sorted.map((a, i) => (
@@ -9689,6 +9706,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
                   <td><span className={`waa-type waa-type-${a.direction || "neutral"}`}>{AT[a.action_type] || a.action_type || "—"}</span></td>
                   <td className="waa-grade">{a.rating_from || "—"}</td>
                   <td className="waa-grade">{a.rating_to || "—"}</td>
+                  <td className="num" title="Current stock price">{ptf(a.current_price)}</td>
                   <td className="num">{ptf(a.prev_target)}</td>
                   <td className="num">{ptf(a.new_target)}</td>
                   <td className={`num ${a.upside_pct == null ? "" : a.upside_pct >= 0 ? "up" : "down"}`}>{pctf(a.upside_pct)}</td>
@@ -11259,10 +11277,22 @@ function PicksJournalCard({ apiFetch, onSwitchTicker }) {
 // reversal. Order is guaranteed by construction (price is above the open NOW,
 // so the session low came first). Reversal time = first 1-minute close back
 // above the open after the low (server-side).
+const OREV_COLS = [
+  { k: "symbol", label: "Symbol", str: true, title: "Ticker — click a row to load it on the chart" },
+  { k: "open", label: "Open", title: "Official regular-session opening price" },
+  { k: "low", label: "Low", title: "Lowest price printed after the open (the flush)" },
+  { k: "drop_pct", label: "Drop", title: "Depth of the sell-off from the open to the low" },
+  { k: "last", label: "Now", title: "Current price" },
+  { k: "above_pct", label: "Above open", title: "How far ABOVE the open it has reclaimed — the strength of the reversal" },
+  { k: "reversal_time", label: "Reversal", str: true, title: "Time (ET) of the first intraday close back above the open after the low (~ = 5-minute resolution)" },
+  { k: "volume", label: "Volume", title: "Session volume — conviction behind the reversal" },
+];
+
 function OpenReversalCard({ apiFetch, onSwitchTicker }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dip, setDip] = useState(2);
+  const [sort, setSort] = useState({ k: "above_pct", dir: "desc" });
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
@@ -11277,7 +11307,17 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
     document.addEventListener("visibilitychange", onVis);
     return () => { stop = true; if (t) clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, [dip]);
-  const rows = (data && data.rows) || [];
+  const rows = useMemo(() => {
+    const arr = ((data && data.rows) || []).slice();
+    const col = OREV_COLS.find(c => c.k === sort.k) || OREV_COLS[5];
+    arr.sort((a, b) => {
+      const av = a[sort.k], bv = b[sort.k];
+      const r = col.str ? String(av || "").localeCompare(String(bv || ""))
+                        : (av == null ? -1e18 : av) - (bv == null ? -1e18 : bv);
+      return sort.dir === "desc" ? -r : r;
+    });
+    return arr;
+  }, [data, sort]);
   return (
     <div className="card orev-card" style={{ marginBottom: "var(--row-gap)" }}>
       <div className="card-head">
@@ -11288,7 +11328,7 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
         <label className="orev-dip" title="Minimum sell-off below the open before the reclaim counts. Deeper dip = stronger trap, fewer hits.">
           min dip
           <select className="sb-select" value={dip} onChange={e => setDip(Number(e.target.value))}>
-            <option value={2}>2%</option><option value={3}>3%</option><option value={5}>5%</option>
+            {[1, 2, 3, 4, 5].map(v => <option key={v} value={v}>{v}%</option>)}
           </select>
         </label>
       </div>
@@ -11299,14 +11339,15 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
         <table className="scan-table mtable">
           <thead>
             <tr>
-              <th title="Ticker — click a row to load it on the chart">Symbol</th>
-              <th className="scan-th-num" title="Official regular-session opening price">Open</th>
-              <th className="scan-th-num" title="Lowest price printed after the open (the flush)">Low</th>
-              <th className="scan-th-num" title="Depth of the sell-off from the open to the low">Drop</th>
-              <th className="scan-th-num" title="Current price">Now</th>
-              <th className="scan-th-num" title="How far ABOVE the open it has reclaimed — the strength of the reversal">Above open</th>
-              <th className="scan-th-num" title="Time (ET) of the first 1-minute close back above the open after the low">Reversal</th>
-              <th className="scan-th-num" title="Session volume — conviction behind the reversal">Volume</th>
+              {OREV_COLS.map(c => (
+                <th key={c.k} className={c.str && c.k === "symbol" ? "" : "scan-th-num"}
+                    style={{ cursor: "pointer" }} title={`${c.title} — click to sort`}
+                    onClick={() => setSort(s => s.k === c.k
+                      ? { k: c.k, dir: s.dir === "desc" ? "asc" : "desc" }
+                      : { k: c.k, dir: c.str ? "asc" : "desc" })}>
+                  {c.label}{sort.k === c.k ? (sort.dir === "desc" ? " ↓" : " ↑") : ""}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -11331,9 +11372,69 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// ── Reversal alerts (site-wide toasts) ────────────────────────────────────
+// Watches the open-reversal scanner from ANYWHERE in the app (mounted at the
+// shell level, not inside the lazily-mounted Scanners tab) and pops a toast
+// when a NEW symbol first reclaims its open. The first poll of the day
+// baselines silently (no spam for everything already triggered before you
+// opened the site); after that, each fresh reclaim gets one toast. Clicking a
+// toast loads the ticker. Seen-set is day-keyed in localStorage.
+function ReversalAlerts({ apiFetch, onSwitchTicker }) {
+  const [toasts, setToasts] = useState([]);
+  const baselined = useRef(false);
+  useEffect(() => {
+    let stop = false, t = null;
+    const dayKey = () => "jerry_orev_seen_" + new Date().toISOString().slice(0, 10);
+    const load = async () => {
+      try {
+        const d = await sharedJson(apiFetch, "/api/scan/open_reversal?dip=2", 45000);
+        const rows = (d && d.rows) || [];
+        if (!stop && rows.length) {
+          let seen;
+          try { seen = new Set(JSON.parse(localStorage.getItem(dayKey())) || []); } catch (_) { seen = new Set(); }
+          const fresh = rows.filter(r => !seen.has(r.symbol));
+          rows.forEach(r => seen.add(r.symbol));
+          try { localStorage.setItem(dayKey(), JSON.stringify([...seen])); } catch (_) {}
+          if (baselined.current && fresh.length) {
+            setToasts(ts => [...ts, ...fresh.slice(0, 3).map(r => ({
+              id: `${r.symbol}-${Date.now()}`, sym: r.symbol,
+              msg: `reclaimed its open — dipped ${r.drop_pct}%, now +${r.above_pct}% above`,
+            }))].slice(-3));
+          }
+          baselined.current = true;
+        } else if (!stop) {
+          baselined.current = true;
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, document.hidden ? 240000 : 90000);
+    };
+    load();
+    return () => { stop = true; if (t) clearTimeout(t); };
+  }, []);
+  useEffect(() => {   // auto-dismiss oldest after 12s
+    if (!toasts.length) return undefined;
+    const id = setTimeout(() => setToasts(ts => ts.slice(1)), 12000);
+    return () => clearTimeout(id);
+  }, [toasts]);
+  if (!toasts.length) return null;
+  return (
+    <div className="toast-stack" aria-live="polite">
+      {toasts.map(t => (
+        <button key={t.id} className="toast toast-rev"
+                title={`${t.sym} triggered the open-reclaim reversal scanner. Click to load it on the chart.`}
+                onClick={() => { setToasts(ts => ts.filter(x => x.id !== t.id)); onSwitchTicker && onSwitchTicker(t.sym); }}>
+          <span className="toast-ico">⚡</span>
+          <span className="toast-body"><b>{t.sym}</b> {t.msg}</span>
+          <span className="toast-x" onClick={(e) => { e.stopPropagation(); setToasts(ts => ts.filter(x => x.id !== t.id)); }}>✕</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
-  OpenReversalCard: _memo(OpenReversalCard),
+  OpenReversalCard: _memo(OpenReversalCard), ReversalAlerts: _memo(ReversalAlerts),
   MarketContextBar: _memo(MarketContextBar), PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard), WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard), MoversCard: _memo(MoversCard),
