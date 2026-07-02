@@ -273,6 +273,10 @@ _CTX_LOCK = threading.Lock()
 # Open-reversal scanner: dip below the regular open, then reclaim it.
 _OPENREV_CACHE: tuple | None = None
 _OPENREV_LOCK = threading.Lock()
+# Reversal times are immutable once found — memoize per (day, symbol) so each
+# symbol costs ONE Schwab intraday call per day, not one per poll.
+_OPENREV_TIMES: dict = {}
+_OPENREV_TIMES_DAY: str | None = None
 
 
 def _spy_gamma_regime():
@@ -4688,24 +4692,27 @@ def build_watchlist_earnings(days: int = 14) -> dict:
             pass
 
     bulk = _bulk_earnings_map(days)
-    # yfinance's bulk Calendars() feed can come back EMPTY (backend hiccups /
-    # version drift) — which blanked the whole Earnings Calendar even though
-    # the board's per-symbol next_earnings dates were fine (they power the
-    # header countdown). Fall back to those so the calendar always shows at
-    # least the dates the rest of the app already knows.
-    if not bulk:
-        for sym, r in brow.items():
-            ne = r.get("next_earnings")
-            if not ne:
-                continue
-            try:
-                nd = datetime.strptime(str(ne)[:10], "%Y-%m-%d").date()
-            except Exception:
-                continue
-            if today - timedelta(days=2) <= nd <= horizon:
-                bulk[sym] = {"date": str(nd), "timing": None, "eps_estimate": None,
-                             "eps_actual": None, "eps_surprise": None,
-                             "company": r.get("company"), "market_cap": r.get("market_cap")}
+    # ALWAYS merge the board's per-symbol next_earnings dates for watchlist
+    # names the bulk feed missed. The bulk Calendars() feed can come back
+    # empty OR non-empty-but-with-zero-watchlist-overlap (it's a global list),
+    # and either way the calendar was blank even though per-symbol dates were
+    # fine — they power the header countdown (e.g. "DAL 7-10-2026 in 8d").
+    merged_from_board = 0
+    for sym, r in brow.items():
+        if sym in bulk:
+            continue
+        ne = r.get("next_earnings")
+        if not ne:
+            continue
+        try:
+            nd = datetime.strptime(str(ne)[:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        if today - timedelta(days=2) <= nd <= horizon:
+            bulk[sym] = {"date": str(nd), "timing": None, "eps_estimate": None,
+                         "eps_actual": None, "eps_surprise": None,
+                         "company": r.get("company"), "market_cap": r.get("market_cap")}
+            merged_from_board += 1
 
     cands = []
     for sym in syms:
@@ -4789,6 +4796,14 @@ def build_watchlist_earnings(days: int = 14) -> dict:
         "sectors": sorted(sectors),
         "industries": sorted(industries),
         "board_status": status,
+        # Diagnostics: how many dates each source contributed. If entries is
+        # empty AND board_dates is 0, the scanned board itself has no
+        # next_earnings values (needs a rescan) — not a calendar bug.
+        "debug_sources": {
+            "bulk_feed": len(bulk) - merged_from_board,
+            "board_merged": merged_from_board,
+            "board_rows_with_dates": sum(1 for r in brow.values() if r.get("next_earnings")),
+        },
     }
 
 
@@ -7782,44 +7797,71 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             "company": q.get("name") or "",
                             "reversal_time": None,
                         })
-                # Stage 2: intraday bars for just the hits → reversal timestamp
-                # (first bar after the session low whose close is back above the
-                # open). Tries 1m, falls back to 5m (yfinance 1m is flaky on
-                # some hosts). Per-symbol isolation; any failure is surfaced in
-                # stage2_error instead of silently blanking the column.
+                # Stage 2: reversal timestamp = first minute bar after the
+                # session low whose close is back above the open. SCHWAB
+                # intraday minute bars are the primary source (yfinance's
+                # intraday feed fails on datacenter hosts even when its daily
+                # feed works — that's why the column was blank); yfinance 5m
+                # stays as a last-ditch fallback. Times are memoized per
+                # (day, symbol): one Schwab call per symbol per day, total.
+                global _OPENREV_TIMES, _OPENREV_TIMES_DAY
                 stage2_err = None
-                for interval in ("1m", "5m"):
-                    pending = [h for h in hits[:40] if not h.get("reversal_time")]
-                    if not pending:
-                        break
+                day_iso = date.today().isoformat()
+                if _OPENREV_TIMES_DAY != day_iso:
+                    _OPENREV_TIMES = {}
+                    _OPENREV_TIMES_DAY = day_iso
+                for h in hits:
+                    if h["symbol"] in _OPENREV_TIMES:
+                        h["reversal_time"] = _OPENREV_TIMES[h["symbol"]]
+                pending = [h for h in hits[:40] if not h.get("reversal_time")]
+                if pending and sc is not None:
+                    for h in pending:
+                        try:
+                            bars = sc.get_intraday(h["symbol"]) or []
+                            if not bars:
+                                continue
+                            li = min(range(len(bars)),
+                                     key=lambda i: bars[i]["low"] if bars[i].get("low") is not None else float("inf"))
+                            for b in bars[li:]:
+                                c = b.get("close")
+                                if c is not None and c > h["open"]:
+                                    ts_et = (datetime.fromtimestamp(b["ts"] / 1000, _ET) if _ET
+                                             else datetime.fromtimestamp(b["ts"] / 1000))
+                                    h["reversal_time"] = ts_et.strftime("%-I:%M %p")
+                                    _OPENREV_TIMES[h["symbol"]] = h["reversal_time"]
+                                    break
+                        except Exception as exc:  # noqa: BLE001
+                            stage2_err = f"schwab intraday {h['symbol']}: {exc}"
+                            continue
+                # Last-ditch: yfinance 5m batch for anything Schwab couldn't fill.
+                pending = [h for h in hits[:40] if not h.get("reversal_time")]
+                if pending:
                     try:
                         df = yf.download(" ".join(h["symbol"] for h in pending),
-                                         period="1d", interval=interval, prepost=False,
+                                         period="1d", interval="5m", prepost=False,
                                          progress=False, group_by="ticker", threads=False)
-                        if df is None or df.empty:
-                            stage2_err = f"{interval}: empty download"
-                            continue
-                        multi = isinstance(df.columns, pd.MultiIndex)
-                        for h in pending:
-                            try:
-                                sub = df[h["symbol"]] if multi else df
-                                sub = sub[["Low", "Close"]].dropna()
-                                if not len(sub):
+                        if df is not None and not df.empty:
+                            multi = isinstance(df.columns, pd.MultiIndex)
+                            for h in pending:
+                                try:
+                                    sub = df[h["symbol"]] if multi else df
+                                    sub = sub[["Low", "Close"]].dropna()
+                                    if not len(sub):
+                                        continue
+                                    li = int(sub["Low"].values.argmin())
+                                    rev = sub["Close"].iloc[li:][sub["Close"].iloc[li:] > h["open"]]
+                                    if len(rev):
+                                        ts = rev.index[0]
+                                        ts_et = ts.tz_convert(_ET) if (_ET and getattr(ts, "tzinfo", None)) else ts
+                                        h["reversal_time"] = ts_et.strftime("%-I:%M %p") + " ~"
+                                        _OPENREV_TIMES[h["symbol"]] = h["reversal_time"]
+                                except Exception:
                                     continue
-                                li = int(sub["Low"].values.argmin())
-                                after = sub["Close"].iloc[li:]
-                                rev = after[after > h["open"]]
-                                if len(rev):
-                                    ts = rev.index[0]
-                                    ts_et = ts.tz_convert(_ET) if (_ET and getattr(ts, "tzinfo", None)) else ts
-                                    h["reversal_time"] = ts_et.strftime("%-I:%M %p")
-                                    if interval != "1m":
-                                        h["reversal_time"] += " ~"
-                            except Exception:
-                                continue
+                        elif stage2_err is None:
+                            stage2_err = "yfinance 5m: empty download"
                     except Exception as exc:  # noqa: BLE001
-                        stage2_err = f"{interval}: {exc}"
-                        continue
+                        if stage2_err is None:
+                            stage2_err = f"yfinance 5m: {exc}"
                 hits.sort(key=lambda h: -h["above_pct"])
                 with _OPENREV_LOCK:
                     _OPENREV_CACHE = (cache_key, now, hits)

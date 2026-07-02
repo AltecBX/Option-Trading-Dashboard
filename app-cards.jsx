@@ -11351,6 +11351,9 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
             </tr>
           </thead>
           <tbody>
+            {data && data.stage2_error && rows.every(r => !r.reversal_time) && (
+              <tr><td colSpan={8} className="orev-warn" title={String(data.stage2_error)}>⚠ reversal times unavailable right now — {String(data.stage2_error).slice(0, 90)}</td></tr>
+            )}
             {rows.map(r => (
               <tr key={r.symbol} className="scan-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                   title={`${r.company || r.symbol} — opened $${r.open}, flushed to $${r.low} (${r.drop_pct}%), now $${r.last} (+${r.above_pct}% above the open)${r.reversal_time ? `, reclaimed at ${r.reversal_time} ET` : ""}. Click to load.`}>
