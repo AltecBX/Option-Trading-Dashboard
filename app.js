@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.06";
+const APP_VERSION = "3.07";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -23,6 +23,16 @@ Object.assign(window, {
 // keep working unchanged.
 const _API_CACHE = new Map(); // url -> { ts, promise<{status, text}> }
 const API_CACHE_TTL = 4000; // ms — shorter than every polling interval
+
+// Instant symbol re-select (v3.07): the last few /api/ticker payloads, keyed by
+// ticker+view params. Hopping back to a recently-viewed name installs the
+// cached payload SYNCHRONOUSLY (no skeleton, Bloomberg-style) while the normal
+// fetch revalidates in the background and replaces it seconds later. Manual
+// refresh bypasses this entirely.
+const _TICKER_LRU = new Map(); // key -> { t, payload }
+const _TICKER_LRU_MAX = 8;
+const _TICKER_LRU_TTL = 90000; // ms — stale views still revalidate instantly
+let _TICKER_LAST_NONCE = null;
 
 // Run low-priority work after the browser is idle (or shortly after, on Safari
 // versions without requestIdleCallback) so the first paint + /api/ticker win
@@ -1943,7 +1953,23 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const ac = new AbortController();
-    setLoading(true);
+    // Instant re-select: if this exact ticker+view was fetched in the last
+    // ~90s, install it NOW (no skeleton flash) and let the fetch below
+    // revalidate in the background. A manual refresh (reloadNonce changed)
+    // always shows the loading state and skips the hydrate.
+    const _lruKey = `${ticker}|${weeks}|${baseline}|${expiration}`;
+    const _manual = _TICKER_LAST_NONCE !== null && _TICKER_LAST_NONCE !== reloadNonce;
+    _TICKER_LAST_NONCE = reloadNonce;
+    const _hit = !_manual && _TICKER_LRU.get(_lruKey);
+    if (_hit && Date.now() - _hit.t < _TICKER_LRU_TTL) {
+      if (window.__installLive) window.__installLive(_hit.payload);else window.__bootstrapLive && window.__bootstrapLive(_hit.payload);
+      setDataVersion(v => v + 1);
+      setLastFetched(_hit.t);
+      setLoading(false);
+      if (_PERF.on) _PERF.mark(`ticker → ${ticker}: instant from LRU (revalidating)`);
+    } else {
+      setLoading(true);
+    }
     setLoadError(null);
     const _tFetch = window.performance && performance.now ? performance.now() : Date.now();
     if (_PERF.on) {
@@ -1956,6 +1982,12 @@ function App() {
       signal: ac.signal
     }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e))).then(payload => {
       if (cancelled) return;
+      _TICKER_LRU.delete(_lruKey); // re-insert = most recent
+      _TICKER_LRU.set(_lruKey, {
+        t: Date.now(),
+        payload
+      });
+      if (_TICKER_LRU.size > _TICKER_LRU_MAX) _TICKER_LRU.delete(_TICKER_LRU.keys().next().value);
       if (window.__installLive) window.__installLive(payload);else window.__bootstrapLive && window.__bootstrapLive(payload);
       setDataVersion(v => v + 1);
       setLastFetched(Date.now());
@@ -1968,6 +2000,12 @@ function App() {
     }).catch(err => {
       // Aborted by a newer switch — not an error, just drop it silently.
       if (cancelled || err?.name === "AbortError") return;
+      // Hydrated from the LRU and only the background revalidate failed:
+      // the user is looking at ≤90s-old data — don't slap an error over it.
+      if (_hit && Date.now() - _hit.t < _TICKER_LRU_TTL) {
+        setLoading(false);
+        return;
+      }
       const msg = err?.error || err?.message || "Fetch failed";
       const offline = /Failed to fetch|NetworkError|TypeError/.test(msg);
       const havePreset = !!window.MockData?.PRESETS?.[ticker];

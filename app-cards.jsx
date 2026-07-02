@@ -99,8 +99,7 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const load = async () => {
       try {
-        const r = await apiFetch("/api/market_overview");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/market_overview", 12000);
         if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
       } catch (_) { /* strip is best-effort */ }
       if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
@@ -190,9 +189,9 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
-      const grab = async (u) => { try { const r = await apiFetch(u); return await r.json(); } catch (_) { return null; } };
+      const grab = (u, ttl) => sharedJson(apiFetch, u, ttl).catch(() => null);
       const [b, v, m] = await Promise.all([
-        grab("/api/watchlist_table"), grab("/api/ivrank"), grab("/api/market_overview"),
+        grab("/api/watchlist_table", 20000), grab("/api/ivrank", 60000), grab("/api/market_overview", 12000),
       ]);
       if (!stop) { setBoard(b); setIv(v); setMkt(m); setLoading(false); }
       // If the IV-rank board is empty, kick a background scan so it populates
@@ -2537,7 +2536,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   }, []);
 
   const load = async () => {
-    try { const r = await apiFetch("/api/watchlist_table"); const d = await r.json(); setBoard(d); setErr(null); return d; }
+    try { const d = await sharedJson(apiFetch, "/api/watchlist_table", 20000); setBoard(d); setErr(null); return d; }
     catch (e) { setErr(String(e)); return null; }
   };
   useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
@@ -9746,7 +9745,7 @@ function WatchlistStreaksCard({ apiFetch, onSwitchTicker }) {
   const pollRef = useRef(null);
 
   const load = async () => {
-    try { const r = await apiFetch("/api/watchlist_table"); const d = await r.json(); setBoard(d); return d; }
+    try { const d = await sharedJson(apiFetch, "/api/watchlist_table", 20000); setBoard(d); return d; }
     catch (_) { return null; }
   };
   useEffect(() => {
@@ -10193,8 +10192,7 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const load = async () => {
       try {
-        const r = await apiFetch("/api/watchlist_table");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/watchlist_table", 30000);
         const all = (d && d.rows) || [];
         // Candidates: anything the scan thinks is within ~6% of its high (a
         // touch wider than the display threshold so a live intraday push to a
@@ -10216,8 +10214,7 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const grab = async () => {
       try {
-        const r = await apiFetch("/api/broker/owned");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
         if (!stop && d && Array.isArray(d.symbols)) {
           setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
         }
@@ -10381,8 +10378,7 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const grab = async () => {
       try {
-        const r = await apiFetch("/api/broker/owned");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
         if (!stop && d && Array.isArray(d.symbols)) {
           setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
         }
@@ -10472,8 +10468,7 @@ function RightRail52WLow({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const load = async () => {
       try {
-        const r = await apiFetch("/api/watchlist_table");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/watchlist_table", 30000);
         const all = (d && d.rows) || [];
         // Candidates: within ~6% above the 52W low (wider than the 3% display
         // threshold so a live intraday drop to a new low still qualifies).
@@ -10492,8 +10487,7 @@ function RightRail52WLow({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const grab = async () => {
       try {
-        const r = await apiFetch("/api/broker/owned");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
         if (!stop && d && Array.isArray(d.symbols)) {
           setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
         }
@@ -10639,8 +10633,7 @@ function RightRailDailyLow({ apiFetch, onSwitchTicker }) {
     let stop = false, t = null;
     const grab = async () => {
       try {
-        const r = await apiFetch("/api/broker/owned");
-        const d = await r.json();
+        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
         if (!stop && d && Array.isArray(d.symbols)) {
           setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
         }
@@ -11018,7 +11011,7 @@ function MarketContextBar({ apiFetch, onSwitchTicker, onOpenBreadth }) {
   useEffect(() => {
     let stop = false, t1 = null, t2 = null;
     const grab = async (u, set, ms, ref) => {
-      try { const r = await apiFetch(u); const d = await r.json(); if (!stop) set(d); } catch (_) {}
+      try { const d = await sharedJson(apiFetch, u, Math.min(ms / 2, 30000)); if (!stop) set(d); } catch (_) {}
       if (!stop) ref.id = setTimeout(() => grab(u, set, ms, ref), document.hidden ? ms * 3 : ms);
     };
     const r1 = {}, r2 = {};

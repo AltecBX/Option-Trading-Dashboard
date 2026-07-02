@@ -137,6 +137,26 @@ class RootErrorBoundary extends React.Component {
   }
 }
 
+// ── Shared JSON fetch (v3.07) ──────────────────────────────────────────────
+// Several components poll the SAME endpoints on their own timers (the 1,285-row
+// watchlist board alone had 6 independent pollers; broker/owned had 4). This
+// dedupes them: identical GETs within the TTL share one cached result, and
+// concurrent calls share one in-flight request. Components keep their own
+// polling loops — only the network call is coalesced.
+const _SJ_CACHE = new Map();     // url -> { t, data }
+const _SJ_INFLIGHT = new Map();  // url -> promise
+function sharedJson(apiFetch, url, ttlMs = 15000) {
+  const hit = _SJ_CACHE.get(url);
+  if (hit && Date.now() - hit.t < ttlMs) return Promise.resolve(hit.data);
+  if (_SJ_INFLIGHT.has(url)) return _SJ_INFLIGHT.get(url);
+  const p = apiFetch(url)
+    .then(r => r.json())
+    .then(d => { _SJ_CACHE.set(url, { t: Date.now(), data: d }); _SJ_INFLIGHT.delete(url); return d; })
+    .catch(e => { _SJ_INFLIGHT.delete(url); throw e; });
+  _SJ_INFLIGHT.set(url, p);
+  return p;
+}
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -145,4 +165,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson });
