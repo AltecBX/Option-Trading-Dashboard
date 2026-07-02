@@ -304,8 +304,11 @@ input, select, textarea {
 .lc-date { flex: 1 1 0; text-align: right; white-space: nowrap; }
 .lc-bar { flex: 0 0 auto; padding: 0 7px; color: var(--fg-4, var(--fg-3)); }
 .lc-time { flex: 1 1 0; text-align: left; white-space: nowrap; }
+/* Regular session in progress -> same green as the "Schwab live" badge, so a
+   glance at the clock says the market is open. */
+.lc-time.mkt-open { color: var(--up); font-weight: 700; }
 .brand-mark {
-  width: 76px; height: 76px;
+  width: 78px; height: 78px;
   object-fit: contain;
   flex-shrink: 0;
   transform: translateY(-2px);
@@ -3290,7 +3293,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .sb-version-pill {
   position: absolute;
   top: 18px;
-  left: 16px;
+  left: 14px;
   z-index: 5;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -3308,7 +3311,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .sb-weather-pill {
   position: absolute;
   top: 16px;
-  right: 16px;
+  right: 14px;
   z-index: 5;
   display: inline-flex;
   align-items: center;
@@ -8998,7 +9001,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mctx-ribbon { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; cursor: pointer; }
 .mctx-rlbl { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-4); margin-right: 3px; }
 .mctx-chip { display: inline-flex; align-items: baseline; gap: 5px; font-size: 11px; font-weight: 600;
+  font-family: inherit; cursor: pointer;
   padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-2); }
+.mctx-chip:hover { border-color: var(--fg-3); transform: translateY(-1px); }
 .mctx-chip b { font-family: var(--font-mono); font-weight: 800; }
 .mctx-chip.pos { background: color-mix(in oklch, var(--up), transparent 82%); border-color: transparent; color: var(--fg); }
 .mctx-chip.pos b { color: var(--up); }
@@ -9085,12 +9090,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mb-bar-fill.pos { background: var(--up); } .mb-bar-fill.neg { background: var(--down); }
 .mb-bar-val { flex: 0 0 40px; text-align: right; font-family: var(--font-mono); font-weight: 800; font-size: 12px; }
 
-/* Heatmap tiles */
-.mb-heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 7px; margin-bottom: 16px; }
+/* Heatmap tiles — width ∝ √(group size), color intensity ∝ strength (set
+   inline). Reads like a proper sector map: big groups dominate, hot rotation
+   glows. */
+.mb-heat { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
 .mb-heat-tile { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; text-align: left;
-  padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); cursor: pointer;
-  background: var(--bg-3); color: var(--fg-2); transition: transform 100ms var(--ease); }
-.mb-heat-tile:hover { transform: translateY(-1px); }
+  flex: 1 1 0; min-width: 112px;
+  padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer;
+  background: var(--bg-3); color: var(--fg-2);
+  transition: transform 100ms var(--ease), box-shadow 100ms var(--ease); }
+.mb-heat-tile:hover { transform: translateY(-1px); box-shadow: var(--shadow-hover); }
+.mb-heat-tile.mb-heat-hot { color: #fff; }
+.mb-heat-tile.mb-heat-hot .mb-heat-cnt { opacity: 0.9; }
 .mb-heat-tile.mb-t-hh { background: color-mix(in oklch, var(--up), transparent 30%); border-color: transparent; color: #fff; }
 .mb-heat-tile.mb-t-h  { background: color-mix(in oklch, var(--up), transparent 68%); border-color: transparent; color: var(--fg); }
 .mb-heat-tile.mb-t-n  { background: var(--bg-3); }

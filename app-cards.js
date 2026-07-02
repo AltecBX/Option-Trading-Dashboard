@@ -14425,6 +14425,32 @@ function MarketBreadthCard({
     k: "chg",
     dir: "asc"
   });
+
+  // Deep-link from the context bar's rotation chips: clicking "Technology"
+  // there opens THIS tab already drilled into Technology (sector view), and
+  // scrolls the drill panel into view. Handles both the first mount (handoff
+  // via window.__breadthDrill) and later clicks (custom event) since this
+  // panel stays mounted once visited.
+  useEffect(() => {
+    const apply = name => {
+      if (!name) return;
+      setView("sector");
+      setDrill(name);
+      setTimeout(() => {
+        try {
+          document.querySelector(".mb-drill") && document.querySelector(".mb-drill").scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+        } catch (_) {}
+      }, 350);
+    };
+    apply(window.__breadthDrill);
+    window.__breadthDrill = null;
+    const h = e => apply(e.detail);
+    window.addEventListener("breadth-drill", h);
+    return () => window.removeEventListener("breadth-drill", h);
+  }, []);
   useEffect(() => {
     let stop = false,
       t = null;
@@ -14560,7 +14586,7 @@ function MarketBreadthCard({
     title: "Which groups are broadly making new highs vs lows right now — sector/industry rotation strength, live."
   }, "Market Breadth ", /*#__PURE__*/React.createElement("span", {
     className: "mb-sub"
-  }, "rotation by group")), /*#__PURE__*/React.createElement("div", {
+  }, "rotation by ", view)), /*#__PURE__*/React.createElement("div", {
     className: "mb-summary"
   }, totals.groups, " groups · ", /*#__PURE__*/React.createElement("b", {
     className: "up"
@@ -14611,18 +14637,32 @@ function MarketBreadthCard({
     className: "mb-empty"
   }, "No groups meet the minimum — lower the slider or wait for the scan.")), /*#__PURE__*/React.createElement("div", {
     className: "mb-heat"
-  }, byStrength.map(g => /*#__PURE__*/React.createElement("button", {
-    key: g.name,
-    className: `mb-heat-tile mb-t-${strengthTier(g.strength)}`,
-    onClick: () => setDrill(g.name),
-    title: `${g.name} — strength ${g.strength} · ${g.hod} HOD / ${g.lod} LOD / ${g.total} stocks`
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "mb-heat-name"
-  }, g.name), /*#__PURE__*/React.createElement("span", {
-    className: "mb-heat-str"
-  }, g.strength > 0 ? "+" : "", g.strength), /*#__PURE__*/React.createElement("span", {
-    className: "mb-heat-cnt"
-  }, g.hod, "H / ", g.lod, "L / ", g.total)))), /*#__PURE__*/React.createElement("div", {
+  }, byStrength.map(g => {
+    const s = g.strength;
+    // srgb mix against a neutral dark keeps reds red and greens green
+    // (an oklch mix with the blue-tinted bg goes muddy purple).
+    const mag = Math.min(85, 28 + Math.abs(s) * 1.5);
+    const bg = s > 0 ? `color-mix(in srgb, var(--up) ${mag}%, #0d1015)` : s < 0 ? `color-mix(in srgb, var(--down) ${mag}%, #0d1015)` : undefined;
+    return /*#__PURE__*/React.createElement("button", {
+      key: g.name,
+      className: `mb-heat-tile${Math.abs(s) >= 12 ? " mb-heat-hot" : ""}`,
+      style: {
+        flexGrow: Math.max(1, Math.sqrt(g.total)),
+        ...(bg ? {
+          background: bg,
+          borderColor: "transparent"
+        } : {})
+      },
+      onClick: () => setDrill(g.name),
+      title: `${g.name} — strength ${s} · ${g.hod} at highs / ${g.lod} at lows of ${g.total} stocks · tile width ∝ group size, color ∝ strength · click to drill in`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mb-heat-name"
+    }, g.name), /*#__PURE__*/React.createElement("span", {
+      className: "mb-heat-str"
+    }, s > 0 ? "+" : "", s), /*#__PURE__*/React.createElement("span", {
+      className: "mb-heat-cnt"
+    }, g.hod, "H / ", g.lod, "L / ", g.total));
+  })), /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mb-table"
@@ -14631,7 +14671,7 @@ function MarketBreadthCard({
     className: c.str ? "" : "scan-th-num",
     title: c.title,
     onClick: () => setSort(c.k)
-  }, c.label, sortCol === c.k ? sortDir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, sorted.map(g => /*#__PURE__*/React.createElement("tr", {
+  }, c.k === "name" ? view[0].toUpperCase() + view.slice(1) : c.label, sortCol === c.k ? sortDir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, sorted.map(g => /*#__PURE__*/React.createElement("tr", {
     key: g.name,
     className: "scan-row",
     onClick: () => setDrill(g.name),
@@ -14781,14 +14821,25 @@ function MarketContextBar({
   }, x.sym, /*#__PURE__*/React.createElement("small", null, x.days, "d")))))), /*#__PURE__*/React.createElement("div", {
     className: "mctx-ribbon",
     onClick: onOpenBreadth,
-    title: "Sector rotation by options flow (net bullish − bearish EDGE). Click for the full Breadth view."
+    title: "Sector rotation by options flow (net bullish − bearish EDGE). Click a sector to open it drilled-in on the Breadth tab."
   }, /*#__PURE__*/React.createElement("span", {
     className: "mctx-rlbl"
-  }, "Rotation"), rotation.slice(0, 14).map(r => /*#__PURE__*/React.createElement("span", {
+  }, "Rotation"), rotation.slice(0, 14).map(r => /*#__PURE__*/React.createElement("button", {
     key: r.sector,
     className: `mctx-chip ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : "flat"}`,
     style: {
       opacity: 0.55 + 0.45 * Math.abs(r.net) / maxNet
+    },
+    title: `${r.sector}: net flow ${r.net > 0 ? "+" : ""}${r.net} across ${r.n} names — click to open ${r.sector} on the Breadth tab (drilled into its HOD/LOD lists)`,
+    onClick: e => {
+      e.stopPropagation();
+      try {
+        window.__breadthDrill = r.sector;
+        window.dispatchEvent(new CustomEvent("breadth-drill", {
+          detail: r.sector
+        }));
+      } catch (_) {}
+      onOpenBreadth && onOpenBreadth();
     }
   }, r.sector, /*#__PURE__*/React.createElement("b", null, r.net > 0 ? "+" : "", r.net))), !rotation.length && /*#__PURE__*/React.createElement("span", {
     className: "mctx-quiet"
