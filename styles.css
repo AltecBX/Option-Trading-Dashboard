@@ -9044,6 +9044,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Open-reclaim reversal scanner */
 .orev-dip { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-3); }
 .orev-card .scan-row { cursor: pointer; }
+.orev-warn { font-size: 11px; color: var(--warn); padding: 6px 8px !important; }
 
 /* Site-wide reversal toasts (top-right, above everything). */
 .toast-stack { position: fixed; top: 14px; right: 14px; z-index: 400;

@@ -15121,7 +15121,11 @@ function OpenReversalCard({
       k: c.k,
       dir: c.str ? "asc" : "desc"
     })
-  }, c.label, sort.k === c.k ? sort.dir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, c.label, sort.k === c.k ? sort.dir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, data && data.stage2_error && rows.every(r => !r.reversal_time) && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 8,
+    className: "orev-warn",
+    title: String(data.stage2_error)
+  }, "⚠ reversal times unavailable right now — ", String(data.stage2_error).slice(0, 90))), rows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
     className: "scan-row",
     onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
