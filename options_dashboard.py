@@ -7710,6 +7710,68 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn("*", "api/market_breadth", exc)
                 self._send_json({"error": str(exc), "stocks": {}}, status=500)
             return
+        if parsed.path == "/api/pick_ticket":
+            # Snap a posture-card suggestion to a REAL listed contract: nearest
+            # listed expiration to the target DTE (buys round UP for theta
+            # cushion, sells round DOWN to harvest), nearest listed strike, and
+            # the live bid/ask so the ticket shows what it actually costs.
+            # The Schwab chain fetch is TTL-cached in the client, so three
+            # picks per posture refresh stay cheap.
+            try:
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+                right = (qs.get("right", ["C"])[0] or "C").upper()[:1]
+                buy = qs.get("buy", ["1"])[0] not in ("0", "false")
+                want_strike = _num(qs.get("strike", [None])[0])
+                want_dte = _num(qs.get("dte", [None])[0]) or 14
+                if not symbol:
+                    self._send_json({"error": "symbol required"}, status=400)
+                    return
+                sc = _schwab()
+                if sc is None:
+                    self._send_json({"ticket": None})
+                    return
+                chain = sc.get_option_chain(symbol, strike_count=40)
+                if not chain or not chain.get("expirations"):
+                    self._send_json({"ticket": None})
+                    return
+                today = date.today()
+                exps = []
+                for e in chain["expirations"]:
+                    try:
+                        d = (datetime.strptime(e, "%Y-%m-%d").date() - today).days
+                    except Exception:
+                        continue
+                    if d >= 1:
+                        exps.append((e, d))
+                if not exps:
+                    self._send_json({"ticket": None})
+                    return
+                exps.sort(key=lambda x: x[1])
+                if buy:   # first expiry AT/after target, else the furthest out
+                    pick = next((x for x in exps if x[1] >= want_dte), exps[-1])
+                else:     # last expiry AT/before target (min 2d), else nearest
+                    at_or_before = [x for x in exps if x[1] <= max(2, want_dte)]
+                    pick = at_or_before[-1] if at_or_before else exps[0]
+                exp, dte = pick
+                leg = (chain["chains"].get(exp) or {}).get("calls" if right == "C" else "puts") or []
+                if not leg:
+                    self._send_json({"ticket": None})
+                    return
+                tgt = want_strike if want_strike else _num((chain.get("underlying") or {}).get("last")) or 0
+                c = min(leg, key=lambda x: abs((x.get("strike") or 0) - tgt))
+                bid, ask = _num(c.get("bid")), _num(c.get("ask"))
+                mid = round((bid + ask) / 2, 2) if (bid is not None and ask is not None and ask > 0) else None
+                self._send_json({"ticket": {
+                    "symbol": symbol, "right": right, "buy": buy,
+                    "strike": c.get("strike"), "expiration": exp, "dte": dte,
+                    "bid": bid, "ask": ask, "mid": mid,
+                    "delta": c.get("delta"), "oi": c.get("openInterest"),
+                }})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/pick_ticket", exc)
+                self._send_json({"error": str(exc), "ticket": None}, status=500)
+            return
         if parsed.path == "/api/market_context":
             # Always-on context bar: SPY gamma regime (is premium safe today?),
             # today's high-impact macro events, and watchlist names with earnings

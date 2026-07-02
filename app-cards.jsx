@@ -185,6 +185,7 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
   const [mkt, setMkt] = useState(null);       // macro strip (for regime + VIX)
   const [loading, setLoading] = useState(true);
   const [logged, setLogged] = useState(() => new Set());   // journaled this session
+  const [chainTk, setChainTk] = useState({}); // sym -> chain-validated contract
 
   useEffect(() => {
     let stop = false, t = null;
@@ -275,7 +276,7 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
       };
     };
     // ── EDGE board (direction + tilt), via the shared formula ──────────────
-    const scored = board && board.rows ? computeWatchlistEdges(board.rows) : [];
+    const scored = board && board.rows ? edgesFor(board.rows) : [];
     const actionable = scored.filter(r => r.edge != null && Math.abs(r.edge) >= 25);
     const strongLong = actionable.filter(r => r.edge >= 50).length;
     const strongShort = actionable.filter(r => r.edge <= -50).length;
@@ -345,22 +346,54 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
              rotUp, rotDown, regime };
   }, [board, iv, mkt]);
 
+  // Validate each pick's computed ticket against the LIVE option chain: the
+  // real listed expiration (buys round up for theta cushion, sells round
+  // down), the nearest listed strike, and the live bid/ask — so the ticket is
+  // literally the order to place. Keyed on the pick symbols so it re-runs
+  // only when the picks actually change; sharedJson caches per-contract 2min.
+  const _picksKey = view && view.picks ? view.picks.map(p => p.symbol).join(",") : "";
+  useEffect(() => {
+    if (!_picksKey) return undefined;
+    let stop = false;
+    (async () => {
+      const out = {};
+      await Promise.all(view.picks.map(async (p) => {
+        const tk = p.ticket;
+        if (!tk || tk.strike == null) return;
+        try {
+          const d = await sharedJson(apiFetch,
+            `/api/pick_ticket?symbol=${encodeURIComponent(p.symbol)}&right=${tk.right}&buy=${tk.buy ? 1 : 0}&strike=${tk.strike}&dte=${tk.dte}`, 120000);
+          if (d && d.ticket) out[p.symbol] = d.ticket;
+        } catch (_) { /* ticket falls back to the computed values */ }
+      }));
+      if (!stop) setChainTk(out);
+    })();
+    return () => { stop = true; };
+  }, [_picksKey]);
+
   if (loading) return <div className="posture-card"><CardNote kind="loading">Reading the tape…</CardNote></div>;
 
   const v = view;
   const sellSide = (p) => p.prem_sell && p.prem_sell !== "—" ? p.prem_sell : p.setup;
+  const fmtStrike = (s) => s == null ? "?" : (s % 1 ? s.toFixed(1) : String(s));
+  const fmtExp = (e) => e ? `${parseInt(e.slice(5, 7))}/${parseInt(e.slice(8, 10))}` : "";
   // Snapshot a pick to the journal — captures everything on screen (price,
   // ticket, the move context, the reasoning, the posture at that moment) plus a
   // server timestamp, so accuracy can be reviewed later on the Journal tab.
   const journalPick = async (p) => {
     const tk = p.ticket || {};
+    const ct = chainTk[p.symbol];   // chain-validated contract, when resolved
     const snap = {
       symbol: p.symbol, company: p.company || p.name || "", sector: p.sector || "",
       price: p.last, dir: p.swing_dir, swing_pct: p.swing_pct, swing_med_pct: p.swing_med_pct,
       swing_days: p.swing_days, swing_med_days: p.swing_med_days, edge: p.edge, stage: p.swing_stage,
-      ticket: tk.text || sellSide(p),
+      ticket: ct
+        ? `${tk.buy ? "Buy" : "Sell"} $${ct.strike}${ct.right} ${ct.expiration}${ct.mid != null ? ` ~$${ct.mid}` : ""}`
+        : (tk.text || sellSide(p)),
       action: tk.buy === undefined ? null : (tk.buy ? "buy" : "sell"),
-      right: tk.right, strike: tk.strike, dte: tk.dte, target: tk.tgt,
+      right: (ct && ct.right) || tk.right, strike: (ct && ct.strike) != null ? ct.strike : tk.strike,
+      dte: (ct && ct.dte) != null ? ct.dte : tk.dte, target: tk.tgt,
+      expiration: ct ? ct.expiration : null, entry_mid: ct ? ct.mid : null,
       why: tk.why || p.edge_tip || "",
       posture: v.label, score: v.score, regime: v.regime ? v.regime.label : null,
     };
@@ -413,8 +446,16 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
           const long = p.swing_dir === "long";
           const tk = p.ticket;
           const isLogged = logged.has(p.symbol);
+          const ct = chainTk[p.symbol];
+          const tktText = ct
+            ? `${tk && tk.buy ? "Buy" : "Sell"} $${fmtStrike(ct.strike)}${ct.right} ${fmtExp(ct.expiration)}${ct.mid != null ? ` ~$${ct.mid.toFixed(2)}` : ""}`
+            : (tk ? tk.text : sellSide(p));
+          const tktWhy = (tk ? tk.why : "")
+            + (ct ? ` — LISTED CONTRACT (validated against the live chain): $${fmtStrike(ct.strike)}${ct.right} exp ${ct.expiration} (${ct.dte}d)`
+              + (ct.bid != null && ct.ask != null ? `, bid $${ct.bid} / ask $${ct.ask}` : "")
+              + (ct.oi ? `, open interest ${ct.oi}` : "") + ". This is the exact order to place." : "");
           return (
-          <div key={i} className="pc-pick" role="button" tabIndex={0} title={tk ? tk.why : ""}
+          <div key={i} className="pc-pick" role="button" tabIndex={0} title={tktWhy}
                onClick={() => onSwitchTicker && onSwitchTicker(p.symbol)}
                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSwitchTicker && onSwitchTicker(p.symbol); } }}>
             <div className="pc-pick-l1">
@@ -422,7 +463,7 @@ function MarketPosture({ apiFetch, onSwitchTicker }) {
               <span className={`pc-pick-stage ${long ? "up" : "down"}`}>{long ? "▲" : "▼"} {p.swing_pct != null ? Math.round(p.swing_pct) : "?"}% in</span>
             </div>
             <div className="pc-pick-l2">
-              <span className={`pc-tkt ${tk && tk.buy ? "buy" : "sell"}`}>{tk ? tk.text : sellSide(p)}</span>
+              <span className={`pc-tkt ${tk && tk.buy ? "buy" : "sell"}`}>{tktText}</span>
               {tk && <span className="pc-tkt-tgt">{long ? "→" : "↓"} ${tk.tgt != null ? (tk.tgt % 1 ? tk.tgt.toFixed(1) : tk.tgt) : "?"}</span>}
             </div>
             <button className={`pc-pick-log${isLogged ? " done" : ""}`}
@@ -1071,6 +1112,18 @@ function flowFreshness(ts) {
   const hr = min / 60;
   if (hr < 24) return { tone: hr >= 6 ? "stale" : "ok", label: `${Math.round(hr)}h old` };
   return { tone: "stale", label: `${Math.round(hr / 24)}d old` };
+}
+
+// Memoized front for computeWatchlistEdges. Since sharedJson gives every
+// component the SAME board object, keying by the rows array reference means
+// the 1,285-row EDGE pass runs ONCE per board version instead of once per
+// component (posture card, context bar, watchlist table all use it).
+const _EDGE_MEMO = new WeakMap();
+function edgesFor(rows) {
+  if (!rows || !rows.length) return [];
+  let v = _EDGE_MEMO.get(rows);
+  if (!v) { v = computeWatchlistEdges(rows); _EDGE_MEMO.set(rows, v); }
+  return v;
 }
 
 function computeWatchlistEdges(rows) {
@@ -2552,7 +2605,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   };
 
   const status = (board && board.status) || {};
-  const allRows = useMemo(() => computeWatchlistEdges((board && board.rows) || []), [board]);
+  const allRows = useMemo(() => edgesFor((board && board.rows) || []), [board]);
   // Live watchlist set: the scan cache can lag behind the current watchlist
   // (a deleted symbol stays in the cache until the next scan). Filtering to
   // the live watchlist makes the table reflect reality immediately and keeps
@@ -11021,7 +11074,7 @@ function MarketContextBar({ apiFetch, onSwitchTicker, onOpenBreadth }) {
   }, []);
 
   const rotation = useMemo(() => {
-    const scored = board && board.rows ? computeWatchlistEdges(board.rows) : [];
+    const scored = board && board.rows ? edgesFor(board.rows) : [];
     const agg = {};
     scored.forEach(r => {
       if (r.edge == null || !r.sector) return;
