@@ -10892,6 +10892,27 @@ function MarketBreadthCard({ apiFetch, onLoadTicker }) {
   const [hodSort, setHodSort] = useState({ k: "chg", dir: "desc" });
   const [lodSort, setLodSort] = useState({ k: "chg", dir: "asc" });
 
+  // Deep-link from the context bar's rotation chips: clicking "Technology"
+  // there opens THIS tab already drilled into Technology (sector view), and
+  // scrolls the drill panel into view. Handles both the first mount (handoff
+  // via window.__breadthDrill) and later clicks (custom event) since this
+  // panel stays mounted once visited.
+  useEffect(() => {
+    const apply = (name) => {
+      if (!name) return;
+      setView("sector");
+      setDrill(name);
+      setTimeout(() => {
+        try { document.querySelector(".mb-drill") && document.querySelector(".mb-drill").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (_) {}
+      }, 350);
+    };
+    apply(window.__breadthDrill);
+    window.__breadthDrill = null;
+    const h = (e) => apply(e.detail);
+    window.addEventListener("breadth-drill", h);
+    return () => window.removeEventListener("breadth-drill", h);
+  }, []);
+
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
@@ -10959,7 +10980,7 @@ function MarketBreadthCard({ apiFetch, onLoadTicker }) {
     <div className="card mb-card">
       <div className="mb-head">
         <div>
-          <div className="mb-title" title="Which groups are broadly making new highs vs lows right now — sector/industry rotation strength, live.">Market Breadth <span className="mb-sub">rotation by group</span></div>
+          <div className="mb-title" title="Which groups are broadly making new highs vs lows right now — sector/industry rotation strength, live.">Market Breadth <span className="mb-sub">rotation by {view}</span></div>
           <div className="mb-summary">{totals.groups} groups · <b className="up">{totals.hod} HOD</b> · <b className="down">{totals.lod} LOD</b> · {totals.total} stocks</div>
         </div>
         <div className="mb-controls">
@@ -10993,15 +11014,27 @@ function MarketBreadthCard({ apiFetch, onLoadTicker }) {
       </div>
 
       {/* Heatmap tiles */}
+      {/* Heatmap: tile WIDTH ∝ √(stocks in group) — the market-weight feel of a
+          real sector map — and background intensity is CONTINUOUS with rotation
+          strength (not tiered), so +40 visibly outglows +10. */}
       <div className="mb-heat">
-        {byStrength.map(g => (
-          <button key={g.name} className={`mb-heat-tile mb-t-${strengthTier(g.strength)}`}
-                  onClick={() => setDrill(g.name)} title={`${g.name} — strength ${g.strength} · ${g.hod} HOD / ${g.lod} LOD / ${g.total} stocks`}>
+        {byStrength.map(g => {
+          const s = g.strength;
+          // srgb mix against a neutral dark keeps reds red and greens green
+          // (an oklch mix with the blue-tinted bg goes muddy purple).
+          const mag = Math.min(85, 28 + Math.abs(s) * 1.5);
+          const bg = s > 0 ? `color-mix(in srgb, var(--up) ${mag}%, #0d1015)`
+                   : s < 0 ? `color-mix(in srgb, var(--down) ${mag}%, #0d1015)` : undefined;
+          return (
+          <button key={g.name} className={`mb-heat-tile${Math.abs(s) >= 12 ? " mb-heat-hot" : ""}`}
+                  style={{ flexGrow: Math.max(1, Math.sqrt(g.total)), ...(bg ? { background: bg, borderColor: "transparent" } : {}) }}
+                  onClick={() => setDrill(g.name)} title={`${g.name} — strength ${s} · ${g.hod} at highs / ${g.lod} at lows of ${g.total} stocks · tile width ∝ group size, color ∝ strength · click to drill in`}>
             <span className="mb-heat-name">{g.name}</span>
-            <span className="mb-heat-str">{g.strength > 0 ? "+" : ""}{g.strength}</span>
+            <span className="mb-heat-str">{s > 0 ? "+" : ""}{s}</span>
             <span className="mb-heat-cnt">{g.hod}H / {g.lod}L / {g.total}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* Data table */}
@@ -11010,7 +11043,7 @@ function MarketBreadthCard({ apiFetch, onLoadTicker }) {
           <thead>
             <tr>{BREADTH_COLS.map(c => (
               <th key={c.k} className={c.str ? "" : "scan-th-num"} title={c.title}
-                  onClick={() => setSort(c.k)}>{c.label}{sortCol === c.k ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
+                  onClick={() => setSort(c.k)}>{c.k === "name" ? view[0].toUpperCase() + view.slice(1) : c.label}{sortCol === c.k ? (sortDir === "desc" ? " ↓" : " ↑") : ""}</th>
             ))}</tr>
           </thead>
           <tbody>
@@ -11117,13 +11150,19 @@ function MarketContextBar({ apiFetch, onSwitchTicker, onOpenBreadth }) {
           )}
         </span>
       </div>
-      <div className="mctx-ribbon" onClick={onOpenBreadth} title="Sector rotation by options flow (net bullish − bearish EDGE). Click for the full Breadth view.">
+      <div className="mctx-ribbon" onClick={onOpenBreadth} title="Sector rotation by options flow (net bullish − bearish EDGE). Click a sector to open it drilled-in on the Breadth tab.">
         <span className="mctx-rlbl">Rotation</span>
         {rotation.slice(0, 14).map(r => (
-          <span key={r.sector} className={`mctx-chip ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : "flat"}`}
-                style={{ opacity: 0.55 + 0.45 * Math.abs(r.net) / maxNet }}>
+          <button key={r.sector} className={`mctx-chip ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : "flat"}`}
+                style={{ opacity: 0.55 + 0.45 * Math.abs(r.net) / maxNet }}
+                title={`${r.sector}: net flow ${r.net > 0 ? "+" : ""}${r.net} across ${r.n} names — click to open ${r.sector} on the Breadth tab (drilled into its HOD/LOD lists)`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  try { window.__breadthDrill = r.sector; window.dispatchEvent(new CustomEvent("breadth-drill", { detail: r.sector })); } catch (_) {}
+                  onOpenBreadth && onOpenBreadth();
+                }}>
             {r.sector}<b>{r.net > 0 ? "+" : ""}{r.net}</b>
-          </span>
+          </button>
         ))}
         {!rotation.length && <span className="mctx-quiet">rotation pending scan…</span>}
       </div>

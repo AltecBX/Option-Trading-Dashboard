@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.08";
+const APP_VERSION = "3.09";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -154,6 +154,18 @@ function LiveClock() {
       second: "2-digit",
       hour12: true
     }).format(d);
+    // Market-session tell: the time glows Schwab-green during regular trading
+    // hours (Mon–Fri 9:30–16:00 ET) so one glance says "market is open".
+    const p = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    }).formatToParts(d);
+    const pv = t => (p.find(x => x.type === t) || {}).value;
+    const mins = parseInt(pv("hour"), 10) % 24 * 60 + parseInt(pv("minute"), 10);
+    const mktOpen = !["Sat", "Sun"].includes(pv("weekday")) && mins >= 570 && mins < 960;
     // Three flex parts so the "|" sits at the exact horizontal center (aligned
     // with the gap between the Schwab/UW badges below), regardless of how long
     // the date vs time strings are.
@@ -164,7 +176,8 @@ function LiveClock() {
     }, "Live. ", dateFmt), /*#__PURE__*/React.createElement("span", {
       className: "lc-bar"
     }, "|"), /*#__PURE__*/React.createElement("span", {
-      className: "lc-time"
+      className: `lc-time${mktOpen ? " mkt-open" : ""}`,
+      title: mktOpen ? "Market is OPEN (regular session, 9:30–4:00 ET)" : "Market is closed — outside regular trading hours"
     }, timeFmt));
   } catch {
     return /*#__PURE__*/React.createElement("span", {
