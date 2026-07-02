@@ -20,6 +20,7 @@ REQUIREMENTS
 from __future__ import annotations
 
 import argparse
+import gzip as _gzip
 import json
 import math
 import os
@@ -5063,7 +5064,19 @@ def build_watchlist_analyst() -> dict:
     }
 
 
+# Serialized-response cache for heavy, versioned endpoints (the watchlist
+# board). Keyed by ETag; holds the encoded (and gzipped) body so a board that
+# hasn't changed is serialized ONCE per scan-publish instead of once per poll
+# per component. Tiny (few entries), evicted oldest-first.
+_JSON_BODY_CACHE: dict = {}
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
+    # HTTP/1.1 → connection keep-alive. Every JSON path sets Content-Length
+    # (verified across all 28 raw writers), so persistent connections are safe.
+    # The frontend polls a dozen endpoints on timers; reusing sockets removes a
+    # TCP+TLS handshake from every single poll.
+    protocol_version = "HTTP/1.1"
     weeks = 12
     friday_baseline = False
 
@@ -5105,16 +5118,54 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self._last_status = code
         super().send_response(code, message)
 
-    def _send_json(self, obj, status: int = 200, no_store: bool = False, **dump_kwargs):
+    def _send_json(self, obj, status: int = 200, no_store: bool = False,
+                   etag: str | None = None, **dump_kwargs):
         """Serialize obj and write a complete JSON response, replacing the
         hand rolled send_response boilerplate that was copy pasted across
-        every endpoint (v1.38 cleanup). Same headers, same CORS, same
-        Content-Length as the inline pattern it replaces."""
-        body = _dumps(obj, **dump_kwargs).encode("utf-8")
+        every endpoint (v1.38 cleanup).
+
+        Perf additions (v3.07):
+        - gzip when the client accepts it and the body clears ~1KB — the big
+          boards compress ~10:1, which matters on mobile and cuts egress.
+        - Optional etag: sets ETag + Cache-Control: no-cache, answers a
+          matching If-None-Match with an empty 304 (the browser then serves
+          its cached body transparently — zero frontend changes needed), and
+          caches the encoded/gzipped body so an unchanged board is serialized
+          once per version instead of once per poll per component."""
+        if etag:
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self._cors_headers()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            cached = _JSON_BODY_CACHE.get(etag)
+            if cached is None:
+                raw = _dumps(obj, **dump_kwargs).encode("utf-8")
+                gz = _gzip.compress(raw, 5) if len(raw) > 1024 else None
+                cached = (raw, gz)
+                if len(_JSON_BODY_CACHE) >= 8:      # tiny LRU-ish eviction
+                    _JSON_BODY_CACHE.pop(next(iter(_JSON_BODY_CACHE)))
+                _JSON_BODY_CACHE[etag] = cached
+            raw, gz = cached
+        else:
+            raw = _dumps(obj, **dump_kwargs).encode("utf-8")
+            gz = _gzip.compress(raw, 5) if len(raw) > 1024 else None
+        accepts_gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
+        body = gz if (gz is not None and accepts_gz) else raw
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        if gz is not None:
+            self.send_header("Vary", "Accept-Encoding")
+        if gz is not None and accepts_gz:
+            self.send_header("Content-Encoding", "gzip")
         if no_store:
             self.send_header("Cache-Control", "no-store")
+        if etag:
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
         self._cors_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -6783,7 +6834,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "watchlist table unavailable", "rows": []}, status=503)
                 return
             try:
-                self._send_json(_wltable.get_board())
+                board = _wltable.get_board()
+                # Version stamp: changes when a scan chunk publishes (scanned
+                # advances) or a scan completes (last_scan). Unchanged board →
+                # 304 for pollers + the body is serialized once per version.
+                st = board.get("status") or {}
+                tag = f'W/"wlt-{st.get("last_scan")}-{st.get("scanned")}-{board.get("count")}"'
+                self._send_json(board, etag=tag)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/watchlist_table", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
