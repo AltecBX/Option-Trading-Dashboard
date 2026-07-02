@@ -7771,6 +7771,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     return
                 wl = _load_watchlist()
                 syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                tag_map = {s.get("symbol"): (s.get("tag") or "") for s in (wl.get("symbols") or []) if s.get("symbol")}
                 quotes = {}
                 sc = _schwab()
                 if sc is not None and syms:
@@ -7795,6 +7796,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             "above_pct": round((last / o - 1.0) * 100.0, 2),
                             "volume": q.get("volume"),
                             "company": q.get("name") or "",
+                            "tag": tag_map.get(sym) or "",
                             "reversal_time": None,
                         })
                 # Stage 2: reversal timestamp = first minute bar after the

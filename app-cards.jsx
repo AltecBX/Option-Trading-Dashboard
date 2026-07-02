@@ -11281,6 +11281,7 @@ function PicksJournalCard({ apiFetch, onSwitchTicker }) {
 // above the open after the low (server-side).
 const OREV_COLS = [
   { k: "symbol", label: "Symbol", str: true, title: "Ticker — click a row to load it on the chart" },
+  { k: "tag", label: "Tag", str: true, title: "Your watchlist tag for this name (from the CSV import)" },
   { k: "open", label: "Open", title: "Official regular-session opening price" },
   { k: "low", label: "Low", title: "Lowest price printed after the open (the flush)" },
   { k: "drop_pct", label: "Drop", title: "Depth of the sell-off from the open to the low" },
@@ -11342,7 +11343,7 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
           <thead>
             <tr>
               {OREV_COLS.map(c => (
-                <th key={c.k} className={c.str && c.k === "symbol" ? "" : "scan-th-num"}
+                <th key={c.k} className={c.k === "symbol" || c.k === "tag" ? "" : "scan-th-num"}
                     style={{ cursor: "pointer" }} title={`${c.title} — click to sort`}
                     onClick={() => setSort(s => s.k === c.k
                       ? { k: c.k, dir: s.dir === "desc" ? "asc" : "desc" }
@@ -11354,12 +11355,13 @@ function OpenReversalCard({ apiFetch, onSwitchTicker }) {
           </thead>
           <tbody>
             {data && data.stage2_error && rows.every(r => !r.reversal_time) && (
-              <tr><td colSpan={8} className="orev-warn" title={String(data.stage2_error)}>⚠ reversal times unavailable right now — {String(data.stage2_error).slice(0, 90)}</td></tr>
+              <tr><td colSpan={9} className="orev-warn" title={String(data.stage2_error)}>⚠ reversal times unavailable right now — {String(data.stage2_error).slice(0, 90)}</td></tr>
             )}
             {rows.map(r => (
               <tr key={r.symbol} className="scan-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                   title={`${r.company || r.symbol} — opened $${r.open}, flushed to $${r.low} (${r.drop_pct}%), now $${r.last} (+${r.above_pct}% above the open)${r.reversal_time ? `, reclaimed at ${r.reversal_time} ET` : ""}. Click to load.`}>
                 <td data-label="Symbol"><b>{r.symbol}</b></td>
+                <td data-label="Tag" className="orev-tag" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>{r.tag || "—"}</td>
                 <td data-label="Open" className="scan-num">${r.open}</td>
                 <td data-label="Low" className="scan-num down">${r.low}</td>
                 <td data-label="Drop" className="scan-num down">{r.drop_pct}%</td>
