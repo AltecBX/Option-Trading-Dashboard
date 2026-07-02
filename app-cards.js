@@ -15002,6 +15002,11 @@ const OREV_COLS = [{
   str: true,
   title: "Ticker — click a row to load it on the chart"
 }, {
+  k: "tag",
+  label: "Tag",
+  str: true,
+  title: "Your watchlist tag for this name (from the CSV import)"
+}, {
   k: "open",
   label: "Open",
   title: "Official regular-session opening price"
@@ -15111,7 +15116,7 @@ function OpenReversalCard({
     className: "scan-table mtable"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, OREV_COLS.map(c => /*#__PURE__*/React.createElement("th", {
     key: c.k,
-    className: c.str && c.k === "symbol" ? "" : "scan-th-num",
+    className: c.k === "symbol" || c.k === "tag" ? "" : "scan-th-num",
     style: {
       cursor: "pointer"
     },
@@ -15124,7 +15129,7 @@ function OpenReversalCard({
       dir: c.str ? "asc" : "desc"
     })
   }, c.label, sort.k === c.k ? sort.dir === "desc" ? " ↓" : " ↑" : "")))), /*#__PURE__*/React.createElement("tbody", null, data && data.stage2_error && rows.every(r => !r.reversal_time) && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 8,
+    colSpan: 9,
     className: "orev-warn",
     title: String(data.stage2_error)
   }, "⚠ reversal times unavailable right now — ", String(data.stage2_error).slice(0, 90))), rows.map(r => /*#__PURE__*/React.createElement("tr", {
@@ -15135,6 +15140,10 @@ function OpenReversalCard({
   }, /*#__PURE__*/React.createElement("td", {
     "data-label": "Symbol"
   }, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Tag",
+    className: "orev-tag",
+    title: r.tag ? `Tag: ${r.tag}` : "No tag"
+  }, r.tag || "—"), /*#__PURE__*/React.createElement("td", {
     "data-label": "Open",
     className: "scan-num"
   }, "$", r.open), /*#__PURE__*/React.createElement("td", {
