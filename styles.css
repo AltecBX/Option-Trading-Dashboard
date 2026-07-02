@@ -3292,8 +3292,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
  */
 .sb-version-pill {
   position: absolute;
-  top: 18px;
-  left: 14px;
+  top: 16px;
+  left: 12px;
   z-index: 5;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -3310,8 +3310,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    brand header. Tap to toggle Yonkers vs device geolocation. */
 .sb-weather-pill {
   position: absolute;
-  top: 16px;
-  right: 14px;
+  top: 14px;
+  right: 12px;
   z-index: 5;
   display: inline-flex;
   align-items: center;
@@ -9044,6 +9044,22 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Open-reclaim reversal scanner */
 .orev-dip { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-3); }
 .orev-card .scan-row { cursor: pointer; }
+
+/* Site-wide reversal toasts (top-right, above everything). */
+.toast-stack { position: fixed; top: 14px; right: 14px; z-index: 400;
+  display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 28px)); }
+.toast { display: flex; align-items: center; gap: 9px; text-align: left;
+  padding: 11px 13px; border-radius: 12px; cursor: pointer;
+  background: color-mix(in srgb, var(--up) 14%, var(--bg-2));
+  border: 1px solid color-mix(in srgb, var(--up) 45%, var(--line));
+  color: var(--fg); box-shadow: 0 10px 30px -8px rgba(0,0,0,0.55);
+  animation: toast-in 220ms var(--ease); font-size: 12.5px; }
+@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast-ico { flex: 0 0 auto; font-size: 15px; }
+.toast-body { line-height: 1.35; } .toast-body b { font-family: var(--font-mono); font-weight: 800; }
+.toast-x { flex: 0 0 auto; margin-left: auto; color: var(--fg-3); font-size: 11px; padding: 4px; }
+.toast-x:hover { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 
 /* ── Mobile touch targets ──────────────────────────────────────────────────
    Fingers need ~40px; several small controls measured 14–26px tall on a phone

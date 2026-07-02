@@ -4688,6 +4688,24 @@ def build_watchlist_earnings(days: int = 14) -> dict:
             pass
 
     bulk = _bulk_earnings_map(days)
+    # yfinance's bulk Calendars() feed can come back EMPTY (backend hiccups /
+    # version drift) — which blanked the whole Earnings Calendar even though
+    # the board's per-symbol next_earnings dates were fine (they power the
+    # header countdown). Fall back to those so the calendar always shows at
+    # least the dates the rest of the app already knows.
+    if not bulk:
+        for sym, r in brow.items():
+            ne = r.get("next_earnings")
+            if not ne:
+                continue
+            try:
+                nd = datetime.strptime(str(ne)[:10], "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if today - timedelta(days=2) <= nd <= horizon:
+                bulk[sym] = {"date": str(nd), "timing": None, "eps_estimate": None,
+                             "eps_actual": None, "eps_surprise": None,
+                             "company": r.get("company"), "market_cap": r.get("market_cap")}
 
     cands = []
     for sym in syms:
@@ -7764,37 +7782,48 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             "company": q.get("name") or "",
                             "reversal_time": None,
                         })
-                # Stage 2: 1-minute bars for just the hits → reversal timestamp
+                # Stage 2: intraday bars for just the hits → reversal timestamp
                 # (first bar after the session low whose close is back above the
-                # open). Best-effort — the row stands without it.
-                if hits:
+                # open). Tries 1m, falls back to 5m (yfinance 1m is flaky on
+                # some hosts). Per-symbol isolation; any failure is surfaced in
+                # stage2_error instead of silently blanking the column.
+                stage2_err = None
+                for interval in ("1m", "5m"):
+                    pending = [h for h in hits[:40] if not h.get("reversal_time")]
+                    if not pending:
+                        break
                     try:
-                        tickers = [h["symbol"] for h in hits[:40]]
-                        df = yf.download(" ".join(tickers), period="1d", interval="1m",
-                                         prepost=False, progress=False, group_by="ticker", threads=False)
+                        df = yf.download(" ".join(h["symbol"] for h in pending),
+                                         period="1d", interval=interval, prepost=False,
+                                         progress=False, group_by="ticker", threads=False)
+                        if df is None or df.empty:
+                            stage2_err = f"{interval}: empty download"
+                            continue
                         multi = isinstance(df.columns, pd.MultiIndex)
-                        for h in hits[:40]:
+                        for h in pending:
                             try:
                                 sub = df[h["symbol"]] if multi else df
-                                lows = sub["Low"].dropna()
-                                closes = sub["Close"].dropna()
-                                if not len(lows):
+                                sub = sub[["Low", "Close"]].dropna()
+                                if not len(sub):
                                     continue
-                                li = lows.values.argmin()
-                                after = closes.iloc[li:]
+                                li = int(sub["Low"].values.argmin())
+                                after = sub["Close"].iloc[li:]
                                 rev = after[after > h["open"]]
                                 if len(rev):
                                     ts = rev.index[0]
-                                    ts_et = ts.tz_convert(_ET) if (_ET and ts.tzinfo) else ts
+                                    ts_et = ts.tz_convert(_ET) if (_ET and getattr(ts, "tzinfo", None)) else ts
                                     h["reversal_time"] = ts_et.strftime("%-I:%M %p")
+                                    if interval != "1m":
+                                        h["reversal_time"] += " ~"
                             except Exception:
                                 continue
-                    except Exception:
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        stage2_err = f"{interval}: {exc}"
+                        continue
                 hits.sort(key=lambda h: -h["above_pct"])
                 with _OPENREV_LOCK:
                     _OPENREV_CACHE = (cache_key, now, hits)
-                self._send_json({"rows": hits, "dip": dip})
+                self._send_json({"rows": hits, "dip": dip, "stage2_error": stage2_err})
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/scan/open_reversal", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
