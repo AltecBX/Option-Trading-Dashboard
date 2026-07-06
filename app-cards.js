@@ -15471,10 +15471,128 @@ function ShortcutsSheet({
     className: "cp-kbd"
   }, k), /*#__PURE__*/React.createElement("span", null, d)))));
 }
+
+// ── Valuation vs history & peers ──────────────────────────────────────────
+// "Is this multiple cheap?" answered two ways: against the stock's OWN 5-year
+// average trailing P/E (annual EPS × that year's average price — no feed has
+// forward-P/E history, so this is the honest computable version), and against
+// same-industry watchlist peers on forward P/E.
+function ValuationCard({
+  apiFetch,
+  ticker
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let stop = false;
+    setLoading(true);
+    setData(null);
+    sharedJson(apiFetch, `/api/valuation?symbol=${encodeURIComponent(ticker)}`, 30 * 60 * 1000).then(d => {
+      if (!stop) {
+        setData(d);
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (!stop) setLoading(false);
+    });
+    return () => {
+      stop = true;
+    };
+  }, [ticker]);
+  const x1 = v => v == null ? "—" : `${Number(v).toFixed(1)}×`;
+  if (loading) return /*#__PURE__*/React.createElement("div", {
+    className: "card val-card"
+  }, /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Computing valuation history…"));
+  if (!data || data.error) return null;
+  const h = data.history || {},
+    p = data.peers || {},
+    c = data.current || {};
+  const years = h.years || [];
+  const maxPe = Math.max(1, ...years.map(y => y.pe), h.avg_pe || 0);
+  // Below average/median = cheaper = GREEN (a discount is good for a buyer).
+  const tone = v => v == null ? "" : v < 0 ? "up" : "down";
+  const verdictTxt = {
+    cheap: "Historically cheap",
+    fair: "Fairly valued",
+    rich: "Historically rich"
+  }[data.verdict] || "";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card val-card",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "Compares today's earnings multiple against this stock's OWN 5-year average (annual EPS × each year's average price) and against same-industry watchlist peers — the classic 'MSFT at 22.9× fwd, below its 5-year average' read."
+  }, "Valuation · ", ticker), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Multiple vs history & peers")), data.verdict && /*#__PURE__*/React.createElement("span", {
+    className: `val-verdict val-${data.verdict}`,
+    title: `${verdictTxt}: ${h.vs_avg_pct != null ? `trading ${Math.abs(h.vs_avg_pct)}% ${h.vs_avg_pct < 0 ? "BELOW" : "above"} its own 5-year average multiple` : "based on the peer comparison"}${p.vs_median_pct != null ? ` and ${Math.abs(p.vs_median_pct)}% ${p.vs_median_pct < 0 ? "below" : "above"} the ${p.basis} median` : ""}.`
+  }, verdictTxt)), /*#__PURE__*/React.createElement("div", {
+    className: "val-now"
+  }, /*#__PURE__*/React.createElement("div", {
+    title: "Forward P/E — today's price over NEXT year's expected earnings. The multiple analysts quote."
+  }, /*#__PURE__*/React.createElement("span", null, "Fwd P/E"), /*#__PURE__*/React.createElement("b", null, x1(c.forward_pe))), /*#__PURE__*/React.createElement("div", {
+    title: "Trailing P/E — today's price over the LAST 12 months' earnings. This is what the 5-year history below compares against (apples to apples)."
+  }, /*#__PURE__*/React.createElement("span", null, "Trailing P/E"), /*#__PURE__*/React.createElement("b", null, x1(c.pe))), h.avg_pe != null && /*#__PURE__*/React.createElement("div", {
+    title: "Average of the annual trailing P/E over the last five fiscal years."
+  }, /*#__PURE__*/React.createElement("span", null, "5-yr avg"), /*#__PURE__*/React.createElement("b", null, x1(h.avg_pe)))), years.length >= 2 ? /*#__PURE__*/React.createElement("div", {
+    className: "val-hist",
+    title: "Trailing P/E by fiscal year (bar height = multiple). The dashed line is the 5-year average — where today's bar sits vs that line is the whole story."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "val-bars"
+  }, years.map(y => /*#__PURE__*/React.createElement("div", {
+    key: y.year,
+    className: "val-baru",
+    title: `FY${y.year}: ${y.pe}× (EPS $${y.eps})`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "val-bar",
+    style: {
+      height: `${Math.max(8, y.pe / maxPe * 100)}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "val-yr"
+  }, String(y.year).slice(2)))), c.pe != null && /*#__PURE__*/React.createElement("div", {
+    className: "val-baru val-baru-now",
+    title: `Now: ${c.pe}× trailing`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "val-bar now",
+    style: {
+      height: `${Math.max(8, Math.min(c.pe, maxPe) / maxPe * 100)}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "val-yr"
+  }, "now")), h.avg_pe != null && /*#__PURE__*/React.createElement("div", {
+    className: "val-avgline",
+    style: {
+      bottom: `${h.avg_pe / maxPe * 100}%`
+    }
+  })), h.vs_avg_pct != null && /*#__PURE__*/React.createElement("div", {
+    className: "val-read",
+    title: "Percent above/below the stock's own 5-year average trailing multiple. Negative = cheaper than its own history."
+  }, "vs its 5-yr average: ", /*#__PURE__*/React.createElement("b", {
+    className: tone(h.vs_avg_pct)
+  }, h.vs_avg_pct > 0 ? "+" : "", h.vs_avg_pct, "%"))) : /*#__PURE__*/React.createElement("div", {
+    className: "val-empty"
+  }, "No positive-EPS fiscal years found — the history comparison needs a profitable track record (pre-profit names can't have a meaningful P/E)."), p.median != null && /*#__PURE__*/React.createElement("div", {
+    className: "val-peers",
+    title: `Forward P/E across the ${p.count} ${p.basis} names on your watchlist. Percentile = share of peers cheaper than ${ticker}.`
+  }, "vs ", /*#__PURE__*/React.createElement("b", null, p.basis), " peers (", p.count, "): median ", /*#__PURE__*/React.createElement("b", null, x1(p.median)), p.vs_median_pct != null && /*#__PURE__*/React.createElement(React.Fragment, null, " · ", /*#__PURE__*/React.createElement("b", {
+    className: tone(p.vs_median_pct)
+  }, p.vs_median_pct > 0 ? "+" : "", p.vs_median_pct, "%")), p.percentile != null && /*#__PURE__*/React.createElement("span", {
+    className: "val-pct"
+  }, " · cheaper than ", 100 - p.percentile, "% of peers")));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
+  ValuationCard: _memo(ValuationCard),
   OpenReversalCard: _memo(OpenReversalCard),
   ReversalAlerts: _memo(ReversalAlerts),
   CommandPalette,

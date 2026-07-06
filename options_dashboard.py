@@ -270,6 +270,74 @@ _BREADTH_LOCK = threading.Lock()
 _CTX_CACHE: tuple | None = None
 _CTX_LOCK = threading.Lock()
 
+# Valuation vs history & peers (per active symbol). 6h cache — fundamentals move slowly.
+_VAL_CACHE: dict = {}
+_VAL_LOCK = threading.Lock()
+
+
+def _valuation_history(symbol: str) -> list:
+    """Annual trailing P/E for up to the last ~5 fiscal years, computed from
+    the income statement (diluted EPS, falling back to net income / diluted
+    shares) and each fiscal year's average close. This is the honest way to
+    get a '5-year average multiple' — no feed carries forward-P/E history.
+    Negative-EPS years are excluded (a P/E is meaningless there)."""
+    tk = yf.Ticker(symbol)
+    try:
+        inc = tk.income_stmt
+    except Exception:
+        inc = None
+    if inc is None or getattr(inc, "empty", True):
+        return []
+    eps_row = None
+    for name in ("Diluted EPS", "Basic EPS"):
+        if name in inc.index:
+            eps_row = inc.loc[name]
+            break
+    ni = inc.loc["Net Income"] if "Net Income" in inc.index else None
+    sh = None
+    for name in ("Diluted Average Shares", "Basic Average Shares"):
+        if name in inc.index:
+            sh = inc.loc[name]
+            break
+    try:
+        hist = tk.history(period="6y", interval="1d", auto_adjust=False)
+    except Exception:
+        hist = None
+    if hist is None or hist.empty:
+        return []
+    closes = hist["Close"].dropna()
+    idx = closes.index
+    closes.index = idx.tz_convert(None) if getattr(idx, "tz", None) is not None else idx
+    years = []
+    for col in inc.columns:
+        try:
+            fy_end = pd.Timestamp(col)
+            if fy_end.tzinfo is not None:
+                fy_end = fy_end.tz_convert(None)
+        except Exception:
+            continue
+        eps = None
+        if eps_row is not None:
+            v = eps_row.get(col)
+            if v is not None and v == v:
+                eps = float(v)
+        if eps is None and ni is not None and sh is not None:
+            n, s_ = ni.get(col), sh.get(col)
+            if n is not None and n == n and s_ and s_ == s_ and float(s_) > 0:
+                eps = float(n) / float(s_)
+        if eps is None or eps <= 0:
+            continue
+        win = closes[(closes.index > fy_end - pd.Timedelta(days=365)) & (closes.index <= fy_end)]
+        if len(win) < 30:
+            continue
+        pe = float(win.mean()) / eps
+        if not (0 < pe < 300):                    # drop absurd/near-zero-EPS artifacts
+            continue
+        years.append({"year": int(fy_end.year), "eps": round(eps, 2), "pe": round(pe, 1)})
+    years.sort(key=lambda y: y["year"])
+    return years[-5:]
+
+
 # Open-reversal scanner: dip below the regular open, then reclaim it.
 _OPENREV_CACHE: tuple | None = None
 _OPENREV_LOCK = threading.Lock()
@@ -7746,6 +7814,93 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/market_breadth", exc)
                 self._send_json({"error": str(exc), "stocks": {}}, status=500)
+            return
+        if parsed.path == "/api/valuation":
+            # Valuation vs history & peers for one symbol:
+            #  - current trailing + forward P/E (board row, .info fallback)
+            #  - 5y average TRAILING P/E from annual EPS × that year's average
+            #    close (no feed carries forward-P/E history — this is the
+            #    honest computable version), and current-vs-average %.
+            #  - peers: forward-P/E median across watchlist names in the same
+            #    industry (fallback sector), plus this name's percentile.
+            # Cached 6h per symbol — fundamentals move slowly.
+            try:
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+                if not symbol:
+                    self._send_json({"error": "symbol required"}, status=400)
+                    return
+                now = time.time()
+                with _VAL_LOCK:
+                    hit = _VAL_CACHE.get(symbol)
+                if hit and (now - hit[0]) < 6 * 3600:
+                    self._send_json(hit[1])
+                    return
+                # Current multiples + peer group from the scanned board.
+                cur_pe = cur_fpe = None
+                industry = sector = None
+                rows = []
+                if _WLTABLE_AVAILABLE:
+                    try:
+                        rows = (_wltable.get_board() or {}).get("rows") or []
+                    except Exception:
+                        rows = []
+                me = next((r for r in rows if str(r.get("symbol", "")).upper() == symbol), None)
+                if me:
+                    cur_pe, cur_fpe = _num(me.get("pe")), _num(me.get("forward_pe"))
+                    industry, sector = me.get("industry"), me.get("sector")
+                if cur_fpe is None:
+                    try:
+                        info = yf.Ticker(symbol).info or {}
+                        cur_fpe = _num(info.get("forwardPE"))
+                        cur_pe = cur_pe if cur_pe is not None else _num(info.get("trailingPE"))
+                        industry = industry or info.get("industry")
+                        sector = sector or info.get("sector")
+                    except Exception:
+                        pass
+                # Peer forward-P/E distribution (same industry, else sector).
+                peers = {"basis": None, "median": None, "count": 0, "percentile": None}
+                for basis_key, basis_val in (("industry", industry), ("sector", sector)):
+                    if not basis_val:
+                        continue
+                    vals = sorted(v for v in (
+                        _num(r.get("forward_pe")) for r in rows
+                        if r.get(basis_key) == basis_val) if v is not None and 0 < v < 300)
+                    if len(vals) >= 4:
+                        peers["basis"] = f"{basis_val}"
+                        peers["count"] = len(vals)
+                        peers["median"] = round(vals[len(vals) // 2], 1)
+                        if cur_fpe is not None:
+                            below = sum(1 for v in vals if v < cur_fpe)
+                            peers["percentile"] = int(round(below / len(vals) * 100))
+                        break
+                years = _valuation_history(symbol)
+                avg_pe = round(sum(y["pe"] for y in years) / len(years), 1) if years else None
+                vs_avg = (round((cur_pe / avg_pe - 1) * 100, 1)
+                          if (cur_pe is not None and avg_pe) else None)
+                vs_peers = (round((cur_fpe / peers["median"] - 1) * 100, 1)
+                            if (cur_fpe is not None and peers["median"]) else None)
+                # Verdict: own history is the anchor; peers refine it.
+                verdict = None
+                if vs_avg is not None:
+                    if vs_avg <= -15: verdict = "cheap"
+                    elif vs_avg >= 15: verdict = "rich"
+                    else: verdict = "fair"
+                elif vs_peers is not None:
+                    verdict = "cheap" if vs_peers <= -15 else "rich" if vs_peers >= 15 else "fair"
+                payload = {"symbol": symbol,
+                           "current": {"pe": cur_pe, "forward_pe": cur_fpe},
+                           "history": {"years": years, "avg_pe": avg_pe, "vs_avg_pct": vs_avg},
+                           "peers": {**peers, "vs_median_pct": vs_peers},
+                           "verdict": verdict}
+                with _VAL_LOCK:
+                    if len(_VAL_CACHE) > 300:
+                        _VAL_CACHE.pop(next(iter(_VAL_CACHE)))
+                    _VAL_CACHE[symbol] = (now, payload)
+                self._send_json(payload)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/valuation", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/scan/open_reversal":
             # Intraday open-reversal scanner: the stock dropped >= dip% below
