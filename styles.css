@@ -9598,3 +9598,35 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (prefers-reduced-motion: reduce) {
   .cp-backdrop, .cp-modal, .tab-panel.tp-in { animation: none; }
 }
+
+
+/* ── Valuation vs history & peers ──────────────────────────────────────── */
+.val-card { padding: 16px 18px; }
+.val-verdict { font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; cursor: help; white-space: nowrap; }
+.val-cheap { background: color-mix(in srgb, var(--up) 18%, transparent); color: var(--up); }
+.val-fair  { background: var(--bg-3); color: var(--fg-2); }
+.val-rich  { background: color-mix(in srgb, var(--down) 18%, transparent); color: var(--down); }
+.val-now { display: flex; gap: 26px; margin: 10px 0 4px; }
+.val-now > div { display: flex; flex-direction: column; gap: 1px; cursor: help; }
+.val-now span { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-4); }
+.val-now b { font-family: var(--font-mono); font-size: 21px; font-weight: 800; color: var(--fg); }
+.val-hist { margin-top: 10px; }
+.val-bars { position: relative; display: flex; align-items: flex-end; gap: 10px; height: 86px;
+  padding: 4px 2px 0; border-bottom: 1px solid var(--line); max-width: 420px; }
+.val-baru { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  height: 100%; gap: 3px; cursor: help; min-width: 0; }
+.val-bar { width: 100%; max-width: 42px; border-radius: 4px 4px 0 0;
+  background: color-mix(in srgb, var(--accent) 55%, var(--bg-3)); }
+.val-bar.now { background: var(--accent); box-shadow: 0 0 12px -2px var(--accent); }
+.val-yr { font-family: var(--font-mono); font-size: 9.5px; color: var(--fg-4); }
+.val-baru-now .val-yr { color: var(--accent); font-weight: 800; }
+.val-avgline { position: absolute; left: 0; right: 0; border-top: 1.5px dashed var(--fg-4); opacity: 0.7; pointer-events: none; }
+.val-read { margin-top: 8px; font-size: 12.5px; color: var(--fg-2); cursor: help; }
+.val-read b { font-family: var(--font-mono); font-weight: 800; }
+.val-read b.up, .val-peers b.up { color: var(--up); }
+.val-read b.down, .val-peers b.down { color: var(--down); }
+.val-peers { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line);
+  font-size: 12.5px; color: var(--fg-2); cursor: help; }
+.val-peers b { font-family: var(--font-mono); font-weight: 800; }
+.val-pct { color: var(--fg-3); }
+.val-empty { margin-top: 8px; font-size: 12px; color: var(--fg-3); line-height: 1.5; }
