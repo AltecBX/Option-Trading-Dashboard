@@ -5079,23 +5079,37 @@ def build_watchlist_analyst() -> dict:
         except Exception:
             pass
 
-    # Schwab quote fallback for action symbols the board hasn't priced yet
-    # (it scans incrementally, so upside would otherwise be blank mid-scan).
-    need_px = sorted({
-        str(a.get("ticker") or "").upper() for a in all_actions
-        if str(a.get("ticker") or "").upper()
-        and (not wlset or str(a.get("ticker") or "").upper() in wlset)
-        and px.get(str(a.get("ticker") or "").upper()) is None
-    })
-    if need_px:
+    # Schwab quote fallback for action symbols the board hasn't priced/named
+    # yet (it scans incrementally, so price OR company would otherwise be blank
+    # mid-scan). Schwab quotes carry the company name in "name" (reference
+    # description), so this backfills both in one batched call.
+    def _in_scope(sym):
+        return sym and (not wlset or sym in wlset)
+
+    need_meta = set()
+    for a in all_actions:
+        s = str(a.get("ticker") or "").upper()
+        if not _in_scope(s):
+            continue
+        # Need a Schwab lookup if the price is missing, or the company name is
+        # missing from BOTH the board cache and this action itself.
+        if px.get(s) is None or (not comp.get(s) and not a.get("company")):
+            need_meta.add(s)
+    need_meta = sorted(need_meta)
+    if need_meta:
         try:
             sc = _schwab()
             if sc is not None:
-                for i in range(0, len(need_px), 25):
-                    quotes = sc.get_quotes(need_px[i:i + 25]) or {}
+                for i in range(0, len(need_meta), 25):
+                    quotes = sc.get_quotes(need_meta[i:i + 25]) or {}
                     for s, qq in quotes.items():
-                        if qq and qq.get("last") is not None:
-                            px[str(s).upper()] = qq.get("last")
+                        if not qq:
+                            continue
+                        su = str(s).upper()
+                        if qq.get("last") is not None and px.get(su) is None:
+                            px[su] = qq.get("last")
+                        if qq.get("name") and not comp.get(su):
+                            comp[su] = qq.get("name")
         except Exception:
             pass
 
@@ -5115,7 +5129,7 @@ def build_watchlist_analyst() -> dict:
             upside = None
         actions.append({
             "symbol": sym,
-            "company": a.get("company") or comp.get(sym),
+            "company": a.get("company") or comp.get(sym) or sym,
             "action_date": adate,
             "firm": a.get("firm") or "—",
             "action_type": a.get("action_class"),
