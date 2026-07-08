@@ -5035,6 +5035,380 @@ def build_economic_calendar(days: int = 21) -> dict:
     }
 
 
+# ── Expected Move (v3.17) ──────────────────────────────────────────────────
+# Options-implied expected move for the selected ticker, per expiration, with
+# historical / previous-reading / earnings / day-range / support-resistance
+# comparisons and a plain-English summary. Powers the Expected Move card on
+# the Trade tab and the EM band drawn on the price chart.
+
+_EM_HIST_PATH = _STABLE_DIR / "em_history.json"
+_EM_HIST_LOCK = threading.Lock()
+
+
+def _em_history_prev_and_save(symbol: str, expiry: str, snap: dict) -> dict | None:
+    """Return the most recent stored EM snapshot for (symbol, expiry) and then
+    persist the current one. Keeps the last 30 snapshots per key so the card
+    can show how the market's pricing of the move is drifting. Best-effort —
+    returns None on any storage problem."""
+    key = f"{symbol}|{expiry}"
+    prev = None
+    try:
+        with _EM_HIST_LOCK:
+            data = {}
+            try:
+                if _EM_HIST_PATH.exists():
+                    data = json.loads(_EM_HIST_PATH.read_text()) or {}
+            except Exception:
+                data = {}
+            lst = data.get(key) or []
+            # Previous reading = last snapshot at least 30 minutes older than
+            # this one, so rapid refreshes don't compare a reading to itself.
+            for r in reversed(lst):
+                try:
+                    if snap["ts"] - float(r.get("ts") or 0) >= 1800:
+                        prev = r
+                        break
+                except (TypeError, ValueError):
+                    continue
+            lst.append(snap)
+            data[key] = lst[-30:]
+            # Age out keys for expired expirations to keep the file small.
+            today = date.today().isoformat()
+            data = {k: v for k, v in data.items()
+                    if k.split("|")[-1] >= today or k == key}
+            tmp = _EM_HIST_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, separators=(",", ":")))
+            tmp.replace(_EM_HIST_PATH)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[expected_move] history store failed: {exc}", file=sys.stderr)
+    return prev
+
+
+def _em_pivot_levels(bars: list, spot: float) -> dict:
+    """Support/resistance from daily-bar pivots: a pivot high/low is the
+    extreme of a ±3-bar window; nearby pivots (within 1%) are clustered and
+    counted as touches. Returns the 2 nearest levels above (resistance) and
+    below (support) the current price."""
+    out = {"support": [], "resistance": []}
+    if not bars or not spot:
+        return out
+    win = bars[-180:]
+    piv = []  # (price, date, kind)
+    for i in range(3, len(win) - 3):
+        hi = win[i].get("high")
+        lo = win[i].get("low")
+        if hi is not None and hi == max((win[j].get("high") or 0) for j in range(i - 3, i + 4)):
+            piv.append((float(hi), str(win[i].get("date") or "")[:10], "R"))
+        if lo is not None and lo == min((win[j].get("low") or float("inf")) for j in range(i - 3, i + 4)):
+            piv.append((float(lo), str(win[i].get("date") or "")[:10], "S"))
+    # Cluster within 1% — a level touched many times matters more.
+    piv.sort(key=lambda p: p[0])
+    clusters = []
+    for price, d, _kind in piv:
+        if clusters and abs(price - clusters[-1]["price"]) / clusters[-1]["price"] <= 0.01:
+            c = clusters[-1]
+            c["touches"] += 1
+            c["price"] = (c["price"] * (c["touches"] - 1) + price) / c["touches"]
+            c["last_date"] = max(c["last_date"], d)
+        else:
+            clusters.append({"price": price, "touches": 1, "last_date": d})
+    res = sorted([c for c in clusters if c["price"] > spot * 1.002], key=lambda c: c["price"])
+    sup = sorted([c for c in clusters if c["price"] < spot * 0.998], key=lambda c: -c["price"])
+    fmt = lambda c: {"price": round(c["price"], 2), "touches": c["touches"], "last_date": c["last_date"]}
+    out["resistance"] = [fmt(c) for c in res[:2]]
+    out["support"] = [fmt(c) for c in sup[:2]]
+    return out
+
+
+def _third_friday(d: date) -> bool:
+    return d.weekday() == 4 and 15 <= d.day <= 21
+
+
+@_ttl_memoize(60)
+def build_expected_move(symbol: str, expiry: str = "") -> dict:
+    """Everything the Expected Move card needs in one payload: the implied
+    move for the chosen expiration (ATM straddle, IV fallback), an expiration
+    menu (weeklies / monthly / earnings), comparisons vs the stock's own
+    realized behavior, and a summary a trader can act on in seconds."""
+    symbol = symbol.upper().strip()
+    out: dict = {"symbol": symbol}
+    sc = _schwab()
+    if sc is None:
+        return {"symbol": symbol, "error": "Schwab not connected"}
+
+    # ── Quote: spot + today's range ─────────────────────────────────────
+    spot = day_high = day_low = prev_close = None
+    try:
+        q = sc.get_quote(symbol) or {}
+        spot = q.get("last")
+        day_high = q.get("high")
+        day_low = q.get("low")
+        prev_close = q.get("close_prev")
+    except Exception:
+        pass
+
+    # ── Chain + expiration menu ─────────────────────────────────────────
+    try:
+        full = sc.get_option_chain(symbol) or {}
+    except Exception:
+        full = {}
+    if not spot:
+        spot = (full.get("underlying") or {}).get("last")
+    if not spot:
+        return {"symbol": symbol, "error": "no quote available"}
+    spot = float(spot)
+
+    today = date.today()
+    exps = []
+    for e in (full.get("expirations") or []):
+        try:
+            ed = date.fromisoformat(str(e)[:10])
+        except (TypeError, ValueError):
+            continue
+        if today <= ed <= today + timedelta(days=75):
+            exps.append(ed)
+    exps.sort()
+    if not exps:
+        return {"symbol": symbol, "error": "no listed expirations within 75 days"}
+
+    # Earnings date from the scanned watchlist board (free — already there).
+    next_earnings = None
+    try:
+        if _WLTABLE_AVAILABLE and _wltable is not None:
+            for r in ((_wltable.get_board() or {}).get("rows") or []):
+                if str(r.get("symbol") or "").upper() == symbol:
+                    next_earnings = r.get("next_earnings")
+                    break
+    except Exception:
+        pass
+    earn_date = None
+    if next_earnings:
+        try:
+            ed = date.fromisoformat(str(next_earnings)[:10])
+            if today <= ed <= today + timedelta(days=60):
+                earn_date = ed
+        except (TypeError, ValueError):
+            pass
+
+    monthly = next((e for e in exps if _third_friday(e)), None)
+    earn_exp = next((e for e in exps if earn_date and e >= earn_date), None) if earn_date else None
+    menu = []
+    for i, e in enumerate(exps[:10]):
+        menu.append({
+            "date": e.isoformat(),
+            "dte": (e - today).days,
+            "nearest": i == 0,
+            "next_weekly": i == 1,
+            "monthly": e == monthly,
+            "earnings": e == earn_exp,
+        })
+
+    # Selected expiry: explicit param if listed, else the nearest.
+    sel = exps[0]
+    if expiry:
+        try:
+            want = date.fromisoformat(str(expiry)[:10])
+            if want in exps:
+                sel = want
+        except (TypeError, ValueError):
+            pass
+    sel_str = sel.isoformat()
+    dte = max((sel - today).days, 0)
+
+    # ── ATM straddle → expected move ────────────────────────────────────
+    chain = (full.get("chains") or {}).get(sel_str) or {}
+    calls = chain.get("calls") or []
+    puts = chain.get("puts") or []
+
+    def mid(row):
+        b = float(row.get("bid") or 0)
+        a = float(row.get("ask") or 0)
+        if b > 0 and a > 0:
+            return (b + a) / 2.0
+        l = float(row.get("last") or 0)
+        return l if l > 0 else 0.0
+
+    em_d = None
+    atm_iv = None
+    atm_strike = None
+    method = None
+    if calls and puts:
+        atm_call = min(calls, key=lambda r: abs((r.get("strike") or 0) - spot))
+        atm_put = min(puts, key=lambda r: abs((r.get("strike") or 0) - spot))
+        atm_strike = atm_call.get("strike")
+        ivs = [float(r["iv"]) for r in (atm_call, atm_put) if r.get("iv")]
+        atm_iv = sum(ivs) / len(ivs) if ivs else None
+        c_px, p_px = mid(atm_call), mid(atm_put)
+        if c_px > 0 and p_px > 0:
+            em_d = c_px + p_px
+            method = "ATM straddle"
+    if em_d is None and atm_iv:
+        # Theoretical fallback when quotes are missing (closed market, thin
+        # chain): 1σ move = S · IV · √t.
+        em_d = spot * atm_iv * math.sqrt(max(dte, 0.5) / 365.0)
+        method = "IV × √t"
+    if em_d is None:
+        return {"symbol": symbol, "error": f"no usable option quotes for {sel_str}"}
+    em_pct = em_d / spot * 100.0
+    upper, lower = spot + em_d, spot - em_d
+
+    # ── History: avg actual move over the same horizon + realized vol ───
+    avg_actual = None
+    n_windows = 0
+    hv20 = None
+    hv_pctile = None
+    try:
+        bars = sc.get_price_history(symbol, days=400) or []
+    except Exception:
+        bars = []
+    closes = [float(b["close"]) for b in bars if b.get("close")]
+    if len(closes) >= 60:
+        n_td = max(1, round(dte * 5 / 7))  # calendar DTE → trading days
+        moves = []
+        for i in range(max(0, len(closes) - 252 - n_td), len(closes) - n_td):
+            c0, c1 = closes[i], closes[i + n_td]
+            if c0 > 0:
+                moves.append(abs(c1 / c0 - 1) * 100.0)
+        if moves:
+            avg_actual = sum(moves) / len(moves)
+            n_windows = len(moves)
+        # HV20 series → where does today's realized vol sit in its 1y range?
+        rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0]
+        hvs = []
+        for i in range(20, len(rets) + 1):
+            w = rets[i - 20:i]
+            m = sum(w) / 20
+            var = sum((x - m) ** 2 for x in w) / 19
+            hvs.append(math.sqrt(var) * math.sqrt(252) * 100.0)
+        if hvs:
+            hv20 = hvs[-1]
+            yr = hvs[-252:]
+            hv_pctile = sum(1 for v in yr if v < hv20) / len(yr) * 100.0
+
+    # ── Previous EM reading (persisted across restarts on /data) ────────
+    now_ts = time.time()
+    prev = _em_history_prev_and_save(symbol, sel_str, {
+        "ts": now_ts, "date": today.isoformat(),
+        "em_pct": round(em_pct, 2), "em_dollars": round(em_d, 2),
+        "spot": round(spot, 2),
+    })
+
+    # ── Post-earnings average move (only when earnings are in play) ─────
+    post_earn_avg = None
+    days_to_earn = (earn_date - today).days if earn_date else None
+    if earn_date and days_to_earn is not None and days_to_earn <= 45:
+        try:
+            lad = build_earnings_ladder(symbol)
+            if isinstance(lad, dict):
+                post_earn_avg = (lad.get("summary") or {}).get("avg_realized")
+        except Exception:
+            pass
+
+    # ── Support / resistance pivots ─────────────────────────────────────
+    levels = _em_pivot_levels(bars, spot)
+
+    # ── IV rank vs the symbol's own stored IV30 history (approximate) ───
+    iv_rank = iv_pct = None
+    try:
+        if atm_iv:
+            hist = _iv_history_load(symbol)
+            rank = _iv_history_compute_rank(hist, atm_iv)
+            iv_rank, iv_pct = rank.get("iv_rank"), rank.get("iv_pct")
+    except Exception:
+        pass
+
+    # ── Summary verdicts ────────────────────────────────────────────────
+    remaining_up = upper - spot if spot < upper else 0.0
+    remaining_down = spot - lower if spot > lower else 0.0
+    band_pos = (spot - lower) / (upper - lower) * 100.0 if upper > lower else 50.0
+    today_move = abs(spot - prev_close) if prev_close else None
+    used_pct = (today_move / em_d * 100.0) if (today_move is not None and em_d > 0) else None
+    em_vs_hist = (em_pct / avg_actual) if (avg_actual and avg_actual > 0) else None
+    iv_vs_hv = (atm_iv * 100.0 / hv20) if (atm_iv and hv20 and hv20 > 0) else None
+    rr_up = (remaining_up / remaining_down) if remaining_down > 0.01 else None
+
+    if em_vs_hist is None:
+        size_verdict = "unknown"
+    elif em_vs_hist >= 1.35:
+        size_verdict = "unusually large"
+    elif em_vs_hist >= 1.15:
+        size_verdict = "large"
+    elif em_vs_hist <= 0.65:
+        size_verdict = "unusually small"
+    elif em_vs_hist <= 0.85:
+        size_verdict = "small"
+    else:
+        size_verdict = "in line"
+
+    if iv_vs_hv is None and iv_rank is None:
+        vol_state = "unknown"
+    elif (iv_vs_hv or 0) >= 1.25 or (iv_rank or 0) >= 70:
+        vol_state = "elevated"
+    elif (iv_vs_hv or 99) <= 0.85 and (iv_rank is None or iv_rank <= 35):
+        vol_state = "subdued"
+    else:
+        vol_state = "normal"
+
+    bits = [f"Options price a ±{em_pct:.1f}% move by {sel.strftime('%b %-d') if os.name != 'nt' else sel.strftime('%b %d')}"]
+    if size_verdict not in ("unknown", "in line"):
+        bits.append(f"{size_verdict} vs the stock's typical {dte}-day move")
+    if used_pct is not None and used_pct >= 70:
+        bits.append(f"today already used {used_pct:.0f}% of it")
+    if vol_state == "elevated":
+        bits.append("vol is priced rich — favors premium selling")
+    elif vol_state == "subdued":
+        bits.append("vol is priced cheap — favors buying options")
+    headline = "; ".join(bits) + "."
+
+    return {
+        "symbol": symbol,
+        "as_of": (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat()),
+        "spot": round(spot, 2),
+        "prev_close": prev_close,
+        "day_high": day_high,
+        "day_low": day_low,
+        "expiry": sel_str,
+        "dte": dte,
+        "expirations": menu,
+        "em": {
+            "dollars": round(em_d, 2),
+            "pct": round(em_pct, 2),
+            "upper": round(upper, 2),
+            "lower": round(lower, 2),
+            "iv": round(atm_iv, 4) if atm_iv else None,
+            "atm_strike": atm_strike,
+            "method": method,
+        },
+        "compare": {
+            "avg_actual_pct": round(avg_actual, 2) if avg_actual is not None else None,
+            "avg_actual_windows": n_windows,
+            "em_vs_hist": round(em_vs_hist, 2) if em_vs_hist is not None else None,
+            "prev": prev,
+            "post_earnings_avg_pct": post_earn_avg,
+            "next_earnings": earn_date.isoformat() if earn_date else None,
+            "days_to_earnings": days_to_earn,
+            "hv20": round(hv20, 1) if hv20 is not None else None,
+            "hv_percentile": round(hv_pctile, 0) if hv_pctile is not None else None,
+            "iv_vs_hv": round(iv_vs_hv, 2) if iv_vs_hv is not None else None,
+            "iv_rank": iv_rank,
+            "iv_pct": iv_pct,
+        },
+        "levels": levels,
+        "summary": {
+            "size_verdict": size_verdict,
+            "vol_state": vol_state,
+            "used_pct": round(used_pct, 0) if used_pct is not None else None,
+            "band_position_pct": round(band_pos, 0),
+            "remaining_up": round(remaining_up, 2),
+            "remaining_up_pct": round(remaining_up / spot * 100.0, 2),
+            "remaining_down": round(remaining_down, 2),
+            "remaining_down_pct": round(remaining_down / spot * 100.0, 2),
+            "rr_up": round(rr_up, 2) if rr_up is not None else None,
+            "headline": headline,
+        },
+    }
+
+
 def build_watchlist_analyst() -> dict:
     """Fresh analyst actions (upgrades/downgrades/initiations/reiterations/
     PT changes) for watchlist symbols, drawn from the morning analyst-board
@@ -6562,6 +6936,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/expected_move":
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            expiry = (qs.get("expiry", [""])[0] or "").strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                self._send_json(build_expected_move(symbol, expiry), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/expected_move", exc)
+                self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/earnings_ladder":
             qs = parse_qs(parsed.query)

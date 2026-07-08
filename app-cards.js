@@ -15588,11 +15588,277 @@ function ValuationCard({
     className: "val-pct"
   }, " · cheaper than ", 100 - p.percentile, "% of peers")));
 }
+
+// ── Expected Move card (v3.17) ─────────────────────────────────────────────
+// Options-implied expected move for the selected ticker: pick an expiration
+// (weeklies / monthly / earnings), see the ±range, how it compares with the
+// stock's own realized behavior, and a plain-English summary. Reports the
+// band back up via onBand so the price chart can draw the EM levels.
+function ExpectedMoveCard({
+  apiFetch,
+  ticker,
+  onBand
+}) {
+  const [data, setData] = useState(null);
+  const [expiry, setExpiry] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    setExpiry(null);
+    setData(null);
+    setErr(null);
+  }, [ticker]);
+  useEffect(() => {
+    let stop = false;
+    const load = () => {
+      const url = `/api/expected_move?symbol=${encodeURIComponent(ticker)}` + (expiry ? `&expiry=${encodeURIComponent(expiry)}` : "");
+      sharedJson(apiFetch, url, 55 * 1000).then(d => {
+        if (stop) return;
+        if (d && !d.error && d.em) {
+          setData(d);
+          setErr(null);
+          if (onBand) onBand({
+            symbol: d.symbol,
+            high: d.em.upper,
+            low: d.em.lower,
+            expiry: d.expiry
+          });
+        } else {
+          setData(null);
+          setErr(d && d.error || "no data");
+          if (onBand) onBand(null);
+        }
+      }).catch(e => {
+        if (!stop) setErr(String(e && e.message || e));
+      });
+    };
+    load();
+    const t = setInterval(skipWhenHidden(load), 60 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [ticker, expiry]);
+  if (err) return /*#__PURE__*/React.createElement("div", {
+    className: "expected-move-card chart-em-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "options-implied range"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Expected Move"))), /*#__PURE__*/React.createElement("div", {
+    className: "emx-empty",
+    title: "The expected move needs a live option chain. It fills in once Schwab quotes are available for this symbol."
+  }, err));
+  if (!data) return /*#__PURE__*/React.createElement("div", {
+    className: "expected-move-card chart-em-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "options-implied range"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Expected Move"))), /*#__PURE__*/React.createElement("div", {
+    className: "emx-empty"
+  }, "Loading chain…"));
+  const em = data.em,
+    cmp = data.compare || {},
+    sum = data.summary || {},
+    lv = data.levels || {};
+  const updated = (() => {
+    try {
+      return new Date(data.as_of).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    } catch (e) {
+      return "—";
+    }
+  })();
+  const expLabel = x => x.earnings ? "🎯 Earnings" : x.monthly ? "Monthly" : x.nearest ? "This wk" : x.next_weekly ? "Next wk" : fmtUSDate(x.date);
+  // Pills: nearest, next weekly, monthly, earnings — plus the selected one if
+  // it came from somewhere else. Dedupe by date, keep chain order.
+  const pills = (data.expirations || []).filter(x => x.nearest || x.next_weekly || x.monthly || x.earnings || x.date === data.expiry);
+  const pos = v => {
+    // position 0-100 inside the band, padded 6% each side
+    if (v == null || em.upper === em.lower) return null;
+    const raw = (v - em.lower) / (em.upper - em.lower);
+    return Math.max(0, Math.min(100, 6 + raw * 88));
+  };
+  const nearRes = (lv.resistance || [])[0],
+    nearSup = (lv.support || [])[0];
+  const ratioChip = cmp.em_vs_hist == null ? null : cmp.em_vs_hist >= 1.15 ? {
+    cls: "warn",
+    txt: `${cmp.em_vs_hist}× — options pricing MORE than usual`
+  } : cmp.em_vs_hist <= 0.85 ? {
+    cls: "up",
+    txt: `${cmp.em_vs_hist}× — options pricing LESS than usual`
+  } : {
+    cls: "",
+    txt: `${cmp.em_vs_hist}× — in line with history`
+  };
+  const prevDelta = cmp.prev && cmp.prev.em_pct != null && em.pct != null ? +(em.pct - cmp.prev.em_pct).toFixed(2) : null;
+  const volTone = sum.vol_state === "elevated" ? "warn" : sum.vol_state === "subdued" ? "up" : "";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "expected-move-card chart-em-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: `How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration. "IV × √t" is the theoretical fallback when quotes are missing. ATM strike used: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.`
+  }, em.method, " · ATM IV ", em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—", " · updated ", updated), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Expected Move")), /*#__PURE__*/React.createElement("div", {
+    className: "emx-exp-pills",
+    title: "Switch the expiration the expected move is computed for. 🎯 marks the first expiration that captures the earnings report."
+  }, pills.map(x => /*#__PURE__*/React.createElement("button", {
+    key: x.date,
+    className: `emx-pill ${x.date === data.expiry ? "active" : ""} ${x.earnings ? "earn" : ""}`,
+    onClick: () => setExpiry(x.date),
+    title: `${fmtUSDate(x.date)} — ${x.dte} day${x.dte === 1 ? "" : "s"} out${x.earnings ? " · first expiry that includes earnings" : x.monthly ? " · standard monthly (3rd Friday)" : ""}`
+  }, expLabel(x), /*#__PURE__*/React.createElement("span", {
+    className: "emx-pill-dte"
+  }, x.dte, "d"))))), /*#__PURE__*/React.createElement("div", {
+    className: "em-stats-grid"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat",
+    title: "Current stock price the range is anchored to (Schwab real-time quote)."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-lbl"
+  }, "Price"), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-val"
+  }, fmt$(data.spot))), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat",
+    title: `Selected expiration date. ${data.dte} calendar day${data.dte === 1 ? "" : "s"} remain — time decay accelerates in the final week.`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-lbl"
+  }, "Expiry"), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-val"
+  }, fmtUSDate(data.expiry), /*#__PURE__*/React.createElement("span", {
+    className: "emx-dte-sub"
+  }, data.dte, "d"))), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat",
+    title: "Expected dollar move from now to expiration as priced by the options market. About 68% of the time the stock should stay within ± this amount."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-lbl"
+  }, "Expected $"), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-val"
+  }, "±", fmt$(em.dollars))), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat",
+    title: "Expected move as a percent of the stock price. 1-2% is calm, 3-5% active, 6%+ usually means earnings or a big catalyst inside the window."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-lbl"
+  }, "Expected %"), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-val"
+  }, "±", em.pct != null ? em.pct.toFixed(2) : "—", "%")), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat",
+    title: "Upper edge of the expected range = price + expected move. Only ~16% of outcomes should close above this by expiration."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-lbl"
+  }, "Up to"), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-val up"
+  }, fmt$(em.upper))), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat",
+    title: "Lower edge of the expected range = price − expected move. Only ~16% of outcomes should close below this by expiration."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-lbl"
+  }, "Down to"), /*#__PURE__*/React.createElement("div", {
+    className: "em-stat-val down"
+  }, fmt$(em.lower)))), /*#__PURE__*/React.createElement("div", {
+    className: "emx-range",
+    title: `Where the stock is trading inside its expected range right now. Band position ${sum.band_position_pct != null ? sum.band_position_pct + "%" : "—"} (50% = dead center). Small ticks mark today's high and low.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-range-edge down"
+  }, fmt$(em.lower)), /*#__PURE__*/React.createElement("div", {
+    className: "emx-range-bar"
+  }, pos(data.day_low) != null && /*#__PURE__*/React.createElement("span", {
+    className: "emx-tick",
+    style: {
+      left: pos(data.day_low) + "%"
+    },
+    title: `Today's low ${fmt$(data.day_low)}`
+  }), pos(data.day_high) != null && /*#__PURE__*/React.createElement("span", {
+    className: "emx-tick",
+    style: {
+      left: pos(data.day_high) + "%"
+    },
+    title: `Today's high ${fmt$(data.day_high)}`
+  }), pos(data.spot) != null && /*#__PURE__*/React.createElement("span", {
+    className: "emx-dot",
+    style: {
+      left: pos(data.spot) + "%"
+    },
+    title: `Now ${fmt$(data.spot)}`
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "emx-range-edge up"
+  }, fmt$(em.upper))), /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp-row",
+    title: `The stock's AVERAGE actual move over ${data.dte}-day stretches during the past year (${cmp.avg_actual_windows || 0} samples). Comparing what options PRICE vs what the stock actually DOES tells you if premium is rich or cheap.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-cmp-lbl"
+  }, "Avg actual ", data.dte, "d move"), /*#__PURE__*/React.createElement("b", null, cmp.avg_actual_pct != null ? "±" + cmp.avg_actual_pct.toFixed(2) + "%" : "—"), ratioChip && /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip ${ratioChip.cls}`
+  }, ratioChip.txt)), cmp.prev && cmp.prev.em_pct != null && /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp-row",
+    title: `The last saved expected-move reading for this same expiration (taken ${cmp.prev.date}). A rising EM means the market is pricing MORE movement than before; falling means vol is bleeding out.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-cmp-lbl"
+  }, "Previous EM reading"), /*#__PURE__*/React.createElement("b", null, "±", cmp.prev.em_pct.toFixed(2), "%"), prevDelta != null && prevDelta !== 0 && /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip ${prevDelta > 0 ? "warn" : "up"}`
+  }, prevDelta > 0 ? "+" : "", prevDelta, " pts since ", fmtUSDate(cmp.prev.date))), cmp.post_earnings_avg_pct != null && /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp-row",
+    title: `Average absolute move the stock ACTUALLY made the day after its recent earnings reports. Earnings in ${cmp.days_to_earnings} day${cmp.days_to_earnings === 1 ? "" : "s"} (${fmtUSDate(cmp.next_earnings)}). If the EM is far below this, the market may be underpricing the event.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-cmp-lbl"
+  }, "Avg post-earnings move"), /*#__PURE__*/React.createElement("b", null, "±", Number(cmp.post_earnings_avg_pct).toFixed(2), "%"), /*#__PURE__*/React.createElement("span", {
+    className: "emx-chip earn"
+  }, "earnings in ", cmp.days_to_earnings, "d")), /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp-row",
+    title: "Today's traded range so far, and how much of the full expected move today's swing (vs yesterday's close) has already consumed. If most of the EM is gone, chasing gets expensive."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-cmp-lbl"
+  }, "Today's range"), /*#__PURE__*/React.createElement("b", null, data.day_low != null && data.day_high != null ? `${fmt$(data.day_low)} – ${fmt$(data.day_high)}` : "—"), sum.used_pct != null && /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip ${sum.used_pct >= 70 ? "warn" : ""}`
+  }, sum.used_pct, "% of EM used today")), (nearSup || nearRes) && /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp-row",
+    title: "Nearest support/resistance from daily-chart pivot levels (touch count in parentheses). If the expected range extends past a heavily-touched level, that level is where the move is likely to stall."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-cmp-lbl"
+  }, "Support / Resistance"), /*#__PURE__*/React.createElement("b", null, nearSup ? /*#__PURE__*/React.createElement("span", {
+    className: "up"
+  }, fmt$(nearSup.price), " (", nearSup.touches, "×)") : "—", " / ", nearRes ? /*#__PURE__*/React.createElement("span", {
+    className: "down"
+  }, fmt$(nearRes.price), " (", nearRes.touches, "×)") : "—"), nearRes && em.upper > nearRes.price && /*#__PURE__*/React.createElement("span", {
+    className: "emx-chip"
+  }, "upper band sits past resistance"), nearSup && em.lower < nearSup.price && /*#__PURE__*/React.createElement("span", {
+    className: "emx-chip"
+  }, "lower band sits past support"))), /*#__PURE__*/React.createElement("div", {
+    className: "emx-summary"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip big ${sum.size_verdict === "unusually large" || sum.size_verdict === "large" ? "warn" : sum.size_verdict === "unusually small" || sum.size_verdict === "small" ? "up" : ""}`,
+    title: "Is this expected move big or small FOR THIS STOCK? Compares the options-implied % move against the stock's own average actual move over the same number of days."
+  }, "EM ", sum.size_verdict || "—"), /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip big ${volTone}`,
+    title: `Is the options market pricing elevated volatility? ATM IV ${em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—"} vs 20-day realized vol ${cmp.hv20 != null ? cmp.hv20 + "%" : "—"} (${cmp.iv_vs_hv != null ? cmp.iv_vs_hv + "×" : "—"})${cmp.iv_rank != null ? ` · IV rank ${cmp.iv_rank}` : ""}${cmp.hv_percentile != null ? ` · realized vol at its ${cmp.hv_percentile}th percentile this year` : ""}. Elevated = premium selling has an edge; subdued = long options are cheap.`
+  }, "vol ", sum.vol_state || "—"), /*#__PURE__*/React.createElement("span", {
+    className: "emx-chip big",
+    title: "Room left inside the expected range from the current price. Once one side is nearly exhausted, continuation trades in that direction fight the odds the options market has priced."
+  }, "↑ ", fmt$(sum.remaining_up), " (", sum.remaining_up_pct != null ? sum.remaining_up_pct.toFixed(1) : "—", "%) · ↓ ", fmt$(sum.remaining_down), " (", sum.remaining_down_pct != null ? sum.remaining_down_pct.toFixed(1) : "—", "%)"), sum.rr_up != null && /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip big ${sum.rr_up >= 1.5 ? "up" : sum.rr_up <= 0.67 ? "warn" : ""}`,
+    title: `Upside room ÷ downside room inside the band, from the current price. ${sum.rr_up}:1 — above ~1.5 the entry favors longs (more room up than down); below ~0.67 it favors shorts/put buyers. Near 1.0 the price sits mid-range with no positioning edge.`
+  }, "R:R ", sum.rr_up, ":1 ", sum.rr_up >= 1.5 ? "favors upside" : sum.rr_up <= 0.67 ? "favors downside" : "balanced")), sum.headline && /*#__PURE__*/React.createElement("div", {
+    className: "emx-headline",
+    title: "One-line read of everything above: the priced move, whether it's unusual, how much is already used, and which side of the vol trade has the edge."
+  }, sum.headline));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
   ValuationCard: _memo(ValuationCard),
+  ExpectedMoveCard: _memo(ExpectedMoveCard),
   OpenReversalCard: _memo(OpenReversalCard),
   ReversalAlerts: _memo(ReversalAlerts),
   CommandPalette,

@@ -43,6 +43,8 @@ function TVPriceChart({
   daily,
   expHigh,
   expLow,
+  emHigh,
+  emLow,
   callStrike,
   putStrike,
   currentPrice,
@@ -265,6 +267,10 @@ function TVPriceChart({
     pl(putStrike, "#22c55e", LC.LineStyle.Dashed, "put");
     pl(expHigh, "rgba(234,179,8,0.85)", LC.LineStyle.Dotted, "exp hi");
     pl(expLow, "rgba(234,179,8,0.85)", LC.LineStyle.Dotted, "exp lo");
+    // Options-implied expected-move band (v3.17) — distinct sky-blue dashed
+    // lines so it never blends with the historical weekly band above.
+    pl(emHigh, "rgba(56,189,248,0.9)", LC.LineStyle.Dashed, "EM hi");
+    pl(emLow, "rgba(56,189,248,0.9)", LC.LineStyle.Dashed, "EM lo");
     if (earnings) {
       const m = [];
       (earnings.past || []).forEach(d => {
@@ -289,7 +295,7 @@ function TVPriceChart({
         main.setMarkers(m);
       } catch (e) {}
     }
-  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, showMA50, showMA200, showEMA21, earnings, chartStyle]);
+  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle]);
   if (!LC) return null;
   return /*#__PURE__*/React.createElement("div", {
     className: "tv-price-chart",
@@ -302,6 +308,8 @@ function PriceChart({
   daily,
   expHigh,
   expLow,
+  emHigh,
+  emLow,
   callStrike,
   putStrike,
   currentPrice,
@@ -467,8 +475,8 @@ function PriceChart({
     };
     const allHi = daily.map(d => d.high),
       allLo = daily.map(d => d.low);
-    let yMin = Math.min(...allLo, putStrike || Infinity, expLow || Infinity);
-    let yMax = Math.max(...allHi, callStrike || 0, expHigh || 0);
+    let yMin = Math.min(...allLo, putStrike || Infinity, expLow || Infinity, emLow || Infinity);
+    let yMax = Math.max(...allHi, callStrike || 0, expHigh || 0, emHigh || 0);
     // Extend y-axis to include ±2σ cone bounds at full DTE so the cone
     // doesn't get clipped above or below the visible range.
     if (showProbCone && ivAnnualized && dteToExp > 0 && currentPrice > 0) {
@@ -488,7 +496,7 @@ function PriceChart({
       yMin,
       yMax
     };
-  }, [daily, expHigh, expLow, callStrike, putStrike, priceH, dataW, showProbCone, ivAnnualized, dteToExp, currentPrice]);
+  }, [daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, priceH, dataW, showProbCone, ivAnnualized, dteToExp, currentPrice]);
 
   // MACD: use server-side values if present (preferred — already warmed up
   // across the full visible window). Fall back to client compute otherwise.
@@ -711,7 +719,35 @@ function PriceChart({
     strokeDasharray: "3 3",
     strokeWidth: "1",
     opacity: "0.6"
-  })), chartStyle === "area" && (() => {
+  })), emHigh && emLow && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+    x1: padL,
+    x2: W - padR,
+    y1: yScale(emHigh),
+    y2: yScale(emHigh),
+    stroke: "#38bdf8",
+    strokeDasharray: "6 4",
+    strokeWidth: "1.2",
+    opacity: "0.85"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: padL,
+    x2: W - padR,
+    y1: yScale(emLow),
+    y2: yScale(emLow),
+    stroke: "#38bdf8",
+    strokeDasharray: "6 4",
+    strokeWidth: "1.2",
+    opacity: "0.85"
+  }), /*#__PURE__*/React.createElement("text", {
+    x: padL + 6,
+    y: yScale(emHigh) - 5,
+    className: "strike-label",
+    fill: "#38bdf8"
+  }, "EM ", fmt$(emHigh)), /*#__PURE__*/React.createElement("text", {
+    x: padL + 6,
+    y: yScale(emLow) + 13,
+    className: "strike-label",
+    fill: "#38bdf8"
+  }, "EM ", fmt$(emLow))), chartStyle === "area" && (() => {
     const path = daily.map((d, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yScale(d.close)}`).join(" ");
     const fill = `${path} L ${xScale(daily.length - 1)} ${padT + priceH} L ${xScale(0)} ${padT + priceH} Z`;
     return /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("path", {
