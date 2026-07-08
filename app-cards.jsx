@@ -11687,11 +11687,13 @@ function ExpectedMoveCard({ apiFetch, ticker, onBand }) {
         .then(d => {
           if (stop) return;
           if (d && !d.error && d.em) {
-            setData(d); setErr(null);
+            setData(d); setErr(d.stale ? (d.stale_reason || "stale") : null);
             if (onBand) onBand({ symbol: d.symbol, high: d.em.upper, low: d.em.lower, expiry: d.expiry });
           } else {
-            setData(null); setErr((d && d.error) || "no data");
-            if (onBand) onBand(null);
+            // Transient failure (overnight quote gap, upstream hiccup):
+            // KEEP the last good data on screen instead of flashing the
+            // card into an error state — just record the reason.
+            setErr((d && d.error) || "no data");
           }
         })
         .catch(e => { if (!stop) setErr(String((e && e.message) || e)); });
@@ -11701,18 +11703,13 @@ function ExpectedMoveCard({ apiFetch, ticker, onBand }) {
     return () => { stop = true; clearInterval(t); };
   }, [ticker, expiry]);
 
-  if (err) return (
-    <div className="expected-move-card chart-em-section">
-      <div className="card-head"><div><div className="kicker">options-implied range</div>
-        <div className="card-title">Expected Move</div></div></div>
-      <div className="emx-empty" title="The expected move needs a live option chain. It fills in once Schwab quotes are available for this symbol.">{err}</div>
-    </div>
-  );
   if (!data) return (
     <div className="expected-move-card chart-em-section">
       <div className="card-head"><div><div className="kicker">options-implied range</div>
         <div className="card-title">Expected Move</div></div></div>
-      <div className="emx-empty">Loading chain…</div>
+      <div className="emx-empty" title="The expected move needs a live option chain. It fills in once Schwab quotes are available for this symbol. Retries every minute.">
+        {err ? `${err} — retrying…` : "Loading chain…"}
+      </div>
     </div>
   );
 
@@ -11742,8 +11739,9 @@ function ExpectedMoveCard({ apiFetch, ticker, onBand }) {
     <div className="expected-move-card chart-em-section">
       <div className="card-head">
         <div>
-          <div className="kicker" title={`How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration. "IV × √t" is the theoretical fallback when quotes are missing. ATM strike used: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.`}>
+          <div className="kicker" title={`How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration. "IV × √t" is the theoretical fallback when quotes are missing. ATM strike used: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.${err ? ` Latest refresh failed (${err}) — showing the last good reading and retrying every minute.` : ""}`}>
             {em.method} · ATM IV {em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—"} · updated {updated}
+            {err && <span className="emx-stale"> · stale — retrying</span>}
           </div>
           <div className="card-title">Expected Move</div>
         </div>

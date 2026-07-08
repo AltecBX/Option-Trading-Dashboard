@@ -15615,7 +15615,7 @@ function ExpectedMoveCard({
         if (stop) return;
         if (d && !d.error && d.em) {
           setData(d);
-          setErr(null);
+          setErr(d.stale ? d.stale_reason || "stale" : null);
           if (onBand) onBand({
             symbol: d.symbol,
             high: d.em.upper,
@@ -15623,9 +15623,10 @@ function ExpectedMoveCard({
             expiry: d.expiry
           });
         } else {
-          setData(null);
+          // Transient failure (overnight quote gap, upstream hiccup):
+          // KEEP the last good data on screen instead of flashing the
+          // card into an error state — just record the reason.
           setErr(d && d.error || "no data");
-          if (onBand) onBand(null);
         }
       }).catch(e => {
         if (!stop) setErr(String(e && e.message || e));
@@ -15638,18 +15639,6 @@ function ExpectedMoveCard({
       clearInterval(t);
     };
   }, [ticker, expiry]);
-  if (err) return /*#__PURE__*/React.createElement("div", {
-    className: "expected-move-card chart-em-section"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "card-head"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "kicker"
-  }, "options-implied range"), /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
-  }, "Expected Move"))), /*#__PURE__*/React.createElement("div", {
-    className: "emx-empty",
-    title: "The expected move needs a live option chain. It fills in once Schwab quotes are available for this symbol."
-  }, err));
   if (!data) return /*#__PURE__*/React.createElement("div", {
     className: "expected-move-card chart-em-section"
   }, /*#__PURE__*/React.createElement("div", {
@@ -15659,8 +15648,9 @@ function ExpectedMoveCard({
   }, "options-implied range"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Expected Move"))), /*#__PURE__*/React.createElement("div", {
-    className: "emx-empty"
-  }, "Loading chain…"));
+    className: "emx-empty",
+    title: "The expected move needs a live option chain. It fills in once Schwab quotes are available for this symbol. Retries every minute."
+  }, err ? `${err} — retrying…` : "Loading chain…"));
   const em = data.em,
     cmp = data.compare || {},
     sum = data.summary || {},
@@ -15705,8 +15695,10 @@ function ExpectedMoveCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
-    title: `How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration. "IV × √t" is the theoretical fallback when quotes are missing. ATM strike used: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.`
-  }, em.method, " · ATM IV ", em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—", " · updated ", updated), /*#__PURE__*/React.createElement("div", {
+    title: `How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration. "IV × √t" is the theoretical fallback when quotes are missing. ATM strike used: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.${err ? ` Latest refresh failed (${err}) — showing the last good reading and retrying every minute.` : ""}`
+  }, em.method, " · ATM IV ", em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—", " · updated ", updated, err && /*#__PURE__*/React.createElement("span", {
+    className: "emx-stale"
+  }, " · stale — retrying")), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Expected Move")), /*#__PURE__*/React.createElement("div", {
     className: "emx-exp-pills",

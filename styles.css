@@ -1305,9 +1305,11 @@ input, select, textarea {
 .sb-ticker-wrap-compact { width: 110px; position: relative; }
 .sb-ticker-wrap-compact .sb-ticker-input { width: 100%; }
 .sb-ticker-display {
-  flex: 0 0 auto;
+  /* 0 1 auto (was 0 0 auto): the logo/price column may SHRINK when the row
+     is tight instead of forcing an overlap with the symbol input. */
+  flex: 0 1 auto;
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
-  min-width: 0;
+  min-width: 0; overflow: hidden;
 }
 .sb-ticker-symbol {
   font-family: var(--font-display); font-weight: 800;
@@ -1315,7 +1317,10 @@ input, select, textarea {
   color: var(--fg); letter-spacing: 0.02em;
 }
 .sb-ticker-logo {
-  height: 60px; max-width: 100%; object-fit: contain;
+  /* Hard width cap: wide wordmark logos (Cboe, Coca-Cola, …) at 60px tall
+     used to balloon past the column and overlap the symbol input beside
+     them. object-fit keeps the aspect ratio inside the capped box. */
+  height: 60px; max-width: 140px; object-fit: contain;
   align-self: flex-start;
   filter: drop-shadow(0 0 0.5px var(--line));
   border-radius: 6px;
@@ -6280,6 +6285,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* ── Expected Move v2 (v3.17) — expiration pills, range meter, comparisons
    and summary chips inside the chart-nested card. ─────────────────────── */
 .emx-empty { padding: 14px 4px; color: var(--fg-3); font-size: 12.5px; font-family: var(--font-mono); }
+.emx-stale { color: var(--warn); font-weight: 700; }
 .emx-exp-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .emx-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-2); cursor: pointer;
