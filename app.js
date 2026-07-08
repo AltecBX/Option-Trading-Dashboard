@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.16";
+const APP_VERSION = "3.17";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2586,6 +2586,10 @@ function App() {
   // returns implied weekly range + 0.20 delta strike suggestions for
   // each symbol. Cached as map keyed by symbol so partial failures
   // can still display the ones that succeeded.
+  // Expected-move band (v3.17) — reported up by ExpectedMoveCard so the
+  // price chart can draw the options-implied EM levels. Keyed by symbol so a
+  // stale band never draws on the next ticker while its data loads.
+  const [emBand, setEmBand] = useState(null); // {symbol, high, low, expiry}
   const [weeklyRange, setWeeklyRange] = useState({}); // {symbol: result}
   const [weeklyRangeRunning, setWeeklyRangeRunning] = useState(false);
   const [weeklyRangeAt, setWeeklyRangeAt] = useState(null);
@@ -4474,6 +4478,8 @@ function App() {
       daily: visibleDaily,
       expHigh: expHigh,
       expLow: expLow,
+      emHigh: emBand && emBand.symbol === ticker ? emBand.high : null,
+      emLow: emBand && emBand.symbol === ticker ? emBand.low : null,
       callStrike: sugCall,
       putStrike: sugPut,
       currentPrice: currentPrice,
@@ -4486,6 +4492,8 @@ function App() {
       daily: visibleDaily,
       expHigh: expHigh,
       expLow: expLow,
+      emHigh: emBand && emBand.symbol === ticker ? emBand.high : null,
+      emLow: emBand && emBand.symbol === ticker ? emBand.low : null,
       callStrike: sugCall,
       putStrike: sugPut,
       currentPrice: currentPrice,
@@ -4533,7 +4541,15 @@ function App() {
     }
   }), /*#__PURE__*/React.createElement(Term, {
     k: "expected_range"
-  }, "Expected weekly range")), /*#__PURE__*/React.createElement("span", {
+  }, "Expected weekly range")), emBand && emBand.symbol === ticker && /*#__PURE__*/React.createElement("span", {
+    className: "item",
+    title: `Options-implied expected move band for ${fmtUSDate(emBand.expiry)} — from the Expected Move card below. Price closing outside these lines by expiration is a ~32% tail event.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swatch dashed",
+    style: {
+      borderColor: "#38bdf8"
+    }
+  }), "EM range · ", fmtUSDate(emBand.expiry)), /*#__PURE__*/React.createElement("span", {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch",
@@ -4808,68 +4824,13 @@ function App() {
     }, ivRankInfo?.iv_rank == null ? "—" : ivRankInfo.iv_rank.toFixed(0)), /*#__PURE__*/React.createElement("div", {
       className: "chart-stat-sub"
     }, ivRankInfo?.iv_rank == null ? ivRankInfo?.iv_rank_days > 0 ? `${ivRankInfo.iv_rank_days}/20 days` : "building…" : ivRankInfo.iv_rank >= 70 ? "premium rich" : ivRankInfo.iv_rank <= 30 ? "premium cheap" : "neutral")));
-  })(), /*#__PURE__*/React.createElement("div", {
-    className: "expected-move-card chart-em-section"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "card-head"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "kicker"
-  }, "ATM straddle · for ", activeExpDate.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
-  }, "Expected Move")), /*#__PURE__*/React.createElement("div", {
-    className: "muted",
-    style: {
-      fontSize: 11
-    }
-  }, atmCall && atmPut ? /*#__PURE__*/React.createElement(React.Fragment, null, "ATM strike $", atmCall.strike?.toFixed(2), " · call $", atmCallMid.toFixed(2), " · put $", atmPutMid.toFixed(2)) : "Waiting for chain…")), /*#__PURE__*/React.createElement("div", {
-    className: "em-stats-grid"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat",
-    title: "Days remaining until the selected expiration. Time decay accelerates as this number drops, especially in the final week."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-lbl"
-  }, "DTE"), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-val"
-  }, FRONT_DTE, "d")), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat",
-    title: "Expected dollar move from now to expiration as priced by the options market. Calculated as ATM call mid + ATM put mid (the straddle price). About 68% of the time the stock should stay within ± this amount, per Black-Scholes assumptions."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-lbl"
-  }, "Expected $"), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-val"
-  }, "±$", expectedDollarMove.toFixed(2))), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat",
-    title: "Expected move as a percentage of current stock price. Quick read on volatility for this expiration: 1-2% is calm, 3-5% is active, 6%+ usually means earnings or big catalyst within the expiration window."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-lbl"
-  }, "Expected %"), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-val"
-  }, "±", ivMove.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat",
-    title: "Upper bound of the expected range = current price + expected move. Implied 1-sigma upside the market is pricing in for this expiration. Stocks closing above this on expiration are in the upper tail (~16% of cases)."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-lbl"
-  }, "Up to"), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-val up"
-  }, "$", (currentPrice + expectedDollarMove).toFixed(2))), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat",
-    title: "Lower bound of the expected range = current price - expected move. Implied 1-sigma downside the market is pricing in for this expiration. Stocks closing below this on expiration are in the lower tail (~16% of cases)."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-lbl"
-  }, "Down to"), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-val down"
-  }, "$", (currentPrice - expectedDollarMove).toFixed(2))), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat",
-    title: "Total ATM straddle price (call mid + put mid). This is the all-in cost to buy a long straddle at the money for this expiration, and the maximum credit you'd collect from selling a short straddle. Equals the expected dollar move."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-lbl"
-  }, "Straddle"), /*#__PURE__*/React.createElement("div", {
-    className: "em-stat-val"
-  }, "$", expectedDollarMove.toFixed(2)))))), /*#__PURE__*/React.createElement("div", {
+  })(), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Expected move"
+  }, /*#__PURE__*/React.createElement(ExpectedMoveCard, {
+    apiFetch: apiFetch,
+    ticker: ticker,
+    onBand: setEmBand
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "card col-list",
     style: {
       gap: 16,

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.16";
+const APP_VERSION = "3.17";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2064,6 +2064,10 @@ function App() {
   // returns implied weekly range + 0.20 delta strike suggestions for
   // each symbol. Cached as map keyed by symbol so partial failures
   // can still display the ones that succeeded.
+  // Expected-move band (v3.17) — reported up by ExpectedMoveCard so the
+  // price chart can draw the options-implied EM levels. Keyed by symbol so a
+  // stale band never draws on the next ticker while its data loads.
+  const [emBand, setEmBand] = useState(null); // {symbol, high, low, expiry}
   const [weeklyRange, setWeeklyRange] = useState({}); // {symbol: result}
   const [weeklyRangeRunning, setWeeklyRangeRunning] = useState(false);
   const [weeklyRangeAt, setWeeklyRangeAt] = useState(null);
@@ -3495,11 +3499,15 @@ function App() {
                 <CardErrorBoundary label="Price chart">
                 {window.LightweightCharts ? (
                   <TVPriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
+                                emHigh={emBand && emBand.symbol === ticker ? emBand.high : null}
+                                emLow={emBand && emBand.symbol === ticker ? emBand.low : null}
                                 callStrike={sugCall} putStrike={sugPut} currentPrice={currentPrice}
                                 chartStyle={chartStyle} earnings={liveEarnings}
                                 showMA50={showMA50} showMA200={showMA200} showEMA21={showEMA21} />
                 ) : (
                 <PriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
+                            emHigh={emBand && emBand.symbol === ticker ? emBand.high : null}
+                            emLow={emBand && emBand.symbol === ticker ? emBand.low : null}
                             callStrike={sugCall} putStrike={sugPut} currentPrice={currentPrice}
                             chartStyle={chartStyle} colors={chartColors}
                             earnings={liveEarnings}
@@ -3520,6 +3528,11 @@ function App() {
               <span className="item"><span className="swatch dashed" style={{borderColor: chartColors.up}}></span>Suggested call</span>
               <span className="item"><span className="swatch dashed" style={{borderColor: chartColors.down}}></span>Suggested put</span>
               <span className="item"><span className="swatch" style={{background: chartColors.accent, opacity: 0.18, height: 10}}></span><Term k="expected_range">Expected weekly range</Term></span>
+              {emBand && emBand.symbol === ticker && (
+                <span className="item" title={`Options-implied expected move band for ${fmtUSDate(emBand.expiry)} — from the Expected Move card below. Price closing outside these lines by expiration is a ~32% tail event.`}>
+                  <span className="swatch dashed" style={{borderColor: "#38bdf8"}}></span>EM range · {fmtUSDate(emBand.expiry)}
+                </span>
+              )}
               <span className="item"><span className="swatch" style={{background: chartColors.up, height: 3}}></span>Current price</span>
               {showEMA21 && <span className="item"><span className="swatch" style={{background: "rgb(80, 160, 255)", height: 2}}></span>EMA 21</span>}
               {showMA50 && <span className="item"><span className="swatch" style={{background: chartColors.warn, height: 2}}></span>MA 50</span>}
@@ -3702,53 +3715,14 @@ function App() {
               );
             })()}
 
-            {/* Expected Move — nested inside the chart card to fill the
-                dead space below the 8-stat grid and align the chart card
-                height with the right column. Same data pipeline as v105:
-                FRONT_DTE, atmCall, atmPut, atmCallMid, atmPutMid,
-                expectedDollarMove, ivMove, currentPrice, activeExpDate.
-                No outer .card wrapper since we're already inside .chart-card. */}
-            <div className="expected-move-card chart-em-section">
-              <div className="card-head">
-                <div>
-                  <div className="kicker">ATM straddle · for {activeExpDate.toLocaleDateString("en-US", {month: "short", day: "numeric", year: "numeric"})}</div>
-                  <div className="card-title">Expected Move</div>
-                </div>
-                <div className="muted" style={{fontSize: 11}}>
-                  {atmCall && atmPut ? (
-                    <>
-                      ATM strike ${atmCall.strike?.toFixed(2)} · call ${atmCallMid.toFixed(2)} · put ${atmPutMid.toFixed(2)}
-                    </>
-                  ) : "Waiting for chain…"}
-                </div>
-              </div>
-              <div className="em-stats-grid">
-                <div className="em-stat" title="Days remaining until the selected expiration. Time decay accelerates as this number drops, especially in the final week.">
-                  <div className="em-stat-lbl">DTE</div>
-                  <div className="em-stat-val">{FRONT_DTE}d</div>
-                </div>
-                <div className="em-stat" title="Expected dollar move from now to expiration as priced by the options market. Calculated as ATM call mid + ATM put mid (the straddle price). About 68% of the time the stock should stay within ± this amount, per Black-Scholes assumptions.">
-                  <div className="em-stat-lbl">Expected $</div>
-                  <div className="em-stat-val">±${expectedDollarMove.toFixed(2)}</div>
-                </div>
-                <div className="em-stat" title="Expected move as a percentage of current stock price. Quick read on volatility for this expiration: 1-2% is calm, 3-5% is active, 6%+ usually means earnings or big catalyst within the expiration window.">
-                  <div className="em-stat-lbl">Expected %</div>
-                  <div className="em-stat-val">±{ivMove.toFixed(2)}%</div>
-                </div>
-                <div className="em-stat" title="Upper bound of the expected range = current price + expected move. Implied 1-sigma upside the market is pricing in for this expiration. Stocks closing above this on expiration are in the upper tail (~16% of cases).">
-                  <div className="em-stat-lbl">Up to</div>
-                  <div className="em-stat-val up">${(currentPrice + expectedDollarMove).toFixed(2)}</div>
-                </div>
-                <div className="em-stat" title="Lower bound of the expected range = current price - expected move. Implied 1-sigma downside the market is pricing in for this expiration. Stocks closing below this on expiration are in the lower tail (~16% of cases).">
-                  <div className="em-stat-lbl">Down to</div>
-                  <div className="em-stat-val down">${(currentPrice - expectedDollarMove).toFixed(2)}</div>
-                </div>
-                <div className="em-stat" title="Total ATM straddle price (call mid + put mid). This is the all-in cost to buy a long straddle at the money for this expiration, and the maximum credit you'd collect from selling a short straddle. Equals the expected dollar move.">
-                  <div className="em-stat-lbl">Straddle</div>
-                  <div className="em-stat-val">${expectedDollarMove.toFixed(2)}</div>
-                </div>
-              </div>
-            </div>
+            {/* Expected Move (v3.17) — nested inside the chart card, backed
+                by /api/expected_move: expiration switcher (weekly / monthly /
+                earnings), implied vs realized comparisons, S/R context and a
+                plain-English summary. Reports its band up via onBand so the
+                chart above draws the EM levels. */}
+            <CardErrorBoundary label="Expected move">
+              <ExpectedMoveCard apiFetch={apiFetch} ticker={ticker} onBand={setEmBand} />
+            </CardErrorBoundary>
           </div>
 
           <div className="card col-list" style={{gap: 16, position: "relative"}}>

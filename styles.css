@@ -6277,6 +6277,62 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   margin-top: 12px;
 }
 
+/* ── Expected Move v2 (v3.17) — expiration pills, range meter, comparisons
+   and summary chips inside the chart-nested card. ─────────────────────── */
+.emx-empty { padding: 14px 4px; color: var(--fg-3); font-size: 12.5px; font-family: var(--font-mono); }
+.emx-exp-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.emx-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-2); cursor: pointer;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700; transition: border-color 80ms, color 80ms; }
+.emx-pill:hover { border-color: var(--fg-3); color: var(--fg); }
+.emx-pill.active { border-color: var(--accent); color: var(--fg); background: color-mix(in oklch, var(--accent) 14%, transparent); }
+.emx-pill.earn { border-color: color-mix(in oklch, var(--warn), transparent 40%); }
+.emx-pill-dte { font-size: 9.5px; color: var(--fg-3); font-weight: 700; }
+.emx-pill.active .emx-pill-dte { color: var(--accent); }
+.emx-dte-sub { margin-left: 6px; font-size: 11px; color: var(--fg-3); font-weight: 700; }
+
+.emx-range { display: flex; align-items: center; gap: 10px; margin-top: 12px; cursor: help; }
+.emx-range-edge { font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+.emx-range-edge.up { color: var(--up); }
+.emx-range-edge.down { color: var(--down); }
+.emx-range-bar { position: relative; flex: 1; height: 10px; border-radius: 999px;
+  background: linear-gradient(90deg,
+    color-mix(in oklch, var(--down) 30%, transparent),
+    var(--bg-3) 35%, var(--bg-3) 65%,
+    color-mix(in oklch, var(--up) 30%, transparent));
+  border: 1px solid var(--line); }
+.emx-dot { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px;
+  border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); box-shadow: 0 0 6px var(--accent); z-index: 2; }
+.emx-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; transform: translateX(-50%);
+  background: var(--fg-3); opacity: 0.8; border-radius: 1px; }
+
+.emx-cmp { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.emx-cmp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px;
+  color: var(--fg-2); padding: 6px 10px; border-radius: 8px; background: var(--bg-3); cursor: help; }
+.emx-cmp-lbl { color: var(--fg-3); font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em; min-width: 178px; }
+.emx-cmp-row b { font-family: var(--font-mono); color: var(--fg); }
+.emx-cmp-row b .up { color: var(--up); }
+.emx-cmp-row b .down { color: var(--down); }
+
+.emx-chip { display: inline-block; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); background: var(--bg-2); }
+.emx-chip.up { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); background: color-mix(in oklch, var(--up) 9%, transparent); }
+.emx-chip.warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 55%); background: color-mix(in oklch, var(--warn) 9%, transparent); }
+.emx-chip.earn { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 45%); }
+.emx-chip.big { font-size: 11.5px; padding: 5px 12px; }
+
+.emx-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.emx-headline { margin-top: 10px; padding: 9px 12px; border-radius: 8px; font-size: 13px; color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 70%); cursor: help; }
+
+@media (max-width: 760px) {
+  .emx-exp-pills { justify-content: flex-start; }
+  .emx-cmp-lbl { min-width: 100%; }
+  .emx-range-edge { font-size: 10.5px; }
+}
+
 /* Analyst warnings — two-column layout for the dual strategies (selling
    covered calls on the left, selling cash-secured puts on the right).
    Each side renders only if its warnings list has items, so a name with
