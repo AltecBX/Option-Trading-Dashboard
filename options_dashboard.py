@@ -5035,6 +5035,111 @@ def build_economic_calendar(days: int = 21) -> dict:
     }
 
 
+# ── Watchlist analyst alerts — background scan (v3.18) ─────────────────────
+# The full-watchlist analyst scan can take minutes on a cold cache, which
+# blew past Cloudflare's 100-second origin timeout (HTTP 524) when it ran
+# inline in the request handler. The handler now serves this snapshot
+# instantly; a single daemon thread refreshes it at most every 10 minutes.
+
+_WLA_LOCK = threading.Lock()
+_WLA_STATE: dict = {"alerts": [], "scanned_count": 0, "scanned_at": None,
+                    "ts": 0.0, "lookback": None, "scanning": False}
+_WLA_FRESH_SECS = 600
+
+
+def _wla_scan(lookback_days: int) -> None:
+    """Full watchlist analyst-signal scan; stores results in _WLA_STATE.
+    Runs on a daemon thread — never inside a request."""
+    alerts = []
+    symbols = []
+    try:
+        wl = _load_watchlist()
+        if isinstance(wl, dict):
+            raw_syms = wl.get("symbols") or wl.get("tickers") or []
+            if isinstance(raw_syms, list):
+                for s in raw_syms:
+                    if isinstance(s, dict):
+                        sym = (s.get("symbol") or s.get("ticker") or "").upper().strip()
+                    else:
+                        sym = str(s).upper().strip()
+                    if sym and sym not in symbols:
+                        symbols.append(sym)
+        client = _analyst_client.get_client()
+        cutoff = (datetime.now() - timedelta(days=lookback_days)).date()
+        for sym in symbols:
+            try:
+                adata = client.get_analyst_data(sym)
+                if not adata or not adata.get("data_available"):
+                    continue
+                v = adata.get("verdict") or {}
+                history = adata.get("history") or []
+                # Walk recent firm-level changes, not just today flags.
+                for h in history[:5]:  # newest first
+                    try:
+                        hdate_str = h.get("date") or h.get("event_date")
+                        if not hdate_str:
+                            continue
+                        hdate = datetime.fromisoformat(hdate_str.replace("Z", "")).date()
+                    except Exception:
+                        continue
+                    if hdate < cutoff:
+                        continue
+                    action = (h.get("action") or h.get("event") or "").lower()
+                    firm = h.get("firm") or h.get("company") or "an analyst"
+                    kind = None
+                    if "upgrade" in action or "raised" in action:
+                        kind = "upgrade"
+                    elif "downgrade" in action or "lowered" in action or "cut" in action:
+                        kind = "downgrade"
+                    elif "target" in action and ("raise" in action or "increase" in action):
+                        kind = "target_raise"
+                    elif "target" in action and ("cut" in action or "lower" in action):
+                        kind = "target_cut"
+                    if not kind:
+                        continue
+                    alerts.append({
+                        "id": f"{sym}|{hdate.strftime('%Y-%m-%d')}|{kind}|{firm}",
+                        "symbol": sym,
+                        "kind": kind,
+                        "date": hdate.strftime("%Y-%m-%d"),
+                        "firm": firm,
+                        "from_grade": h.get("from_grade") or h.get("from"),
+                        "to_grade": h.get("to_grade") or h.get("to"),
+                        "fresh": v.get("fresh_upgrade") or v.get("fresh_downgrade") or False,
+                    })
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(sym, "watchlist_alerts.symbol", exc)
+        alerts.sort(key=lambda a: a["date"], reverse=True)
+        with _WLA_LOCK:
+            _WLA_STATE.update({
+                "alerts": alerts, "scanned_count": len(symbols),
+                "scanned_at": (datetime.now(_ET).isoformat() if _ET
+                               else datetime.utcnow().isoformat()),
+                "ts": time.time(), "lookback": lookback_days,
+            })
+    except Exception as exc:  # noqa: BLE001
+        _log_warn("*", "watchlist_alerts.scan", exc)
+    finally:
+        with _WLA_LOCK:
+            _WLA_STATE["scanning"] = False
+
+
+def _watchlist_alerts_snapshot(lookback_days: int) -> dict:
+    """Return the latest alert snapshot immediately; kick off a background
+    rescan when it is stale (or was built with a different lookback)."""
+    with _WLA_LOCK:
+        stale = (time.time() - _WLA_STATE["ts"] > _WLA_FRESH_SECS
+                 or _WLA_STATE["lookback"] != lookback_days)
+        if stale and not _WLA_STATE["scanning"]:
+            _WLA_STATE["scanning"] = True
+            threading.Thread(target=_wla_scan, args=(lookback_days,),
+                             name="wla-scan", daemon=True).start()
+        return {"alerts": list(_WLA_STATE["alerts"]),
+                "scanned_count": _WLA_STATE["scanned_count"],
+                "scanned_at": _WLA_STATE["scanned_at"],
+                "scanning": _WLA_STATE["scanning"]}
+
+
 # ── Expected Move (v3.17) ──────────────────────────────────────────────────
 # Options-implied expected move for the selected ticker, per expiration, with
 # historical / previous-reading / earnings / day-range / support-resistance
@@ -5124,6 +5229,25 @@ def _third_friday(d: date) -> bool:
     return d.weekday() == 4 and 15 <= d.day <= 21
 
 
+# Last GOOD payload per (symbol, expiry-param). Overnight and during upstream
+# hiccups a single failed rebuild used to flash the card into an error state
+# for a minute ("keeps disappearing") — now a failure serves the previous
+# good payload marked stale instead.
+_EM_LASTGOOD: dict = {}
+_EM_LASTGOOD_LOCK = threading.Lock()
+
+
+def _em_fail(symbol: str, expiry: str, reason: str) -> dict:
+    with _EM_LASTGOOD_LOCK:
+        prev = _EM_LASTGOOD.get((symbol, expiry))
+    if prev:
+        out = dict(prev)
+        out["stale"] = True
+        out["stale_reason"] = reason
+        return out
+    return {"symbol": symbol, "error": reason}
+
+
 @_ttl_memoize(60)
 def build_expected_move(symbol: str, expiry: str = "") -> dict:
     """Everything the Expected Move card needs in one payload: the implied
@@ -5134,13 +5258,15 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
     out: dict = {"symbol": symbol}
     sc = _schwab()
     if sc is None:
-        return {"symbol": symbol, "error": "Schwab not connected"}
+        return _em_fail(symbol, expiry, "Schwab not connected")
 
     # ── Quote: spot + today's range ─────────────────────────────────────
     spot = day_high = day_low = prev_close = None
     try:
         q = sc.get_quote(symbol) or {}
-        spot = q.get("last")
+        # Overnight the extended "last" can be missing — fall back through
+        # the regular-session print and prior close so the card never dies.
+        spot = q.get("last") or q.get("regular_last") or q.get("close_prev")
         day_high = q.get("high")
         day_low = q.get("low")
         prev_close = q.get("close_prev")
@@ -5155,7 +5281,7 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
     if not spot:
         spot = (full.get("underlying") or {}).get("last")
     if not spot:
-        return {"symbol": symbol, "error": "no quote available"}
+        return _em_fail(symbol, expiry, "no quote available")
     spot = float(spot)
 
     today = date.today()
@@ -5169,7 +5295,7 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             exps.append(ed)
     exps.sort()
     if not exps:
-        return {"symbol": symbol, "error": "no listed expirations within 75 days"}
+        return _em_fail(symbol, expiry, "no listed expirations within 75 days")
 
     # Earnings date from the scanned watchlist board (free — already there).
     next_earnings = None
@@ -5248,7 +5374,7 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
         em_d = spot * atm_iv * math.sqrt(max(dte, 0.5) / 365.0)
         method = "IV × √t"
     if em_d is None:
-        return {"symbol": symbol, "error": f"no usable option quotes for {sel_str}"}
+        return _em_fail(symbol, expiry, f"no usable option quotes for {sel_str}")
     em_pct = em_d / spot * 100.0
     upper, lower = spot + em_d, spot - em_d
 
@@ -5360,7 +5486,7 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
         bits.append("vol is priced cheap — favors buying options")
     headline = "; ".join(bits) + "."
 
-    return {
+    payload = {
         "symbol": symbol,
         "as_of": (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat()),
         "spot": round(spot, 2),
@@ -5407,6 +5533,13 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             "headline": headline,
         },
     }
+    # Remember the good payload under both the requested param and the
+    # resolved date, so a later transient failure serves this instead of
+    # flashing the card into an error state.
+    with _EM_LASTGOOD_LOCK:
+        _EM_LASTGOOD[(symbol, expiry)] = payload
+        _EM_LASTGOOD[(symbol, sel_str)] = payload
+    return payload
 
 
 def build_watchlist_analyst() -> dict:
@@ -7529,12 +7662,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/watchlist_alerts":
-            # Scans every ticker in the user's watchlist for fresh
-            # analyst signals (upgrades, downgrades, target raises, target
-            # cuts) seen in the past N days. Returns a compact list the
-            # frontend can render as a banner. Persisted dismissal log
-            # at ~/.jerry-dashboard/dismissed_alerts.json so dismissing
-            # a signal once does not re-surface it on every poll.
+            # Fresh analyst signals across the watchlist. The scan walks
+            # every ticker (1,285 names) through the analyst client, which
+            # can take minutes on a cold cache — far past Cloudflare's 100s
+            # origin timeout (the HTTP 524 the banner was showing). So the
+            # request NEVER scans inline: it serves the latest snapshot
+            # instantly and refreshes it on a background thread. Dismissals
+            # are applied at serve time so dismissing works immediately even
+            # against a cached snapshot.
             qs = parse_qs(parsed.query)
             try:
                 lookback_days = int(qs.get("lookback", ["7"])[0])
@@ -7547,85 +7682,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                    "error": "analyst module not available"})
                 return
             try:
-                wl = _load_watchlist()
-                symbols = []
-                if isinstance(wl, dict):
-                    raw_syms = wl.get("symbols") or wl.get("tickers") or []
-                    if isinstance(raw_syms, list):
-                        for s in raw_syms:
-                            if isinstance(s, dict):
-                                sym = (s.get("symbol") or s.get("ticker") or "").upper().strip()
-                            else:
-                                sym = str(s).upper().strip()
-                            if sym and sym not in symbols:
-                                symbols.append(sym)
-                dismissed = _load_dismissed_alerts() if not include_dismissed else {}
-                client = _analyst_client.get_client()
-                alerts = []
-                cutoff = (datetime.now() - timedelta(days=lookback_days)).date()
-                for sym in symbols:
-                    try:
-                        adata = client.get_analyst_data(sym)
-                        if not adata or not adata.get("data_available"):
-                            continue
-                        v = adata.get("verdict") or {}
-                        history = adata.get("history") or []
-                        # Walk recent firm-level changes, not just today flags.
-                        for h in history[:5]:  # newest first
-                            try:
-                                hdate_str = h.get("date") or h.get("event_date")
-                                if not hdate_str:
-                                    continue
-                                hdate = datetime.fromisoformat(hdate_str.replace("Z", "")).date()
-                            except Exception:
-                                continue
-                            if hdate < cutoff:
-                                continue
-                            action = (h.get("action") or h.get("event") or "").lower()
-                            firm = h.get("firm") or h.get("company") or "an analyst"
-                            from_grade = h.get("from_grade") or h.get("from")
-                            to_grade = h.get("to_grade") or h.get("to")
-                            kind = None
-                            if "upgrade" in action or "raised" in action:
-                                kind = "upgrade"
-                            elif "downgrade" in action or "lowered" in action or "cut" in action:
-                                kind = "downgrade"
-                            elif "target" in action and ("raise" in action or "increase" in action):
-                                kind = "target_raise"
-                            elif "target" in action and ("cut" in action or "lower" in action):
-                                kind = "target_cut"
-                            if not kind:
-                                continue
-                            alert_id = f"{sym}|{hdate.strftime('%Y-%m-%d')}|{kind}|{firm}"
-                            if alert_id in dismissed:
-                                continue
-                            alerts.append({
-                                "id": alert_id,
-                                "symbol": sym,
-                                "kind": kind,
-                                "date": hdate.strftime("%Y-%m-%d"),
-                                "firm": firm,
-                                "from_grade": from_grade,
-                                "to_grade": to_grade,
-                                "fresh": v.get("fresh_upgrade") or v.get("fresh_downgrade") or False,
-                            })
-                    except Exception as exc:  # noqa: BLE001
-                        _log_warn(sym, "watchlist_alerts.symbol", exc)
-                # Newest first.
-                alerts.sort(key=lambda a: a["date"], reverse=True)
-                body = _dumps({
+                snap = _watchlist_alerts_snapshot(lookback_days)
+                alerts = snap.get("alerts") or []
+                if not include_dismissed:
+                    dismissed = _load_dismissed_alerts()
+                    alerts = [a for a in alerts if a["id"] not in dismissed]
+                self._send_json({
                     "alerts": alerts,
                     "lookback_days": lookback_days,
-                    "scanned_count": len(symbols),
+                    "scanned_count": snap.get("scanned_count", 0),
+                    "scanning": bool(snap.get("scanning")),
+                    "scanned_at": snap.get("scanned_at"),
                     "data_available": True,
-                }).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Cache-Control", "no-store")
-                self._cors_headers()
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                }, no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/watchlist_alerts", exc)
                 self._send_json({"error": str(exc), "alerts": []}, status=500)
