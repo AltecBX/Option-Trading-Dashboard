@@ -319,6 +319,9 @@ def _price_metrics(close: "pd.Series", vol: "pd.Series") -> dict | None:
         "rsi": round(rsi, 1) if rsi is not None else None,
         "rel_vol": round(vols[-1] / avgvol, 2) if (avgvol and vols and vols[-1]) else None,
         "volume": int(vols[-1]) if (vols and vols[-1] == vols[-1]) else None,
+        # 20-day average volume — the Reversal Radar's stage-1 screen needs it
+        # for time-adjusted relative volume (v3.19).
+        "avg_volume": int(avgvol) if avgvol else None,
         "from_ma20": round((last - ma20) / ma20 * 100.0, 1) if ma20 else None,
         "from_ma50": round((last - ma50) / ma50 * 100.0, 1) if ma50 else None,
         "from_ma200": round((last - ma200) / ma200 * 100.0, 1) if ma200 else None,

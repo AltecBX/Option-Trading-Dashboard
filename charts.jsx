@@ -1751,4 +1751,91 @@ function ThetaPanel({
   );
 }
 
-Object.assign(window, { PriceChart, TVPriceChart, ReturnsChart, DayBarChart, PLChart, ThetaPanel, fmt$, fmtPct, fmtDate, niceTicks });
+// ── Intraday chart (v3.19) ─────────────────────────────────────────────────
+// Today's 1-minute candles with session VWAP + σ bands, the day-level map
+// (prev day H/L/C, premarket, opening range, EM band, rounds) as labeled
+// price lines, and Reversal-Radar signal markers. Data = /api/intraday.
+function IntradayChart({ data }) {
+  const LC = window.LightweightCharts;
+  const wrapRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+  const refs = React.useRef({});
+
+  React.useEffect(() => {
+    if (!LC || !wrapRef.current) return;
+    const el = wrapRef.current;
+    const chart = LC.createChart(el, {
+      width: el.clientWidth, height: el.clientHeight || 460,
+      layout: { background: { type: "solid", color: "transparent" }, textColor: "#9aa4b2", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
+      grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.06)" } },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+      timeScale: { borderColor: "rgba(255,255,255,0.1)", timeVisible: true, secondsVisible: false, rightOffset: 8 },
+      crosshair: { mode: LC.CrosshairMode.Normal },
+    });
+    const candles = chart.addCandlestickSeries({ upColor: "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444", wickUpColor: "#22c55e", wickDownColor: "#ef4444" });
+    const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    const mkLine = (color, width, style) => chart.addLineSeries({ color, lineWidth: width, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    refs.current = {
+      candles, vol,
+      vwap: mkLine("#38bdf8", 2, LC.LineStyle.Solid),
+      u1: mkLine("rgba(56,189,248,0.45)", 1, LC.LineStyle.Dotted),
+      l1: mkLine("rgba(56,189,248,0.45)", 1, LC.LineStyle.Dotted),
+      u2: mkLine("rgba(56,189,248,0.25)", 1, LC.LineStyle.Dotted),
+      l2: mkLine("rgba(56,189,248,0.25)", 1, LC.LineStyle.Dotted),
+      priceLines: [],
+    };
+    chartRef.current = chart;
+    const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
+    ro.observe(el);
+    return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; refs.current = {}; };
+  }, [LC]);
+
+  React.useEffect(() => {
+    const chart = chartRef.current, r = refs.current;
+    if (!chart || !r.candles || !data || !data.bars || !data.bars.length) return;
+    const t = (ms) => Math.floor(ms / 1000);
+    const bars = data.bars.filter(b => b && b.close != null);
+    r.candles.setData(bars.map(b => ({
+      time: t(b.ts), open: b.open, high: b.high, low: b.low, close: b.close,
+      // Premarket prints dimmed so the regular session pops.
+      ...(b.pm ? { color: "rgba(148,163,184,0.45)", borderColor: "rgba(148,163,184,0.45)", wickColor: "rgba(148,163,184,0.45)" } : {}),
+    })));
+    r.vol.setData(bars.map(b => ({ time: t(b.ts), value: b.volume || 0, color: b.pm ? "rgba(148,163,184,0.2)" : (b.close >= b.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)") })));
+    const vw = data.vwap;
+    const set = (series, arr) => series.setData(vw && arr ? vw.ts.map((ts, i) => ({ time: t(ts), value: arr[i] })).filter(p => p.value != null) : []);
+    set(r.vwap, vw && vw.vwap); set(r.u1, vw && vw.upper1); set(r.l1, vw && vw.lower1);
+    set(r.u2, vw && vw.upper2); set(r.l2, vw && vw.lower2);
+    // Level map as labeled price lines (replace on every refresh).
+    r.priceLines.forEach(pl => { try { r.candles.removePriceLine(pl); } catch (e) {} });
+    r.priceLines = [];
+    const lvColor = (k) => k === "pdh" || k === "pdl" || k === "pdc" ? "rgba(234,179,8,0.8)"
+      : k === "pmh" || k === "pml" ? "rgba(168,85,247,0.8)"
+      : k === "orh" || k === "orl" ? "rgba(255,255,255,0.55)"
+      : k === "emh" || k === "eml" ? "rgba(56,189,248,0.8)"
+      : "rgba(148,163,184,0.5)";
+    (data.levels || []).forEach(lv => {
+      try {
+        r.priceLines.push(r.candles.createPriceLine({
+          price: lv.price, color: lvColor(lv.kind), lineWidth: 1,
+          lineStyle: lv.kind === "round" ? LC.LineStyle.SparseDotted : LC.LineStyle.Dashed,
+          axisLabelVisible: true, title: lv.label,
+        }));
+      } catch (e) {}
+    });
+    // Radar signal markers.
+    const marks = (data.signals || []).filter(s => s.ts_ms).map(s => ({
+      time: t(s.ts_ms), position: s.side === "long" ? "belowBar" : "aboveBar",
+      color: s.side === "long" ? "#22c55e" : "#ef4444",
+      shape: s.side === "long" ? "arrowUp" : "arrowDown",
+      text: `R${s.score}`,
+    })).sort((a, b) => a.time - b.time);
+    try { r.candles.setMarkers(marks); } catch (e) {}
+    chart.timeScale().fitContent();
+  }, [data]);
+
+  if (!LC) return <div className="ic-nolc">Intraday chart needs the chart library (offline?) — falling back unavailable.</div>;
+  return <div className="tv-price-chart" ref={wrapRef} />;
+}
+
+Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, DayBarChart, PLChart, ThetaPanel, fmt$, fmtPct, fmtDate, niceTicks });

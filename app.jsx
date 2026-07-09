@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.18";
+const APP_VERSION = "3.19";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2068,6 +2068,21 @@ function App() {
   // price chart can draw the options-implied EM levels. Keyed by symbol so a
   // stale band never draws on the next ticker while its data loads.
   const [emBand, setEmBand] = useState(null); // {symbol, high, low, expiry}
+  // Intraday chart mode (v3.19): Daily candles vs today's 1-minute bars with
+  // VWAP bands + the day-level map. Polled every 30s while active.
+  const [chartTF, setChartTF] = useState("daily");
+  const [intradayData, setIntradayData] = useState(null);
+  useEffect(() => {
+    if (chartTF !== "intraday") return undefined;
+    let stop = false;
+    setIntradayData(null);
+    const load = () => sharedJson(apiFetch, `/api/intraday?symbol=${encodeURIComponent(ticker)}`, 25 * 1000)
+      .then(d => { if (!stop) setIntradayData(d && !d.error ? d : { error: (d && d.error) || "no data" }); })
+      .catch(e => { if (!stop) setIntradayData({ error: String((e && e.message) || e) }); });
+    load();
+    const t = setInterval(skipWhenHidden(load), 30 * 1000);
+    return () => { stop = true; clearInterval(t); };
+  }, [chartTF, ticker]);
   const [weeklyRange, setWeeklyRange] = useState({}); // {symbol: result}
   const [weeklyRangeRunning, setWeeklyRangeRunning] = useState(false);
   const [weeklyRangeAt, setWeeklyRangeAt] = useState(null);
@@ -3181,6 +3196,9 @@ function App() {
         <TabPanel tab="journal" active={activeTab}>
           <CardErrorBoundary label="Journal">
             <PicksJournalCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+            <CardErrorBoundary label="Radar performance">
+              <RadarReportCard apiFetch={apiFetch} />
+            </CardErrorBoundary>
           </CardErrorBoundary>
         </TabPanel>
         {showRef && (
@@ -3451,6 +3469,13 @@ function App() {
                 </div>
               </div>
               <div className="toolbar">
+                <div className="seg" title="Chart timeframe: Daily candles, or today's 1-minute bars with session VWAP ± σ bands, premarket prints, the day-level map (prev day H/L/C, premarket, opening range, EM band) and Reversal-Radar signal markers.">
+                  {[["daily","Daily"],["intraday","1-Min"]].map(([v, l]) => (
+                    <button key={v} className={chartTF === v ? "active" : ""}
+                            onClick={() => setChartTF(v)}
+                            title={v === "daily" ? "Daily candles with moving averages and the expected weekly range" : "Today's 1-minute bars with VWAP bands and intraday levels — the reversal-trading view"}>{l}</button>
+                  ))}
+                </div>
                 <div className="seg ma-toggles">
                   <button className={showEMA21 ? "active ema21" : "ema21"}
                           onClick={() => setShowEMA21(v => !v)}
@@ -3488,7 +3513,51 @@ function App() {
                 </div>
               </div>
             </div>
-            {(() => {
+            {chartTF === "intraday" ? (
+              <CardErrorBoundary label="Intraday chart">
+                {intradayData && intradayData.error ? (
+                  <div className="ic-empty" title="Intraday bars come from Schwab minute data — they appear once today's session has printed.">{intradayData.error}</div>
+                ) : intradayData ? (
+                  <>
+                    <IntradayChart data={intradayData} />
+                    {intradayData.vwap && (
+                      <div className="lvl-strip">
+                        <span className="lvl-item" title="Session VWAP — the volume-weighted average price institutions benchmark against. T1 for radar mean-reversion trades.">
+                          VWAP <b>{fmt$(intradayData.vwap.last)}</b>
+                        </span>
+                        <span className={`lvl-item ${(intradayData.vwap.stretch || 0) <= -2 ? "down" : (intradayData.vwap.stretch || 0) >= 2 ? "up" : ""}`}
+                              title="Distance from VWAP in volume-weighted standard deviations. Beyond ±2σ price is stretched; beyond ±3σ it is at a statistical extreme.">
+                          stretch <b>{intradayData.vwap.stretch > 0 ? "+" : ""}{intradayData.vwap.stretch}σ</b>
+                        </span>
+                        {(() => {
+                          const spot = intradayData.vwap.last;
+                          const lvls = intradayData.levels || [];
+                          const cur = (intradayData.bars || []).length ? intradayData.bars[intradayData.bars.length - 1].close : spot;
+                          const below = lvls.filter(l => l.price < cur).slice(-2).reverse();
+                          const above = lvls.filter(l => l.price > cur).slice(0, 2);
+                          return (
+                            <>
+                              {below.map((l, i) => (
+                                <span key={`b${i}`} className="lvl-item down" title={`Nearest support below: ${l.label}. Reversal longs are strongest when the low formed at a level like this.`}>
+                                  ↓ {l.label} <b>{fmt$(l.price)}</b>
+                                </span>
+                              ))}
+                              {above.map((l, i) => (
+                                <span key={`a${i}`} className="lvl-item up" title={`Nearest resistance above: ${l.label}. Bounces often stall here — a natural target or short location.`}>
+                                  ↑ {l.label} <b>{fmt$(l.price)}</b>
+                                </span>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="ic-empty">Loading today's bars…</div>
+                )}
+              </CardErrorBoundary>
+            ) : (() => {
               // Compute the visible window from either the explicit viewRange
               // (set by wheel/drag interaction) or the chartDays preset.
               const len = daily.length;
@@ -3524,7 +3593,16 @@ function App() {
                 </CardErrorBoundary>
               );
             })()}
-            <div className="legend" style={{marginTop: 12}}>
+            {chartTF === "intraday" && (
+              <div className="legend" style={{marginTop: 12}}>
+                <span className="item"><span className="swatch" style={{background: "#38bdf8", height: 3}}></span>VWAP ±1σ/±2σ</span>
+                <span className="item"><span className="swatch dashed" style={{borderColor: "rgba(234,179,8,0.8)"}}></span>Prev day H/L/C</span>
+                <span className="item"><span className="swatch dashed" style={{borderColor: "rgba(168,85,247,0.8)"}}></span>Premarket H/L</span>
+                <span className="item"><span className="swatch dashed" style={{borderColor: "rgba(255,255,255,0.55)"}}></span>Opening range</span>
+                <span className="item" title="Arrows mark where the Reversal Radar logged a signal (score ≥ 70) today, labeled with the score.">▲▼ Radar signals</span>
+              </div>
+            )}
+            {chartTF === "daily" && <div className="legend" style={{marginTop: 12}}>
               <span className="item"><span className="swatch dashed" style={{borderColor: chartColors.up}}></span>Suggested call</span>
               <span className="item"><span className="swatch dashed" style={{borderColor: chartColors.down}}></span>Suggested put</span>
               <span className="item"><span className="swatch" style={{background: chartColors.accent, opacity: 0.18, height: 10}}></span><Term k="expected_range">Expected weekly range</Term></span>
@@ -3572,7 +3650,7 @@ function App() {
               {liveEarnings.next && (
                 <span className="item earn-next-legend"><span className="swatch dot" style={{background: chartColors.warn, border: "1.5px solid white"}}></span>Next earnings</span>
               )}
-            </div>
+            </div>}
             {/* Price stats grid — fills the empty space below the chart
                 with useful at-a-glance context: 52w high/low, distances,
                 MA distances, RSI14, ATR14, and average daily range. */}
@@ -4736,6 +4814,9 @@ function App() {
         {/* Open-reclaim reversal: dipped >=2% under the regular open, then
             took the open back (the CRDO pattern). */}
         <CardErrorBoundary label="Open reclaim">
+          <CardErrorBoundary label="Reversal Radar">
+            <ReversalRadarCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+          </CardErrorBoundary>
           <OpenReversalCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
         </CardErrorBoundary>
         {/* Market-wide UW scanner — finds tickers OFF the watchlist that
