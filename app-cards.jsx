@@ -12060,8 +12060,8 @@ function ReversalRadarCard({ apiFetch, onSwitchTicker, onOpenIntraday }) {
     <div className="card rr-card" style={{ marginBottom: "var(--row-gap)" }}>
       <div className="card-head">
         <div>
-          <div className="kicker" title="Two-stage scan: a free quote screen across the whole watchlist finds stocks parked near their day extreme, then minute-bar analysis (VWAP stretch, volume climax, level confluence, 5-minute structure) scores the best candidates 0-100. Refreshes about once a minute during market hours.">
-            reversal radar · {data ? `${data.universe} scanned` : "…"}{updated ? ` · ${updated}` : ""}
+          <div className="kicker" title="Two-stage scan: a free quote screen across the whole watchlist finds stocks parked near their day extreme, then minute-bar analysis (VWAP stretch, volume climax, level confluence, 5-minute structure) scores the best candidates 0-100. Sub-$5B market caps are excluded. Refreshes about once a minute during market hours. Signals 80+ toast in-app; 85+ also push to your phone (when push is configured).">
+            reversal radar · $5B+ · {data ? `${data.universe} scanned` : "…"}{updated ? ` · ${updated}` : ""}
           </div>
           <div className="card-title">Bottoms &amp; Tops — live</div>
         </div>
