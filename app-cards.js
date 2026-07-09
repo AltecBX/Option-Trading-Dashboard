@@ -15251,6 +15251,90 @@ function ReversalAlerts({
   }, "✕"))));
 }
 
+// ── Radar alerts (v3.20) — score-80 signals reach you anywhere in the app ──
+// Mounted globally like ReversalAlerts. Polls the same /api/radar snapshot
+// the Scanners card uses (sharedJson dedupes the request), remembers what it
+// has already announced per day, and toasts new hot signals. Clicking a
+// toast loads the symbol on the Trade tab in 1-Min chart mode.
+function RadarAlerts({
+  apiFetch,
+  onOpenIntraday
+}) {
+  const [toasts, setToasts] = useState([]);
+  const baselined = useRef(false);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const dayKey = () => "jerry_radar_seen_" + new Date().toISOString().slice(0, 10);
+    const load = async () => {
+      try {
+        const d = await sharedJson(apiFetch, "/api/radar", 20000);
+        if (!stop && d && d.market_open) {
+          const rows = [...(d.long || []), ...(d.short || [])].filter(r => r.score >= 80);
+          let seen;
+          try {
+            seen = new Set(JSON.parse(localStorage.getItem(dayKey())) || []);
+          } catch (_) {
+            seen = new Set();
+          }
+          const fresh = rows.filter(r => !seen.has(`${r.symbol}|${r.side}`));
+          rows.forEach(r => seen.add(`${r.symbol}|${r.side}`));
+          try {
+            localStorage.setItem(dayKey(), JSON.stringify([...seen]));
+          } catch (_) {}
+          if (baselined.current && fresh.length) {
+            setToasts(ts => [...ts, ...fresh.slice(0, 3).map(r => ({
+              id: `${r.symbol}-${r.side}-${Date.now()}`,
+              sym: r.symbol,
+              side: r.side,
+              score: r.score,
+              msg: (r.reasons || [])[0] || "",
+              rr: r.ticket && r.ticket.rr != null ? r.ticket.rr : null
+            }))].slice(-3));
+          }
+          baselined.current = true;
+        } else if (!stop && d) {
+          baselined.current = true;
+        }
+      } catch (_) {}
+      if (!stop) t = setTimeout(load, document.hidden ? 240000 : 60000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    if (!toasts.length) return undefined;
+    const id = setTimeout(() => setToasts(ts => ts.slice(1)), 14000);
+    return () => clearTimeout(id);
+  }, [toasts]);
+  if (!toasts.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "toast-stack",
+    "aria-live": "polite"
+  }, toasts.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    className: `toast toast-radar ${t.side === "long" ? "toast-long" : "toast-short"}`,
+    title: `Reversal Radar ${t.side} signal, score ${t.score}/100${t.rr != null ? `, ${t.rr}R to VWAP` : ""}. Click to open the 1-minute chart with VWAP and levels.`,
+    onClick: () => {
+      setToasts(ts => ts.filter(x => x.id !== t.id));
+      onOpenIntraday && onOpenIntraday(t.sym);
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "toast-ico"
+  }, t.side === "long" ? "▲" : "▼"), /*#__PURE__*/React.createElement("span", {
+    className: "toast-body"
+  }, /*#__PURE__*/React.createElement("b", null, t.sym), " ", t.side === "long" ? "LONG" : "SHORT", " ", t.score, " — ", t.msg, t.rr != null ? ` · ${t.rr}R` : ""), /*#__PURE__*/React.createElement("span", {
+    className: "toast-x",
+    onClick: e => {
+      e.stopPropagation();
+      setToasts(ts => ts.filter(x => x.id !== t.id));
+    }
+  }, "✕"))));
+}
+
 // ── Command palette (⌘K) ─────────────────────────────────────────────────
 // One search box that reaches everything: tabs (with plain-English blurbs —
 // doubles as first-time-user documentation), any watchlist symbol, any typed
@@ -15882,6 +15966,7 @@ function RRRow({
   expanded,
   onToggle,
   onSwitchTicker,
+  onOpenIntraday,
   apiFetch
 }) {
   const [logged, setLogged] = useState(false);
@@ -15960,8 +16045,8 @@ function RRRow({
     className: "rr-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "rr-btn",
-    onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
-    title: "Load this symbol on the Trade tab — flip the chart to 1-Min to see the setup with VWAP and levels."
+    onClick: () => onOpenIntraday ? onOpenIntraday(r.symbol) : onSwitchTicker && onSwitchTicker(r.symbol),
+    title: "Load this symbol on the Trade tab in 1-Min chart mode — VWAP bands, levels, and radar markers already drawn."
   }, "Chart →"), /*#__PURE__*/React.createElement("button", {
     className: `rr-btn ${logged ? "rr-logged" : ""}`,
     onClick: logPick,
@@ -15971,7 +16056,8 @@ function RRRow({
 }
 function ReversalRadarCard({
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  onOpenIntraday
 }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
@@ -16025,7 +16111,8 @@ function ReversalRadarCard({
     apiFetch: apiFetch,
     expanded: open === `${r.symbol}|${r.side}`,
     onToggle: () => setOpen(open === `${r.symbol}|${r.side}` ? null : `${r.symbol}|${r.side}`),
-    onSwitchTicker: onSwitchTicker
+    onSwitchTicker: onSwitchTicker,
+    onOpenIntraday: onOpenIntraday
   })));
   return /*#__PURE__*/React.createElement("div", {
     className: "card rr-card",
@@ -16132,7 +16219,16 @@ function RadarReportCard({
   }, rep.hours.map((h, i) => /*#__PURE__*/React.createElement("span", {
     key: i,
     className: "rr-chip"
-  }, h.band, ": ", h.hit_rate != null ? `${h.hit_rate}%` : "—", " (", h.n, ")"))));
+  }, h.band, ": ", h.hit_rate != null ? `${h.hit_rate}%` : "—", " (", h.n, ")"))), rep.tuning && (Object.keys(rep.tuning.learned_tod || {}).length > 0 || (rep.tuning.suggestions || []).length > 0) && /*#__PURE__*/React.createElement("div", {
+    className: "rr-tuning",
+    title: `Self-tuning from evidence: once a time band has ${rep.tuning.min_n}+ resolved signals, its own hit rate adjusts the score automatically (bad band −5, great band +3). Suggestions below are the human-readable version of what the data says.`
+  }, Object.entries(rep.tuning.learned_tod || {}).map(([band, adj]) => /*#__PURE__*/React.createElement("span", {
+    key: band,
+    className: `rr-chip ${adj > 0 ? "up" : "down"}`
+  }, "auto: ", band, " ", adj > 0 ? "+" : "", adj, " pts")), (rep.tuning.suggestions || []).map((s, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "rr-suggestion"
+  }, "→ ", s))));
 }
 const _memo = React.memo;
 Object.assign(window, {
@@ -16142,6 +16238,7 @@ Object.assign(window, {
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard),
   RadarReportCard: _memo(RadarReportCard),
+  RadarAlerts: _memo(RadarAlerts),
   OpenReversalCard: _memo(OpenReversalCard),
   ReversalAlerts: _memo(ReversalAlerts),
   CommandPalette,

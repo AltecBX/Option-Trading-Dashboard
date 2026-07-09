@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.19";
+const APP_VERSION = "3.20";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -329,6 +329,15 @@ function App() {
   const switchTicker = React.useCallback(sym => {
     setTicker(sym);
     setTickerInput(sym);
+  }, []);
+  // Radar "Chart →" / alert-toast handler (v3.20): load the symbol AND land
+  // on the Trade tab in 1-Min chart mode so the setup is visible instantly.
+  // Defined after changeTab below via ref-free ordering: changeTab is a
+  // useCallback declared later in this component, so route through a stable
+  // wrapper that reads it at call time.
+  const openIntradayRef = React.useRef(null);
+  const openIntraday = React.useCallback(sym => {
+    if (openIntradayRef.current) openIntradayRef.current(sym);
   }, []);
   // Analyst data lifted to App level so the covered-call recommendation
   // engine and other downstream consumers can read it. AnalystCard owns
@@ -2594,6 +2603,12 @@ function App() {
   // VWAP bands + the day-level map. Polled every 30s while active.
   const [chartTF, setChartTF] = useState("daily");
   const [intradayData, setIntradayData] = useState(null);
+  // Late-bind the radar's open-intraday action now that all pieces exist.
+  openIntradayRef.current = sym => {
+    switchTicker(sym);
+    setChartTF("intraday");
+    changeTab("trade");
+  };
   useEffect(() => {
     if (chartTF !== "intraday") return undefined;
     let stop = false;
@@ -3500,6 +3515,9 @@ function App() {
   }), /*#__PURE__*/React.createElement(ReversalAlerts, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
+  }), /*#__PURE__*/React.createElement(RadarAlerts, {
+    apiFetch: apiFetch,
+    onOpenIntraday: openIntraday
   }), /*#__PURE__*/React.createElement(CommandPalette, {
     open: palOpen,
     onClose: () => setPalOpen(false),
@@ -6227,7 +6245,8 @@ function App() {
     label: "Reversal Radar"
   }, /*#__PURE__*/React.createElement(ReversalRadarCard, {
     apiFetch: apiFetch,
-    onSwitchTicker: switchTicker
+    onSwitchTicker: switchTicker,
+    onOpenIntraday: openIntraday
   })), /*#__PURE__*/React.createElement(OpenReversalCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
