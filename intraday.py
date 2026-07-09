@@ -44,6 +44,7 @@ _EM_GETTER = None            # (symbol) -> cached expected-move payload | None
 _FLOW_FN = None              # (symbol, price) -> UW flow-score dict | None
 _CHAIN_FN = None             # (symbol) -> normalized option chain | None
 _MINUTE_DAY_FN = None        # (symbol, date_iso) -> 1-min bars for a past day
+_NOTIFY_FN = None            # (title, message) -> None — phone push
 _DATA_DIR: Path | None = None
 
 # Radar tuning — one place, so the score can be re-weighted from the
@@ -53,16 +54,19 @@ STAGE1_POS_LONG = 0.30       # bottom 30% of day range = long candidate
 STAGE1_POS_SHORT = 0.70
 STAGE2_PER_SIDE = 12         # minute-bar budget: symbols analyzed per side
 MIN_PRICE = 3.0
+MIN_MARKET_CAP = 5_000_000_000   # user never trades sub-$5B names — skip them
 LOG_SCORE = 70               # signals at/above this are journaled automatically
+PUSH_SCORE = 85              # signals at/above this go to the phone
 TREND_CAP = 60               # max counter-trend score on a trend day
 WORKER_IDLE_SECS = 300       # radar sleeps when nobody has asked in 5 min
 CYCLE_SECS = 55
 
 
 def configure(schwab_getter, board_getter, data_dir, em_getter=None,
-              flow_fn=None, chain_fn=None, minute_day_fn=None) -> None:
+              flow_fn=None, chain_fn=None, minute_day_fn=None,
+              notify_fn=None) -> None:
     global _SCHWAB_GETTER, _BOARD_GETTER, _DATA_DIR, _EM_GETTER
-    global _FLOW_FN, _CHAIN_FN, _MINUTE_DAY_FN
+    global _FLOW_FN, _CHAIN_FN, _MINUTE_DAY_FN, _NOTIFY_FN
     _SCHWAB_GETTER = schwab_getter
     _BOARD_GETTER = board_getter
     _DATA_DIR = Path(data_dir)
@@ -70,6 +74,7 @@ def configure(schwab_getter, board_getter, data_dir, em_getter=None,
     _FLOW_FN = flow_fn
     _CHAIN_FN = chain_fn
     _MINUTE_DAY_FN = minute_day_fn
+    _NOTIFY_FN = notify_fn
 
 
 def _now_et() -> datetime:
@@ -988,6 +993,12 @@ def _stage1(sc) -> tuple[list, list]:
             continue
         pos = (last - lo) / (hi - lo)
         row = rows.get(sym) or {}
+        # Universe filter: skip names with a KNOWN market cap under $5B —
+        # the user never trades them (thin books fake more reversals too).
+        # Unknown caps stay in; the board fills them in as it scans.
+        cap = row.get("market_cap")
+        if cap is not None and cap < MIN_MARKET_CAP:
+            continue
         avg_v = row.get("avg_volume")
         rvol_t = (vol / (avg_v * elapsed)) if (vol and avg_v) else None
         cand = {"symbol": sym, "last": last, "open": op, "high": hi, "low": lo,
@@ -1062,7 +1073,37 @@ def _stage2_one(sc, cand: dict, side: str, regime: dict, daily_cache: dict) -> d
                     "stop": ticket["stop"], "t1": ticket["t1"], "t2": ticket["t2"],
                     "reasons": sc_res["reasons"],
                     "regime": (regime or {}).get("verdict")})
+        if sc_res["score"] >= PUSH_SCORE:
+            _push_signal(sym, side, sc_res["score"], sc_res["reasons"], ticket)
     return out
+
+
+# Phone push for the hottest signals (v3.21): once per (day, symbol, side),
+# only when the app's push provider is configured. In-app toasts already
+# cover the 80-84 band; the phone is reserved for the 85+ conviction tier.
+_PUSHED: set = set()
+_PUSH_LOCK = threading.Lock()
+
+
+def _push_signal(sym: str, side: str, score: int, reasons: list, ticket: dict) -> None:
+    if _NOTIFY_FN is None:
+        return
+    key = f"{_now_et().date().isoformat()}|{sym}|{side}"
+    with _PUSH_LOCK:
+        if key in _PUSHED:
+            return
+        _PUSHED.add(key)
+        if len(_PUSHED) > 400:
+            today = _now_et().date().isoformat()
+            _PUSHED.intersection_update({k for k in _PUSHED if k.startswith(today)})
+    try:
+        title = f"Radar {side.upper()} {score} — {sym}"
+        why = " · ".join((reasons or [])[:2])
+        plan = (f"entry {ticket['entry']} · stop {ticket['stop']} · T1 {ticket['t1']}"
+                + (f" · {ticket['rr']}R" if ticket.get("rr") is not None else ""))
+        _NOTIFY_FN(title, f"{why}\n{plan}")
+    except Exception:
+        pass
 
 
 def _radar_cycle(sc) -> None:

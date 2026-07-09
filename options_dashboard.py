@@ -4250,6 +4250,8 @@ _intraday.configure(
     flow_fn=_radar_flow_fn,
     chain_fn=lambda sym: (lambda c: c.get_option_chain(sym) if c is not None else None)(_schwab()),
     minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
+    notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0)
+                                  if _push_configured() else None),
 )
 
 
