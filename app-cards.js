@@ -15845,12 +15845,303 @@ function ExpectedMoveCard({
     title: "One-line read of everything above: the priced move, whether it's unusual, how much is already used, and which side of the vol trade has the edge."
   }, sum.headline));
 }
+
+// ── Reversal Radar (v3.19) ─────────────────────────────────────────────────
+// The app's core mission on one screen: ranked LONG candidates parked near
+// their low of day and SHORT candidates parked near their high, scored
+// 0-100 on stretch / exhaustion / location / confirmation / context, with a
+// trend-day guard, structure-derived trade tickets, and one-click journaling.
+
+function RRSpark({
+  points,
+  side
+}) {
+  if (!points || points.length < 3) return null;
+  const w = 88,
+    h = 26;
+  const mn = Math.min(...points),
+    mx = Math.max(...points);
+  const rng = mx - mn || 1;
+  const pts = points.map((p, i) => `${i / (points.length - 1) * w},${h - 2 - (p - mn) / rng * (h - 4)}`).join(" ");
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "rr-spark",
+    width: w,
+    height: h,
+    viewBox: `0 0 ${w} ${h}`,
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("polyline", {
+    points: pts,
+    fill: "none",
+    stroke: side === "long" ? "var(--up)" : "var(--down)",
+    strokeWidth: "1.5",
+    opacity: "0.9"
+  }));
+}
+function RRRow({
+  r,
+  expanded,
+  onToggle,
+  onSwitchTicker,
+  apiFetch
+}) {
+  const [logged, setLogged] = useState(false);
+  const scoreCls = r.score >= 80 ? "rr-hot" : r.score >= 70 ? "rr-warm" : "rr-cool";
+  const tk = r.ticket || {};
+  const logPick = async () => {
+    try {
+      await apiFetch("/api/pick_journal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          symbol: r.symbol,
+          kind: "radar",
+          side: r.side,
+          score: r.score,
+          price: tk.entry,
+          stop: tk.stop,
+          t1: tk.t1,
+          t2: tk.t2,
+          note: `Radar ${r.side} ${r.score}: ${(r.reasons || []).join("; ")}`
+        })
+      });
+      setLogged(true);
+    } catch (e) {
+      console.warn("radar log failed", e);
+    }
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: `rr-row ${expanded ? "rr-open" : ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rr-main",
+    onClick: onToggle,
+    title: `Score ${r.score}/100 — stretch ${r.groups?.stretch ?? "—"} · exhaustion ${r.groups?.exhaustion ?? "—"} · location ${r.groups?.location ?? "—"} · confirmation ${r.groups?.confirmation ?? "—"} · context ${r.groups?.context ?? "—"}. Click for the trade plan.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `rr-score ${scoreCls}`
+  }, r.score), /*#__PURE__*/React.createElement("span", {
+    className: "rr-sym"
+  }, r.symbol), /*#__PURE__*/React.createElement("span", {
+    className: "rr-px"
+  }, fmt$(r.last)), /*#__PURE__*/React.createElement("span", {
+    className: `rr-stretch ${r.side === "long" ? "down" : "up"}`,
+    title: "Distance from session VWAP in volume-weighted standard deviations — the volatility-normalized measure of 'stretched'."
+  }, r.stretch != null ? `${r.stretch > 0 ? "+" : ""}${r.stretch}σ` : "—"), /*#__PURE__*/React.createElement(RRSpark, {
+    points: r.spark,
+    side: r.side
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "rr-reasons"
+  }, (r.reasons || []).slice(0, 2).map((x, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "rr-chip"
+  }, x)), (r.flags || []).length > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "rr-flag",
+    title: r.flags.join("\n")
+  }, "⚠")), tk.rr != null && /*#__PURE__*/React.createElement("span", {
+    className: `rr-rr ${tk.rr >= 1.5 ? "up" : tk.rr < 1 ? "down" : ""}`,
+    title: "Reward-to-risk to target 1 (VWAP) from the current price against the structure stop."
+  }, tk.rr, "R")), expanded && /*#__PURE__*/React.createElement("div", {
+    className: "rr-detail"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rr-ticket"
+  }, [["Entry", tk.entry, "Current price — the zone the signal fired from."], ["Trigger", tk.trigger, "Confirmation trigger: break of the most recent 5-minute swing against the extreme. Enter aggressive at the entry zone, or wait for this."], ["Stop", tk.stop, "Structure stop: the day's extreme padded by 0.25× the 5-minute ATR. If this trades, the reversal thesis is wrong — exit."], ["T1 · VWAP", tk.t1, "First target = session VWAP, the natural magnet for any mean-reversion bounce. Where the trade pays."], ["T2 · Open", tk.t2, "Stretch target = the session open. Only for the strongest reversals."], ["R:R", tk.rr != null ? `${tk.rr}:1` : "—", "Reward-to-risk to T1. Below 1.5 the entry is late — wait for a pullback or skip."]].map(([lbl, v, tip]) => /*#__PURE__*/React.createElement("div", {
+    key: lbl,
+    className: "rr-tk",
+    title: tip
+  }, /*#__PURE__*/React.createElement("span", null, lbl), /*#__PURE__*/React.createElement("b", null, typeof v === "number" ? fmt$(v) : v || "—")))), (r.reasons || []).length > 2 && /*#__PURE__*/React.createElement("div", {
+    className: "rr-all-reasons"
+  }, r.reasons.slice(2).map((x, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "rr-chip"
+  }, x))), (r.flags || []).map((f, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "rr-flagline"
+  }, "⚠ ", f)), /*#__PURE__*/React.createElement("div", {
+    className: "rr-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+    title: "Load this symbol on the Trade tab — flip the chart to 1-Min to see the setup with VWAP and levels."
+  }, "Chart →"), /*#__PURE__*/React.createElement("button", {
+    className: `rr-btn ${logged ? "rr-logged" : ""}`,
+    onClick: logPick,
+    disabled: logged,
+    title: "Write this signal + plan into the Picks Journal. (Signals scoring 70+ are also auto-logged server-side for the hit-rate report.)"
+  }, logged ? "Logged ✓" : "Log pick"))));
+}
+function ReversalRadarCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(null); // "SYM|side"
+  useEffect(() => {
+    let stop = false;
+    const load = () => sharedJson(apiFetch, "/api/radar", 15 * 1000).then(d => {
+      if (!stop) {
+        if (d && !d.error) {
+          setData(d);
+          setErr(null);
+        } else setErr(d && d.error || "no data");
+      }
+    }).catch(e => {
+      if (!stop) setErr(String(e && e.message || e));
+    });
+    load();
+    const t = setInterval(skipWhenHidden(load), 20 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, []);
+  const regime = data && data.regime || {};
+  const regimeCls = regime.verdict === "trend_down" || regime.verdict === "trend_up" ? "rr-trend" : regime.verdict === "rotational" ? "rr-rot" : "rr-unk";
+  const updated = data && data.as_of ? (() => {
+    try {
+      return new Date(data.as_of).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    } catch (e) {
+      return "";
+    }
+  })() : "";
+  const stack = (side, rows, title, sub) => /*#__PURE__*/React.createElement("div", {
+    className: "rr-col"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rr-col-head",
+    title: side === "long" ? "Stocks parked in the bottom of their day range showing reversal evidence — candidates to BUY before the bounce is obvious. Ranked by composite score." : "Stocks parked at the top of their day range showing exhaustion — candidates to SHORT before the fade is obvious. Ranked by composite score."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `rr-col-title ${side === "long" ? "up" : "down"}`
+  }, title), /*#__PURE__*/React.createElement("span", {
+    className: "rr-col-sub"
+  }, sub)), (rows || []).length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "rr-empty"
+  }, data && data.market_open ? "Nothing qualifying yet — the radar only surfaces real candidates." : "—") : rows.map(r => /*#__PURE__*/React.createElement(RRRow, {
+    key: `${r.symbol}|${r.side}`,
+    r: r,
+    apiFetch: apiFetch,
+    expanded: open === `${r.symbol}|${r.side}`,
+    onToggle: () => setOpen(open === `${r.symbol}|${r.side}` ? null : `${r.symbol}|${r.side}`),
+    onSwitchTicker: onSwitchTicker
+  })));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card rr-card",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "Two-stage scan: a free quote screen across the whole watchlist finds stocks parked near their day extreme, then minute-bar analysis (VWAP stretch, volume climax, level confluence, 5-minute structure) scores the best candidates 0-100. Refreshes about once a minute during market hours."
+  }, "reversal radar · ", data ? `${data.universe} scanned` : "…", updated ? ` · ${updated}` : ""), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Bottoms & Tops — live")), data && !data.market_open && /*#__PURE__*/React.createElement("span", {
+    className: "rr-closed",
+    title: "The radar only scans 9:30–16:00 ET on trading days. Last session's board stays visible."
+  }, "market closed")), regime.label && /*#__PURE__*/React.createElement("div", {
+    className: `rr-regime ${regimeCls}`,
+    title: `${regime.detail || ""}${regime.spy_above_vwap_pct != null ? ` SPY above VWAP ${regime.spy_above_vwap_pct}% of the last 90 min; QQQ ${regime.qqq_above_vwap_pct}%.` : ""} On a trend day, counter-trend scores are capped at 60 — the radar will not talk you into fading a freight train.`
+  }, regime.label), err && !data && /*#__PURE__*/React.createElement("div", {
+    className: "rr-empty"
+  }, err, " — retrying…"), data && /*#__PURE__*/React.createElement("div", {
+    className: "rr-cols"
+  }, stack("long", data.long, "LONGS — near low of day", "buy the bounce"), stack("short", data.short, "SHORTS — near high of day", "fade the rip")));
+}
+
+// Hit-rate report: how the radar's own logged signals actually resolved.
+function RadarReportCard({
+  apiFetch
+}) {
+  const [rep, setRep] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    sharedJson(apiFetch, "/api/radar/report", 5 * 60 * 1000).then(d => {
+      if (!stop && d && !d.error) setRep(d);
+    }).catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, []);
+  if (!rep) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card rr-report",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "Every radar signal scoring 70+ is auto-logged with its plan, then resolved against the tape: did price hit T1 (VWAP) before the stop? This table is the evidence that tunes the score — trust buckets that prove themselves."
+  }, "radar performance · ", rep.total_signals, " signals logged"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Did the signals pay?"))), !rep.buckets || rep.buckets.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "rr-empty"
+  }, "No resolved signals yet — this fills in automatically as the radar logs live signals (score ≥ 70) and watches whether they hit target or stop.") : /*#__PURE__*/React.createElement("table", {
+    className: "rr-rep-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Signal score bucket"
+  }, "Score"), /*#__PURE__*/React.createElement("th", {
+    title: "Long or short side"
+  }, "Side"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Signals logged"
+  }, "N"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Hit T1 (VWAP) before the stop"
+  }, "T1"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Stopped out"
+  }, "Stop"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Neither hit while watched; marked at that day's close"
+  }, "Exp"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Still open / unresolved"
+  }, "Open"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "T1 hits as % of resolved signals"
+  }, "Hit %"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Average R multiple across resolved signals (stop = −1R)"
+  }, "Avg R"))), /*#__PURE__*/React.createElement("tbody", null, rep.buckets.map((b, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", null, b.bucket), /*#__PURE__*/React.createElement("td", {
+    className: b.side === "long" ? "up" : "down"
+  }, b.side), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, b.signals), /*#__PURE__*/React.createElement("td", {
+    className: "num up"
+  }, b.t1), /*#__PURE__*/React.createElement("td", {
+    className: "num down"
+  }, b.stop), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, b.expired), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, b.open), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, b.hit_rate != null ? `${b.hit_rate}%` : "—"), /*#__PURE__*/React.createElement("td", {
+    className: `num ${b.avg_r > 0 ? "up" : b.avg_r < 0 ? "down" : ""}`
+  }, b.avg_r != null ? b.avg_r : "—"))))), rep.hours && rep.hours.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "rr-hours",
+    title: "Hit rate by the time band the signal fired in. Expect 9:30-10 to underperform — the open drive punishes fading; that is why early signals get a score penalty."
+  }, rep.hours.map((h, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "rr-chip"
+  }, h.band, ": ", h.hit_rate != null ? `${h.hit_rate}%` : "—", " (", h.n, ")"))));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
   ValuationCard: _memo(ValuationCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
+  ReversalRadarCard: _memo(ReversalRadarCard),
+  RadarReportCard: _memo(RadarReportCard),
   OpenReversalCard: _memo(OpenReversalCard),
   ReversalAlerts: _memo(ReversalAlerts),
   CommandPalette,

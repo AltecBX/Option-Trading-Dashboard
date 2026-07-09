@@ -4226,6 +4226,20 @@ from storage import (  # noqa: F401
 )
 
 
+# ── Reversal Radar / intraday module (v3.19) ───────────────────────────────
+# All VWAP, day-level, and radar logic lives in intraday.py; it gets its
+# dependencies injected here (lazily via lambdas, so definition order in
+# this module doesn't matter).
+import intraday as _intraday
+
+_intraday.configure(
+    schwab_getter=lambda: _schwab(),
+    board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+    data_dir=_STABLE_DIR,
+    em_getter=lambda sym: _EM_LASTGOOD.get((sym, "")),
+)
+
+
 def _watchlist_overrides(wl: dict | None = None) -> dict:
     """Build the CSV-source-of-truth override map for the watchlist table
     scanner: ``{SYMBOL: {tag, sector, industry, weekly}}``.
@@ -7069,6 +7083,34 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/radar":
+            # Reversal Radar snapshot — served instantly; the background
+            # worker (re)starts lazily while the market is open.
+            try:
+                self._send_json(_intraday.radar_snapshot(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/radar", exc)
+                self._send_json({"error": str(exc), "long": [], "short": []}, status=500)
+            return
+        if parsed.path == "/api/radar/report":
+            try:
+                self._send_json(_intraday.radar_report(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/radar/report", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/intraday":
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                self._send_json(_intraday.intraday_chart_payload(symbol), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/intraday", exc)
+                self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/expected_move":
             qs = parse_qs(parsed.query)

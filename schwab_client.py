@@ -800,7 +800,8 @@ class SchwabClient:
             self._cache_set(cache_key, out, TTL_HISTORY)
         return out
 
-    def get_intraday(self, symbol: str, minutes_back: int = 480) -> list[dict] | None:
+    def get_intraday(self, symbol: str, minutes_back: int = 480,
+                     extended: bool = False) -> list[dict] | None:
         """Today's 1-minute bars. Returns list of
         {ts (epoch ms), open, high, low, close, volume} dicts, oldest first.
         Cache TTL is short (30s) so polling stays cheap.
@@ -808,9 +809,11 @@ class SchwabClient:
         Uses an explicit `startDate` set to today's 9:30 AM ET so Schwab
         returns today's session only — not the most recent complete day,
         which is what `period=day, period=1` returns before mid-morning.
+        With extended=True the window starts at 4:00 AM ET and includes
+        pre-market prints, so callers can derive premarket high/low.
         """
         symbol = symbol.upper().strip()
-        cache_key = f"intraday:{symbol}:{minutes_back}"
+        cache_key = f"intraday:{symbol}:{minutes_back}:{'x' if extended else 'r'}"
         hit = self._cache_get(cache_key)
         if hit is not None:
             return hit
@@ -821,12 +824,13 @@ class SchwabClient:
         except Exception:
             ET = None
         from datetime import datetime, time as _time
+        start_t = _time(4, 0) if extended else _time(9, 30)
         if ET is not None:
             now_et = datetime.now(ET)
-            session_start = datetime.combine(now_et.date(), _time(9, 30), tzinfo=ET)
+            session_start = datetime.combine(now_et.date(), start_t, tzinfo=ET)
         else:
             now_et = datetime.now()
-            session_start = datetime.combine(now_et.date(), _time(9, 30))
+            session_start = datetime.combine(now_et.date(), start_t)
         start_epoch_ms = int(session_start.timestamp() * 1000)
         # endDate = now in epoch ms. Schwab requires startDate+endDate
         # together (or periodType+period together) — startDate alone returns 400.
@@ -838,7 +842,7 @@ class SchwabClient:
             "frequency": 1,
             "startDate": start_epoch_ms,
             "endDate": end_epoch_ms,
-            "needExtendedHoursData": "false",
+            "needExtendedHoursData": "true" if extended else "false",
         }
         data = self._get(f"{HISTORY_URL_TPL}", params)
         if not data:

@@ -11869,10 +11869,229 @@ function ExpectedMoveCard({ apiFetch, ticker, onBand }) {
   );
 }
 
+// ── Reversal Radar (v3.19) ─────────────────────────────────────────────────
+// The app's core mission on one screen: ranked LONG candidates parked near
+// their low of day and SHORT candidates parked near their high, scored
+// 0-100 on stretch / exhaustion / location / confirmation / context, with a
+// trend-day guard, structure-derived trade tickets, and one-click journaling.
+
+function RRSpark({ points, side }) {
+  if (!points || points.length < 3) return null;
+  const w = 88, h = 26;
+  const mn = Math.min(...points), mx = Math.max(...points);
+  const rng = mx - mn || 1;
+  const pts = points.map((p, i) => `${(i / (points.length - 1)) * w},${h - 2 - ((p - mn) / rng) * (h - 4)}`).join(" ");
+  return (
+    <svg className="rr-spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+      <polyline points={pts} fill="none" stroke={side === "long" ? "var(--up)" : "var(--down)"} strokeWidth="1.5" opacity="0.9" />
+    </svg>
+  );
+}
+
+function RRRow({ r, expanded, onToggle, onSwitchTicker, apiFetch }) {
+  const [logged, setLogged] = useState(false);
+  const scoreCls = r.score >= 80 ? "rr-hot" : r.score >= 70 ? "rr-warm" : "rr-cool";
+  const tk = r.ticket || {};
+  const logPick = async () => {
+    try {
+      await apiFetch("/api/pick_journal", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: r.symbol, kind: "radar", side: r.side, score: r.score,
+          price: tk.entry, stop: tk.stop, t1: tk.t1, t2: tk.t2,
+          note: `Radar ${r.side} ${r.score}: ${(r.reasons || []).join("; ")}`,
+        }),
+      });
+      setLogged(true);
+    } catch (e) { console.warn("radar log failed", e); }
+  };
+  return (
+    <div className={`rr-row ${expanded ? "rr-open" : ""}`}>
+      <div className="rr-main" onClick={onToggle}
+           title={`Score ${r.score}/100 — stretch ${r.groups?.stretch ?? "—"} · exhaustion ${r.groups?.exhaustion ?? "—"} · location ${r.groups?.location ?? "—"} · confirmation ${r.groups?.confirmation ?? "—"} · context ${r.groups?.context ?? "—"}. Click for the trade plan.`}>
+        <span className={`rr-score ${scoreCls}`}>{r.score}</span>
+        <span className="rr-sym">{r.symbol}</span>
+        <span className="rr-px">{fmt$(r.last)}</span>
+        <span className={`rr-stretch ${r.side === "long" ? "down" : "up"}`}
+              title="Distance from session VWAP in volume-weighted standard deviations — the volatility-normalized measure of 'stretched'.">
+          {r.stretch != null ? `${r.stretch > 0 ? "+" : ""}${r.stretch}σ` : "—"}
+        </span>
+        <RRSpark points={r.spark} side={r.side} />
+        <span className="rr-reasons">
+          {(r.reasons || []).slice(0, 2).map((x, i) => <span key={i} className="rr-chip">{x}</span>)}
+          {(r.flags || []).length > 0 && <span className="rr-flag" title={r.flags.join("\n")}>⚠</span>}
+        </span>
+        {tk.rr != null && <span className={`rr-rr ${tk.rr >= 1.5 ? "up" : tk.rr < 1 ? "down" : ""}`}
+              title="Reward-to-risk to target 1 (VWAP) from the current price against the structure stop.">{tk.rr}R</span>}
+      </div>
+      {expanded && (
+        <div className="rr-detail">
+          <div className="rr-ticket">
+            {[["Entry", tk.entry, "Current price — the zone the signal fired from."],
+              ["Trigger", tk.trigger, "Confirmation trigger: break of the most recent 5-minute swing against the extreme. Enter aggressive at the entry zone, or wait for this."],
+              ["Stop", tk.stop, "Structure stop: the day's extreme padded by 0.25× the 5-minute ATR. If this trades, the reversal thesis is wrong — exit."],
+              ["T1 · VWAP", tk.t1, "First target = session VWAP, the natural magnet for any mean-reversion bounce. Where the trade pays."],
+              ["T2 · Open", tk.t2, "Stretch target = the session open. Only for the strongest reversals."],
+              ["R:R", tk.rr != null ? `${tk.rr}:1` : "—", "Reward-to-risk to T1. Below 1.5 the entry is late — wait for a pullback or skip."]]
+              .map(([lbl, v, tip]) => (
+                <div key={lbl} className="rr-tk" title={tip}>
+                  <span>{lbl}</span><b>{typeof v === "number" ? fmt$(v) : (v || "—")}</b>
+                </div>
+              ))}
+          </div>
+          {(r.reasons || []).length > 2 && (
+            <div className="rr-all-reasons">{r.reasons.slice(2).map((x, i) => <span key={i} className="rr-chip">{x}</span>)}</div>
+          )}
+          {(r.flags || []).map((f, i) => <div key={i} className="rr-flagline">⚠ {f}</div>)}
+          <div className="rr-actions">
+            <button className="rr-btn" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                    title="Load this symbol on the Trade tab — flip the chart to 1-Min to see the setup with VWAP and levels.">
+              Chart →
+            </button>
+            <button className={`rr-btn ${logged ? "rr-logged" : ""}`} onClick={logPick} disabled={logged}
+                    title="Write this signal + plan into the Picks Journal. (Signals scoring 70+ are also auto-logged server-side for the hit-rate report.)">
+              {logged ? "Logged ✓" : "Log pick"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReversalRadarCard({ apiFetch, onSwitchTicker }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(null); // "SYM|side"
+  useEffect(() => {
+    let stop = false;
+    const load = () => sharedJson(apiFetch, "/api/radar", 15 * 1000)
+      .then(d => { if (!stop) { if (d && !d.error) { setData(d); setErr(null); } else setErr((d && d.error) || "no data"); } })
+      .catch(e => { if (!stop) setErr(String((e && e.message) || e)); });
+    load();
+    const t = setInterval(skipWhenHidden(load), 20 * 1000);
+    return () => { stop = true; clearInterval(t); };
+  }, []);
+
+  const regime = (data && data.regime) || {};
+  const regimeCls = regime.verdict === "trend_down" || regime.verdict === "trend_up" ? "rr-trend"
+    : regime.verdict === "rotational" ? "rr-rot" : "rr-unk";
+  const updated = data && data.as_of ? (() => { try { return new Date(data.as_of).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" }); } catch (e) { return ""; } })() : "";
+
+  const stack = (side, rows, title, sub) => (
+    <div className="rr-col">
+      <div className="rr-col-head" title={side === "long"
+        ? "Stocks parked in the bottom of their day range showing reversal evidence — candidates to BUY before the bounce is obvious. Ranked by composite score."
+        : "Stocks parked at the top of their day range showing exhaustion — candidates to SHORT before the fade is obvious. Ranked by composite score."}>
+        <span className={`rr-col-title ${side === "long" ? "up" : "down"}`}>{title}</span>
+        <span className="rr-col-sub">{sub}</span>
+      </div>
+      {(rows || []).length === 0 ? (
+        <div className="rr-empty">{data && data.market_open ? "Nothing qualifying yet — the radar only surfaces real candidates." : "—"}</div>
+      ) : rows.map(r => (
+        <RRRow key={`${r.symbol}|${r.side}`} r={r} apiFetch={apiFetch}
+               expanded={open === `${r.symbol}|${r.side}`}
+               onToggle={() => setOpen(open === `${r.symbol}|${r.side}` ? null : `${r.symbol}|${r.side}`)}
+               onSwitchTicker={onSwitchTicker} />
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="card rr-card" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker" title="Two-stage scan: a free quote screen across the whole watchlist finds stocks parked near their day extreme, then minute-bar analysis (VWAP stretch, volume climax, level confluence, 5-minute structure) scores the best candidates 0-100. Refreshes about once a minute during market hours.">
+            reversal radar · {data ? `${data.universe} scanned` : "…"}{updated ? ` · ${updated}` : ""}
+          </div>
+          <div className="card-title">Bottoms &amp; Tops — live</div>
+        </div>
+        {data && !data.market_open && <span className="rr-closed" title="The radar only scans 9:30–16:00 ET on trading days. Last session's board stays visible.">market closed</span>}
+      </div>
+      {regime.label && (
+        <div className={`rr-regime ${regimeCls}`} title={`${regime.detail || ""}${regime.spy_above_vwap_pct != null ? ` SPY above VWAP ${regime.spy_above_vwap_pct}% of the last 90 min; QQQ ${regime.qqq_above_vwap_pct}%.` : ""} On a trend day, counter-trend scores are capped at 60 — the radar will not talk you into fading a freight train.`}>
+          {regime.label}
+        </div>
+      )}
+      {err && !data && <div className="rr-empty">{err} — retrying…</div>}
+      {data && (
+        <div className="rr-cols">
+          {stack("long", data.long, "LONGS — near low of day", "buy the bounce")}
+          {stack("short", data.short, "SHORTS — near high of day", "fade the rip")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Hit-rate report: how the radar's own logged signals actually resolved.
+function RadarReportCard({ apiFetch }) {
+  const [rep, setRep] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    sharedJson(apiFetch, "/api/radar/report", 5 * 60 * 1000)
+      .then(d => { if (!stop && d && !d.error) setRep(d); })
+      .catch(() => {});
+    return () => { stop = true; };
+  }, []);
+  if (!rep) return null;
+  return (
+    <div className="card rr-report" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker" title="Every radar signal scoring 70+ is auto-logged with its plan, then resolved against the tape: did price hit T1 (VWAP) before the stop? This table is the evidence that tunes the score — trust buckets that prove themselves.">
+            radar performance · {rep.total_signals} signals logged
+          </div>
+          <div className="card-title">Did the signals pay?</div>
+        </div>
+      </div>
+      {(!rep.buckets || rep.buckets.length === 0) ? (
+        <div className="rr-empty">No resolved signals yet — this fills in automatically as the radar logs live signals (score ≥ 70) and watches whether they hit target or stop.</div>
+      ) : (
+        <table className="rr-rep-table">
+          <thead><tr>
+            <th title="Signal score bucket">Score</th><th title="Long or short side">Side</th>
+            <th className="num" title="Signals logged">N</th>
+            <th className="num" title="Hit T1 (VWAP) before the stop">T1</th>
+            <th className="num" title="Stopped out">Stop</th>
+            <th className="num" title="Neither hit while watched; marked at that day's close">Exp</th>
+            <th className="num" title="Still open / unresolved">Open</th>
+            <th className="num" title="T1 hits as % of resolved signals">Hit %</th>
+            <th className="num" title="Average R multiple across resolved signals (stop = −1R)">Avg R</th>
+          </tr></thead>
+          <tbody>
+            {rep.buckets.map((b, i) => (
+              <tr key={i}>
+                <td>{b.bucket}</td>
+                <td className={b.side === "long" ? "up" : "down"}>{b.side}</td>
+                <td className="num">{b.signals}</td>
+                <td className="num up">{b.t1}</td>
+                <td className="num down">{b.stop}</td>
+                <td className="num">{b.expired}</td>
+                <td className="num">{b.open}</td>
+                <td className="num">{b.hit_rate != null ? `${b.hit_rate}%` : "—"}</td>
+                <td className={`num ${b.avg_r > 0 ? "up" : b.avg_r < 0 ? "down" : ""}`}>{b.avg_r != null ? b.avg_r : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {rep.hours && rep.hours.length > 0 && (
+        <div className="rr-hours" title="Hit rate by the time band the signal fired in. Expect 9:30-10 to underperform — the open drive punishes fading; that is why early signals get a score penalty.">
+          {rep.hours.map((h, i) => (
+            <span key={i} className="rr-chip">{h.band}: {h.hit_rate != null ? `${h.hit_rate}%` : "—"} ({h.n})</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   ValuationCard: _memo(ValuationCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
+  ReversalRadarCard: _memo(ReversalRadarCard), RadarReportCard: _memo(RadarReportCard),
   OpenReversalCard: _memo(OpenReversalCard), ReversalAlerts: _memo(ReversalAlerts),
   CommandPalette, ShortcutsSheet,
   MarketContextBar: _memo(MarketContextBar), PicksJournalCard: _memo(PicksJournalCard),
