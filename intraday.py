@@ -41,6 +41,9 @@ except Exception:  # pragma: no cover
 _SCHWAB_GETTER = None        # () -> SchwabClient | None
 _BOARD_GETTER = None         # () -> {"rows": [...]}
 _EM_GETTER = None            # (symbol) -> cached expected-move payload | None
+_FLOW_FN = None              # (symbol, price) -> UW flow-score dict | None
+_CHAIN_FN = None             # (symbol) -> normalized option chain | None
+_MINUTE_DAY_FN = None        # (symbol, date_iso) -> 1-min bars for a past day
 _DATA_DIR: Path | None = None
 
 # Radar tuning — one place, so the score can be re-weighted from the
@@ -56,12 +59,17 @@ WORKER_IDLE_SECS = 300       # radar sleeps when nobody has asked in 5 min
 CYCLE_SECS = 55
 
 
-def configure(schwab_getter, board_getter, data_dir, em_getter=None) -> None:
+def configure(schwab_getter, board_getter, data_dir, em_getter=None,
+              flow_fn=None, chain_fn=None, minute_day_fn=None) -> None:
     global _SCHWAB_GETTER, _BOARD_GETTER, _DATA_DIR, _EM_GETTER
+    global _FLOW_FN, _CHAIN_FN, _MINUTE_DAY_FN
     _SCHWAB_GETTER = schwab_getter
     _BOARD_GETTER = board_getter
     _DATA_DIR = Path(data_dir)
     _EM_GETTER = em_getter
+    _FLOW_FN = flow_fn
+    _CHAIN_FN = chain_fn
+    _MINUTE_DAY_FN = minute_day_fn
 
 
 def _now_et() -> datetime:
@@ -191,6 +199,50 @@ def _round_levels(spot: float) -> list:
     return out
 
 
+# Put/call open-interest walls from the nearest-expiry chain. OI only
+# updates overnight, so a 30-minute cache means at most ~2 chain calls per
+# symbol per hour — cheap enough to include for every radar candidate.
+_OI_CACHE: dict = {}
+_OI_LOCK = threading.Lock()
+
+
+def _oi_walls(symbol: str, spot: float) -> list:
+    if _CHAIN_FN is None or not spot:
+        return []
+    with _OI_LOCK:
+        hit = _OI_CACHE.get(symbol)
+        if hit and time.time() - hit["ts"] < 1800:
+            return hit["walls"]
+    walls = []
+    try:
+        full = _CHAIN_FN(symbol) or {}
+        exps = full.get("expirations") or []
+        if exps:
+            chain = (full.get("chains") or {}).get(exps[0]) or {}
+            lo_b, hi_b = spot * 0.88, spot * 1.12
+            puts = [r for r in (chain.get("puts") or [])
+                    if r.get("strike") and lo_b <= r["strike"] < spot and (r.get("openInterest") or 0) > 0]
+            calls = [r for r in (chain.get("calls") or [])
+                     if r.get("strike") and spot < r["strike"] <= hi_b and (r.get("openInterest") or 0) > 0]
+            if puts:
+                pw = max(puts, key=lambda r: r["openInterest"])
+                walls.append({"price": float(pw["strike"]), "kind": "putwall",
+                              "label": f"put wall {pw['strike']:g} ({int(pw['openInterest']/1000)}k OI)" if pw["openInterest"] >= 1000 else f"put wall {pw['strike']:g}"})
+            if calls:
+                cw = max(calls, key=lambda r: r["openInterest"])
+                walls.append({"price": float(cw["strike"]), "kind": "callwall",
+                              "label": f"call wall {cw['strike']:g} ({int(cw['openInterest']/1000)}k OI)" if cw["openInterest"] >= 1000 else f"call wall {cw['strike']:g}"})
+    except Exception:
+        walls = []
+    with _OI_LOCK:
+        _OI_CACHE[symbol] = {"ts": time.time(), "walls": walls}
+        if len(_OI_CACHE) > 300:
+            oldest = sorted(_OI_CACHE, key=lambda k: _OI_CACHE[k]["ts"])[:100]
+            for k in oldest:
+                _OI_CACHE.pop(k, None)
+    return walls
+
+
 def day_levels(symbol: str, spot: float, pm_bars: list, reg_bars: list,
                daily_bars: list | None) -> list:
     """The level map a reversal has to respect: prior day H/L/C, premarket
@@ -237,6 +289,7 @@ def day_levels(symbol: str, spot: float, pm_bars: list, reg_bars: list,
                 levels.append({"price": em["em"]["lower"], "kind": "eml", "label": f"EM low ({em['expiry']})"})
         except Exception:
             pass
+    levels.extend(_oi_walls(symbol, spot))
     levels.sort(key=lambda x: x["price"])
     return levels
 
@@ -399,17 +452,68 @@ def market_regime(index_bars: dict) -> dict:
 
 # ── Scoring + tickets ────────────────────────────────────────────────────────
 
+def _hour_band(t) -> str:
+    if t < _dtime(10, 0):
+        return "9:30-10"
+    if t < _dtime(12, 0):
+        return "10-12"
+    if t < _dtime(14, 0):
+        return "12-14"
+    return "14-16"
+
+
+# Learned time-of-day adjustment (v3.20): once a band has ≥20 RESOLVED
+# signals, its own hit rate overrides the priors — evidence beats vibes.
+# Recomputed at most every 10 minutes from the signal log.
+_TOD_LEARNED: dict = {"ts": 0.0, "adj": {}, "stats": {}}
+_TOD_MIN_N = 20
+
+
+def _tod_learned() -> dict:
+    if time.time() - _TOD_LEARNED["ts"] < 600:
+        return _TOD_LEARNED["adj"]
+    stats: dict = {}
+    for s in _load_signals():
+        res = s.get("resolved")
+        if not res or res.get("outcome") not in ("t1", "stop"):
+            continue
+        try:
+            band = _hour_band(datetime.fromisoformat(s["ts_iso"]).time())
+        except Exception:
+            continue
+        st = stats.setdefault(band, {"t1": 0, "stop": 0})
+        st[res["outcome"]] += 1
+    adj = {}
+    for band, st in stats.items():
+        n = st["t1"] + st["stop"]
+        if n < _TOD_MIN_N:
+            continue
+        hr = st["t1"] / n
+        if hr < 0.45:
+            adj[band] = -5
+        elif hr > 0.65:
+            adj[band] = 3
+    _TOD_LEARNED.update({"ts": time.time(), "adj": adj, "stats": stats})
+    return adj
+
+
 def _tod_context(now: datetime | None = None) -> tuple[int, str]:
-    """Time-of-day weighting: reversals cluster mid-morning and afternoon;
-    the 9:30-10:00 open drive punishes fading."""
+    """Time-of-day weighting: priors (reversals cluster mid-morning and
+    afternoon; the open drive punishes fading) PLUS a learned adjustment
+    from this radar's own resolved history once a band has enough data."""
     t = (now or _now_et()).time()
     if t < _dtime(10, 0):
-        return -5, "open drive (9:30-10:00) — fades get punished"
-    if t < _dtime(10, 45):
-        return 5, "prime reversal window (10:00-10:45)"
-    if t >= _dtime(14, 0):
-        return 5, "afternoon reversal window (14:00+)"
-    return 0, ""
+        base, note = -5, "open drive (9:30-10:00) — fades get punished"
+    elif t < _dtime(10, 45):
+        base, note = 5, "prime reversal window (10:00-10:45)"
+    elif t >= _dtime(14, 0):
+        base, note = 5, "afternoon reversal window (14:00+)"
+    else:
+        base, note = 0, ""
+    learned = _tod_learned().get(_hour_band(t), 0)
+    if learned:
+        note = (note + " · " if note else "") + f"learned {'+' if learned > 0 else ''}{learned} from this band's own hit rate"
+    return base + learned, note
 
 
 def score_candidate(side: str, quote: dict, vw: dict, ev: dict, levels: list,
@@ -563,6 +667,69 @@ def build_ticket(side: str, quote: dict, vw: dict, ev: dict, reg_bars: list) -> 
             "atr5m": r2(a)}
 
 
+# ── Flow-at-extreme bonus (v3.20) ───────────────────────────────────────────
+# Fresh Unusual Whales flow for candidates that already score well: aggressive
+# sweeps hitting in the reversal's direction while price sits at the extreme
+# is a leading signal that someone with size is betting on the turn. Budgeted
+# hard: cached 5 min per symbol, max _FLOW_MAX_PER_CYCLE live calls per cycle.
+_FLOW_CACHE: dict = {}
+_FLOW_LOCK = threading.Lock()
+_FLOW_MAX_PER_CYCLE = 8
+_FLOW_CYCLE_USED = 0
+FLOW_MIN_SCORE = 55          # only spend UW budget on candidates worth it
+
+
+def _reset_flow_budget() -> None:
+    global _FLOW_CYCLE_USED
+    with _FLOW_LOCK:
+        _FLOW_CYCLE_USED = 0
+
+
+def _fresh_flow(symbol: str, price: float) -> dict | None:
+    global _FLOW_CYCLE_USED
+    if _FLOW_FN is None:
+        return None
+    with _FLOW_LOCK:
+        hit = _FLOW_CACHE.get(symbol)
+        if hit and time.time() - hit["ts"] < 300:
+            return hit["res"]
+        if _FLOW_CYCLE_USED >= _FLOW_MAX_PER_CYCLE:
+            return None
+        _FLOW_CYCLE_USED += 1
+    try:
+        res = _FLOW_FN(symbol, price)
+    except Exception:
+        res = None
+    with _FLOW_LOCK:
+        _FLOW_CACHE[symbol] = {"ts": time.time(), "res": res}
+        if len(_FLOW_CACHE) > 200:
+            for k in sorted(_FLOW_CACHE, key=lambda k: _FLOW_CACHE[k]["ts"])[:80]:
+                _FLOW_CACHE.pop(k, None)
+    return res
+
+
+def apply_flow_bonus(side: str, symbol: str, price: float, score: int,
+                     reasons: list, flags: list) -> int:
+    """+5 when fresh flow agrees with the reversal; a warning flag (no score
+    hit — the tape evidence already spoke) when it strongly disagrees."""
+    if score < FLOW_MIN_SCORE:
+        return score
+    fl = _fresh_flow(symbol, price)
+    if not fl or not fl.get("data_available"):
+        return score
+    bull = float(fl.get("bullish") or 0)
+    bear = float(fl.get("bearish") or 0)
+    sweeps_for = fl.get("call_sweeps" if side == "long" else "put_sweeps") or 0
+    sweeps_against = fl.get("put_sweeps" if side == "long" else "call_sweeps") or 0
+    net = (bull - bear) if side == "long" else (bear - bull)
+    if net >= 15 or (sweeps_for >= 3 and sweeps_for > sweeps_against * 2):
+        score = min(100, score + 5)
+        reasons.append(f"fresh sweeps {'bullish' if side == 'long' else 'bearish'}")
+    elif net <= -25:
+        flags.append("live options flow leaning against this reversal")
+    return score
+
+
 # ── Signal log + hit-rate report ─────────────────────────────────────────────
 
 _SIG_LOCK = threading.Lock()
@@ -612,9 +779,32 @@ def log_signal(sig: dict) -> None:
         _save_signals(sigs)
 
 
+def _walk_resolve(s: dict, bars: list) -> dict | None:
+    """First touch of stop or T1 after the signal fired wins; a bar hitting
+    both counts as a stop (conservative). Returns the resolution or None."""
+    after = [b for b in bars if b["ts"] > s.get("ts_ms", 0) and b.get("close") is not None]
+    for b in after:
+        lo = b.get("low") or b["close"]
+        hi = b.get("high") or b["close"]
+        if s["side"] == "long":
+            if lo <= s["stop"]:
+                return {"outcome": "stop", "r": -1.0, "ts_ms": b["ts"]}
+            if hi >= s["t1"]:
+                risk = s["entry"] - s["stop"]
+                return {"outcome": "t1", "r": round((s["t1"] - s["entry"]) / risk, 2) if risk > 0 else 1.0,
+                        "ts_ms": b["ts"]}
+        else:
+            if hi >= s["stop"]:
+                return {"outcome": "stop", "r": -1.0, "ts_ms": b["ts"]}
+            if lo <= s["t1"]:
+                risk = s["stop"] - s["entry"]
+                return {"outcome": "t1", "r": round((s["entry"] - s["t1"]) / risk, 2) if risk > 0 else 1.0,
+                        "ts_ms": b["ts"]}
+    return None
+
+
 def resolve_signals_live(symbol: str, reg_bars: list) -> None:
-    """Walk today's bars after each open signal: first touch of stop or T1
-    wins (a bar hitting both counts as a stop — conservative)."""
+    """Resolve today's open signals for a symbol against today's bars."""
     today = _now_et().date().isoformat()
     with _SIG_LOCK:
         sigs = _load_signals()
@@ -622,60 +812,63 @@ def resolve_signals_live(symbol: str, reg_bars: list) -> None:
         for s in sigs:
             if s.get("resolved") or s["symbol"] != symbol or s["date"] != today:
                 continue
-            after = [b for b in reg_bars if b["ts"] > s.get("ts_ms", 0) and b.get("close") is not None]
-            for b in after:
-                lo = b.get("low") or b["close"]
-                hi = b.get("high") or b["close"]
-                if s["side"] == "long":
-                    if lo <= s["stop"]:
-                        s["resolved"] = {"outcome": "stop", "r": -1.0, "ts_ms": b["ts"]}
-                        break
-                    if hi >= s["t1"]:
-                        risk = s["entry"] - s["stop"]
-                        s["resolved"] = {"outcome": "t1", "r": round((s["t1"] - s["entry"]) / risk, 2) if risk > 0 else 1.0,
-                                         "ts_ms": b["ts"]}
-                        break
-                else:
-                    if hi >= s["stop"]:
-                        s["resolved"] = {"outcome": "stop", "r": -1.0, "ts_ms": b["ts"]}
-                        break
-                    if lo <= s["t1"]:
-                        risk = s["stop"] - s["entry"]
-                        s["resolved"] = {"outcome": "t1", "r": round((s["entry"] - s["t1"]) / risk, 2) if risk > 0 else 1.0,
-                                         "ts_ms": b["ts"]}
-                        break
-            if s.get("resolved"):
+            res = _walk_resolve(s, reg_bars)
+            if res:
+                s["resolved"] = res
                 changed = True
         if changed:
             _save_signals(sigs)
 
 
 def expire_stale_signals() -> None:
-    """Signals from prior days that never hit stop or T1 while the radar was
-    watching get marked expired at their day's close (via daily bars) —
-    best-effort mark-to-market rather than pretending they didn't happen."""
+    """Resolve signals from prior days that never hit stop or T1 while the
+    radar was watching. v3.20: exact first-touch via that day's minute bars
+    when available (budgeted); otherwise mark-to-close via daily bars —
+    honest accounting either way."""
     sc = _SCHWAB_GETTER() if _SCHWAB_GETTER else None
     today = _now_et().date().isoformat()
     with _SIG_LOCK:
         sigs = _load_signals()
         changed = False
-        budget = 20
+        budget = 15
         for s in sigs:
             if s.get("resolved") or s["date"] >= today or budget <= 0:
                 continue
-            r = None
-            try:
-                if sc is not None:
-                    dailies = sc.get_price_history(s["symbol"], days=30) or []
-                    close = next((float(b["close"]) for b in dailies
-                                  if str(b.get("date") or "")[:10] == s["date"] and b.get("close")), None)
-                    budget -= 1
-                    if close is not None:
-                        risk = abs(s["entry"] - s["stop"]) or 1e-9
-                        r = round(((close - s["entry"]) if s["side"] == "long" else (s["entry"] - close)) / risk, 2)
-            except Exception:
+            budget -= 1
+            # Preferred: replay that day's minute bars for a true resolution.
+            res = None
+            if _MINUTE_DAY_FN is not None:
+                try:
+                    bars = _MINUTE_DAY_FN(s["symbol"], s["date"]) or []
+                    if bars:
+                        res = _walk_resolve(s, bars)
+                        if res is None:
+                            # Watched the whole day: genuinely neither hit —
+                            # expire at that day's last minute close.
+                            close = next((b["close"] for b in reversed(bars) if b.get("close")), None)
+                            if close is not None:
+                                risk = abs(s["entry"] - s["stop"]) or 1e-9
+                                r = round(((close - s["entry"]) if s["side"] == "long"
+                                           else (s["entry"] - close)) / risk, 2)
+                                res = {"outcome": "expired", "r": r, "ts_ms": None}
+                except Exception:
+                    res = None
+            if res is None:
+                # Fallback: mark at the daily close.
                 r = None
-            s["resolved"] = {"outcome": "expired", "r": r, "ts_ms": None}
+                try:
+                    if sc is not None:
+                        dailies = sc.get_price_history(s["symbol"], days=30) or []
+                        close = next((float(b["close"]) for b in dailies
+                                      if str(b.get("date") or "")[:10] == s["date"] and b.get("close")), None)
+                        if close is not None:
+                            risk = abs(s["entry"] - s["stop"]) or 1e-9
+                            r = round(((close - s["entry"]) if s["side"] == "long"
+                                       else (s["entry"] - close)) / risk, 2)
+                except Exception:
+                    r = None
+                res = {"outcome": "expired", "r": r, "ts_ms": None}
+            s["resolved"] = res
             changed = True
         if changed:
             _save_signals(sigs)
@@ -721,8 +914,29 @@ def radar_report() -> dict:
     hour_rows = [{"band": b, **h,
                   "hit_rate": round(h["t1"] / (h["t1"] + h["stop"]) * 100.0, 1) if (h["t1"] + h["stop"]) else None}
                  for b, h in sorted(hours.items())]
+
+    # Tuning (v3.20): the learned time-of-day adjustments currently applied,
+    # plus plain-English suggestions once buckets have enough evidence.
+    learned = dict(_tod_learned())
+    suggestions = []
+    for hr in hour_rows:
+        n = hr["t1"] + hr["stop"]
+        if n >= _TOD_MIN_N and hr["hit_rate"] is not None:
+            if hr["hit_rate"] < 45:
+                suggestions.append(f"{hr['band']} signals hit only {hr['hit_rate']}% ({n} resolved) — the radar now docks this window 5 points automatically.")
+            elif hr["hit_rate"] > 65:
+                suggestions.append(f"{hr['band']} signals hit {hr['hit_rate']}% ({n} resolved) — the radar now adds 3 points in this window automatically.")
+    for row in rows:
+        done = row["t1"] + row["stop"] + row["expired"]
+        if done >= 15 and row["hit_rate"] is not None:
+            if row["bucket"] == "70-79" and row["hit_rate"] < 45:
+                suggestions.append(f"70-79 {row['side']}s hit only {row['hit_rate']}% over {done} resolved — treat that bucket as watch-only; wait for 80+.")
+            if row["bucket"] == "90+" and row["hit_rate"] > 70:
+                suggestions.append(f"90+ {row['side']}s hit {row['hit_rate']}% — these deserve full size.")
     return {"as_of": _now_et().isoformat(), "total_signals": len(sigs),
-            "buckets": rows, "hours": hour_rows}
+            "buckets": rows, "hours": hour_rows,
+            "tuning": {"learned_tod": learned, "suggestions": suggestions,
+                       "min_n": _TOD_MIN_N}}
 
 
 # ── Radar worker ─────────────────────────────────────────────────────────────
@@ -819,6 +1033,10 @@ def _stage2_one(sc, cand: dict, side: str, regime: dict, daily_cache: dict) -> d
     brow = next((r for r in (board.get("rows") or [])
                  if str(r.get("symbol") or "").upper() == sym), None)
     sc_res = score_candidate(side, cand, vw, ev, levels, regime, brow)
+    # Fresh-flow bonus AFTER the base score so UW budget is only spent on
+    # candidates already worth watching.
+    sc_res["score"] = apply_flow_bonus(side, sym, cand["last"], sc_res["score"],
+                                       sc_res["reasons"], sc_res["flags"])
     ticket = build_ticket(side, cand, vw, ev, reg)
     resolve_signals_live(sym, reg)
 
@@ -848,6 +1066,7 @@ def _stage2_one(sc, cand: dict, side: str, regime: dict, daily_cache: dict) -> d
 
 
 def _radar_cycle(sc) -> None:
+    _reset_flow_budget()
     # Regime first — it gates everything else this cycle.
     idx = {}
     for isym in ("SPY", "QQQ"):

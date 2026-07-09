@@ -6401,6 +6401,20 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .rr-btn:hover { border-color: var(--accent); }
 .rr-btn.rr-logged { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); cursor: default; }
 
+/* Radar alert toasts (v3.20) — side-tinted variants of the shared toast. */
+.toast-radar.toast-long { border-left: 3px solid var(--up); }
+.toast-radar.toast-short { border-left: 3px solid var(--down); }
+.toast-radar .toast-ico { font-size: 13px; }
+.toast-long .toast-ico { color: var(--up); }
+.toast-short .toast-ico { color: var(--down); }
+
+/* Self-tuning readout in the report card (v3.20). */
+.rr-tuning { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); cursor: help; }
+.rr-tuning .rr-chip { margin-right: 6px; }
+.rr-chip.up { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); }
+.rr-chip.down { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%); }
+.rr-suggestion { margin-top: 7px; font-size: 12.5px; color: var(--fg-2); }
+
 .rr-rep-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
 .rr-rep-table th { font-family: var(--font-mono); font-size: 10.5px; font-weight: 800; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--fg-3); text-align: left; padding: 6px 8px;

@@ -4232,11 +4232,24 @@ from storage import (  # noqa: F401
 # this module doesn't matter).
 import intraday as _intraday
 
+def _radar_flow_fn(symbol, price):
+    """Fresh UW flow score for the radar's flow-at-extreme bonus. The radar
+    caches and budgets these calls itself (max 8/cycle, 5-min TTL)."""
+    if _UW_AVAILABLE and _uw_client is not None:
+        uw = _uw_client.get_client()
+        if uw is not None:
+            return _compute_flow_score(uw, symbol, float(price or 0.0))
+    return None
+
+
 _intraday.configure(
     schwab_getter=lambda: _schwab(),
     board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
     data_dir=_STABLE_DIR,
     em_getter=lambda sym: _EM_LASTGOOD.get((sym, "")),
+    flow_fn=_radar_flow_fn,
+    chain_fn=lambda sym: (lambda c: c.get_option_chain(sym) if c is not None else None)(_schwab()),
+    minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
 )
 
 

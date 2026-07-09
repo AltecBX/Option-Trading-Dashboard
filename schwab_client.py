@@ -864,6 +864,54 @@ class SchwabClient:
             self._cache_set(cache_key, out, 30)
         return out
 
+    def get_intraday_day(self, symbol: str, date_iso: str) -> list[dict] | None:
+        """1-minute bars for one specific PAST date (regular session).
+        Used by the Reversal Radar's hit-rate report to resolve signals that
+        fired while nobody was watching — exact first-touch instead of a
+        close-price approximation. Cached 6h (history never changes).
+        """
+        symbol = symbol.upper().strip()
+        cache_key = f"intradayday:{symbol}:{date_iso}"
+        hit = self._cache_get(cache_key)
+        if hit is not None:
+            return hit
+        try:
+            from zoneinfo import ZoneInfo
+            ET = ZoneInfo("America/New_York")
+        except Exception:
+            ET = None
+        from datetime import datetime, time as _time, date as _date
+        try:
+            d = _date.fromisoformat(str(date_iso)[:10])
+        except (TypeError, ValueError):
+            return None
+        if ET is not None:
+            start = datetime.combine(d, _time(9, 30), tzinfo=ET)
+            end = datetime.combine(d, _time(16, 15), tzinfo=ET)
+        else:
+            start = datetime.combine(d, _time(9, 30))
+            end = datetime.combine(d, _time(16, 15))
+        params = {
+            "symbol": symbol,
+            "periodType": "day",
+            "frequencyType": "minute",
+            "frequency": 1,
+            "startDate": int(start.timestamp() * 1000),
+            "endDate": int(end.timestamp() * 1000),
+            "needExtendedHoursData": "false",
+        }
+        data = self._get(f"{HISTORY_URL_TPL}", params)
+        if not data:
+            return None
+        out = [
+            {"ts": b.get("datetime", 0), "open": b.get("open"), "high": b.get("high"),
+             "low": b.get("low"), "close": b.get("close"), "volume": b.get("volume", 0)}
+            for b in (data.get("candles") or [])
+        ]
+        if out:
+            self._cache_set(cache_key, out, 6 * 3600)
+        return out
+
     # ── Account methods (v1.17 broker import phase 1) ─────────────────
     # The Schwab Trader API exposes accounts under:
     #   GET /trader/v1/accounts/accountNumbers   (list account hashes)
