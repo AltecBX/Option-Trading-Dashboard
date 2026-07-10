@@ -642,13 +642,15 @@ class SchwabClient:
         return data
 
     def get_option_chain(self, symbol: str, expiration: str | None = None,
-                         strike_count: int = 60) -> dict | None:
+                         strike_count: int = 60,
+                         to_date: str | None = None) -> dict | None:
         """Returns a chain payload normalized to the dashboard's expected
         shape: {expirations: [...], chains: {expiry: {calls: [...], puts: [...]}}}.
-        Pass expiration as YYYY-MM-DD to filter to one date. strike_count
-        controls how many strikes around the money Schwab returns; the
-        Level Reprice chain asks for a wider band so the expected-move
-        strike is always listed.
+        Pass expiration as YYYY-MM-DD to filter to one date, or expiration +
+        to_date for a date RANGE (the 0-DTE juice scanner asks for
+        today..+3d in one light call). strike_count controls how many
+        strikes around the money Schwab returns; the Level Reprice chain
+        asks for a wider band so the expected-move strike is always listed.
         """
         symbol = symbol.upper().strip()
         try:
@@ -656,7 +658,7 @@ class SchwabClient:
         except (TypeError, ValueError):
             sc = 60
         sc = max(10, min(sc, 250))
-        cache_key = f"chain:{symbol}:{expiration or 'all'}:{sc}"
+        cache_key = f"chain:{symbol}:{expiration or 'all'}:{to_date or ''}:{sc}"
         hit = self._cache_get(cache_key)
         if hit is not None:
             return hit
@@ -668,7 +670,7 @@ class SchwabClient:
         }
         if expiration:
             params["fromDate"] = expiration
-            params["toDate"] = expiration
+            params["toDate"] = to_date or expiration
         data = self._get(CHAINS_URL, params)
         if not data or data.get("status") == "FAILED":
             return None

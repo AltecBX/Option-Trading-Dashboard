@@ -4254,6 +4254,24 @@ _intraday.configure(
                                   if _push_configured() else None),
 )
 
+# ── Premium Juice scanner (v3.22) ───────────────────────────────────────────
+import juice as _juice
+
+
+def _juice_pivots(symbol, spot):
+    c = _schwab()
+    if c is None:
+        return None
+    return _em_pivot_levels(c.get_price_history(symbol, days=200) or [], spot)
+
+
+_juice.configure(
+    schwab_getter=lambda: _schwab(),
+    board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+    iv_rank_fn=lambda sym, iv: _iv_history_compute_rank(_iv_history_load(sym), iv),
+    pivots_fn=_juice_pivots,
+)
+
 
 def _watchlist_overrides(wl: dict | None = None) -> dict:
     """Build the CSV-source-of-truth override map for the watchlist table
@@ -7098,6 +7116,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/juice":
+            # Premium Juice snapshot — instant serve, lazy background scan.
+            try:
+                self._send_json(_juice.snapshot(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/juice", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
             return
         if parsed.path == "/api/radar":
             # Reversal Radar snapshot — served instantly; the background

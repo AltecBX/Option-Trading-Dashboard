@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.21";
+const APP_VERSION = "3.22";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4821,6 +4821,12 @@ function App() {
 
         </TabPanel>
 
+
+        <TabPanel tab="juice" active={activeTab}>
+          <CardErrorBoundary label="Premium Juice">
+            <PremiumJuiceCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+          </CardErrorBoundary>
+        </TabPanel>
 
         <TabPanel tab="scanners" active={activeTab}>
         {/* Open-reclaim reversal: dipped >=2% under the regular open, then

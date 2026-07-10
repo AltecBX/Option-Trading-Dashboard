@@ -15348,6 +15348,7 @@ const TAB_BLURBS = {
   news: "Headlines for the loaded symbol and your watchlist",
   flow: "Options-flow intelligence from Unusual Whales",
   scanners: "Open-reclaim reversals + market-wide unusual-flow scans",
+  juice: "0-3 DTE premium-selling scanner — fattest same-week straddles, ranked by Juice Score with ready-made strangle/condor/spread structures",
   breadth: "Which sectors are making highs vs lows — rotation map",
   journal: "Your logged early-mover picks, scored against live prices",
   watchlist: "Every tracked stock with full metrics, EDGE and setups",
@@ -16230,10 +16231,344 @@ function RadarReportCard({
     className: "rr-suggestion"
   }, "→ ", s))));
 }
+
+// ── Premium Juice scanner (v3.22) ──────────────────────────────────────────
+// Which stocks still have the most premium left with almost no time on the
+// clock? Ranked 0-3 DTE straddle richness with ready-made selling structures,
+// defined vs undefined risk clearly separated. Sortable, filterable, fast.
+
+const PJ_STRAT_NAMES = {
+  short_strangle: "Short Strangle",
+  iron_condor: "Iron Condor",
+  iron_fly: "Iron Fly",
+  put_credit_spread: "Put Credit Spread",
+  call_credit_spread: "Call Credit Spread",
+  csp: "Cash-Secured Put",
+  covered_call: "Covered Call"
+};
+function PJStrategy({
+  s
+}) {
+  const F = v => v == null ? "—" : typeof v === "number" ? Math.abs(v) >= 100 ? "$" + v.toLocaleString() : fmt$(v) : v;
+  // Strike formatter — strips floating-point noise (1026.6399999 → 1026.64).
+  const K = v => v == null ? "—" : String(+(+v).toFixed(2));
+  const rows = [];
+  const push = (lbl, v, tip) => rows.push([lbl, v, tip]);
+  if (s.kind === "short_strangle") {
+    push("Strikes", `${K(s.put_strike)}P / ${K(s.call_strike)}C`, "Suggested short put and short call — ~18-delta or one expected move out, whichever the chain supports.");
+    push("Credit", fmt$(s.credit), "Total credit for selling both sides (per share; ×100 per contract).");
+    push("Break-evens", `${fmt$(s.be_low)} – ${fmt$(s.be_high)}`, "Profitable at expiration anywhere inside this range.");
+    push("Max profit", F(s.max_profit), "Full credit if both sides expire worthless.");
+    push("Buying power", F(s.bp), "Approximate margin requirement (max(20% spot − OTM, 10% strike) + credit — broker formulas vary).");
+    push("POP", s.pop != null ? s.pop + "%" : "—", "Probability of profit ≈ 1 − (short call delta + |short put delta|). Approximation, not a fill.");
+    push("EM coverage", s.em_coverage != null ? s.em_coverage + "×" : "—", "Nearest strike distance ÷ the expected move. Above 1.0 = strikes sit outside the priced move.");
+    push("Strike distance", `−${s.put_dist_pct}% / +${s.call_dist_pct}%`, "How far each short strike sits from the current price.");
+    push("Exit / stop", `take ${fmt$(s.exit_target)} · stop ${fmt$(s.stop_level)}`, "Suggested management: buy back at 50% of the credit; stop or adjust if the position marks at 2× the credit received.");
+  } else if (s.kind === "iron_condor" || s.kind === "iron_fly") {
+    push("Strikes", s.kind === "iron_condor" ? `${K(s.put_wing)}/${K(s.put_strike)}P · ${K(s.call_strike)}/${K(s.call_wing)}C` : `${K(s.put_wing)}/${K(s.short_strike)}/${K(s.call_wing)}`, s.kind === "iron_condor" ? "Short strangle with protective wings." : "Short the ATM straddle, wings ~1 expected move out.");
+    push("Credit", fmt$(s.credit), "Net credit after buying the wings.");
+    push("Break-evens", `${fmt$(s.be_low)} – ${fmt$(s.be_high)}`, "Profitable range at expiration.");
+    push("Max profit / loss", `${F(s.max_profit)} / ${F(s.max_loss)}`, "Defined risk: worst case is the wing width minus the credit — known before entry.");
+    push("Return on risk", s.ror != null ? s.ror + "%" : "—", "Max profit ÷ max loss.");
+    push("POP", s.pop != null ? s.pop + "%" : "—", "Probability of profit approximation.");
+  } else if (s.kind.endsWith("credit_spread")) {
+    push("Strikes", `${K(s.short_strike)} / ${K(s.long_strike)}`, "Sell the short strike, buy the long strike for protection.");
+    push("Credit", fmt$(s.credit), "Net credit received.");
+    push("Break-even", fmt$(s.be), "Short strike adjusted by the credit.");
+    push("Max profit / loss", `${F(s.max_profit)} / ${F(s.max_loss)}`, "Defined risk — width minus credit is the most you can lose.");
+    push("Return on risk", s.ror != null ? s.ror + "%" : "—", "Max profit ÷ max loss.");
+    push("POP", s.pop != null ? s.pop + "%" : "—", "≈ 1 − |short strike delta|.");
+  } else {
+    push("Strike", K(s.short_strike), s.kind === "csp" ? "Sell this put with cash to cover assignment." : "Sell this call against 100 shares.");
+    push("Credit", fmt$(s.credit), "Premium collected per share.");
+    push("Break-even", fmt$(s.be), s.kind === "csp" ? "Effective cost basis if assigned." : "Shares called away above this = still profitable.");
+    if (s.bp != null) push("Cash required", F(s.bp), "Cash to secure the put (strike × 100).");
+    push("Yield", s.yield_pct != null ? s.yield_pct + "%" : "—", "Credit as % of the collateral, for this expiration alone.");
+    push("POP", s.pop != null ? s.pop + "%" : "—", "≈ 1 − |delta|.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: `pj-strat ${s.risk === "undefined" ? "pj-undef" : "pj-def"}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pj-strat-head"
+  }, /*#__PURE__*/React.createElement("b", null, PJ_STRAT_NAMES[s.kind] || s.kind), /*#__PURE__*/React.createElement("span", {
+    className: `pj-risk ${s.risk === "undefined" ? "warn" : "ok"}`,
+    title: s.risk === "undefined" ? "UNDEFINED RISK: losses are theoretically unlimited (calls) or down to zero (puts). Only appropriate with a margin account, small size, and active management." : "DEFINED RISK: the maximum loss is fixed and known before entry."
+  }, s.risk === "undefined" ? "UNDEFINED RISK" : "defined risk")), /*#__PURE__*/React.createElement("div", {
+    className: "pj-strat-grid"
+  }, rows.map(([lbl, v, tip], i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "pj-strat-row",
+    title: tip
+  }, /*#__PURE__*/React.createElement("span", null, lbl), /*#__PURE__*/React.createElement("b", null, v)))));
+}
+function PremiumJuiceCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [sortKey, setSortKey] = useState("score");
+  const [sortDir, setSortDir] = useState(-1);
+  const [flt, setFlt] = useState({
+    dte: "all",
+    minIV: "",
+    minPrem: "",
+    minVol: "",
+    maxSpread: "",
+    minOI: "",
+    earnings: "all",
+    definedOnly: false
+  });
+  useEffect(() => {
+    let stop = false;
+    const load = () => sharedJson(apiFetch, "/api/juice", 30 * 1000).then(d => {
+      if (!stop) {
+        if (d && !d.error) {
+          setData(d);
+          setErr(null);
+        } else setErr(d && d.error || "no data");
+      }
+    }).catch(e => {
+      if (!stop) setErr(String(e && e.message || e));
+    });
+    load();
+    const t = setInterval(skipWhenHidden(load), 45 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, []);
+  const sortBy = k => {
+    if (sortKey === k) setSortDir(d => -d);else {
+      setSortKey(k);
+      setSortDir(-1);
+    }
+  };
+  const arrow = k => sortKey === k ? sortDir < 0 ? " ↓" : " ↑" : "";
+  const num = (v, f) => v == null ? "—" : f(v);
+  const rows = useMemo(() => {
+    let r = data && data.rows || [];
+    if (flt.dte !== "all") r = r.filter(x => x.dte === Number(flt.dte));
+    if (flt.minIV) r = r.filter(x => x.atm_iv != null && x.atm_iv * 100 >= Number(flt.minIV));
+    if (flt.minPrem) r = r.filter(x => x.em_pct != null && x.em_pct >= Number(flt.minPrem));
+    if (flt.minVol) r = r.filter(x => (x.total_vol || 0) >= Number(flt.minVol));
+    if (flt.maxSpread) r = r.filter(x => x.spread_pct != null && x.spread_pct <= Number(flt.maxSpread));
+    if (flt.minOI) r = r.filter(x => (x.total_oi || 0) >= Number(flt.minOI));
+    if (flt.earnings === "with") r = r.filter(x => x.earnings_inside);
+    if (flt.earnings === "without") r = r.filter(x => !x.earnings_inside);
+    const get = x => {
+      const v = x[sortKey];
+      return v == null ? -Infinity : v;
+    };
+    return [...r].sort((a, b) => (get(a) < get(b) ? 1 : get(a) > get(b) ? -1 : 0) * (sortDir < 0 ? 1 : -1));
+  }, [data, flt, sortKey, sortDir]);
+  const upd = data && data.as_of ? (() => {
+    try {
+      return new Date(data.as_of).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    } catch (e) {
+      return "";
+    }
+  })() : "";
+  const setF = (k, v) => setFlt(f => ({
+    ...f,
+    [k]: v
+  }));
+  const HEADERS = [["score", "Juice", "Juice Score 0-100: premium richness per day left (40) + liquidity (25) + options activity (10) + support/resistance structure (15) + context (10). Higher = more premium for the time and risk."], ["symbol", "Sym", "Ticker — click a row for full detail and ready-made structures."], ["spot", "Price", "Current stock price (chain underlying quote)."], ["dte", "DTE", "Calendar days to the nearest expiration in the 0-3 day window. 0 = expires today."], ["atm_iv", "ATM IV", "At-the-money implied volatility for this expiration, with IV rank underneath (falls back to realized-vol rank while IV history builds)."], ["em_pct", "Straddle", "ATM call mid + put mid — the market's expected move AND the max collectible double-sided premium, as $ and % of the stock price."], ["prem_per_day", "$/day", "Straddle % of spot ÷ trading days remaining — THE ranking stat: how much premium is left per unit of time. 0DTE uses hours to the close."], ["iv_vs_hv", "IV/HV", "ATM IV ÷ 20-day realized vol. Above ~1.25 the market is paying more than the stock has been moving — the seller's edge."], ["total_vol", "Vol", "Total option volume at this expiration (calls + puts)."], ["total_oi", "OI", "Total open interest at this expiration."], ["spread_pct", "Sprd", "ATM bid-ask spread as % of mid, averaged across call and put. Above 5% is hard to exit."]];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card pj-card",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "Two-stage scan: the $5B+ watchlist board ranked by realized-vol richness, earnings proximity and day movement, then one light chain call (today through +3 days) per candidate. Rescans every ~4 minutes while you watch. All POP and buying-power figures are standard approximations — verify in your broker before entering."
+  }, "premium juice · 0-3 DTE · ", data ? `${data.scanned || 0}/${data.universe || 0} scanned` : "…", upd ? ` · ${upd}` : ""), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Who still has premium left?")), data && !data.market_open && /*#__PURE__*/React.createElement("span", {
+    className: "rr-closed",
+    title: "Scans 9:30–16:00 ET. Last session's board stays visible."
+  }, "market closed")), /*#__PURE__*/React.createElement("div", {
+    className: "pj-filters"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "seg",
+    title: "Filter by days to expiration. 0 DTE = expires today (Thursday/Friday juice)."
+  }, ["all", "0", "1", "2", "3"].map(v => /*#__PURE__*/React.createElement("button", {
+    key: v,
+    className: flt.dte === v ? "active" : "",
+    onClick: () => setF("dte", v)
+  }, v === "all" ? "All" : v + " DTE"))), /*#__PURE__*/React.createElement("label", {
+    className: "pj-f",
+    title: "Minimum at-the-money implied volatility, in percent (e.g. 60)."
+  }, "IV≥ ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: flt.minIV,
+    onChange: e => setF("minIV", e.target.value),
+    placeholder: "%"
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "pj-f",
+    title: "Minimum straddle premium as a percent of the stock price (e.g. 1.5)."
+  }, "Prem≥ ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: flt.minPrem,
+    onChange: e => setF("minPrem", e.target.value),
+    placeholder: "%"
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "pj-f",
+    title: "Minimum total option volume at the expiration."
+  }, "Vol≥ ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: flt.minVol,
+    onChange: e => setF("minVol", e.target.value),
+    placeholder: "#"
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "pj-f",
+    title: "Maximum ATM bid-ask spread as % of mid — your entry AND exit cost."
+  }, "Sprd≤ ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: flt.maxSpread,
+    onChange: e => setF("maxSpread", e.target.value),
+    placeholder: "%"
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "pj-f",
+    title: "Minimum total open interest at the expiration."
+  }, "OI≥ ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: flt.minOI,
+    onChange: e => setF("minOI", e.target.value),
+    placeholder: "#"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "seg",
+    title: "Earnings filter: 'earnings' = report lands BEFORE this expiration (IV-crush setups — highest premium, highest risk); 'clean' = no earnings in the window."
+  }, [["all", "All"], ["with", "Earnings"], ["without", "Clean"]].map(([v, l]) => /*#__PURE__*/React.createElement("button", {
+    key: v,
+    className: flt.earnings === v ? "active" : "",
+    onClick: () => setF("earnings", v)
+  }, l))), /*#__PURE__*/React.createElement("button", {
+    className: `pj-toggle ${flt.definedOnly ? "active" : ""}`,
+    onClick: () => setF("definedOnly", !flt.definedOnly),
+    title: "Show only defined-risk structures (spreads, condors, flies, CSP/CC) in the strategy panels — hides the short strangle."
+  }, "Defined risk only")), err && !data && /*#__PURE__*/React.createElement("div", {
+    className: "rr-empty"
+  }, err, " — retrying…"), data && rows.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "rr-empty"
+  }, data.market_open ? (data.rows || []).length === 0 ? "Scanning chains…" : "Nothing passes the current filters." : "Market closed — the board fills during the session."), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pj-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "pj-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, HEADERS.map(([k, l, tip]) => /*#__PURE__*/React.createElement("th", {
+    key: k,
+    className: k !== "symbol" ? "num" : "",
+    onClick: () => sortBy(k),
+    title: tip + " Click to sort."
+  }, l, arrow(k))), /*#__PURE__*/React.createElement("th", {
+    title: "Earnings before this expiration?"
+  }, "Earn"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+    const key = r.symbol + r.expiry;
+    const strategies = (r.strategies || []).filter(s => !flt.definedOnly || s.risk === "defined");
+    return /*#__PURE__*/React.createElement(React.Fragment, {
+      key: key
+    }, /*#__PURE__*/React.createElement("tr", {
+      className: `pj-row ${open === key ? "pj-open" : ""}`,
+      onClick: () => setOpen(open === key ? null : key),
+      title: `${r.company || r.symbol} — ${(r.reasons || []).join(" · ") || "click for detail"}`
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `rr-score ${r.score >= 80 ? "rr-hot" : r.score >= 65 ? "rr-warm" : "rr-cool"}`
+    }, r.score)), /*#__PURE__*/React.createElement("td", {
+      className: "pj-sym"
+    }, r.symbol, (r.flags || []).length > 0 && /*#__PURE__*/React.createElement("span", {
+      className: "rr-flag",
+      title: r.flags.join("\n")
+    }, " ⚠")), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmt$(r.spot)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, r.dte === 0 ? /*#__PURE__*/React.createElement("b", {
+      className: "pj-0dte"
+    }, "0d") : r.dte + "d"), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, r.atm_iv != null ? (r.atm_iv * 100).toFixed(0) + "%" : "—", /*#__PURE__*/React.createElement("div", {
+      className: "pj-sub"
+    }, r.iv_rank != null ? "rank " + Math.round(r.iv_rank) : "")), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmt$(r.straddle), /*#__PURE__*/React.createElement("div", {
+      className: "pj-sub"
+    }, "±", r.em_pct, "%")), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, /*#__PURE__*/React.createElement("b", null, num(r.prem_per_day, v => v.toFixed(1) + "%"))), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.iv_vs_hv >= 1.25 ? "up" : ""}`
+    }, num(r.iv_vs_hv, v => v.toFixed(2) + "×")), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmtVol(r.total_vol)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmtVol(r.total_oi)), /*#__PURE__*/React.createElement("td", {
+      className: `num ${r.spread_pct > 5 ? "down" : ""}`
+    }, num(r.spread_pct, v => v.toFixed(1) + "%")), /*#__PURE__*/React.createElement("td", null, r.earnings_inside ? /*#__PURE__*/React.createElement("span", {
+      className: "emx-chip earn",
+      title: `Earnings ${r.next_earnings || ""} lands BEFORE this expiration — that is why the premium is fat. IV crush play; defined risk preferred.`
+    }, "📊") : "")), open === key && /*#__PURE__*/React.createElement("tr", {
+      className: "pj-detail-row"
+    }, /*#__PURE__*/React.createElement("td", {
+      colSpan: 12
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "pj-detail"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "pj-quotes"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "pj-q",
+      title: "ATM call market: bid × ask (mid), with this strike's volume and open interest."
+    }, /*#__PURE__*/React.createElement("span", null, "Call ", r.atm_strike), /*#__PURE__*/React.createElement("b", null, fmt$(r.call_bid), " × ", fmt$(r.call_ask), " ", /*#__PURE__*/React.createElement("i", null, "(", fmt$(r.call_mid), ")")), /*#__PURE__*/React.createElement("em", null, "vol ", fmtVol(r.call_vol), " · OI ", fmtVol(r.call_oi))), /*#__PURE__*/React.createElement("div", {
+      className: "pj-q",
+      title: "ATM put market: bid × ask (mid), with this strike's volume and open interest."
+    }, /*#__PURE__*/React.createElement("span", null, "Put ", r.atm_strike), /*#__PURE__*/React.createElement("b", null, fmt$(r.put_bid), " × ", fmt$(r.put_ask), " ", /*#__PURE__*/React.createElement("i", null, "(", fmt$(r.put_mid), ")")), /*#__PURE__*/React.createElement("em", null, "vol ", fmtVol(r.put_vol), " · OI ", fmtVol(r.put_oi))), /*#__PURE__*/React.createElement("div", {
+      className: "pj-q",
+      title: "Relative options activity: today's total volume ÷ total open interest at this expiration. Above 1× = unusually busy."
+    }, /*#__PURE__*/React.createElement("span", null, "Vol / OI"), /*#__PURE__*/React.createElement("b", null, num(r.vol_oi, v => v.toFixed(2) + "×")), /*#__PURE__*/React.createElement("em", null, "HV20 ", r.hv20 != null ? r.hv20 + "%" : "—")), /*#__PURE__*/React.createElement("div", {
+      className: "pj-q",
+      title: "Nearest daily-chart support and resistance pivots, with distance from the current price. Strikes beyond a defended level are safer to sell."
+    }, /*#__PURE__*/React.createElement("span", null, "S / R"), /*#__PURE__*/React.createElement("b", null, r.support ? /*#__PURE__*/React.createElement("span", {
+      className: "up"
+    }, fmt$(r.support.price)) : "—", " / ", r.resistance ? /*#__PURE__*/React.createElement("span", {
+      className: "down"
+    }, fmt$(r.resistance.price)) : "—"), /*#__PURE__*/React.createElement("em", null, r.support ? ((r.spot - r.support.price) / r.spot * 100).toFixed(1) + "% below" : "", r.resistance ? ` · ${((r.resistance.price - r.spot) / r.spot * 100).toFixed(1)}% above` : ""))), (r.reasons || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "rr-all-reasons"
+    }, r.reasons.map((x, i) => /*#__PURE__*/React.createElement("span", {
+      key: i,
+      className: "rr-chip"
+    }, x))), (r.flags || []).map((f, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      className: "rr-flagline"
+    }, "⚠ ", f)), /*#__PURE__*/React.createElement("div", {
+      className: "pj-strats"
+    }, strategies.map((s, i) => /*#__PURE__*/React.createElement(PJStrategy, {
+      key: i,
+      s: s
+    })), strategies.length === 0 && /*#__PURE__*/React.createElement("div", {
+      className: "rr-empty"
+    }, "No structures pass the defined-risk filter for this name.")), /*#__PURE__*/React.createElement("div", {
+      className: "rr-actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "rr-btn",
+      onClick: e => {
+        e.stopPropagation();
+        onSwitchTicker && onSwitchTicker(r.symbol);
+      },
+      title: "Load this symbol on the Trade tab for the full chain and strike workbench."
+    }, "Trade tab →"))))));
+  })))));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
+  PremiumJuiceCard: _memo(PremiumJuiceCard),
   ValuationCard: _memo(ValuationCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard),
