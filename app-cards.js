@@ -16135,7 +16135,10 @@ function ReversalRadarCard({
     title: `${regime.detail || ""}${regime.spy_above_vwap_pct != null ? ` SPY above VWAP ${regime.spy_above_vwap_pct}% of the last 90 min; QQQ ${regime.qqq_above_vwap_pct}%.` : ""} On a trend day, counter-trend scores are capped at 60 — the radar will not talk you into fading a freight train.`
   }, regime.label), err && !data && /*#__PURE__*/React.createElement("div", {
     className: "rr-empty"
-  }, err, " — retrying…"), data && /*#__PURE__*/React.createElement("div", {
+  }, err, " — retrying…"), data && data.error && /*#__PURE__*/React.createElement("div", {
+    className: "pj-note",
+    title: "The Schwab client caps the whole app at 110 requests/min. When a pass gets squeezed, the radar keeps the last good stacks instead of blanking."
+  }, data.error), data && /*#__PURE__*/React.createElement("div", {
     className: "rr-cols"
   }, stack("long", data.long, "LONGS — near low of day", "buy the bounce"), stack("short", data.short, "SHORTS — near high of day", "fade the rip")));
 }
@@ -16455,9 +16458,12 @@ function PremiumJuiceCard({
     title: "Show only defined-risk structures (spreads, condors, flies, CSP/CC) in the strategy panels — hides the short strangle."
   }, "Defined risk only")), err && !data && /*#__PURE__*/React.createElement("div", {
     className: "rr-empty"
-  }, err, " — retrying…"), data && rows.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, err, " — retrying…"), data && data.error && /*#__PURE__*/React.createElement("div", {
+    className: "pj-note",
+    title: "The Schwab client caps the whole app at 110 requests/min. When a scan cycle gets squeezed (radar + juice + browsing at once), the board keeps the last good rows instead of blanking and refreshes on the next cycle."
+  }, data.error), data && rows.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "rr-empty"
-  }, data.market_open ? (data.rows || []).length === 0 ? "Scanning chains…" : "Nothing passes the current filters." : "Market closed — the board fills during the session."), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, data.market_open ? (data.rows || []).length === 0 ? "Scanning chains… first pass takes ~30 seconds." : "Nothing passes the current filters." : "Market closed — the board fills during the session."), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "pj-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "pj-table"
@@ -16474,7 +16480,7 @@ function PremiumJuiceCard({
     return /*#__PURE__*/React.createElement(React.Fragment, {
       key: key
     }, /*#__PURE__*/React.createElement("tr", {
-      className: `pj-row ${open === key ? "pj-open" : ""}`,
+      className: `pj-row ${open === key ? "pj-open" : ""} ${r.stale ? "pj-stale" : ""}`,
       onClick: () => setOpen(open === key ? null : key),
       title: `${r.company || r.symbol} — ${(r.reasons || []).join(" · ") || "click for detail"}`
     }, /*#__PURE__*/React.createElement("td", {

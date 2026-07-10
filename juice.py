@@ -36,11 +36,13 @@ _IV_RANK_FN = None       # (symbol, iv_decimal) -> {"iv_rank", "iv_pct"} | None
 _PIVOTS_FN = None        # (symbol, spot) -> {"support": [...], "resistance": [...]}
 
 MAX_DTE = 3
-STAGE2_BUDGET = 45       # chain calls per scan pass
+STAGE2_BUDGET = 36       # chain calls per scan pass (shares the 110/min quota
+                         # with the radar worker + normal browsing)
 MIN_PRICE = 20.0
 MIN_MARKET_CAP = 5_000_000_000
 CYCLE_SECS = 240
 WORKER_IDLE_SECS = 600
+ROW_MAX_AGE = 900        # carried-over rows expire after 15 min
 
 
 def configure(schwab_getter, board_getter, iv_rank_fn=None, pivots_fn=None) -> None:
@@ -475,14 +477,41 @@ def _scan(sc) -> None:
             return analyze_symbol(sym, chain, r)
         except Exception:
             return None
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    # 4 workers, not 6 — the Schwab client hard-caps at 110 req/min across
+    # the whole app; a gentler burst leaves room for the radar + browsing.
+    with ThreadPoolExecutor(max_workers=4) as ex:
         for res in ex.map(one, cands):
             if res:
                 results.append(res)
-    results.sort(key=lambda r: -r["score"])
+
+    # NEVER wipe a good board because one cycle got rate-limited (chain
+    # calls return None when the client's 110/min budget is exhausted).
+    # Merge: fresh rows replace their symbol; symbols that didn't come back
+    # this cycle are carried over marked stale, expiring after ROW_MAX_AGE.
+    now_ts = time.time()
+    for r in results:
+        r["_ts"] = now_ts
+        r["stale"] = False
+    fresh_syms = {r["symbol"] for r in results}
     with _LOCK:
+        prev = _STATE["rows"]
+        carried = 0
+        for old in prev:
+            if (old["symbol"] not in fresh_syms
+                    and now_ts - (old.get("_ts") or 0) < ROW_MAX_AGE
+                    and old.get("expiry", "") >= frm):
+                o = dict(old)
+                o["stale"] = True
+                results.append(o)
+                carried += 1
+        results.sort(key=lambda r: -r["score"])
+        note = None
+        if cands and not fresh_syms:
+            note = "rate-limited — showing the last scan; refreshing"
+        elif carried and len(fresh_syms) < len(cands) * 0.5:
+            note = f"partial refresh ({len(fresh_syms)}/{len(cands)}) — quota shared with the radar"
         _STATE.update({"rows": results, "as_of": _now_et().isoformat(),
-                       "scanned": len(cands), "error": None})
+                       "scanned": len(cands), "error": note})
 
 
 def _loop() -> None:

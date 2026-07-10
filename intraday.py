@@ -977,6 +977,10 @@ def _stage1(sc) -> tuple[list, list]:
     with ThreadPoolExecutor(max_workers=6) as ex:
         for res in ex.map(fetch, batches):
             quotes.update(res)
+    if symbols and not quotes:
+        # Total quote failure (rate-limit window) — signal it so the cycle
+        # reuses the previous candidate list instead of scanning nothing.
+        return None, None
 
     longs, shorts = [], []
     for sym, q in quotes.items():
@@ -1121,14 +1125,19 @@ def _radar_cycle(sc) -> None:
         cycle = _RADAR["cycle"]
     if cycle % 3 == 0 or not _RADAR.get("_s1"):
         longs, shorts = _stage1(sc)
-        with _RADAR_LOCK:
-            _RADAR["_s1"] = (longs, shorts)
+        if longs is None:
+            # Rate-limited quote pass: fall back to the last candidate list
+            # rather than presenting an empty tape as "no setups".
+            longs, shorts = _RADAR.get("_s1") or ([], [])
+        else:
+            with _RADAR_LOCK:
+                _RADAR["_s1"] = (longs, shorts)
     else:
         longs, shorts = _RADAR["_s1"]
 
     daily_cache: dict = {}
     results = {"long": [], "short": []}
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futs = [(side, ex.submit(_stage2_one, sc, c, side, regime, daily_cache))
                 for side, cands in (("long", longs[:STAGE2_PER_SIDE]),
                                     ("short", shorts[:STAGE2_PER_SIDE]))
@@ -1145,9 +1154,17 @@ def _radar_cycle(sc) -> None:
         results[side] = results[side][:8]
 
     with _RADAR_LOCK:
-        _RADAR.update({"long": results["long"], "short": results["short"],
-                       "regime": regime, "as_of": _now_et().isoformat(),
-                       "cycle": cycle + 1, "error": None})
+        # Rate-limit guard: if candidates existed but every minute-bar fetch
+        # came back empty, keep the previous stacks instead of wiping the
+        # board — an empty tape and a starved API are different things.
+        if (longs or shorts) and not results["long"] and not results["short"] \
+                and (_RADAR["long"] or _RADAR["short"]):
+            _RADAR.update({"regime": regime, "cycle": cycle + 1,
+                           "error": "rate-limited — showing the last pass"})
+        else:
+            _RADAR.update({"long": results["long"], "short": results["short"],
+                           "regime": regime, "as_of": _now_et().isoformat(),
+                           "cycle": cycle + 1, "error": None})
 
 
 def _radar_loop() -> None:
