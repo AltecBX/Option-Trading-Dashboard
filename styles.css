@@ -6423,6 +6423,64 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .rr-rep-table th.num, .rr-rep-table td.num { text-align: right; }
 .rr-hours { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; cursor: help; }
 
+/* ── Premium Juice scanner (v3.22) ──────────────────────────────────────── */
+.pj-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 12px; }
+.pj-f { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700; color: var(--fg-3); cursor: help; }
+.pj-f input { width: 62px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  color: var(--fg); font-family: var(--font-mono); font-size: 12px; padding: 5px 8px; }
+.pj-toggle { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--fg-2);
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; cursor: pointer; }
+.pj-toggle.active { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 50%);
+  background: color-mix(in oklch, var(--up) 10%, transparent); }
+
+.pj-table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.pj-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 940px; }
+.pj-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-3); text-align: left;
+  padding: 9px 10px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-2);
+  border-bottom: 2px solid var(--line-2); white-space: nowrap; cursor: pointer; }
+.pj-table th.num, .pj-table td.num { text-align: right; }
+.pj-table td { padding: 8px 10px; white-space: nowrap; color: var(--fg-2); font-family: var(--font-mono); }
+.pj-row { cursor: pointer; border-bottom: 1px solid var(--line); transition: background 0.1s ease; }
+.pj-row:hover { background: var(--bg-3); }
+.pj-row.pj-open { background: color-mix(in oklch, var(--accent) 7%, transparent); }
+.pj-sym { font-weight: 800; color: var(--fg); }
+.pj-sub { font-size: 9.5px; color: var(--fg-3); margin-top: 1px; }
+.pj-0dte { color: var(--warn); }
+
+.pj-detail-row td { padding: 0; }
+.pj-detail { padding: 12px; border-bottom: 2px solid var(--line-2); background: var(--bg-2); white-space: normal; }
+.pj-quotes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+@media (max-width: 900px) { .pj-quotes { grid-template-columns: repeat(2, 1fr); } }
+.pj-q { background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: help; }
+.pj-q span { display: block; font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); margin-bottom: 3px; }
+.pj-q b { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); }
+.pj-q b i { color: var(--fg-3); font-style: normal; font-size: 11px; }
+.pj-q em { display: block; font-style: normal; font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); margin-top: 2px; }
+.pj-q .up { color: var(--up); }
+.pj-q .down { color: var(--down); }
+
+.pj-strats { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 12px; }
+.pj-strat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg-3); }
+.pj-strat.pj-undef { border-color: color-mix(in oklch, var(--warn), transparent 45%); }
+.pj-strat-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.pj-strat-head b { font-size: 13px; color: var(--fg); }
+.pj-risk { font-family: var(--font-mono); font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em;
+  border-radius: 999px; padding: 2px 9px; cursor: help; }
+.pj-risk.ok { color: var(--up); background: color-mix(in oklch, var(--up) 12%, transparent); }
+.pj-risk.warn { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, transparent); }
+.pj-strat-grid { display: flex; flex-direction: column; gap: 4px; }
+.pj-strat-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; cursor: help; }
+.pj-strat-row span { color: var(--fg-3); font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+.pj-strat-row b { font-family: var(--font-mono); color: var(--fg); text-align: right; }
+
+@media (max-width: 760px) {
+  .pj-filters { gap: 7px; }
+  .pj-table { font-size: 11.5px; }
+}
+
 /* ── Intraday chart mode + level strip (v3.19) ──────────────────────────── */
 .ic-empty, .ic-nolc { padding: 40px 12px; text-align: center; color: var(--fg-3);
   font-family: var(--font-mono); font-size: 12.5px; }

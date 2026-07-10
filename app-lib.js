@@ -146,6 +146,9 @@ const TABS = [{
   id: "scanners",
   label: "Scanners"
 }, {
+  id: "juice",
+  label: "0DTE Juice"
+}, {
   id: "breadth",
   label: "Breadth"
 }, {
