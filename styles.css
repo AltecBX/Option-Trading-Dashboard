@@ -6449,6 +6449,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .pj-sub { font-size: 9.5px; color: var(--fg-3); margin-top: 1px; }
 .pj-0dte { color: var(--warn); }
 
+.pj-row.pj-stale { opacity: 0.55; }
+.pj-note { margin: 4px 0 8px; padding: 6px 11px; border-radius: 8px; font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700; color: var(--warn); cursor: help;
+  background: color-mix(in oklch, var(--warn) 9%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warn), transparent 60%); }
 .pj-detail-row td { padding: 0; }
 .pj-detail { padding: 12px; border-bottom: 2px solid var(--line-2); background: var(--bg-2); white-space: normal; }
 .pj-quotes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

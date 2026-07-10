@@ -12074,6 +12074,9 @@ function ReversalRadarCard({ apiFetch, onSwitchTicker, onOpenIntraday }) {
         </div>
       )}
       {err && !data && <div className="rr-empty">{err} — retrying…</div>}
+      {data && data.error && (
+        <div className="pj-note" title="The Schwab client caps the whole app at 110 requests/min. When a pass gets squeezed, the radar keeps the last good stacks instead of blanking.">{data.error}</div>
+      )}
       {data && (
         <div className="rr-cols">
           {stack("long", data.long, "LONGS — near low of day", "buy the bounce")}
@@ -12331,8 +12334,13 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
       </div>
 
       {err && !data && <div className="rr-empty">{err} — retrying…</div>}
+      {data && data.error && (
+        <div className="pj-note" title="The Schwab client caps the whole app at 110 requests/min. When a scan cycle gets squeezed (radar + juice + browsing at once), the board keeps the last good rows instead of blanking and refreshes on the next cycle.">
+          {data.error}
+        </div>
+      )}
       {data && rows.length === 0 && (
-        <div className="rr-empty">{data.market_open ? (data.rows || []).length === 0 ? "Scanning chains…" : "Nothing passes the current filters." : "Market closed — the board fills during the session."}</div>
+        <div className="rr-empty">{data.market_open ? (data.rows || []).length === 0 ? "Scanning chains… first pass takes ~30 seconds." : "Nothing passes the current filters." : "Market closed — the board fills during the session."}</div>
       )}
       {rows.length > 0 && (
         <div className="pj-table-wrap">
@@ -12349,7 +12357,7 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
                 const strategies = (r.strategies || []).filter(s => !flt.definedOnly || s.risk === "defined");
                 return (
                   <React.Fragment key={key}>
-                    <tr className={`pj-row ${open === key ? "pj-open" : ""}`} onClick={() => setOpen(open === key ? null : key)}
+                    <tr className={`pj-row ${open === key ? "pj-open" : ""} ${r.stale ? "pj-stale" : ""}`} onClick={() => setOpen(open === key ? null : key)}
                         title={`${r.company || r.symbol} — ${(r.reasons || []).join(" · ") || "click for detail"}`}>
                       <td className="num"><span className={`rr-score ${r.score >= 80 ? "rr-hot" : r.score >= 65 ? "rr-warm" : "rr-cool"}`}>{r.score}</span></td>
                       <td className="pj-sym">{r.symbol}{(r.flags || []).length > 0 && <span className="rr-flag" title={r.flags.join("\n")}> ⚠</span>}</td>
