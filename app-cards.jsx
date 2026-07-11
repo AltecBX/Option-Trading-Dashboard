@@ -12442,6 +12442,30 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker, onOpenFinviz }) {
   );
 }
 
+// ── Cookie-setup chip (v3.37) ───────────────────────────────────────────────
+// Shown only when the helper reports that this browser (Comet, Brave, other
+// Chromium forks) lacks the contentSettings API — meaning the third-party-
+// cookie exception can't be registered automatically and embedded logins
+// won't persist until the user adds it in browser settings.
+function CookieSetupChip() {
+  const read = () => { try { return document.documentElement.dataset.jthCookieApi === "0"; } catch (e) { return false; } };
+  const [need, setNeed] = useState(read);
+  useEffect(() => {
+    const on = () => setNeed(read());
+    window.addEventListener("finviz-helper-ready", on);
+    let n = 0;
+    const t = setInterval(() => { on(); if (++n > 15) clearInterval(t); }, 2000);
+    return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
+  }, []);
+  if (!need) return null;
+  return (
+    <span className="emx-chip warn"
+          title={"This browser can't let the helper register the cookie exception automatically (no contentSettings API — Comet, Brave and most Chromium forks). One-time fix so embedded logins persist:\n\n1. Open the browser's Settings and search for 'third-party cookies'.\n2. Under 'Sites allowed to use third-party cookies' click Add.\n3. Enter: dashboard.jerrytrade.com  (tick 'Include third-party cookies' if shown).\n4. Make sure the browser does NOT clear cookies on close.\n5. Reload this page and sign in once.\n\nBrave only: also set Shields → Cookies to 'Allow all' for this site."}>
+      ⚠ cookies: browser setting needed — hover for steps
+    </span>
+  );
+}
+
 // ── Unusual Whales embedded view (v3.34) ────────────────────────────────────
 // UW doesn't block framing, so the frame always renders; helper v2.1+ makes
 // the login persist inside it (cookie SameSite + third-party exception).
@@ -12520,6 +12544,7 @@ function UWPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
           <button className="rr-btn" onClick={() => onResearch1m(ticker)}
                   title={`Jump to the app's 1-minute chart for ${ticker}.`}>1-Min →</button>
         )}
+        <CookieSetupChip />
         {helperVer < 2.1 && (
           <a className="fv-upd" href="/finviz-helper.zip" download
              title="Unusual Whales renders without the helper, but your UW LOGIN only persists inside the frame with Site Helper v2.1+. Download, replace the unzipped folder's files, then click reload on the extension at chrome://extensions.">update helper for login</a>
@@ -12656,6 +12681,7 @@ function TVPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
             <button className="rr-btn" onClick={() => onResearch1m(ticker)}
                     title={`Jump to the app's 1-minute chart for ${ticker} — VWAP bands, day levels, radar markers.`}>1-Min →</button>
           )}
+          <CookieSetupChip />
         </div>
         <div className="fv-toolbar fv-row2">
           <button className={`pj-toggle ${follow ? "active" : ""}`}
@@ -12895,6 +12921,7 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
           1-Min →
         </button>
       )}
+      <CookieSetupChip />
       {(() => {
         try {
           const v = document.documentElement.dataset.finvizHelperVersion;

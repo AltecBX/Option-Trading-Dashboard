@@ -32,6 +32,11 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.4 — non-Chrome Chromium browsers (Comet, Brave, ...): these often lack
+  the contentSettings API, so the helper can't register the third-party-
+  cookie exception itself and the embedded logins won't stick until you add
+  it by hand. The helper now reports this to the dashboard, which shows a
+  'cookies: browser setting needed' chip with exact steps (see below).
 - v2.3 — TradingView login persistence, done right. v2.2 stopped touching
   TV cookies entirely, which fixed the error pages but meant the browser
   wouldn't send TV's SameSite-restricted auth cookies inside the frame —
@@ -84,8 +89,13 @@ card at `chrome://extensions` (or remove + Load unpacked again).
 - Log into Finviz Elite inside the embedded view once (tick "Remember me");
   with v1.2 the session persists across ticker changes, reloads and visits,
   and it is the SAME session as a normal finviz.com tab.
-- Brave: also set Shields → Cookies to "Allow all" for the dashboard site,
-  as Shields applies its own blocking above Chrome's.
+- Comet / Brave / other Chromium forks: if embedded logins don't persist,
+  add the third-party-cookie exception by hand (the helper can't register
+  it in these browsers): open Settings → search "third-party cookies" →
+  under "Sites allowed to use third-party cookies" click Add and enter
+  dashboard.jerrytrade.com (tick "Include third-party cookies" if shown).
+  Also make sure the browser isn't set to clear cookies on close. Brave
+  additionally: Shields → Cookies → "Allow all" for the dashboard site.
 
 ## Diagnostics (temporary)
 
