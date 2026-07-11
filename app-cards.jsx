@@ -12457,26 +12457,42 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker, onOpenFinviz }) {
   );
 }
 
-// ── Cookie-setup chip (v3.37) ───────────────────────────────────────────────
+// ── Cookie-setup chip (v3.37, reworked v3.39) ───────────────────────────────
 // Shown only when the helper reports that this browser (Comet, Brave, other
-// Chromium forks) lacks the contentSettings API — meaning the third-party-
-// cookie exception can't be registered automatically and embedded logins
-// won't persist until the user adds it in browser settings.
+// Chromium forks) lacks the contentSettings API, so the third-party-cookie
+// exception can't be registered automatically. Helper v2.5 fixes this the
+// standards way: the in-frame script calls the Storage Access API on the
+// user's first CLICK inside the embedded site, the browser shows a one-time
+// Allow prompt, and the login persists (~30 days per site). The chip now
+// leads with that flow; the manual settings steps remain as a fallback.
 function CookieSetupChip() {
-  const read = () => { try { return document.documentElement.dataset.jthCookieApi === "0"; } catch (e) { return false; } };
-  const [need, setNeed] = useState(read);
+  const read = () => {
+    try {
+      const d = document.documentElement.dataset;
+      return { need: d.jthCookieApi === "0", ver: parseFloat(d.finvizHelperVersion || "0") };
+    } catch (e) { return { need: false, ver: 0 }; }
+  };
+  const [st, setSt] = useState(read);
   useEffect(() => {
-    const on = () => setNeed(read());
+    const on = () => setSt(read());
     window.addEventListener("finviz-helper-ready", on);
     let n = 0;
     const t = setInterval(() => { on(); if (++n > 15) clearInterval(t); }, 2000);
     return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
   }, []);
-  if (!need) return null;
+  if (!st.need) return null;
+  if (st.ver < 2.5) {
+    return (
+      <span className="emx-chip warn"
+            title={"This browser blocks third-party cookies and the helper can't register an exception here (no contentSettings API — Comet, Brave and most Chromium forks), so embedded logins don't stick.\n\nHelper v2.5 fixes this — update it:\n1. Download finviz-helper.zip again (link on this tab) and unzip it over the old folder.\n2. Open the browser's extensions page and click the ↻ reload icon on 'JerryTrade Site Helper' (or remove + Load unpacked again).\n3. Come back here, CLICK ANYWHERE inside the embedded site once, and approve the cookie/storage prompt if one appears.\n4. Sign in once — the login now persists."}>
+        ⚠ logins won't stick — update helper to v2.5 (hover)
+      </span>
+    );
+  }
   return (
     <span className="emx-chip warn"
-          title={"This browser can't let the helper register the cookie exception automatically (no contentSettings API — Comet, Brave and most Chromium forks). One-time fix so embedded logins persist:\n\n1. Open the browser's Settings and search for 'third-party cookies'.\n2. Under 'Sites allowed to use third-party cookies' click Add.\n3. Enter: dashboard.jerrytrade.com  (tick 'Include third-party cookies' if shown).\n4. Make sure the browser does NOT clear cookies on close.\n5. Reload this page and sign in once.\n\nBrave only: also set Shields → Cookies to 'Allow all' for this site."}>
-      ⚠ cookies: browser setting needed — hover for steps
+          title={"This browser blocks third-party cookies, so the embedded site must ask for cookie access itself (Storage Access API — helper v2.5 wires this up).\n\nOne-time per site:\n1. CLICK ANYWHERE inside the embedded site below.\n2. If the browser shows an Allow/cookie prompt, approve it. The frame reloads itself and the login sticks (~30 days, then one more click).\n3. Sign in once if asked.\n\nStill not sticking? Manual fallback: Settings → search 'third-party cookies' → 'Sites allowed to use third-party cookies' → Add dashboard.jerrytrade.com, and make sure cookies aren't cleared on close. Brave only: Shields → Cookies → 'Allow all' for this site."}>
+      ⚠ cookies blocked — click inside the site once (hover)
     </span>
   );
 }
