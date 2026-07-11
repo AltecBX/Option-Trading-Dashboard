@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.41";
+const APP_VERSION = "3.42";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3929,15 +3929,15 @@ function App() {
     title: "Manage watchlist",
     onClick: () => setShowWatchlistManager(true)
   }, "Manage (", watchlistData.symbols.length, ")"), /*#__PURE__*/React.createElement("button", {
-    className: "sb-manage-btn",
+    className: "sb-manage-btn sb-ext-fv",
     title: `Open ${ticker} in the embedded Finviz tab — fundamentals, news, insider activity, with two-way ticker sync.`,
     onClick: () => changeTab("finviz")
   }, "FV"), /*#__PURE__*/React.createElement("button", {
-    className: "sb-manage-btn",
+    className: "sb-manage-btn sb-ext-tv",
     title: `Open ${ticker} in the embedded TradingView tab — your real layouts, indicators and alerts, with two-way ticker sync.`,
     onClick: () => changeTab("tview")
   }, "TV"), /*#__PURE__*/React.createElement("button", {
-    className: "sb-manage-btn",
+    className: "sb-manage-btn sb-ext-uw",
     title: `Open ${ticker} in the embedded Unusual Whales tab — flow, sweeps, OI, IV, dark pool, with two-way ticker sync.`,
     onClick: () => changeTab("whales")
   }, "UW"))), /*#__PURE__*/React.createElement("div", {
