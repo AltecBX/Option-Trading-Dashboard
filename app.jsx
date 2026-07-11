@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.32";
+const APP_VERSION = "3.33";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3036,6 +3036,12 @@ function App() {
                 onClick={() => changeTab("finviz")}>
                 FV
               </button>
+              <button
+                className="sb-manage-btn"
+                title={`Open ${ticker} in the embedded TradingView tab — your real layouts, indicators and alerts, with two-way ticker sync.`}
+                onClick={() => changeTab("tview")}>
+                TV
+              </button>
             </div>
           </div>
           <div className="sb-preset-row">
@@ -4843,6 +4849,18 @@ function App() {
                 if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
               }}
               watchlistSymbols={watchlistData.symbols.map(x => x.symbol)}
+              onResearch={(sym) => { switchTicker(sym); changeTab("trade"); }}
+              onResearch1m={openIntraday} />
+          </CardErrorBoundary>
+        </TabPanel>
+
+        <TabPanel tab="tview" active={activeTab}>
+          <CardErrorBoundary label="TradingView">
+            <TVPanel ticker={ticker} onSwitchTicker={switchTicker} apiFetch={apiFetch}
+              inWatchlist={watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)}
+              onAddWatchlist={() => {
+                if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
+              }}
               onResearch={(sym) => { switchTicker(sym); changeTab("trade"); }}
               onResearch1m={openIntraday} />
           </CardErrorBoundary>

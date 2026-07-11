@@ -103,6 +103,7 @@ const TABS = [
   { id: "patterns", label: "Patterns" },
   { id: "news", label: "News" },
   { id: "finviz", label: "Finviz" },
+  { id: "tview", label: "TradingView" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
   { id: "juice", label: "0DTE Juice" },
@@ -185,6 +186,19 @@ const FINVIZ = {
   },
 };
 
+// ── TradingView embed helper (v3.33) ────────────────────────────────────────
+// Mirror of FINVIZ for tradingview.com — same helper extension (v2.0+)
+// unlocks the frame; the in-frame script reports the active chart symbol.
+const TVIEW = {
+  chartUrl(sym) { return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}`; },
+  url(path) { return `https://www.tradingview.com${path}`; },
+  follow() { return localStorage.getItem("jerry_tv_follow") !== "0"; }, // default ON
+  setFollow(v) { try { localStorage.setItem("jerry_tv_follow", v ? "1" : "0"); } catch (e) {} },
+  helperVersion() {
+    try { return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0"); } catch (e) { return 0; }
+  },
+};
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -193,4 +207,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, FINVIZ });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, FINVIZ, TVIEW });

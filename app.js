@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.32";
+const APP_VERSION = "3.33";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3932,7 +3932,11 @@ function App() {
     className: "sb-manage-btn",
     title: `Open ${ticker} in the embedded Finviz tab — fundamentals, news, insider activity, with two-way ticker sync.`,
     onClick: () => changeTab("finviz")
-  }, "FV"))), /*#__PURE__*/React.createElement("div", {
+  }, "FV"), /*#__PURE__*/React.createElement("button", {
+    className: "sb-manage-btn",
+    title: `Open ${ticker} in the embedded TradingView tab — your real layouts, indicators and alerts, with two-way ticker sync.`,
+    onClick: () => changeTab("tview")
+  }, "TV"))), /*#__PURE__*/React.createElement("div", {
     className: "sb-preset-row"
   }, starredSymbols.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "sb-watchlist-empty"
@@ -6264,6 +6268,24 @@ function App() {
       if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
     },
     watchlistSymbols: watchlistData.symbols.map(x => x.symbol),
+    onResearch: sym => {
+      switchTicker(sym);
+      changeTab("trade");
+    },
+    onResearch1m: openIntraday
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "tview",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "TradingView"
+  }, /*#__PURE__*/React.createElement(TVPanel, {
+    ticker: ticker,
+    onSwitchTicker: switchTicker,
+    apiFetch: apiFetch,
+    inWatchlist: watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker),
+    onAddWatchlist: () => {
+      if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
+    },
     onResearch: sym => {
       switchTicker(sym);
       changeTab("trade");
