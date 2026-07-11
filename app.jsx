@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.29";
+const APP_VERSION = "3.30";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -233,6 +233,10 @@ function App() {
   const openIntradayRef = React.useRef(null);
   const openIntraday = React.useCallback((sym) => {
     if (openIntradayRef.current) openIntradayRef.current(sym);
+  }, []);
+  const openFinvizRef = React.useRef(null);
+  const openFinviz = React.useCallback((sym) => {
+    if (openFinvizRef.current) openFinvizRef.current(sym);
   }, []);
   // Analyst data lifted to App level so the covered-call recommendation
   // engine and other downstream consumers can read it. AnalystCard owns
@@ -2083,6 +2087,7 @@ function App() {
   const [intradayData, setIntradayData] = useState(null);
   // Late-bind the radar's open-intraday action now that all pieces exist.
   openIntradayRef.current = (sym) => { switchTicker(sym); setChartTF("intraday"); changeTab("trade"); };
+  openFinvizRef.current = (sym) => { if (sym) switchTicker(sym); changeTab("finviz"); };
   useEffect(() => {
     if (chartTF !== "intraday") return undefined;
     let stop = false;
@@ -3024,6 +3029,12 @@ function App() {
                 title="Manage watchlist"
                 onClick={() => setShowWatchlistManager(true)}>
                 Manage ({watchlistData.symbols.length})
+              </button>
+              <button
+                className="sb-manage-btn"
+                title={`Open ${ticker} in the embedded Finviz tab — fundamentals, news, insider activity, with two-way ticker sync.`}
+                onClick={() => changeTab("finviz")}>
+                FV
               </button>
             </div>
           </div>
@@ -4824,13 +4835,21 @@ function App() {
 
         <TabPanel tab="finviz" active={activeTab}>
           <CardErrorBoundary label="Finviz companion">
-            <FinvizPanel ticker={ticker} onSwitchTicker={switchTicker} />
+            <FinvizPanel ticker={ticker} onSwitchTicker={switchTicker} apiFetch={apiFetch}
+              inWatchlist={watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)}
+              onToggleWatchlist={() => {
+                if (watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlRemoveSymbol(ticker);
+                else wlAddSymbol(ticker, {});
+              }}
+              watchlistSymbols={watchlistData.symbols.map(x => x.symbol)}
+              onResearch={(sym) => { switchTicker(sym); changeTab("trade"); }}
+              onResearch1m={openIntraday} />
           </CardErrorBoundary>
         </TabPanel>
 
         <TabPanel tab="juice" active={activeTab}>
           <CardErrorBoundary label="Premium Juice">
-            <PremiumJuiceCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+            <PremiumJuiceCard apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenFinviz={openFinviz} />
           </CardErrorBoundary>
         </TabPanel>
 
@@ -4839,7 +4858,7 @@ function App() {
             took the open back (the CRDO pattern). */}
         <CardErrorBoundary label="Open reclaim">
           <CardErrorBoundary label="Reversal Radar">
-            <ReversalRadarCard apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenIntraday={openIntraday} />
+            <ReversalRadarCard apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenIntraday={openIntraday} onOpenFinviz={openFinviz} />
           </CardErrorBoundary>
           <OpenReversalCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
         </CardErrorBoundary>

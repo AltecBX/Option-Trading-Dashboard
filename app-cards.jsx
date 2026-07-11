@@ -11566,7 +11566,8 @@ function CommandPalette({ open, onClose, onSwitchTicker, onChangeTab, symbols, a
       if (s > 0) out.push({ kind: "tab", id: t.id, label: t.label, hint: TAB_BLURBS[t.id] || "", s });
     });
     // Actions.
-    [{ id: "rescan", label: "Rescan watchlist now", hint: "Kick a fresh full-metrics scan" },
+    [{ id: "finviz", label: "Open in Finviz", hint: "Embedded Finviz on the active ticker", tab: "finviz" },
+     { id: "rescan", label: "Rescan watchlist now", hint: "Kick a fresh full-metrics scan" },
      { id: "journal", label: "Open Picks Journal", hint: "Score your logged early movers", tab: "journal" },
      { id: "breadth", label: "Open Market Breadth", hint: "Sector rotation map", tab: "breadth" }]
       .forEach(a => { const s = score(a.label); if (s > 0) out.push({ kind: "act", ...a, s }); });
@@ -11949,7 +11950,7 @@ function RRSpark({ points, side }) {
   );
 }
 
-function RRRow({ r, expanded, onToggle, onSwitchTicker, onOpenIntraday, apiFetch }) {
+function RRRow({ r, expanded, onToggle, onSwitchTicker, onOpenIntraday, onOpenFinviz, apiFetch }) {
   const [logged, setLogged] = useState(false);
   const scoreCls = r.score >= 80 ? "rr-hot" : r.score >= 70 ? "rr-warm" : "rr-cool";
   const tk = r.ticket || {};
@@ -12009,6 +12010,12 @@ function RRRow({ r, expanded, onToggle, onSwitchTicker, onOpenIntraday, apiFetch
                     title="Load this symbol on the Trade tab in 1-Min chart mode — VWAP bands, levels, and radar markers already drawn.">
               Chart →
             </button>
+            {onOpenFinviz && (
+              <button className="rr-btn" onClick={() => onOpenFinviz(r.symbol)}
+                      title="Open this symbol in the embedded Finviz tab — fundamentals, news, insider activity, short interest.">
+                Finviz →
+              </button>
+            )}
             <button className={`rr-btn ${logged ? "rr-logged" : ""}`} onClick={logPick} disabled={logged}
                     title="Write this signal + plan into the Picks Journal. (Signals scoring 70+ are also auto-logged server-side for the hit-rate report.)">
               {logged ? "Logged ✓" : "Log pick"}
@@ -12020,7 +12027,7 @@ function RRRow({ r, expanded, onToggle, onSwitchTicker, onOpenIntraday, apiFetch
   );
 }
 
-function ReversalRadarCard({ apiFetch, onSwitchTicker, onOpenIntraday }) {
+function ReversalRadarCard({ apiFetch, onSwitchTicker, onOpenIntraday, onOpenFinviz }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [open, setOpen] = useState(null); // "SYM|side"
@@ -12053,7 +12060,7 @@ function ReversalRadarCard({ apiFetch, onSwitchTicker, onOpenIntraday }) {
         <RRRow key={`${r.symbol}|${r.side}`} r={r} apiFetch={apiFetch}
                expanded={open === `${r.symbol}|${r.side}`}
                onToggle={() => setOpen(open === `${r.symbol}|${r.side}` ? null : `${r.symbol}|${r.side}`)}
-               onSwitchTicker={onSwitchTicker} onOpenIntraday={onOpenIntraday} />
+               onSwitchTicker={onSwitchTicker} onOpenIntraday={onOpenIntraday} onOpenFinviz={onOpenFinviz} />
       ))}
     </div>
   );
@@ -12234,7 +12241,7 @@ function PJStrategy({ s }) {
   );
 }
 
-function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
+function PremiumJuiceCard({ apiFetch, onSwitchTicker, onOpenFinviz }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [open, setOpen] = useState(null);
@@ -12412,6 +12419,10 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
                           <div className="rr-actions">
                             <button className="rr-btn" onClick={(e) => { e.stopPropagation(); onSwitchTicker && onSwitchTicker(r.symbol); }}
                                     title="Load this symbol on the Trade tab for the full chain and strike workbench.">Trade tab →</button>
+                            {onOpenFinviz && (
+                              <button className="rr-btn" onClick={(e) => { e.stopPropagation(); onOpenFinviz(r.symbol); }}
+                                      title="Open this symbol in the embedded Finviz tab — fundamentals, float, short interest, news.">Finviz →</button>
+                            )}
                           </div>
                         </div>
                       </td></tr>
@@ -12434,7 +12445,8 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
 // API; no data access, no other sites). With the helper present, the tab is
 // a full-height live Finviz frame that follows the global ticker; without
 // it, a clean setup panel with the download and honest platform notes.
-function FinvizPanel({ ticker, onSwitchTicker }) {
+function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onToggleWatchlist,
+                      watchlistSymbols, onResearch, onResearch1m, apiFetch }) {
   const [helper, setHelper] = useState(FINVIZ.helperPresent());
   const [follow, setFollow] = useState(FINVIZ.follow());
   const [base, setBase] = useState(FINVIZ.base().includes("elite") ? "elite" : "free");
@@ -12448,6 +12460,31 @@ function FinvizPanel({ ticker, onSwitchTicker }) {
   tickerRef.current = ticker;
   const followRef = useRef(follow);
   followRef.current = follow;
+
+  // App-intel badges for the active symbol: radar signal + juice score.
+  // Radar is already polled app-wide by the alerts loop (sharedJson dedupes);
+  // juice is fetched at a slow cadence only while this tab is mounted.
+  const [radarHit, setRadarHit] = useState(null);
+  const [juiceHit, setJuiceHit] = useState(null);
+  useEffect(() => {
+    if (!apiFetch) return undefined;
+    let stop = false;
+    const load = () => {
+      sharedJson(apiFetch, "/api/radar", 20 * 1000).then(d => {
+        if (stop || !d) return;
+        const hit = [...(d.long || []), ...(d.short || [])].find(r => r.symbol === ticker);
+        setRadarHit(hit ? { side: hit.side, score: hit.score } : null);
+      }).catch(() => {});
+      sharedJson(apiFetch, "/api/juice", 240 * 1000).then(d => {
+        if (stop || !d) return;
+        const hit = (d.rows || []).find(r => r.symbol === ticker);
+        setJuiceHit(hit ? { score: hit.score, dte: hit.dte } : null);
+      }).catch(() => {});
+    };
+    load();
+    const t = setInterval(skipWhenHidden(load), 45 * 1000);
+    return () => { stop = true; clearInterval(t); };
+  }, [ticker]);
 
   // Frame -> app: helper v1.3 posts {type:'fvh-ticker', symbol} from inside
   // the embedded Finviz page whenever it lands on a quote page (i.e. you
@@ -12490,11 +12527,54 @@ function FinvizPanel({ ticker, onSwitchTicker }) {
     if (follow && ticker && ticker !== frameSym.current) setSrc(FINVIZ.quoteUrl(ticker));
   }, [ticker, follow, base]);
 
+  const navChip = (label, path, tip) => (
+    <button key={label} className="fv-chip" onClick={() => setSrc(FINVIZ.base() + path)} title={tip}>{label}</button>
+  );
+  const wlScreenerPath = (() => {
+    const syms = (watchlistSymbols || []).slice(0, 100);
+    return syms.length ? `/screener.ashx?v=111&t=${syms.join(",")}` : null;
+  })();
   const toolbar = (
     <div className="fv-toolbar">
-      <span className="fv-now" title="The frame follows the dashboard's globally selected ticker. Change the symbol anywhere — radar, watchlist, search — and this view navigates with it.">
+      <span className="fv-now" title="The frame follows the dashboard's globally selected ticker — and clicking a stock inside Finviz drives it back. Change the symbol anywhere and this view navigates with it.">
         {ticker}
       </span>
+      {onToggleWatchlist && (
+        <button className={`fv-star ${inWatchlist ? "on" : ""}`} onClick={onToggleWatchlist}
+                title={inWatchlist
+                  ? `${ticker} is on your JerryTrade watchlist — click to remove it.`
+                  : `Add ${ticker} to your JerryTrade watchlist (scanned by the board, radar and juice from the next pass). No re-typing in Manage.`}>
+          {inWatchlist ? "★ on watchlist" : "☆ watchlist"}
+        </button>
+      )}
+      {radarHit && (
+        <span className={`emx-chip ${radarHit.side === "long" ? "up" : "warn"}`}
+              title={`The Reversal Radar has a live ${radarHit.side.toUpperCase()} signal on ${ticker} right now (score ${radarHit.score}/100). See the Scanners tab for the ticket.`}>
+          radar {radarHit.side === "long" ? "▲" : "▼"}{radarHit.score}
+        </span>
+      )}
+      {juiceHit && (
+        <span className="emx-chip earn"
+              title={`${ticker} is on the 0-3 DTE Premium Juice board (score ${juiceHit.score}, ${juiceHit.dte}d to expiry) — fat same-week premium. See the 0DTE Juice tab for structures.`}>
+          juice {juiceHit.score}
+        </span>
+      )}
+      {onResearch && (
+        <button className="rr-btn" onClick={() => onResearch(ticker)}
+                title={`Jump to the Trade tab with ${ticker} loaded — chart, expected move, strikes, trade builder.`}>
+          Trade →
+        </button>
+      )}
+      {onResearch1m && (
+        <button className="rr-btn" onClick={() => onResearch1m(ticker)}
+                title={`Jump straight to the 1-minute chart for ${ticker} — VWAP bands, day levels, radar markers.`}>
+          1-Min →
+        </button>
+      )}
+    </div>
+  );
+  const toolbar2 = (
+    <div className="fv-toolbar fv-row2">
       <button className={`pj-toggle ${follow ? "active" : ""}`}
               onClick={() => { FINVIZ.setFollow(!follow); setFollow(!follow); }}
               title="Two-way sync. ON: every symbol selected anywhere in the dashboard navigates this Finviz view — AND every stock you click inside Finviz (screener, maps, news) becomes the dashboard&#39;s active ticker, ready for research on any tab. OFF: browse Finviz freely with no effect either way.">
@@ -12512,6 +12592,14 @@ function FinvizPanel({ ticker, onSwitchTicker }) {
               title="Hard-reload the embedded Finviz view.">Reload</button>
       <a className="rr-btn fv-ext-link" href={src} target="_blank" rel="noopener noreferrer"
          title="Open the current view in a full browser tab (useful for printing or very dense screener work).">⧉</a>
+      <span className="fv-sep" />
+      {navChip("Screener", "/screener.ashx", "Your Finviz screener — saved Elite presets included. (Clicking a result drives the app's ticker.)")}
+      {navChip("Portfolio", "/portfolio.ashx", "Your Finviz portfolios and watchlists (account-synced).")}
+      {navChip("Map", "/map.ashx?t=sec", "S&P 500 heat map by sector.")}
+      {navChip("Earnings", "/calendar.ashx", "Economic & earnings calendar.")}
+      {navChip("News", "/news.ashx", "Finviz market news and blogs.")}
+      {wlScreenerPath && navChip("My watchlist", wlScreenerPath,
+        `Open Finviz's screener filtered to YOUR JerryTrade watchlist symbols${(watchlistSymbols || []).length > 100 ? " (first 100 of " + watchlistSymbols.length + ")" : ""} — run Finviz's fundamental and technical columns over your own list, no re-typing.`)}
     </div>
   );
 
@@ -12537,6 +12625,7 @@ function FinvizPanel({ ticker, onSwitchTicker }) {
           </div>
         </div>
         {toolbar}
+        {toolbar2}
         <iframe key={nonce} className="fv-frame" src={src} title="Finviz"
                 referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write" />
         <div className="fv-hint" title="If Finviz shows you as logged out inside this frame while a normal Finviz tab is logged in, your browser is isolating third-party cookies. Either allow cookies for finviz.com in the browser's settings, or simply log in once right here — most browsers keep an in-frame login alive across visits.">
