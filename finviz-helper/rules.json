@@ -5,12 +5,21 @@
     "action": {
       "type": "modifyHeaders",
       "responseHeaders": [
-        { "header": "x-frame-options", "operation": "remove" },
-        { "header": "content-security-policy", "operation": "remove" }
+        {
+          "header": "x-frame-options",
+          "operation": "remove"
+        },
+        {
+          "header": "content-security-policy",
+          "operation": "remove"
+        }
       ]
     },
     "condition": {
-      "requestDomains": ["finviz.com", "elite.finviz.com"],
+      "requestDomains": [
+        "finviz.com",
+        "elite.finviz.com"
+      ],
       "initiatorDomains": [
         "dashboard.jerrytrade.com",
         "localhost",
@@ -18,7 +27,44 @@
         "finviz.com",
         "elite.finviz.com"
       ],
-      "resourceTypes": ["sub_frame"]
+      "resourceTypes": [
+        "sub_frame"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "header": "x-frame-options",
+          "operation": "remove"
+        },
+        {
+          "header": "content-security-policy",
+          "operation": "remove"
+        },
+        {
+          "header": "content-security-policy-report-only",
+          "operation": "remove"
+        }
+      ]
+    },
+    "condition": {
+      "requestDomains": [
+        "tradingview.com"
+      ],
+      "initiatorDomains": [
+        "dashboard.jerrytrade.com",
+        "localhost",
+        "127.0.0.1",
+        "tradingview.com"
+      ],
+      "resourceTypes": [
+        "sub_frame"
+      ]
     }
   }
 ]

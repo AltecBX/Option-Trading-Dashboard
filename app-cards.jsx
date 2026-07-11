@@ -11513,6 +11513,7 @@ const TAB_BLURBS = {
   scanners: "Open-reclaim reversals + market-wide unusual-flow scans",
   juice: "0-3 DTE premium-selling scanner — fattest same-week straddles, ranked by Juice Score with ready-made strangle/condor/spread structures",
   finviz: "Finviz rendered inside the dashboard (via the one-time helper extension) — follows the global ticker, real Elite login and account",
+  tview: "TradingView Supercharts inside the dashboard (helper v2.0) — your real layouts, indicators and alerts, following the global ticker",
   breadth: "Which sectors are making highs vs lows — rotation map",
   journal: "Your logged early-mover picks, scored against live prices",
   watchlist: "Every tracked stock with full metrics, EDGE and setups",
@@ -11567,6 +11568,7 @@ function CommandPalette({ open, onClose, onSwitchTicker, onChangeTab, symbols, a
     });
     // Actions.
     [{ id: "finviz", label: "Open in Finviz", hint: "Embedded Finviz on the active ticker", tab: "finviz" },
+     { id: "tview", label: "Open in TradingView", hint: "Embedded Supercharts on the active ticker", tab: "tview" },
      { id: "rescan", label: "Rescan watchlist now", hint: "Kick a fresh full-metrics scan" },
      { id: "journal", label: "Open Picks Journal", hint: "Score your logged early movers", tab: "journal" },
      { id: "breadth", label: "Open Market Breadth", hint: "Sector rotation map", tab: "breadth" }]
@@ -12438,6 +12440,172 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker, onOpenFinviz }) {
   );
 }
 
+// ── TradingView embedded view (v3.33) ───────────────────────────────────────
+// Same architecture as the Finviz tab: the helper extension (v2.0+) lifts
+// TradingView's frame-ancestors block and keeps its login cookies working
+// inside the frame, so this is the REAL tradingview.com — your layouts,
+// indicators, alerts and watchlists. Two-way ticker sync: the app drives the
+// chart; changing the chart symbol inside TradingView drives the app.
+function TVPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
+                   onResearch, onResearch1m, apiFetch }) {
+  const needVer = 2.0;
+  const [helperVer, setHelperVer] = useState(TVIEW.helperVersion());
+  const [follow, setFollow] = useState(TVIEW.follow());
+  const [src, setSrc] = useState(() => TVIEW.chartUrl(ticker));
+  const [nonce, setNonce] = useState(0);
+  const frameSym = useRef(null);
+  const tickerRef = useRef(ticker);
+  tickerRef.current = ticker;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+
+  useEffect(() => {
+    if (helperVer >= needVer) return undefined;
+    const on = () => setHelperVer(TVIEW.helperVersion());
+    window.addEventListener("finviz-helper-ready", on);
+    let n = 0;
+    const t = setInterval(() => {
+      const v = TVIEW.helperVersion();
+      if (v >= needVer) { setHelperVer(v); clearInterval(t); }
+      if (++n > 20) clearInterval(t);
+    }, 1500);
+    return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
+  }, [helperVer]);
+
+  // Frame -> app: tv-sync.js reports the active chart symbol (from the
+  // page title) whenever it changes. Validate origin + symbol.
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (!/^https:\/\/([a-z0-9-]+\.)?tradingview\.com$/.test(e.origin)) return;
+      const d = e.data;
+      if (!d || d.type !== "jth-tv-ticker" || typeof d.symbol !== "string") return;
+      const sym = d.symbol.toUpperCase();
+      if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(sym)) return;
+      frameSym.current = sym;
+      if (followRef.current && onSwitchTicker && sym !== tickerRef.current) onSwitchTicker(sym);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onSwitchTicker]);
+
+  // App -> frame. NOTE: navigating reloads the whole TradingView chart app
+  // (it is heavy) — the frameSym guard prevents pointless reloads when the
+  // chart itself initiated the change.
+  useEffect(() => {
+    if (follow && ticker && ticker !== frameSym.current) setSrc(TVIEW.chartUrl(ticker));
+  }, [ticker, follow]);
+
+  // App-intel badges (same as the Finviz tab).
+  const [radarHit, setRadarHit] = useState(null);
+  useEffect(() => {
+    if (!apiFetch) return undefined;
+    let stop = false;
+    const load = () => sharedJson(apiFetch, "/api/radar", 20 * 1000).then(d => {
+      if (stop || !d) return;
+      const hit = [...(d.long || []), ...(d.short || [])].find(r => r.symbol === ticker);
+      setRadarHit(hit ? { side: hit.side, score: hit.score } : null);
+    }).catch(() => {});
+    load();
+    const t = setInterval(skipWhenHidden(load), 45 * 1000);
+    return () => { stop = true; clearInterval(t); };
+  }, [ticker]);
+
+  if (helperVer >= needVer) {
+    return (
+      <div className="card fv-card fv-live" style={{ marginBottom: "var(--row-gap)" }}>
+        <div className="card-head fv-head">
+          <div>
+            <div className="kicker" title="TradingView rendered directly from tradingview.com inside the dashboard — enabled by your Site Helper extension. Log in once inside the view (or be already logged in from a normal TradingView tab) and it is your REAL account: saved layouts, indicators, drawings, alerts and watchlists, synced everywhere.">
+              tradingview · embedded · helper v{helperVer.toFixed(1)}
+            </div>
+            <div className="card-title">TradingView</div>
+          </div>
+        </div>
+        <div className="fv-toolbar">
+          <span className="fv-now" title="The chart follows the dashboard's globally selected ticker — and changing the chart's symbol inside TradingView drives the app's ticker back (US-equity symbols only).">{ticker}</span>
+          {inWatchlist ? (
+            <span className="fv-star on fv-star-static"
+                  title={`${ticker} is on your JerryTrade watchlist. Not a button — removal only happens in Manage so tags and metadata can't be lost by a stray click.`}>
+              ★ on watchlist
+            </span>
+          ) : (onAddWatchlist && (
+            <button className="fv-star" onClick={onAddWatchlist}
+                    title={`Add ${ticker} to your JerryTrade watchlist. Add-only — this control can never remove.`}>
+              ☆ add to watchlist
+            </button>
+          ))}
+          {radarHit && (
+            <span className={`emx-chip ${radarHit.side === "long" ? "up" : "warn"}`}
+                  title={`Live Reversal Radar ${radarHit.side.toUpperCase()} signal on ${ticker} (score ${radarHit.score}/100) — see the Scanners tab for the ticket.`}>
+              radar {radarHit.side === "long" ? "▲" : "▼"}{radarHit.score}
+            </span>
+          )}
+          {onResearch && (
+            <button className="rr-btn" onClick={() => onResearch(ticker)}
+                    title={`Jump to the Trade tab with ${ticker} loaded.`}>Trade →</button>
+          )}
+          {onResearch1m && (
+            <button className="rr-btn" onClick={() => onResearch1m(ticker)}
+                    title={`Jump to the app's 1-minute chart for ${ticker} — VWAP bands, day levels, radar markers.`}>1-Min →</button>
+          )}
+        </div>
+        <div className="fv-toolbar fv-row2">
+          <button className={`pj-toggle ${follow ? "active" : ""}`}
+                  onClick={() => { TVIEW.setFollow(!follow); setFollow(!follow); }}
+                  title="Two-way sync. ON: ticker changes anywhere in the dashboard reload this chart to the new symbol, and symbol changes made inside TradingView drive the app. OFF: the chart stays put — recommended while you're drawing or working in one layout, since navigation reloads TradingView's (heavy) chart app.">
+            Follow {follow ? "ON" : "OFF"}
+          </button>
+          <button className="rr-btn" onClick={() => setSrc(TVIEW.chartUrl(ticker))}
+                  title="Point the chart back at the active ticker.">↺ {ticker}</button>
+          <button className="rr-btn" onClick={() => setNonce(n => n + 1)}
+                  title="Hard-reload the embedded TradingView.">Reload</button>
+          <a className="rr-btn fv-ext-link" href={src} target="_blank" rel="noopener noreferrer"
+             title="Open the current chart in a full browser tab.">⧉</a>
+          <span className="fv-sep" />
+          {[["Supercharts", "/chart/", "The full TradingView chart app — your saved layouts load here."],
+            ["Screener", "/screener/", "TradingView's stock screener."],
+            ["Heatmap", "/heatmap/sp500/", "S&P 500 heatmap."],
+            ["Calendar", "/economic-calendar/", "Economic calendar."],
+            ["News", "/news/", "TradingView news flow."]].map(([l, p, tip]) => (
+            <button key={l} className="fv-chip" onClick={() => setSrc(TVIEW.url(p))} title={tip}>{l}</button>
+          ))}
+        </div>
+        <iframe key={nonce} className="fv-frame" src={src} title="TradingView"
+                referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write; fullscreen" />
+        <div className="fv-hint" title="If TradingView shows you logged out inside the frame while a normal tab is logged in, reload this tab once — the helper upgrades existing login cookies on install and as they change. Alerts fire server-side on TradingView regardless of where the chart is open.">
+          It's the real tradingview.com — log in once (or arrive already logged in) and your layouts, indicators and alerts are all here.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card fv-card" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker" title="TradingView blocks embedding via CSP frame-ancestors — the same one-time helper that unlocks Finviz also unlocks TradingView from v2.0.">
+            tradingview · embedded view · helper v2.0 needed
+          </div>
+          <div className="card-title">Show TradingView inside this tab</div>
+        </div>
+      </div>
+      <div className="fv-setup">
+        {FINVIZ.isMobile() ? (
+          <>
+            <p>Mobile browsers don't support extensions, so the embedded view is desktop-only. Fastest route on this device:</p>
+            <a className="rr-btn fv-main" href={TVIEW.chartUrl(ticker)} target="_blank" rel="noopener noreferrer">Open TradingView — {ticker}</a>
+          </>
+        ) : (
+          <>
+            <p><b>Already have the Finviz helper?</b> Just update it: <a className="fv-dl" href="/finviz-helper.zip" download>download the new zip</a>, replace the folder's files, and click ↻ reload on the extension at <code>chrome://extensions</code> — v2.0 adds TradingView.</p>
+            <p>New here? Follow the same 4 steps shown on the Finviz tab.</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Finviz embedded view (v3.25) ───────────────────────────────────────────
 // Finviz rendered INSIDE the dashboard. Requires the JerryTrade Finviz
 // Helper — a tiny user-installed extension whose only capability is letting
@@ -12677,6 +12845,7 @@ const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   PremiumJuiceCard: _memo(PremiumJuiceCard),
   FinvizPanel: _memo(FinvizPanel),
+  TVPanel: _memo(TVPanel),
   ValuationCard: _memo(ValuationCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard), RadarReportCard: _memo(RadarReportCard),

@@ -1,6 +1,6 @@
-# JerryTrade Finviz Helper
+# JerryTrade Site Helper
 
-Lets **dashboard.jerrytrade.com** display Finviz inside its Finviz tab.
+Lets **dashboard.jerrytrade.com** display Finviz and TradingView inside their dashboard tabs.
 
 Finviz sends an `X-Frame-Options: SAMEORIGIN` header, which makes every
 browser refuse to render it inside another website. This helper — installed
@@ -32,6 +32,10 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.0 — TradingView support: the same frame-unlock, cookie exception and
+  SameSite upgrade now cover tradingview.com, and a tiny in-frame script
+  reports the active chart SYMBOL to the dashboard for two-way ticker sync
+  (US-equity symbols only; nothing else is read or sent).
 - v1.4 — Finviz's own Theme (light/dark) toggle now works inside the
   embedded view. Finviz saves the theme via a SameSite=Lax cookie that
   browsers reject in a cross-site frame; the helper intercepts the toggle

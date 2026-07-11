@@ -52,13 +52,15 @@ function applyCookieException() {
       note: "contentSettings API unavailable in this browser — relying on SameSite upgrade only" });
     return;
   }
-  for (const secondary of DASHBOARDS) {
-    chrome.contentSettings.cookies.set(
-      { primaryPattern: "https://[*.]finviz.com/*", secondaryPattern: secondary, setting: "allow" },
-      () => diag("content-setting", {
-        primary: "https://[*.]finviz.com/*", secondary,
-        error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null,
-      }));
+  for (const primary of ["https://[*.]finviz.com/*", "https://[*.]tradingview.com/*"]) {
+    for (const secondary of DASHBOARDS) {
+      chrome.contentSettings.cookies.set(
+        { primaryPattern: primary, secondaryPattern: secondary, setting: "allow" },
+        () => diag("content-setting", {
+          primary, secondary,
+          error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null,
+        }));
+    }
   }
 }
 chrome.runtime.onInstalled.addListener(applyCookieException);
@@ -68,7 +70,8 @@ chrome.runtime.onStartup.addListener(applyCookieException);
 chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
   try {
     const bare = (cookie.domain || "").replace(/^\./, "");
-    if (!(bare === "finviz.com" || bare.endsWith(".finviz.com"))) return;
+    const covered = ["finviz.com", "tradingview.com"];
+    if (!covered.some((d) => bare === d || bare.endsWith("." + d))) return;
     // Diagnostic: metadata only — NEVER the value.
     diag("cookie", { name: cookie.name, domain: cookie.domain, path: cookie.path,
                      sameSite: cookie.sameSite, secure: cookie.secure,
@@ -100,8 +103,11 @@ chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
 // One-time sweep on install/update: upgrade cookies that already exist
 // (e.g. you logged into Finviz in a normal tab before installing v1.2).
 function sweepExistingCookies() {
+  for (const dom of ["finviz.com", "tradingview.com"]) sweepDomain(dom);
+}
+function sweepDomain(dom) {
   try {
-    chrome.cookies.getAll({ domain: "finviz.com" }, (cookies) => {
+    chrome.cookies.getAll({ domain: dom }, (cookies) => {
       void chrome.runtime.lastError;
       (cookies || []).forEach((cookie) => {
         if (cookie.sameSite === "no_restriction") return;
