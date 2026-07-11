@@ -11512,7 +11512,7 @@ const TAB_BLURBS = {
   flow: "Options-flow intelligence from Unusual Whales",
   scanners: "Open-reclaim reversals + market-wide unusual-flow scans",
   juice: "0-3 DTE premium-selling scanner — fattest same-week straddles, ranked by Juice Score with ready-made strangle/condor/spread structures",
-  finviz: "Finviz Elite companion — one window driven by the app; every ticker switch here navigates it, using your real Finviz login",
+  finviz: "Finviz rendered inside the dashboard (via the one-time helper extension) — follows the global ticker, real Elite login and account",
   breadth: "Which sectors are making highs vs lows — rotation map",
   journal: "Your logged early-mover picks, scored against live prices",
   watchlist: "Every tracked stock with full metrics, EDGE and setups",
@@ -12427,90 +12427,120 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
-// ── Finviz Elite companion (v3.24) ─────────────────────────────────────────
-// Finviz blocks embedding (X-Frame-Options: SAMEORIGIN) and browsers forbid
-// sharing its cookies cross-origin, so this drives ONE named Finviz window
-// instead: log in there once with your Elite account (real session, synced
-// with your account everywhere), and every ticker switch in the dashboard
-// re-navigates it automatically. This panel is the control room + launcher.
+// ── Finviz embedded view (v3.25) ───────────────────────────────────────────
+// Finviz rendered INSIDE the dashboard. Requires the JerryTrade Finviz
+// Helper — a tiny user-installed extension whose only capability is letting
+// this dashboard embed finviz.com (Chrome's official declarativeNetRequest
+// API; no data access, no other sites). With the helper present, the tab is
+// a full-height live Finviz frame that follows the global ticker; without
+// it, a clean setup panel with the download and honest platform notes.
 function FinvizPanel({ ticker }) {
-  const [connected, setConnected] = useState(FINVIZ.connected());
+  const [helper, setHelper] = useState(FINVIZ.helperPresent());
   const [follow, setFollow] = useState(FINVIZ.follow());
   const [base, setBase] = useState(FINVIZ.base().includes("elite") ? "elite" : "free");
+  const [src, setSrc] = useState(() => FINVIZ.quoteUrl(ticker));
+  const [nonce, setNonce] = useState(0);      // manual reload counter
+
+  // Helper detection: the extension announces via a DOM dataset flag +
+  // event at document_start; poll briefly too in case we mounted first.
   useEffect(() => {
-    const t = setInterval(() => setConnected(FINVIZ.connected()), 2000);
-    return () => clearInterval(t);
-  }, []);
-  const B = FINVIZ.base();
-  const open = (url) => { FINVIZ.open(url); setConnected(true); };
-  const TICKER_LINKS = [
-    ["Quote & chart", `${B}/quote.ashx?t=${ticker}&p=d`, "The full Finviz quote page for the active ticker — chart, fundamentals, analyst ratings, insider trades, and news in one view."],
-    ["Intraday chart", `${B}/quote.ashx?t=${ticker}&p=i1`, "Finviz 1-minute intraday chart (Elite real-time)."],
-    ["News", `${B}/quote.ashx?t=${ticker}&p=d#news`, "Ticker news feed on the quote page."],
-  ];
-  const GLOBAL_LINKS = [
-    ["Screener", `${B}/screener.ashx`, "Your Finviz screener — all saved Elite screens live in your account and appear here."],
-    ["Portfolio / Watchlists", `${B}/portfolio.ashx`, "Your saved Finviz watchlists and portfolios (account-synced)."],
-    ["Map", `${B}/map.ashx?t=sec`, "S&P 500 heat map by sector."],
-    ["Groups", `${B}/groups.ashx`, "Sector & industry group performance."],
-    ["Futures", `${B}/futures.ashx`, "Futures dashboard."],
-    ["Insider", `${B}/insidertrading.ashx`, "Latest insider buys and sells market-wide."],
-    ["Market news", `${B}/news.ashx`, "Finviz market-wide news and blogs feed."],
-    ["Earnings", `${B}/calendar.ashx`, "Economic & earnings calendar."],
-  ];
+    if (helper) return undefined;
+    const on = () => setHelper(true);
+    window.addEventListener("finviz-helper-ready", on);
+    let n = 0;
+    const t = setInterval(() => {
+      if (FINVIZ.helperPresent()) { setHelper(true); clearInterval(t); }
+      if (++n > 20) clearInterval(t);
+    }, 1500);
+    return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
+  }, [helper]);
+
+  // Global ticker follow: the frame navigates whenever the app's active
+  // symbol changes (unless the user paused follow to browse the screener).
+  useEffect(() => {
+    if (follow && ticker) setSrc(FINVIZ.quoteUrl(ticker));
+  }, [ticker, follow, base]);
+
+  const toolbar = (
+    <div className="fv-toolbar">
+      <span className="fv-now" title="The frame follows the dashboard's globally selected ticker. Change the symbol anywhere — radar, watchlist, search — and this view navigates with it.">
+        {ticker}
+      </span>
+      <button className={`pj-toggle ${follow ? "active" : ""}`}
+              onClick={() => { FINVIZ.setFollow(!follow); setFollow(!follow); }}
+              title="Follow ticker: every symbol selected anywhere in the dashboard navigates this Finviz view immediately. Turn OFF to browse freely inside Finviz (screener, maps) without the frame being yanked to the next ticker.">
+        Follow {follow ? "ON" : "OFF"}
+      </button>
+      <div className="seg" title="Elite = your paid real-time account at elite.finviz.com. Free = the public site.">
+        {[["elite", "Elite"], ["free", "Free"]].map(([v, l]) => (
+          <button key={v} className={base === v ? "active" : ""}
+                  onClick={() => { FINVIZ.setBase(v); setBase(v); setSrc(FINVIZ.quoteUrl(ticker)); }}>{l}</button>
+        ))}
+      </div>
+      <button className="rr-btn" onClick={() => setSrc(FINVIZ.quoteUrl(ticker))}
+              title="Jump the frame back to the active ticker's quote page.">↺ {ticker}</button>
+      <button className="rr-btn" onClick={() => setNonce(n => n + 1)}
+              title="Hard-reload the embedded Finviz view.">Reload</button>
+      <a className="rr-btn fv-ext-link" href={src} target="_blank" rel="noopener noreferrer"
+         title="Open the current view in a full browser tab (useful for printing or very dense screener work).">⧉</a>
+    </div>
+  );
+
+  if (helper) {
+    return (
+      <div className="card fv-card fv-live" style={{ marginBottom: "var(--row-gap)" }}>
+        <div className="card-head">
+          <div>
+            <div className="kicker" title="Finviz is rendered directly from finviz.com inside the dashboard — enabled by your Finviz Helper extension. Your real login and account data apply: log in once inside this view and Finviz keeps the session the way it normally would. Saved screens, watchlists, portfolios and settings are your actual account, synced everywhere.">
+              finviz · embedded · helper active
+            </div>
+            <div className="card-title">Finviz</div>
+          </div>
+          {toolbar}
+        </div>
+        <iframe key={nonce} className="fv-frame" src={src} title="Finviz"
+                referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write" />
+        <div className="fv-hint" title="If Finviz shows you as logged out inside this frame while a normal Finviz tab is logged in, your browser is isolating third-party cookies. Either allow cookies for finviz.com in the browser's settings, or simply log in once right here — most browsers keep an in-frame login alive across visits.">
+          Log into Elite inside the frame once if prompted — it's the real finviz.com, so your account, screens and watchlists are all there.
+        </div>
+      </div>
+    );
+  }
+
+  // No helper: setup panel (desktop) / honest limitation note (mobile).
   return (
     <div className="card fv-card" style={{ marginBottom: "var(--row-gap)" }}>
       <div className="card-head">
         <div>
-          <div className="kicker" title="Finviz forbids embedding inside other sites (X-Frame-Options) and browsers forbid sharing its login cookies cross-origin — so instead of a broken iframe, the dashboard drives ONE named Finviz window. Log in there once with your Elite account; the session lives in your browser exactly like a normal Finviz tab (it IS finviz.com), stays across visits per Finviz's own login persistence, and everything — saved screens, watchlists, settings — is your real account, synced everywhere.">
-            finviz elite companion · {connected ? "connected" : "not connected"}
+          <div className="kicker" title="Finviz sends X-Frame-Options: SAMEORIGIN — every browser refuses to render it inside another site, and no website can override that from its side. The one-time helper below is the official, user-consented way to grant YOUR browser that ability, scoped to this dashboard only.">
+            finviz · embedded view · setup needed
           </div>
-          <div className="card-title">Finviz — driven by your dashboard</div>
-        </div>
-        <span className={`fv-status ${connected ? "on" : ""}`}
-              title={connected ? "The companion window is open. Ticker switches in the app navigate it automatically while Follow is on."
-                               : "No companion window yet — click 'Open Finviz' below. Your browser requires the first open to be a click (popup rules); after that the app can drive it."}>
-          {connected ? "● live" : "○ closed"}
-        </span>
-      </div>
-
-      <div className="fv-controls">
-        <button className="rr-btn fv-main" onClick={() => open(FINVIZ.quoteUrl(ticker))}
-                title={`Open (or focus) the companion window on ${ticker}. First time: log into your Finviz Elite account there — the login persists in your browser like any normal Finviz visit.`}>
-          Open Finviz → {ticker}
-        </button>
-        <button className={`pj-toggle ${follow ? "active" : ""}`}
-                onClick={() => { FINVIZ.setFollow(!follow); setFollow(!follow); }}
-                title="Follow ticker: every symbol you select anywhere in the dashboard automatically navigates the companion window to that ticker's Finviz page (without stealing focus). Turn off to drive Finviz manually.">
-          Follow ticker {follow ? "ON" : "OFF"}
-        </button>
-        <div className="seg" title="Which Finviz domain to drive. Elite = your paid real-time account (elite.finviz.com). Free = the public site.">
-          {[["elite", "Elite"], ["free", "Free"]].map(([v, l]) => (
-            <button key={v} className={base === v ? "active" : ""}
-                    onClick={() => { FINVIZ.setBase(v); setBase(v); }}>{l}</button>
-          ))}
+          <div className="card-title">Show Finviz inside this tab</div>
         </div>
       </div>
-
-      <div className="fv-note" title="Why not embedded in the page? Finviz sends X-Frame-Options: SAMEORIGIN — the browser refuses to render it inside dashboard.jerrytrade.com, and working around that (proxy re-hosting) would break your login and violate their terms. The companion window is the compliant equivalent: same screen real estate side-by-side, your real session, zero re-typing of tickers.">
-        Put the companion on a second monitor or split screen — the dashboard is the remote control. Log in once; Finviz keeps you signed in like any normal visit, and your saved screens / watchlists / settings are your real account, synced everywhere.
-      </div>
-
-      <div className="fv-grid-title" title="Pages for the ACTIVE dashboard ticker.">For {ticker}</div>
-      <div className="fv-grid">
-        {TICKER_LINKS.map(([l, u, tip]) => (
-          <button key={l} className="fv-link" onClick={() => open(u)} title={tip}>{l}</button>
-        ))}
-      </div>
-      <div className="fv-grid-title" title="Account-level Finviz tools. Everything you save there is stored in your Finviz account — visible on any device.">Your Finviz</div>
-      <div className="fv-grid">
-        {GLOBAL_LINKS.map(([l, u, tip]) => (
-          <button key={l} className="fv-link" onClick={() => open(u)} title={tip}>{l}</button>
-        ))}
-      </div>
+      {FINVIZ.isMobile() ? (
+        <div className="fv-setup">
+          <p>Mobile browsers don't support extensions, and Finviz itself blocks being displayed inside other sites — so the embedded view is desktop-only. On this device, the fastest route is Finviz directly:</p>
+          <a className="rr-btn fv-main" href={FINVIZ.quoteUrl(ticker)} target="_blank" rel="noopener noreferrer">Open Finviz — {ticker}</a>
+        </div>
+      ) : (
+        <div className="fv-setup">
+          <p><b>One-time setup (~1 minute), Chrome / Edge / Brave:</b></p>
+          <ol>
+            <li><a className="fv-dl" href="/finviz-helper.zip" download title="A four-file extension: a rule that lets THIS dashboard embed finviz.com, and a one-line script that tells the dashboard it's installed. No data access, no other sites — the README inside explains every line.">Download the Finviz Helper</a> and unzip it.</li>
+            <li>Open <code>chrome://extensions</code>, switch on <b>Developer mode</b> (top-right).</li>
+            <li>Click <b>Load unpacked</b> and pick the unzipped <code>finviz-helper</code> folder.</li>
+            <li>Come back here and reload — this panel becomes a live, full-height Finviz that follows every ticker you select.</li>
+          </ol>
+          <p className="fv-fineprint" title="Why is this needed? Finviz sends X-Frame-Options: SAMEORIGIN, which makes browsers refuse to render it inside any other website. The helper uses Chrome's official declarativeNetRequest API — installed and controlled by you — to permit exactly one thing: Finviz displayed inside this dashboard. Nothing is proxied or scraped; Finviz loads from Finviz with your own cookies, so your Elite login and account data work as normal.">
+            Why a helper? Finviz blocks all embedding at the browser level; this is the official, user-consented way to allow it — for this dashboard only. Hover for the full story.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
 
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
