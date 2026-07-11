@@ -26,6 +26,15 @@ What it can and cannot do:
 4. Click **Load unpacked** and select the unzipped `finviz-helper` folder.
 5. Reload the JerryTrade dashboard — the Finviz tab now shows Finviz live.
 
+## Updating
+
+Already installed an older version? Download the new zip, replace the
+unzipped folder's contents, then click the ↻ reload icon on the extension's
+card at `chrome://extensions` (or remove + Load unpacked again).
+
+- v1.1 — navigation *inside* the embedded frame (Login, menu links) is now
+  covered too; v1.0 only allowed the initial page load.
+
 ## Login notes
 
 - Log into Finviz Elite inside the embedded view once; the session persists

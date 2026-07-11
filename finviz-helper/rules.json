@@ -11,7 +11,13 @@
     },
     "condition": {
       "requestDomains": ["finviz.com", "elite.finviz.com"],
-      "initiatorDomains": ["dashboard.jerrytrade.com", "localhost", "127.0.0.1"],
+      "initiatorDomains": [
+        "dashboard.jerrytrade.com",
+        "localhost",
+        "127.0.0.1",
+        "finviz.com",
+        "elite.finviz.com"
+      ],
       "resourceTypes": ["sub_frame"]
     }
   }
