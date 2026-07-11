@@ -2839,6 +2839,14 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   cursor: pointer;
   white-space: nowrap;
 }
+/* Brand-colored site buttons (v3.42) — FV/TV/UW must read as site links,
+   not stock symbols: Finviz Elite blue, TradingView cyan, Whales blue. */
+.sb-manage-btn.sb-ext-fv { color: #5B8DEF; border-color: rgba(91, 141, 239, 0.55); }
+.sb-manage-btn.sb-ext-tv { color: #00BCD4; border-color: rgba(0, 188, 212, 0.55); }
+.sb-manage-btn.sb-ext-uw { color: #7FB8E6; border-color: rgba(127, 184, 230, 0.55); }
+.sb-manage-btn.sb-ext-fv:hover { color: #5B8DEF; border-color: #5B8DEF; }
+.sb-manage-btn.sb-ext-tv:hover { color: #00BCD4; border-color: #00BCD4; }
+.sb-manage-btn.sb-ext-uw:hover { color: #7FB8E6; border-color: #7FB8E6; }
 .sb-manage-btn:hover {
   background: var(--bg-2);
   color: var(--fg);
