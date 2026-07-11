@@ -12613,9 +12613,9 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onToggleWatchlist,
               {(() => {
                 try {
                   const v = document.documentElement.dataset.finvizHelperVersion;
-                  if (!v || parseFloat(v) < 1.3) {
+                  if (!v || parseFloat(v) < 1.4) {
                     return <a className="fv-upd" href="/finviz-helper.zip" download
-                              title="Helper v1.3 adds click-to-research: stocks you click inside Finviz become the dashboard's active ticker (v1.2 made the login persist). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions."> · update helper to v1.3</a>;
+                              title="Helper v1.4 makes Finviz's own light/dark Theme toggle work inside the embedded view (browsers reject Finviz's SameSite=Lax theme cookie in a frame; the helper writes it via the cookies API instead). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions."> · update helper to v1.4</a>;
                   }
                 } catch (e) {}
                 return null;
