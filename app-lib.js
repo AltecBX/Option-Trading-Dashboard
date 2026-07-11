@@ -147,7 +147,7 @@ const TABS = [{
   label: "TradingView"
 }, {
   id: "whales",
-  label: "Whales"
+  label: "Unusual Whales"
 }, {
   id: "flow",
   label: "Flow"

@@ -8757,6 +8757,19 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .wl-ctx button.wl-ctx-danger:hover { background: color-mix(in oklch, #ff6b6b 16%, transparent); }
 
 /* Draggable top tabs (reorderable, order saved globally). */
+/* Two-row tab bar (v3.38): app sections on top, linked sites below. */
+.tab-bar-2row { display: block; }
+.tab-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tab-row-ext { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; }
+.tab-row-lbl { font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3);
+  margin: 0 6px 0 6px; cursor: help; }
+@media (max-width: 760px) {
+  .tab-bar-2row { -webkit-mask-image: none !important; mask-image: none !important; }
+  .tab-row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .tab-row::-webkit-scrollbar { display: none; }
+}
+
 .tab-bar .tab-btn { cursor: pointer; }
 .tab-bar .tab-btn.dragging { opacity: .45; }
 .tab-bar .tab-btn.drop-target { box-shadow: inset 2px 0 0 var(--accent); }

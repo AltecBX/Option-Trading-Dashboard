@@ -104,7 +104,7 @@ const TABS = [
   { id: "news", label: "News" },
   { id: "finviz", label: "Finviz" },
   { id: "tview", label: "TradingView" },
-  { id: "whales", label: "Whales" },
+  { id: "whales", label: "Unusual Whales" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
   { id: "juice", label: "0DTE Juice" },
