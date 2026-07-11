@@ -66,35 +66,61 @@ function applyCookieException() {
 chrome.runtime.onInstalled.addListener(applyCookieException);
 chrome.runtime.onStartup.addListener(applyCookieException);
 
-// ── 2) SameSite upgrade for finviz cookies ──────────────────────────────────
+// ── 2) SameSite upgrade — finviz + unusualwhales ONLY ───────────────────────
+// v2.2: tradingview.com is deliberately EXCLUDED. Rewriting TV's cookies
+// (v2.0/2.1) corrupted their anti-abuse/CSRF cookie state and produced
+// duplicate partitioned/unpartitioned copies — TV's backend then errored on
+// every route ("Back before you know it"). TV works framed without any
+// rewriting. Additional safety everywhere: never touch known anti-abuse
+// cookies, never touch partitioned cookies, and delete-before-set so a
+// rewrite can never create a duplicate.
+const REWRITE_DOMAINS = ["finviz.com", "unusualwhales.com"];
+const SKIP_COOKIE = /^(cf_clearance|__cf|_cfuvid|datadome|__ddg|_px|_dd_s|__stripe)/i;
+
+function upgradeCookie(cookie, why) {
+  const bare = (cookie.domain || "").replace(/^\./, "");
+  const details = {
+    url: "https://" + bare + (cookie.path || "/"),
+    name: cookie.name,
+    value: cookie.value,
+    path: cookie.path,
+    secure: true,
+    httpOnly: cookie.httpOnly,
+    sameSite: "no_restriction",
+    storeId: cookie.storeId,
+  };
+  if (!cookie.hostOnly) details.domain = cookie.domain;
+  if (!cookie.session && cookie.expirationDate) details.expirationDate = cookie.expirationDate;
+  // Delete first so the rewrite can never leave two copies behind.
+  chrome.cookies.remove({ url: details.url, name: cookie.name, storeId: cookie.storeId }, () => {
+    void chrome.runtime.lastError;
+    chrome.cookies.set(details, (c) =>
+      diag("cookie-upgraded", { name: cookie.name, why, ok: !!c,
+        error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null }));
+  });
+}
+
+function eligible(cookie) {
+  const bare = (cookie.domain || "").replace(/^\./, "");
+  if (!REWRITE_DOMAINS.some((d) => bare === d || bare.endsWith("." + d))) return false;
+  if (SKIP_COOKIE.test(cookie.name || "")) return false;
+  if (cookie.partitionKey) return false;          // frame-partitioned: leave alone
+  if (cookie.sameSite === "no_restriction") return false;
+  return true;
+}
+
 chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
   try {
     const bare = (cookie.domain || "").replace(/^\./, "");
-    const covered = ["finviz.com", "tradingview.com", "unusualwhales.com"];
-    if (!covered.some((d) => bare === d || bare.endsWith("." + d))) return;
-    // Diagnostic: metadata only — NEVER the value.
+    const watched = ["finviz.com", "tradingview.com", "unusualwhales.com"];
+    if (!watched.some((d) => bare === d || bare.endsWith("." + d))) return;
     diag("cookie", { name: cookie.name, domain: cookie.domain, path: cookie.path,
                      sameSite: cookie.sameSite, secure: cookie.secure,
                      session: cookie.session, hostOnly: cookie.hostOnly,
-                     removed, cause });
-    if (removed || cookie.sameSite === "no_restriction") return;
-    // Re-write the SAME cookie with SameSite=None; Secure so the embedded
-    // (cross-site) frame can use it. Everything else is preserved.
-    const details = {
-      url: "https://" + bare + (cookie.path || "/"),
-      name: cookie.name,
-      value: cookie.value,
-      path: cookie.path,
-      secure: true,
-      httpOnly: cookie.httpOnly,
-      sameSite: "no_restriction",
-      storeId: cookie.storeId,
-    };
-    if (!cookie.hostOnly) details.domain = cookie.domain;
-    if (!cookie.session && cookie.expirationDate) details.expirationDate = cookie.expirationDate;
-    chrome.cookies.set(details, (c) =>
-      diag("cookie-upgraded", { name: cookie.name, ok: !!c,
-        error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null }));
+                     partitioned: !!cookie.partitionKey, removed, cause });
+    if (removed || cause === "overwrite") return;
+    if (!eligible(cookie)) return;
+    upgradeCookie(cookie, "changed");
   } catch (e) {
     diag("cookie-error", { message: String(e && e.message || e) });
   }
@@ -103,30 +129,50 @@ chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
 // One-time sweep on install/update: upgrade cookies that already exist
 // (e.g. you logged into Finviz in a normal tab before installing v1.2).
 function sweepExistingCookies() {
-  for (const dom of ["finviz.com", "tradingview.com", "unusualwhales.com"]) sweepDomain(dom);
+  for (const dom of REWRITE_DOMAINS) sweepDomain(dom);
 }
 function sweepDomain(dom) {
   try {
     chrome.cookies.getAll({ domain: dom }, (cookies) => {
       void chrome.runtime.lastError;
-      (cookies || []).forEach((cookie) => {
-        if (cookie.sameSite === "no_restriction") return;
-        const bare = (cookie.domain || "").replace(/^\./, "");
-        const details = {
-          url: "https://" + bare + (cookie.path || "/"),
-          name: cookie.name, value: cookie.value, path: cookie.path,
-          secure: true, httpOnly: cookie.httpOnly,
-          sameSite: "no_restriction", storeId: cookie.storeId,
-        };
-        if (!cookie.hostOnly) details.domain = cookie.domain;
-        if (!cookie.session && cookie.expirationDate) details.expirationDate = cookie.expirationDate;
-        chrome.cookies.set(details, () => void chrome.runtime.lastError);
-      });
-      diag("cookie-sweep", { count: (cookies || []).length });
+      (cookies || []).forEach((cookie) => { if (eligible(cookie)) upgradeCookie(cookie, "sweep"); });
+      diag("cookie-sweep", { domain: dom, count: (cookies || []).length });
     });
   } catch (e) { /* no-op */ }
 }
 chrome.runtime.onInstalled.addListener(sweepExistingCookies);
+
+// ── 2b) One-time TradingView repair (v2.2) ──────────────────────────────────
+// Undo the damage the earlier rewriting did: clear tradingview.com cookies
+// ONCE on update so the browser rebuilds a clean jar. You'll need to log
+// into TradingView once afterwards (normal tab or the embedded view).
+function clearDomainCookies(dom, done) {
+  chrome.cookies.getAll({ domain: dom }, (cookies) => {
+    void chrome.runtime.lastError;
+    let n = (cookies || []).length;
+    if (!n) { done && done(0); return; }
+    let left = n;
+    (cookies || []).forEach((cookie) => {
+      const bare = (cookie.domain || "").replace(/^\./, "");
+      chrome.cookies.remove({
+        url: (cookie.secure ? "https://" : "http://") + bare + (cookie.path || "/"),
+        name: cookie.name, storeId: cookie.storeId,
+      }, () => { void chrome.runtime.lastError; if (--left === 0) done && done(n); });
+    });
+  });
+}
+chrome.runtime.onInstalled.addListener(() => {
+  try {
+    chrome.storage.local.get("tvRepair22", (st) => {
+      void chrome.runtime.lastError;
+      if (st && st.tvRepair22) return;
+      clearDomainCookies("tradingview.com", (n) => {
+        diag("tv-repair", { cleared: n });
+        chrome.storage.local.set({ tvRepair22: true }, () => void chrome.runtime.lastError);
+      });
+    });
+  } catch (e) { /* no-op */ }
+});
 
 // ── 3) Theme cookie writer (v1.4) ───────────────────────────────────────────
 // Finviz's own theme endpoint answers with a SameSite=Lax Set-Cookie, which
@@ -134,6 +180,14 @@ chrome.runtime.onInstalled.addListener(sweepExistingCookies);
 // the toggle and asks us to write the same preference cookie through the
 // cookies API instead — no page content involved, just one named cookie.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === "jth-clear-cookies"
+      && ["tradingview.com", "finviz.com", "unusualwhales.com"].includes(msg.domain)) {
+    clearDomainCookies(msg.domain, (n) => {
+      diag("clear-cookies", { domain: msg.domain, cleared: n });
+      sendResponse({ ok: true, cleared: n });
+    });
+    return true;  // async
+  }
   if (!msg || msg.type !== "fvh-set-theme" || !/^(light|dark)$/.test(msg.value)) return;
   chrome.cookies.set({
     url: "https://finviz.com/",
