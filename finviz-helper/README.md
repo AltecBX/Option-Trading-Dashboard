@@ -32,6 +32,15 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.3 — TradingView login persistence, done right. v2.2 stopped touching
+  TV cookies entirely, which fixed the error pages but meant the browser
+  wouldn't send TV's SameSite-restricted auth cookies inside the frame —
+  you were asked to log in on every page. v2.3 rewrites ONLY TradingView's
+  named auth cookies (sessionid, sessionid_sign, device_t, csrftoken) to
+  SameSite=None; Secure. Anti-abuse cookies are never touched, so the
+  corruption cannot recur. Tip: sign in via the TV tab's 'Sign in ↗'
+  popup (a normal first-party page), then the embedded view stays signed
+  in everywhere.
 - v2.2 — TradingView repair. v2.0/2.1 rewrote TV cookies, which corrupted
   their anti-abuse cookie state and made EVERY TradingView page show 'Back
   before you know it' inside the embed. v2.2 stops touching TV cookies

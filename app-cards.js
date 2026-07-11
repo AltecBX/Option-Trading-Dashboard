@@ -16882,6 +16882,28 @@ function TVPanel({
     }, "Reload"), /*#__PURE__*/React.createElement("button", {
       className: "rr-btn",
       onClick: () => {
+        // First-party sign-in: a normal top-level popup where the
+        // browser accepts TV's cookies unconditionally. The helper
+        // (v2.3+) then rewrites ONLY the named auth cookies so the
+        // embedded frame sends them too. When the popup closes,
+        // reload the frame — it comes back signed in.
+        const w = window.open("https://www.tradingview.com/accounts/signin/", "jerry_tv_login", "width=520,height=760,noopener=no");
+        if (!w) return;
+        const t = setInterval(() => {
+          try {
+            if (w.closed) {
+              clearInterval(t);
+              setNonce(n => n + 1);
+            }
+          } catch (e) {
+            clearInterval(t);
+          }
+        }, 800);
+      },
+      title: "Getting asked to log in on every TradingView page? Sign in HERE once: this opens TradingView's real sign-in page as a normal popup (first-party, so the login always sticks), and with helper v2.3+ the embedded view picks the session up automatically when the popup closes."
+    }, "Sign in ↗"), /*#__PURE__*/React.createElement("button", {
+      className: "rr-btn",
+      onClick: () => {
         // Ask the helper (v2.2+) to clear tradingview.com cookies —
         // the fix for TV's 'Back before you know it' error page,
         // which a corrupted cookie jar causes on every route.
@@ -16906,13 +16928,13 @@ function TVPanel({
     }, "Repair session"), (() => {
       try {
         const v = document.documentElement.dataset.finvizHelperVersion;
-        if (!v || parseFloat(v) < 2.2) {
+        if (!v || parseFloat(v) < 2.3) {
           return /*#__PURE__*/React.createElement("a", {
             className: "fv-upd",
             href: "/finviz-helper.zip",
             download: true,
-            title: "Helper v2.2 fixes the TradingView 'Back before you know it' errors: it stops rewriting TV cookies (the root cause), clears the damaged cookie jar once automatically, and adds this Repair button's machinery. Download, replace the folder's files, reload the extension at chrome://extensions."
-          }, "update helper to v2.2");
+            title: "Helper v2.3 makes the TradingView LOGIN persist inside the embedded view (surgical rewrite of only TV's auth cookies — anti-abuse cookies stay untouched so the error-page corruption can't recur). Download, replace the folder's files, reload the extension at chrome://extensions."
+          }, "update helper to v2.3");
         }
       } catch (e) {}
       return null;
@@ -16939,7 +16961,7 @@ function TVPanel({
     }), /*#__PURE__*/React.createElement("div", {
       className: "fv-hint",
       title: "If TradingView shows you logged out inside the frame while a normal tab is logged in, reload this tab once — the helper upgrades existing login cookies on install and as they change. Alerts fire server-side on TradingView regardless of where the chart is open."
-    }, "It's the real tradingview.com — log in once (or arrive already logged in) and your layouts, indicators and alerts are all here."));
+    }, "Asked to log in repeatedly? Use 'Sign in ↗' above once — it signs you in on a normal TradingView page, and the embedded view (helper v2.3+) picks the session up automatically. Layouts, indicators and alerts are your real account."));
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "card fv-card",

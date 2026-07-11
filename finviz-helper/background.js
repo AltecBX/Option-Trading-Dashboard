@@ -76,6 +76,12 @@ chrome.runtime.onStartup.addListener(applyCookieException);
 // rewrite can never create a duplicate.
 const REWRITE_DOMAINS = ["finviz.com", "unusualwhales.com"];
 const SKIP_COOKIE = /^(cf_clearance|__cf|_cfuvid|datadome|__ddg|_px|_dd_s|__stripe)/i;
+// TradingView (v2.3): SURGICAL allow-list. Blanket rewriting corrupted TV's
+// anti-abuse cookie state (the 'Back before you know it' incident), but with
+// NO rewriting the login can't work framed — TV's auth cookies are
+// SameSite-restricted, so the browser refuses to send them cross-site. The
+// middle path: rewrite ONLY the named auth cookies, nothing else, ever.
+const TV_AUTH_COOKIE = /^(sessionid|sessionid_sign|device_t|csrftoken)$/;
 
 function upgradeCookie(cookie, why) {
   const bare = (cookie.domain || "").replace(/^\./, "");
@@ -102,11 +108,13 @@ function upgradeCookie(cookie, why) {
 
 function eligible(cookie) {
   const bare = (cookie.domain || "").replace(/^\./, "");
-  if (!REWRITE_DOMAINS.some((d) => bare === d || bare.endsWith("." + d))) return false;
-  if (SKIP_COOKIE.test(cookie.name || "")) return false;
   if (cookie.partitionKey) return false;          // frame-partitioned: leave alone
   if (cookie.sameSite === "no_restriction") return false;
-  return true;
+  if (SKIP_COOKIE.test(cookie.name || "")) return false;
+  if (bare === "tradingview.com" || bare.endsWith(".tradingview.com")) {
+    return TV_AUTH_COOKIE.test(cookie.name || "");   // allow-list ONLY
+  }
+  return REWRITE_DOMAINS.some((d) => bare === d || bare.endsWith("." + d));
 }
 
 chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
@@ -129,7 +137,7 @@ chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
 // One-time sweep on install/update: upgrade cookies that already exist
 // (e.g. you logged into Finviz in a normal tab before installing v1.2).
 function sweepExistingCookies() {
-  for (const dom of REWRITE_DOMAINS) sweepDomain(dom);
+  for (const dom of [...REWRITE_DOMAINS, "tradingview.com"]) sweepDomain(dom);
 }
 function sweepDomain(dom) {
   try {
