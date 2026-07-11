@@ -6427,6 +6427,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Compact header + a single horizontal toolbar ROW (v3.27 — it used to sit
    inside card-head where it wrapped into a tall vertical stack). */
 .fv-head { margin-bottom: 0 !important; }
+.fv-upd { color: var(--warn); font-weight: 800; text-decoration: underline; cursor: pointer; }
 .fv-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   flex-direction: row; width: 100%; margin-top: 8px; }
 .fv-now { font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: var(--fg);

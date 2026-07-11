@@ -32,17 +32,32 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v1.2 — login now STICKS inside the embedded view. Finviz's session cookies
+  are SameSite=Lax, which browsers refuse to use inside a cross-site frame;
+  the helper now (a) registers a third-party-cookie exception for finviz
+  under the dashboard (the same exception you could add by hand in Chrome's
+  settings) and (b) rewrites finviz cookies' METADATA to SameSite=None;
+  Secure so the frame can use them. Cookie values never leave your browser
+  and are never logged. Requires two new permissions: "cookies" and
+  "contentSettings" — Chrome will ask you to approve them on update.
 - v1.1 — navigation *inside* the embedded frame (Login, menu links) is now
   covered too; v1.0 only allowed the initial page load.
 
 ## Login notes
 
-- Log into Finviz Elite inside the embedded view once; the session persists
-  the way Finviz and your browser normally allow.
-- If the login doesn't stick, your browser is blocking third-party cookies.
-  Either allow cookies for `finviz.com`/`elite.finviz.com` in the browser's
-  cookie settings, or log in at elite.finviz.com in a normal tab first, then
-  reload the dashboard.
+- Log into Finviz Elite inside the embedded view once (tick "Remember me");
+  with v1.2 the session persists across ticker changes, reloads and visits,
+  and it is the SAME session as a normal finviz.com tab.
+- Brave: also set Shields → Cookies to "Allow all" for the dashboard site,
+  as Shields applies its own blocking above Chrome's.
+
+## Diagnostics (temporary)
+
+The helper logs cookie NAMES, domains, SameSite attributes, rule matches
+and content-setting results — never values, passwords, or tokens. See them
+in the dashboard page's DevTools console as "[finviz-helper] …" lines, or in
+the extension's own console (chrome://extensions → Inspect views: service
+worker).
 
 Firefox/Safari and all mobile browsers do not support this kind of
 extension; on those, the Finviz tab explains the limitation.
