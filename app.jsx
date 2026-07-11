@@ -2083,6 +2083,10 @@ function App() {
   const [intradayData, setIntradayData] = useState(null);
   // Late-bind the radar's open-intraday action now that all pieces exist.
   openIntradayRef.current = (sym) => { switchTicker(sym); setChartTF("intraday"); changeTab("trade"); };
+  // Finviz companion auto-follow (v3.24): every global ticker switch drives
+  // the companion window to that symbol's Finviz page. Never steals focus;
+  // silently no-ops until the user has opened the companion once.
+  useEffect(() => { FINVIZ.followTicker(ticker); }, [ticker]);
   useEffect(() => {
     if (chartTF !== "intraday") return undefined;
     let stop = false;
