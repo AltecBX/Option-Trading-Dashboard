@@ -122,7 +122,31 @@ function sweepExistingCookies() {
 }
 chrome.runtime.onInstalled.addListener(sweepExistingCookies);
 
-// ── 3) DNR rule-match diagnostics (available for unpacked extensions) ──────
+// ── 3) Theme cookie writer (v1.4) ───────────────────────────────────────────
+// Finviz's own theme endpoint answers with a SameSite=Lax Set-Cookie, which
+// browsers reject inside a cross-site frame. The in-frame script intercepts
+// the toggle and asks us to write the same preference cookie through the
+// cookies API instead — no page content involved, just one named cookie.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== "fvh-set-theme" || !/^(light|dark)$/.test(msg.value)) return;
+  chrome.cookies.set({
+    url: "https://finviz.com/",
+    name: "chartsTheme",
+    value: msg.value,
+    domain: ".finviz.com",
+    path: "/",
+    secure: true,
+    sameSite: "no_restriction",
+    expirationDate: Math.floor(Date.now() / 1000) + 365 * 86400,
+  }, (c) => {
+    diag("theme", { value: msg.value, ok: !!c,
+      error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null });
+    sendResponse({ ok: !!c });
+  });
+  return true;  // async response
+});
+
+// ── 4) DNR rule-match diagnostics (available for unpacked extensions) ──────
 if (chrome.declarativeNetRequest && chrome.declarativeNetRequest.onRuleMatchedDebug) {
   chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((m) => {
     try {

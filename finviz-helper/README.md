@@ -32,6 +32,11 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v1.4 — Finviz's own Theme (light/dark) toggle now works inside the
+  embedded view. Finviz saves the theme via a SameSite=Lax cookie that
+  browsers reject in a cross-site frame; the helper intercepts the toggle
+  and writes the same preference cookie through the extension's cookies
+  API instead. One named cookie ("chartsTheme"), nothing else.
 - v1.3 — click-to-research: when you click a stock inside the embedded
   Finviz (screener, maps, news), the dashboard's global ticker switches to
   it automatically. A tiny script inside embedded Finviz pages reports the
