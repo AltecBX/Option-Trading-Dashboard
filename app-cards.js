@@ -16603,7 +16603,7 @@ function FinvizPanel({
   ticker,
   onSwitchTicker,
   inWatchlist,
-  onToggleWatchlist,
+  onAddWatchlist,
   watchlistSymbols,
   onResearch,
   onResearch1m,
@@ -16718,11 +16718,14 @@ function FinvizPanel({
   }, /*#__PURE__*/React.createElement("span", {
     className: "fv-now",
     title: "The frame follows the dashboard's globally selected ticker — and clicking a stock inside Finviz drives it back. Change the symbol anywhere and this view navigates with it."
-  }, ticker), onToggleWatchlist && /*#__PURE__*/React.createElement("button", {
-    className: `fv-star ${inWatchlist ? "on" : ""}`,
-    onClick: onToggleWatchlist,
-    title: inWatchlist ? `${ticker} is on your JerryTrade watchlist — click to remove it.` : `Add ${ticker} to your JerryTrade watchlist (scanned by the board, radar and juice from the next pass). No re-typing in Manage.`
-  }, inWatchlist ? "★ on watchlist" : "☆ watchlist"), radarHit && /*#__PURE__*/React.createElement("span", {
+  }, ticker), inWatchlist ? /*#__PURE__*/React.createElement("span", {
+    className: "fv-star on fv-star-static",
+    title: `${ticker} is on your JerryTrade watchlist. This badge is NOT a button — removing a symbol wipes its tags, sector, notes and weekly flags, so removal only happens deliberately in Manage, never from here.`
+  }, "★ on watchlist") : onAddWatchlist && /*#__PURE__*/React.createElement("button", {
+    className: "fv-star",
+    onClick: onAddWatchlist,
+    title: `Add ${ticker} to your JerryTrade watchlist (scanned by the board, radar and juice from the next pass). Add-only — this control can never remove.`
+  }, "☆ add to watchlist"), radarHit && /*#__PURE__*/React.createElement("span", {
     className: `emx-chip ${radarHit.side === "long" ? "up" : "warn"}`,
     title: `The Reversal Radar has a live ${radarHit.side.toUpperCase()} signal on ${ticker} right now (score ${radarHit.score}/100). See the Scanners tab for the ticket.`
   }, "radar ", radarHit.side === "long" ? "▲" : "▼", radarHit.score), juiceHit && /*#__PURE__*/React.createElement("span", {

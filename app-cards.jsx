@@ -12445,7 +12445,7 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker, onOpenFinviz }) {
 // API; no data access, no other sites). With the helper present, the tab is
 // a full-height live Finviz frame that follows the global ticker; without
 // it, a clean setup panel with the download and honest platform notes.
-function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onToggleWatchlist,
+function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                       watchlistSymbols, onResearch, onResearch1m, apiFetch }) {
   const [helper, setHelper] = useState(FINVIZ.helperPresent());
   const [follow, setFollow] = useState(FINVIZ.follow());
@@ -12539,14 +12539,17 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onToggleWatchlist,
       <span className="fv-now" title="The frame follows the dashboard's globally selected ticker — and clicking a stock inside Finviz drives it back. Change the symbol anywhere and this view navigates with it.">
         {ticker}
       </span>
-      {onToggleWatchlist && (
-        <button className={`fv-star ${inWatchlist ? "on" : ""}`} onClick={onToggleWatchlist}
-                title={inWatchlist
-                  ? `${ticker} is on your JerryTrade watchlist — click to remove it.`
-                  : `Add ${ticker} to your JerryTrade watchlist (scanned by the board, radar and juice from the next pass). No re-typing in Manage.`}>
-          {inWatchlist ? "★ on watchlist" : "☆ watchlist"}
+      {inWatchlist ? (
+        <span className="fv-star on fv-star-static"
+              title={`${ticker} is on your JerryTrade watchlist. This badge is NOT a button — removing a symbol wipes its tags, sector, notes and weekly flags, so removal only happens deliberately in Manage, never from here.`}>
+          ★ on watchlist
+        </span>
+      ) : (onAddWatchlist && (
+        <button className="fv-star" onClick={onAddWatchlist}
+                title={`Add ${ticker} to your JerryTrade watchlist (scanned by the board, radar and juice from the next pass). Add-only — this control can never remove.`}>
+          ☆ add to watchlist
         </button>
-      )}
+      ))}
       {radarHit && (
         <span className={`emx-chip ${radarHit.side === "long" ? "up" : "warn"}`}
               title={`The Reversal Radar has a live ${radarHit.side.toUpperCase()} signal on ${ticker} right now (score ${radarHit.score}/100). See the Scanners tab for the ticket.`}>
