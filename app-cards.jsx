@@ -3932,29 +3932,44 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder 
     onReorder(ids);
     setDragId(null); setOverId(null);
   };
+  // Row split (v3.38): the app's own sections on line 1; the embedded
+  // partner sites (Finviz / TradingView / Unusual Whales) on line 2 so the
+  // bar reads as "my app" vs "linked sites" instead of one crowded wrap.
+  const EXT = { finviz: 1, tview: 1, whales: 1 };
+  const appTabs = list.filter(t => !EXT[t.id]);
+  const extTabs = list.filter(t => EXT[t.id]);
+  const renderBtn = (t) => (
+    <button key={t.id} type="button" role="tab"
+            aria-selected={active === t.id}
+            className={`tab-btn ${active === t.id ? "active" : ""}${dragId === t.id ? " dragging" : ""}${overId === t.id && dragId && overId !== dragId ? " drop-target" : ""}`}
+            onClick={() => onChange(t.id)}
+            draggable={!!onReorder}
+            onDragStart={(e) => { setDragId(t.id); try { e.dataTransfer.effectAllowed = "move"; } catch (_) {} }}
+            onDragOver={(e) => { if (dragId) { e.preventDefault(); setOverId(t.id); } }}
+            onDrop={(e) => { e.preventDefault(); drop(t.id); }}
+            onDragEnd={() => { setDragId(null); setOverId(null); }}
+            title={`Show the ${t.label} section. Drag to reorder.`}>
+      {t.label}
+    </button>
+  );
   return (
-    <div className="tab-bar" role="tablist" aria-label="Dashboard sections"
+    <div className="tab-bar tab-bar-2row" role="tablist" aria-label="Dashboard sections"
          title="Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads.">
-      {list.map(t => (
-        <button key={t.id} type="button" role="tab"
-                aria-selected={active === t.id}
-                className={`tab-btn ${active === t.id ? "active" : ""}${dragId === t.id ? " dragging" : ""}${overId === t.id && dragId && overId !== dragId ? " drop-target" : ""}`}
-                onClick={() => onChange(t.id)}
-                draggable={!!onReorder}
-                onDragStart={(e) => { setDragId(t.id); try { e.dataTransfer.effectAllowed = "move"; } catch (_) {} }}
-                onDragOver={(e) => { if (dragId) { e.preventDefault(); setOverId(t.id); } }}
-                onDrop={(e) => { e.preventDefault(); drop(t.id); }}
-                onDragEnd={() => { setDragId(null); setOverId(null); }}
-                title={`Show the ${t.label} section. Drag to reorder.`}>
-          {t.label}
-        </button>
-      ))}
-      {hasEarn && (
-        <div className={`tab-earn ${soon ? "soon" : ""}`}
-             title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
-          <span className="tab-earn-lbl">{ticker} earnings</span>
-          <b>{fmtSwingDate(earnDate)}</b>
-          {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+      <div className="tab-row">
+        {appTabs.map(renderBtn)}
+        {hasEarn && (
+          <div className={`tab-earn ${soon ? "soon" : ""}`}
+               title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
+            <span className="tab-earn-lbl">{ticker} earnings</span>
+            <b>{fmtSwingDate(earnDate)}</b>
+            {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+          </div>
+        )}
+      </div>
+      {extTabs.length > 0 && (
+        <div className="tab-row tab-row-ext">
+          <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways.">sites</span>
+          {extTabs.map(renderBtn)}
         </div>
       )}
     </div>

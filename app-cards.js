@@ -5961,12 +5961,17 @@ function TabBar({
     setDragId(null);
     setOverId(null);
   };
-  return /*#__PURE__*/React.createElement("div", {
-    className: "tab-bar",
-    role: "tablist",
-    "aria-label": "Dashboard sections",
-    title: "Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads."
-  }, list.map(t => /*#__PURE__*/React.createElement("button", {
+  // Row split (v3.38): the app's own sections on line 1; the embedded
+  // partner sites (Finviz / TradingView / Unusual Whales) on line 2 so the
+  // bar reads as "my app" vs "linked sites" instead of one crowded wrap.
+  const EXT = {
+    finviz: 1,
+    tview: 1,
+    whales: 1
+  };
+  const appTabs = list.filter(t => !EXT[t.id]);
+  const extTabs = list.filter(t => EXT[t.id]);
+  const renderBtn = t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     type: "button",
     role: "tab",
@@ -5995,14 +6000,27 @@ function TabBar({
       setOverId(null);
     },
     title: `Show the ${t.label} section. Drag to reorder.`
-  }, t.label)), hasEarn && /*#__PURE__*/React.createElement("div", {
+  }, t.label);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "tab-bar tab-bar-2row",
+    role: "tablist",
+    "aria-label": "Dashboard sections",
+    title: "Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads."
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tab-row"
+  }, appTabs.map(renderBtn), hasEarn && /*#__PURE__*/React.createElement("div", {
     className: `tab-earn ${soon ? "soon" : ""}`,
     title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
   }, /*#__PURE__*/React.createElement("span", {
     className: "tab-earn-lbl"
   }, ticker, " earnings"), /*#__PURE__*/React.createElement("b", null, fmtSwingDate(earnDate)), earnDays != null && /*#__PURE__*/React.createElement("span", {
     className: "tab-earn-days"
-  }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`)));
+  }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`))), extTabs.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "tab-row tab-row-ext"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tab-row-lbl",
+    title: "Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways."
+  }, "sites"), extTabs.map(renderBtn)));
 }
 function TabPanel({
   tab,
