@@ -16662,7 +16662,26 @@ function FinvizPanel({
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "kicker",
       title: "Finviz is rendered directly from finviz.com inside the dashboard — enabled by your Finviz Helper extension. Your real login and account data apply: log in once inside this view and Finviz keeps the session the way it normally would. Saved screens, watchlists, portfolios and settings are your actual account, synced everywhere."
-    }, "finviz · embedded · helper active"), /*#__PURE__*/React.createElement("div", {
+    }, "finviz · embedded · helper ", (() => {
+      try {
+        return document.documentElement.dataset.finvizHelperVersion ? "v" + document.documentElement.dataset.finvizHelperVersion : "active";
+      } catch (e) {
+        return "active";
+      }
+    })(), (() => {
+      try {
+        const v = document.documentElement.dataset.finvizHelperVersion;
+        if (!v || parseFloat(v) < 1.2) {
+          return /*#__PURE__*/React.createElement("a", {
+            className: "fv-upd",
+            href: "/finviz-helper.zip",
+            download: true,
+            title: "Helper v1.2 makes the Finviz LOGIN persist inside the embedded view (SameSite cookie upgrade + a third-party-cookie exception, both inside your browser). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions and approve the two new permissions."
+          }, " · update helper to v1.2");
+        }
+      } catch (e) {}
+      return null;
+    })()), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "Finviz"))), toolbar, /*#__PURE__*/React.createElement("iframe", {
       key: nonce,
