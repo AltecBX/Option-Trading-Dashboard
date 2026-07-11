@@ -8761,8 +8761,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .tab-bar-2row { display: block; }
 .tab-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .tab-row-ext { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; }
-.tab-row-lbl { font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3);
+.tab-row-ext .tab-btn:not(.active) { color: #B4BFCC; }
+.tab-row-lbl { font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.04em; color: #B4BFCC;
   margin: 0 6px 0 6px; cursor: help; }
 @media (max-width: 760px) {
   .tab-bar-2row { -webkit-mask-image: none !important; mask-image: none !important; }

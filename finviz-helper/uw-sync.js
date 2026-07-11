@@ -39,7 +39,15 @@
         if (has) { settled = true; return; }
         document.requestStorageAccess().then(() => {
           settled = true;
-          location.reload();   // apply the now-accessible session cookies
+          // Reload ONCE per frame session to apply the cookies — an
+          // unconditional reload here looped on browsers that grant
+          // access without actually attaching cookies (v2.5 bug).
+          try {
+            if (!sessionStorage.getItem("jthSA")) {
+              sessionStorage.setItem("jthSA", "1");
+              location.reload();
+            }
+          } catch (e) { /* no-op */ }
         }).catch(() => { /* denied or gesture expired — retry on next click */ });
       }).catch(() => {});
     } catch (e) { /* no-op */ }

@@ -32,12 +32,26 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.6 — Comet / Brave / forks: the login FINALLY sticks — no settings, no
+  prompts. v2.5's Storage Access API turned out not to help there: these
+  browsers send the frame's own page request without cookies no matter
+  what, so the site renders logged out (and the grant-then-reload cycle
+  could reload the frame on every click — fixed too). v2.6 instead mirrors
+  each site's own cookie jar into an in-memory declarativeNetRequest
+  SESSION rule that attaches the Cookie header on dashboard-initiated
+  frame requests — exactly what a first-party visit would send. Active
+  ONLY in browsers missing the contentSettings API; Chrome is untouched.
+  Cookie values stay inside your browser (in memory, never on disk), are
+  never logged, and never leave it. After updating: sign in once in a
+  normal tab (or the TV tab's 'Sign in ↗' popup) and the embedded views
+  stay signed in.
 - v2.5 — Comet (and any browser without a third-party-cookie exception
   setting): the in-frame scripts now use the standards-based Storage Access
   API. After updating: open the embedded site, CLICK ANYWHERE inside it
   once, and approve the cookie/storage prompt if the browser shows one.
   The grant persists (~30 days), the frame reloads itself, and the login
   sticks from then on. No settings hunt required.
+  (Superseded by v2.6 — this approach did not work in Comet.)
 - v2.4 — non-Chrome Chromium browsers (Comet, Brave, ...): these often lack
   the contentSettings API, so the helper can't register the third-party-
   cookie exception itself and the embedded logins won't stick until you add
