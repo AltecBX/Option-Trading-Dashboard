@@ -151,22 +151,43 @@ function sweepDomain(dom) {
 }
 chrome.runtime.onInstalled.addListener(sweepExistingCookies);
 
-// ── 2b-compat) Cookie-header fallback (v2.6) — Comet / Brave / forks ────────
-// Browsers without the contentSettings API can't get the third-party-cookie
-// exception, and they BLOCK cookies on cross-site frame requests outright —
-// SameSite rewriting and the Storage Access API don't help because the
-// frame's own page request is sent cookieless, so the site renders logged
-// out. Fallback (active ONLY when contentSettings is missing — Chrome is
-// untouched): mirror each site's own cookie jar into a declarativeNetRequest
-// SESSION rule that sets the Cookie header on dashboard-initiated frame
-// requests. The value is exactly what a first-party visit would send; it is
-// kept in memory only (session rules are never written to disk), never
-// logged, and never leaves the browser. Sign in once in a NORMAL tab (or the
-// TV Sign-in popup) and the embedded views stay signed in.
+// ── 2b-compat) Cookie-header fallback (v2.6, empirical gating v2.7) ─────────
+// Some Chromium forks (Comet, Brave, ...) block cookies on cross-site frame
+// requests outright — SameSite rewriting, contentSettings exceptions and the
+// Storage Access API all fail there because the frame's own page request is
+// sent cookieless, so the site renders logged out. Fallback: mirror each
+// site's own cookie jar into a declarativeNetRequest SESSION rule that sets
+// the Cookie header on dashboard-initiated frame requests — exactly what a
+// first-party visit would send. Values live in memory only (session rules
+// are never written to disk), are never logged, and never leave the browser.
+//
+// v2.7: gating is EMPIRICAL, not API-detection. v2.6 keyed off "contentSettings
+// missing", but forks can ship the API and still block the cookies, so the
+// fallback never armed. Now a passive webRequest observer watches the
+// dashboard's own frame requests: if the browser sent one COOKIELESS while
+// the jar holds cookies for that site, that domain is marked blocked (saved
+// in extension storage), the header rule is installed, and the logged-out
+// frame is reloaded once. In Chrome the browser attaches cookies natively,
+// the observer sees them, and none of this ever activates.
 const COOKIE_RULE_IDS = { "finviz.com": 9001, "tradingview.com": 9002, "unusualwhales.com": 9003 };
-function cookieFallbackActive() {
-  return !(chrome.contentSettings && chrome.contentSettings.cookies);
+const DASH_ORIGINS = ["https://dashboard.jerrytrade.com", "http://localhost", "http://127.0.0.1"];
+const INJECT = {};   // domain -> true once the browser was SEEN dropping cookies
+
+function siteDomainOf(url) {
+  try {
+    const h = new URL(url).hostname;
+    return Object.keys(COOKIE_RULE_IDS).find((d) => h === d || h.endsWith("." + d)) || null;
+  } catch (e) { return null; }
 }
+
+// Restore the blocked-domain markers on every service-worker start.
+try {
+  chrome.storage.local.get("cookieInject", (st) => {
+    void chrome.runtime.lastError;
+    Object.assign(INJECT, (st && st.cookieInject) || {});
+    if (Object.keys(INJECT).length) refreshCookieRules("sw-start");
+  });
+} catch (e) { /* no-op */ }
 
 function buildCookieHeader(dom, cb) {
   chrome.cookies.getAll({ domain: dom }, (cookies) => {
@@ -184,9 +205,10 @@ function buildCookieHeader(dom, cb) {
 }
 
 let _cookieRuleTimer = null;
-function refreshCookieRules(why) {
-  if (!cookieFallbackActive()) return;
-  const doms = Object.keys(COOKIE_RULE_IDS);
+function refreshCookieRules(why, done) {
+  const doms = Object.keys(COOKIE_RULE_IDS).filter((d) => INJECT[d]);
+  const removeIds = Object.values(COOKIE_RULE_IDS);
+  if (!doms.length) { done && done(); return; }
   let left = doms.length;
   const add = [];
   const counts = {};
@@ -210,20 +232,58 @@ function refreshCookieRules(why) {
       }
       if (--left === 0) {
         chrome.declarativeNetRequest.updateSessionRules(
-          { removeRuleIds: doms.map((d) => COOKIE_RULE_IDS[d]), addRules: add },
-          () => diag("cookie-header-rules", { why, counts,
-            error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null }));
+          { removeRuleIds: removeIds, addRules: add },
+          () => {
+            diag("cookie-header-rules", { why, counts,
+              error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null });
+            done && done();
+          });
       }
     });
   });
 }
 function scheduleCookieRuleRefresh(why) {
-  if (!cookieFallbackActive()) return;
+  if (!Object.keys(COOKIE_RULE_IDS).some((d) => INJECT[d])) return;
   if (_cookieRuleTimer) clearTimeout(_cookieRuleTimer);
   _cookieRuleTimer = setTimeout(() => { _cookieRuleTimer = null; refreshCookieRules(why); }, 400);
 }
 chrome.runtime.onInstalled.addListener(() => refreshCookieRules("install"));
 chrome.runtime.onStartup.addListener(() => refreshCookieRules("startup"));
+
+// Passive observer (v2.7): detect the browser dropping cookies on the
+// dashboard's frame requests. Metadata only — it checks whether a Cookie
+// header was PRESENT, never reads its value into any log or message.
+if (chrome.webRequest && chrome.webRequest.onSendHeaders) {
+  chrome.webRequest.onSendHeaders.addListener((d) => {
+    try {
+      if (!d.initiator || !DASH_ORIGINS.some((o) => d.initiator === o || d.initiator.startsWith(o + ":"))) return;
+      const dom = siteDomainOf(d.url);
+      if (!dom || INJECT[dom]) return;
+      const hasCookie = (d.requestHeaders || []).some((h) => (h.name || "").toLowerCase() === "cookie");
+      if (hasCookie) return;   // browser sent cookies natively (Chrome) — fallback stays off
+      chrome.cookies.getAll({ domain: dom }, (cookies) => {
+        void chrome.runtime.lastError;
+        if (!(cookies || []).some((c) => !c.partitionKey)) return;  // nothing to send anyway
+        if (INJECT[dom]) return;
+        INJECT[dom] = true;
+        chrome.storage.local.set({ cookieInject: INJECT }, () => void chrome.runtime.lastError);
+        diag("cookie-blocked-detected", { domain: dom, note:
+          "browser sent the frame request without cookies — enabling cookie-header fallback" });
+        refreshCookieRules("detected", () => {
+          // Reload the frame that just rendered logged-out; sync scripts in
+          // that tab reload only the frames whose hostname matches.
+          if (d.tabId >= 0) {
+            chrome.tabs.sendMessage(d.tabId, { type: "jth-reload", domain: dom },
+              () => void chrome.runtime.lastError);
+          }
+        });
+      });
+    } catch (e) { /* no-op */ }
+  },
+  { urls: ["*://*.finviz.com/*", "*://*.tradingview.com/*", "*://*.unusualwhales.com/*"],
+    types: ["sub_frame"] },
+  ["requestHeaders", "extraHeaders"]);
+}
 
 // ── 2b) One-time TradingView repair (v2.2) ──────────────────────────────────
 // Undo the damage the earlier rewriting did: clear tradingview.com cookies
@@ -269,7 +329,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // registered programmatically — the v2.6 cookie-header fallback covers
     // them. A dashboard load also asks this, so refresh the fallback rules.
     scheduleCookieRuleRefresh("dashboard-load");
-    sendResponse({ contentSettings: !!(chrome.contentSettings && chrome.contentSettings.cookies) });
+    sendResponse({
+      contentSettings: !!(chrome.contentSettings && chrome.contentSettings.cookies),
+      inject: Object.keys(INJECT).filter((d) => INJECT[d]),   // domains on the v2.7 fallback
+    });
     return;
   }
   if (msg && msg.type === "jth-clear-cookies"

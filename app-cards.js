@@ -16622,26 +16622,26 @@ function PremiumJuiceCard({
   })))));
 }
 
-// ── Cookie-setup chip (v3.37, reworked v3.39) ───────────────────────────────
-// Shown only when the helper reports that this browser (Comet, Brave, other
-// Chromium forks) lacks the contentSettings API, so the third-party-cookie
-// exception can't be registered automatically. Helper v2.5 fixes this the
-// standards way: the in-frame script calls the Storage Access API on the
-// user's first CLICK inside the embedded site, the browser shows a one-time
-// Allow prompt, and the login persists (~30 days per site). The chip now
-// leads with that flow; the manual settings steps remain as a fallback.
+// ── Cookie-setup chip (v3.37, reworked v3.41) ───────────────────────────────
+// Two jobs now: (1) nudge ANY helper older than v2.7 to update — v2.7 both
+// removes the Chrome frame-reload regression and adds the empirical cookie-
+// header fallback that finally makes Comet/Brave logins stick; (2) once the
+// fallback is actually active (the helper SAW this browser drop cookies on a
+// frame request), show a quiet informational chip instead of a warning.
 function CookieSetupChip() {
   const read = () => {
     try {
       const d = document.documentElement.dataset;
       return {
-        need: d.jthCookieApi === "0",
-        ver: parseFloat(d.finvizHelperVersion || "0")
+        present: d.finvizHelper === "1",
+        ver: parseFloat(d.finvizHelperVersion || "0"),
+        compat: d.jthCompat === "1"
       };
     } catch (e) {
       return {
-        need: false,
-        ver: 0
+        present: false,
+        ver: 0,
+        compat: false
       };
     }
   };
@@ -16659,19 +16659,17 @@ function CookieSetupChip() {
       clearInterval(t);
     };
   }, []);
-  if (!st.need) return null;
-  if (st.ver < 2.6) {
+  if (!st.present) return null;
+  if (st.ver > 0 && st.ver < 2.7) {
     return /*#__PURE__*/React.createElement("span", {
       className: "emx-chip warn",
-      title: "This browser blocks third-party cookies and the helper can't register an exception here (no contentSettings API — Comet, Brave and most Chromium forks), so embedded logins don't stick.\n\nHelper v2.6 fixes this with no settings and no prompts — update it:\n1. Download finviz-helper.zip again (link on this tab) and unzip it over the old folder.\n2. Open the browser's extensions page and click the ↻ reload icon on 'JerryTrade Site Helper' (or remove + Load unpacked again).\n3. Sign in ONCE in a normal tab of the site (for TradingView, the 'Sign in ↗' button here works too).\n4. Reload this tab — the embedded view is signed in and stays signed in."
-    }, "⚠ logins won't stick — update helper to v2.6 (hover)");
+      title: "Site Helper v2.7 is an important update for every browser:\n• Chrome: fixes embedded TradingView sometimes reloading on a click and losing unsaved changes.\n• Comet / Brave: logins inside the embedded sites finally stick — the helper now detects the browser dropping cookies and compensates automatically. No settings, no prompts.\n\nUpdate: download finviz-helper.zip again (link on the Finviz tab), unzip it over the old folder, then click the ↻ reload icon on 'JerryTrade Site Helper' in the browser's extensions page."
+    }, "⚠ update helper to v2.7 (hover)");
   }
-  // v2.6+ handles these browsers automatically (in-memory cookie-header
-  // fallback) — a warning would be noise. Show a one-liner only so the user
-  // knows compat mode is on and how to fix it if a login ever looks stale.
+  if (!st.compat) return null;
   return /*#__PURE__*/React.createElement("span", {
     className: "emx-chip",
-    title: "This browser blocks third-party cookies, so the helper is running its compat mode: it attaches your own login cookies to the embedded site's requests (in-memory only — nothing stored or sent anywhere).\n\nIf an embedded site ever shows you logged OUT: sign in once in a normal tab of that site (TradingView: the 'Sign in ↗' button here), then press Reload on this toolbar."
+    title: "This browser blocks cookies on embedded-site requests, so the helper is running its compat mode: it attaches your own login cookies to those requests itself (kept in memory inside your browser — nothing stored or sent anywhere).\n\nIf an embedded site ever shows you logged OUT: sign in once in a normal tab of that site (TradingView: the 'Sign in ↗' button here), then press Reload on this toolbar."
   }, "cookies: compat mode");
 }
 

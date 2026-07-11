@@ -3,7 +3,7 @@
 // as "[finviz-helper] …" debug lines (metadata only — never cookie values,
 // passwords, or tokens). Runs ONLY on the dashboard's own pages.
 (function announce() {
-  const VERSION = "2.6";
+  const VERSION = "2.7";
   const mark = () => {
     try {
       document.documentElement.dataset.finvizHelper = "1";
@@ -15,19 +15,28 @@
   let n = 0;
   const t = setInterval(() => { mark(); if (++n >= 10) clearInterval(t); }, 1000);
 
-  // Capability flag: can the helper register the third-party-cookie
-  // exception itself (Chrome), or must the user add it in browser settings
-  // (Comet/Brave and other forks without the contentSettings API)?
-  try {
-    chrome.runtime.sendMessage({ type: "jth-get-caps" }, (res) => {
-      void chrome.runtime.lastError;
-      try {
-        document.documentElement.dataset.jthCookieApi =
-          res && res.contentSettings ? "1" : "0";
-        window.dispatchEvent(new CustomEvent("finviz-helper-ready"));
-      } catch (e) { /* no-op */ }
-    });
-  } catch (e) { /* no-op */ }
+  // Capability flags: whether the contentSettings exception is available
+  // (Chrome), and whether the v2.7 cookie-header fallback is active for any
+  // site (browsers seen dropping frame cookies — Comet, Brave, ...). The
+  // fallback can arm mid-session (it's detected on the first frame load), so
+  // re-query for a while instead of once.
+  const caps = () => {
+    try {
+      chrome.runtime.sendMessage({ type: "jth-get-caps" }, (res) => {
+        void chrome.runtime.lastError;
+        try {
+          document.documentElement.dataset.jthCookieApi =
+            res && res.contentSettings ? "1" : "0";
+          document.documentElement.dataset.jthCompat =
+            res && res.inject && res.inject.length ? "1" : "0";
+          window.dispatchEvent(new CustomEvent("finviz-helper-ready"));
+        } catch (e) { /* no-op */ }
+      });
+    } catch (e) { /* no-op */ }
+  };
+  caps();
+  let cn = 0;
+  const ct = setInterval(() => { caps(); if (++cn >= 24) clearInterval(ct); }, 5000);
 
   // Command relay: dashboard page → background (e.g. Repair session).
   try {

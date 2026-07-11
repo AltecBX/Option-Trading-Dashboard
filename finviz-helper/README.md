@@ -32,6 +32,19 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.7 — IMPORTANT update for everyone.
+  Chrome: removes the v2.5 Storage Access click-handler, which could
+  reload an embedded frame when you clicked inside it — losing unsaved
+  TradingView changes. Nothing else about Chrome behavior changes.
+  Comet / Brave / forks: v2.6's fallback keyed off a missing
+  contentSettings API, but some forks ship the API and still block the
+  cookies — so it never armed. v2.7 detects blocking EMPIRICALLY: a
+  passive observer watches the dashboard's own frame requests (presence
+  of a Cookie header only — values are never read into logs or
+  messages); if the browser sent one cookieless while you're logged in,
+  that site's cookie-header fallback arms automatically and the frame
+  reloads itself signed in. Uses one new permission: "webRequest"
+  (observation only — nothing is modified with it).
 - v2.6 — Comet / Brave / forks: the login FINALLY sticks — no settings, no
   prompts. v2.5's Storage Access API turned out not to help there: these
   browsers send the frame's own page request without cookies no matter
