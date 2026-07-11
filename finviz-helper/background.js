@@ -126,6 +126,7 @@ chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
                      sameSite: cookie.sameSite, secure: cookie.secure,
                      session: cookie.session, hostOnly: cookie.hostOnly,
                      partitioned: !!cookie.partitionKey, removed, cause });
+    scheduleCookieRuleRefresh("cookie-changed");   // v2.6 fallback stays current
     if (removed || cause === "overwrite") return;
     if (!eligible(cookie)) return;
     upgradeCookie(cookie, "changed");
@@ -149,6 +150,80 @@ function sweepDomain(dom) {
   } catch (e) { /* no-op */ }
 }
 chrome.runtime.onInstalled.addListener(sweepExistingCookies);
+
+// ── 2b-compat) Cookie-header fallback (v2.6) — Comet / Brave / forks ────────
+// Browsers without the contentSettings API can't get the third-party-cookie
+// exception, and they BLOCK cookies on cross-site frame requests outright —
+// SameSite rewriting and the Storage Access API don't help because the
+// frame's own page request is sent cookieless, so the site renders logged
+// out. Fallback (active ONLY when contentSettings is missing — Chrome is
+// untouched): mirror each site's own cookie jar into a declarativeNetRequest
+// SESSION rule that sets the Cookie header on dashboard-initiated frame
+// requests. The value is exactly what a first-party visit would send; it is
+// kept in memory only (session rules are never written to disk), never
+// logged, and never leaves the browser. Sign in once in a NORMAL tab (or the
+// TV Sign-in popup) and the embedded views stay signed in.
+const COOKIE_RULE_IDS = { "finviz.com": 9001, "tradingview.com": 9002, "unusualwhales.com": 9003 };
+function cookieFallbackActive() {
+  return !(chrome.contentSettings && chrome.contentSettings.cookies);
+}
+
+function buildCookieHeader(dom, cb) {
+  chrome.cookies.getAll({ domain: dom }, (cookies) => {
+    void chrome.runtime.lastError;
+    const seen = new Set();
+    const parts = [];
+    (cookies || []).forEach((c) => {
+      if (c.partitionKey) return;         // partitioned copies: leave alone
+      if (seen.has(c.name)) return;       // one value per name
+      seen.add(c.name);
+      parts.push(c.name + "=" + c.value);
+    });
+    cb(parts.join("; "), parts.length);
+  });
+}
+
+let _cookieRuleTimer = null;
+function refreshCookieRules(why) {
+  if (!cookieFallbackActive()) return;
+  const doms = Object.keys(COOKIE_RULE_IDS);
+  let left = doms.length;
+  const add = [];
+  const counts = {};
+  doms.forEach((dom) => {
+    buildCookieHeader(dom, (value, n) => {
+      counts[dom] = n;
+      if (value) {
+        add.push({
+          id: COOKIE_RULE_IDS[dom],
+          priority: 2,
+          action: {
+            type: "modifyHeaders",
+            requestHeaders: [{ header: "cookie", operation: "set", value }],
+          },
+          condition: {
+            requestDomains: [dom],
+            initiatorDomains: ["dashboard.jerrytrade.com", "localhost", "127.0.0.1", dom],
+            resourceTypes: ["sub_frame", "xmlhttprequest"],
+          },
+        });
+      }
+      if (--left === 0) {
+        chrome.declarativeNetRequest.updateSessionRules(
+          { removeRuleIds: doms.map((d) => COOKIE_RULE_IDS[d]), addRules: add },
+          () => diag("cookie-header-rules", { why, counts,
+            error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || null }));
+      }
+    });
+  });
+}
+function scheduleCookieRuleRefresh(why) {
+  if (!cookieFallbackActive()) return;
+  if (_cookieRuleTimer) clearTimeout(_cookieRuleTimer);
+  _cookieRuleTimer = setTimeout(() => { _cookieRuleTimer = null; refreshCookieRules(why); }, 400);
+}
+chrome.runtime.onInstalled.addListener(() => refreshCookieRules("install"));
+chrome.runtime.onStartup.addListener(() => refreshCookieRules("startup"));
 
 // ── 2b) One-time TradingView repair (v2.2) ──────────────────────────────────
 // Undo the damage the earlier rewriting did: clear tradingview.com cookies
@@ -191,7 +266,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === "jth-get-caps") {
     // Capability report: Chromium forks (Comet, Brave, ...) often lack the
     // contentSettings API, so the third-party-cookie exception can't be
-    // registered programmatically and must be added in browser settings.
+    // registered programmatically — the v2.6 cookie-header fallback covers
+    // them. A dashboard load also asks this, so refresh the fallback rules.
+    scheduleCookieRuleRefresh("dashboard-load");
     sendResponse({ contentSettings: !!(chrome.contentSettings && chrome.contentSettings.cookies) });
     return;
   }
@@ -199,6 +276,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       && ["tradingview.com", "finviz.com", "unusualwhales.com"].includes(msg.domain)) {
     clearDomainCookies(msg.domain, (n) => {
       diag("clear-cookies", { domain: msg.domain, cleared: n });
+      scheduleCookieRuleRefresh("cleared");
       sendResponse({ ok: true, cleared: n });
     });
     return true;  // async

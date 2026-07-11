@@ -3968,7 +3968,7 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder 
       </div>
       {extTabs.length > 0 && (
         <div className="tab-row tab-row-ext">
-          <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways.">sites</span>
+          <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways.">Sites -</span>
           {extTabs.map(renderBtn)}
         </div>
       )}
@@ -12481,18 +12481,21 @@ function CookieSetupChip() {
     return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
   }, []);
   if (!st.need) return null;
-  if (st.ver < 2.5) {
+  if (st.ver < 2.6) {
     return (
       <span className="emx-chip warn"
-            title={"This browser blocks third-party cookies and the helper can't register an exception here (no contentSettings API — Comet, Brave and most Chromium forks), so embedded logins don't stick.\n\nHelper v2.5 fixes this — update it:\n1. Download finviz-helper.zip again (link on this tab) and unzip it over the old folder.\n2. Open the browser's extensions page and click the ↻ reload icon on 'JerryTrade Site Helper' (or remove + Load unpacked again).\n3. Come back here, CLICK ANYWHERE inside the embedded site once, and approve the cookie/storage prompt if one appears.\n4. Sign in once — the login now persists."}>
-        ⚠ logins won't stick — update helper to v2.5 (hover)
+            title={"This browser blocks third-party cookies and the helper can't register an exception here (no contentSettings API — Comet, Brave and most Chromium forks), so embedded logins don't stick.\n\nHelper v2.6 fixes this with no settings and no prompts — update it:\n1. Download finviz-helper.zip again (link on this tab) and unzip it over the old folder.\n2. Open the browser's extensions page and click the ↻ reload icon on 'JerryTrade Site Helper' (or remove + Load unpacked again).\n3. Sign in ONCE in a normal tab of the site (for TradingView, the 'Sign in ↗' button here works too).\n4. Reload this tab — the embedded view is signed in and stays signed in."}>
+        ⚠ logins won't stick — update helper to v2.6 (hover)
       </span>
     );
   }
+  // v2.6+ handles these browsers automatically (in-memory cookie-header
+  // fallback) — a warning would be noise. Show a one-liner only so the user
+  // knows compat mode is on and how to fix it if a login ever looks stale.
   return (
-    <span className="emx-chip warn"
-          title={"This browser blocks third-party cookies, so the embedded site must ask for cookie access itself (Storage Access API — helper v2.5 wires this up).\n\nOne-time per site:\n1. CLICK ANYWHERE inside the embedded site below.\n2. If the browser shows an Allow/cookie prompt, approve it. The frame reloads itself and the login sticks (~30 days, then one more click).\n3. Sign in once if asked.\n\nStill not sticking? Manual fallback: Settings → search 'third-party cookies' → 'Sites allowed to use third-party cookies' → Add dashboard.jerrytrade.com, and make sure cookies aren't cleared on close. Brave only: Shields → Cookies → 'Allow all' for this site."}>
-      ⚠ cookies blocked — click inside the site once (hover)
+    <span className="emx-chip"
+          title={"This browser blocks third-party cookies, so the helper is running its compat mode: it attaches your own login cookies to the embedded site's requests (in-memory only — nothing stored or sent anywhere).\n\nIf an embedded site ever shows you logged OUT: sign in once in a normal tab of that site (TradingView: the 'Sign in ↗' button here), then press Reload on this toolbar."}>
+      cookies: compat mode
     </span>
   );
 }
