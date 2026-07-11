@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.25";
+const APP_VERSION = "3.26";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2083,10 +2083,6 @@ function App() {
   const [intradayData, setIntradayData] = useState(null);
   // Late-bind the radar's open-intraday action now that all pieces exist.
   openIntradayRef.current = (sym) => { switchTicker(sym); setChartTF("intraday"); changeTab("trade"); };
-  // Finviz companion auto-follow (v3.24): every global ticker switch drives
-  // the companion window to that symbol's Finviz page. Never steals focus;
-  // silently no-ops until the user has opened the companion once.
-  useEffect(() => { FINVIZ.followTicker(ticker); }, [ticker]);
   useEffect(() => {
     if (chartTF !== "intraday") return undefined;
     let stop = false;
