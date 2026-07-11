@@ -12489,15 +12489,15 @@ function FinvizPanel({ ticker }) {
   if (helper) {
     return (
       <div className="card fv-card fv-live" style={{ marginBottom: "var(--row-gap)" }}>
-        <div className="card-head">
+        <div className="card-head fv-head">
           <div>
             <div className="kicker" title="Finviz is rendered directly from finviz.com inside the dashboard — enabled by your Finviz Helper extension. Your real login and account data apply: log in once inside this view and Finviz keeps the session the way it normally would. Saved screens, watchlists, portfolios and settings are your actual account, synced everywhere.">
               finviz · embedded · helper active
             </div>
             <div className="card-title">Finviz</div>
           </div>
-          {toolbar}
         </div>
+        {toolbar}
         <iframe key={nonce} className="fv-frame" src={src} title="Finviz"
                 referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write" />
         <div className="fv-hint" title="If Finviz shows you as logged out inside this frame while a normal Finviz tab is logged in, your browser is isolating third-party cookies. Either allow cookies for finviz.com in the browser's settings, or simply log in once right here — most browsers keep an in-frame login alive across visits.">

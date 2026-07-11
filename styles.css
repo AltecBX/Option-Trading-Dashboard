@@ -6424,11 +6424,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .rr-hours { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; cursor: help; }
 
 /* ── Finviz embedded view (v3.25) ───────────────────────────────────────── */
-.fv-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+/* Compact header + a single horizontal toolbar ROW (v3.27 — it used to sit
+   inside card-head where it wrapped into a tall vertical stack). */
+.fv-head { margin-bottom: 0 !important; }
+.fv-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  flex-direction: row; width: 100%; margin-top: 8px; }
 .fv-now { font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: var(--fg);
   border: 1px solid var(--accent); border-radius: 8px; padding: 5px 12px; cursor: help;
   background: color-mix(in oklch, var(--accent) 10%, transparent); }
-.fv-frame { width: 100%; height: calc(100vh - 230px); min-height: 560px; border: 1px solid var(--line);
+.fv-frame { width: 100%; height: calc(100vh - 205px); min-height: 560px; border: 1px solid var(--line);
   border-radius: 10px; background: #fff; margin-top: 10px; }
 .fv-hint { margin-top: 8px; font-size: 12px; color: var(--fg-3); cursor: help; }
 .fv-ext-link { text-decoration: none; display: inline-flex; align-items: center; }
