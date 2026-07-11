@@ -32,6 +32,11 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v1.3 — click-to-research: when you click a stock inside the embedded
+  Finviz (screener, maps, news), the dashboard's global ticker switches to
+  it automatically. A tiny script inside embedded Finviz pages reports the
+  SYMBOL (and nothing else) to the dashboard; it does nothing in normal
+  Finviz tabs.
 - v1.2 — login now STICKS inside the embedded view. Finviz's session cookies
   are SameSite=Lax, which browsers refuse to use inside a cross-site frame;
   the helper now (a) registers a third-party-cookie exception for finviz

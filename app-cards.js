@@ -16580,13 +16580,42 @@ function PremiumJuiceCard({
 // a full-height live Finviz frame that follows the global ticker; without
 // it, a clean setup panel with the download and honest platform notes.
 function FinvizPanel({
-  ticker
+  ticker,
+  onSwitchTicker
 }) {
   const [helper, setHelper] = useState(FINVIZ.helperPresent());
   const [follow, setFollow] = useState(FINVIZ.follow());
   const [base, setBase] = useState(FINVIZ.base().includes("elite") ? "elite" : "free");
   const [src, setSrc] = useState(() => FINVIZ.quoteUrl(ticker));
   const [nonce, setNonce] = useState(0); // manual reload counter
+  // Two-way sync bookkeeping: the symbol the FRAME is currently showing
+  // (reported by the helper's ticker-sync script) and the current app ticker,
+  // both as refs so the message handler never sees stale values.
+  const frameSym = useRef(null);
+  const tickerRef = useRef(ticker);
+  tickerRef.current = ticker;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+
+  // Frame -> app: helper v1.3 posts {type:'fvh-ticker', symbol} from inside
+  // the embedded Finviz page whenever it lands on a quote page (i.e. you
+  // clicked a stock). Validate origin + symbol, then drive the global
+  // ticker. frameSym doubles as the reload-loop guard below.
+  useEffect(() => {
+    const onMsg = e => {
+      if (!/^https:\/\/(elite\.)?finviz\.com$/.test(e.origin)) return;
+      const d = e.data;
+      if (!d || d.type !== "fvh-ticker" || typeof d.symbol !== "string") return;
+      const sym = d.symbol.toUpperCase();
+      if (!/^[A-Z0-9.\-]{1,10}$/.test(sym)) return;
+      frameSym.current = sym;
+      if (followRef.current && onSwitchTicker && sym !== tickerRef.current) {
+        onSwitchTicker(sym);
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onSwitchTicker]);
 
   // Helper detection: the extension announces via a DOM dataset flag +
   // event at document_start; poll briefly too in case we mounted first.
@@ -16608,10 +16637,11 @@ function FinvizPanel({
     };
   }, [helper]);
 
-  // Global ticker follow: the frame navigates whenever the app's active
-  // symbol changes (unless the user paused follow to browse the screener).
+  // App -> frame: navigate on ticker change — but NOT when the frame itself
+  // just reported this symbol (that would reload the page the user is
+  // already reading and reset their scroll).
   useEffect(() => {
-    if (follow && ticker) setSrc(FINVIZ.quoteUrl(ticker));
+    if (follow && ticker && ticker !== frameSym.current) setSrc(FINVIZ.quoteUrl(ticker));
   }, [ticker, follow, base]);
   const toolbar = /*#__PURE__*/React.createElement("div", {
     className: "fv-toolbar"
@@ -16624,7 +16654,7 @@ function FinvizPanel({
       FINVIZ.setFollow(!follow);
       setFollow(!follow);
     },
-    title: "Follow ticker: every symbol selected anywhere in the dashboard navigates this Finviz view immediately. Turn OFF to browse freely inside Finviz (screener, maps) without the frame being yanked to the next ticker."
+    title: "Two-way sync. ON: every symbol selected anywhere in the dashboard navigates this Finviz view — AND every stock you click inside Finviz (screener, maps, news) becomes the dashboard's active ticker, ready for research on any tab. OFF: browse Finviz freely with no effect either way."
   }, "Follow ", follow ? "ON" : "OFF"), /*#__PURE__*/React.createElement("div", {
     className: "seg",
     title: "Elite = your paid real-time account at elite.finviz.com. Free = the public site."
@@ -16671,13 +16701,13 @@ function FinvizPanel({
     })(), (() => {
       try {
         const v = document.documentElement.dataset.finvizHelperVersion;
-        if (!v || parseFloat(v) < 1.2) {
+        if (!v || parseFloat(v) < 1.3) {
           return /*#__PURE__*/React.createElement("a", {
             className: "fv-upd",
             href: "/finviz-helper.zip",
             download: true,
-            title: "Helper v1.2 makes the Finviz LOGIN persist inside the embedded view (SameSite cookie upgrade + a third-party-cookie exception, both inside your browser). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions and approve the two new permissions."
-          }, " · update helper to v1.2");
+            title: "Helper v1.3 adds click-to-research: stocks you click inside Finviz become the dashboard's active ticker (v1.2 made the login persist). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions."
+          }, " · update helper to v1.3");
         }
       } catch (e) {}
       return null;
