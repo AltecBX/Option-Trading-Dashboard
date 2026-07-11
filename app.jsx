@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.33";
+const APP_VERSION = "3.34";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3042,6 +3042,12 @@ function App() {
                 onClick={() => changeTab("tview")}>
                 TV
               </button>
+              <button
+                className="sb-manage-btn"
+                title={`Open ${ticker} in the embedded Unusual Whales tab — flow, sweeps, OI, IV, dark pool, with two-way ticker sync.`}
+                onClick={() => changeTab("whales")}>
+                UW
+              </button>
             </div>
           </div>
           <div className="sb-preset-row">
@@ -4857,6 +4863,18 @@ function App() {
         <TabPanel tab="tview" active={activeTab}>
           <CardErrorBoundary label="TradingView">
             <TVPanel ticker={ticker} onSwitchTicker={switchTicker} apiFetch={apiFetch}
+              inWatchlist={watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)}
+              onAddWatchlist={() => {
+                if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
+              }}
+              onResearch={(sym) => { switchTicker(sym); changeTab("trade"); }}
+              onResearch1m={openIntraday} />
+          </CardErrorBoundary>
+        </TabPanel>
+
+        <TabPanel tab="whales" active={activeTab}>
+          <CardErrorBoundary label="Unusual Whales">
+            <UWPanel ticker={ticker} onSwitchTicker={switchTicker} apiFetch={apiFetch}
               inWatchlist={watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)}
               onAddWatchlist={() => {
                 if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});

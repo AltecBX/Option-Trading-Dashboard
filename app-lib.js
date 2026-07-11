@@ -146,6 +146,9 @@ const TABS = [{
   id: "tview",
   label: "TradingView"
 }, {
+  id: "whales",
+  label: "Whales"
+}, {
   id: "flow",
   label: "Flow"
 }, {
@@ -342,6 +345,27 @@ const TVIEW = {
   }
 };
 
+// ── Unusual Whales embed helper (v3.34) ─────────────────────────────────────
+// UW does NOT block framing, so the embed works even without the helper;
+// helper v2.1+ makes the LOGIN persist inside the frame (cookie handling).
+const UWHALES = {
+  stockUrl(sym) {
+    return `https://unusualwhales.com/stock/${encodeURIComponent(sym)}/overview`;
+  },
+  url(path) {
+    return `https://unusualwhales.com${path}`;
+  },
+  follow() {
+    return localStorage.getItem("jerry_uw_follow") !== "0";
+  },
+  // default ON
+  setFollow(v) {
+    try {
+      localStorage.setItem("jerry_uw_follow", v ? "1" : "0");
+    } catch (e) {}
+  }
+};
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -367,6 +391,7 @@ Object.assign(window, {
   fmtUSDate,
   sharedJson,
   FINVIZ,
-  TVIEW
+  TVIEW,
+  UWHALES
 });
 })();

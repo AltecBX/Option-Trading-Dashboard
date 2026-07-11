@@ -52,7 +52,7 @@ function applyCookieException() {
       note: "contentSettings API unavailable in this browser — relying on SameSite upgrade only" });
     return;
   }
-  for (const primary of ["https://[*.]finviz.com/*", "https://[*.]tradingview.com/*"]) {
+  for (const primary of ["https://[*.]finviz.com/*", "https://[*.]tradingview.com/*", "https://[*.]unusualwhales.com/*"]) {
     for (const secondary of DASHBOARDS) {
       chrome.contentSettings.cookies.set(
         { primaryPattern: primary, secondaryPattern: secondary, setting: "allow" },
@@ -70,7 +70,7 @@ chrome.runtime.onStartup.addListener(applyCookieException);
 chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
   try {
     const bare = (cookie.domain || "").replace(/^\./, "");
-    const covered = ["finviz.com", "tradingview.com"];
+    const covered = ["finviz.com", "tradingview.com", "unusualwhales.com"];
     if (!covered.some((d) => bare === d || bare.endsWith("." + d))) return;
     // Diagnostic: metadata only — NEVER the value.
     diag("cookie", { name: cookie.name, domain: cookie.domain, path: cookie.path,
@@ -103,7 +103,7 @@ chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
 // One-time sweep on install/update: upgrade cookies that already exist
 // (e.g. you logged into Finviz in a normal tab before installing v1.2).
 function sweepExistingCookies() {
-  for (const dom of ["finviz.com", "tradingview.com"]) sweepDomain(dom);
+  for (const dom of ["finviz.com", "tradingview.com", "unusualwhales.com"]) sweepDomain(dom);
 }
 function sweepDomain(dom) {
   try {
