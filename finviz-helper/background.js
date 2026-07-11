@@ -188,6 +188,13 @@ chrome.runtime.onInstalled.addListener(() => {
 // the toggle and asks us to write the same preference cookie through the
 // cookies API instead — no page content involved, just one named cookie.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === "jth-get-caps") {
+    // Capability report: Chromium forks (Comet, Brave, ...) often lack the
+    // contentSettings API, so the third-party-cookie exception can't be
+    // registered programmatically and must be added in browser settings.
+    sendResponse({ contentSettings: !!(chrome.contentSettings && chrome.contentSettings.cookies) });
+    return;
+  }
   if (msg && msg.type === "jth-clear-cookies"
       && ["tradingview.com", "finviz.com", "unusualwhales.com"].includes(msg.domain)) {
     clearDomainCookies(msg.domain, (n) => {

@@ -3,7 +3,7 @@
 // as "[finviz-helper] …" debug lines (metadata only — never cookie values,
 // passwords, or tokens). Runs ONLY on the dashboard's own pages.
 (function announce() {
-  const VERSION = "2.3";
+  const VERSION = "2.4";
   const mark = () => {
     try {
       document.documentElement.dataset.finvizHelper = "1";
@@ -14,6 +14,20 @@
   mark();
   let n = 0;
   const t = setInterval(() => { mark(); if (++n >= 10) clearInterval(t); }, 1000);
+
+  // Capability flag: can the helper register the third-party-cookie
+  // exception itself (Chrome), or must the user add it in browser settings
+  // (Comet/Brave and other forks without the contentSettings API)?
+  try {
+    chrome.runtime.sendMessage({ type: "jth-get-caps" }, (res) => {
+      void chrome.runtime.lastError;
+      try {
+        document.documentElement.dataset.jthCookieApi =
+          res && res.contentSettings ? "1" : "0";
+        window.dispatchEvent(new CustomEvent("finviz-helper-ready"));
+      } catch (e) { /* no-op */ }
+    });
+  } catch (e) { /* no-op */ }
 
   // Command relay: dashboard page → background (e.g. Repair session).
   try {
