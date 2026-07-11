@@ -1140,7 +1140,8 @@ input, select, textarea {
 .max-pain-pill .mp-delta.down { color: var(--down); }
 
 /* Watchlist controls in sidebar */
-.sb-label-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.sb-label-row { display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; row-gap: 4px; margin-bottom: 6px; }
 .sb-pin-btn {
   background: transparent; border: 1px solid var(--line);
   color: var(--fg-2); font-family: var(--font-mono); font-size: 10px;
@@ -1326,7 +1327,8 @@ input, select, textarea {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.04);
   padding: 3px 6px;
-  transform: translateY(-6px);
+  /* No translateY here: the parent clips overflow, so shifting the image up
+     cropped the top of every logo (v3.41 fix). */
 }
 .sb-ticker-symbol-fallback {
   font-family: var(--font-display); font-weight: 800;
@@ -2821,7 +2823,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 
 /* Sidebar watchlist actions */
-.sb-wl-actions { display: flex; gap: 4px; align-items: center; }
+.sb-wl-actions { display: flex; gap: 4px; align-items: center;
+  /* Wrap instead of spilling past the sidebar edge — Manage/FV/TV/UW must
+     never require horizontal scrolling (v3.41). */
+  flex-wrap: wrap; min-width: 0; }
 .sb-manage-btn {
   font-family: var(--font-mono); font-size: 9.5px;
   font-weight: 700;
@@ -3315,14 +3320,14 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    brand header. Tap to toggle Yonkers vs device geolocation. */
 .sb-weather-pill {
   position: absolute;
-  top: 11px;
-  right: 9px;
+  top: 3px;
+  right: 3px;
   z-index: 5;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--fg-2);
@@ -3336,7 +3341,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .sb-weather-pill:hover { border-color: var(--accent); }
 .sb-weather-pill.wx-err { color: var(--fg-3); }
-.sb-weather-pill .wx-icon { font-size: 12px; }
+.sb-weather-pill .wx-icon { font-size: 14px; }
 .sb-weather-pill .wx-temp { font-variant-numeric: tabular-nums; }
 
 /* ─── Jump bar (v1.22) ───────────────────────────────────────────────
