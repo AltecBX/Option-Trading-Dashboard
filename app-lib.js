@@ -140,6 +140,9 @@ const TABS = [{
   id: "news",
   label: "News"
 }, {
+  id: "finviz",
+  label: "Finviz"
+}, {
   id: "flow",
   label: "Flow"
 }, {
@@ -262,6 +265,71 @@ function sharedJson(apiFetch, url, ttlMs = 15000) {
   return p;
 }
 
+// ── Finviz companion window (v3.24) ────────────────────────────────────────
+// Finviz blocks iframe embedding (X-Frame-Options: SAMEORIGIN) and browsers
+// forbid sharing finviz.com cookies cross-origin, so the compliant way to
+// make Elite feel native is a single named COMPANION WINDOW the dashboard
+// drives: log into Finviz Elite once in that window (your real session,
+// fully synced with your account everywhere), and every ticker switch here
+// re-navigates it. Setting a cross-origin window's location is an allowed
+// browser operation; reading it is not — we never try.
+const FINVIZ = {
+  win: null,
+  base() {
+    return localStorage.getItem("jerry_finviz_base") === "free" ? "https://finviz.com" : "https://elite.finviz.com";
+  },
+  setBase(v) {
+    try {
+      localStorage.setItem("jerry_finviz_base", v);
+    } catch (e) {}
+  },
+  follow() {
+    return localStorage.getItem("jerry_finviz_follow") !== "0";
+  },
+  // default ON
+  setFollow(v) {
+    try {
+      localStorage.setItem("jerry_finviz_follow", v ? "1" : "0");
+    } catch (e) {}
+  },
+  quoteUrl(sym) {
+    return `${this.base()}/quote.ashx?t=${encodeURIComponent(sym)}&p=d`;
+  },
+  connected() {
+    try {
+      return !!(this.win && !this.win.closed);
+    } catch (e) {
+      return false;
+    }
+  },
+  // navigate the companion; focusSteal only on explicit user actions.
+  go(url, focusSteal) {
+    try {
+      if (this.connected()) {
+        this.win.location.href = url;
+        if (focusSteal) this.win.focus();
+        return true;
+      }
+    } catch (e) {/* handle went stale — fall through to reopen */}
+    return false;
+  },
+  // open (or adopt) the named window — must be called from a user gesture
+  // the first time or the popup blocker eats it.
+  open(url, focusSteal = true) {
+    if (this.go(url, focusSteal)) return true;
+    try {
+      this.win = window.open(url, "jerry_finviz");
+      return !!this.win;
+    } catch (e) {
+      return false;
+    }
+  },
+  followTicker(sym) {
+    if (!sym || !this.follow()) return;
+    this.go(this.quoteUrl(sym), false); // never steal focus on auto-follow
+  }
+};
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -285,6 +353,7 @@ Object.assign(window, {
   TAB_KEY,
   RootErrorBoundary,
   fmtUSDate,
-  sharedJson
+  sharedJson,
+  FINVIZ
 });
 })();

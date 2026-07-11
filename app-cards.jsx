@@ -11512,6 +11512,7 @@ const TAB_BLURBS = {
   flow: "Options-flow intelligence from Unusual Whales",
   scanners: "Open-reclaim reversals + market-wide unusual-flow scans",
   juice: "0-3 DTE premium-selling scanner — fattest same-week straddles, ranked by Juice Score with ready-made strangle/condor/spread structures",
+  finviz: "Finviz Elite companion — one window driven by the app; every ticker switch here navigates it, using your real Finviz login",
   breadth: "Which sectors are making highs vs lows — rotation map",
   journal: "Your logged early-mover picks, scored against live prices",
   watchlist: "Every tracked stock with full metrics, EDGE and setups",
@@ -12426,9 +12427,95 @@ function PremiumJuiceCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// ── Finviz Elite companion (v3.24) ─────────────────────────────────────────
+// Finviz blocks embedding (X-Frame-Options: SAMEORIGIN) and browsers forbid
+// sharing its cookies cross-origin, so this drives ONE named Finviz window
+// instead: log in there once with your Elite account (real session, synced
+// with your account everywhere), and every ticker switch in the dashboard
+// re-navigates it automatically. This panel is the control room + launcher.
+function FinvizPanel({ ticker }) {
+  const [connected, setConnected] = useState(FINVIZ.connected());
+  const [follow, setFollow] = useState(FINVIZ.follow());
+  const [base, setBase] = useState(FINVIZ.base().includes("elite") ? "elite" : "free");
+  useEffect(() => {
+    const t = setInterval(() => setConnected(FINVIZ.connected()), 2000);
+    return () => clearInterval(t);
+  }, []);
+  const B = FINVIZ.base();
+  const open = (url) => { FINVIZ.open(url); setConnected(true); };
+  const TICKER_LINKS = [
+    ["Quote & chart", `${B}/quote.ashx?t=${ticker}&p=d`, "The full Finviz quote page for the active ticker — chart, fundamentals, analyst ratings, insider trades, and news in one view."],
+    ["Intraday chart", `${B}/quote.ashx?t=${ticker}&p=i1`, "Finviz 1-minute intraday chart (Elite real-time)."],
+    ["News", `${B}/quote.ashx?t=${ticker}&p=d#news`, "Ticker news feed on the quote page."],
+  ];
+  const GLOBAL_LINKS = [
+    ["Screener", `${B}/screener.ashx`, "Your Finviz screener — all saved Elite screens live in your account and appear here."],
+    ["Portfolio / Watchlists", `${B}/portfolio.ashx`, "Your saved Finviz watchlists and portfolios (account-synced)."],
+    ["Map", `${B}/map.ashx?t=sec`, "S&P 500 heat map by sector."],
+    ["Groups", `${B}/groups.ashx`, "Sector & industry group performance."],
+    ["Futures", `${B}/futures.ashx`, "Futures dashboard."],
+    ["Insider", `${B}/insidertrading.ashx`, "Latest insider buys and sells market-wide."],
+    ["Market news", `${B}/news.ashx`, "Finviz market-wide news and blogs feed."],
+    ["Earnings", `${B}/calendar.ashx`, "Economic & earnings calendar."],
+  ];
+  return (
+    <div className="card fv-card" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker" title="Finviz forbids embedding inside other sites (X-Frame-Options) and browsers forbid sharing its login cookies cross-origin — so instead of a broken iframe, the dashboard drives ONE named Finviz window. Log in there once with your Elite account; the session lives in your browser exactly like a normal Finviz tab (it IS finviz.com), stays across visits per Finviz's own login persistence, and everything — saved screens, watchlists, settings — is your real account, synced everywhere.">
+            finviz elite companion · {connected ? "connected" : "not connected"}
+          </div>
+          <div className="card-title">Finviz — driven by your dashboard</div>
+        </div>
+        <span className={`fv-status ${connected ? "on" : ""}`}
+              title={connected ? "The companion window is open. Ticker switches in the app navigate it automatically while Follow is on."
+                               : "No companion window yet — click 'Open Finviz' below. Your browser requires the first open to be a click (popup rules); after that the app can drive it."}>
+          {connected ? "● live" : "○ closed"}
+        </span>
+      </div>
+
+      <div className="fv-controls">
+        <button className="rr-btn fv-main" onClick={() => open(FINVIZ.quoteUrl(ticker))}
+                title={`Open (or focus) the companion window on ${ticker}. First time: log into your Finviz Elite account there — the login persists in your browser like any normal Finviz visit.`}>
+          Open Finviz → {ticker}
+        </button>
+        <button className={`pj-toggle ${follow ? "active" : ""}`}
+                onClick={() => { FINVIZ.setFollow(!follow); setFollow(!follow); }}
+                title="Follow ticker: every symbol you select anywhere in the dashboard automatically navigates the companion window to that ticker's Finviz page (without stealing focus). Turn off to drive Finviz manually.">
+          Follow ticker {follow ? "ON" : "OFF"}
+        </button>
+        <div className="seg" title="Which Finviz domain to drive. Elite = your paid real-time account (elite.finviz.com). Free = the public site.">
+          {[["elite", "Elite"], ["free", "Free"]].map(([v, l]) => (
+            <button key={v} className={base === v ? "active" : ""}
+                    onClick={() => { FINVIZ.setBase(v); setBase(v); }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="fv-note" title="Why not embedded in the page? Finviz sends X-Frame-Options: SAMEORIGIN — the browser refuses to render it inside dashboard.jerrytrade.com, and working around that (proxy re-hosting) would break your login and violate their terms. The companion window is the compliant equivalent: same screen real estate side-by-side, your real session, zero re-typing of tickers.">
+        Put the companion on a second monitor or split screen — the dashboard is the remote control. Log in once; Finviz keeps you signed in like any normal visit, and your saved screens / watchlists / settings are your real account, synced everywhere.
+      </div>
+
+      <div className="fv-grid-title" title="Pages for the ACTIVE dashboard ticker.">For {ticker}</div>
+      <div className="fv-grid">
+        {TICKER_LINKS.map(([l, u, tip]) => (
+          <button key={l} className="fv-link" onClick={() => open(u)} title={tip}>{l}</button>
+        ))}
+      </div>
+      <div className="fv-grid-title" title="Account-level Finviz tools. Everything you save there is stored in your Finviz account — visible on any device.">Your Finviz</div>
+      <div className="fv-grid">
+        {GLOBAL_LINKS.map(([l, u, tip]) => (
+          <button key={l} className="fv-link" onClick={() => open(u)} title={tip}>{l}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   PremiumJuiceCard: _memo(PremiumJuiceCard),
+  FinvizPanel: _memo(FinvizPanel),
   ValuationCard: _memo(ValuationCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard), RadarReportCard: _memo(RadarReportCard),
