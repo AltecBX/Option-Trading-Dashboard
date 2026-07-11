@@ -15351,6 +15351,7 @@ const TAB_BLURBS = {
   juice: "0-3 DTE premium-selling scanner — fattest same-week straddles, ranked by Juice Score with ready-made strangle/condor/spread structures",
   finviz: "Finviz rendered inside the dashboard (via the one-time helper extension) — follows the global ticker, real Elite login and account",
   tview: "TradingView Supercharts inside the dashboard (helper v2.0) — your real layouts, indicators and alerts, following the global ticker",
+  whales: "Unusual Whales inside the dashboard — flow, sweeps, OI, IV and dark pool for the global ticker, with your real UW account",
   breadth: "Which sectors are making highs vs lows — rotation map",
   journal: "Your logged early-mover picks, scored against live prices",
   watchlist: "Every tracked stock with full metrics, EDGE and setups",
@@ -15442,6 +15443,11 @@ function CommandPalette({
       label: "Open in TradingView",
       hint: "Embedded Supercharts on the active ticker",
       tab: "tview"
+    }, {
+      id: "whales",
+      label: "Open in Unusual Whales",
+      hint: "Embedded UW flow/OI/IV on the active ticker",
+      tab: "whales"
     }, {
       id: "rescan",
       label: "Rescan watchlist now",
@@ -16598,6 +16604,148 @@ function PremiumJuiceCard({
   })))));
 }
 
+// ── Unusual Whales embedded view (v3.34) ────────────────────────────────────
+// UW doesn't block framing, so the frame always renders; helper v2.1+ makes
+// the login persist inside it (cookie SameSite + third-party exception).
+// Two-way ticker sync via the /stock/SYMBOL URL reported by uw-sync.js.
+function UWPanel({
+  ticker,
+  onSwitchTicker,
+  inWatchlist,
+  onAddWatchlist,
+  onResearch,
+  onResearch1m,
+  apiFetch
+}) {
+  const [follow, setFollow] = useState(UWHALES.follow());
+  const [src, setSrc] = useState(() => UWHALES.stockUrl(ticker));
+  const [nonce, setNonce] = useState(0);
+  const frameSym = useRef(null);
+  const tickerRef = useRef(ticker);
+  tickerRef.current = ticker;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  useEffect(() => {
+    const onMsg = e => {
+      if (!/^https:\/\/(www\.)?unusualwhales\.com$/.test(e.origin)) return;
+      const d = e.data;
+      if (!d || d.type !== "jth-uw-ticker" || typeof d.symbol !== "string") return;
+      const sym = d.symbol.toUpperCase();
+      if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(sym)) return;
+      frameSym.current = sym;
+      if (followRef.current && onSwitchTicker && sym !== tickerRef.current) onSwitchTicker(sym);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onSwitchTicker]);
+  useEffect(() => {
+    if (follow && ticker && ticker !== frameSym.current) setSrc(UWHALES.stockUrl(ticker));
+  }, [ticker, follow]);
+  const [radarHit, setRadarHit] = useState(null);
+  useEffect(() => {
+    if (!apiFetch) return undefined;
+    let stop = false;
+    const load = () => sharedJson(apiFetch, "/api/radar", 20 * 1000).then(d => {
+      if (stop || !d) return;
+      const hit = [...(d.long || []), ...(d.short || [])].find(r => r.symbol === ticker);
+      setRadarHit(hit ? {
+        side: hit.side,
+        score: hit.score
+      } : null);
+    }).catch(() => {});
+    load();
+    const t = setInterval(skipWhenHidden(load), 45 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [ticker]);
+  const helperVer = (() => {
+    try {
+      return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0");
+    } catch (e) {
+      return 0;
+    }
+  })();
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card fv-card fv-live",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fv-toolbar",
+    style: {
+      marginTop: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "fv-now",
+    title: "The Unusual Whales stock page follows the dashboard's globally selected ticker — flow, sweeps, volume/OI, IV, expected move and dark pool for the symbol you're working. Navigating to another /stock page inside UW drives the app's ticker back."
+  }, ticker), inWatchlist ? /*#__PURE__*/React.createElement("span", {
+    className: "fv-star on fv-star-static",
+    title: `${ticker} is on your JerryTrade watchlist. Not a button — removal only happens in Manage.`
+  }, "★ on watchlist") : onAddWatchlist && /*#__PURE__*/React.createElement("button", {
+    className: "fv-star",
+    onClick: onAddWatchlist,
+    title: `Add ${ticker} to your JerryTrade watchlist. Add-only — this control can never remove.`
+  }, "☆ add to watchlist"), radarHit && /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip ${radarHit.side === "long" ? "up" : "warn"}`,
+    title: `Live Reversal Radar ${radarHit.side.toUpperCase()} signal on ${ticker} (score ${radarHit.score}/100).`
+  }, "radar ", radarHit.side === "long" ? "▲" : "▼", radarHit.score), onResearch && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onResearch(ticker),
+    title: `Jump to the Trade tab with ${ticker} loaded.`
+  }, "Trade →"), onResearch1m && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onResearch1m(ticker),
+    title: `Jump to the app's 1-minute chart for ${ticker}.`
+  }, "1-Min →"), helperVer < 2.1 && /*#__PURE__*/React.createElement("a", {
+    className: "fv-upd",
+    href: "/finviz-helper.zip",
+    download: true,
+    title: "Unusual Whales renders without the helper, but your UW LOGIN only persists inside the frame with Site Helper v2.1+. Download, replace the unzipped folder's files, then click reload on the extension at chrome://extensions."
+  }, "update helper for login")), /*#__PURE__*/React.createElement("div", {
+    className: "fv-toolbar fv-row2"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: `pj-toggle ${follow ? "active" : ""}`,
+    onClick: () => {
+      UWHALES.setFollow(!follow);
+      setFollow(!follow);
+    },
+    title: "Two-way sync. ON: ticker changes anywhere in the dashboard load that symbol's UW stock page, and browsing to another /stock page inside UW drives the app. OFF: browse UW freely (flow feed, screeners) with no effect either way."
+  }, "Follow ", follow ? "ON" : "OFF"), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => setSrc(UWHALES.stockUrl(ticker)),
+    title: "Point the frame back at the active ticker's stock page."
+  }, "↺ ", ticker), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => setNonce(n => n + 1),
+    title: "Hard-reload the embedded view."
+  }, "Reload"), /*#__PURE__*/React.createElement("a", {
+    className: "rr-btn fv-ext-link",
+    href: src,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    title: "Open the current view in a full browser tab."
+  }, "⧉"), /*#__PURE__*/React.createElement("span", {
+    className: "fv-sep"
+  }), [["Live Flow", "/live-options-flow", "The real-time options flow feed — sweeps, blocks, premium, sentiment."], ["Flow Alerts", "/option-flow-alerts", "Unusual Whales' curated flow alerts feed."], ["Overview", "/flow/overview", "Market-wide flow overview — tide, sectors, net premium."], ["Dark Pool", "/dark-pool-flow", "Dark pool prints feed."], ["Earnings", "/earnings", "Earnings calendar with implied moves."], ["Alerts", "/alerts", "Your configured UW alerts (account)."]].map(([l, p, tip]) => /*#__PURE__*/React.createElement("button", {
+    key: l,
+    className: "fv-chip",
+    onClick: () => setSrc(UWHALES.url(p)),
+    title: tip
+  }, l))), /*#__PURE__*/React.createElement("iframe", {
+    key: nonce,
+    className: "fv-frame",
+    src: src,
+    title: "Unusual Whales",
+    referrerPolicy: "no-referrer-when-downgrade",
+    allow: "clipboard-write; fullscreen"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "fv-hint",
+    title: "It's the real unusualwhales.com with your account. If the login doesn't stick between visits, update the Site Helper to v2.1+ — it applies the same cookie handling that keeps Finviz and TradingView signed in."
+  }, "Log into UW inside the frame once — account, watchlists and alert settings are all yours. Flow/sweeps/OI/IV live on the stock page's own tabs."));
+}
+
 // ── TradingView embedded view (v3.33) ───────────────────────────────────────
 // Same architecture as the Finviz tab: the helper extension (v2.0+) lifts
 // TradingView's frame-ancestors block and keeps its login cookies working
@@ -16692,13 +16840,6 @@ function TVPanel({
         marginBottom: "var(--row-gap)"
       }
     }, /*#__PURE__*/React.createElement("div", {
-      className: "card-head fv-head"
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-      className: "kicker",
-      title: "TradingView rendered directly from tradingview.com inside the dashboard — enabled by your Site Helper extension. Log in once inside the view (or be already logged in from a normal TradingView tab) and it is your REAL account: saved layouts, indicators, drawings, alerts and watchlists, synced everywhere."
-    }, "tradingview · embedded · helper v", helperVer.toFixed(1)), /*#__PURE__*/React.createElement("div", {
-      className: "card-title"
-    }, "TradingView"))), /*#__PURE__*/React.createElement("div", {
       className: "fv-toolbar"
     }, /*#__PURE__*/React.createElement("span", {
       className: "fv-now",
@@ -16746,7 +16887,7 @@ function TVPanel({
       title: "Open the current chart in a full browser tab."
     }, "⧉"), /*#__PURE__*/React.createElement("span", {
       className: "fv-sep"
-    }), [["Supercharts", "/chart/", "The full TradingView chart app — your saved layouts load here."], ["Screener", "/screener/", "TradingView's stock screener."], ["Heatmap", "/heatmap/sp500/", "S&P 500 heatmap."], ["Calendar", "/economic-calendar/", "Economic calendar."], ["News", "/news/", "TradingView news flow."]].map(([l, p, tip]) => /*#__PURE__*/React.createElement("button", {
+    }), [["Supercharts", "/chart/", "The full TradingView chart app — your saved layouts load here."], ["Screener", "/screener/", "TradingView's stock screener."], ["Heatmap", "/heatmap/stock/", "Stock market heatmap."], ["Calendar", "/economic-calendar/", "Economic calendar."], ["News", "/news/", "TradingView news flow."]].map(([l, p, tip]) => /*#__PURE__*/React.createElement("button", {
       key: l,
       className: "fv-chip",
       onClick: () => setSrc(TVIEW.url(p)),
@@ -16936,7 +17077,20 @@ function FinvizPanel({
     className: "rr-btn",
     onClick: () => onResearch1m(ticker),
     title: `Jump straight to the 1-minute chart for ${ticker} — VWAP bands, day levels, radar markers.`
-  }, "1-Min →"));
+  }, "1-Min →"), (() => {
+    try {
+      const v = document.documentElement.dataset.finvizHelperVersion;
+      if (!v || parseFloat(v) < 1.4) {
+        return /*#__PURE__*/React.createElement("a", {
+          className: "fv-upd",
+          href: "/finviz-helper.zip",
+          download: true,
+          title: "A newer Site Helper is available (login persistence + theme toggle fixes). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions."
+        }, "update helper");
+      }
+    } catch (e) {}
+    return null;
+  })());
   const toolbar2 = /*#__PURE__*/React.createElement("div", {
     className: "fv-toolbar fv-row2"
   }, /*#__PURE__*/React.createElement("button", {
@@ -16980,33 +17134,7 @@ function FinvizPanel({
       style: {
         marginBottom: "var(--row-gap)"
       }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "card-head fv-head"
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-      className: "kicker",
-      title: "Finviz is rendered directly from finviz.com inside the dashboard — enabled by your Finviz Helper extension. Your real login and account data apply: log in once inside this view and Finviz keeps the session the way it normally would. Saved screens, watchlists, portfolios and settings are your actual account, synced everywhere."
-    }, "finviz · embedded · helper ", (() => {
-      try {
-        return document.documentElement.dataset.finvizHelperVersion ? "v" + document.documentElement.dataset.finvizHelperVersion : "active";
-      } catch (e) {
-        return "active";
-      }
-    })(), (() => {
-      try {
-        const v = document.documentElement.dataset.finvizHelperVersion;
-        if (!v || parseFloat(v) < 1.4) {
-          return /*#__PURE__*/React.createElement("a", {
-            className: "fv-upd",
-            href: "/finviz-helper.zip",
-            download: true,
-            title: "Helper v1.4 makes Finviz's own light/dark Theme toggle work inside the embedded view (browsers reject Finviz's SameSite=Lax theme cookie in a frame; the helper writes it via the cookies API instead). Download, replace the unzipped folder's files, then click the reload icon on the extension at chrome://extensions."
-          }, " · update helper to v1.4");
-        }
-      } catch (e) {}
-      return null;
-    })()), /*#__PURE__*/React.createElement("div", {
-      className: "card-title"
-    }, "Finviz"))), toolbar, toolbar2, /*#__PURE__*/React.createElement("iframe", {
+    }, toolbar, toolbar2, /*#__PURE__*/React.createElement("iframe", {
       key: nonce,
       className: "fv-frame",
       src: src,
@@ -17058,6 +17186,7 @@ Object.assign(window, {
   PremiumJuiceCard: _memo(PremiumJuiceCard),
   FinvizPanel: _memo(FinvizPanel),
   TVPanel: _memo(TVPanel),
+  UWPanel: _memo(UWPanel),
   ValuationCard: _memo(ValuationCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard),

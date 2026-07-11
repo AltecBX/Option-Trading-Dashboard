@@ -1,6 +1,6 @@
 # JerryTrade Site Helper
 
-Lets **dashboard.jerrytrade.com** display Finviz and TradingView inside their dashboard tabs.
+Lets **dashboard.jerrytrade.com** display Finviz, TradingView and Unusual Whales inside their dashboard tabs.
 
 Finviz sends an `X-Frame-Options: SAMEORIGIN` header, which makes every
 browser refuse to render it inside another website. This helper — installed
@@ -32,6 +32,11 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.1 — Unusual Whales support: login cookie handling (SameSite upgrade +
+  third-party-cookie exception + install sweep) now covers
+  unusualwhales.com, plus in-frame ticker sync from the /stock/SYMBOL URL.
+  UW doesn't block framing, so the embed works even before updating — the
+  update makes the LOGIN persist inside the frame.
 - v2.0 — TradingView support: the same frame-unlock, cookie exception and
   SameSite upgrade now cover tradingview.com, and a tiny in-frame script
   reports the active chart SYMBOL to the dashboard for two-way ticker sync

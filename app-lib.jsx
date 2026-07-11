@@ -104,6 +104,7 @@ const TABS = [
   { id: "news", label: "News" },
   { id: "finviz", label: "Finviz" },
   { id: "tview", label: "TradingView" },
+  { id: "whales", label: "Whales" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
   { id: "juice", label: "0DTE Juice" },
@@ -199,6 +200,16 @@ const TVIEW = {
   },
 };
 
+// ── Unusual Whales embed helper (v3.34) ─────────────────────────────────────
+// UW does NOT block framing, so the embed works even without the helper;
+// helper v2.1+ makes the LOGIN persist inside the frame (cookie handling).
+const UWHALES = {
+  stockUrl(sym) { return `https://unusualwhales.com/stock/${encodeURIComponent(sym)}/overview`; },
+  url(path) { return `https://unusualwhales.com${path}`; },
+  follow() { return localStorage.getItem("jerry_uw_follow") !== "0"; }, // default ON
+  setFollow(v) { try { localStorage.setItem("jerry_uw_follow", v ? "1" : "0"); } catch (e) {} },
+};
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -207,4 +218,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, FINVIZ, TVIEW });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, FINVIZ, TVIEW, UWHALES });
