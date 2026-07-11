@@ -159,16 +159,16 @@ function sharedJson(apiFetch, url, ttlMs = 15000) {
   return p;
 }
 
-// ── Finviz companion window (v3.24) ────────────────────────────────────────
-// Finviz blocks iframe embedding (X-Frame-Options: SAMEORIGIN) and browsers
-// forbid sharing finviz.com cookies cross-origin, so the compliant way to
-// make Elite feel native is a single named COMPANION WINDOW the dashboard
-// drives: log into Finviz Elite once in that window (your real session,
-// fully synced with your account everywhere), and every ticker switch here
-// re-navigates it. Setting a cross-origin window's location is an allowed
-// browser operation; reading it is not — we never try.
+// ── Finviz embed helper (v3.25) ─────────────────────────────────────────────
+// The Finviz tab renders finviz.com INSIDE the dashboard via an iframe. That
+// only works when the user has installed the JerryTrade Finviz Helper — a
+// tiny user-consented browser extension (official declarativeNetRequest API)
+// whose sole capability is letting THIS dashboard embed finviz.com. The
+// helper's content script announces itself by setting
+// documentElement.dataset.finvizHelper and firing 'finviz-helper-ready'.
+// No proxying, no scraping: Finviz loads straight from Finviz's servers with
+// the user's own cookies, so the real Elite login and account data apply.
 const FINVIZ = {
-  win: null,
   base() {
     return localStorage.getItem("jerry_finviz_base") === "free"
       ? "https://finviz.com" : "https://elite.finviz.com";
@@ -177,30 +177,11 @@ const FINVIZ = {
   follow() { return localStorage.getItem("jerry_finviz_follow") !== "0"; }, // default ON
   setFollow(v) { try { localStorage.setItem("jerry_finviz_follow", v ? "1" : "0"); } catch (e) {} },
   quoteUrl(sym) { return `${this.base()}/quote.ashx?t=${encodeURIComponent(sym)}&p=d`; },
-  connected() { try { return !!(this.win && !this.win.closed); } catch (e) { return false; } },
-  // navigate the companion; focusSteal only on explicit user actions.
-  go(url, focusSteal) {
-    try {
-      if (this.connected()) {
-        this.win.location.href = url;
-        if (focusSteal) this.win.focus();
-        return true;
-      }
-    } catch (e) { /* handle went stale — fall through to reopen */ }
-    return false;
+  helperPresent() {
+    try { return document.documentElement.dataset.finvizHelper === "1"; } catch (e) { return false; }
   },
-  // open (or adopt) the named window — must be called from a user gesture
-  // the first time or the popup blocker eats it.
-  open(url, focusSteal = true) {
-    if (this.go(url, focusSteal)) return true;
-    try {
-      this.win = window.open(url, "jerry_finviz");
-      return !!this.win;
-    } catch (e) { return false; }
-  },
-  followTicker(sym) {
-    if (!sym || !this.follow()) return;
-    this.go(this.quoteUrl(sym), false);   // never steal focus on auto-follow
+  isMobile() {
+    try { return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent); } catch (e) { return false; }
   },
 };
 

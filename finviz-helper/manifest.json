@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "JerryTrade Finviz Helper",
+  "version": "1.0",
+  "description": "Lets dashboard.jerrytrade.com embed finviz.com in its Finviz tab. Does nothing else: no data access, no browsing history, no other sites.",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": [
+    "https://finviz.com/*",
+    "https://elite.finviz.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "allow_jerry_frame",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://dashboard.jerrytrade.com/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["announce.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

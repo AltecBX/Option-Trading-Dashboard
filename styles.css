@@ -6423,23 +6423,28 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .rr-rep-table th.num, .rr-rep-table td.num { text-align: right; }
 .rr-hours { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; cursor: help; }
 
-/* ── Finviz companion (v3.24) ───────────────────────────────────────────── */
-.fv-status { font-family: var(--font-mono); font-size: 11.5px; font-weight: 800;
-  color: var(--fg-3); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: help; }
-.fv-status.on { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 50%);
-  background: color-mix(in oklch, var(--up) 9%, transparent); }
-.fv-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+/* ── Finviz embedded view (v3.25) ───────────────────────────────────────── */
+.fv-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fv-now { font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: var(--fg);
+  border: 1px solid var(--accent); border-radius: 8px; padding: 5px 12px; cursor: help;
+  background: color-mix(in oklch, var(--accent) 10%, transparent); }
+.fv-frame { width: 100%; height: calc(100vh - 230px); min-height: 560px; border: 1px solid var(--line);
+  border-radius: 10px; background: #fff; margin-top: 10px; }
+.fv-hint { margin-top: 8px; font-size: 12px; color: var(--fg-3); cursor: help; }
+.fv-ext-link { text-decoration: none; display: inline-flex; align-items: center; }
+.fv-setup { font-size: 13.5px; color: var(--fg-2); max-width: 680px; }
+.fv-setup p { margin: 8px 0; }
+.fv-setup ol { margin: 10px 0 12px 20px; display: flex; flex-direction: column; gap: 8px; }
+.fv-setup code { font-family: var(--font-mono); font-size: 12px; background: var(--bg-3);
+  border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+.fv-dl { color: var(--accent); font-weight: 700; }
 .fv-main { font-size: 13px !important; padding: 9px 18px !important;
-  border-color: var(--accent) !important; }
-.fv-note { font-size: 12.5px; color: var(--fg-2); padding: 10px 12px; border-radius: 8px;
-  background: var(--bg-3); border: 1px solid var(--line); cursor: help; margin-bottom: 4px; }
-.fv-grid-title { font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
-  text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); margin: 14px 0 7px; cursor: help; }
-.fv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
-.fv-link { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--fg);
-  background: var(--bg-3); border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px;
-  cursor: pointer; text-align: left; transition: border-color 80ms; }
-.fv-link:hover { border-color: var(--accent); }
+  border-color: var(--accent) !important; text-decoration: none; display: inline-block; }
+.fv-fineprint { font-size: 12px; color: var(--fg-3); cursor: help; border-top: 1px dashed var(--line);
+  padding-top: 10px; margin-top: 14px !important; }
+@media (max-width: 760px) {
+  .fv-frame { height: calc(100vh - 280px); min-height: 420px; }
+}
 
 /* ── Premium Juice scanner (v3.22) ──────────────────────────────────────── */
 .pj-filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 12px; }
