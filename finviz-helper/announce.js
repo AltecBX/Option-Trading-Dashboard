@@ -3,7 +3,7 @@
 // as "[finviz-helper] …" debug lines (metadata only — never cookie values,
 // passwords, or tokens). Runs ONLY on the dashboard's own pages.
 (function announce() {
-  const VERSION = "2.1";
+  const VERSION = "2.2";
   const mark = () => {
     try {
       document.documentElement.dataset.finvizHelper = "1";
@@ -14,6 +14,20 @@
   mark();
   let n = 0;
   const t = setInterval(() => { mark(); if (++n >= 10) clearInterval(t); }, 1000);
+
+  // Command relay: dashboard page → background (e.g. Repair session).
+  try {
+    window.addEventListener("message", (e) => {
+      if (e.source !== window || !e.data || e.data.type !== "jth-cmd") return;
+      if (e.data.cmd === "clear-cookies" && typeof e.data.domain === "string") {
+        chrome.runtime.sendMessage({ type: "jth-clear-cookies", domain: e.data.domain }, (res) => {
+          void chrome.runtime.lastError;
+          window.postMessage({ type: "jth-cmd-done", cmd: "clear-cookies",
+                               domain: e.data.domain, res: res || null }, "*");
+        });
+      }
+    });
+  } catch (e) { /* no-op */ }
 
   // Diagnostic relay: background → page console.
   try {

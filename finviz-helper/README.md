@@ -32,6 +32,14 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.2 — TradingView repair. v2.0/2.1 rewrote TV cookies, which corrupted
+  their anti-abuse cookie state and made EVERY TradingView page show 'Back
+  before you know it' inside the embed. v2.2 stops touching TV cookies
+  entirely (TV works framed without any rewriting), clears the damaged
+  tradingview.com cookie jar once on update (log in once afterwards), adds
+  a Repair-session command the dashboard's TV tab can invoke, and hardens
+  the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
+  left alone, delete-before-set so duplicates can't form).
 - v2.1 — Unusual Whales support: login cookie handling (SameSite upgrade +
   third-party-cookie exception + install sweep) now covers
   unusualwhales.com, plus in-frame ticker sync from the /stock/SYMBOL URL.

@@ -16879,7 +16879,44 @@ function TVPanel({
       className: "rr-btn",
       onClick: () => setNonce(n => n + 1),
       title: "Hard-reload the embedded TradingView."
-    }, "Reload"), /*#__PURE__*/React.createElement("a", {
+    }, "Reload"), /*#__PURE__*/React.createElement("button", {
+      className: "rr-btn",
+      onClick: () => {
+        // Ask the helper (v2.2+) to clear tradingview.com cookies —
+        // the fix for TV's 'Back before you know it' error page,
+        // which a corrupted cookie jar causes on every route.
+        const onDone = e => {
+          if (e.data && e.data.type === "jth-cmd-done" && e.data.cmd === "clear-cookies") {
+            window.removeEventListener("message", onDone);
+            setNonce(n => n + 1);
+          }
+        };
+        window.addEventListener("message", onDone);
+        window.postMessage({
+          type: "jth-cmd",
+          cmd: "clear-cookies",
+          domain: "tradingview.com"
+        }, "*");
+        setTimeout(() => {
+          window.removeEventListener("message", onDone);
+          setNonce(n => n + 1);
+        }, 1500);
+      },
+      title: "Seeing TradingView's 'Back before you know it' error on every page? That's a corrupted cookie jar. This clears your tradingview.com cookies through the helper (v2.2+) and reloads the frame — log in once afterwards and everything works again."
+    }, "Repair session"), (() => {
+      try {
+        const v = document.documentElement.dataset.finvizHelperVersion;
+        if (!v || parseFloat(v) < 2.2) {
+          return /*#__PURE__*/React.createElement("a", {
+            className: "fv-upd",
+            href: "/finviz-helper.zip",
+            download: true,
+            title: "Helper v2.2 fixes the TradingView 'Back before you know it' errors: it stops rewriting TV cookies (the root cause), clears the damaged cookie jar once automatically, and adds this Repair button's machinery. Download, replace the folder's files, reload the extension at chrome://extensions."
+          }, "update helper to v2.2");
+        }
+      } catch (e) {}
+      return null;
+    })(), /*#__PURE__*/React.createElement("a", {
       className: "rr-btn fv-ext-link",
       href: src,
       target: "_blank",
