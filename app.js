@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.23";
+const APP_VERSION = "3.24";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2609,6 +2609,12 @@ function App() {
     setChartTF("intraday");
     changeTab("trade");
   };
+  // Finviz companion auto-follow (v3.24): every global ticker switch drives
+  // the companion window to that symbol's Finviz page. Never steals focus;
+  // silently no-ops until the user has opened the companion once.
+  useEffect(() => {
+    FINVIZ.followTicker(ticker);
+  }, [ticker]);
   useEffect(() => {
     if (chartTF !== "intraday") return undefined;
     let stop = false;
@@ -6237,6 +6243,13 @@ function App() {
       padding: "12px 0"
     }
   }, "Market dashboard data unavailable. Some endpoints may not be on your plan.")))))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "finviz",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Finviz companion"
+  }, /*#__PURE__*/React.createElement(FinvizPanel, {
+    ticker: ticker
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "juice",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
