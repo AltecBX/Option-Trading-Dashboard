@@ -15432,6 +15432,11 @@ function CommandPalette({
     });
     // Actions.
     [{
+      id: "finviz",
+      label: "Open in Finviz",
+      hint: "Embedded Finviz on the active ticker",
+      tab: "finviz"
+    }, {
       id: "rescan",
       label: "Rescan watchlist now",
       hint: "Kick a fresh full-metrics scan"
@@ -15969,6 +15974,7 @@ function RRRow({
   onToggle,
   onSwitchTicker,
   onOpenIntraday,
+  onOpenFinviz,
   apiFetch
 }) {
   const [logged, setLogged] = useState(false);
@@ -16049,7 +16055,11 @@ function RRRow({
     className: "rr-btn",
     onClick: () => onOpenIntraday ? onOpenIntraday(r.symbol) : onSwitchTicker && onSwitchTicker(r.symbol),
     title: "Load this symbol on the Trade tab in 1-Min chart mode — VWAP bands, levels, and radar markers already drawn."
-  }, "Chart →"), /*#__PURE__*/React.createElement("button", {
+  }, "Chart →"), onOpenFinviz && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onOpenFinviz(r.symbol),
+    title: "Open this symbol in the embedded Finviz tab — fundamentals, news, insider activity, short interest."
+  }, "Finviz →"), /*#__PURE__*/React.createElement("button", {
     className: `rr-btn ${logged ? "rr-logged" : ""}`,
     onClick: logPick,
     disabled: logged,
@@ -16059,7 +16069,8 @@ function RRRow({
 function ReversalRadarCard({
   apiFetch,
   onSwitchTicker,
-  onOpenIntraday
+  onOpenIntraday,
+  onOpenFinviz
 }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
@@ -16114,7 +16125,8 @@ function ReversalRadarCard({
     expanded: open === `${r.symbol}|${r.side}`,
     onToggle: () => setOpen(open === `${r.symbol}|${r.side}` ? null : `${r.symbol}|${r.side}`),
     onSwitchTicker: onSwitchTicker,
-    onOpenIntraday: onOpenIntraday
+    onOpenIntraday: onOpenIntraday,
+    onOpenFinviz: onOpenFinviz
   })));
   return /*#__PURE__*/React.createElement("div", {
     className: "card rr-card",
@@ -16307,7 +16319,8 @@ function PJStrategy({
 }
 function PremiumJuiceCard({
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  onOpenFinviz
 }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
@@ -16568,7 +16581,14 @@ function PremiumJuiceCard({
         onSwitchTicker && onSwitchTicker(r.symbol);
       },
       title: "Load this symbol on the Trade tab for the full chain and strike workbench."
-    }, "Trade tab →"))))));
+    }, "Trade tab →"), onOpenFinviz && /*#__PURE__*/React.createElement("button", {
+      className: "rr-btn",
+      onClick: e => {
+        e.stopPropagation();
+        onOpenFinviz(r.symbol);
+      },
+      title: "Open this symbol in the embedded Finviz tab — fundamentals, float, short interest, news."
+    }, "Finviz →"))))));
   })))));
 }
 
@@ -16581,7 +16601,13 @@ function PremiumJuiceCard({
 // it, a clean setup panel with the download and honest platform notes.
 function FinvizPanel({
   ticker,
-  onSwitchTicker
+  onSwitchTicker,
+  inWatchlist,
+  onToggleWatchlist,
+  watchlistSymbols,
+  onResearch,
+  onResearch1m,
+  apiFetch
 }) {
   const [helper, setHelper] = useState(FINVIZ.helperPresent());
   const [follow, setFollow] = useState(FINVIZ.follow());
@@ -16596,6 +16622,40 @@ function FinvizPanel({
   tickerRef.current = ticker;
   const followRef = useRef(follow);
   followRef.current = follow;
+
+  // App-intel badges for the active symbol: radar signal + juice score.
+  // Radar is already polled app-wide by the alerts loop (sharedJson dedupes);
+  // juice is fetched at a slow cadence only while this tab is mounted.
+  const [radarHit, setRadarHit] = useState(null);
+  const [juiceHit, setJuiceHit] = useState(null);
+  useEffect(() => {
+    if (!apiFetch) return undefined;
+    let stop = false;
+    const load = () => {
+      sharedJson(apiFetch, "/api/radar", 20 * 1000).then(d => {
+        if (stop || !d) return;
+        const hit = [...(d.long || []), ...(d.short || [])].find(r => r.symbol === ticker);
+        setRadarHit(hit ? {
+          side: hit.side,
+          score: hit.score
+        } : null);
+      }).catch(() => {});
+      sharedJson(apiFetch, "/api/juice", 240 * 1000).then(d => {
+        if (stop || !d) return;
+        const hit = (d.rows || []).find(r => r.symbol === ticker);
+        setJuiceHit(hit ? {
+          score: hit.score,
+          dte: hit.dte
+        } : null);
+      }).catch(() => {});
+    };
+    load();
+    const t = setInterval(skipWhenHidden(load), 45 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [ticker]);
 
   // Frame -> app: helper v1.3 posts {type:'fvh-ticker', symbol} from inside
   // the embedded Finviz page whenever it lands on a quote page (i.e. you
@@ -16643,12 +16703,43 @@ function FinvizPanel({
   useEffect(() => {
     if (follow && ticker && ticker !== frameSym.current) setSrc(FINVIZ.quoteUrl(ticker));
   }, [ticker, follow, base]);
+  const navChip = (label, path, tip) => /*#__PURE__*/React.createElement("button", {
+    key: label,
+    className: "fv-chip",
+    onClick: () => setSrc(FINVIZ.base() + path),
+    title: tip
+  }, label);
+  const wlScreenerPath = (() => {
+    const syms = (watchlistSymbols || []).slice(0, 100);
+    return syms.length ? `/screener.ashx?v=111&t=${syms.join(",")}` : null;
+  })();
   const toolbar = /*#__PURE__*/React.createElement("div", {
     className: "fv-toolbar"
   }, /*#__PURE__*/React.createElement("span", {
     className: "fv-now",
-    title: "The frame follows the dashboard's globally selected ticker. Change the symbol anywhere — radar, watchlist, search — and this view navigates with it."
-  }, ticker), /*#__PURE__*/React.createElement("button", {
+    title: "The frame follows the dashboard's globally selected ticker — and clicking a stock inside Finviz drives it back. Change the symbol anywhere and this view navigates with it."
+  }, ticker), onToggleWatchlist && /*#__PURE__*/React.createElement("button", {
+    className: `fv-star ${inWatchlist ? "on" : ""}`,
+    onClick: onToggleWatchlist,
+    title: inWatchlist ? `${ticker} is on your JerryTrade watchlist — click to remove it.` : `Add ${ticker} to your JerryTrade watchlist (scanned by the board, radar and juice from the next pass). No re-typing in Manage.`
+  }, inWatchlist ? "★ on watchlist" : "☆ watchlist"), radarHit && /*#__PURE__*/React.createElement("span", {
+    className: `emx-chip ${radarHit.side === "long" ? "up" : "warn"}`,
+    title: `The Reversal Radar has a live ${radarHit.side.toUpperCase()} signal on ${ticker} right now (score ${radarHit.score}/100). See the Scanners tab for the ticket.`
+  }, "radar ", radarHit.side === "long" ? "▲" : "▼", radarHit.score), juiceHit && /*#__PURE__*/React.createElement("span", {
+    className: "emx-chip earn",
+    title: `${ticker} is on the 0-3 DTE Premium Juice board (score ${juiceHit.score}, ${juiceHit.dte}d to expiry) — fat same-week premium. See the 0DTE Juice tab for structures.`
+  }, "juice ", juiceHit.score), onResearch && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onResearch(ticker),
+    title: `Jump to the Trade tab with ${ticker} loaded — chart, expected move, strikes, trade builder.`
+  }, "Trade →"), onResearch1m && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onResearch1m(ticker),
+    title: `Jump straight to the 1-minute chart for ${ticker} — VWAP bands, day levels, radar markers.`
+  }, "1-Min →"));
+  const toolbar2 = /*#__PURE__*/React.createElement("div", {
+    className: "fv-toolbar fv-row2"
+  }, /*#__PURE__*/React.createElement("button", {
     className: `pj-toggle ${follow ? "active" : ""}`,
     onClick: () => {
       FINVIZ.setFollow(!follow);
@@ -16680,7 +16771,9 @@ function FinvizPanel({
     target: "_blank",
     rel: "noopener noreferrer",
     title: "Open the current view in a full browser tab (useful for printing or very dense screener work)."
-  }, "⧉"));
+  }, "⧉"), /*#__PURE__*/React.createElement("span", {
+    className: "fv-sep"
+  }), navChip("Screener", "/screener.ashx", "Your Finviz screener — saved Elite presets included. (Clicking a result drives the app's ticker.)"), navChip("Portfolio", "/portfolio.ashx", "Your Finviz portfolios and watchlists (account-synced)."), navChip("Map", "/map.ashx?t=sec", "S&P 500 heat map by sector."), navChip("Earnings", "/calendar.ashx", "Economic & earnings calendar."), navChip("News", "/news.ashx", "Finviz market news and blogs."), wlScreenerPath && navChip("My watchlist", wlScreenerPath, `Open Finviz's screener filtered to YOUR JerryTrade watchlist symbols${(watchlistSymbols || []).length > 100 ? " (first 100 of " + watchlistSymbols.length + ")" : ""} — run Finviz's fundamental and technical columns over your own list, no re-typing.`));
   if (helper) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card fv-card fv-live",
@@ -16713,7 +16806,7 @@ function FinvizPanel({
       return null;
     })()), /*#__PURE__*/React.createElement("div", {
       className: "card-title"
-    }, "Finviz"))), toolbar, /*#__PURE__*/React.createElement("iframe", {
+    }, "Finviz"))), toolbar, toolbar2, /*#__PURE__*/React.createElement("iframe", {
       key: nonce,
       className: "fv-frame",
       src: src,

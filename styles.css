@@ -6428,6 +6428,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    inside card-head where it wrapped into a tall vertical stack). */
 .fv-head { margin-bottom: 0 !important; }
 .fv-upd { color: var(--warn); font-weight: 800; text-decoration: underline; cursor: pointer; }
+.fv-row2 { margin-top: 6px; }
+.fv-star { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--fg-2);
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
+  cursor: pointer; transition: border-color 80ms, color 80ms; }
+.fv-star:hover { border-color: var(--warn); }
+.fv-star.on { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 45%);
+  background: color-mix(in oklch, var(--warn) 10%, transparent); }
+.fv-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 2px; }
+.fv-chip { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--fg-2);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
+  cursor: pointer; transition: border-color 80ms, color 80ms; }
+.fv-chip:hover { border-color: var(--accent); color: var(--fg); }
 .fv-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
   flex-direction: row; width: 100%; margin-top: 8px; }
 .fv-now { font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: var(--fg);
