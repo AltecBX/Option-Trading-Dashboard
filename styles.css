@@ -6433,6 +6433,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: var(--bg-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
   cursor: pointer; transition: border-color 80ms, color 80ms; }
 .fv-star:hover { border-color: var(--warn); }
+.fv-star-static { cursor: help; }
 .fv-star.on { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 45%);
   background: color-mix(in oklch, var(--warn) 10%, transparent); }
 .fv-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 2px; }

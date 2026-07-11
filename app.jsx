@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.31";
+const APP_VERSION = "3.32";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4837,9 +4837,10 @@ function App() {
           <CardErrorBoundary label="Finviz companion">
             <FinvizPanel ticker={ticker} onSwitchTicker={switchTicker} apiFetch={apiFetch}
               inWatchlist={watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)}
-              onToggleWatchlist={() => {
-                if (watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlRemoveSymbol(ticker);
-                else wlAddSymbol(ticker, {});
+              onAddWatchlist={() => {
+                // Add-only by design: removal wipes curated tags/sector/notes,
+                // so it lives exclusively in the Manage workflow.
+                if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
               }}
               watchlistSymbols={watchlistData.symbols.map(x => x.symbol)}
               onResearch={(sym) => { switchTicker(sym); changeTab("trade"); }}
