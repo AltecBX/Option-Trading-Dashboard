@@ -3,7 +3,7 @@
 // as "[finviz-helper] …" debug lines (metadata only — never cookie values,
 // passwords, or tokens). Runs ONLY on the dashboard's own pages.
 (function announce() {
-  const VERSION = "2.4";
+  const VERSION = "2.5";
   const mark = () => {
     try {
       document.documentElement.dataset.finvizHelper = "1";

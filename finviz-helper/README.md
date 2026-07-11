@@ -32,6 +32,12 @@ Already installed an older version? Download the new zip, replace the
 unzipped folder's contents, then click the ↻ reload icon on the extension's
 card at `chrome://extensions` (or remove + Load unpacked again).
 
+- v2.5 — Comet (and any browser without a third-party-cookie exception
+  setting): the in-frame scripts now use the standards-based Storage Access
+  API. After updating: open the embedded site, CLICK ANYWHERE inside it
+  once, and approve the cookie/storage prompt if the browser shows one.
+  The grant persists (~30 days), the frame reloads itself, and the login
+  sticks from then on. No settings hunt required.
 - v2.4 — non-Chrome Chromium browsers (Comet, Brave, ...): these often lack
   the contentSettings API, so the helper can't register the third-party-
   cookie exception itself and the embedded logins won't stick until you add

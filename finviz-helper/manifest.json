@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JerryTrade Site Helper",
-  "version": "2.4",
+  "version": "2.5",
   "description": "Lets dashboard.jerrytrade.com embed finviz.com, tradingview.com and unusualwhales.com, and keeps your logins working inside the embedded views. No data access, no browsing history, no other sites.",
   "permissions": [
     "declarativeNetRequest",
