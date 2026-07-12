@@ -10105,3 +10105,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* /next classic dock (v3.46): when embedded by the /next shell, navigation
    belongs to the shell — hide the internal tab bar. Standalone unaffected. */
 body.jt-embed .tab-bar-2row { display: none !important; }
+/* In the /next dock, the shell already renders the macro strip, news tape,
+   version, weather, and connection badges — hide the classic's duplicates so
+   nothing appears twice. Unique surfaces (posture card, context bar, sidebar
+   controls) stay. Standalone site: unaffected. */
+body.jt-embed .mko-regime, body.jt-embed .mko-grid { display: none !important; }
+body.jt-embed .newsticker { display: none !important; }
+body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !important; }
