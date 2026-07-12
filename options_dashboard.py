@@ -4272,6 +4272,29 @@ _juice.configure(
     pivots_fn=_juice_pivots,
 )
 
+# ── Natural-language backtesting lab (v3.43) ────────────────────────────────
+import backtest as _backtest
+
+
+def _backtest_universe() -> dict:
+    """Starred watchlist symbols first (the user's active names); the full
+    list as fallback. The engine caps counts itself and warns when it clips."""
+    try:
+        wl = _load_watchlist()
+        syms = wl.get("symbols") or []
+        starred = [s["symbol"] for s in syms if s.get("starred")]
+        return {"starred": starred, "all": [s["symbol"] for s in syms]}
+    except Exception:
+        return {"starred": [], "all": []}
+
+
+_backtest.configure(
+    schwab_getter=lambda: _schwab(),
+    minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
+    universe_fn=_backtest_universe,
+    data_dir=_STABLE_DIR,
+)
+
 
 def _watchlist_overrides(wl: dict | None = None) -> dict:
     """Build the CSV-source-of-truth override map for the watchlist table
@@ -5959,6 +5982,30 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
         # ── Dismiss a watchlist alert (v1.15) ──────────────────────
+        # ── Backtest lab (v3.43): English → rules, then run as a job ────
+        if parsed.path == "/api/backtest/parse":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 100_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send_json(_backtest.parse_strategy(payload.get("text") or ""), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/backtest/run":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 500_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                rules = payload.get("rules")
+                if not isinstance(rules, dict):
+                    raise ValueError("rules object required")
+                self._send_json(_backtest.start_job(rules), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         if parsed.path == "/api/watchlist_alerts/dismiss":
             try:
                 length = int(self.headers.get("Content-Length", "0") or "0")
@@ -7124,6 +7171,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/juice", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/backtest/status":
+            # Poll a running backtest job (v3.43).
+            try:
+                q = parse_qs(parsed.query)
+                self._send_json(_backtest.job_status((q.get("job") or [""])[0]), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/backtest/last":
+            # Last completed backtest (persisted) — survives reloads/restarts.
+            try:
+                self._send_json(_backtest.last_result(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/radar":
             # Reversal Radar snapshot — served instantly; the background
