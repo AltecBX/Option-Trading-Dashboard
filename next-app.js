@@ -5,7 +5,7 @@ const {
   useRef,
   useMemo
 } = React;
-const NEXT_VERSION = "4.0.2-next";
+const NEXT_VERSION = "4.0.3-next";
 const CFG = typeof window !== "undefined" && window.__APP_CONFIG || {};
 function api(path) {
   const headers = {};
@@ -839,77 +839,129 @@ function Today({
     onOpen: onOpen
   })));
 }
-const PHASE2 = {
-  trade: "Verdict banner · levels ladder · chart with EM band/VWAP/OI walls · Expected Move full card · CSP/CC · Strategy menu with every profile (incl. Calendar Spread P/L) · Trade Builder · options chain workbench · theta/skew · level reprice · max pain · % calc",
-  discover: "Analyst calls · Movers · Trend · Vol Rank boards",
-  analyze: "Analyst targets · valuation · basing · pullback profile · company profile",
-  patterns: "Full discovery engine · Current Setup · Ask box · intraday sequences · watch manager",
-  news: "Ticker + market news hub with impact tags",
-  flow: "Flow score · market tide · sector flow · Greek exposure · dark pool",
-  scanners: "Reversal Radar full boards · tickets · report/self-tuning · open-reclaim",
-  juice: "Full Juice board · strategy suggestions (DEFINED-first)",
-  backtest: "The natural-language Backtest Lab",
-  breadth: "Full breadth + market overview detail",
-  journal: "Picks + trade journal, linked to originating signals",
-  watchlist: "The full 1,276-row board · tags/sector/industry/weekly filters",
-  streaks: "Streak board with what-followed stats",
-  calendar: "Week game plan + watchlist earnings ladder",
-  manage: "Watchlist manager (removal lives ONLY here) · broker import · push · Schwab reconnect · win rate",
-  finviz: "Embedded Finviz (helper, two-way sync) — unchanged",
-  tview: "Embedded TradingView — unchanged",
-  whales: "Embedded Unusual Whales — unchanged"
+const CLASSIC_TABS = {
+  trade: 1,
+  discover: 1,
+  analyze: 1,
+  patterns: 1,
+  news: 1,
+  flow: 1,
+  scanners: 1,
+  juice: 1,
+  backtest: 1,
+  breadth: 1,
+  journal: 1,
+  watchlist: 1,
+  streaks: 1,
+  calendar: 1,
+  manage: 1,
+  finviz: 1,
+  tview: 1,
+  whales: 1
 };
-function Phase2({
-  id
+function ClassicDock({
+  visible,
+  tab,
+  ticker,
+  onClassicState
 }) {
-  const label = (TABS.find(t => t[0] === id) || SITES.find(t => t[0] === id) || ["", id])[1];
-  return React.createElement("section", {
-    className: "ws on"
-  }, React.createElement("div", {
-    className: "card",
-    style: {
-      maxWidth: 860,
-      margin: "40px auto",
-      textAlign: "center",
-      padding: "42px 40px 38px"
+  const frameRef = useRef(null);
+  const readyRef = useRef(false);
+  const queueRef = useRef(null);
+  const [loaded, setLoaded] = useState(false);
+  const initial = useRef({
+    tab: CLASSIC_TABS[tab] ? tab : "trade",
+    ticker
+  });
+  const send = msg => {
+    const w = frameRef.current && frameRef.current.contentWindow;
+    if (!w) return;
+    if (!readyRef.current) {
+      queueRef.current = {
+        ...(queueRef.current || {}),
+        ...msg
+      };
+      return;
     }
-  }, React.createElement("div", {
+    try {
+      w.postMessage({
+        jt: "next",
+        ...msg
+      }, location.origin);
+    } catch (e) {}
+  };
+  useEffect(() => {
+    const onMsg = e => {
+      if (e.origin !== location.origin || !e.data || e.data.jt !== "classic") return;
+      if (e.data.ready) {
+        readyRef.current = true;
+        setLoaded(true);
+        if (queueRef.current) {
+          send(queueRef.current);
+          queueRef.current = null;
+        }
+        return;
+      }
+      onClassicState && onClassicState(e.data);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+  useEffect(() => {
+    if (CLASSIC_TABS[tab]) send({
+      tab
+    });
+  }, [tab]);
+  useEffect(() => {
+    if (ticker) send({
+      symbol: ticker
+    });
+  }, [ticker]);
+  return React.createElement("div", {
     style: {
-      fontFamily: "var(--mono)",
-      fontSize: 10,
-      letterSpacing: ".2em",
-      color: "var(--acc)"
+      display: visible ? "block" : "none",
+      position: "relative",
+      height: "100%",
+      minHeight: "calc(100vh - 174px)"
     }
-  }, "PHASE 2 · COMING TO /NEXT"), React.createElement("h2", {
+  }, !loaded && React.createElement("div", {
     style: {
-      fontSize: 22,
-      margin: "10px 0 8px"
-    }
-  }, label), React.createElement("p", {
-    style: {
-      color: "var(--fg2)",
-      fontSize: 13.5,
-      lineHeight: 1.65,
-      maxWidth: "58ch",
-      margin: "0 auto"
-    }
-  }, PHASE2[id]), React.createElement("p", {
-    style: {
+      position: "absolute",
+      inset: 0,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "column",
+      gap: 12,
       color: "var(--fg3)",
+      fontFamily: "var(--mono)",
       fontSize: 12,
-      marginTop: 14
+      letterSpacing: ".1em"
     }
-  }, "Until then it's exactly where it's always been:"), React.createElement("a", {
-    className: "btn pri",
-    href: "/",
-    target: "_blank",
-    rel: "noopener",
+  }, React.createElement("div", {
+    className: "pill live"
+  }, React.createElement("span", {
+    className: "dot"
+  }), "LOADING YOUR FULL APP…"), React.createElement("div", {
     style: {
-      marginTop: 10,
-      textDecoration: "none",
-      display: "inline-flex"
+      fontSize: 10
     }
-  }, "Open ", label, " on the classic site ↗")));
+  }, "every feature, live — the new shell around your complete classic app")), React.createElement("iframe", {
+    ref: frameRef,
+    title: "JerryTrade classic",
+    src: `/?embed=1&tab=${encodeURIComponent(initial.current.tab)}&symbol=${encodeURIComponent(initial.current.ticker)}`,
+    onLoad: () => setLoaded(true),
+    style: {
+      width: "100%",
+      height: "100%",
+      minHeight: "calc(100vh - 174px)",
+      border: "none",
+      display: "block",
+      background: "var(--bg0)",
+      opacity: loaded ? 1 : 0,
+      transition: "opacity .25s"
+    }
+  }));
 }
 function Tape() {
   const n = usePoll("/api/finviz_news?limit=40", 120000);
@@ -1006,10 +1058,16 @@ function App() {
     }
   }, React.createElement("div", {
     className: "view"
-  }, tab === "today" ? React.createElement(Today, {
+  }, tab === "today" && React.createElement(Today, {
     onOpen: openSym
-  }) : React.createElement(Phase2, {
-    id: tab
+  }), React.createElement(ClassicDock, {
+    visible: tab !== "today",
+    tab: tab,
+    ticker: ticker,
+    onClassicState: st => {
+      if (st.ticker && st.ticker !== ticker) setTicker(String(st.ticker).toUpperCase());
+      if (st.tab && st.tab !== tab && CLASSIC_TABS[st.tab] && tab !== "today") setTab(st.tab);
+    }
   }))), React.createElement(Tape, null));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));

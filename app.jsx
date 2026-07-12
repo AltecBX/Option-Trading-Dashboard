@@ -5,10 +5,19 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.45";
+const APP_VERSION = "3.46";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
+
+// Classic dock (v3.46): true only when this page is embedded by the /next
+// shell (?embed=1 inside an iframe). Standalone use is COMPLETELY unaffected
+// — every embed behavior below is gated on this flag.
+window.__JT_EMBED = (() => {
+  try {
+    return new URLSearchParams(location.search).get("embed") === "1" && window.parent !== window;
+  } catch (e) { return false; }
+})();
 
 // Transparent fetch cache for apiFetch. Two wins, invisible to call sites:
 //  • In-flight de-duplication — N components asking for the same URL at the
@@ -423,6 +432,9 @@ function App() {
   const [strategyMode, setStrategyMode] = useState(persisted.strategyMode || "both");
   const [activeTab, setActiveTab] = useState(() => {
     try {
+      // /next dock: the shell picks the initial tab via ?tab= (embed only).
+      const qt = new URLSearchParams(location.search).get("tab");
+      if (window.__JT_EMBED && qt && TABS.some(x => x.id === qt)) return qt;
       const t = localStorage.getItem(TAB_KEY);
       return TABS.some(x => x.id === t) ? t : "trade";
     } catch { return "trade"; }
@@ -506,8 +518,31 @@ function App() {
       });
       return t;
     });
-    try { localStorage.setItem(TAB_KEY, t); } catch {}
+    // Embedded in /next: don't overwrite the STANDALONE site's saved tab.
+    if (!window.__JT_EMBED) { try { localStorage.setItem(TAB_KEY, t); } catch {} }
   }, []);
+
+  // ── /next dock wiring (v3.46) — inert unless embedded by the shell ──
+  useEffect(() => {
+    if (!window.__JT_EMBED) return;
+    try { document.body.classList.add("jt-embed"); } catch {}
+    try {
+      const sym = new URLSearchParams(location.search).get("symbol");
+      if (sym && /^[A-Za-z0-9.\-]{1,12}$/.test(sym)) switchTicker(sym.toUpperCase());
+    } catch {}
+    const onMsg = (e) => {
+      if (e.origin !== location.origin || !e.data || e.data.jt !== "next") return;
+      if (e.data.tab && TABS.some(x => x.id === e.data.tab)) changeTab(e.data.tab);
+      if (e.data.symbol && /^[A-Z0-9.\-]{1,12}$/.test(e.data.symbol)) switchTicker(e.data.symbol);
+    };
+    window.addEventListener("message", onMsg);
+    try { window.parent.postMessage({ jt: "classic", ready: true }, location.origin); } catch {}
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+  useEffect(() => {
+    if (!window.__JT_EMBED) return;
+    try { window.parent.postMessage({ jt: "classic", tab: activeTab, ticker }, location.origin); } catch {}
+  }, [activeTab, ticker]);
   // Visible days on the price chart. Two ways to drive it: preset
   // buttons (30D/60D/120D/250D) which set chartDays, or mouse interaction
   // (wheel zoom or drag-pan) which sets a custom viewRange. When viewRange
