@@ -742,13 +742,29 @@ class SchwabClient:
         hit = self._cache_get(cache_key)
         if hit is not None:
             return hit
-        # Schwab uses periodType=year, period=1 for ~1y. For shorter
-        # ranges we still pull a year and slice locally — saves API calls
-        # on repeated chart redraws.
+        # Schwab uses periodType=year with valid periods 1,2,3,5,10,15,20.
+        # For short ranges we still pull a year and slice locally — saves
+        # API calls on repeated chart redraws. Long ranges (pattern
+        # discovery, v3.45) map calendar days onto the smallest covering
+        # period; candles come back split-adjusted.
+        if days <= 260:
+            period = 1
+        elif days <= 620:
+            period = 2
+        elif days <= 1000:
+            period = 3
+        elif days <= 1750:
+            period = 5
+        elif days <= 3560:
+            period = 10
+        elif days <= 5400:
+            period = 15
+        else:
+            period = 20
         params = {
             "symbol": symbol,
             "periodType": "year",
-            "period": 1 if days <= 260 else 2,
+            "period": period,
             "frequencyType": "daily",
             "frequency": 1,
             "needExtendedHoursData": "false",

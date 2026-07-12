@@ -4304,6 +4304,8 @@ _patterns.configure(
     data_dir=_STABLE_DIR,
     notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0)
                                   if _push_configured() else None),
+    board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+    minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
 )
 
 
@@ -6011,6 +6013,45 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        if parsed.path == "/api/patterns/ask":
+            # NL research (v3.45): question → visible rules → event study.
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 100_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send_json(_patterns.ask(payload.get("text") or "",
+                                              payload.get("symbol") or ""), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/patterns/intraday":
+            # Start an intraday sequence-mining job (v3.45).
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 10_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                sym = (payload.get("symbol") or "").strip()
+                if not sym:
+                    raise ValueError("symbol required")
+                self._send_json(_patterns.start_intraday_job(sym))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/patterns/scan":
+            # Scan / compare a discovered pattern across the watchlist (v3.45).
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 200_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send_json(_patterns.scan_pattern(payload.get("family") or "",
+                                                       payload.get("params") or {},
+                                                       payload.get("symbols")), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         # ── Backtest lab (v3.43): English → rules, then run as a job ────
         if parsed.path == "/api/backtest/parse":
             try:
@@ -7217,6 +7258,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json(_patterns.check_watches(), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc), "watches": []}, status=500)
+            return
+        if parsed.path == "/api/patterns/intraday":
+            # Cached intraday-sequence result and/or job status (v3.45).
+            try:
+                q = parse_qs(parsed.query)
+                job = (q.get("job") or [""])[0]
+                if job:
+                    self._send_json(_patterns.intraday_status(job), no_store=True)
+                else:
+                    self._send_json(_patterns.intraday_cached((q.get("symbol") or [""])[0]), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/backtest/status":
             # Poll a running backtest job (v3.43).
