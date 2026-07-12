@@ -9551,6 +9551,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         # the raw index.html which auto-fetches /api/ticker on load.
         if parsed.path in ("/", "/index", "/index.html"):
             self.path = "/options_dashboard.html" if (HERE / "options_dashboard.html").exists() else "/index.html"
+        # Parallel next-gen UI (v4 preview). Purely additive — the classic
+        # site above is untouched; /next has its own html/css/js files.
+        elif parsed.path in ("/next", "/next/"):
+            self.path = "/next.html"
         super().do_GET()
 
     def end_headers(self):  # noqa: N802
