@@ -5,7 +5,7 @@ const {
   useRef,
   useMemo
 } = React;
-const NEXT_VERSION = "4.0.1-next";
+const NEXT_VERSION = "4.0.2-next";
 const CFG = typeof window !== "undefined" && window.__APP_CONFIG || {};
 function api(path) {
   const headers = {};
@@ -62,6 +62,23 @@ const pick = (o, ...keys) => {
 };
 const asArr = v => Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : [];
 const fmtPct = v => v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(2)}%`;
+const SPARK_KEY = "next_spark_v1";
+let SPARKS = {};
+try {
+  SPARKS = JSON.parse(localStorage.getItem(SPARK_KEY) || "{}") || {};
+} catch (e) {}
+function pushSpark(label, v) {
+  if (v == null || !isFinite(v)) return [];
+  const a = SPARKS[label] = SPARKS[label] || [];
+  if (a.length === 0 || a[a.length - 1] !== v) {
+    a.push(v);
+    if (a.length > 90) a.shift();
+    try {
+      localStorage.setItem(SPARK_KEY, JSON.stringify(SPARKS));
+    } catch (e) {}
+  }
+  return a;
+}
 const fmtN = v => v == null ? "—" : Number(v).toLocaleString(undefined, {
   maximumFractionDigits: 2
 });
@@ -71,7 +88,7 @@ function Spark({
   w = 76,
   h = 38
 }) {
-  if (!vals || vals.length < 3) return null;
+  if (!vals || vals.length < 2) return null;
   const lo = Math.min(...vals),
     hi = Math.max(...vals),
     span = Math.max(1e-9, hi - lo);
@@ -178,13 +195,18 @@ function CommandBar({
 }) {
   const [input, setInput] = useState(ticker);
   const q = usePoll(`/api/quote?symbol=${encodeURIComponent(ticker)}`, 15000);
-  const ctx = usePoll("/api/market_context", 120000);
+  const mo = usePoll("/api/market_overview", 30000);
+  const wt = usePoll("/api/watchlist_table", 300000);
   const quote = q.data || {};
   const px = pick(quote, "last", "price", "mark", "close");
-  const chg = pick(quote, "chg_pct", "change_pct", "pct", "percent_change");
-  const earn = pick(quote, "next_earnings", "earnings");
-  const posture = pick(ctx.data || {}, "posture", "regime", "today") || "—";
-  const postureStr = typeof posture === "string" ? posture : pick(posture, "posture", "label") || "—";
+  const chg = pick(quote, "change_pct", "chg_pct", "pct", "percent_change");
+  const wlRow = useMemo(() => asArr(wt.data && (wt.data.rows || wt.data.board)).find(r => (pick(r, "symbol", "sym") || "").toUpperCase() === ticker) || null, [wt.data, ticker]);
+  const earn = wlRow && pick(wlRow, "next_earnings", "earnings");
+  const earnDays = wlRow && pick(wlRow, "days_to_earnings");
+  const insts = asArr(mo.data && mo.data.instruments);
+  const spx = insts.find(i => /s&p/i.test(pick(i, "label", "name") || ""));
+  const spxChg = spx && pick(spx, "change_pct", "chg_pct");
+  const postureStr = spxChg == null ? "—" : spxChg > 0.25 ? "BULLISH" : spxChg < -0.25 ? "BEARISH" : "NEUTRAL";
   return React.createElement("div", {
     className: "cmd"
   }, React.createElement("div", {
@@ -262,15 +284,15 @@ function CommandBar({
     className: "vdiv"
   }), React.createElement("div", {
     className: "stat",
-    title: "Market posture — SPY vs its 50/200-day averages"
+    title: "Market posture — S&P futures direction, refined by watchlist breadth"
   }, React.createElement("em", null, "Posture"), React.createElement("b", {
-    className: /bull/i.test(postureStr) ? "cu" : /bear|down/i.test(postureStr) ? "cd" : "cw"
-  }, String(postureStr).toUpperCase().slice(0, 14))), React.createElement("div", {
+    className: /BULL/.test(postureStr) ? "cu" : /BEAR/.test(postureStr) ? "cd" : "cw"
+  }, postureStr)), React.createElement("div", {
     className: "vdiv"
   }), React.createElement("div", {
     className: "stat",
-    title: "Next earnings for the active ticker"
-  }, React.createElement("em", null, "Earnings"), React.createElement("b", null, earn ? String(earn).slice(5, 10).replace("-", "/") : "—")), React.createElement("div", {
+    title: earn ? `Next earnings for ${ticker}: ${earn}` : "Next earnings for the active ticker (from the watchlist board)"
+  }, React.createElement("em", null, "Earnings"), React.createElement("b", null, earn ? `${String(earn).slice(5).replace("-", "/")}${earnDays != null ? ` · ${earnDays}d` : ""}` : "—")), React.createElement("div", {
     className: "vdiv"
   }), React.createElement("span", {
     className: "pill live",
@@ -316,14 +338,17 @@ function MarketStrip() {
     const label = pick(m, "label", "name", "sym") || "";
     const last = pick(m, "last", "price", "value");
     const pct = pick(m, "chg_pct", "pct", "change_pct");
-    const spark = asArr(pick(m, "spark", "history", "closes"));
+    let spark = asArr(pick(m, "spark", "history", "closes"));
+    const buf = pushSpark(label, last);
+    if (spark.length < 3) spark = buf;
+    if (spark.length === 1) spark = [spark[0], spark[0]];
     const up = pct != null ? pct >= 0 : spark.length > 1 ? spark[spark.length - 1] >= spark[0] : true;
     return React.createElement("div", {
       className: "mk",
       key: i,
       title: `${label} — permanently visible on every tab.${mo.stale ? " (STALE — last good kept)" : ""}`
-    }, spark.length > 2 && React.createElement(Spark, {
-      vals: spark.slice(-40),
+    }, spark.length > 1 && React.createElement(Spark, {
+      vals: spark.slice(-60),
       up: up
     }), React.createElement("div", {
       className: "lbl"
@@ -538,9 +563,11 @@ function BreadthCard() {
       flat: f
     };
   }, [stocks]);
-  const n = Math.max(1, adv + dec + flat);
+  const total = adv + dec + flat;
+  const n = Math.max(1, total);
   const pctA = Math.round(adv / n * 100),
     pctD = Math.round(dec / n * 100);
+  const quiet = total < 5;
   const dash = pctA / 100 * 264;
   return React.createElement(Card, {
     title: "Market breadth",
@@ -579,31 +606,31 @@ function BreadthCard() {
     fontFamily: "JetBrains Mono,monospace",
     fontSize: "22",
     fontWeight: "800"
-  }, pctA), React.createElement("text", {
+  }, quiet ? "—" : pctA), React.createElement("text", {
     x: "52",
     y: "66",
     textAnchor: "middle",
     fill: "var(--fg3)",
     fontFamily: "JetBrains Mono,monospace",
     fontSize: "7.5"
-  }, pctA >= 55 ? "BULLISH" : pctA <= 45 ? "BEARISH" : "MIXED")), React.createElement("div", {
+  }, quiet ? "OFF-HOURS" : pctA >= 55 ? "BULLISH" : pctA <= 45 ? "BEARISH" : "MIXED")), React.createElement("div", {
     className: "dlegend"
   }, React.createElement("div", null, React.createElement("span", {
     className: "dot2",
     style: {
       background: "var(--up)"
     }
-  }), "Advancing", React.createElement("b", null, pctA, "%")), React.createElement("div", null, React.createElement("span", {
+  }), "Advancing", React.createElement("b", null, quiet ? "—" : pctA + "%")), React.createElement("div", null, React.createElement("span", {
     className: "dot2",
     style: {
       background: "var(--down)"
     }
-  }), "Declining", React.createElement("b", null, pctD, "%")), React.createElement("div", null, React.createElement("span", {
+  }), "Declining", React.createElement("b", null, quiet ? "—" : pctD + "%")), React.createElement("div", null, React.createElement("span", {
     className: "dot2",
     style: {
       background: "var(--fg4)"
     }
-  }), "Flat", React.createElement("b", null, Math.max(0, 100 - pctA - pctD), "%")))));
+  }), "Flat", React.createElement("b", null, quiet ? "—" : Math.max(0, 100 - pctA - pctD) + "%")))));
 }
 function EventsCard() {
   const ec = usePoll("/api/market_calendar/economic", 300000);
@@ -701,11 +728,12 @@ function AlertsCard({
 function ExtremesBoard({
   onOpen
 }) {
-  const hi = usePoll("/api/daily_highs", 120000);
-  const lo = usePoll("/api/daily_lows", 120000);
+  const hi = usePoll("/api/daily_highs", 30000);
+  const lo = usePoll("/api/daily_lows", 30000);
   const wt = usePoll("/api/watchlist_table", 300000);
-  const rowsHi = asArr(hi.data && hi.data.rows).slice(0, 6);
-  const rowsLo = asArr(lo.data && lo.data.rows).slice(0, 6);
+  const rowsHi = asArr(hi.data && hi.data.rows).slice(0, 8);
+  const rowsLo = asArr(lo.data && lo.data.rows).slice(0, 8);
+  const wtPoll = 120000;
   const {
     near52H,
     near52L
@@ -742,20 +770,26 @@ function ExtremesBoard({
       fontSize: 10,
       color: "var(--fg4)"
     }
-  }, "none right now"), rows.map((r, i) => React.createElement("div", {
-    className: "exr",
-    key: i,
-    style: {
-      cursor: "pointer"
-    },
-    onClick: () => onOpen(pick(r, "symbol", "sym"))
-  }, React.createElement("span", {
-    className: "s"
-  }, pick(r, "symbol", "sym")), React.createElement("span", {
-    className: "p"
-  }, fmtN(pick(r, "price", "last"))), React.createElement("span", {
-    className: `c ${(pick(r, "chg_pct", "day_pct", "pct") || 0) >= 0 ? "cu" : "cd"}`
-  }, fmtPct(pick(r, "chg_pct", "day_pct", "pct"))))));
+  }, "none right now"), rows.map((r, i) => {
+    const sym = pick(r, "symbol", "sym");
+    const last = pick(r, "price", "last");
+    const chg = pick(r, "change", "chg_pct", "day_pct", "pct", "change_pct");
+    return React.createElement("div", {
+      className: "exr live",
+      key: `${sym}:${last}`,
+      style: {
+        cursor: "pointer"
+      },
+      onClick: () => onOpen(sym),
+      title: `${sym} — click to load. ${pick(r, "company", "name") || ""}`
+    }, React.createElement("span", {
+      className: "s"
+    }, sym), React.createElement("span", {
+      className: "p"
+    }, fmtN(last)), React.createElement("span", {
+      className: `c ${(chg || 0) >= 0 ? "cu" : "cd"}`
+    }, fmtPct(chg)));
+  }));
   return React.createElement("div", {
     className: "card exgrid"
   }, React.createElement(Col, {
@@ -877,32 +911,42 @@ function Phase2({
     }
   }, "Open ", label, " on the classic site ↗")));
 }
-function Tape({
-  ticker
-}) {
-  const n = usePoll(`/api/news?symbol=${encodeURIComponent(ticker)}`, 180000);
-  const items = asArr(n.data && n.data.items).slice(0, 4);
-  return React.createElement("div", {
-    className: "tape"
-  }, React.createElement("span", {
-    className: "nlab"
-  }, "NEWS"), items.length === 0 && React.createElement("span", {
-    className: "hl",
-    style: {
-      color: "var(--fg3)"
-    }
-  }, "headlines load with the market…"), items.map((it, i) => React.createElement(React.Fragment, {
+function Tape() {
+  const n = usePoll("/api/finviz_news?limit=40", 120000);
+  const fvItems = asArr(n.data && n.data.items);
+  const fb = usePoll("/api/news?symbol=SPY", 300000, n.data != null && fvItems.length === 0);
+  const items = (fvItems.length ? fvItems : asArr(fb.data && fb.data.items)).slice(0, 30);
+  const track = items.map((it, i) => React.createElement("span", {
+    className: "titem",
     key: i
   }, React.createElement("span", {
     className: "t"
-  }, (pick(it, "time", "published", "date") || "").slice(11, 16)), React.createElement("span", {
+  }, String(pick(it, "date", "ts", "time") || "").slice(-8, -3) || ""), pick(it, "ticker") ? React.createElement("span", {
+    className: "ttk"
+  }, it.ticker) : null, React.createElement("span", {
     className: "hl"
-  }, pick(it, "title", "headline")))), React.createElement("span", {
-    className: "spacer"
-  }), React.createElement("span", {
-    className: "q",
-    title: "Phase 2 adds the index quote tape here"
-  }, "SPY · QQQ · IWM · VIX"));
+  }, pick(it, "title", "headline"))));
+  return React.createElement("div", {
+    className: "tape",
+    title: "Live market headlines — continuously scrolling; hover to pause. Refreshes every 2 minutes."
+  }, React.createElement("span", {
+    className: "nlab"
+  }, "NEWS"), React.createElement("div", {
+    className: "tape-view"
+  }, items.length === 0 ? React.createElement("span", {
+    className: "hl",
+    style: {
+      color: "var(--fg3)",
+      padding: "0 12px"
+    }
+  }, "headlines loading…") : React.createElement("div", {
+    className: "tape-track",
+    style: {
+      animationDuration: `${Math.max(40, items.length * 7)}s`
+    }
+  }, track, track.map((el, i) => React.cloneElement(el, {
+    key: "b" + i
+  })))));
 }
 function App() {
   const [tab, setTab] = useState(() => {
@@ -966,9 +1010,7 @@ function App() {
     onOpen: openSym
   }) : React.createElement(Phase2, {
     id: tab
-  }))), React.createElement(Tape, {
-    ticker: ticker
-  }));
+  }))), React.createElement(Tape, null));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(App, null));
