@@ -17308,6 +17308,296 @@ function FinvizPanel({
   }, "Why a helper? Finviz blocks all embedding at the browser level; this is the official, user-consented way to allow it — for this dashboard only. Hover for the full story.")));
 }
 
+// ── Per-stock Pattern Discovery (v3.44) ─────────────────────────────────────
+// Event-study sweep over the selected stock's OWN history: thresholds adapt
+// to its return/gap/drawdown distributions, claims are fitted in-sample
+// (first 70%) and validated out-of-sample (last 30%), every hit rate is
+// compared with the baseline chance of the same move after any random day,
+// and weak/small-sample edges are flagged instead of hidden. One click sends
+// any pattern to the Backtest Lab or registers it as a live watch/alert.
+function PDPathChart({
+  chart,
+  claim
+}) {
+  if (!chart || !chart.avg_path) return null;
+  const {
+    lead,
+    avg_path,
+    occurrences
+  } = chart;
+  const W = 620,
+    H = 150,
+    PAD = 8;
+  const all = [];
+  avg_path.forEach(v => {
+    if (v != null) all.push(v);
+  });
+  (occurrences || []).forEach(o => o.path.forEach(v => {
+    if (v != null) all.push(v);
+  }));
+  if (!all.length) return null;
+  const lo = Math.min(...all),
+    hi = Math.max(...all);
+  const span = Math.max(0.5, hi - lo);
+  const n = avg_path.length;
+  const x = k => PAD + (W - 2 * PAD) * (k / (n - 1));
+  const y = v => H - PAD - (H - 2 * PAD) * ((v - lo) / span);
+  const line = path => path.map((v, k) => v == null ? null : `${x(k).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(" ");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pd-chart",
+    title: `Every historical occurrence (grey) and the average price path (bold), from ${lead} days before the signal (left of the dashed line) through ${n - 1 - lead} days after. Y-axis: % change from the signal-day reference price.`
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none"
+  }, /*#__PURE__*/React.createElement("line", {
+    x1: x(lead),
+    x2: x(lead),
+    y1: PAD,
+    y2: H - PAD,
+    className: "pd-chart-sig"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: PAD,
+    x2: W - PAD,
+    y1: y(0),
+    y2: y(0),
+    className: "pd-chart-zero"
+  }), (occurrences || []).map((o, i) => /*#__PURE__*/React.createElement("polyline", {
+    key: i,
+    points: line(o.path),
+    className: "pd-chart-occ"
+  })), /*#__PURE__*/React.createElement("polyline", {
+    points: line(avg_path),
+    className: `pd-chart-avg ${claim && claim.dir === "up" ? "up" : "down"}`
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "pd-chart-lbls"
+  }, /*#__PURE__*/React.createElement("span", null, "day −", lead), /*#__PURE__*/React.createElement("span", null, "signal"), /*#__PURE__*/React.createElement("span", null, "day +", n - 1 - lead)));
+}
+function PDRow({
+  p,
+  sym,
+  onBacktest,
+  onWatch,
+  watching
+}) {
+  const [open, setOpen] = useState(false);
+  const conf = p.confidence;
+  const confCls = conf >= 70 ? "hi" : conf >= 50 ? "mid" : "lo";
+  const M = p.move || {};
+  const ctxLine = p.best_context ? `${p.best_context.label} (${p.best_context.rate}% over ${p.best_context.n})` : "—";
+  return /*#__PURE__*/React.createElement("div", {
+    className: `pd-row ${open ? "open" : ""}`
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "pd-head",
+    onClick: () => setOpen(!open),
+    title: "Click to expand: full statistics, market-condition breakdown, and the occurrence chart."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `pd-conf ${confCls}`,
+    title: `Confidence 0–100 from sample size (${p.n} occurrences), in-sample vs out-of-sample consistency (${p.hit_rate_is}% vs ${p.hit_rate_oos == null ? "n/a" : p.hit_rate_oos + "%"}), statistical significance vs baseline (p=${p.p_value}), and effect size over the ${p.baseline_rate}% baseline. ≥70 strong · 50–69 moderate · <50 weak/possibly random.`
+  }, conf), /*#__PURE__*/React.createElement("span", {
+    className: "pd-kinds"
+  }, p.kind.map(k => /*#__PURE__*/React.createElement("em", {
+    key: k,
+    className: `pd-kind pd-k-${k.replace(/[^a-z]/g, "")}`
+  }, k))), /*#__PURE__*/React.createElement("span", {
+    className: "pd-sentence"
+  }, p.sentence), /*#__PURE__*/React.createElement("span", {
+    className: "pd-arrow"
+  }, open ? "▾" : "▸")), p.flags.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pd-flags",
+    title: "Statistical health warnings — reasons to distrust this pattern."
+  }, p.flags.map((f, i) => /*#__PURE__*/React.createElement("span", {
+    key: i
+  }, "⚠ ", f))), open && /*#__PURE__*/React.createElement("div", {
+    className: "pd-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pd-stats"
+  }, /*#__PURE__*/React.createElement("div", {
+    title: "How many times the setup occurred in ~2 years of history (overlapping windows are spaced out so occurrences are independent)."
+  }, /*#__PURE__*/React.createElement("span", null, "occurrences"), /*#__PURE__*/React.createElement("b", null, p.n)), /*#__PURE__*/React.createElement("div", {
+    title: "How often the claimed move followed, across ALL occurrences."
+  }, /*#__PURE__*/React.createElement("span", null, "hit rate"), /*#__PURE__*/React.createElement("b", null, p.hit_rate, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "Hit rate on the first 70% of history — the data the claim was FITTED on."
+  }, /*#__PURE__*/React.createElement("span", null, "in-sample"), /*#__PURE__*/React.createElement("b", null, p.hit_rate_is, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "Hit rate on the last 30% of history, which the claim never saw. If this collapses vs in-sample, the pattern didn't generalize."
+  }, /*#__PURE__*/React.createElement("span", null, "out-of-sample"), /*#__PURE__*/React.createElement("b", null, p.hit_rate_oos == null ? "n/a" : p.hit_rate_oos + "%")), /*#__PURE__*/React.createElement("div", {
+    title: "How often the SAME move happens after any random day — the bar this pattern must beat to mean anything."
+  }, /*#__PURE__*/React.createElement("span", null, "baseline"), /*#__PURE__*/React.createElement("b", null, p.baseline_rate, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "One-sided binomial test of the hit count vs the baseline rate. Under 0.05 = unlikely to be luck; over 0.10 gets flagged as possibly random."
+  }, /*#__PURE__*/React.createElement("span", null, "p-value"), /*#__PURE__*/React.createElement("b", null, p.p_value)), /*#__PURE__*/React.createElement("div", {
+    title: "Average move in the claimed direction across all occurrences (negative = it went the other way on average)."
+  }, /*#__PURE__*/React.createElement("span", null, "avg move"), /*#__PURE__*/React.createElement("b", null, M.avg, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "Median move in the claimed direction."
+  }, /*#__PURE__*/React.createElement("span", null, "median"), /*#__PURE__*/React.createElement("b", null, M.median, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "Best and worst outcomes across occurrences, in the claimed direction."
+  }, /*#__PURE__*/React.createElement("span", null, "max / min"), /*#__PURE__*/React.createElement("b", null, M.max, "% / ", M.min, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "Median trading days until the claimed move was first reached (among the occurrences that reached it)."
+  }, /*#__PURE__*/React.createElement("span", null, "days to move"), /*#__PURE__*/React.createElement("b", null, p.days_to_move_median == null ? "—" : p.days_to_move_median)), /*#__PURE__*/React.createElement("div", {
+    title: "Average maximum favorable excursion inside the window — the best paper gain the signal saw (from daily highs; intraday sequence is approximate)."
+  }, /*#__PURE__*/React.createElement("span", null, "avg MFE"), /*#__PURE__*/React.createElement("b", {
+    className: "up"
+  }, p.mfe_avg, "%")), /*#__PURE__*/React.createElement("div", {
+    title: "Average maximum adverse excursion inside the window — the worst paper drawdown the signal saw (from daily lows; approximate)."
+  }, /*#__PURE__*/React.createElement("span", null, "avg MAE"), /*#__PURE__*/React.createElement("b", {
+    className: "down"
+  }, p.mae_avg, "%"))), /*#__PURE__*/React.createElement("div", {
+    className: "pd-ctx",
+    title: "Where the pattern worked best: occurrences bucketed by SPY regime (50/200-day averages), the stock's own volatility state (20-day realized vol vs its median), and calendar year. Buckets under 4 occurrences are hidden. Sector-relative context isn't available (no sector index data)."
+  }, /*#__PURE__*/React.createElement("span", null, "works best: ", /*#__PURE__*/React.createElement("b", null, ctxLine)), Object.entries(p.context || {}).map(([cat, buckets]) => Object.keys(buckets).length > 0 && /*#__PURE__*/React.createElement("span", {
+    key: cat,
+    className: "pd-ctx-cat"
+  }, cat, ": ", Object.entries(buckets).map(([lbl, d]) => `${lbl} ${d.rate}% (${d.n})`).join(", ")))), /*#__PURE__*/React.createElement(PDPathChart, {
+    chart: p.chart,
+    claim: p.claim
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "pd-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onBacktest(p),
+    title: "Open this pattern in the Backtest Lab with entries, direction, profit target, stop and time exit prefilled from the claim — edit anything, then run it with full cost/liquidity modeling."
+  }, "→ Backtest"), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onWatch(p),
+    title: watching ? "Stop watching this pattern." : "Watch this pattern live: it's checked against fresh daily data (every 30 min in market hours) and sends a push alert the day the setup fires again."
+  }, watching ? "★ watching — remove" : "⚑ Watch / alert"))));
+}
+function PatternDiscoveryCard({
+  apiFetch,
+  ticker,
+  onOpenBacktest
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [watches, setWatches] = useState([]);
+  const symRef = useRef(null);
+  const load = sym => {
+    setLoading(true);
+    setErr(null);
+    apiFetch(`/api/patterns?symbol=${encodeURIComponent(sym)}`).then(r => r.json()).then(d => {
+      setLoading(false);
+      if (d.error) setErr(d.error);else setData(d);
+    }).catch(e => {
+      setLoading(false);
+      setErr(String(e));
+    });
+  };
+  const loadWatches = () => {
+    apiFetch("/api/patterns/watches").then(r => r.json()).then(d => setWatches(d.watches || [])).catch(() => {});
+  };
+  useEffect(() => {
+    if (ticker && ticker !== symRef.current) {
+      symRef.current = ticker;
+      load(ticker);
+    }
+    loadWatches();
+  }, [ticker]);
+  const toBacktest = p => {
+    try {
+      localStorage.setItem("jerry_bt_prefill", JSON.stringify(p.backtest_rules));
+    } catch (e) {}
+    window.dispatchEvent(new CustomEvent("jerry-bt-load", {
+      detail: p.backtest_rules
+    }));
+    if (onOpenBacktest) onOpenBacktest();
+  };
+  const toggleWatch = p => {
+    const wid = `${data.symbol}::${p.id}`;
+    const existing = watches.find(w => w.id === wid);
+    const body = existing ? {
+      action: "remove",
+      id: wid
+    } : {
+      symbol: data.symbol,
+      pattern: {
+        id: p.id,
+        family: p.family,
+        params: p.params,
+        sentence: p.sentence,
+        claim: p.claim,
+        confidence: p.confidence
+      }
+    };
+    apiFetch("/api/patterns/watch", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }).then(r => r.json()).then(() => loadWatches()).catch(() => {});
+  };
+  const pats = (data && data.patterns || []).filter(p => filter === "all" ? true : p.kind.includes(filter));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card pd-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "An event-study engine that learns THIS stock's recurring behavior from its own ~2-year history. Thresholds adapt to the stock's own return/gap/drawdown distributions — not preset chart patterns. Claims are fitted on the first 70% of history and validated on the last 30%; every edge is tested against the baseline chance of the same move on any random day."
+  }, "Pattern Discovery"), /*#__PURE__*/React.createElement("h2", {
+    title: "The strongest recurring behaviors found for the selected ticker, ranked by statistical confidence."
+  }, data && data.symbol || ticker, " — what this stock repeatedly does")), /*#__PURE__*/React.createElement("div", {
+    className: "pd-headright"
+  }, data && /*#__PURE__*/React.createElement("span", {
+    className: "pd-meta",
+    title: `History analyzed: ${data.from} → ${data.to} (${data.bars} daily bars). In-sample/out-of-sample split at ${data.split_date}. Cached ~6h.`
+  }, data.from, " → ", data.to), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    disabled: loading,
+    onClick: () => load(ticker),
+    title: "Re-run discovery for the selected ticker (results are cached ~6 hours)."
+  }, loading ? "analyzing…" : "↺ analyze"))), /*#__PURE__*/React.createElement("div", {
+    className: "pd-filters"
+  }, ["all", "bullish", "bearish", "mean-reverting", "momentum"].map(f => /*#__PURE__*/React.createElement("button", {
+    key: f,
+    className: `rr-btn ${filter === f ? "pd-f-on" : ""}`,
+    onClick: () => setFilter(f),
+    title: f === "all" ? "Show every discovered pattern." : `Show only ${f} patterns.`
+  }, f))), err && /*#__PURE__*/React.createElement("div", {
+    className: "bt-warn bt-err"
+  }, err), loading && !data && /*#__PURE__*/React.createElement("div", {
+    className: "pd-empty"
+  }, "Analyzing ", ticker, "'s history…"), data && pats.length === 0 && !loading && /*#__PURE__*/React.createElement("div", {
+    className: "pd-empty",
+    title: "Either the stock's behavior is too random for any claim to beat baseline with statistical support, or there isn't enough history."
+  }, "No statistically supported patterns found for this filter — that itself is information: nothing this stock does here repeats reliably."), pats.map(p => /*#__PURE__*/React.createElement(PDRow, {
+    key: p.id,
+    p: p,
+    sym: data.symbol,
+    onBacktest: toBacktest,
+    onWatch: toggleWatch,
+    watching: watches.some(w => w.id === `${data.symbol}::${p.id}`)
+  })), data && (data.notes || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pd-notes",
+    title: "Methodology and data-coverage limits — read once so you know exactly what these statistics can and cannot claim."
+  }, data.notes.map((nt, i) => /*#__PURE__*/React.createElement("div", {
+    key: i
+  }, "· ", nt))), watches.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pd-watches"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bt-sec-title",
+    title: "Patterns you're watching across all symbols. Each is re-checked against fresh daily data when you open this tab and every 30 minutes during market hours; a push alert fires the day a setup triggers again."
+  }, "Watched patterns — live signals"), watches.map(w => /*#__PURE__*/React.createElement("div", {
+    key: w.id,
+    className: `pd-watch ${w.triggered ? "trig" : ""}`
+  }, /*#__PURE__*/React.createElement("b", null, w.symbol), /*#__PURE__*/React.createElement("span", {
+    className: "pd-watch-sent"
+  }, w.sentence), w.triggered ? /*#__PURE__*/React.createElement("span", {
+    className: "pd-trig",
+    title: `The setup is TRUE on the latest daily bar (${w.checked}). The claimed move is what history says usually follows.`
+  }, "● TRIGGERED ", w.checked) : /*#__PURE__*/React.createElement("span", {
+    className: "pd-quiet",
+    title: `Not currently set up (last checked bar: ${w.checked || "n/a"}).`
+  }, "quiet"), /*#__PURE__*/React.createElement("button", {
+    className: "bt-x",
+    title: "Stop watching this pattern.",
+    onClick: () => apiFetch("/api/patterns/watch", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "remove",
+        id: w.id
+      })
+    }).then(() => loadWatches())
+  }, "✕")))));
+}
+
 // ── Natural-language Backtest Lab (v3.43) ───────────────────────────────────
 // Describe a strategy in plain English → the backend's deterministic trading
 // grammar converts it to explicit JSON rules → review/edit every rule here →
@@ -17412,6 +17702,15 @@ const BT_COND_TYPES = {
       type: "day_change_pct",
       op: "<=",
       value: -3
+    })
+  },
+  move_pct: {
+    label: "Move over trailing N days (%)",
+    make: () => ({
+      type: "move_pct",
+      days: 5,
+      op: ">=",
+      value: 10
     })
   },
   price_abs: {
@@ -17590,7 +17889,21 @@ function BacktestCard({
     sharedJson(apiFetch, "/api/backtest/last", 60000).then(d => {
       if (d && d.metrics && d.metrics.n_trades != null && !result) setResult(d);
     }).catch(() => {});
+    // Accept rule sets sent from Pattern Discovery ("→ Backtest"): live via
+    // event when this card is mounted, via localStorage when it wasn't yet.
+    const onLoad = e => {
+      if (e.detail) setRulesAnd(e.detail);
+    };
+    window.addEventListener("jerry-bt-load", onLoad);
+    try {
+      const pre = localStorage.getItem("jerry_bt_prefill");
+      if (pre) {
+        localStorage.removeItem("jerry_bt_prefill");
+        setRulesAnd(JSON.parse(pre));
+      }
+    } catch (e) {/* no-op */}
     return () => {
+      window.removeEventListener("jerry-bt-load", onLoad);
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
@@ -18065,6 +18378,7 @@ Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
   BacktestCard: _memo(BacktestCard),
+  PatternDiscoveryCard: _memo(PatternDiscoveryCard),
   PremiumJuiceCard: _memo(PremiumJuiceCard),
   FinvizPanel: _memo(FinvizPanel),
   TVPanel: _memo(TVPanel),

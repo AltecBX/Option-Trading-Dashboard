@@ -201,6 +201,7 @@ _COND_LABELS = {
     "consec_down": "Consecutive down days",
     "consec_up": "Consecutive up days",
     "day_change_pct": "Change on the day",
+    "move_pct": "Move over trailing N days",
     "price_abs": "Absolute price filter",
     "market_regime": "Market (SPY) regime filter",
 }
@@ -459,6 +460,13 @@ class _Ctx:
                 return None
             chg = (b["close"] - prev) / prev * 100.0
             return _op(cond["op"], chg, cond["value"])
+        if t == "move_pct":
+            # Return over the trailing N trading days (pattern-lab conversions).
+            n = int(cond.get("days") or 5)
+            if i < n or not self.closes[i - n]:
+                return None
+            r = (self.closes[i] - self.closes[i - n]) / self.closes[i - n] * 100.0
+            return _op(cond["op"], r, cond["value"])
         if t == "rel_volume":
             n = cond.get("lookback", 20)
             if i < n:

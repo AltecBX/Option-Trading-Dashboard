@@ -4295,6 +4295,17 @@ _backtest.configure(
     data_dir=_STABLE_DIR,
 )
 
+# ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
+import patterns as _patterns
+
+_patterns.configure(
+    schwab_getter=lambda: _schwab(),
+    universe_fn=_backtest_universe,
+    data_dir=_STABLE_DIR,
+    notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0)
+                                  if _push_configured() else None),
+)
+
 
 def _watchlist_overrides(wl: dict | None = None) -> dict:
     """Build the CSV-source-of-truth override map for the watchlist table
@@ -5982,6 +5993,24 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
         # ── Dismiss a watchlist alert (v1.15) ──────────────────────
+        # ── Pattern watches (v3.44): pattern → live signal / alert ─────
+        if parsed.path == "/api/patterns/watch":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 200_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if payload.get("action") == "remove":
+                    self._send_json(_patterns.remove_watch(payload.get("id") or ""))
+                else:
+                    sym = (payload.get("symbol") or "").strip()
+                    pat = payload.get("pattern") or {}
+                    if not sym or not pat.get("id"):
+                        raise ValueError("symbol and pattern required")
+                    self._send_json(_patterns.add_watch(sym, pat))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         # ── Backtest lab (v3.43): English → rules, then run as a job ────
         if parsed.path == "/api/backtest/parse":
             try:
@@ -7171,6 +7200,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/juice", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/patterns":
+            # Per-stock pattern discovery (v3.44) — cached 6h per symbol.
+            try:
+                q = parse_qs(parsed.query)
+                sym = (q.get("symbol") or [""])[0]
+                self._send_json(_patterns.discover_cached(sym), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/patterns", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/patterns/watches":
+            try:
+                _patterns.ensure_pinger()
+                self._send_json(_patterns.check_watches(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc), "watches": []}, status=500)
             return
         if parsed.path == "/api/backtest/status":
             # Poll a running backtest job (v3.43).
