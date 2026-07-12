@@ -388,3 +388,59 @@ section.ws{display:block;animation:fade .18s var(--ease)}
   .trow::-webkit-scrollbar{display:none}
   .trow .earn{display:none}
 }
+
+/* ── v4.0.2: bigger type everywhere (feedback: fonts too small) ─────────── */
+.tab{font-size:12.5px;padding:9px 15px}
+.trow .slbl{font-size:12px}
+.trow .earn{font-size:11px}
+.mk{min-height:62px;padding:10px 14px 8px}
+.mk .lbl{font-size:9.5px;letter-spacing:.12em}
+.mk .v{font-size:16.5px}
+.mk .c{font-size:11.5px}
+.mk svg{width:96px;height:44px;opacity:.95}
+.chd h3{font-size:11px}
+.chd .more{font-size:11.5px}
+.chd .i{width:16px;height:16px;font-size:10px}
+.op{grid-template-columns:40px 1fr auto !important;padding:9px 10px}
+.op .nm{font-size:14.5px}
+.op .why{font-size:11.5px}
+.op .px{font-size:13px}
+.op .pc{font-size:12px}
+.score{font-size:14px;min-width:38px}
+.exh{font-size:10.5px;padding:10px 12px 7px}
+.exr{font-size:13px;padding:6px 12px}
+.exr .p{font-size:12px}
+.exr .c{font-size:11.5px}
+.kpi em{font-size:9px}
+.kpi b{font-size:17px}
+.stat em{font-size:9px}
+.stat b{font-size:13px}
+.pill{font-size:11px;padding:5px 12px}
+.search{font-size:13.5px;height:38px;width:330px}
+.cmd{height:60px}
+.cmd .tkr .sym,.cmd .tkr .px{font-size:17px}
+.cmd .tkr .chgp{font-size:11.5px}
+.mkt{top:60px !important}
+.tabbar{top:130px !important}
+.ev{font-size:13.5px}
+.ev b{font-size:11px;width:44px}
+.alrow{font-size:13.5px;padding:8px 16px}
+.alrow .nm{font-size:13px}
+.chip{font-size:9.5px}
+.dlegend{font-size:12.5px}
+.tape{height:44px}
+
+/* streaming rows: new prints slide in */
+@keyframes rowin{from{background:rgba(56,225,160,.16)}to{background:transparent}}
+.exr.live{animation:rowin 1.4s var(--ease)}
+
+/* streaming news marquee */
+.tape-view{flex:1;overflow:hidden;position:relative;height:100%;display:flex;align-items:center}
+.tape-track{display:inline-flex;align-items:center;gap:34px;white-space:nowrap;will-change:transform;animation:tapescroll 120s linear infinite;padding-left:12px}
+.tape-view:hover .tape-track{animation-play-state:paused}
+@keyframes tapescroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.titem{display:inline-flex;align-items:center;gap:9px}
+.titem .t{font-family:var(--mono);font-size:10px;color:var(--fg4)}
+.titem .ttk{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--acc);background:var(--acc-dim);border-radius:5px;padding:2px 7px}
+.titem .hl{font-size:13px;color:var(--fg2)}
+@media (prefers-reduced-motion: reduce){.tape-track{animation:none}}

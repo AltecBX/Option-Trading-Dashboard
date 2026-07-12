@@ -19,7 +19,7 @@
  */
 
 const { useState, useEffect, useRef, useMemo } = React;
-const NEXT_VERSION = "4.0.1-next";
+const NEXT_VERSION = "4.0.2-next";
 
 /* ── api ─────────────────────────────────────────────────────────────────── */
 const CFG = (typeof window !== "undefined" && window.__APP_CONFIG) || {};
@@ -54,11 +54,28 @@ const pick = (o, ...keys) => { for (const k of keys) if (o && o[k] != null) retu
    coerce to an array so no card can crash on shape. */
 const asArr = (v) => Array.isArray(v) ? v : (v && typeof v === "object" ? Object.values(v) : []);
 const fmtPct = v => (v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(2)}%`);
+
+/* Client-side spark accumulator: the server's intraday spark can be a single
+   point off-hours, so every poll also appends the live value to a persisted
+   rolling buffer per instrument — the strip always draws, and the line keeps
+   streaming while the page is open. */
+const SPARK_KEY = "next_spark_v1";
+let SPARKS = {}; try { SPARKS = JSON.parse(localStorage.getItem(SPARK_KEY) || "{}") || {}; } catch (e) {}
+function pushSpark(label, v) {
+  if (v == null || !isFinite(v)) return [];
+  const a = SPARKS[label] = SPARKS[label] || [];
+  if (a.length === 0 || a[a.length - 1] !== v) {
+    a.push(v);
+    if (a.length > 90) a.shift();
+    try { localStorage.setItem(SPARK_KEY, JSON.stringify(SPARKS)); } catch (e) {}
+  }
+  return a;
+}
 const fmtN = v => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }));
 
 /* ── tiny SVG sparkline ──────────────────────────────────────────────────── */
 function Spark({ vals, up, w = 76, h = 38 }) {
-  if (!vals || vals.length < 3) return null;
+  if (!vals || vals.length < 2) return null;
   const lo = Math.min(...vals), hi = Math.max(...vals), span = Math.max(1e-9, hi - lo);
   const pts = vals.map((v, i) => [i / (vals.length - 1) * w, h - 5 - (v - lo) / span * (h - 10)]);
   const line = "M" + pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("L");
@@ -110,13 +127,23 @@ function Weather() {
 function CommandBar({ ticker, setTicker, alerts }) {
   const [input, setInput] = useState(ticker);
   const q = usePoll(`/api/quote?symbol=${encodeURIComponent(ticker)}`, 15000);
-  const ctx = usePoll("/api/market_context", 120000);
+  const mo = usePoll("/api/market_overview", 30000);
+  const wt = usePoll("/api/watchlist_table", 300000);
   const quote = q.data || {};
   const px = pick(quote, "last", "price", "mark", "close");
-  const chg = pick(quote, "chg_pct", "change_pct", "pct", "percent_change");
-  const earn = pick(quote, "next_earnings", "earnings");
-  const posture = pick(ctx.data || {}, "posture", "regime", "today") || "—";
-  const postureStr = typeof posture === "string" ? posture : pick(posture, "posture", "label") || "—";
+  const chg = pick(quote, "change_pct", "chg_pct", "pct", "percent_change");
+  // Earnings for the active ticker from the watchlist board (same source as
+  // the classic earnings chip).
+  const wlRow = useMemo(() => asArr(wt.data && (wt.data.rows || wt.data.board))
+    .find(r => (pick(r, "symbol", "sym") || "").toUpperCase() === ticker) || null, [wt.data, ticker]);
+  const earn = wlRow && pick(wlRow, "next_earnings", "earnings");
+  const earnDays = wlRow && pick(wlRow, "days_to_earnings");
+  // Posture derived like the classic card: index futures direction, refined
+  // by watchlist breadth when it's populated.
+  const insts = asArr(mo.data && mo.data.instruments);
+  const spx = insts.find(i => /s&p/i.test(pick(i, "label", "name") || ""));
+  const spxChg = spx && pick(spx, "change_pct", "chg_pct");
+  const postureStr = spxChg == null ? "—" : spxChg > 0.25 ? "BULLISH" : spxChg < -0.25 ? "BEARISH" : "NEUTRAL";
   return (
     <div className="cmd">
       <div className="brand" title="JerryTrade /next — the parallel Decision Cockpit. Your classic site is untouched at /">
@@ -139,9 +166,9 @@ function CommandBar({ ticker, setTicker, alerts }) {
       <div className="spacer"></div>
       <Clock />
       <div className="vdiv"></div>
-      <div className="stat" title="Market posture — SPY vs its 50/200-day averages"><em>Posture</em><b className={/bull/i.test(postureStr) ? "cu" : /bear|down/i.test(postureStr) ? "cd" : "cw"}>{String(postureStr).toUpperCase().slice(0, 14)}</b></div>
+      <div className="stat" title="Market posture — S&P futures direction, refined by watchlist breadth"><em>Posture</em><b className={/BULL/.test(postureStr) ? "cu" : /BEAR/.test(postureStr) ? "cd" : "cw"}>{postureStr}</b></div>
       <div className="vdiv"></div>
-      <div className="stat" title="Next earnings for the active ticker"><em>Earnings</em><b>{earn ? String(earn).slice(5, 10).replace("-", "/") : "—"}</b></div>
+      <div className="stat" title={earn ? `Next earnings for ${ticker}: ${earn}` : "Next earnings for the active ticker (from the watchlist board)"}><em>Earnings</em><b>{earn ? `${String(earn).slice(5).replace("-", "/")}${earnDays != null ? ` · ${earnDays}d` : ""}` : "—"}</b></div>
       <div className="vdiv"></div>
       <span className="pill live" title="Schwab data link"><span className="dot"></span>SCHWAB</span>
       <span className="pill uwp" title="Unusual Whales link"><span className="dot"></span>UW</span>
@@ -163,11 +190,14 @@ function MarketStrip() {
         const label = pick(m, "label", "name", "sym") || "";
         const last = pick(m, "last", "price", "value");
         const pct = pick(m, "chg_pct", "pct", "change_pct");
-        const spark = asArr(pick(m, "spark", "history", "closes"));
+        let spark = asArr(pick(m, "spark", "history", "closes"));
+        const buf = pushSpark(label, last);
+        if (spark.length < 3) spark = buf;
+        if (spark.length === 1) spark = [spark[0], spark[0]];  // flat line beats no line
         const up = pct != null ? pct >= 0 : (spark.length > 1 ? spark[spark.length - 1] >= spark[0] : true);
         return (
           <div className="mk" key={i} title={`${label} — permanently visible on every tab.${mo.stale ? " (STALE — last good kept)" : ""}`}>
-            {spark.length > 2 && <Spark vals={spark.slice(-40)} up={up} />}
+            {spark.length > 1 && <Spark vals={spark.slice(-60)} up={up} />}
             <div className="lbl">{String(label).toUpperCase()}</div>
             <div className="row">
               <span className="v">{fmtN(last)}</span>
@@ -314,8 +344,10 @@ function BreadthCard() {
     }
     return { adv: a, dec: d, flat: f };
   }, [stocks]);
-  const n = Math.max(1, adv + dec + flat);
+  const total = adv + dec + flat;
+  const n = Math.max(1, total);
   const pctA = Math.round(adv / n * 100), pctD = Math.round(dec / n * 100);
+  const quiet = total < 5;
   const dash = (pctA / 100) * 264;
   return (
     <Card title="Market breadth" info={`Advancers vs decliners across your watchlist universe (${n} scored).`}>
@@ -325,13 +357,13 @@ function BreadthCard() {
           <circle cx="52" cy="52" r="42" fill="none" stroke="#3BD996" strokeWidth="10"
                   strokeDasharray={`${dash} 264`} strokeLinecap="round" transform="rotate(-90 52 52)"
                   style={{ filter: "drop-shadow(0 0 6px rgba(56,225,160,.4))" }} />
-          <text x="52" y="50" textAnchor="middle" fill="var(--fg)" fontFamily="JetBrains Mono,monospace" fontSize="22" fontWeight="800">{pctA}</text>
-          <text x="52" y="66" textAnchor="middle" fill="var(--fg3)" fontFamily="JetBrains Mono,monospace" fontSize="7.5">{pctA >= 55 ? "BULLISH" : pctA <= 45 ? "BEARISH" : "MIXED"}</text>
+          <text x="52" y="50" textAnchor="middle" fill="var(--fg)" fontFamily="JetBrains Mono,monospace" fontSize="22" fontWeight="800">{quiet ? "—" : pctA}</text>
+          <text x="52" y="66" textAnchor="middle" fill="var(--fg3)" fontFamily="JetBrains Mono,monospace" fontSize="7.5">{quiet ? "OFF-HOURS" : pctA >= 55 ? "BULLISH" : pctA <= 45 ? "BEARISH" : "MIXED"}</text>
         </svg>
         <div className="dlegend">
-          <div><span className="dot2" style={{ background: "var(--up)" }}></span>Advancing<b>{pctA}%</b></div>
-          <div><span className="dot2" style={{ background: "var(--down)" }}></span>Declining<b>{pctD}%</b></div>
-          <div><span className="dot2" style={{ background: "var(--fg4)" }}></span>Flat<b>{Math.max(0, 100 - pctA - pctD)}%</b></div>
+          <div><span className="dot2" style={{ background: "var(--up)" }}></span>Advancing<b>{quiet ? "—" : pctA + "%"}</b></div>
+          <div><span className="dot2" style={{ background: "var(--down)" }}></span>Declining<b>{quiet ? "—" : pctD + "%"}</b></div>
+          <div><span className="dot2" style={{ background: "var(--fg4)" }}></span>Flat<b>{quiet ? "—" : Math.max(0, 100 - pctA - pctD) + "%"}</b></div>
         </div>
       </div>
     </Card>
@@ -391,12 +423,12 @@ function AlertsCard({ onOpen }) {
 }
 
 function ExtremesBoard({ onOpen }) {
-  const hi = usePoll("/api/daily_highs", 120000);
-  const lo = usePoll("/api/daily_lows", 120000);
+  const hi = usePoll("/api/daily_highs", 30000);
+  const lo = usePoll("/api/daily_lows", 30000);
   const wt = usePoll("/api/watchlist_table", 300000);
-  const rowsHi = asArr(hi.data && hi.data.rows).slice(0, 6);
-  const rowsLo = asArr(lo.data && lo.data.rows).slice(0, 6);
-  const { near52H, near52L } = useMemo(() => {
+  const rowsHi = asArr(hi.data && hi.data.rows).slice(0, 8);
+  const rowsLo = asArr(lo.data && lo.data.rows).slice(0, 8);
+  const wtPoll = 120000; const { near52H, near52L } = useMemo(() => {
     const rows = asArr(wt.data && (wt.data.rows || wt.data.board));
     const H = [], L = [];
     for (const r of rows) {
@@ -410,13 +442,19 @@ function ExtremesBoard({ onOpen }) {
     <div className="excol">
       <div className={`exh ${cls}`} title={title}>{head}</div>
       {rows.length === 0 && <div style={{ padding: "4px 10px", fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg4)" }}>none right now</div>}
-      {rows.map((r, i) => (
-        <div className="exr" key={i} style={{ cursor: "pointer" }} onClick={() => onOpen(pick(r, "symbol", "sym"))}>
-          <span className="s">{pick(r, "symbol", "sym")}</span>
-          <span className="p">{fmtN(pick(r, "price", "last"))}</span>
-          <span className={`c ${(pick(r, "chg_pct", "day_pct", "pct") || 0) >= 0 ? "cu" : "cd"}`}>{fmtPct(pick(r, "chg_pct", "day_pct", "pct"))}</span>
-        </div>
-      ))}
+      {rows.map((r, i) => {
+        const sym = pick(r, "symbol", "sym");
+        const last = pick(r, "price", "last");
+        const chg = pick(r, "change", "chg_pct", "day_pct", "pct", "change_pct");
+        return (
+          <div className="exr live" key={`${sym}:${last}`} style={{ cursor: "pointer" }} onClick={() => onOpen(sym)}
+               title={`${sym} — click to load. ${pick(r, "company", "name") || ""}`}>
+            <span className="s">{sym}</span>
+            <span className="p">{fmtN(last)}</span>
+            <span className={`c ${(chg || 0) >= 0 ? "cu" : "cd"}`}>{fmtPct(chg)}</span>
+          </div>
+        );
+      })}
     </div>
   );
   return (
@@ -484,21 +522,26 @@ function Phase2({ id }) {
 }
 
 /* ── tape ────────────────────────────────────────────────────────────────── */
-function Tape({ ticker }) {
-  const n = usePoll(`/api/news?symbol=${encodeURIComponent(ticker)}`, 180000);
-  const items = asArr(n.data && n.data.items).slice(0, 4);
+function Tape() {
+  const n = usePoll("/api/finviz_news?limit=40", 120000);
+  const fvItems = asArr(n.data && n.data.items);
+  const fb = usePoll("/api/news?symbol=SPY", 300000, n.data != null && fvItems.length === 0);
+  const items = (fvItems.length ? fvItems : asArr(fb.data && fb.data.items)).slice(0, 30);
+  const track = items.map((it, i) => (
+    <span className="titem" key={i}>
+      <span className="t">{String(pick(it, "date", "ts", "time") || "").slice(-8, -3) || ""}</span>
+      {pick(it, "ticker") ? <span className="ttk">{it.ticker}</span> : null}
+      <span className="hl">{pick(it, "title", "headline")}</span>
+    </span>
+  ));
   return (
-    <div className="tape">
+    <div className="tape" title="Live market headlines — continuously scrolling; hover to pause. Refreshes every 2 minutes.">
       <span className="nlab">NEWS</span>
-      {items.length === 0 && <span className="hl" style={{ color: "var(--fg3)" }}>headlines load with the market…</span>}
-      {items.map((it, i) => (
-        <React.Fragment key={i}>
-          <span className="t">{(pick(it, "time", "published", "date") || "").slice(11, 16)}</span>
-          <span className="hl">{pick(it, "title", "headline")}</span>
-        </React.Fragment>
-      ))}
-      <span className="spacer"></span>
-      <span className="q" title="Phase 2 adds the index quote tape here">SPY · QQQ · IWM · VIX</span>
+      <div className="tape-view">
+        {items.length === 0
+          ? <span className="hl" style={{ color: "var(--fg3)", padding: "0 12px" }}>headlines loading…</span>
+          : <div className="tape-track" style={{ animationDuration: `${Math.max(40, items.length * 7)}s` }}>{track}{track.map((el, i) => React.cloneElement(el, { key: "b" + i }))}</div>}
+      </div>
     </div>
   );
 }
@@ -522,7 +565,7 @@ function App() {
           {tab === "today" ? <Today onOpen={openSym} /> : <Phase2 id={tab} />}
         </div>
       </div>
-      <Tape ticker={ticker} />
+      <Tape />
     </div>
   );
 }
