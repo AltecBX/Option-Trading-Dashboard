@@ -10048,3 +10048,56 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .pd-watch-sent { flex: 1; color: var(--fg-2); font-size: 11.5px; }
 .pd-trig { color: var(--up); font-weight: 700; font-family: var(--font-mono); font-size: 10.5px; cursor: help; }
 .pd-quiet { color: var(--fg-3); font-family: var(--font-mono); font-size: 10.5px; cursor: help; }
+
+/* ─── Pattern Discovery v2 (v3.45) ───────────────────────────────────────── */
+.pd-label { font-family: var(--font-mono); font-size: 9px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.05em; border-radius: 999px;
+  padding: 2px 8px; cursor: help; flex-shrink: 0; }
+.pd-l-reliable { color: var(--up); background: color-mix(in oklch, var(--up) 14%, transparent); }
+.pd-l-unstable { color: #eab308; background: color-mix(in oklch, #eab308 14%, transparent); }
+.pd-l-weakening { color: #f97316; background: color-mix(in oklch, #f97316 14%, transparent); }
+.pd-l-likelyrandom { color: #ef4444; background: color-mix(in oklch, #ef4444 12%, transparent); }
+.pd-l-insufficientsample, .pd-l-smallsample { color: var(--fg-3); background: var(--bg-2); }
+.pd-k-now { color: var(--accent); border-color: var(--accent); font-weight: 800; }
+.pd-ft, .pd-ctxnote, .pd-opt { font-size: 12px; color: var(--fg-2); background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: help; }
+.pd-ctxnote { border-color: color-mix(in oklch, var(--accent) 40%, var(--line)); }
+.pd-occs { display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono);
+  font-size: 10.5px; cursor: help; }
+.pd-occs .up { color: var(--up); } .pd-occs .down { color: var(--down); }
+.pd-chart-med { fill: none; stroke: var(--fg-2); stroke-width: 1.4; }
+.pd-chart-band { fill: none; stroke: var(--fg-3); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.pd-scanbox { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pd-scan-res { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-2); cursor: help; }
+/* Current setup */
+.pd-cs { display: flex; flex-direction: column; gap: 8px; border: 1px solid
+  color-mix(in oklch, var(--accent) 45%, var(--line)); border-radius: 10px;
+  padding: 10px 12px; background: color-mix(in oklch, var(--accent) 4%, var(--bg-3)); }
+.pd-cs-empty { border-color: var(--line); background: var(--bg-3); font-size: 12.5px; color: var(--fg-2); cursor: help; }
+.pd-cs-row { display: flex; gap: 10px; align-items: flex-start; }
+.pd-cs-rank { font-family: var(--font-mono); font-weight: 800; font-size: 13px; color: var(--accent); cursor: help; }
+.pd-cs-main { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.pd-cs-sent { font-size: 12.5px; color: var(--fg); line-height: 1.4; }
+.pd-cs-grid { display: flex; gap: 14px; flex-wrap: wrap; }
+.pd-cs-grid span { display: inline-flex; flex-direction: column; gap: 1px; cursor: help; }
+.pd-cs-grid em { font-style: normal; font-family: var(--font-mono); font-size: 9px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); }
+.pd-cs-grid b { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.pd-cs-grid .up { color: var(--up); } .pd-cs-grid .down { color: var(--down); }
+.pd-cs-more { font-size: 11px; color: var(--fg-3); cursor: help; }
+/* Ask box */
+.pd-ask { display: flex; flex-direction: column; gap: 8px; }
+.pd-ask-row { display: flex; gap: 8px; }
+.pd-ask-row input { flex: 1; background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; }
+.pd-ask-row input:focus { outline: none; border-color: var(--accent); }
+.pd-ask-conds { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); cursor: help; }
+.pd-ask-ans { font-size: 12.5px; color: var(--fg-2); background: var(--bg-3);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+/* Intraday sequences */
+.pd-intra { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.pd-intra-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.pd-seq { display: flex; gap: 10px; align-items: flex-start; background: var(--bg-3);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; cursor: help; }
+.pd-seq-weak { opacity: 0.75; }
+.pd-seq-sent { font-size: 12px; color: var(--fg-2); line-height: 1.45; }

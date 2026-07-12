@@ -128,6 +128,10 @@ def _build_patterns():
     add(r"\bsince\s+(20\d\d)", lambda m: ("period_since", m.group(1)))
 
     # ── entry conditions ──
+    add(r"\b(?:ris\w*|rall\w*|gain\w*|climb\w*|surg\w*)\s*(?:by\s*)?(?:more than\s*|at least\s*|over\s*)?" + _NUM + r"\s*%\s*(?:or more\s*)?(?:with)?in\s*" + _NUM + r"\s*(?:trading\s*)?days?",
+        lambda m: ("entry", {"type": "move_pct", "days": int(_f(m, 2)), "op": ">=", "value": _f(m)}))
+    add(r"\b(?:fall\w*|drop\w*|declin\w*|los\w*|plung\w*)\s*(?:by\s*)?(?:more than\s*|at least\s*|over\s*)?" + _NUM + r"\s*%\s*(?:or more\s*)?(?:with)?in\s*" + _NUM + r"\s*(?:trading\s*)?days?",
+        lambda m: ("entry", {"type": "move_pct", "days": int(_f(m, 2)), "op": "<=", "value": -_f(m)}))
     add(r"\b(?:open\w*|gap\w*)\s*(?:down|lower)\s*(?:by\s*)?(?:at least\s*)?" + _NUM + r"\s*%",
         lambda m: ("entry", {"type": "gap_pct", "op": "<=", "value": -abs(_f(m))}))
     add(r"\b(?:open\w*|gap\w*)\s*(?:up|higher)\s*(?:by\s*)?(?:at least\s*)?" + _NUM + r"\s*%",
@@ -209,9 +213,17 @@ _COND_LABELS = {
 _INTRADAY_TYPES = {"cross_above_open", "cross_below_open"}
 
 
+_WORDNUM = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+            "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10"}
+
 def parse_strategy(text: str) -> dict:
     """Deterministic English → rules. Returns {rules, warnings, unparsed}."""
     text = (text or "").strip()
+    # Normalize spoken forms so the grammar sees canonical tokens:
+    # "10 percent" → "10%", "three days" → "3 days".
+    text = re.sub(r"\bper\s?cent\b", "%", text, flags=re.I)
+    text = re.sub(r"\b(one|two|three|four|five|six|seven|eight|nine|ten)\b",
+                  lambda m: _WORDNUM[m.group(1).lower()], text, flags=re.I)
     rules = {
         "instrument": "stock",
         "direction": "long",
@@ -460,6 +472,15 @@ class _Ctx:
                 return None
             chg = (b["close"] - prev) / prev * 100.0
             return _op(cond["op"], chg, cond["value"])
+        if t == "move_pct":
+            w = int(cond.get("days") or 5)
+            if i < w:
+                return None
+            c0 = self.closes[i - w]
+            if not c0:
+                return None
+            r = (self.closes[i] - c0) / c0 * 100.0
+            return _op(cond["op"], r, cond["value"])
         if t == "move_pct":
             # Return over the trailing N trading days (pattern-lab conversions).
             n = int(cond.get("days") or 5)
