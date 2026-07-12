@@ -9989,3 +9989,62 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bt-trades th { position: sticky; top: 0; background: var(--bg-2);
   font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase; color: var(--fg-3); }
+
+/* ─── Pattern Discovery (v3.44) ──────────────────────────────────────────── */
+.pd-card { display: flex; flex-direction: column; gap: 8px; }
+.pd-headright { display: flex; gap: 8px; align-items: center; }
+.pd-meta { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); cursor: help; }
+.pd-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.pd-f-on { border-color: var(--accent) !important; color: var(--accent) !important; }
+.pd-empty { font-size: 12.5px; color: var(--fg-3); padding: 10px 2px; }
+.pd-row { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-3); }
+.pd-row.open { border-color: color-mix(in oklch, var(--accent) 45%, var(--line)); }
+.pd-head { display: flex; gap: 10px; align-items: center; width: 100%;
+  background: transparent; border: none; color: var(--fg); cursor: pointer;
+  padding: 9px 12px; text-align: left; }
+.pd-conf { font-family: var(--font-mono); font-weight: 800; font-size: 14px;
+  min-width: 34px; text-align: center; border-radius: 8px; padding: 4px 0;
+  cursor: help; }
+.pd-conf.hi  { background: color-mix(in oklch, var(--up) 18%, transparent); color: var(--up); }
+.pd-conf.mid { background: color-mix(in oklch, #eab308 18%, transparent); color: #eab308; }
+.pd-conf.lo  { background: color-mix(in oklch, #ef4444 15%, transparent); color: #ef4444; }
+.pd-kinds { display: flex; gap: 4px; flex-shrink: 0; }
+.pd-kind { font-style: normal; font-family: var(--font-mono); font-size: 9px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; color: var(--fg-3); }
+.pd-k-bullish { color: var(--up); border-color: color-mix(in oklch, var(--up) 40%, transparent); }
+.pd-k-bearish { color: var(--down); border-color: color-mix(in oklch, var(--down) 40%, transparent); }
+.pd-sentence { flex: 1; font-size: 12.5px; line-height: 1.45; color: var(--fg-2); }
+.pd-arrow { color: var(--fg-3); }
+.pd-flags { display: flex; gap: 12px; flex-wrap: wrap; padding: 0 12px 8px 56px;
+  font-size: 11px; color: #eab308; }
+.pd-body { display: flex; flex-direction: column; gap: 10px; padding: 2px 12px 12px; }
+.pd-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.pd-stats > div { background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 9px; display: flex; flex-direction: column; gap: 2px; cursor: help; }
+.pd-stats span { font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3); }
+.pd-stats b { font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.pd-stats .up { color: var(--up); } .pd-stats .down { color: var(--down); }
+.pd-ctx { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px;
+  color: var(--fg-2); cursor: help; }
+.pd-ctx-cat { color: var(--fg-3); font-family: var(--font-mono); font-size: 10.5px; }
+.pd-chart { background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.pd-chart svg { width: 100%; height: 150px; display: block; }
+.pd-chart-occ { fill: none; stroke: var(--fg-3); stroke-width: 1; opacity: 0.28; }
+.pd-chart-avg { fill: none; stroke-width: 2.5; }
+.pd-chart-avg.up { stroke: var(--up); } .pd-chart-avg.down { stroke: var(--down); }
+.pd-chart-sig { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.8; }
+.pd-chart-zero { stroke: var(--fg-3); stroke-width: 1; opacity: 0.35; }
+.pd-chart-lbls { display: flex; justify-content: space-between; font-family: var(--font-mono);
+  font-size: 10px; color: var(--fg-3); padding: 2px 4px 0; }
+.pd-actions { display: flex; gap: 8px; }
+.pd-notes { font-size: 11px; color: var(--fg-3); line-height: 1.5; border-top: 1px dashed var(--line);
+  padding-top: 8px; cursor: help; }
+.pd-watches { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.pd-watch { display: flex; gap: 10px; align-items: center; background: var(--bg-3);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+.pd-watch.trig { border-color: color-mix(in oklch, var(--up) 55%, transparent); }
+.pd-watch-sent { flex: 1; color: var(--fg-2); font-size: 11.5px; }
+.pd-trig { color: var(--up); font-weight: 700; font-family: var(--font-mono); font-size: 10.5px; cursor: help; }
+.pd-quiet { color: var(--fg-3); font-family: var(--font-mono); font-size: 10.5px; cursor: help; }
