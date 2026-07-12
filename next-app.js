@@ -5,7 +5,7 @@ const {
   useRef,
   useMemo
 } = React;
-const NEXT_VERSION = "4.0.3-next";
+const NEXT_VERSION = "4.0.4-next";
 const CFG = typeof window !== "undefined" && window.__APP_CONFIG || {};
 function api(path) {
   const headers = {};
@@ -194,9 +194,9 @@ function CommandBar({
   alerts
 }) {
   const [input, setInput] = useState(ticker);
-  const q = usePoll(`/api/quote?symbol=${encodeURIComponent(ticker)}`, 15000);
-  const mo = usePoll("/api/market_overview", 30000);
-  const wt = usePoll("/api/watchlist_table", 300000);
+  const q = usePoll(`/api/quote?symbol=${encodeURIComponent(ticker)}`, 60000);
+  const mo = usePoll("/api/market_overview", 60000);
+  const wt = usePoll("/api/watchlist_table", 600000);
   const quote = q.data || {};
   const px = pick(quote, "last", "price", "mark", "close");
   const chg = pick(quote, "change_pct", "chg_pct", "pct", "percent_change");
@@ -868,6 +868,7 @@ function ClassicDock({
   const frameRef = useRef(null);
   const readyRef = useRef(false);
   const queueRef = useRef(null);
+  const fromClassicRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
   const initial = useRef({
     tab: CLASSIC_TABS[tab] ? tab : "trade",
@@ -902,6 +903,7 @@ function ClassicDock({
         }
         return;
       }
+      if (e.data.ticker) fromClassicRef.current = String(e.data.ticker).toUpperCase();
       onClassicState && onClassicState(e.data);
     };
     window.addEventListener("message", onMsg);
@@ -913,7 +915,7 @@ function ClassicDock({
     });
   }, [tab]);
   useEffect(() => {
-    if (ticker) send({
+    if (ticker && ticker !== fromClassicRef.current) send({
       symbol: ticker
     });
   }, [ticker]);
@@ -1025,7 +1027,7 @@ function App() {
       localStorage.setItem("next_ticker", ticker);
     } catch (e) {}
   }, [ticker]);
-  const r = usePoll("/api/radar", 45000);
+  const r = usePoll("/api/radar", 120000);
   const alerts = asArr(r.data && r.data.long).concat(asArr(r.data && r.data.short)).filter(s => (pick(s, "score", "total") || 0) >= 80).length;
   const openSym = s => {
     if (s) {

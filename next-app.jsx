@@ -19,7 +19,7 @@
  */
 
 const { useState, useEffect, useRef, useMemo } = React;
-const NEXT_VERSION = "4.0.3-next";
+const NEXT_VERSION = "4.0.4-next";
 
 /* ── api ─────────────────────────────────────────────────────────────────── */
 const CFG = (typeof window !== "undefined" && window.__APP_CONFIG) || {};
@@ -126,9 +126,9 @@ function Weather() {
 
 function CommandBar({ ticker, setTicker, alerts }) {
   const [input, setInput] = useState(ticker);
-  const q = usePoll(`/api/quote?symbol=${encodeURIComponent(ticker)}`, 15000);
-  const mo = usePoll("/api/market_overview", 30000);
-  const wt = usePoll("/api/watchlist_table", 300000);
+  const q = usePoll(`/api/quote?symbol=${encodeURIComponent(ticker)}`, 60000);
+  const mo = usePoll("/api/market_overview", 60000);
+  const wt = usePoll("/api/watchlist_table", 600000);
   const quote = q.data || {};
   const px = pick(quote, "last", "price", "mark", "close");
   const chg = pick(quote, "change_pct", "chg_pct", "pct", "percent_change");
@@ -500,6 +500,7 @@ function ClassicDock({ visible, tab, ticker, onClassicState }) {
   const frameRef = useRef(null);
   const readyRef = useRef(false);
   const queueRef = useRef(null);
+  const fromClassicRef = useRef(null);   // last ticker the classic reported — never echo it back
   const [loaded, setLoaded] = useState(false);
   const initial = useRef({ tab: CLASSIC_TABS[tab] ? tab : "trade", ticker });
 
@@ -519,6 +520,7 @@ function ClassicDock({ visible, tab, ticker, onClassicState }) {
         if (queueRef.current) { send(queueRef.current); queueRef.current = null; }
         return;
       }
+      if (e.data.ticker) fromClassicRef.current = String(e.data.ticker).toUpperCase();
       onClassicState && onClassicState(e.data);
     };
     window.addEventListener("message", onMsg);
@@ -526,7 +528,9 @@ function ClassicDock({ visible, tab, ticker, onClassicState }) {
   }, []);
 
   useEffect(() => { if (CLASSIC_TABS[tab]) send({ tab }); }, [tab]);
-  useEffect(() => { if (ticker) send({ symbol: ticker }); }, [ticker]);
+  useEffect(() => {
+    if (ticker && ticker !== fromClassicRef.current) send({ symbol: ticker });
+  }, [ticker]);
 
   return (
     <div style={{ display: visible ? "block" : "none", position: "relative", height: "100%", minHeight: "calc(100vh - 174px)" }}>
@@ -577,7 +581,7 @@ function App() {
   const [ticker, setTicker] = useState(() => { try { return localStorage.getItem("next_ticker") || "SPY"; } catch (e) { return "SPY"; } });
   useEffect(() => { try { localStorage.setItem("next_tab", tab); } catch (e) {} }, [tab]);
   useEffect(() => { try { localStorage.setItem("next_ticker", ticker); } catch (e) {} }, [ticker]);
-  const r = usePoll("/api/radar", 45000);
+  const r = usePoll("/api/radar", 120000);
   const alerts = asArr(r.data && r.data.long).concat(asArr(r.data && r.data.short)).filter(s => (pick(s, "score", "total") || 0) >= 80).length;
   const openSym = (s) => { if (s) { setTicker(String(s).toUpperCase()); } };
   return (
