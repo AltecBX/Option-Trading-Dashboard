@@ -158,6 +158,9 @@ const TABS = [{
   id: "juice",
   label: "0DTE Juice"
 }, {
+  id: "backtest",
+  label: "Backtest"
+}, {
   id: "breadth",
   label: "Breadth"
 }, {
