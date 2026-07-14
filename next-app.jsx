@@ -19,7 +19,7 @@
  */
 
 const { useState, useEffect, useRef, useMemo } = React;
-const NEXT_VERSION = "4.0.4-next";
+const NEXT_VERSION = "4.0.5-next";
 
 /* ── api ─────────────────────────────────────────────────────────────────── */
 const CFG = (typeof window !== "undefined" && window.__APP_CONFIG) || {};
@@ -229,13 +229,13 @@ function TabBar({ active, onChange, earn }) {
             {label}
           </button>
         ))}
-        {earn && <span className="earn" title="Next earnings for the active ticker">{earn}</span>}
       </div>
       <div className="trow sites">
         <span className="slbl">Sites -</span>
         {SITES.map(([id, label, cls]) => (
           <button key={id} className={`tab site ${cls} ${active === id ? "on" : ""}`} onClick={() => onChange(id)}>{label}</button>
         ))}
+        {earn && <span className="earn" title="Next earnings for the active ticker">{earn}</span>}
       </div>
     </div>
   );
