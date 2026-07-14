@@ -13972,7 +13972,15 @@ function WeeklySellSetupCard({ rows, weeks, ticker, currentPrice, baselinePrice,
     const beDistPct = side === "put"
       ? (currentPrice - breakeven) / currentPrice * 100
       : (breakeven - currentPrice) / currentPrice * 100;
+    // Schwab's chain carries real greeks — use them and only fall back to a
+    // Black-Scholes estimate (tagged est) when they're absent. Schwab marks
+    // bad greeks as ±999, so sanity-bound them.
+    const liveDelta = (typeof c.delta === "number" && isFinite(c.delta) && Math.abs(c.delta) <= 1 && c.delta !== 0) ? c.delta : null;
+    const liveTheta = (typeof c.theta === "number" && isFinite(c.theta) && Math.abs(c.theta) < 100 && c.theta !== 0) ? c.theta : null;
     const g = _wosGreeks(currentPrice, c.strike, c.iv, dte != null ? dte : 5, side);
+    const delta = liveDelta != null ? liveDelta : (g && g.delta);
+    const theta = liveTheta != null ? liveTheta : (g && g.theta);
+    const probOTM = delta != null ? (side === "put" ? (1 - Math.abs(delta)) * 100 : (1 - Math.max(0, delta)) * 100) : null;
     const strikeEq = (c.strike / baselinePrice - 1) * 100;
     const breachN = side === "put"
       ? rows.filter(r => r.low_return <= strikeEq).length
@@ -13981,7 +13989,7 @@ function WeeklySellSetupCard({ rows, weeks, ticker, currentPrice, baselinePrice,
       ? mid / (c.strike - mid) * 100                     // vs cash-secured collateral
       : mid / currentPrice * 100;                        // vs 100 shares held
     return { ok: true, strike: c.strike, bid: c.bid || null, mid, breakeven, beDistPct,
-             delta: g && g.delta, theta: g && g.theta, probOTM: g && g.probOTM,
+             delta, theta, probOTM, deltaLive: liveDelta != null, thetaLive: liveTheta != null,
              breachN, breachPct: breachN / rows.length * 100, rbp, iv: c.iv };
   }
   const P = sideStats(putC, "put");
@@ -14029,11 +14037,11 @@ function WeeklySellSetupCard({ rows, weeks, ticker, currentPrice, baselinePrice,
           <React.Fragment>
             <Row l="Bid / mid" v={<span className="num">{S.bid != null ? fmt$(S.bid, 2) : "—"} / {fmt$(S.mid, 2)}</span>} tip="Live chain bid and mid for the selected weekly contract." />
             <Row hot l="Breakeven" v={<span className="num">{fmt$(S.breakeven, 2)} · {fp(S.beDistPct)}</span>} tip="Strike ∓ premium, and how far price is from it. Your real cushion." />
-            <Row l="Delta" v={S.delta != null ? <span className="num">{S.delta.toFixed(2)} <i className="wos-est">est</i></span> : NA} tip="Black-Scholes delta derived from the chain's own IV for this contract — estimated, not quoted." />
-            <Row hot l="P(expire OTM)" v={S.probOTM != null ? <span className="num">{S.probOTM.toFixed(0)}% <i className="wos-est">est</i></span> : NA} tip="Delta-based estimate from the chain's own IV. NOT a guarantee — it's the option market's implied odds." />
+            <Row l="Delta" v={S.delta != null ? <span className="num">{S.delta.toFixed(2)}{!S.deltaLive && <i className="wos-est" title="Chain didn't include a live delta — Black-Scholes estimate from its IV.">est</i>}</span> : NA} tip={S.deltaLive ? "Live delta from the Schwab option chain." : "Black-Scholes delta derived from the chain's own IV — estimated, not quoted."} />
+            <Row hot l="P(expire OTM)" v={S.probOTM != null ? <span className="num">{S.probOTM.toFixed(0)}% <i className="wos-est">est</i></span> : NA} tip={S.deltaLive ? "1 − |live Schwab delta| — the option market's implied odds of finishing out of the money. An estimate by nature, not a guarantee." : "Delta-based estimate from the chain's own IV. NOT a guarantee."} />
             <Row hot l={`Breach rate · ${weeks}w`} v={<span className="num">{S.breachPct.toFixed(0)}% ({S.breachN}/{rows.length})</span>} tip={side === "put" ? `How often, in the displayed ${rows.length} weeks, the stock traded BELOW this strike's equivalent level before Friday.` : `How often, in the displayed ${rows.length} weeks, the stock traded ABOVE this strike's equivalent level before Friday.`} />
             <Row l="EM to Friday" v={emPct != null ? <span className="num">±{emPct.toFixed(1)}% ({f$(emDn)}/{f$(emUp)})</span> : NA} tip="Expected move from the EM engine for the selected expiry (down / up dollar band)." />
-            <Row hot l="Θ / day · DTE" v={<span className="num">{S.theta != null ? fmt$(Math.abs(S.theta), 2) + "/sh" : "—"} · {dte != null ? dte + "d" : "—"} <i className="wos-est">est</i></span>} tip="Daily decay in your favor (Black-Scholes from chain IV, per share) and days to the weekly expiration." />
+            <Row hot l="Θ / day · DTE" v={<span className="num">{S.theta != null ? fmt$(Math.abs(S.theta), 2) + "/sh" : "—"} · {dte != null ? dte + "d" : "—"}{!S.thetaLive && <i className="wos-est">est</i>}</span>} tip={S.thetaLive ? "Live theta from the Schwab chain (per share, per day — decay in the seller's favor), and days to the weekly expiration." : "Daily decay in your favor (Black-Scholes from chain IV, per share) and days to the weekly expiration."} />
             <Row l="Return on BP" v={<span className="num">{S.rbp != null ? S.rbp.toFixed(2) + "%" : "—"}</span>} tip={side === "put" ? "Premium ÷ cash-secured collateral (strike − premium), for this week." : "Premium ÷ current share value (covered), for this week."} />
           </React.Fragment>
         )}
@@ -14048,6 +14056,11 @@ function WeeklySellSetupCard({ rows, weeks, ticker, currentPrice, baselinePrice,
           <div className="kicker" title={`Where this week sits inside the last ${rows.length} weeks' range, and what the selected weekly contracts offer from here. Everything updates with the ticker, the weeks slider, the strike picker and the live chain.`}>Weekly option selling setup</div>
           <div className="card-title">Sell puts near the lows · calls near the highs</div>
         </div>
+        {dte != null && expiration && (
+          <span className="wos-dte" title={`Selected weekly expiration ${expiration} — ${dte} days remaining.`}>
+            EXP FRI {expiration.slice(5).replace("-", "/")} · <b>{dte}d</b>
+          </span>
+        )}
         <span className={`wos-bias ${bias[1]}`}
               title={`Combines: range location (${pos.toFixed(1)}% from bottom), historical breach rates, delta-based P(OTM), breakeven cushion vs expected move, and time remaining (${dte != null ? dte + "d" : "n/a"}). It is a LOCATION read, not a trade instruction.`}>
           {bias[0]}
@@ -14055,26 +14068,32 @@ function WeeklySellSetupCard({ rows, weeks, ticker, currentPrice, baselinePrice,
       </div>
 
       <div className="wos-range" title={`This week's return (${fp(currReturn, 2)}) positioned between the worst weekly low and best weekly high of the displayed ${rows.length} weeks.`}>
-        <div className="wos-track">
-          <i className="wos-marker" style={{ left: `${pos}%` }}></i>
+        <div className="wos-rl-h">{rows.length} WEEK RANGE LOCATION</div>
+        <div className="wos-trackwrap">
+          <span className="wos-now-label" style={{ left: `${pos}%` }}
+                title="This week, live.">NOW <b className="num">{fp(currReturn, 2)}</b>{outside ? ` · ${outside.toUpperCase()} RANGE` : ""}</span>
+          <div className="wos-track">
+            <i className="wos-marker" style={{ left: `${pos}%` }}></i>
+          </div>
         </div>
         <div className="wos-ends">
           <span className="wos-end lo" title={`Worst weekly low of the ${rows.length} displayed weeks, and the price it maps to off this week's baseline.`}>
             <em>WORST LOW</em><b className="num">{fp(worstLow)}</b><span className="num">{f$(pLow)}</span>
           </span>
-          <span className="wos-end now" title="This week, live.">
-            <em>CURRENT{outside ? ` · ${outside.toUpperCase()} RANGE` : ""}</em><b className="num">{fp(currReturn, 2)}</b><span className="num">{f$(currentPrice)}</span>
-          </span>
           <span className="wos-end hi" title={`Best weekly high of the ${rows.length} displayed weeks, and the price it maps to.`}>
             <em>BEST HIGH</em><b className="num">{fp(bestHigh)}</b><span className="num">{f$(pHigh)}</span>
           </span>
         </div>
+        <div className="wos-prox-box"
+             title="How close this week's return sits to the historical LOW side of the selected range. A location measure only — NOT the probability that a put expires worthless.">
+          <em>BOTTOM PROXIMITY</em>
+          <b className={`num ${bottomProx >= 66 ? "cu" : bottomProx <= 33 ? "cd" : ""}`}>{bottomProx.toFixed(1)}%</b>
+          <span>{bottomProx >= 66 ? `close to the ${rows.length}-week low side` : bottomProx <= 33 ? `close to the ${rows.length}-week high side` : "middle of the range"}</span>
+        </div>
         <div className="wos-posline">
-          <span title="Position of the current weekly return inside the historical range."><b className="num">{pos.toFixed(1)}%</b> from the bottom</span>
-          <span className="wos-prox" title="How close this week sits to the historical LOW side of the selected range. This is a location measure only — NOT the probability that a put expires worthless.">bottom proximity <b className="num">{bottomProx.toFixed(1)}%</b></span>
-          <span title="Dollars and percentage-points between here and the range extremes.">
-            <b className="num cd">{f$(Math.abs(dLow$))} · {Math.abs(dLowPts).toFixed(1)}pts</b> to low ·
-            <b className="num cu"> {f$(Math.abs(dHigh$))} · {Math.abs(dHighPts).toFixed(1)}pts</b> to high
+          <span title={`Gap between this week's return (${fp(currReturn, 2)}) and each extreme, in dollars and percentage POINTS of weekly return (e.g. −8.8% vs −19.0% = ${Math.abs(dLowPts).toFixed(1)} pts).`}>
+            <b className="num cd">{f$(Math.abs(dLow$))}</b> · {Math.abs(dLowPts).toFixed(1)} pts above the worst low
+            &nbsp;·&nbsp; <b className="num cu">{f$(Math.abs(dHigh$))}</b> · {Math.abs(dHighPts).toFixed(1)} pts below the best high
           </span>
         </div>
       </div>
