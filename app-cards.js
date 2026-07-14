@@ -5134,6 +5134,252 @@ function ScreenersHub({
     onSwitchTicker: onSwitchTicker
   }));
 }
+
+// ── Weekly range location scan (v3.55) ─────────────────────────────────────
+// The Weekly Option Selling Setup panel's range math, run across the whole
+// watchlist: which names sit near their N-week worst low (sell puts) or best
+// high (sell calls) RIGHT NOW — instead of clicking one ticker at a time.
+// Location measures only, from price history; premiums/greeks stay on the
+// per-ticker panel.
+function RangeEdgeScanCard({
+  apiFetch,
+  onSwitchTicker,
+  onOpenAnalyze
+}) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [weeks, setWeeks] = useState(16);
+  const [fSide, setFSide] = useState("all");
+  const [minEdge, setMinEdge] = useState(60);
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/range_scan");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (e) {
+      setErr(String(e));
+      return null;
+    }
+  };
+  const watchScan = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 4000);
+  };
+  useEffect(() => {
+    load().then(d => {
+      if (d && d.status && d.status.scanning) watchScan();
+    });
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try {
+      await apiFetch(`/api/range_scan/scan?force=1&weeks=${weeks}`);
+    } catch (e) {
+      setErr(String(e));
+      return;
+    }
+    await load();
+    watchScan();
+  };
+  const status = board && board.status || {};
+  const rows = board && board.rows || [];
+  const summary = board && board.summary || {};
+  const scanning = !!status.scanning;
+  const open = sym => {
+    if (onOpenAnalyze) onOpenAnalyze(sym);else if (onSwitchTicker) onSwitchTicker(sym);
+  };
+  const filtered = useMemo(() => rows.filter(r => {
+    if (fSide === "lows" && r.side !== "put") return false;
+    if (fSide === "highs" && r.side !== "call") return false;
+    if ((r.edge || 0) < minEdge) return false;
+    if (q && !String(r.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [rows, fSide, minEdge, q]);
+  const Chips = ({
+    rows,
+    tone
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "ab-chips"
+  }, (rows || []).length === 0 && /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, "—"), (rows || []).map((r, i) => /*#__PURE__*/React.createElement("button", {
+    key: r.ticker + i,
+    className: `ab-chip ab-${tone}`,
+    onClick: () => open(r.ticker),
+    title: `${r.ticker} — this week ${r.curr_return >= 0 ? "+" : ""}${r.curr_return}% · position ${r.pos}% of the ${r.weeks_used}w range · worst low ${r.worst_low}% / best high +${r.best_high}%`
+  }, r.ticker, " ", /*#__PURE__*/React.createElement("b", null, Math.round(r.side === "put" ? r.bottom_prox : r.top_prox)))));
+  const SummaryBox = ({
+    title,
+    tone,
+    children
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `ab-sumbox ${tone || ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-sumbox-title"
+  }, title), children);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card ab-card",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Premium selling · your watchlist"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Weekly range location scan")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-controls"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: weeks,
+    onChange: e => setWeeks(Number(e.target.value)),
+    title: "Lookback: how many completed weeks define each name's worst low / best high."
+  }, [8, 12, 16, 26, 52].map(w => /*#__PURE__*/React.createElement("option", {
+    key: w,
+    value: w
+  }, w, " weeks"))), /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: scanning
+  }, scanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " · ", status.weeks, "w lookback · ", status.baseline, " baseline · ", rows.length, " names") : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "No scan yet — positions every watchlist name inside its own ", weeks, "-week range. Near the worst low → sell puts; near the best high → sell calls. Same math as the selling-setup panel."), status.error && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", status.error), err && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " · ", err)), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status muted",
+    style: {
+      marginTop: -6
+    }
+  }, "Bottom/top proximity is a LOCATION measure from price history — not the probability an option expires worthless. Premiums and greeks live on the Analyze panel per name."), scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress-bar",
+    style: {
+      width: `${status.total ? status.scanned / status.total * 100 : 0}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ab-progress-txt"
+  }, status.scanned || 0, " / ", status.total || 0)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-summary"
+  }, /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Near range LOWS — sell puts",
+    tone: "up"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.near_lows,
+    tone: "bull"
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Near range HIGHS — sell calls",
+    tone: "down"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.near_highs,
+    tone: "bear"
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: "Late-week lows — your edge",
+    tone: "warn"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    rows: summary.late_week_lows,
+    tone: "bull"
+  }))), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-filters"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "sb-select ab-search",
+    placeholder: "Ticker…",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fSide,
+    onChange: e => setFSide(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Both sides"), /*#__PURE__*/React.createElement("option", {
+    value: "lows"
+  }, "Near lows (puts)"), /*#__PURE__*/React.createElement("option", {
+    value: "highs"
+  }, "Near highs (calls)")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: minEdge,
+    onChange: e => setMinEdge(Number(e.target.value)),
+    title: "Only show names at least this close to one of their range extremes (100 = sitting on the extreme)."
+  }, [0, 50, 60, 70, 80, 90].map(v => /*#__PURE__*/React.createElement("option", {
+    key: v,
+    value: v
+  }, "edge ≥ ", v, "%"))), /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, filtered.length, " of ", rows.length)), filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "rgs-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Ticker"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "This wk"), /*#__PURE__*/React.createElement("th", {
+    title: "This week's position inside the lookback range: worst weekly low on the left, best weekly high on the right."
+  }, "Range location"), /*#__PURE__*/React.createElement("th", {
+    title: "How close to the LOW side of the range (100 = at the worst low). Location only — not P(OTM)."
+  }, "Bot\xA0prox"), /*#__PURE__*/React.createElement("th", {
+    title: "Worst weekly low of the lookback, and the price it maps to off this week's baseline."
+  }, "Worst low"), /*#__PURE__*/React.createElement("th", {
+    title: "Best weekly high of the lookback, and the price it maps to."
+  }, "Best high"), /*#__PURE__*/React.createElement("th", {
+    title: "% of lookback weeks whose weekly LOW had already printed by today's weekday. High + near the low = little room usually left below."
+  }, "LOW in by"), /*#__PURE__*/React.createElement("th", null, "Side"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.ticker,
+    className: "row",
+    onClick: () => open(r.ticker),
+    title: `Open ${r.ticker} on the Analyze tab — the selling-setup panel shows live premiums, greeks and breach rates.`
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "rgs-tk"
+  }, r.ticker, r.outside && /*#__PURE__*/React.createElement("span", {
+    className: "rgs-out"
+  }, r.outside === "below" ? "▼ out" : "▲ out")), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, fmt$(r.last, r.last >= 1000 ? 0 : 2)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${r.curr_return >= 0 ? "cu" : "cd"}`
+  }, r.curr_return >= 0 ? "+" : "", r.curr_return.toFixed(1), "%"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
+    className: "rgs-bar"
+  }, /*#__PURE__*/React.createElement("i", {
+    style: {
+      left: `${r.pos}%`
+    }
+  }))), /*#__PURE__*/React.createElement("td", {
+    className: "num rgs-big"
+  }, r.bottom_prox.toFixed(0), "%"), /*#__PURE__*/React.createElement("td", {
+    className: "num cd"
+  }, r.worst_low.toFixed(1), "% ", /*#__PURE__*/React.createElement("span", {
+    className: "rgs-px"
+  }, fmt$(r.p_low, r.p_low >= 1000 ? 0 : 2))), /*#__PURE__*/React.createElement("td", {
+    className: "num cu"
+  }, "+", r.best_high.toFixed(1), "% ", /*#__PURE__*/React.createElement("span", {
+    className: "rgs-px"
+  }, fmt$(r.p_high, r.p_high >= 1000 ? 0 : 2))), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, Math.round(r.lows_in_by), "%"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: `rgs-side ${r.side}`
+  }, r.side === "put" ? "SELL PUT" : "SELL CALL"))))))), rows.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "research-empty"
+  }, "Nothing at edge ≥ ", minEdge, "% right now — loosen the filter or rescan."));
+}
 function IVRankCard({
   apiFetch,
   onSwitchTicker
@@ -18744,6 +18990,7 @@ Object.assign(window, {
   MoversCard: _memo(MoversCard),
   TrendCard: _memo(TrendCard),
   IVRankCard: _memo(IVRankCard),
+  RangeEdgeScanCard: _memo(RangeEdgeScanCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard),
   TabBar,
   TabPanel,

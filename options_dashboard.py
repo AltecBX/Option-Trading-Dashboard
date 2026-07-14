@@ -175,6 +175,16 @@ except Exception as _exc:  # noqa: BLE001
     _SWINGS_AVAILABLE = False
     _swings = None  # type: ignore
 
+# Weekly range-location scanner — the selling-setup panel's math across
+# the whole watchlist (near-lows → sell puts, near-highs → sell calls).
+try:
+    import range_scan as _rangescan
+    _RANGESCAN_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[range_scan] module load failed: {_exc}", file=sys.stderr)
+    _RANGESCAN_AVAILABLE = False
+    _rangescan = None  # type: ignore
+
 try:
     import news as _news
     _NEWS_AVAILABLE = True
@@ -7781,6 +7791,43 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     syms, force=force, overrides=_watchlist_overrides(wl)))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/watchlist_table/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/range_scan":
+            if not _RANGESCAN_AVAILABLE:
+                self._send_json({"error": "range scan unavailable", "rows": []}, status=503)
+                return
+            try:
+                self._send_json(_rangescan.get_board())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/range_scan", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/range_scan/scan":
+            if not _RANGESCAN_AVAILABLE:
+                self._send_json({"error": "range scan unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                weeks = int(qs.get("weeks", ["16"])[0])
+            except (TypeError, ValueError):
+                weeks = 16
+            baseline_q = (qs.get("baseline", [""])[0] or "").lower().strip()
+            if baseline_q in ("monday", "friday"):
+                friday_baseline = baseline_q == "friday"
+            else:
+                friday_baseline = self.friday_baseline
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:
+                syms = []
+            try:
+                self._send_json(_rangescan.trigger_scan(
+                    syms, weeks=weeks, friday_baseline=friday_baseline, force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/range_scan/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/ivrank":

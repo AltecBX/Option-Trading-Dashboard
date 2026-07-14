@@ -10221,3 +10221,42 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   font-weight: 800; letter-spacing: 0.12em; color: var(--warn); margin-right: 8px; }
 .wos-dayctx b { font-family: var(--font-mono); font-size: 13px; }
 .wos-dayctx b.cu { color: var(--up); }
+
+/* v3.55: weekly range location scan (Scanners tab) — watchlist-wide version
+   of the selling-setup panel's range math. */
+.rgs-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.rgs-table th { text-align: left; font-family: var(--font-mono); font-size: 10px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-3); padding: 7px 9px; border-bottom: 1px solid var(--line);
+  cursor: help; white-space: nowrap; }
+.rgs-table td { padding: 6px 9px; border-bottom: 1px dashed var(--line);
+  white-space: nowrap; vertical-align: middle; }
+.rgs-table tr.row { cursor: pointer; }
+.rgs-table tr.row:hover { background: color-mix(in oklch, var(--accent) 7%, transparent); }
+.rgs-tk { font-weight: 700; font-family: var(--font-mono); }
+.rgs-out { font-family: var(--font-mono); font-size: 9px; color: var(--warn);
+  margin-left: 5px; border: 1px solid color-mix(in oklch, var(--warn), transparent 55%);
+  border-radius: 4px; padding: 0 4px; }
+.rgs-big { font-weight: 700; font-size: 13.5px; }
+.rgs-px { color: var(--fg-3); font-size: 11px; margin-left: 4px; }
+.rgs-bar { position: relative; width: 120px; height: 8px; border-radius: 999px;
+  background: linear-gradient(90deg,
+    color-mix(in oklch, var(--down) 55%, transparent),
+    color-mix(in oklch, var(--warn) 30%, transparent) 45%,
+    color-mix(in oklch, var(--up) 55%, transparent));
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.35); }
+.rgs-bar i { position: absolute; top: 50%; transform: translate(-50%,-50%);
+  width: 11px; height: 11px; border-radius: 999px; background: var(--warn);
+  border: 2px solid var(--bg-2);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--warn) 60%, transparent); }
+.rgs-side { font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.08em; border-radius: 6px; padding: 2px 7px;
+  border: 1px solid var(--line); }
+.rgs-side.put { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%);
+  background: color-mix(in oklch, var(--up) 10%, transparent); }
+.rgs-side.call { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%);
+  background: color-mix(in oklch, var(--down) 10%, transparent); }
+@media (max-width: 760px) {
+  .rgs-bar { width: 70px; }
+  .rgs-px { display: none; }
+}
