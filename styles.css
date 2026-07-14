@@ -10143,7 +10143,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 .wos-end.lo b { color: var(--down); } .wos-end.hi b { color: var(--up); }
 .wos-end span { font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); }
 .wos-posline { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--fg-2);
-  border-top: 1px dashed var(--line); padding-top: 8px; }
+  white-space: nowrap; border-top: 1px dashed var(--line); padding-top: 8px; }
 .wos-posline b { font-family: var(--font-mono); }
 .wos-prox { cursor: help; }
 .wos-posline .cd { color: var(--down); } .wos-posline .cu { color: var(--up); }
@@ -10170,12 +10170,18 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 }
 
 /* v3.49: the selling-setup panel is a full-width row under the weekly
-   charts — lay its three zones side by side on desktop. */
-.wos-card { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; align-items: start; }
+   charts — lay its three zones side by side on desktop.
+   v3.53: left (range) zone widened so the position + day-context lines each
+   fit on one row; the put/call columns had large dead space, so shift the
+   width to the left where it's needed. */
+.wos-card { display: grid; grid-template-columns: 1.9fr 1fr 1fr; gap: 14px; align-items: start; }
 .wos-card .card-head { grid-column: 1 / -1; margin-bottom: 0; }
 .wos-sides { display: contents; }
 @media (max-width: 1100px) {
   .wos-card { grid-template-columns: 1fr; }
+  /* Stacked full width can be narrow — allow the two info lines to wrap
+     again so they never overflow the card on phones/tablets. */
+  .wos-posline, .wos-dayctx { white-space: normal; }
 }
 
 /* v3.50: range zone restyled to the user's mockup — heading, NOW above the
@@ -10208,7 +10214,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 /* v3.51: day-of-week context under the range — how much week is left.
    v3.52: plain left-justified text flow (was flex — the 16px flex gap doubled
    as a row gap when the line wrapped, wasting vertical space). */
-.wos-dayctx { display: block; text-align: left; line-height: 1.5;
+.wos-dayctx { display: block; text-align: left; line-height: 1.5; white-space: nowrap;
   font-size: 12px; color: var(--fg-2); cursor: help;
   border-top: 1px dashed var(--line); padding-top: 6px; }
 .wos-dayctx em { font-style: normal; font-family: var(--font-mono); font-size: 9px;
