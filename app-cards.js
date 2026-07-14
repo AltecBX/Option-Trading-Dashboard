@@ -6008,19 +6008,19 @@ function TabBar({
     title: "Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads."
   }, /*#__PURE__*/React.createElement("div", {
     className: "tab-row"
-  }, appTabs.map(renderBtn), hasEarn && /*#__PURE__*/React.createElement("div", {
+  }, appTabs.map(renderBtn)), (extTabs.length > 0 || hasEarn) && /*#__PURE__*/React.createElement("div", {
+    className: "tab-row tab-row-ext"
+  }, extTabs.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    className: "tab-row-lbl",
+    title: "Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways."
+  }, "Sites -"), extTabs.map(renderBtn)), hasEarn && /*#__PURE__*/React.createElement("div", {
     className: `tab-earn ${soon ? "soon" : ""}`,
     title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
   }, /*#__PURE__*/React.createElement("span", {
     className: "tab-earn-lbl"
   }, ticker, " earnings"), /*#__PURE__*/React.createElement("b", null, fmtSwingDate(earnDate)), earnDays != null && /*#__PURE__*/React.createElement("span", {
     className: "tab-earn-days"
-  }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`))), extTabs.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "tab-row tab-row-ext"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tab-row-lbl",
-    title: "Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways."
-  }, "Sites -"), extTabs.map(renderBtn)));
+  }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`))));
 }
 function TabPanel({
   tab,
@@ -19133,7 +19133,7 @@ function WeeklySellSetupCard({
     title: `CURRENT is this week IN PROGRESS measured against COMPLETED weeks' full Mon–Fri extremes. In the displayed ${withDays.length} weeks, the weekly LOW had already printed by ${DAY_NAMES[dow]} in ${lowsInBy.toFixed(0)}% of them (the HIGH in ${highsInBy.toFixed(0)}%). Late in the week + near the range low = historically little room left below — the setup you buy or sell puts into.`
   }, /*#__PURE__*/React.createElement("em", null, DAY_NAMES[dow].toUpperCase(), dow === 4 ? " · WEEK NEARLY COMPLETE" : ""), /*#__PURE__*/React.createElement("span", null, "weekly LOW already in by now: ", /*#__PURE__*/React.createElement("b", {
     className: `num ${lowsInBy >= 70 ? "cu" : ""}`
-  }, lowsInBy.toFixed(0), "%"), " of weeks · weekly HIGH already in: ", /*#__PURE__*/React.createElement("b", {
+  }, lowsInBy.toFixed(0), "%"), " of weeks", "  ·  ", "weekly HIGH already in: ", /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, highsInBy.toFixed(0), "%")))), /*#__PURE__*/React.createElement("div", {
     className: "wos-sides"
