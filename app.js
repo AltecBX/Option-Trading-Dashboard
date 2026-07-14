@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.56";
+const APP_VERSION = "3.57";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -333,6 +333,7 @@ function App() {
   const [dataVersion, setDataVersion] = useState(0);
   const [navOpen, setNavOpen] = useState(false); // mobile sidebar drawer
   const [palOpen, setPalOpen] = useState(false); // ⌘K command palette
+  const [tabSheetOpen, setTabSheetOpen] = useState(false); // mobile sections sheet
   const [helpOpen, setHelpOpen] = useState(false); // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -9787,6 +9788,14 @@ function App() {
     "aria-label": "Quick actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "mbb-btn",
+    onClick: () => setTabSheetOpen(true),
+    "aria-label": "All sections"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mbb-ico"
+  }, "▦"), /*#__PURE__*/React.createElement("span", {
+    className: "mbb-lbl"
+  }, "Tabs")), /*#__PURE__*/React.createElement("button", {
+    className: "mbb-btn",
     onClick: () => setPalOpen(true),
     "aria-label": "Search — tickers, tabs and actions"
   }, /*#__PURE__*/React.createElement("span", {
@@ -9815,7 +9824,41 @@ function App() {
     className: "mbb-ico"
   }, "↑"), /*#__PURE__*/React.createElement("span", {
     className: "mbb-lbl"
-  }, "Top"))));
+  }, "Top"))), tabSheetOpen && /*#__PURE__*/React.createElement("div", {
+    className: "tabsheet-overlay",
+    onClick: () => setTabSheetOpen(false)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tabsheet",
+    role: "dialog",
+    "aria-label": "All sections",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tabsheet-head"
+  }, /*#__PURE__*/React.createElement("span", null, "Sections"), /*#__PURE__*/React.createElement("button", {
+    className: "tabsheet-x",
+    "aria-label": "Close",
+    onClick: () => setTabSheetOpen(false)
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    className: "tabsheet-grid"
+  }, orderedTabs.filter(t => !["finviz", "tview", "whales"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    className: `tabsheet-btn ${activeTab === t.id ? "on" : ""}`,
+    onClick: () => {
+      changeTab(t.id);
+      setTabSheetOpen(false);
+    }
+  }, t.label))), /*#__PURE__*/React.createElement("div", {
+    className: "tabsheet-sites"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "tabsheet-siteslbl"
+  }, "Sites -"), orderedTabs.filter(t => ["finviz", "tview", "whales"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    className: `tabsheet-btn site ${activeTab === t.id ? "on" : ""}`,
+    onClick: () => {
+      changeTab(t.id);
+      setTabSheetOpen(false);
+    }
+  }, t.label))))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)));
 })();

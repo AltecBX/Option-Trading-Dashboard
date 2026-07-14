@@ -5330,7 +5330,7 @@ function RangeEdgeScanCard({
       fontSize: 12
     }
   }, filtered.length, " of ", rows.length)), filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "scan-table-wrap"
+    className: "rgs-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "rgs-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Ticker"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "This wk"), /*#__PURE__*/React.createElement("th", {
@@ -5349,32 +5349,45 @@ function RangeEdgeScanCard({
     onClick: () => open(r.ticker),
     title: `Open ${r.ticker} on the Analyze tab — the selling-setup panel shows live premiums, greeks and breach rates.`
   }, /*#__PURE__*/React.createElement("td", {
-    className: "rgs-tk"
+    className: "rgs-tk",
+    "data-label": ""
   }, r.ticker, r.outside && /*#__PURE__*/React.createElement("span", {
     className: "rgs-out"
   }, r.outside === "below" ? "▼ out" : "▲ out")), /*#__PURE__*/React.createElement("td", {
-    className: "num"
+    className: "num",
+    "data-label": "Last"
   }, fmt$(r.last, r.last >= 1000 ? 0 : 2)), /*#__PURE__*/React.createElement("td", {
-    className: `num ${r.curr_return >= 0 ? "cu" : "cd"}`
-  }, r.curr_return >= 0 ? "+" : "", r.curr_return.toFixed(1), "%"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
+    className: `num ${r.curr_return >= 0 ? "cu" : "cd"}`,
+    "data-label": "This wk"
+  }, r.curr_return >= 0 ? "+" : "", r.curr_return.toFixed(1), "%"), /*#__PURE__*/React.createElement("td", {
+    className: "rgs-barcell",
+    "data-label": ""
+  }, /*#__PURE__*/React.createElement("div", {
     className: "rgs-bar"
   }, /*#__PURE__*/React.createElement("i", {
     style: {
       left: `${r.pos}%`
     }
   }))), /*#__PURE__*/React.createElement("td", {
-    className: "num rgs-big"
+    className: "num rgs-big",
+    "data-label": "Bot prox"
   }, r.bottom_prox.toFixed(0), "%"), /*#__PURE__*/React.createElement("td", {
-    className: "num cd"
+    className: "num cd",
+    "data-label": "Worst low"
   }, r.worst_low.toFixed(1), "% ", /*#__PURE__*/React.createElement("span", {
     className: "rgs-px"
   }, fmt$(r.p_low, r.p_low >= 1000 ? 0 : 2))), /*#__PURE__*/React.createElement("td", {
-    className: "num cu"
+    className: "num cu",
+    "data-label": "Best high"
   }, "+", r.best_high.toFixed(1), "% ", /*#__PURE__*/React.createElement("span", {
     className: "rgs-px"
   }, fmt$(r.p_high, r.p_high >= 1000 ? 0 : 2))), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, Math.round(r.lows_in_by), "%"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: "num",
+    "data-label": "LOW in by"
+  }, Math.round(r.lows_in_by), "%"), /*#__PURE__*/React.createElement("td", {
+    className: "rgs-sidecell",
+    "data-label": "Side"
+  }, /*#__PURE__*/React.createElement("span", {
     className: `rgs-side ${r.side}`
   }, r.side === "put" ? "SELL PUT" : "SELL CALL"))))))), rows.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
@@ -6188,6 +6201,21 @@ function TabBar({
   const list = tabs && tabs.length ? tabs : TABS;
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
+  // Mobile (v3.57): the bar is a horizontal scroll strip — keep the active
+  // tab visible by centering it whenever it changes, otherwise the current
+  // section can sit off-screen and the bar reads as random buttons.
+  const barRef = useRef(null);
+  useEffect(() => {
+    try {
+      if (!window.matchMedia("(max-width: 900px)").matches) return;
+      const btn = barRef.current && barRef.current.querySelector('[aria-selected="true"]');
+      if (btn && btn.scrollIntoView) btn.scrollIntoView({
+        block: "nearest",
+        inline: "center",
+        behavior: "smooth"
+      });
+    } catch (e) {/* non-fatal */}
+  }, [active]);
   const drop = targetId => {
     if (!onReorder || !dragId || dragId === targetId) {
       setDragId(null);
@@ -6248,6 +6276,7 @@ function TabBar({
     title: `Show the ${t.label} section. Drag to reorder.`
   }, t.label);
   return /*#__PURE__*/React.createElement("div", {
+    ref: barRef,
     className: "tab-bar tab-bar-2row",
     role: "tablist",
     "aria-label": "Dashboard sections",
