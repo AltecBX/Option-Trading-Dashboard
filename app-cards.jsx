@@ -3957,19 +3957,25 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder 
          title="Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads.">
       <div className="tab-row">
         {appTabs.map(renderBtn)}
-        {hasEarn && (
-          <div className={`tab-earn ${soon ? "soon" : ""}`}
-               title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
-            <span className="tab-earn-lbl">{ticker} earnings</span>
-            <b>{fmtSwingDate(earnDate)}</b>
-            {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
-          </div>
-        )}
       </div>
-      {extTabs.length > 0 && (
+      {(extTabs.length > 0 || hasEarn) && (
         <div className="tab-row tab-row-ext">
-          <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways.">Sites -</span>
-          {extTabs.map(renderBtn)}
+          {extTabs.length > 0 && (
+            <React.Fragment>
+              <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways.">Sites -</span>
+              {extTabs.map(renderBtn)}
+            </React.Fragment>
+          )}
+          {/* Earnings chip rides the Sites row (right-aligned) instead of
+              claiming its own line — reclaims the empty space above it. */}
+          {hasEarn && (
+            <div className={`tab-earn ${soon ? "soon" : ""}`}
+                 title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
+              <span className="tab-earn-lbl">{ticker} earnings</span>
+              <b>{fmtSwingDate(earnDate)}</b>
+              {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -14131,7 +14137,7 @@ function WeeklySellSetupCard({ rows, weeks, ticker, currentPrice, baselinePrice,
           <div className="wos-dayctx"
                title={`CURRENT is this week IN PROGRESS measured against COMPLETED weeks' full Mon–Fri extremes. In the displayed ${withDays.length} weeks, the weekly LOW had already printed by ${DAY_NAMES[dow]} in ${lowsInBy.toFixed(0)}% of them (the HIGH in ${highsInBy.toFixed(0)}%). Late in the week + near the range low = historically little room left below — the setup you buy or sell puts into.`}>
             <em>{DAY_NAMES[dow].toUpperCase()}{dow === 4 ? " · WEEK NEARLY COMPLETE" : ""}</em>
-            <span>weekly LOW already in by now: <b className={`num ${lowsInBy >= 70 ? "cu" : ""}`}>{lowsInBy.toFixed(0)}%</b> of weeks · weekly HIGH already in: <b className="num">{highsInBy.toFixed(0)}%</b></span>
+            <span>weekly LOW already in by now: <b className={`num ${lowsInBy >= 70 ? "cu" : ""}`}>{lowsInBy.toFixed(0)}%</b> of weeks{"  ·  "}weekly HIGH already in: <b className="num">{highsInBy.toFixed(0)}%</b></span>
           </div>
         )}
       </div>
