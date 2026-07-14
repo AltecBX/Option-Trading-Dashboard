@@ -2084,6 +2084,19 @@ def load_option_chain(
                         spot = chain.get("underlying", {}).get("last") or 0
                         days_to_exp = max((exp - date.today()).days, 1)
                         T = days_to_exp / 365.0
+                        def _greek(v, lo, hi):
+                            # Schwab marks greeks it can't compute as -999
+                            # (frequent outside regular hours) and sometimes
+                            # NaN. Anything outside the plausible range is
+                            # "missing" so it gets a BS backfill instead of
+                            # reaching the client as a bogus live value.
+                            try:
+                                f = float(v)
+                            except (TypeError, ValueError):
+                                return None
+                            if f != f or f < lo or f > hi:
+                                return None
+                            return f
                         def _normalize_rows(rows, side):
                             out = []
                             for r in rows:
@@ -2092,18 +2105,22 @@ def load_option_chain(
                                 ask = float(r.get("ask") or 0)
                                 last = float(r.get("last") or 0)
                                 iv = float(r.get("iv") or 0)
-                                delta = r.get("delta")
-                                theta = r.get("theta")
-                                gamma = r.get("gamma")
-                                vega = r.get("vega")
-                                # Backfill greeks from BS if Schwab returned None
-                                if delta is None or delta != delta:
+                                delta = _greek(r.get("delta"), -1.0, 1.0)
+                                theta = _greek(r.get("theta"), -900.0, 900.0)
+                                gamma = _greek(r.get("gamma"), -900.0, 900.0)
+                                vega = _greek(r.get("vega"), -900.0, 900.0)
+                                # est flags tell the client which greeks are
+                                # Schwab's own vs our BS backfill, so the UI
+                                # can label estimates honestly.
+                                delta_est = delta is None
+                                theta_est = theta is None
+                                if delta is None:
                                     delta = _bs_delta(spot, strike, T, iv, side)
-                                if theta is None or theta != theta:
+                                if theta is None:
                                     theta = _bs_theta(spot, strike, T, iv, side)
-                                if gamma is None or gamma != gamma:
+                                if gamma is None:
                                     gamma = _bs_gamma(spot, strike, T, iv)
-                                if vega is None or vega != vega:
+                                if vega is None:
                                     vega = _bs_vega(spot, strike, T, iv)
                                 mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
                                 out.append({
@@ -2118,6 +2135,8 @@ def load_option_chain(
                                     "theta": theta,
                                     "gamma": gamma,
                                     "vega": vega,
+                                    "delta_est": delta_est,
+                                    "theta_est": theta_est,
                                 })
                             return sorted(out, key=lambda x: x["strike"])
                         _LAST_SOURCE["source"] = "schwab"
@@ -2196,6 +2215,9 @@ def load_option_chain(
                 "theta": _bs_theta(spot, strike, T, iv, side),
                 "gamma": _bs_gamma(spot, strike, T, iv),
                 "vega": _bs_vega(spot, strike, T, iv),
+                # yfinance chains carry no greeks — everything above is BS.
+                "delta_est": True,
+                "theta_est": True,
             })
         return sorted(out, key=lambda x: x["strike"])
 

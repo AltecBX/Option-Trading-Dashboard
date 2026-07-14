@@ -10205,11 +10205,13 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 .wos-prox-box span { font-size: 13px; color: var(--fg); font-weight: 600; }
 .wos-posline { border-top: none; padding-top: 0; }
 
-/* v3.51: day-of-week context under the range — how much week is left. */
-.wos-dayctx { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap;
+/* v3.51: day-of-week context under the range — how much week is left.
+   v3.52: plain left-justified text flow (was flex — the 16px flex gap doubled
+   as a row gap when the line wrapped, wasting vertical space). */
+.wos-dayctx { display: block; text-align: left; line-height: 1.5;
   font-size: 12px; color: var(--fg-2); cursor: help;
-  border-top: 1px dashed var(--line); padding-top: 7px; }
+  border-top: 1px dashed var(--line); padding-top: 6px; }
 .wos-dayctx em { font-style: normal; font-family: var(--font-mono); font-size: 9px;
-  font-weight: 800; letter-spacing: 0.12em; color: var(--warn); }
+  font-weight: 800; letter-spacing: 0.12em; color: var(--warn); margin-right: 8px; }
 .wos-dayctx b { font-family: var(--font-mono); font-size: 13px; }
 .wos-dayctx b.cu { color: var(--up); }
