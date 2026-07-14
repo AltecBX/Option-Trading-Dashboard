@@ -18850,6 +18850,34 @@ function WeeklySellSetupCard({
   const dHigh$ = pHigh - currentPrice,
     dHighPts = bestHigh - currReturn;
 
+  // Day-of-week context (v3.51): CURRENT is a week-in-progress compared
+  // against COMPLETED weeks' extremes — so how much week is left matters.
+  // rows[].low_day / high_day say which weekday each week's extreme printed;
+  // by mid-week most lows are usually already in, which is exactly why
+  // "near the range low on Wed/Thu" historically has little room left below.
+  const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const dow = (() => {
+    try {
+      const d = new Date().toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short"
+      });
+      const i = {
+        Mon: 0,
+        Tue: 1,
+        Wed: 2,
+        Thu: 3,
+        Fri: 4
+      }[d.slice(0, 3)];
+      return i == null ? 4 : i; // weekend → treat week as complete
+    } catch (e) {
+      return 4;
+    }
+  })();
+  const withDays = rows.filter(r => r.low_day != null && r.high_day != null);
+  const lowsInBy = withDays.length ? withDays.filter(r => r.low_day <= dow).length / withDays.length * 100 : null;
+  const highsInBy = withDays.length ? withDays.filter(r => r.high_day <= dow).length / withDays.length * 100 : null;
+
   // Days to the selected weekly expiration (calendar), 4pm ET close.
   let dte = null;
   if (expiration) {
@@ -19084,7 +19112,14 @@ function WeeklySellSetupCard({
     className: "num cd"
   }, f$(Math.abs(dLow$))), " · ", Math.abs(dLowPts).toFixed(1), " pts above the worst low \xA0·\xA0 ", /*#__PURE__*/React.createElement("b", {
     className: "num cu"
-  }, f$(Math.abs(dHigh$))), " · ", Math.abs(dHighPts).toFixed(1), " pts below the best high"))), /*#__PURE__*/React.createElement("div", {
+  }, f$(Math.abs(dHigh$))), " · ", Math.abs(dHighPts).toFixed(1), " pts below the best high")), lowsInBy != null && /*#__PURE__*/React.createElement("div", {
+    className: "wos-dayctx",
+    title: `CURRENT is this week IN PROGRESS measured against COMPLETED weeks' full Mon–Fri extremes. In the displayed ${withDays.length} weeks, the weekly LOW had already printed by ${DAY_NAMES[dow]} in ${lowsInBy.toFixed(0)}% of them (the HIGH in ${highsInBy.toFixed(0)}%). Late in the week + near the range low = historically little room left below — the setup you buy or sell puts into.`
+  }, /*#__PURE__*/React.createElement("em", null, DAY_NAMES[dow].toUpperCase(), dow === 4 ? " · WEEK NEARLY COMPLETE" : ""), /*#__PURE__*/React.createElement("span", null, "weekly LOW already in by now: ", /*#__PURE__*/React.createElement("b", {
+    className: `num ${lowsInBy >= 70 ? "cu" : ""}`
+  }, lowsInBy.toFixed(0), "%"), " of weeks"), /*#__PURE__*/React.createElement("span", null, "weekly HIGH already in: ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, highsInBy.toFixed(0), "%")))), /*#__PURE__*/React.createElement("div", {
     className: "wos-sides"
   }, /*#__PURE__*/React.createElement(SideCol, {
     label: "SELL PUT",
