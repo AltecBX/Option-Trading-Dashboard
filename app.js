@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.47";
+const APP_VERSION = "3.48";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -5566,6 +5566,19 @@ function App() {
     currentReturn: currReturn,
     colors: chartColors,
     earnings: liveEarnings
+  })), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Weekly option selling setup"
+  }, /*#__PURE__*/React.createElement(WeeklySellSetupCard, {
+    rows: rows,
+    weeks: weeks,
+    ticker: ticker,
+    currentPrice: currentPrice,
+    baselinePrice: baselinePrice,
+    currReturn: currReturn,
+    putC: putAtSug,
+    callC: callAtSug,
+    emBand: emBand && emBand.symbol === ticker ? emBand : null,
+    expiration: window.__LIVE && window.__LIVE.expiration || null
   })), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {

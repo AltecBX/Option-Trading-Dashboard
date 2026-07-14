@@ -10112,3 +10112,59 @@ body.jt-embed .tab-bar-2row { display: none !important; }
 body.jt-embed .mko-regime, body.jt-embed .mko-grid { display: none !important; }
 body.jt-embed .newsticker { display: none !important; }
 body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !important; }
+
+/* ── Weekly Option Selling Setup (v3.48) ─────────────────────────────────── */
+.wos-card { display: flex; flex-direction: column; gap: 10px; }
+.wos-bias { font-family: var(--font-mono); font-size: 11px; font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase; border-radius: 999px;
+  padding: 5px 13px; cursor: help; align-self: flex-start; }
+.wos-bias.up  { color: var(--up); background: color-mix(in oklch, var(--up) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--up) 40%, transparent); }
+.wos-bias.down{ color: var(--down); background: color-mix(in oklch, var(--down) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--down) 40%, transparent); }
+.wos-bias.mut { color: var(--fg-2); background: var(--bg-3); border: 1px solid var(--line); }
+.wos-range { display: flex; flex-direction: column; gap: 7px; }
+.wos-track { position: relative; height: 10px; border-radius: 999px;
+  background: linear-gradient(90deg,
+    color-mix(in oklch, var(--down) 55%, transparent),
+    color-mix(in oklch, var(--warn) 30%, transparent) 45%,
+    color-mix(in oklch, var(--up) 55%, transparent));
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.35); }
+.wos-marker { position: absolute; top: 50%; transform: translate(-50%,-50%);
+  width: 16px; height: 16px; border-radius: 999px; background: var(--fg);
+  border: 3px solid var(--bg-2); box-shadow: 0 0 10px rgba(0,0,0,.5), 0 0 12px color-mix(in oklch, var(--accent) 60%, transparent); }
+.wos-ends { display: flex; justify-content: space-between; gap: 8px; }
+.wos-end { display: flex; flex-direction: column; gap: 1px; cursor: help; }
+.wos-end.now { text-align: center; align-items: center; }
+.wos-end.hi { text-align: right; align-items: flex-end; }
+.wos-end em { font-style: normal; font-family: var(--font-mono); font-size: 8.5px;
+  letter-spacing: 0.1em; color: var(--fg-3); }
+.wos-end b { font-family: var(--font-mono); font-size: 15px; }
+.wos-end.lo b { color: var(--down); } .wos-end.hi b { color: var(--up); }
+.wos-end span { font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); }
+.wos-posline { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--fg-2);
+  border-top: 1px dashed var(--line); padding-top: 8px; }
+.wos-posline b { font-family: var(--font-mono); }
+.wos-prox { cursor: help; }
+.wos-posline .cd { color: var(--down); } .wos-posline .cu { color: var(--up); }
+.wos-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.wos-side { background: var(--bg-3); border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; }
+.wos-side-h { display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 800; letter-spacing: 0.1em;
+  margin-bottom: 6px; }
+.wos-strike { color: var(--fg); font-size: 14px; }
+.wos-r { display: flex; justify-content: space-between; align-items: baseline;
+  padding: 3.5px 0; border-bottom: 1px dashed var(--line); font-size: 12px; cursor: help; }
+.wos-r:last-child { border-bottom: none; }
+.wos-r em { font-style: normal; color: var(--fg-3); }
+.wos-r b { font-weight: 600; }
+.wos-r.hot em { color: var(--fg-2); font-weight: 600; }
+.wos-r.hot b { font-size: 13px; }
+.wos-est { font-style: normal; font-family: var(--font-mono); font-size: 8px;
+  color: var(--fg-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+  vertical-align: middle; margin-left: 2px; }
+.wos-na { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); cursor: help; }
+@media (max-width: 760px) {
+  .wos-sides { grid-template-columns: 1fr; }
+  .wos-posline { gap: 10px; }
+}
