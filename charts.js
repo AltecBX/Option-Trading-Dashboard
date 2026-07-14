@@ -1569,6 +1569,10 @@ function ReturnsChart({
   }, [data, medianHigh, medianLow, medianClose, currentReturn]);
   let yMin = Math.min(...allY),
     yMax = Math.max(...allY);
+  // Exact extremes of the displayed weeks (before padding) — labeled on the
+  // axis so the user reads the true best high / worst low at a glance.
+  const dataHi = yMax,
+    dataLo = yMin;
   const padY = Math.max((yMax - yMin) * 0.12, 0.5);
   yMin -= padY;
   yMax += padY;
@@ -1600,7 +1604,11 @@ function ReturnsChart({
   }, /*#__PURE__*/React.createElement("svg", {
     viewBox: `0 0 ${W} ${H}`,
     className: "chart-svg"
-  }, ticks.map((t, i) => /*#__PURE__*/React.createElement("g", {
+  }, ticks.map((t, i) =>
+  // Skip generic ticks that would collide with the exact extreme
+  // labels below (v3.47) — the true top/bottom of the data owns
+  // the axis ends now.
+  Math.abs(yScale(t) - yScale(dataHi)) < 12 || Math.abs(yScale(t) - yScale(dataLo)) < 12 ? null : /*#__PURE__*/React.createElement("g", {
     key: i
   }, /*#__PURE__*/React.createElement("line", {
     x1: padL,
@@ -1613,7 +1621,43 @@ function ReturnsChart({
     y: yScale(t) + 4,
     className: "axis-text",
     textAnchor: "end"
-  }, t.toFixed(0), "%"))), /*#__PURE__*/React.createElement("line", {
+  }, t.toFixed(0), "%"))), /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+    x1: padL,
+    x2: W - padR,
+    y1: yScale(dataHi),
+    y2: yScale(dataHi),
+    stroke: colors.up,
+    strokeDasharray: "2 5",
+    strokeWidth: "1",
+    opacity: "0.5"
+  }), /*#__PURE__*/React.createElement("text", {
+    x: padL - 6,
+    y: yScale(dataHi) + 4,
+    textAnchor: "end",
+    className: "axis-text",
+    style: {
+      fill: colors.up,
+      fontWeight: 700
+    }
+  }, dataHi >= 0 ? "+" : "", dataHi.toFixed(1), "%"), /*#__PURE__*/React.createElement("line", {
+    x1: padL,
+    x2: W - padR,
+    y1: yScale(dataLo),
+    y2: yScale(dataLo),
+    stroke: colors.down,
+    strokeDasharray: "2 5",
+    strokeWidth: "1",
+    opacity: "0.5"
+  }), /*#__PURE__*/React.createElement("text", {
+    x: padL - 6,
+    y: yScale(dataLo) + 4,
+    textAnchor: "end",
+    className: "axis-text",
+    style: {
+      fill: colors.down,
+      fontWeight: 700
+    }
+  }, dataLo.toFixed(1), "%")), /*#__PURE__*/React.createElement("line", {
     x1: padL,
     x2: W - padR,
     y1: yScale(0),

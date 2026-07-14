@@ -619,14 +619,33 @@ def round_strike(px: float) -> float:
 
 
 def load_weekly_data(symbol: str, num_weeks: int, friday_baseline: bool) -> pd.DataFrame:
-    stock = yf.Ticker(symbol)
-    end = datetime.today()
-    start = end - timedelta(days=num_weeks * 10 + 14)
-    df = stock.history(start=start, end=end, auto_adjust=False)
-    if df.empty:
-        return pd.DataFrame()
-    df = df[["Open", "High", "Low", "Close"]].copy()
-    df.index = pd.to_datetime(df.index).tz_localize(None)
+    # Schwab first (v3.47): cached daily bars with no third-party rate limits
+    # and ~10 years of depth, so the weekly chart extends to 30/52 weeks
+    # reliably. yfinance stays as the fallback — its throttling was what made
+    # the chart appear capped around ~16 weeks.
+    df = None
+    try:
+        c = _schwab() if _SCHWAB_AVAILABLE else None
+        bars = c.get_price_history(symbol, days=num_weeks * 7 + 30) if c is not None else None
+        if bars and len(bars) >= 20:
+            df = pd.DataFrame([
+                {"dt": (b.get("date") or "")[:10], "Open": b.get("open"),
+                 "High": b.get("high"), "Low": b.get("low"), "Close": b.get("close")}
+                for b in bars if b.get("close") is not None
+            ])
+            df["dt"] = pd.to_datetime(df["dt"])
+            df = df.set_index("dt")[["Open", "High", "Low", "Close"]].astype(float)
+    except Exception:
+        df = None
+    if df is None or df.empty:
+        stock = yf.Ticker(symbol)
+        end = datetime.today()
+        start = end - timedelta(days=num_weeks * 10 + 14)
+        df = stock.history(start=start, end=end, auto_adjust=False)
+        if df.empty:
+            return pd.DataFrame()
+        df = df[["Open", "High", "Low", "Close"]].copy()
+        df.index = pd.to_datetime(df.index).tz_localize(None)
     df["day"] = df.index.dayofweek
     df["week_start"] = df.index - pd.to_timedelta(df.index.dayofweek, unit="D")
     # Prior close for day-over-day excursion math. For each row this is the

@@ -5,7 +5,7 @@ const {
   useRef,
   useMemo
 } = React;
-const NEXT_VERSION = "4.0.4-next";
+const NEXT_VERSION = "4.0.5-next";
 const CFG = typeof window !== "undefined" && window.__APP_CONFIG || {};
 function api(path) {
   const headers = {};
@@ -377,10 +377,7 @@ function TabBar({
     className: `tab ${active === id ? "on" : ""}`,
     onClick: () => onChange(id),
     title: id === "today" ? "NEW, additive — the morning cockpit. Every other tab is exactly yours." : `${label} — same tab as the classic site`
-  }, label)), earn && React.createElement("span", {
-    className: "earn",
-    title: "Next earnings for the active ticker"
-  }, earn)), React.createElement("div", {
+  }, label))), React.createElement("div", {
     className: "trow sites"
   }, React.createElement("span", {
     className: "slbl"
@@ -388,7 +385,10 @@ function TabBar({
     key: id,
     className: `tab site ${cls} ${active === id ? "on" : ""}`,
     onClick: () => onChange(id)
-  }, label))));
+  }, label)), earn && React.createElement("span", {
+    className: "earn",
+    title: "Next earnings for the active ticker"
+  }, earn)));
 }
 function Card({
   title,
