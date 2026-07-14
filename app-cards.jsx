@@ -3461,7 +3461,7 @@ function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
       )}
 
       {filtered.length > 0 && (
-        <div className="scan-table-wrap">
+        <div className="rgs-wrap">
           <table className="rgs-table">
             <thead><tr>
               <th>Ticker</th><th>Last</th><th>This wk</th>
@@ -3476,15 +3476,15 @@ function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
               {filtered.map(r => (
                 <tr key={r.ticker} className="row" onClick={() => open(r.ticker)}
                     title={`Open ${r.ticker} on the Analyze tab — the selling-setup panel shows live premiums, greeks and breach rates.`}>
-                  <td className="rgs-tk">{r.ticker}{r.outside && <span className="rgs-out">{r.outside === "below" ? "▼ out" : "▲ out"}</span>}</td>
-                  <td className="num">{fmt$(r.last, r.last >= 1000 ? 0 : 2)}</td>
-                  <td className={`num ${r.curr_return >= 0 ? "cu" : "cd"}`}>{r.curr_return >= 0 ? "+" : ""}{r.curr_return.toFixed(1)}%</td>
-                  <td><div className="rgs-bar"><i style={{ left: `${r.pos}%` }}></i></div></td>
-                  <td className="num rgs-big">{r.bottom_prox.toFixed(0)}%</td>
-                  <td className="num cd">{r.worst_low.toFixed(1)}% <span className="rgs-px">{fmt$(r.p_low, r.p_low >= 1000 ? 0 : 2)}</span></td>
-                  <td className="num cu">+{r.best_high.toFixed(1)}% <span className="rgs-px">{fmt$(r.p_high, r.p_high >= 1000 ? 0 : 2)}</span></td>
-                  <td className="num">{Math.round(r.lows_in_by)}%</td>
-                  <td><span className={`rgs-side ${r.side}`}>{r.side === "put" ? "SELL PUT" : "SELL CALL"}</span></td>
+                  <td className="rgs-tk" data-label="">{r.ticker}{r.outside && <span className="rgs-out">{r.outside === "below" ? "▼ out" : "▲ out"}</span>}</td>
+                  <td className="num" data-label="Last">{fmt$(r.last, r.last >= 1000 ? 0 : 2)}</td>
+                  <td className={`num ${r.curr_return >= 0 ? "cu" : "cd"}`} data-label="This wk">{r.curr_return >= 0 ? "+" : ""}{r.curr_return.toFixed(1)}%</td>
+                  <td className="rgs-barcell" data-label=""><div className="rgs-bar"><i style={{ left: `${r.pos}%` }}></i></div></td>
+                  <td className="num rgs-big" data-label="Bot prox">{r.bottom_prox.toFixed(0)}%</td>
+                  <td className="num cd" data-label="Worst low">{r.worst_low.toFixed(1)}% <span className="rgs-px">{fmt$(r.p_low, r.p_low >= 1000 ? 0 : 2)}</span></td>
+                  <td className="num cu" data-label="Best high">+{r.best_high.toFixed(1)}% <span className="rgs-px">{fmt$(r.p_high, r.p_high >= 1000 ? 0 : 2)}</span></td>
+                  <td className="num" data-label="LOW in by">{Math.round(r.lows_in_by)}%</td>
+                  <td className="rgs-sidecell" data-label="Side"><span className={`rgs-side ${r.side}`}>{r.side === "put" ? "SELL PUT" : "SELL CALL"}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -4085,6 +4085,17 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder 
   const list = (tabs && tabs.length) ? tabs : TABS;
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
+  // Mobile (v3.57): the bar is a horizontal scroll strip — keep the active
+  // tab visible by centering it whenever it changes, otherwise the current
+  // section can sit off-screen and the bar reads as random buttons.
+  const barRef = useRef(null);
+  useEffect(() => {
+    try {
+      if (!window.matchMedia("(max-width: 900px)").matches) return;
+      const btn = barRef.current && barRef.current.querySelector('[aria-selected="true"]');
+      if (btn && btn.scrollIntoView) btn.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    } catch (e) { /* non-fatal */ }
+  }, [active]);
   const drop = (targetId) => {
     if (!onReorder || !dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
     const ids = list.map(t => t.id);
@@ -4115,7 +4126,7 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder 
     </button>
   );
   return (
-    <div className="tab-bar tab-bar-2row" role="tablist" aria-label="Dashboard sections"
+    <div ref={barRef} className="tab-bar tab-bar-2row" role="tablist" aria-label="Dashboard sections"
          title="Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads.">
       <div className="tab-row">
         {appTabs.map(renderBtn)}
