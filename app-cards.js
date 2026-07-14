@@ -18720,6 +18720,7 @@ const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
   MarketBreadthCard: _memo(MarketBreadthCard),
+  WeeklySellSetupCard: _memo(WeeklySellSetupCard),
   BacktestCard: _memo(BacktestCard),
   PatternDiscoveryCard: _memo(PatternDiscoveryCard),
   PremiumJuiceCard: _memo(PremiumJuiceCard),
@@ -18785,4 +18786,299 @@ Object.assign(window, {
   MarketOverview: _memo(MarketOverview),
   MarketPosture: _memo(MarketPosture)
 });
+
+// ── Weekly Option Selling Setup (v3.48) ─────────────────────────────────────
+// Compact glance panel under Weekly Returns History: where does THIS week sit
+// between the selected period's worst weekly low and best weekly high, and
+// what does the currently selected weekly put/call look like from here.
+// Data rules (per spec): premiums/IV come from the live chain; delta, theta
+// and P(OTM) are Black-Scholes DERIVED FROM THE CHAIN'S OWN IV and labeled
+// est.; breach rates come from the displayed weekly history; expected move
+// comes from the EM engine. Anything missing renders "Data unavailable" —
+// nothing is manufactured.
+function _wosCdf(x) {
+  // Abramowitz-Stegun normal CDF (no Math.erf in older engines)
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp(-x * x / 2);
+  let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return x > 0 ? 1 - p : p;
+}
+function _wosGreeks(spot, strike, ivPct, dteDays, side) {
+  const iv = ivPct > 3 ? ivPct / 100 : ivPct; // chain iv may be 0.42 or 42
+  if (!spot || !strike || !iv || iv <= 0 || dteDays == null) return null;
+  const T = Math.max(0.5, dteDays) / 365,
+    r = 0.04;
+  const d1 = (Math.log(spot / strike) + (r + iv * iv / 2) * T) / (iv * Math.sqrt(T));
+  const d2 = d1 - iv * Math.sqrt(T);
+  const delta = side === "put" ? _wosCdf(d1) - 1 : _wosCdf(d1);
+  const pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
+  const theta = (-(spot * pdf * iv) / (2 * Math.sqrt(T)) + (side === "put" ? r * strike * Math.exp(-r * T) * _wosCdf(-d2) : -r * strike * Math.exp(-r * T) * _wosCdf(d2))) / 365;
+  return {
+    delta,
+    theta,
+    probOTM: side === "put" ? (1 - Math.abs(delta)) * 100 : (1 - delta) * 100
+  };
+}
+function WeeklySellSetupCard({
+  rows,
+  weeks,
+  ticker,
+  currentPrice,
+  baselinePrice,
+  currReturn,
+  putC,
+  callC,
+  emBand,
+  expiration
+}) {
+  if (!rows || rows.length < 4 || !currentPrice || !baselinePrice) {
+    return null;
+  }
+  const lows = rows.map(r => r.low_return),
+    highs = rows.map(r => r.high_return);
+  const worstLow = Math.min(...lows),
+    bestHigh = Math.max(...highs);
+  const pLow = baselinePrice * (1 + worstLow / 100);
+  const pHigh = baselinePrice * (1 + bestHigh / 100);
+  const span = Math.max(0.01, bestHigh - worstLow);
+  const rawPos = (currReturn - worstLow) / span * 100;
+  const pos = Math.max(0, Math.min(100, rawPos));
+  const outside = rawPos < 0 ? "below" : rawPos > 100 ? "above" : null;
+  const bottomProx = 100 - pos;
+  const dLow$ = currentPrice - pLow,
+    dLowPts = currReturn - worstLow;
+  const dHigh$ = pHigh - currentPrice,
+    dHighPts = bestHigh - currReturn;
+
+  // Days to the selected weekly expiration (calendar), 4pm ET close.
+  let dte = null;
+  if (expiration) {
+    const ms = new Date(expiration + "T16:00:00-04:00") - new Date();
+    dte = Math.max(0, Math.round(ms / 86400000 * 10) / 10);
+  }
+
+  // Expected move to the EM card's expiry (dollar band around spot).
+  const emUp = emBand && emBand.high != null ? emBand.high - currentPrice : null;
+  const emDn = emBand && emBand.low != null ? currentPrice - emBand.low : null;
+  const emPct = emUp != null && emDn != null ? (emUp + emDn) / 2 / currentPrice * 100 : null;
+  const chainOK = c => c && c.strike != null && ((c.bid || 0) > 0 || (c.ask || 0) > 0);
+  const midOf = c => c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : c.bid || c.ask || null;
+  function sideStats(c, side) {
+    if (!chainOK(c)) return {
+      ok: false
+    };
+    const mid = midOf(c);
+    const breakeven = side === "put" ? c.strike - mid : c.strike + mid;
+    const beDistPct = side === "put" ? (currentPrice - breakeven) / currentPrice * 100 : (breakeven - currentPrice) / currentPrice * 100;
+    const g = _wosGreeks(currentPrice, c.strike, c.iv, dte != null ? dte : 5, side);
+    const strikeEq = (c.strike / baselinePrice - 1) * 100;
+    const breachN = side === "put" ? rows.filter(r => r.low_return <= strikeEq).length : rows.filter(r => r.high_return >= strikeEq).length;
+    const rbp = side === "put" ? mid / (c.strike - mid) * 100 // vs cash-secured collateral
+    : mid / currentPrice * 100; // vs 100 shares held
+    return {
+      ok: true,
+      strike: c.strike,
+      bid: c.bid || null,
+      mid,
+      breakeven,
+      beDistPct,
+      delta: g && g.delta,
+      theta: g && g.theta,
+      probOTM: g && g.probOTM,
+      breachN,
+      breachPct: breachN / rows.length * 100,
+      rbp,
+      iv: c.iv
+    };
+  }
+  const P = sideStats(putC, "put");
+  const C = sideStats(callC, "call");
+
+  // ── Bias: location + breach + P(OTM) + EM cushion, scaled by time left.
+  // Components missing from live data are excluded and weights renormalized.
+  function fit(sideS, locScore) {
+    const parts = [[0.35, locScore]];
+    if (sideS.ok) {
+      parts.push([0.20, 100 - sideS.breachPct]);
+      if (sideS.probOTM != null) parts.push([0.20, sideS.probOTM]);
+      if (emPct != null && sideS.beDistPct != null) parts.push([0.15, Math.min(100, sideS.beDistPct / Math.max(0.2, emPct) * 66)]);
+    }
+    const wsum = parts.reduce((a, p) => a + p[0], 0);
+    return parts.reduce((a, p) => a + p[0] * p[1], 0) / wsum;
+  }
+  const putFit = fit(P, 100 - pos);
+  const callFit = fit(C, pos);
+  const timing = dte != null ? dte <= 1 ? 1.15 : dte <= 2 ? 1.05 : 1 : 1;
+  const diff = (putFit - callFit) * timing;
+  const bias = diff >= 15 ? ["Strong Put Location", "up"] : diff >= 6 ? ["Moderate Put Location", "up"] : diff <= -15 ? ["Strong Call Location", "down"] : diff <= -6 ? ["Moderate Call Location", "down"] : ["Neutral", "mut"];
+  const NA = /*#__PURE__*/React.createElement("span", {
+    className: "wos-na",
+    title: "Live option-chain data for this field is unavailable right now — nothing is estimated in its place."
+  }, "Data unavailable");
+  const f$ = v => v == null ? NA : fmt$(v, v >= 1000 ? 0 : 2);
+  const fp = (v, d = 1) => v == null ? NA : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
+  const Row = ({
+    l,
+    v,
+    hot,
+    tip
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `wos-r ${hot ? "hot" : ""}`,
+    title: tip
+  }, /*#__PURE__*/React.createElement("em", null, l), /*#__PURE__*/React.createElement("b", null, v));
+  function SideCol({
+    label,
+    S,
+    side
+  }) {
+    const col = side === "put" ? "var(--up)" : "var(--down)";
+    return /*#__PURE__*/React.createElement("div", {
+      className: "wos-side"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "wos-side-h",
+      style: {
+        color: col
+      }
+    }, label, S.ok && /*#__PURE__*/React.createElement("span", {
+      className: "wos-strike num"
+    }, "$", S.strike)), !S.ok ? /*#__PURE__*/React.createElement("div", {
+      className: "wos-na",
+      style: {
+        padding: "8px 0"
+      },
+      title: "No live bid/ask for the selected weekly contract."
+    }, "Data unavailable") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Row, {
+      l: "Bid / mid",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, S.bid != null ? fmt$(S.bid, 2) : "—", " / ", fmt$(S.mid, 2)),
+      tip: "Live chain bid and mid for the selected weekly contract."
+    }), /*#__PURE__*/React.createElement(Row, {
+      hot: true,
+      l: "Breakeven",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, fmt$(S.breakeven, 2), " · ", fp(S.beDistPct)),
+      tip: "Strike ∓ premium, and how far price is from it. Your real cushion."
+    }), /*#__PURE__*/React.createElement(Row, {
+      l: "Delta",
+      v: S.delta != null ? /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, S.delta.toFixed(2), " ", /*#__PURE__*/React.createElement("i", {
+        className: "wos-est"
+      }, "est")) : NA,
+      tip: "Black-Scholes delta derived from the chain's own IV for this contract — estimated, not quoted."
+    }), /*#__PURE__*/React.createElement(Row, {
+      hot: true,
+      l: "P(expire OTM)",
+      v: S.probOTM != null ? /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, S.probOTM.toFixed(0), "% ", /*#__PURE__*/React.createElement("i", {
+        className: "wos-est"
+      }, "est")) : NA,
+      tip: "Delta-based estimate from the chain's own IV. NOT a guarantee — it's the option market's implied odds."
+    }), /*#__PURE__*/React.createElement(Row, {
+      hot: true,
+      l: `Breach rate · ${weeks}w`,
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, S.breachPct.toFixed(0), "% (", S.breachN, "/", rows.length, ")"),
+      tip: side === "put" ? `How often, in the displayed ${rows.length} weeks, the stock traded BELOW this strike's equivalent level before Friday.` : `How often, in the displayed ${rows.length} weeks, the stock traded ABOVE this strike's equivalent level before Friday.`
+    }), /*#__PURE__*/React.createElement(Row, {
+      l: "EM to Friday",
+      v: emPct != null ? /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, "±", emPct.toFixed(1), "% (", f$(emDn), "/", f$(emUp), ")") : NA,
+      tip: "Expected move from the EM engine for the selected expiry (down / up dollar band)."
+    }), /*#__PURE__*/React.createElement(Row, {
+      hot: true,
+      l: "Θ / day · DTE",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, S.theta != null ? fmt$(Math.abs(S.theta), 2) + "/sh" : "—", " · ", dte != null ? dte + "d" : "—", " ", /*#__PURE__*/React.createElement("i", {
+        className: "wos-est"
+      }, "est")),
+      tip: "Daily decay in your favor (Black-Scholes from chain IV, per share) and days to the weekly expiration."
+    }), /*#__PURE__*/React.createElement(Row, {
+      l: "Return on BP",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, S.rbp != null ? S.rbp.toFixed(2) + "%" : "—"),
+      tip: side === "put" ? "Premium ÷ cash-secured collateral (strike − premium), for this week." : "Premium ÷ current share value (covered), for this week."
+    })));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card wos-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: `Where this week sits inside the last ${rows.length} weeks' range, and what the selected weekly contracts offer from here. Everything updates with the ticker, the weeks slider, the strike picker and the live chain.`
+  }, "Weekly option selling setup"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Sell puts near the lows · calls near the highs")), /*#__PURE__*/React.createElement("span", {
+    className: `wos-bias ${bias[1]}`,
+    title: `Combines: range location (${pos.toFixed(1)}% from bottom), historical breach rates, delta-based P(OTM), breakeven cushion vs expected move, and time remaining (${dte != null ? dte + "d" : "n/a"}). It is a LOCATION read, not a trade instruction.`
+  }, bias[0])), /*#__PURE__*/React.createElement("div", {
+    className: "wos-range",
+    title: `This week's return (${fp(currReturn, 2)}) positioned between the worst weekly low and best weekly high of the displayed ${rows.length} weeks.`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wos-track"
+  }, /*#__PURE__*/React.createElement("i", {
+    className: "wos-marker",
+    style: {
+      left: `${pos}%`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "wos-ends"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "wos-end lo",
+    title: `Worst weekly low of the ${rows.length} displayed weeks, and the price it maps to off this week's baseline.`
+  }, /*#__PURE__*/React.createElement("em", null, "WORST LOW"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, fp(worstLow)), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, f$(pLow))), /*#__PURE__*/React.createElement("span", {
+    className: "wos-end now",
+    title: "This week, live."
+  }, /*#__PURE__*/React.createElement("em", null, "CURRENT", outside ? ` · ${outside.toUpperCase()} RANGE` : ""), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, fp(currReturn, 2)), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, f$(currentPrice))), /*#__PURE__*/React.createElement("span", {
+    className: "wos-end hi",
+    title: `Best weekly high of the ${rows.length} displayed weeks, and the price it maps to.`
+  }, /*#__PURE__*/React.createElement("em", null, "BEST HIGH"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, fp(bestHigh)), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, f$(pHigh)))), /*#__PURE__*/React.createElement("div", {
+    className: "wos-posline"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: "Position of the current weekly return inside the historical range."
+  }, /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, pos.toFixed(1), "%"), " from the bottom"), /*#__PURE__*/React.createElement("span", {
+    className: "wos-prox",
+    title: "How close this week sits to the historical LOW side of the selected range. This is a location measure only — NOT the probability that a put expires worthless."
+  }, "bottom proximity ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, bottomProx.toFixed(1), "%")), /*#__PURE__*/React.createElement("span", {
+    title: "Dollars and percentage-points between here and the range extremes."
+  }, /*#__PURE__*/React.createElement("b", {
+    className: "num cd"
+  }, f$(Math.abs(dLow$)), " · ", Math.abs(dLowPts).toFixed(1), "pts"), " to low ·", /*#__PURE__*/React.createElement("b", {
+    className: "num cu"
+  }, " ", f$(Math.abs(dHigh$)), " · ", Math.abs(dHighPts).toFixed(1), "pts"), " to high"))), /*#__PURE__*/React.createElement("div", {
+    className: "wos-sides"
+  }, /*#__PURE__*/React.createElement(SideCol, {
+    label: "SELL PUT",
+    S: P,
+    side: "put"
+  }), /*#__PURE__*/React.createElement(SideCol, {
+    label: "SELL CALL",
+    S: C,
+    side: "call"
+  })));
+}
 })();
