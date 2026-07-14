@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.54";
+const APP_VERSION = "3.55";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4949,6 +4949,14 @@ function App() {
         </TabPanel>
 
         <TabPanel tab="scanners" active={activeTab}>
+        {/* Weekly range location scan — the selling-setup panel's range math
+            across the whole watchlist: names near their N-week worst low
+            (sell puts) or best high (sell calls). Click a row → Analyze. */}
+        <CardErrorBoundary label="Range location scan">
+          <RangeEdgeScanCard apiFetch={apiFetch}
+                             onSwitchTicker={switchTicker}
+                             onOpenAnalyze={(sym) => { switchTicker(sym); changeTab("analyze"); }} />
+        </CardErrorBoundary>
         {/* Open-reclaim reversal: dipped >=2% under the regular open, then
             took the open back (the CRDO pattern). */}
         <CardErrorBoundary label="Open reclaim">

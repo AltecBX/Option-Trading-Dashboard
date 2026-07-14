@@ -3336,6 +3336,168 @@ function ScreenersHub({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// ── Weekly range location scan (v3.55) ─────────────────────────────────────
+// The Weekly Option Selling Setup panel's range math, run across the whole
+// watchlist: which names sit near their N-week worst low (sell puts) or best
+// high (sell calls) RIGHT NOW — instead of clicking one ticker at a time.
+// Location measures only, from price history; premiums/greeks stay on the
+// per-ticker panel.
+function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [weeks, setWeeks] = useState(16);
+  const [fSide, setFSide] = useState("all");
+  const [minEdge, setMinEdge] = useState(60);
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try { const r = await apiFetch("/api/range_scan"); const d = await r.json(); setBoard(d); return d; }
+    catch (e) { setErr(String(e)); return null; }
+  };
+  const watchScan = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+    }, 4000);
+  };
+  useEffect(() => {
+    load().then(d => { if (d && d.status && d.status.scanning) watchScan(); });
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try { await apiFetch(`/api/range_scan/scan?force=1&weeks=${weeks}`); } catch (e) { setErr(String(e)); return; }
+    await load();
+    watchScan();
+  };
+
+  const status = (board && board.status) || {};
+  const rows = (board && board.rows) || [];
+  const summary = (board && board.summary) || {};
+  const scanning = !!status.scanning;
+  const open = (sym) => { if (onOpenAnalyze) onOpenAnalyze(sym); else if (onSwitchTicker) onSwitchTicker(sym); };
+
+  const filtered = useMemo(() => rows.filter(r => {
+    if (fSide === "lows" && r.side !== "put") return false;
+    if (fSide === "highs" && r.side !== "call") return false;
+    if ((r.edge || 0) < minEdge) return false;
+    if (q && !String(r.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [rows, fSide, minEdge, q]);
+
+  const Chips = ({ rows, tone }) => (
+    <div className="ab-chips">
+      {(rows || []).length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+      {(rows || []).map((r, i) => (
+        <button key={r.ticker + i} className={`ab-chip ab-${tone}`} onClick={() => open(r.ticker)}
+                title={`${r.ticker} — this week ${r.curr_return >= 0 ? "+" : ""}${r.curr_return}% · position ${r.pos}% of the ${r.weeks_used}w range · worst low ${r.worst_low}% / best high +${r.best_high}%`}>
+          {r.ticker} <b>{Math.round(r.side === "put" ? r.bottom_prox : r.top_prox)}</b>
+        </button>
+      ))}
+    </div>
+  );
+  const SummaryBox = ({ title, tone, children }) => (
+    <div className={`ab-sumbox ${tone || ""}`}><div className="ab-sumbox-title">{title}</div>{children}</div>
+  );
+
+  return (
+    <div className="card ab-card" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker">Premium selling · your watchlist</div>
+          <div className="card-title">Weekly range location scan</div>
+        </div>
+        <div className="ab-controls">
+          <select className="sb-select" value={weeks} onChange={e => setWeeks(Number(e.target.value))}
+                  title="Lookback: how many completed weeks define each name's worst low / best high.">
+            {[8, 12, 16, 26, 52].map(w => <option key={w} value={w}>{w} weeks</option>)}
+          </select>
+          <button className="scan-run-btn" onClick={startScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Scan now"}
+          </button>
+        </div>
+      </div>
+      <div className="ab-status">
+        {status.last_scan
+          ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {status.weeks}w lookback · {status.baseline} baseline · {rows.length} names</span>
+          : <span className="muted">No scan yet — positions every watchlist name inside its own {weeks}-week range. Near the worst low → sell puts; near the best high → sell calls. Same math as the selling-setup panel.</span>}
+        {status.error && <span className="ab-err"> · {status.error}</span>}
+        {err && <span className="ab-err"> · {err}</span>}
+      </div>
+      <div className="ab-status muted" style={{ marginTop: -6 }}>
+        Bottom/top proximity is a LOCATION measure from price history — not the probability an option expires worthless. Premiums and greeks live on the Analyze panel per name.
+      </div>
+      {scanning && (
+        <div className="ab-progress">
+          <div className="ab-progress-bar" style={{ width: `${status.total ? (status.scanned / status.total * 100) : 0}%` }}></div>
+          <span className="ab-progress-txt">{status.scanned || 0} / {status.total || 0}</span>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="ab-summary">
+          <SummaryBox title="Near range LOWS — sell puts" tone="up"><Chips rows={summary.near_lows} tone="bull" /></SummaryBox>
+          <SummaryBox title="Near range HIGHS — sell calls" tone="down"><Chips rows={summary.near_highs} tone="bear" /></SummaryBox>
+          <SummaryBox title="Late-week lows — your edge" tone="warn"><Chips rows={summary.late_week_lows} tone="bull" /></SummaryBox>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="ab-filters">
+          <input className="sb-select ab-search" placeholder="Ticker…" value={q} onChange={e => setQ(e.target.value)} />
+          <select className="sb-select" value={fSide} onChange={e => setFSide(e.target.value)}>
+            <option value="all">Both sides</option>
+            <option value="lows">Near lows (puts)</option>
+            <option value="highs">Near highs (calls)</option>
+          </select>
+          <select className="sb-select" value={minEdge} onChange={e => setMinEdge(Number(e.target.value))}
+                  title="Only show names at least this close to one of their range extremes (100 = sitting on the extreme).">
+            {[0, 50, 60, 70, 80, 90].map(v => <option key={v} value={v}>edge ≥ {v}%</option>)}
+          </select>
+          <span className="muted" style={{ fontSize: 12 }}>{filtered.length} of {rows.length}</span>
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="scan-table-wrap">
+          <table className="rgs-table">
+            <thead><tr>
+              <th>Ticker</th><th>Last</th><th>This wk</th>
+              <th title="This week's position inside the lookback range: worst weekly low on the left, best weekly high on the right.">Range location</th>
+              <th title="How close to the LOW side of the range (100 = at the worst low). Location only — not P(OTM).">Bot&nbsp;prox</th>
+              <th title="Worst weekly low of the lookback, and the price it maps to off this week's baseline.">Worst low</th>
+              <th title="Best weekly high of the lookback, and the price it maps to.">Best high</th>
+              <th title="% of lookback weeks whose weekly LOW had already printed by today's weekday. High + near the low = little room usually left below.">LOW in by</th>
+              <th>Side</th>
+            </tr></thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.ticker} className="row" onClick={() => open(r.ticker)}
+                    title={`Open ${r.ticker} on the Analyze tab — the selling-setup panel shows live premiums, greeks and breach rates.`}>
+                  <td className="rgs-tk">{r.ticker}{r.outside && <span className="rgs-out">{r.outside === "below" ? "▼ out" : "▲ out"}</span>}</td>
+                  <td className="num">{fmt$(r.last, r.last >= 1000 ? 0 : 2)}</td>
+                  <td className={`num ${r.curr_return >= 0 ? "cu" : "cd"}`}>{r.curr_return >= 0 ? "+" : ""}{r.curr_return.toFixed(1)}%</td>
+                  <td><div className="rgs-bar"><i style={{ left: `${r.pos}%` }}></i></div></td>
+                  <td className="num rgs-big">{r.bottom_prox.toFixed(0)}%</td>
+                  <td className="num cd">{r.worst_low.toFixed(1)}% <span className="rgs-px">{fmt$(r.p_low, r.p_low >= 1000 ? 0 : 2)}</span></td>
+                  <td className="num cu">+{r.best_high.toFixed(1)}% <span className="rgs-px">{fmt$(r.p_high, r.p_high >= 1000 ? 0 : 2)}</span></td>
+                  <td className="num">{Math.round(r.lows_in_by)}%</td>
+                  <td><span className={`rgs-side ${r.side}`}>{r.side === "put" ? "SELL PUT" : "SELL CALL"}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {rows.length > 0 && filtered.length === 0 && (
+        <div className="research-empty">Nothing at edge ≥ {minEdge}% right now — loosen the filter or rescan.</div>
+      )}
+    </div>
+  );
+}
+
 function IVRankCard({ apiFetch, onSwitchTicker }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -13889,6 +14051,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   VolSkewCard: _memo(VolSkewCard), WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard), MoversCard: _memo(MoversCard),
   TrendCard: _memo(TrendCard), IVRankCard: _memo(IVRankCard),
+  RangeEdgeScanCard: _memo(RangeEdgeScanCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard), TabBar, TabPanel, WeatherBadge,
   LevelRepriceCard: _memo(LevelRepriceCard), WinRateCard: _memo(WinRateCard),
   EarningsCrushCard: _memo(EarningsCrushCard),
