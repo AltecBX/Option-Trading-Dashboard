@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.55";
+const APP_VERSION = "3.56";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3908,7 +3908,18 @@ function App() {
     className: "sb-ticker-name-line"
   }, loadError ? /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, "—") : current.name), !loadError && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "—") : current.name), !loadError && (() => {
+    const wlEntry = watchlistData.symbols.find(s => s.symbol === ticker);
+    const wlTags = wlEntry ? Array.from(new Set([...(wlEntry.tags || []), ...(wlEntry.tag ? [wlEntry.tag] : [])])).filter(Boolean) : [];
+    if (!wlTags.length) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "sb-symtags",
+      title: `Your watchlist tag${wlTags.length === 1 ? "" : "s"} for ${ticker}.`
+    }, wlTags.map(t => /*#__PURE__*/React.createElement("span", {
+      key: t,
+      className: "sb-symtag"
+    }, t)));
+  })(), !loadError && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
     className: "sb-divyield",
     title: `Trailing annual dividend yield for ${ticker}, from the stock's last close.`
   }, "Div yield ", current.dividend_yield.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {

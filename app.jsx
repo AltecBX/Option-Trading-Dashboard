@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.55";
+const APP_VERSION = "3.56";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2979,6 +2979,20 @@ function App() {
                 )}
               </div>
               <div className="sb-ticker-name-line">{loadError ? <span className="muted">—</span> : current.name}</div>
+              {/* v3.56: the symbol's watchlist tag(s) sit under the name,
+                  with the dividend yield below them. */}
+              {!loadError && (() => {
+                const wlEntry = watchlistData.symbols.find(s => s.symbol === ticker);
+                const wlTags = wlEntry
+                  ? Array.from(new Set([...(wlEntry.tags || []), ...(wlEntry.tag ? [wlEntry.tag] : [])])).filter(Boolean)
+                  : [];
+                if (!wlTags.length) return null;
+                return (
+                  <div className="sb-symtags" title={`Your watchlist tag${wlTags.length === 1 ? "" : "s"} for ${ticker}.`}>
+                    {wlTags.map(t => <span key={t} className="sb-symtag">{t}</span>)}
+                  </div>
+                );
+              })()}
               {!loadError && current.dividend_yield != null && current.dividend_yield > 0 && (
                 <div className="sb-divyield" title={`Trailing annual dividend yield for ${ticker}, from the stock's last close.`}>
                   Div yield {current.dividend_yield.toFixed(2)}%
