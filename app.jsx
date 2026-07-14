@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.48";
+const APP_VERSION = "3.49";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4303,13 +4303,6 @@ function App() {
                           medianClose={medianClose} currentReturn={currReturn} colors={chartColors}
                           earnings={liveEarnings} />
           </div>
-          <CardErrorBoundary label="Weekly option selling setup">
-            <WeeklySellSetupCard rows={rows} weeks={weeks} ticker={ticker}
-                                 currentPrice={currentPrice} baselinePrice={baselinePrice}
-                                 currReturn={currReturn} putC={putAtSug} callC={callAtSug}
-                                 emBand={emBand && emBand.symbol === ticker ? emBand : null}
-                                 expiration={(window.__LIVE && window.__LIVE.expiration) || null} />
-          </CardErrorBoundary>
           <div className="card">
             <div className="card-head">
               <div>
@@ -4385,6 +4378,18 @@ function App() {
               <span className="dow-footer-chip down">Lows cluster <b>{typicalLowDay}</b></span>
             </div>
           </div>
+        </div>
+
+        {/* Weekly option selling setup — full-width, directly beneath the
+            weekly history row (v3.49: was mistakenly a grid column). */}
+        <div style={{marginTop: "var(--row-gap)"}}>
+          <CardErrorBoundary label="Weekly option selling setup">
+            <WeeklySellSetupCard rows={rows} weeks={weeks} ticker={ticker}
+                                 currentPrice={currentPrice} baselinePrice={baselinePrice}
+                                 currReturn={currReturn} putC={putAtSug} callC={callAtSug}
+                                 emBand={emBand && emBand.symbol === ticker ? emBand : null}
+                                 expiration={(window.__LIVE && window.__LIVE.expiration) || null} />
+          </CardErrorBoundary>
         </div>
 
         {/* Mean reversion · today's basing levels — ALWAYS FIRST */}
