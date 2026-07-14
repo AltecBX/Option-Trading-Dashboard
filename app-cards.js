@@ -18791,11 +18791,13 @@ Object.assign(window, {
 // Compact glance panel under Weekly Returns History: where does THIS week sit
 // between the selected period's worst weekly low and best weekly high, and
 // what does the currently selected weekly put/call look like from here.
-// Data rules (per spec): premiums/IV come from the live chain; delta, theta
-// and P(OTM) are Black-Scholes DERIVED FROM THE CHAIN'S OWN IV and labeled
-// est.; breach rates come from the displayed weekly history; expected move
-// comes from the EM engine. Anything missing renders "Data unavailable" —
-// nothing is manufactured.
+// Data rules (per spec): premiums/IV/greeks come from the live Schwab chain;
+// when the chain's greeks are backfilled (delta_est/theta_est flags from the
+// backend, or an invalid value) the panel falls back to Black-Scholes FROM THE
+// CHAIN'S OWN IV and labels it est.; breach rates come from the displayed
+// weekly history; expected move = the chain's own ATM straddle to the selected
+// Friday (emBand from the EM engine wins when present). Anything missing
+// renders "Data unavailable" — nothing is manufactured.
 function _wosCdf(x) {
   // Abramowitz-Stegun normal CDF (no Math.erf in older engines)
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -18829,6 +18831,7 @@ function WeeklySellSetupCard({
   putC,
   callC,
   emBand,
+  emStraddle,
   expiration
 }) {
   if (!rows || rows.length < 4 || !currentPrice || !baselinePrice) {
@@ -18885,9 +18888,20 @@ function WeeklySellSetupCard({
     dte = Math.max(0, Math.round(ms / 86400000 * 10) / 10);
   }
 
-  // Expected move to the EM card's expiry (dollar band around spot).
-  const emUp = emBand && emBand.high != null ? emBand.high - currentPrice : null;
-  const emDn = emBand && emBand.low != null ? currentPrice - emBand.low : null;
+  // Expected move to the selected Friday. Prefer the EM engine's band when
+  // it's loaded for this ticker; otherwise use the chain's own ATM straddle
+  // mid (the option market's priced move to this expiry) — real quotes, not
+  // an estimate. Only when neither exists does the row say Data unavailable.
+  const emFromBand = emBand && emBand.high != null && emBand.low != null;
+  let emUp = null,
+    emDn = null;
+  if (emFromBand) {
+    emUp = emBand.high - currentPrice;
+    emDn = currentPrice - emBand.low;
+  } else if (emStraddle > 0) {
+    emUp = emStraddle;
+    emDn = emStraddle;
+  }
   const emPct = emUp != null && emDn != null ? (emUp + emDn) / 2 / currentPrice * 100 : null;
   const chainOK = c => c && c.strike != null && ((c.bid || 0) > 0 || (c.ask || 0) > 0);
   const midOf = c => c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : c.bid || c.ask || null;
@@ -18899,10 +18913,12 @@ function WeeklySellSetupCard({
     const breakeven = side === "put" ? c.strike - mid : c.strike + mid;
     const beDistPct = side === "put" ? (currentPrice - breakeven) / currentPrice * 100 : (breakeven - currentPrice) / currentPrice * 100;
     // Schwab's chain carries real greeks — use them and only fall back to a
-    // Black-Scholes estimate (tagged est) when they're absent. Schwab marks
-    // bad greeks as ±999, so sanity-bound them.
-    const liveDelta = typeof c.delta === "number" && isFinite(c.delta) && Math.abs(c.delta) <= 1 && c.delta !== 0 ? c.delta : null;
-    const liveTheta = typeof c.theta === "number" && isFinite(c.theta) && Math.abs(c.theta) < 100 && c.theta !== 0 ? c.theta : null;
+    // Black-Scholes estimate (tagged est) when they're absent. The backend
+    // flags backfilled greeks (delta_est/theta_est — e.g. Schwab's -999
+    // sentinels outside market hours); sanity-bound values too for old
+    // cached payloads that predate the flags.
+    const liveDelta = !c.delta_est && typeof c.delta === "number" && isFinite(c.delta) && Math.abs(c.delta) <= 1 && c.delta !== 0 ? c.delta : null;
+    const liveTheta = !c.theta_est && typeof c.theta === "number" && isFinite(c.theta) && Math.abs(c.theta) < 100 && c.theta !== 0 ? c.theta : null;
     const g = _wosGreeks(currentPrice, c.strike, c.iv, dte != null ? dte : 5, side);
     const delta = liveDelta != null ? liveDelta : g && g.delta;
     const theta = liveTheta != null ? liveTheta : g && g.theta;
@@ -19027,8 +19043,8 @@ function WeeklySellSetupCard({
       l: "EM to Friday",
       v: emPct != null ? /*#__PURE__*/React.createElement("span", {
         className: "num"
-      }, "±", emPct.toFixed(1), "% (", f$(emDn), "/", f$(emUp), ")") : NA,
-      tip: "Expected move from the EM engine for the selected expiry (down / up dollar band)."
+      }, "±", emPct.toFixed(1), "% ", emFromBand ? `(${f$(emDn)}/${f$(emUp)})` : `(±${fmt$(emUp, emUp >= 1000 ? 0 : 2)})`) : NA,
+      tip: emFromBand ? "Expected move from the EM engine for the selected expiry (down / up dollar band)." : "ATM straddle mid from the live chain — the option market's priced move to the selected Friday expiry."
     }), /*#__PURE__*/React.createElement(Row, {
       hot: true,
       l: "Θ / day · DTE",
@@ -19107,17 +19123,17 @@ function WeeklySellSetupCard({
   }, bottomProx.toFixed(1), "%"), /*#__PURE__*/React.createElement("span", null, bottomProx >= 66 ? `close to the ${rows.length}-week low side` : bottomProx <= 33 ? `close to the ${rows.length}-week high side` : "middle of the range")), /*#__PURE__*/React.createElement("div", {
     className: "wos-posline"
   }, /*#__PURE__*/React.createElement("span", {
-    title: `Gap between this week's return (${fp(currReturn, 2)}) and each extreme, in dollars and percentage POINTS of weekly return (e.g. −8.8% vs −19.0% = ${Math.abs(dLowPts).toFixed(1)} pts).`
+    title: `Gap between this week's return (${fp(currReturn, 2)}) and each extreme, in dollars and weekly-return percentage (e.g. −8.8% vs −19.0% = ${Math.abs(dLowPts).toFixed(1)}% apart).`
   }, /*#__PURE__*/React.createElement("b", {
     className: "num cd"
-  }, f$(Math.abs(dLow$))), " · ", Math.abs(dLowPts).toFixed(1), " pts above the worst low \xA0·\xA0 ", /*#__PURE__*/React.createElement("b", {
+  }, f$(Math.abs(dLow$))), " · ", Math.abs(dLowPts).toFixed(1), "% above the worst low \xA0·\xA0 ", /*#__PURE__*/React.createElement("b", {
     className: "num cu"
-  }, f$(Math.abs(dHigh$))), " · ", Math.abs(dHighPts).toFixed(1), " pts below the best high")), lowsInBy != null && /*#__PURE__*/React.createElement("div", {
+  }, f$(Math.abs(dHigh$))), " · ", Math.abs(dHighPts).toFixed(1), "% below the best high")), lowsInBy != null && /*#__PURE__*/React.createElement("div", {
     className: "wos-dayctx",
     title: `CURRENT is this week IN PROGRESS measured against COMPLETED weeks' full Mon–Fri extremes. In the displayed ${withDays.length} weeks, the weekly LOW had already printed by ${DAY_NAMES[dow]} in ${lowsInBy.toFixed(0)}% of them (the HIGH in ${highsInBy.toFixed(0)}%). Late in the week + near the range low = historically little room left below — the setup you buy or sell puts into.`
   }, /*#__PURE__*/React.createElement("em", null, DAY_NAMES[dow].toUpperCase(), dow === 4 ? " · WEEK NEARLY COMPLETE" : ""), /*#__PURE__*/React.createElement("span", null, "weekly LOW already in by now: ", /*#__PURE__*/React.createElement("b", {
     className: `num ${lowsInBy >= 70 ? "cu" : ""}`
-  }, lowsInBy.toFixed(0), "%"), " of weeks"), /*#__PURE__*/React.createElement("span", null, "weekly HIGH already in: ", /*#__PURE__*/React.createElement("b", {
+  }, lowsInBy.toFixed(0), "%"), " of weeks · weekly HIGH already in: ", /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, highsInBy.toFixed(0), "%")))), /*#__PURE__*/React.createElement("div", {
     className: "wos-sides"
