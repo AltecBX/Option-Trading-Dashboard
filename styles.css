@@ -10168,3 +10168,12 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .wos-sides { grid-template-columns: 1fr; }
   .wos-posline { gap: 10px; }
 }
+
+/* v3.49: the selling-setup panel is a full-width row under the weekly
+   charts — lay its three zones side by side on desktop. */
+.wos-card { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; align-items: start; }
+.wos-card .card-head { grid-column: 1 / -1; margin-bottom: 0; }
+.wos-sides { display: contents; }
+@media (max-width: 1100px) {
+  .wos-card { grid-template-columns: 1fr; }
+}
