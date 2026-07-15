@@ -53,14 +53,25 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _et_dow() -> int:
-    """Weekday in ET, Mon..Fri → 0..4 (weekend counts as a complete week)."""
+def _et_now() -> datetime:
     try:
         from zoneinfo import ZoneInfo
-        wd = datetime.now(ZoneInfo("America/New_York")).weekday()
+        return datetime.now(ZoneInfo("America/New_York"))
     except Exception:
-        wd = datetime.now().weekday()
-    return min(wd, 4)
+        return datetime.now()
+
+
+def _et_dow() -> int:
+    """Weekday in ET, Mon..Fri → 0..4 (weekend counts as a complete week)."""
+    return min(_et_now().weekday(), 4)
+
+
+def _et_today() -> date:
+    """Trading-calendar 'today' in ET. The server runs in UTC, where
+    date.today() rolls over at 8 PM ET — which classified the in-progress
+    week as complete (polluting the extremes) and zeroed this-week returns
+    for every evening scan."""
+    return _et_now().date()
 
 
 def _symbol_row(sub: "pd.DataFrame", sym: str, weeks: int,
@@ -82,7 +93,7 @@ def _symbol_row(sub: "pd.DataFrame", sym: str, weeks: int,
     sub = sub.copy()
     sub.index = idx
     sub["week_start"] = sub.index - pd.to_timedelta(sub.index.weekday, unit="D")
-    today = date.today()
+    today = _et_today()
 
     complete, current_grp, prev_last_close = [], None, None
     for ws, grp in sub.groupby("week_start"):

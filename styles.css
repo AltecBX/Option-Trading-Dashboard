@@ -10239,8 +10239,8 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   cursor: help; white-space: nowrap; }
 .rgs-table td { padding: 6px 9px; border-bottom: 1px dashed var(--line);
   white-space: nowrap; vertical-align: middle; }
-.rgs-table tr.row { cursor: pointer; }
-.rgs-table tr.row:hover { background: color-mix(in oklch, var(--accent) 7%, transparent); }
+.rgs-table tr.rgs-row { cursor: pointer; }
+.rgs-table tr.rgs-row:hover { background: color-mix(in oklch, var(--accent) 7%, transparent); }
 .rgs-tk { font-weight: 700; font-family: var(--font-mono); }
 .rgs-out { font-family: var(--font-mono); font-size: 9px; color: var(--warn);
   margin-left: 5px; border: 1px solid color-mix(in oklch, var(--warn), transparent 55%);
@@ -10281,7 +10281,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .rgs-table { border-collapse: separate; }
   .rgs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .rgs-table, .rgs-table tbody { display: block; width: 100%; }
-  .rgs-table tr.row {
+  .rgs-table tr.rgs-row {
     display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px;
     border: 1px solid var(--line); border-radius: 11px;
     background: var(--bg-2); padding: 10px 12px; margin-bottom: 8px;
@@ -10363,3 +10363,9 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .wos-end b { font-size: 18px; }
   .wos-dte { white-space: nowrap; }
 }
+
+/* v3.58: show-all button under the capped range-scan table. */
+.rgs-more { display: block; width: 100%; margin-top: 8px; min-height: 38px;
+  background: var(--bg-2); color: var(--fg-2); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.rgs-more:hover { color: var(--fg); border-color: color-mix(in oklch, var(--accent), transparent 40%); }

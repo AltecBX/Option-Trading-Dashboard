@@ -5152,7 +5152,10 @@ function RangeEdgeScanCard({
   const [fSide, setFSide] = useState("all");
   const [minEdge, setMinEdge] = useState(60);
   const [q, setQ] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const pollRef = useRef(null);
+  const SHOW_CAP = 150; // rows painted before "Show all" (1200+ names otherwise)
+
   const load = async () => {
     try {
       const r = await apiFetch("/api/range_scan");
@@ -5343,9 +5346,9 @@ function RangeEdgeScanCard({
     title: "Best weekly high of the lookback, and the price it maps to."
   }, "Best high"), /*#__PURE__*/React.createElement("th", {
     title: "% of lookback weeks whose weekly LOW had already printed by today's weekday. High + near the low = little room usually left below."
-  }, "LOW in by"), /*#__PURE__*/React.createElement("th", null, "Side"))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, "LOW in by"), /*#__PURE__*/React.createElement("th", null, "Side"))), /*#__PURE__*/React.createElement("tbody", null, (showAll ? filtered : filtered.slice(0, SHOW_CAP)).map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.ticker,
-    className: "row",
+    className: "rgs-row",
     onClick: () => open(r.ticker),
     title: `Open ${r.ticker} on the Analyze tab — the selling-setup panel shows live premiums, greeks and breach rates.`
   }, /*#__PURE__*/React.createElement("td", {
@@ -5389,7 +5392,11 @@ function RangeEdgeScanCard({
     "data-label": "Side"
   }, /*#__PURE__*/React.createElement("span", {
     className: `rgs-side ${r.side}`
-  }, r.side === "put" ? "SELL PUT" : "SELL CALL"))))))), rows.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, r.side === "put" ? "SELL PUT" : "SELL CALL")))))), !showAll && filtered.length > SHOW_CAP && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "rgs-more",
+    onClick: () => setShowAll(true)
+  }, "Show all ", filtered.length, " (top ", SHOW_CAP, " shown)")), rows.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
   }, "Nothing at edge ≥ ", minEdge, "% right now — loosen the filter or rescan."));
 }
