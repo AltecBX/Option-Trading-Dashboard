@@ -3349,7 +3349,9 @@ function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
   const [fSide, setFSide] = useState("all");
   const [minEdge, setMinEdge] = useState(60);
   const [q, setQ] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const pollRef = useRef(null);
+  const SHOW_CAP = 150;   // rows painted before "Show all" (1200+ names otherwise)
 
   const load = async () => {
     try { const r = await apiFetch("/api/range_scan"); const d = await r.json(); setBoard(d); return d; }
@@ -3473,8 +3475,8 @@ function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
               <th>Side</th>
             </tr></thead>
             <tbody>
-              {filtered.map(r => (
-                <tr key={r.ticker} className="row" onClick={() => open(r.ticker)}
+              {(showAll ? filtered : filtered.slice(0, SHOW_CAP)).map(r => (
+                <tr key={r.ticker} className="rgs-row" onClick={() => open(r.ticker)}
                     title={`Open ${r.ticker} on the Analyze tab — the selling-setup panel shows live premiums, greeks and breach rates.`}>
                   <td className="rgs-tk" data-label="">{r.ticker}{r.outside && <span className="rgs-out">{r.outside === "below" ? "▼ out" : "▲ out"}</span>}</td>
                   <td className="num" data-label="Last">{fmt$(r.last, r.last >= 1000 ? 0 : 2)}</td>
@@ -3489,6 +3491,11 @@ function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
               ))}
             </tbody>
           </table>
+          {!showAll && filtered.length > SHOW_CAP && (
+            <button type="button" className="rgs-more" onClick={() => setShowAll(true)}>
+              Show all {filtered.length} (top {SHOW_CAP} shown)
+            </button>
+          )}
         </div>
       )}
       {rows.length > 0 && filtered.length === 0 && (
