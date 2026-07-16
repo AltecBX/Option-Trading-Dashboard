@@ -102,6 +102,13 @@ def _request(url: str):
             if r.status_code == 200:
                 _UA_PREF[_host(url)] = (1 - pref) if i == 1 else pref
                 return r
+            # Throttled (Socrata rate-limits anonymous callers) — one retry.
+            if r.status_code in (429, 403) and i == len(order) - 1:
+                time.sleep(2.5)
+                r2 = requests.get(url, headers=ua, timeout=_TIMEOUT)
+                if r2.status_code == 200:
+                    return r2
+            print(f"[treasury] GET {r.status_code} ({ua['User-Agent'][:12]}) {url[:90]}", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
             print(f"[treasury] GET failed ({ua['User-Agent'][:12]}) {url[:80]}: {exc}", file=sys.stderr)
     return None
@@ -309,6 +316,35 @@ def get_core() -> dict:
             "label": f"{tone} {steep}" if steep != "parallel" else f"parallel {'rally' if d10 < 0 else 'selloff'}",
             "d2y_bp": d2, "d10y_bp": d10, "slope_chg_bp": round(slope, 1), "window": "5 trading days",
         }
+    # Curve shape (his terminal read): inverted / partially inverted / flat /
+    # normal, plus a hump note when the belly out-yields the 30y.
+    try:
+        y3m, y2, y10, y30 = latest.get("3M"), latest.get("2Y"), latest.get("10Y"), latest.get("30Y")
+        if None not in (y3m, y2, y10, y30):
+            s3m10_bp = (y10 - y3m) * 100
+            s2s10_bp = (y10 - y2) * 100
+            if s3m10_bp < 0 and s2s10_bp < 0:
+                shape = "inverted"
+                det = f"3m10y {s3m10_bp:+.0f} bp, 2s10s {s2s10_bp:+.0f} bp"
+            elif s3m10_bp < 0 or s2s10_bp < 0:
+                shape = "partially inverted"
+                det = f"3m10y {s3m10_bp:+.0f} bp, 2s10s {s2s10_bp:+.0f} bp"
+            elif s2s10_bp < 15:
+                shape = "flat"
+                det = f"2s10s only {s2s10_bp:+.0f} bp"
+            else:
+                shape = "normal (upward)"
+                det = f"3m10y {s3m10_bp:+.0f} bp, 2s10s {s2s10_bp:+.0f} bp"
+            belly = [(t, latest[t]) for t in ("3Y", "5Y", "7Y", "10Y", "20Y") if latest.get(t) is not None]
+            if belly:
+                bt, bv = max(belly, key=lambda x: x[1])
+                if bv - y30 > 0.02:
+                    shape += f", humped at {bt}"
+                    det += f"; {bt} {bv:.2f}% > 30y {y30:.2f}%"
+            out["curve_shape"] = {"label": shape, "detail": det}
+    except Exception:
+        pass
+
     moves = [(t, bp_change(t, 5)) for t in TENORS]
     moves = [(t, m) for t, m in moves if m is not None]
     if moves:
@@ -777,7 +813,7 @@ def get_markets() -> dict:
         except Exception as exc:  # noqa: BLE001
             print(f"[treasury] futures failed: {exc}", file=sys.stderr)
         out["futures"] = futs
-        out["futures_note"] = "Front-month continuous, delayed. Implied yield & open interest need CME data — shown unavailable, not estimated. Bond futures PRICES move opposite to yields."
+        out["futures_note"] = "Front-month continuous, delayed. Implied yield & open interest need CME data and are omitted rather than estimated. Bond futures PRICES move opposite to yields."
 
         # ETF proxies
         etfs = []
@@ -1006,11 +1042,15 @@ def get_cot() -> dict:
                                "note": ("Net = long − short contracts. Percentile over ~3 years of weekly reports. "
                                         "Crowded = net at ≥90th or ≤10th percentile. Large positions are context, "
                                         "not automatic buy/sell signals.")}
+        import urllib.parse
         rows = []
         for code, name in _COT_MARKETS:
-            url = ("https://publicreporting.cftc.gov/resource/gpe5-46if.json"
-                   f"?$where=contract_market_name='{name}'&$order=report_date_as_yyyy_mm_dd DESC&$limit=160")
-            data = _get_json(url.replace(" ", "%20").replace("'", "%27"))
+            qs = urllib.parse.urlencode({
+                "$where": f"contract_market_name='{name}'",
+                "$order": "report_date_as_yyyy_mm_dd DESC",
+                "$limit": "160",
+            })
+            data = _get_json(f"https://publicreporting.cftc.gov/resource/gpe5-46if.json?{qs}")
             if not isinstance(data, list) or not data:
                 rows.append({"code": code, "ok": False})
                 continue
