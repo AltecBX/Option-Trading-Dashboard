@@ -10536,3 +10536,82 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 /* v3.60: treasuries layout — column stacks, no dead space beside short cards */
 .tsy-col { display: flex; flex-direction: column; min-width: 0; }
 .tsy-col > .card { margin-bottom: var(--row-gap); }
+
+/* v3.61: treasuries glance-terminal overview grid (mockup-style density) */
+.tsy-ovrow { display: grid; gap: 10px; margin-bottom: 10px; align-items: stretch; }
+.tsy-ovrow.r1 { grid-template-columns: 6.2fr 2.9fr 2.9fr; }
+.tsy-ovrow.r2 { grid-template-columns: 6fr 3fr 3fr; }
+.tsy-ovrow.r3 { grid-template-columns: 2.3fr 3fr 2.7fr 1.9fr 2.1fr; }
+.tsy-ovrow.r4 { grid-template-columns: 5fr 4fr 3fr; }
+.tsy-mini { margin-bottom: 0 !important; padding: 11px 13px; min-width: 0; }
+.tsy-mini-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+.tsy-mini-h em { font-style: normal; font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--fg-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tsy-mini-t { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.tsy-mini-note { font-size: 10px; color: var(--fg-3); white-space: nowrap; }
+.tsy-mini .tsy-curvesvg { margin-top: 0; }
+
+/* yield strip */
+.tsy-ystrip { display: grid; grid-template-columns: repeat(11, 1fr); gap: 4px; }
+.tsy-ycell { display: flex; flex-direction: column; align-items: center; gap: 1px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--bg-3);
+  padding: 6px 2px; cursor: help; min-width: 0; }
+.tsy-ycell.key { border-color: color-mix(in oklch, var(--accent), transparent 45%);
+  background: color-mix(in oklch, var(--accent) 8%, var(--bg-3)); }
+.tsy-ycell em { font-style: normal; font-family: var(--font-mono); font-size: 9.5px;
+  font-weight: 800; color: var(--fg-3); }
+.tsy-ycell b { font-size: 14.5px; font-weight: 800; letter-spacing: -0.01em; }
+.tsy-ycell span { font-size: 10.5px; }
+
+/* spotlight + kv rows */
+.tsy-spot { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.tsy-spot b { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+.tsy-spotrow { display: flex; gap: 12px; font-size: 11px; color: var(--fg-2); margin-top: 7px; flex-wrap: wrap; }
+.tsy-kv { display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+  border-bottom: 1px dashed var(--line); padding: 3.5px 0; cursor: help; min-width: 0; }
+.tsy-kv:last-child { border-bottom: none; }
+.tsy-kv em { font-style: normal; color: var(--fg-3); flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tsy-kv em i { font-style: normal; color: var(--fg-3); font-size: 10px; margin-left: 3px; }
+.tsy-kv b { font-weight: 700; white-space: nowrap; }
+.tsy-kv span { white-space: nowrap; font-size: 11px; }
+.tsy-kv.big b { font-size: 14px; }
+.tsy-kv .warn { color: var(--warn); font-weight: 700; }
+
+/* compact matrices (rate change, COT) */
+.tsy-matrix { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.tsy-matrix th { font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: var(--fg-3);
+  text-align: right; padding: 2px 4px; letter-spacing: 0.06em; }
+.tsy-matrix td { text-align: right; padding: 3px 4px; border-bottom: 1px dashed var(--line); }
+.tsy-matrix tr:last-child td { border-bottom: none; }
+.tsy-matrix .tsy-mxt { text-align: left; font-weight: 800; color: var(--fg-2); }
+.tsy-matrix .cu { color: var(--up); } .tsy-matrix .cd { color: var(--down); }
+
+/* curve analysis signal box */
+.tsy-sigbox { border: 1px dashed var(--line); border-radius: 9px; padding: 7px 10px; margin-top: 8px; cursor: help; }
+.tsy-sigbox em { display: block; font-style: normal; font-family: var(--font-mono); font-size: 8.5px;
+  font-weight: 800; letter-spacing: 0.1em; color: var(--fg-3); }
+.tsy-sigbox b { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.03em; }
+.tsy-sigbox.up b { color: var(--up); } .tsy-sigbox.down b { color: var(--down); }
+.tsy-sigbox span { display: block; font-size: 10.5px; color: var(--fg-2); margin-top: 1px; }
+
+/* nested detail cards inside folds: flatten so cards don't stack borders */
+.card.tsy-card .card.tsy-card { border: none; background: transparent; box-shadow: none;
+  padding: 6px 0 0; margin-bottom: 0; }
+
+/* responsive: 2-col tablets, 1-col phones; yield strip scrolls */
+@media (max-width: 1250px) {
+  .tsy-ovrow.r1 { grid-template-columns: 1fr 1fr; }
+  .tsy-ovrow.r1 > :first-child { grid-column: 1 / -1; }
+  .tsy-ovrow.r2 { grid-template-columns: 1fr 1fr; }
+  .tsy-ovrow.r2 > :first-child { grid-column: 1 / -1; }
+  .tsy-ovrow.r3 { grid-template-columns: 1fr 1fr; }
+  .tsy-ovrow.r4 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 700px) {
+  .tsy-ovrow.r1, .tsy-ovrow.r2, .tsy-ovrow.r3, .tsy-ovrow.r4 { grid-template-columns: 1fr; }
+  .tsy-ystrip { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 3px; }
+  .tsy-ycell { flex: 0 0 66px; }
+  .tsy-ycell.key { order: -1; }
+}

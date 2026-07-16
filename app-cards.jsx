@@ -14874,36 +14874,6 @@ function TsyMarketsCards({ apiFetch, onOpenTicker }) {
       <div className="card tsy-card">
         <div className="card-head">
           <div>
-            <div className="kicker">Front-month continuous · PRICES move opposite to yields · delayed</div>
-            <div className="card-title">Treasury futures</div>
-          </div>
-        </div>
-        <div className="tsy-tablewrap">
-          <table className="tsy-table">
-            <thead><tr><th>Contract</th><th>Last</th><th>Day %</th><th>Day range</th><th>Volume</th></tr></thead>
-            <tbody>
-              {futs.map(f => (
-                <tr key={f.code}>
-                  <td><b>{f.code}</b> <span className="muted">{f.label}</span></td>
-                  {f.ok ? (
-                    <React.Fragment>
-                      <td className="num"><b>{f.last}</b></td>
-                      <td className={`num ${f.chg_pct != null ? (f.chg_pct >= 0 ? "cu" : "cd") : ""}`} title="Futures PRICE change — price up means yields down.">{f.chg_pct != null ? `${f.chg_pct >= 0 ? "+" : ""}${f.chg_pct}%` : "—"}</td>
-                      <td className="num">{f.day_lo} – {f.day_hi}</td>
-                      <td className="num">{f.volume != null ? f.volume.toLocaleString() : "—"}</td>
-                    </React.Fragment>
-                  ) : <td colSpan="4"><TsyNA /></td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="tsy-sigd">{mk.d.futures_note}</div>
-        <TsyFoot src={mk.d.source} delayed />
-      </div>
-      <div className="card tsy-card">
-        <div className="card-head">
-          <div>
             <div className="kicker">Bond ETF proxies · click a row to open it in the Analyze workflow</div>
             <div className="card-title">Treasury ETFs</div>
           </div>
@@ -15224,46 +15194,337 @@ function TsyAlertsCard({ core }) {
   );
 }
 
+/* ── Overview grid (v3.61) — the glance terminal ──────────────────────────
+   Dense mini-panels modeled on the user's mockup: everything scannable in
+   one screen, detail sections below. Minis take data from the tab's own
+   fetches; detail cards self-fetch through sharedJson (deduped). */
+function TsyMini({ kicker, title, children, right }) {
+  return (
+    <div className="card tsy-mini">
+      <div className="tsy-mini-h"><em>{kicker}</em>{right}</div>
+      {title && <div className="tsy-mini-t">{title}</div>}
+      {children}
+    </div>
+  );
+}
+function TsyOvYields({ core }) {
+  const cards = (core.d && core.d.yields) || [];
+  return (
+    <TsyMini kicker="Key Treasury yields · official EOD curve" right={<span className="tsy-datechip num">{core.d && core.d.curve_date}</span>}>
+      <div className="tsy-ystrip">
+        {cards.map(c => (
+          <div key={c.tenor} className={`tsy-ycell ${TSY_KEY4[c.tenor] ? "key" : ""}`}
+               title={`${c.tenor}: ${c.yield.toFixed(2)}% · 1d ${c.bp1d != null ? c.bp1d + " bp" : "—"} · 5d ${c.bp5d != null ? c.bp5d + " bp" : "—"} · 1m ${c.bp21d != null ? c.bp21d + " bp" : "—"}\n52w range ${c.lo52w.toFixed(2)}–${c.hi52w.toFixed(2)}% (${c.pct52w != null ? c.pct52w.toFixed(0) + "th pctile" : "—"})${c.key ? "\n" + c.key : ""}\n${TSY_INV}`}>
+            <em>{c.tenor}</em>
+            <b className="num">{c.yield.toFixed(2)}%</b>
+            <span className={`num ${tsyBpCls(c.bp1d)}`}>{c.bp1d != null ? `${c.bp1d >= 0 ? "+" : ""}${c.bp1d.toFixed(0)}` : "—"}</span>
+          </div>
+        ))}
+      </div>
+    </TsyMini>
+  );
+}
+function TsyOv10Y({ core }) {
+  const c = ((core.d && core.d.yields) || []).find(x => x.tenor === "10Y");
+  if (!c) return <TsyMini kicker="10Y Treasury"><TsyNA /></TsyMini>;
+  const span = c.hi52w - c.lo52w;
+  const pos = span > 0 ? Math.max(0, Math.min(100, (c.yield - c.lo52w) / span * 100)) : 50;
+  return (
+    <TsyMini kicker="10Y Treasury · equity valuation benchmark">
+      <div className="tsy-spot num"><b>{c.yield.toFixed(2)}%</b><TsyBp v={c.bp1d} d={0} /></div>
+      <div className="tsy-52bar"><i style={{ left: `${pos}%` }}></i></div>
+      <div className="tsy-52lbl num"><span>{c.lo52w.toFixed(2)}</span><span>52W</span><span>{c.hi52w.toFixed(2)}</span></div>
+      <div className="tsy-spotrow num">
+        <span>5d <TsyBp v={c.bp5d} d={0} /></span>
+        <span>1m <TsyBp v={c.bp21d} d={0} /></span>
+        <span>YTD <TsyBp v={c.bp_ytd} d={0} /></span>
+      </div>
+    </TsyMini>
+  );
+}
+function TsyOvFutures({ mk }) {
+  const futs = ((mk.d && mk.d.futures) || []).filter(f => f.ok);
+  return (
+    <TsyMini kicker="Treasury futures · delayed" right={<span className="tsy-mini-note">price ↑ = yields ↓</span>}>
+      {futs.length ? futs.map(f => (
+        <div key={f.code} className="tsy-kv" title={`${f.label} front-month continuous, ${f.date}. Range ${f.day_lo}–${f.day_hi}. PRICE change — moves opposite to yields.`}>
+          <em>{f.code} <i>{f.code === "ZT" ? "2Y" : f.code === "ZF" ? "5Y" : f.code === "ZN" ? "10Y" : f.code === "ZB" ? "30Y" : "Ultra"}</i></em>
+          <b className="num">{f.last}</b>
+          <span className={`num ${f.chg_pct != null ? (f.chg_pct >= 0 ? "cu" : "cd") : ""}`}>{f.chg_pct != null ? `${f.chg_pct >= 0 ? "+" : ""}${f.chg_pct}%` : "—"}</span>
+        </div>
+      )) : <TsyNA why="Futures quote source unreachable — not estimated." />}
+    </TsyMini>
+  );
+}
+function TsyOvAnalysis({ core }) {
+  const d = core.d || {};
+  const shape = d.curve_shape, reg = d.regime, mv = d.curve_moves;
+  const sp = {};
+  (d.spreads || []).forEach(s => { sp[s.key] = s; });
+  const inv = shape && (shape.label.startsWith("inverted") || shape.label.startsWith("partially"));
+  return (
+    <TsyMini kicker="Yield curve analysis">
+      {shape && <div className="tsy-kv" title={shape.detail}><em>Curve shape</em><b className={inv ? "cd" : "cu"}>{shape.label}</b></div>}
+      {["2s10s", "3m10y", "5s30s", "10yff"].map(k => sp[k] ? (
+        <div key={k} className="tsy-kv" title={sp[k].label}>
+          <em>{sp[k].label.split(" (")[0]}</em>
+          <b className={`num ${sp[k].inverted ? "cd" : "cu"}`}>{sp[k].bp >= 0 ? "+" : ""}{sp[k].bp.toFixed(0)} bp</b>
+          <span className="num">{sp[k].trend === "steepening" ? "↗" : sp[k].trend === "flattening" ? "↘" : ""}</span>
+        </div>
+      ) : null)}
+      {reg && (
+        <div className={`tsy-sigbox ${reg.label.startsWith("bull") ? "up" : reg.label.startsWith("bear") ? "down" : ""}`}
+             title={`2y ${reg.d2y_bp >= 0 ? "+" : ""}${reg.d2y_bp} bp, 10y ${reg.d10y_bp >= 0 ? "+" : ""}${reg.d10y_bp} bp over ${reg.window}. Bull = yields falling.`}>
+          <em>REGIME · {reg.window}</em>
+          <b>{reg.label.toUpperCase()}</b>
+          <span>2y {reg.d2y_bp >= 0 ? "+" : ""}{reg.d2y_bp} · 10y {reg.d10y_bp >= 0 ? "+" : ""}{reg.d10y_bp} bp{mv && mv.biggest ? ` · biggest ${mv.biggest.tenor} ${mv.biggest.bp5d >= 0 ? "+" : ""}${mv.biggest.bp5d}` : ""}</span>
+        </div>
+      )}
+    </TsyMini>
+  );
+}
+function TsyOvAuctions({ au }) {
+  const d = au.d || {};
+  const rows = [...(d.recent_coupons || []), ...(d.recent_bills || [])]
+    .sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 7);
+  return (
+    <TsyMini kicker="Recent auctions · TreasuryDirect">
+      {au.loading ? <TsyLoading /> : rows.length ? rows.map((a, i) => (
+        <div key={i} className="tsy-kv" title={a.vs_prior ? `Bid-to-cover ${a.btc} vs ${a.vs_prior.btc_avg10} avg of prior ${a.vs_prior.n}; indirect ${a.indirect_pct}% vs ${a.vs_prior.indirect_avg10}%.` : `${a.term} ${a.type} auctioned ${a.date}.`}>
+          <em>{a.date && a.date.slice(5)} <i>{a.term}</i></em>
+          <b className="num">{a.high_yield != null ? a.high_yield.toFixed(3) + "%" : "—"}</b>
+          <span className="num">{a.btc != null ? a.btc.toFixed(2) + "×" : ""}</span>
+          {a.strength && <span className={`tsy-pill ${a.strength === "strong" ? "up" : a.strength === "weak" ? "down" : "mut"}`}>{a.strength.slice(0, 4).toUpperCase()}</span>}
+        </div>
+      )) : <TsyNA why="TreasuryDirect unreachable." />}
+    </TsyMini>
+  );
+}
+function TsyOvSpreads({ core }) {
+  const sp = (core.d && core.d.spreads) || [];
+  return (
+    <TsyMini kicker="Treasury spreads">
+      {sp.filter(s => s.key !== "10yff").map(s => (
+        <div key={s.key} className="tsy-kv" title={`${s.label} · 1w ${s.d5 != null ? s.d5 + " bp" : "—"} · 1m ${s.d21 != null ? s.d21 + " bp" : "—"} · ${s.pctile != null ? s.pctile.toFixed(0) + "th pctile (3y)" : ""}`}>
+          <em>{s.key}</em>
+          <b className={`num ${s.inverted ? "cd" : "cu"}`}>{s.bp >= 0 ? "+" : ""}{s.bp.toFixed(0)} bp</b>
+          <span className="num">{s.trend === "steepening" ? "↗" : s.trend === "flattening" ? "↘" : "→"}</span>
+        </div>
+      ))}
+    </TsyMini>
+  );
+}
+function TsyOvMatrix({ core }) {
+  const cards = (core.d && core.d.yields) || [];
+  const rows = ["2Y", "5Y", "10Y", "30Y"].map(t => cards.find(c => c.tenor === t)).filter(Boolean);
+  const cols = [["bp1d", "1D"], ["bp5d", "5D"], ["bp21d", "1M"], ["bp63d", "3M"], ["bp_ytd", "YTD"]];
+  return (
+    <TsyMini kicker="Rate change (bp)" right={<span className="tsy-mini-note" title={TSY_INV}>red = yields up</span>}>
+      <table className="tsy-matrix num">
+        <thead><tr><th></th>{cols.map(([k, l]) => <th key={k}>{l}</th>)}</tr></thead>
+        <tbody>
+          {rows.map(c => (
+            <tr key={c.tenor}>
+              <td className="tsy-mxt">{c.tenor}</td>
+              {cols.map(([k]) => (
+                <td key={k} className={tsyBpCls(c[k])}>{c[k] != null ? `${c[k] >= 0 ? "+" : ""}${c[k].toFixed(0)}` : "—"}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TsyMini>
+  );
+}
+function TsyOvInfl({ core, inf }) {
+  const e = (core.d && core.d.expectations) || {};
+  const dec = core.d && core.d.decomposition;
+  const cpiRows = (inf.d && inf.d.ok && inf.d.rows) || [];
+  const head = cpiRows.find(r => r.key === "headline"), cc = cpiRows.find(r => r.key === "core");
+  const kv = (label, s, tip) => s ? (
+    <div className="tsy-kv" title={tip || label}>
+      <em>{label}</em><b className="num">{s.value.toFixed(2)}%</b>
+      <span className={`num ${tsyBpCls(s.d1 != null ? s.d1 * 100 : null)}`}>{s.d1 != null ? `${s.d1 >= 0 ? "+" : ""}${(s.d1 * 100).toFixed(0)}` : ""}</span>
+    </div>
+  ) : null;
+  return (
+    <TsyMini kicker="Inflation & breakevens">
+      {kv("5y breakeven", e.be5)}
+      {kv("10y breakeven", e.be10)}
+      {kv("10y TIPS real", e.real10)}
+      {head && head.ok && <div className="tsy-kv" title={`Headline CPI YoY, data month ${head.month}.`}><em>CPI YoY</em><b className="num">{head.yoy != null ? head.yoy.toFixed(2) + "%" : "—"}</b></div>}
+      {cc && cc.ok && <div className="tsy-kv" title={`Core CPI YoY, data month ${cc.month} · 3m annualized ${cc.ann3m != null ? cc.ann3m + "%" : "—"}.`}><em>Core CPI YoY</em><b className="num">{cc.yoy != null ? cc.yoy.toFixed(2) + "%" : "—"}</b></div>}
+      {dec && <div className="tsy-mini-note" title={`Nominal ${dec.nominal_bp} = real ${dec.real_bp} + breakeven ${dec.breakeven_bp} bp over ${dec.window} (FRED).`}>10y move: {dec.verdict}</div>}
+    </TsyMini>
+  );
+}
+function TsyOvMove({ core }) {
+  const m = core.d && core.d.move;
+  return (
+    <TsyMini kicker="Treasury volatility" right={m && <span className={`tsy-pill ${m.regime === "low" || m.regime === "normal" ? "up" : m.regime === "elevated" ? "mut" : "down"}`}>{m.regime.toUpperCase()}</span>}>
+      {m ? (
+        <div title={`MOVE = Treasury option implied vol (NOT the equity VIX). Bands: ${m.bands}. 52w percentile ${m.pct52w != null ? m.pct52w.toFixed(0) : "—"}.`}>
+          <div className="tsy-spot num"><b>{m.value}</b><TsyBp v={m.d1} /></div>
+          <div className="tsy-spotrow num"><span>5d <TsyBp v={m.d5} /></span><span>1m <TsyBp v={m.d21} /></span></div>
+          <div className="tsy-mini-note">MOVE index · not the VIX</div>
+        </div>
+      ) : <TsyNA why="^MOVE quote unreachable — not estimated." />}
+    </TsyMini>
+  );
+}
+function TsyOvCorr({ mk }) {
+  const c = mk.d && mk.d.correlations;
+  const rows = ((c && c.rows) || []).filter(r => ["SPY", "QQQ", "IWM", "GLD", "UUP", "CL=F"].includes(r.sym));
+  return (
+    <TsyMini kicker="Correlation vs Δ10y · 60d">
+      {c && c.ok && rows.length ? rows.map(r => (
+        <div key={r.sym} className="tsy-kv" title={`${r.label}: 60-day correlation of daily returns vs daily change in the 10y yield. Correlation ≠ causation.`}>
+          <em>{r.sym === "CL=F" ? "OIL" : r.sym === "UUP" ? "USD" : r.sym === "GLD" ? "GOLD" : r.sym}</em>
+          <b className={`num ${r.w60 != null ? (r.w60 >= 0 ? "cu" : "cd") : ""}`}>{r.w60 != null ? (r.w60 >= 0 ? "+" : "") + r.w60.toFixed(2) : "—"}</b>
+        </div>
+      )) : <TsyNA why="Correlation inputs unreachable." />}
+    </TsyMini>
+  );
+}
+function TsyOvCot({ ct }) {
+  const rows = ((ct.d && ct.d.rows) || []).filter(r => r.ok);
+  return (
+    <TsyMini kicker="COT positioning · CFTC weekly" right={rows[0] && <span className="tsy-datechip num">{rows[0].date}</span>}>
+      {ct.loading ? <TsyLoading /> : rows.length ? (
+        <table className="tsy-matrix num">
+          <thead><tr><th></th><th>Asset mgr</th><th>Lev funds</th><th>Dealer</th><th></th></tr></thead>
+          <tbody>
+            {rows.map(r => {
+              const g = k => r[k] ? `${r[k].net >= 0 ? "+" : ""}${(r[k].net / 1000).toFixed(0)}k` : "—";
+              const crowded = ["asset_mgr", "lev_funds"].map(k => r[k] && r[k].crowded ? `${k === "asset_mgr" ? "AM" : "Lev"} ${r[k].crowded}` : null).filter(Boolean)[0];
+              return (
+                <tr key={r.code} title={`${r.code}: asset managers ${r.asset_mgr ? r.asset_mgr.net.toLocaleString() : "—"} (wk ${r.asset_mgr && r.asset_mgr.wk_chg != null ? r.asset_mgr.wk_chg.toLocaleString() : "—"}${r.asset_mgr && r.asset_mgr.pctile != null ? `, ${r.asset_mgr.pctile.toFixed(0)}th pctile 3y` : ""}) · leveraged ${r.lev_funds ? r.lev_funds.net.toLocaleString() : "—"} · dealers ${r.dealer ? r.dealer.net.toLocaleString() : "—"}.${r.fallback ? ` Source: ${r.fallback}.` : ""}`}>
+                  <td className="tsy-mxt">{r.code}</td>
+                  <td className={r.asset_mgr && r.asset_mgr.net >= 0 ? "cu" : "cd"}>{g("asset_mgr")}</td>
+                  <td className={r.lev_funds && r.lev_funds.net >= 0 ? "cu" : "cd"}>{g("lev_funds")}</td>
+                  <td className={r.dealer && r.dealer.net >= 0 ? "cu" : "cd"}>{g("dealer")}</td>
+                  <td>{crowded && <span className={`tsy-pill ${crowded.includes("long") ? "up" : "down"}`}>{crowded.toUpperCase()}</span>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : <TsyErr err={ct.err || "CFTC unavailable"} retry={ct.retry} />}
+    </TsyMini>
+  );
+}
+function TsyOvEvents({ core }) {
+  const ev = (core.d && core.d.events) || {};
+  const cpi = ev.next_cpi, fomc = ev.next_fomc, jobs = ev.next_jobs;
+  return (
+    <TsyMini kicker="Key macro events">
+      {cpi && cpi.date && (
+        <div className="tsy-kv big" title={`Next CPI per the BLS schedule, ${cpi.time_et}. Consensus: no free reliable feed — not estimated.`}>
+          <em>CPI</em><b className="num">{cpi.date}</b>
+          <span className="num warn">{cpi.countdown ? `${cpi.countdown.days}d ${cpi.countdown.hours}h` : ""}</span>
+        </div>
+      )}
+      {fomc && fomc.date && <div className="tsy-kv" title={fomc.source}><em>FOMC</em><b className="num">{fomc.date}</b><span className="num">{fomc.days}d</span></div>}
+      {jobs && <div className="tsy-kv" title={jobs.source}><em>Jobs report</em><b className="num">{jobs.date}</b></div>}
+      {(ev.upcoming_auctions || []).slice(0, 3).map((a, i) => (
+        <div key={i} className="tsy-kv" title={`${a.term} ${a.type} auction${a.offering ? `, $${(a.offering / 1e9).toFixed(0)}B` : ""} (TreasuryDirect).`}>
+          <em>Auction</em><b className="num">{a.auction_date}</b><span>{a.term} {a.type}</span>
+        </div>
+      ))}
+    </TsyMini>
+  );
+}
+function TsyOvFed({ fd }) {
+  const d = fd.d || {};
+  const t = d.target, nm = d.next_meeting;
+  return (
+    <TsyMini kicker="Fed policy" right={t && <span className="tsy-mini-note">{t.source.split(" (")[0]}</span>}>
+      {fd.loading ? <TsyLoading /> : (
+        <div>
+          {t && <div className="tsy-spot num" title={`Official target range as of ${t.date}.`}><b>{t.lower.toFixed(2)}–{t.upper.toFixed(2)}%</b></div>}
+          {nm && <div className="tsy-kv"><em>Next FOMC</em><b className="num">{nm.date}</b><span className="num warn">{nm.days}d</span></div>}
+          {d.yearend
+            ? <div className="tsy-kv" title="Implied avg fed funds from CME 30-day FF futures (100 − price), delayed via Yahoo. Per-meeting probabilities need CME FedWatch — not estimated.">
+                <em>Priced by {d.yearend.month}</em><b className="num">{d.yearend.implied_rate.toFixed(2)}%</b>
+                <span className="num">{Math.abs(d.yearend.cuts_25bp).toFixed(1)}×25bp {d.yearend.cuts_25bp >= 0 ? "cuts" : "hikes"}</span>
+              </div>
+            : <div className="tsy-mini-note">Implied path: <TsyNA why="Fed funds futures unreachable — not estimated." /></div>}
+        </div>
+      )}
+    </TsyMini>
+  );
+}
+
 /* ── The tab ───────────────────────────────────────────────────────────── */
 function TreasuriesTab({ apiFetch, onOpenTicker }) {
   const core = useTsy(apiFetch, "core", 900000);
+  const mk = useTsy(apiFetch, "markets", 900000);
+  const fd = useTsy(apiFetch, "fed", 1800000);
+  const au = useTsy(apiFetch, "auctions", 3600000);
+  const ct = useTsy(apiFetch, "cot", 3600000);
+  const inf = useTsy(apiFetch, "inflation", 3600000);
+  if (core.loading) return <div className="card tsy-card"><TsyLoading /></div>;
+  if (!core.d || !core.d.ok) return <div className="card tsy-card"><div className="kicker">US Treasuries</div><TsyErr err={core.err || "Treasury data unavailable"} retry={core.retry} /></div>;
   return (
     <div className="tsy">
-      <TsyYieldCards core={core} />
-      <TsyCurveCard core={core} />
-      {/* Two independent column stacks (not grid rows) so a short card never
-          leaves dead space beside a tall neighbor. */}
-      <div className="tsy-grid2">
-        <div className="tsy-col">
-          <TsySpreadsCard core={core} />
-          <TsyEventsCard core={core} />
-          <TsyMoveCard core={core} />
-        </div>
-        <div className="tsy-col">
-          <TsySignalsCard core={core} />
-          <TsyExpectationsCard core={core} />
-        </div>
+      {/* ── Glance terminal ── */}
+      <div className="tsy-ovrow r1">
+        <TsyOvYields core={core} />
+        <TsyOv10Y core={core} />
+        <TsyOvFutures mk={mk} />
       </div>
+      <div className="tsy-ovrow r2">
+        <div className="card tsy-mini">
+          <div className="tsy-mini-h"><em>Treasury yield curve</em><span className="tsy-mini-note">vs 1 month ago (dashed)</span></div>
+          <TsyCurveSvg snaps={core.d.snapshots || {}} cmp="1m" />
+        </div>
+        <TsyOvAnalysis core={core} />
+        <TsyOvAuctions au={au} />
+      </div>
+      <div className="tsy-ovrow r3">
+        <TsyOvSpreads core={core} />
+        <TsyOvMatrix core={core} />
+        <TsyOvInfl core={core} inf={inf} />
+        <TsyOvMove core={core} />
+        <TsyOvCorr mk={mk} />
+      </div>
+      <div className="tsy-ovrow r4">
+        <TsyOvCot ct={ct} />
+        <TsyOvEvents core={core} />
+        <TsyOvFed fd={fd} />
+      </div>
+
+      {/* ── Depth ── */}
+      <TsySignalsCard core={core} />
       <TsyCpiCard apiFetch={apiFetch} />
+      <TsyFold kicker="Interactive curve · compare any period, table view" title="Yield curve workbench">
+        <TsyCurveCard core={core} />
+      </TsyFold>
       <TsyFold kicker="History · how markets traded past prints" title="CPI releases & market reaction" hint="expand to load">
         <TsyCpiReactions apiFetch={apiFetch} />
       </TsyFold>
       <TsyMarketsCards apiFetch={apiFetch} onOpenTicker={onOpenTicker} />
-      <TsyFedCard apiFetch={apiFetch} />
-      <TsyFold kicker="Supply · demand at the margin" title="Treasury auctions" hint="expand to load">
+      <TsyFold kicker="Full spread detail · changes and percentiles" title="Treasury spreads detail">
+        <TsySpreadsCard core={core} />
+        <TsyExpectationsCard core={core} />
+      </TsyFold>
+      <TsyFold kicker="Supply · every result vs its prior 10" title="Treasury auctions detail">
         <TsyAuctions apiFetch={apiFetch} />
       </TsyFold>
-      <TsyFold kicker="CFTC weekly positioning" title="COT — Treasury futures positioning" hint="expand to load">
+      <TsyFold kicker="CFTC weekly detail · percentiles, weekly changes" title="COT detail">
         <TsyCot apiFetch={apiFetch} />
       </TsyFold>
-      <TsyFold kicker="Rolling correlation vs Δ10y" title="Cross-asset relationships" hint="expand to load">
+      <TsyFold kicker="Rolling correlation vs Δ10y · all windows" title="Cross-asset relationships">
         <TsyCorrTable apiFetch={apiFetch} />
       </TsyFold>
       <TsyFold kicker="Your watchlist × yield factors" title="Rate sensitivity watchlist" hint="expand to scan">
         <TsySense apiFetch={apiFetch} onOpenTicker={onOpenTicker} />
       </TsyFold>
-      <TsyFold kicker="Threshold rules on the displayed data" title="Rates alerts" hint="expand to configure" defaultOpen={false}>
+      <TsyFold kicker="Threshold rules on the displayed data" title="Rates alerts" hint="expand to configure">
         <TsyAlertsCard core={core} />
+      </TsyFold>
+      <TsyFold kicker="Fed detail · market-implied path by month" title="Fed rate expectations detail">
+        <TsyFedCard apiFetch={apiFetch} />
       </TsyFold>
     </div>
   );
