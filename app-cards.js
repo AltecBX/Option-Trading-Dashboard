@@ -20273,38 +20273,6 @@ function TsyMarketsCards({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Front-month continuous · PRICES move opposite to yields · delayed"), /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
-  }, "Treasury futures"))), /*#__PURE__*/React.createElement("div", {
-    className: "tsy-tablewrap"
-  }, /*#__PURE__*/React.createElement("table", {
-    className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Contract"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "Day %"), /*#__PURE__*/React.createElement("th", null, "Day range"), /*#__PURE__*/React.createElement("th", null, "Volume"))), /*#__PURE__*/React.createElement("tbody", null, futs.map(f => /*#__PURE__*/React.createElement("tr", {
-    key: f.code
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, f.code), " ", /*#__PURE__*/React.createElement("span", {
-    className: "muted"
-  }, f.label)), f.ok ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, /*#__PURE__*/React.createElement("b", null, f.last)), /*#__PURE__*/React.createElement("td", {
-    className: `num ${f.chg_pct != null ? f.chg_pct >= 0 ? "cu" : "cd" : ""}`,
-    title: "Futures PRICE change — price up means yields down."
-  }, f.chg_pct != null ? `${f.chg_pct >= 0 ? "+" : ""}${f.chg_pct}%` : "—"), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, f.day_lo, " – ", f.day_hi), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, f.volume != null ? f.volume.toLocaleString() : "—")) : /*#__PURE__*/React.createElement("td", {
-    colSpan: "4"
-  }, /*#__PURE__*/React.createElement(TsyNA, null))))))), /*#__PURE__*/React.createElement("div", {
-    className: "tsy-sigd"
-  }, mk.d.futures_note), /*#__PURE__*/React.createElement(TsyFoot, {
-    src: mk.d.source,
-    delayed: true
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "card tsy-card"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "card-head"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "kicker"
   }, "Bond ETF proxies · click a row to open it in the Analyze workflow"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Treasury ETFs"))), /*#__PURE__*/React.createElement("div", {
@@ -20790,37 +20758,456 @@ function TsyAlertsCard({
   }));
 }
 
+/* ── Overview grid (v3.61) — the glance terminal ──────────────────────────
+   Dense mini-panels modeled on the user's mockup: everything scannable in
+   one screen, detail sections below. Minis take data from the tab's own
+   fetches; detail cards self-fetch through sharedJson (deduped). */
+function TsyMini({
+  kicker,
+  title,
+  children,
+  right
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card tsy-mini"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tsy-mini-h"
+  }, /*#__PURE__*/React.createElement("em", null, kicker), right), title && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-mini-t"
+  }, title), children);
+}
+function TsyOvYields({
+  core
+}) {
+  const cards = core.d && core.d.yields || [];
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Key Treasury yields · official EOD curve",
+    right: /*#__PURE__*/React.createElement("span", {
+      className: "tsy-datechip num"
+    }, core.d && core.d.curve_date)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tsy-ystrip"
+  }, cards.map(c => /*#__PURE__*/React.createElement("div", {
+    key: c.tenor,
+    className: `tsy-ycell ${TSY_KEY4[c.tenor] ? "key" : ""}`,
+    title: `${c.tenor}: ${c.yield.toFixed(2)}% · 1d ${c.bp1d != null ? c.bp1d + " bp" : "—"} · 5d ${c.bp5d != null ? c.bp5d + " bp" : "—"} · 1m ${c.bp21d != null ? c.bp21d + " bp" : "—"}\n52w range ${c.lo52w.toFixed(2)}–${c.hi52w.toFixed(2)}% (${c.pct52w != null ? c.pct52w.toFixed(0) + "th pctile" : "—"})${c.key ? "\n" + c.key : ""}\n${TSY_INV}`
+  }, /*#__PURE__*/React.createElement("em", null, c.tenor), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, c.yield.toFixed(2), "%"), /*#__PURE__*/React.createElement("span", {
+    className: `num ${tsyBpCls(c.bp1d)}`
+  }, c.bp1d != null ? `${c.bp1d >= 0 ? "+" : ""}${c.bp1d.toFixed(0)}` : "—")))));
+}
+function TsyOv10Y({
+  core
+}) {
+  const c = (core.d && core.d.yields || []).find(x => x.tenor === "10Y");
+  if (!c) return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "10Y Treasury"
+  }, /*#__PURE__*/React.createElement(TsyNA, null));
+  const span = c.hi52w - c.lo52w;
+  const pos = span > 0 ? Math.max(0, Math.min(100, (c.yield - c.lo52w) / span * 100)) : 50;
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "10Y Treasury · equity valuation benchmark"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tsy-spot num"
+  }, /*#__PURE__*/React.createElement("b", null, c.yield.toFixed(2), "%"), /*#__PURE__*/React.createElement(TsyBp, {
+    v: c.bp1d,
+    d: 0
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-52bar"
+  }, /*#__PURE__*/React.createElement("i", {
+    style: {
+      left: `${pos}%`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-52lbl num"
+  }, /*#__PURE__*/React.createElement("span", null, c.lo52w.toFixed(2)), /*#__PURE__*/React.createElement("span", null, "52W"), /*#__PURE__*/React.createElement("span", null, c.hi52w.toFixed(2))), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-spotrow num"
+  }, /*#__PURE__*/React.createElement("span", null, "5d ", /*#__PURE__*/React.createElement(TsyBp, {
+    v: c.bp5d,
+    d: 0
+  })), /*#__PURE__*/React.createElement("span", null, "1m ", /*#__PURE__*/React.createElement(TsyBp, {
+    v: c.bp21d,
+    d: 0
+  })), /*#__PURE__*/React.createElement("span", null, "YTD ", /*#__PURE__*/React.createElement(TsyBp, {
+    v: c.bp_ytd,
+    d: 0
+  }))));
+}
+function TsyOvFutures({
+  mk
+}) {
+  const futs = (mk.d && mk.d.futures || []).filter(f => f.ok);
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Treasury futures · delayed",
+    right: /*#__PURE__*/React.createElement("span", {
+      className: "tsy-mini-note"
+    }, "price ↑ = yields ↓")
+  }, futs.length ? futs.map(f => /*#__PURE__*/React.createElement("div", {
+    key: f.code,
+    className: "tsy-kv",
+    title: `${f.label} front-month continuous, ${f.date}. Range ${f.day_lo}–${f.day_hi}. PRICE change — moves opposite to yields.`
+  }, /*#__PURE__*/React.createElement("em", null, f.code, " ", /*#__PURE__*/React.createElement("i", null, f.code === "ZT" ? "2Y" : f.code === "ZF" ? "5Y" : f.code === "ZN" ? "10Y" : f.code === "ZB" ? "30Y" : "Ultra")), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, f.last), /*#__PURE__*/React.createElement("span", {
+    className: `num ${f.chg_pct != null ? f.chg_pct >= 0 ? "cu" : "cd" : ""}`
+  }, f.chg_pct != null ? `${f.chg_pct >= 0 ? "+" : ""}${f.chg_pct}%` : "—"))) : /*#__PURE__*/React.createElement(TsyNA, {
+    why: "Futures quote source unreachable — not estimated."
+  }));
+}
+function TsyOvAnalysis({
+  core
+}) {
+  const d = core.d || {};
+  const shape = d.curve_shape,
+    reg = d.regime,
+    mv = d.curve_moves;
+  const sp = {};
+  (d.spreads || []).forEach(s => {
+    sp[s.key] = s;
+  });
+  const inv = shape && (shape.label.startsWith("inverted") || shape.label.startsWith("partially"));
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Yield curve analysis"
+  }, shape && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: shape.detail
+  }, /*#__PURE__*/React.createElement("em", null, "Curve shape"), /*#__PURE__*/React.createElement("b", {
+    className: inv ? "cd" : "cu"
+  }, shape.label)), ["2s10s", "3m10y", "5s30s", "10yff"].map(k => sp[k] ? /*#__PURE__*/React.createElement("div", {
+    key: k,
+    className: "tsy-kv",
+    title: sp[k].label
+  }, /*#__PURE__*/React.createElement("em", null, sp[k].label.split(" (")[0]), /*#__PURE__*/React.createElement("b", {
+    className: `num ${sp[k].inverted ? "cd" : "cu"}`
+  }, sp[k].bp >= 0 ? "+" : "", sp[k].bp.toFixed(0), " bp"), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, sp[k].trend === "steepening" ? "↗" : sp[k].trend === "flattening" ? "↘" : "")) : null), reg && /*#__PURE__*/React.createElement("div", {
+    className: `tsy-sigbox ${reg.label.startsWith("bull") ? "up" : reg.label.startsWith("bear") ? "down" : ""}`,
+    title: `2y ${reg.d2y_bp >= 0 ? "+" : ""}${reg.d2y_bp} bp, 10y ${reg.d10y_bp >= 0 ? "+" : ""}${reg.d10y_bp} bp over ${reg.window}. Bull = yields falling.`
+  }, /*#__PURE__*/React.createElement("em", null, "REGIME · ", reg.window), /*#__PURE__*/React.createElement("b", null, reg.label.toUpperCase()), /*#__PURE__*/React.createElement("span", null, "2y ", reg.d2y_bp >= 0 ? "+" : "", reg.d2y_bp, " · 10y ", reg.d10y_bp >= 0 ? "+" : "", reg.d10y_bp, " bp", mv && mv.biggest ? ` · biggest ${mv.biggest.tenor} ${mv.biggest.bp5d >= 0 ? "+" : ""}${mv.biggest.bp5d}` : "")));
+}
+function TsyOvAuctions({
+  au
+}) {
+  const d = au.d || {};
+  const rows = [...(d.recent_coupons || []), ...(d.recent_bills || [])].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 7);
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Recent auctions · TreasuryDirect"
+  }, au.loading ? /*#__PURE__*/React.createElement(TsyLoading, null) : rows.length ? rows.map((a, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "tsy-kv",
+    title: a.vs_prior ? `Bid-to-cover ${a.btc} vs ${a.vs_prior.btc_avg10} avg of prior ${a.vs_prior.n}; indirect ${a.indirect_pct}% vs ${a.vs_prior.indirect_avg10}%.` : `${a.term} ${a.type} auctioned ${a.date}.`
+  }, /*#__PURE__*/React.createElement("em", null, a.date && a.date.slice(5), " ", /*#__PURE__*/React.createElement("i", null, a.term)), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, a.high_yield != null ? a.high_yield.toFixed(3) + "%" : "—"), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, a.btc != null ? a.btc.toFixed(2) + "×" : ""), a.strength && /*#__PURE__*/React.createElement("span", {
+    className: `tsy-pill ${a.strength === "strong" ? "up" : a.strength === "weak" ? "down" : "mut"}`
+  }, a.strength.slice(0, 4).toUpperCase()))) : /*#__PURE__*/React.createElement(TsyNA, {
+    why: "TreasuryDirect unreachable."
+  }));
+}
+function TsyOvSpreads({
+  core
+}) {
+  const sp = core.d && core.d.spreads || [];
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Treasury spreads"
+  }, sp.filter(s => s.key !== "10yff").map(s => /*#__PURE__*/React.createElement("div", {
+    key: s.key,
+    className: "tsy-kv",
+    title: `${s.label} · 1w ${s.d5 != null ? s.d5 + " bp" : "—"} · 1m ${s.d21 != null ? s.d21 + " bp" : "—"} · ${s.pctile != null ? s.pctile.toFixed(0) + "th pctile (3y)" : ""}`
+  }, /*#__PURE__*/React.createElement("em", null, s.key), /*#__PURE__*/React.createElement("b", {
+    className: `num ${s.inverted ? "cd" : "cu"}`
+  }, s.bp >= 0 ? "+" : "", s.bp.toFixed(0), " bp"), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, s.trend === "steepening" ? "↗" : s.trend === "flattening" ? "↘" : "→"))));
+}
+function TsyOvMatrix({
+  core
+}) {
+  const cards = core.d && core.d.yields || [];
+  const rows = ["2Y", "5Y", "10Y", "30Y"].map(t => cards.find(c => c.tenor === t)).filter(Boolean);
+  const cols = [["bp1d", "1D"], ["bp5d", "5D"], ["bp21d", "1M"], ["bp63d", "3M"], ["bp_ytd", "YTD"]];
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Rate change (bp)",
+    right: /*#__PURE__*/React.createElement("span", {
+      className: "tsy-mini-note",
+      title: TSY_INV
+    }, "red = yields up")
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "tsy-matrix num"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), cols.map(([k, l]) => /*#__PURE__*/React.createElement("th", {
+    key: k
+  }, l)))), /*#__PURE__*/React.createElement("tbody", null, rows.map(c => /*#__PURE__*/React.createElement("tr", {
+    key: c.tenor
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "tsy-mxt"
+  }, c.tenor), cols.map(([k]) => /*#__PURE__*/React.createElement("td", {
+    key: k,
+    className: tsyBpCls(c[k])
+  }, c[k] != null ? `${c[k] >= 0 ? "+" : ""}${c[k].toFixed(0)}` : "—")))))));
+}
+function TsyOvInfl({
+  core,
+  inf
+}) {
+  const e = core.d && core.d.expectations || {};
+  const dec = core.d && core.d.decomposition;
+  const cpiRows = inf.d && inf.d.ok && inf.d.rows || [];
+  const head = cpiRows.find(r => r.key === "headline"),
+    cc = cpiRows.find(r => r.key === "core");
+  const kv = (label, s, tip) => s ? /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: tip || label
+  }, /*#__PURE__*/React.createElement("em", null, label), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, s.value.toFixed(2), "%"), /*#__PURE__*/React.createElement("span", {
+    className: `num ${tsyBpCls(s.d1 != null ? s.d1 * 100 : null)}`
+  }, s.d1 != null ? `${s.d1 >= 0 ? "+" : ""}${(s.d1 * 100).toFixed(0)}` : "")) : null;
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Inflation & breakevens"
+  }, kv("5y breakeven", e.be5), kv("10y breakeven", e.be10), kv("10y TIPS real", e.real10), head && head.ok && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: `Headline CPI YoY, data month ${head.month}.`
+  }, /*#__PURE__*/React.createElement("em", null, "CPI YoY"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, head.yoy != null ? head.yoy.toFixed(2) + "%" : "—")), cc && cc.ok && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: `Core CPI YoY, data month ${cc.month} · 3m annualized ${cc.ann3m != null ? cc.ann3m + "%" : "—"}.`
+  }, /*#__PURE__*/React.createElement("em", null, "Core CPI YoY"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, cc.yoy != null ? cc.yoy.toFixed(2) + "%" : "—")), dec && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-mini-note",
+    title: `Nominal ${dec.nominal_bp} = real ${dec.real_bp} + breakeven ${dec.breakeven_bp} bp over ${dec.window} (FRED).`
+  }, "10y move: ", dec.verdict));
+}
+function TsyOvMove({
+  core
+}) {
+  const m = core.d && core.d.move;
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Treasury volatility",
+    right: m && /*#__PURE__*/React.createElement("span", {
+      className: `tsy-pill ${m.regime === "low" || m.regime === "normal" ? "up" : m.regime === "elevated" ? "mut" : "down"}`
+    }, m.regime.toUpperCase())
+  }, m ? /*#__PURE__*/React.createElement("div", {
+    title: `MOVE = Treasury option implied vol (NOT the equity VIX). Bands: ${m.bands}. 52w percentile ${m.pct52w != null ? m.pct52w.toFixed(0) : "—"}.`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tsy-spot num"
+  }, /*#__PURE__*/React.createElement("b", null, m.value), /*#__PURE__*/React.createElement(TsyBp, {
+    v: m.d1
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-spotrow num"
+  }, /*#__PURE__*/React.createElement("span", null, "5d ", /*#__PURE__*/React.createElement(TsyBp, {
+    v: m.d5
+  })), /*#__PURE__*/React.createElement("span", null, "1m ", /*#__PURE__*/React.createElement(TsyBp, {
+    v: m.d21
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-mini-note"
+  }, "MOVE index · not the VIX")) : /*#__PURE__*/React.createElement(TsyNA, {
+    why: "^MOVE quote unreachable — not estimated."
+  }));
+}
+function TsyOvCorr({
+  mk
+}) {
+  const c = mk.d && mk.d.correlations;
+  const rows = (c && c.rows || []).filter(r => ["SPY", "QQQ", "IWM", "GLD", "UUP", "CL=F"].includes(r.sym));
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Correlation vs Δ10y · 60d"
+  }, c && c.ok && rows.length ? rows.map(r => /*#__PURE__*/React.createElement("div", {
+    key: r.sym,
+    className: "tsy-kv",
+    title: `${r.label}: 60-day correlation of daily returns vs daily change in the 10y yield. Correlation ≠ causation.`
+  }, /*#__PURE__*/React.createElement("em", null, r.sym === "CL=F" ? "OIL" : r.sym === "UUP" ? "USD" : r.sym === "GLD" ? "GOLD" : r.sym), /*#__PURE__*/React.createElement("b", {
+    className: `num ${r.w60 != null ? r.w60 >= 0 ? "cu" : "cd" : ""}`
+  }, r.w60 != null ? (r.w60 >= 0 ? "+" : "") + r.w60.toFixed(2) : "—"))) : /*#__PURE__*/React.createElement(TsyNA, {
+    why: "Correlation inputs unreachable."
+  }));
+}
+function TsyOvCot({
+  ct
+}) {
+  const rows = (ct.d && ct.d.rows || []).filter(r => r.ok);
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "COT positioning · CFTC weekly",
+    right: rows[0] && /*#__PURE__*/React.createElement("span", {
+      className: "tsy-datechip num"
+    }, rows[0].date)
+  }, ct.loading ? /*#__PURE__*/React.createElement(TsyLoading, null) : rows.length ? /*#__PURE__*/React.createElement("table", {
+    className: "tsy-matrix num"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "Asset mgr"), /*#__PURE__*/React.createElement("th", null, "Lev funds"), /*#__PURE__*/React.createElement("th", null, "Dealer"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+    const g = k => r[k] ? `${r[k].net >= 0 ? "+" : ""}${(r[k].net / 1000).toFixed(0)}k` : "—";
+    const crowded = ["asset_mgr", "lev_funds"].map(k => r[k] && r[k].crowded ? `${k === "asset_mgr" ? "AM" : "Lev"} ${r[k].crowded}` : null).filter(Boolean)[0];
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.code,
+      title: `${r.code}: asset managers ${r.asset_mgr ? r.asset_mgr.net.toLocaleString() : "—"} (wk ${r.asset_mgr && r.asset_mgr.wk_chg != null ? r.asset_mgr.wk_chg.toLocaleString() : "—"}${r.asset_mgr && r.asset_mgr.pctile != null ? `, ${r.asset_mgr.pctile.toFixed(0)}th pctile 3y` : ""}) · leveraged ${r.lev_funds ? r.lev_funds.net.toLocaleString() : "—"} · dealers ${r.dealer ? r.dealer.net.toLocaleString() : "—"}.${r.fallback ? ` Source: ${r.fallback}.` : ""}`
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "tsy-mxt"
+    }, r.code), /*#__PURE__*/React.createElement("td", {
+      className: r.asset_mgr && r.asset_mgr.net >= 0 ? "cu" : "cd"
+    }, g("asset_mgr")), /*#__PURE__*/React.createElement("td", {
+      className: r.lev_funds && r.lev_funds.net >= 0 ? "cu" : "cd"
+    }, g("lev_funds")), /*#__PURE__*/React.createElement("td", {
+      className: r.dealer && r.dealer.net >= 0 ? "cu" : "cd"
+    }, g("dealer")), /*#__PURE__*/React.createElement("td", null, crowded && /*#__PURE__*/React.createElement("span", {
+      className: `tsy-pill ${crowded.includes("long") ? "up" : "down"}`
+    }, crowded.toUpperCase())));
+  }))) : /*#__PURE__*/React.createElement(TsyErr, {
+    err: ct.err || "CFTC unavailable",
+    retry: ct.retry
+  }));
+}
+function TsyOvEvents({
+  core
+}) {
+  const ev = core.d && core.d.events || {};
+  const cpi = ev.next_cpi,
+    fomc = ev.next_fomc,
+    jobs = ev.next_jobs;
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Key macro events"
+  }, cpi && cpi.date && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv big",
+    title: `Next CPI per the BLS schedule, ${cpi.time_et}. Consensus: no free reliable feed — not estimated.`
+  }, /*#__PURE__*/React.createElement("em", null, "CPI"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, cpi.date), /*#__PURE__*/React.createElement("span", {
+    className: "num warn"
+  }, cpi.countdown ? `${cpi.countdown.days}d ${cpi.countdown.hours}h` : "")), fomc && fomc.date && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: fomc.source
+  }, /*#__PURE__*/React.createElement("em", null, "FOMC"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, fomc.date), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, fomc.days, "d")), jobs && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: jobs.source
+  }, /*#__PURE__*/React.createElement("em", null, "Jobs report"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, jobs.date)), (ev.upcoming_auctions || []).slice(0, 3).map((a, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "tsy-kv",
+    title: `${a.term} ${a.type} auction${a.offering ? `, $${(a.offering / 1e9).toFixed(0)}B` : ""} (TreasuryDirect).`
+  }, /*#__PURE__*/React.createElement("em", null, "Auction"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, a.auction_date), /*#__PURE__*/React.createElement("span", null, a.term, " ", a.type))));
+}
+function TsyOvFed({
+  fd
+}) {
+  const d = fd.d || {};
+  const t = d.target,
+    nm = d.next_meeting;
+  return /*#__PURE__*/React.createElement(TsyMini, {
+    kicker: "Fed policy",
+    right: t && /*#__PURE__*/React.createElement("span", {
+      className: "tsy-mini-note"
+    }, t.source.split(" (")[0])
+  }, fd.loading ? /*#__PURE__*/React.createElement(TsyLoading, null) : /*#__PURE__*/React.createElement("div", null, t && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-spot num",
+    title: `Official target range as of ${t.date}.`
+  }, /*#__PURE__*/React.createElement("b", null, t.lower.toFixed(2), "–", t.upper.toFixed(2), "%")), nm && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv"
+  }, /*#__PURE__*/React.createElement("em", null, "Next FOMC"), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, nm.date), /*#__PURE__*/React.createElement("span", {
+    className: "num warn"
+  }, nm.days, "d")), d.yearend ? /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: "Implied avg fed funds from CME 30-day FF futures (100 − price), delayed via Yahoo. Per-meeting probabilities need CME FedWatch — not estimated."
+  }, /*#__PURE__*/React.createElement("em", null, "Priced by ", d.yearend.month), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, d.yearend.implied_rate.toFixed(2), "%"), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, Math.abs(d.yearend.cuts_25bp).toFixed(1), "×25bp ", d.yearend.cuts_25bp >= 0 ? "cuts" : "hikes")) : /*#__PURE__*/React.createElement("div", {
+    className: "tsy-mini-note"
+  }, "Implied path: ", /*#__PURE__*/React.createElement(TsyNA, {
+    why: "Fed funds futures unreachable — not estimated."
+  }))));
+}
+
 /* ── The tab ───────────────────────────────────────────────────────────── */
 function TreasuriesTab({
   apiFetch,
   onOpenTicker
 }) {
   const core = useTsy(apiFetch, "core", 900000);
+  const mk = useTsy(apiFetch, "markets", 900000);
+  const fd = useTsy(apiFetch, "fed", 1800000);
+  const au = useTsy(apiFetch, "auctions", 3600000);
+  const ct = useTsy(apiFetch, "cot", 3600000);
+  const inf = useTsy(apiFetch, "inflation", 3600000);
+  if (core.loading) return /*#__PURE__*/React.createElement("div", {
+    className: "card tsy-card"
+  }, /*#__PURE__*/React.createElement(TsyLoading, null));
+  if (!core.d || !core.d.ok) return /*#__PURE__*/React.createElement("div", {
+    className: "card tsy-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "US Treasuries"), /*#__PURE__*/React.createElement(TsyErr, {
+    err: core.err || "Treasury data unavailable",
+    retry: core.retry
+  }));
   return /*#__PURE__*/React.createElement("div", {
     className: "tsy"
-  }, /*#__PURE__*/React.createElement(TsyYieldCards, {
-    core: core
-  }), /*#__PURE__*/React.createElement(TsyCurveCard, {
-    core: core
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "tsy-grid2"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "tsy-col"
-  }, /*#__PURE__*/React.createElement(TsySpreadsCard, {
+    className: "tsy-ovrow r1"
+  }, /*#__PURE__*/React.createElement(TsyOvYields, {
     core: core
-  }), /*#__PURE__*/React.createElement(TsyEventsCard, {
+  }), /*#__PURE__*/React.createElement(TsyOv10Y, {
     core: core
-  }), /*#__PURE__*/React.createElement(TsyMoveCard, {
-    core: core
+  }), /*#__PURE__*/React.createElement(TsyOvFutures, {
+    mk: mk
   })), /*#__PURE__*/React.createElement("div", {
-    className: "tsy-col"
-  }, /*#__PURE__*/React.createElement(TsySignalsCard, {
+    className: "tsy-ovrow r2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card tsy-mini"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tsy-mini-h"
+  }, /*#__PURE__*/React.createElement("em", null, "Treasury yield curve"), /*#__PURE__*/React.createElement("span", {
+    className: "tsy-mini-note"
+  }, "vs 1 month ago (dashed)")), /*#__PURE__*/React.createElement(TsyCurveSvg, {
+    snaps: core.d.snapshots || {},
+    cmp: "1m"
+  })), /*#__PURE__*/React.createElement(TsyOvAnalysis, {
     core: core
-  }), /*#__PURE__*/React.createElement(TsyExpectationsCard, {
+  }), /*#__PURE__*/React.createElement(TsyOvAuctions, {
+    au: au
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-ovrow r3"
+  }, /*#__PURE__*/React.createElement(TsyOvSpreads, {
     core: core
-  }))), /*#__PURE__*/React.createElement(TsyCpiCard, {
+  }), /*#__PURE__*/React.createElement(TsyOvMatrix, {
+    core: core
+  }), /*#__PURE__*/React.createElement(TsyOvInfl, {
+    core: core,
+    inf: inf
+  }), /*#__PURE__*/React.createElement(TsyOvMove, {
+    core: core
+  }), /*#__PURE__*/React.createElement(TsyOvCorr, {
+    mk: mk
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-ovrow r4"
+  }, /*#__PURE__*/React.createElement(TsyOvCot, {
+    ct: ct
+  }), /*#__PURE__*/React.createElement(TsyOvEvents, {
+    core: core
+  }), /*#__PURE__*/React.createElement(TsyOvFed, {
+    fd: fd
+  })), /*#__PURE__*/React.createElement(TsySignalsCard, {
+    core: core
+  }), /*#__PURE__*/React.createElement(TsyCpiCard, {
     apiFetch: apiFetch
   }), /*#__PURE__*/React.createElement(TsyFold, {
+    kicker: "Interactive curve · compare any period, table view",
+    title: "Yield curve workbench"
+  }, /*#__PURE__*/React.createElement(TsyCurveCard, {
+    core: core
+  })), /*#__PURE__*/React.createElement(TsyFold, {
     kicker: "History · how markets traded past prints",
     title: "CPI releases & market reaction",
     hint: "expand to load"
@@ -20829,24 +21216,26 @@ function TreasuriesTab({
   })), /*#__PURE__*/React.createElement(TsyMarketsCards, {
     apiFetch: apiFetch,
     onOpenTicker: onOpenTicker
-  }), /*#__PURE__*/React.createElement(TsyFedCard, {
-    apiFetch: apiFetch
   }), /*#__PURE__*/React.createElement(TsyFold, {
-    kicker: "Supply · demand at the margin",
-    title: "Treasury auctions",
-    hint: "expand to load"
+    kicker: "Full spread detail · changes and percentiles",
+    title: "Treasury spreads detail"
+  }, /*#__PURE__*/React.createElement(TsySpreadsCard, {
+    core: core
+  }), /*#__PURE__*/React.createElement(TsyExpectationsCard, {
+    core: core
+  })), /*#__PURE__*/React.createElement(TsyFold, {
+    kicker: "Supply · every result vs its prior 10",
+    title: "Treasury auctions detail"
   }, /*#__PURE__*/React.createElement(TsyAuctions, {
     apiFetch: apiFetch
   })), /*#__PURE__*/React.createElement(TsyFold, {
-    kicker: "CFTC weekly positioning",
-    title: "COT — Treasury futures positioning",
-    hint: "expand to load"
+    kicker: "CFTC weekly detail · percentiles, weekly changes",
+    title: "COT detail"
   }, /*#__PURE__*/React.createElement(TsyCot, {
     apiFetch: apiFetch
   })), /*#__PURE__*/React.createElement(TsyFold, {
-    kicker: "Rolling correlation vs Δ10y",
-    title: "Cross-asset relationships",
-    hint: "expand to load"
+    kicker: "Rolling correlation vs Δ10y · all windows",
+    title: "Cross-asset relationships"
   }, /*#__PURE__*/React.createElement(TsyCorrTable, {
     apiFetch: apiFetch
   })), /*#__PURE__*/React.createElement(TsyFold, {
@@ -20859,10 +21248,14 @@ function TreasuriesTab({
   })), /*#__PURE__*/React.createElement(TsyFold, {
     kicker: "Threshold rules on the displayed data",
     title: "Rates alerts",
-    hint: "expand to configure",
-    defaultOpen: false
+    hint: "expand to configure"
   }, /*#__PURE__*/React.createElement(TsyAlertsCard, {
     core: core
+  })), /*#__PURE__*/React.createElement(TsyFold, {
+    kicker: "Fed detail · market-implied path by month",
+    title: "Fed rate expectations detail"
+  }, /*#__PURE__*/React.createElement(TsyFedCard, {
+    apiFetch: apiFetch
   })));
 }
 Object.assign(window, {

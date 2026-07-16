@@ -244,18 +244,22 @@ def get_core() -> dict:
     # Per-tenor cards
     def tseries(t):
         return [r[t] for r in hist if r.get(t) is not None]
+    year_start = f"{_et_now().year}-01-01"
     cards = []
     for t in TENORS:
-        s = tseries(t)
+        pairs = [(r["date"], r[t]) for r in hist if r.get(t) is not None]
+        s = [v for _, v in pairs]
         if not s:
             continue
         last = s[-1]
         yr = s[-252:]
         def bp(n, s=s, last=last):
             return round((last - s[-1 - n]) * 100, 1) if len(s) > n else None
+        prior_yr = [v for d, v in pairs if d < year_start]
         cards.append({
             "tenor": t, "yield": last,
-            "bp1d": bp(1), "bp5d": bp(5), "bp21d": bp(21),
+            "bp1d": bp(1), "bp5d": bp(5), "bp21d": bp(21), "bp63d": bp(63),
+            "bp_ytd": round((last - prior_yr[-1]) * 100, 1) if prior_yr else None,
             "pct52w": _pctile(yr, last),
             "hi52w": round(max(yr), 2), "lo52w": round(min(yr), 2),
             "key": KEY_TENORS.get(t),
@@ -1035,6 +1039,39 @@ _COT_MARKETS = [("2Y", "UST 2Y NOTE"), ("5Y", "UST 5Y NOTE"),
                 ("10Y", "UST 10Y NOTE"), ("30Y", "UST BOND")]
 
 
+def _cot_week_file() -> dict[str, dict] | None:
+    """Fallback: CFTC's own weekly TFF futures-only file (FinFutWk.txt).
+    Socrata rate-limits anonymous callers per IP — shared cloud egress IPs
+    (Railway) get throttled hard, which showed up as 'CFTC unavailable'.
+    This file is the same data, latest week only (no percentile history).
+    Column indices verified against the Socrata API for the same report:
+    7 OI, 8/9 dealer L/S, 11/12 asset-mgr L/S, 14/15 lev L/S,
+    24.. weekly change block (OI, dealer L/S/sp, AM L/S/sp, lev L/S/sp)."""
+    def fetch():
+        txt = _get("https://www.cftc.gov/dea/newcot/FinFutWk.txt")
+        if not txt:
+            return None
+        import csv as _csv
+        out = {}
+        for row in _csv.reader(txt.splitlines()):
+            if not row or " - " not in (row[0] or ""):
+                continue
+            name = row[0].split(" - ")[0].strip()
+            try:
+                g = lambda i: int(row[i])
+                out[name] = {
+                    "date": row[2].strip(),
+                    "open_interest": g(7),
+                    "dealer": {"net": g(8) - g(9), "wk_chg": g(25) - g(26)},
+                    "asset_mgr": {"net": g(11) - g(12), "wk_chg": g(28) - g(29)},
+                    "lev_funds": {"net": g(14) - g(15), "wk_chg": g(31) - g(32)},
+                }
+            except (ValueError, IndexError):
+                continue
+        return out or None
+    return _cached("cot_weekfile", 21600, fetch)
+
+
 def get_cot() -> dict:
     def build():
         out: dict[str, Any] = {"as_of": _now_iso(), "ok": False,
@@ -1052,7 +1089,21 @@ def get_cot() -> dict:
             })
             data = _get_json(f"https://publicreporting.cftc.gov/resource/gpe5-46if.json?{qs}")
             if not isinstance(data, list) or not data:
-                rows.append({"code": code, "ok": False})
+                # Socrata throttled → CFTC's own weekly file (no percentiles).
+                wk = (_cot_week_file() or {}).get(name)
+                if wk:
+                    def wgrp(g):
+                        return {"net": g["net"], "wk_chg": g["wk_chg"], "pctile": None, "crowded": None}
+                    rows.append({
+                        "code": code, "ok": True, "date": wk["date"],
+                        "open_interest": wk["open_interest"],
+                        "asset_mgr": wgrp(wk["asset_mgr"]), "lev_funds": wgrp(wk["lev_funds"]),
+                        "dealer": wgrp(wk["dealer"]),
+                        "noncommercial": {"net": wk["asset_mgr"]["net"] + wk["lev_funds"]["net"], "pctile": None},
+                        "fallback": "CFTC weekly file (percentiles need the throttled history API)",
+                    })
+                else:
+                    rows.append({"code": code, "ok": False})
                 continue
             def nets(field_l, field_s):
                 seq = []
