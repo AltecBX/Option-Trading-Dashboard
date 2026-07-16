@@ -176,6 +176,9 @@ const TABS = [{
   id: "calendar",
   label: "Market Calendar"
 }, {
+  id: "treasuries",
+  label: "US Treasuries"
+}, {
   id: "manage",
   label: "Manage"
 }];

@@ -114,6 +114,7 @@ const TABS = [
   { id: "watchlist", label: "Watchlist" },
   { id: "streaks", label: "Streaks" },
   { id: "calendar", label: "Market Calendar" },
+  { id: "treasuries", label: "US Treasuries" },
   { id: "manage", label: "Manage" },
 ];
 

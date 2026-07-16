@@ -185,6 +185,15 @@ except Exception as _exc:  # noqa: BLE001
     _RANGESCAN_AVAILABLE = False
     _rangescan = None  # type: ignore
 
+# US Treasuries / rates terminal — yields, curve, CPI, auctions, COT, Fed.
+try:
+    import treasury as _treasury
+    _TREASURY_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[treasury] module load failed: {_exc}", file=sys.stderr)
+    _TREASURY_AVAILABLE = False
+    _treasury = None  # type: ignore
+
 try:
     import news as _news
     _NEWS_AVAILABLE = True
@@ -7792,6 +7801,41 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/watchlist_table/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path.startswith("/api/treasury/"):
+            if not _TREASURY_AVAILABLE:
+                self._send_json({"error": "treasury module unavailable", "ok": False}, status=503)
+                return
+            section = parsed.path[len("/api/treasury/"):]
+            try:
+                if section == "core":
+                    self._send_json(_treasury.get_core())
+                elif section == "inflation":
+                    self._send_json(_treasury.get_inflation())
+                elif section == "markets":
+                    self._send_json(_treasury.get_markets())
+                elif section == "auctions":
+                    self._send_json(_treasury.get_auctions())
+                elif section == "fed":
+                    self._send_json(_treasury.get_fed())
+                elif section == "cot":
+                    self._send_json(_treasury.get_cot())
+                elif section == "sense":
+                    self._send_json(_treasury.get_sense())
+                elif section == "sense/scan":
+                    qs = parse_qs(parsed.query)
+                    force = qs.get("force", ["0"])[0] in ("1", "true")
+                    try:
+                        wl = _load_watchlist()
+                        syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+                    except Exception:
+                        syms = []
+                    self._send_json(_treasury.trigger_sense(syms, force=force))
+                else:
+                    self._send_json({"error": f"unknown treasury section '{section}'"}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, f"api/treasury/{section}", exc)
+                self._send_json({"error": str(exc), "ok": False}, status=500)
             return
         if parsed.path == "/api/range_scan":
             if not _RANGESCAN_AVAILABLE:
