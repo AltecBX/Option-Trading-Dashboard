@@ -10532,3 +10532,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .tsy-corrrow { grid-template-columns: 110px 1fr 46px; }
   .tsy-table { font-size: 11.5px; }
 }
+
+/* v3.60: treasuries layout — column stacks, no dead space beside short cards */
+.tsy-col { display: flex; flex-direction: column; min-width: 0; }
+.tsy-col > .card { margin-bottom: var(--row-gap); }

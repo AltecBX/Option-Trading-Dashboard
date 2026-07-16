@@ -14492,6 +14492,11 @@ function TsyCurveCard({ core }) {
       </div>
       {reg && (
         <div className="tsy-regime" title={`Classified from the 5-day change: 2y ${reg.d2y_bp >= 0 ? "+" : ""}${reg.d2y_bp} bp, 10y ${reg.d10y_bp >= 0 ? "+" : ""}${reg.d10y_bp} bp → slope ${reg.slope_chg_bp >= 0 ? "+" : ""}${reg.slope_chg_bp} bp. "Bull" = yields falling (prices rallying), "bear" = yields rising. Steepener = long end rising vs short end.`}>
+          {core.d.curve_shape && (
+            <span title={`Curve shape from today's official curve: ${core.d.curve_shape.detail}.`}>
+              SHAPE <b className={core.d.curve_shape.label.startsWith("inverted") || core.d.curve_shape.label.startsWith("partially") ? "cd" : "cu"}>{core.d.curve_shape.label.toUpperCase()}</b> ·
+            </span>
+          )}
           <b className={reg.label.startsWith("bull") ? "cu" : reg.label.startsWith("bear") ? "cd" : ""}>{reg.label.toUpperCase()}</b>
           <span>2y <TsyBp v={reg.d2y_bp} /> · 10y <TsyBp v={reg.d10y_bp} /> over {reg.window}</span>
           {mv && mv.biggest && <span>· biggest mover <b className="num">{mv.biggest.tenor}</b> <TsyBp v={mv.biggest.bp5d} /></span>}
@@ -14747,13 +14752,15 @@ function TsySeriesSvg({ series, period }) {
     </svg>
   );
 }
+// Fixed distinct colors — theme accent is green, which collided with the
+// green "up" color when both series were shown (user report).
 const TSY_CPI_SERIES = [
-  ["headline_yoy", "Headline YoY", "var(--accent)"],
-  ["core_yoy", "Core YoY", "var(--warn)"],
+  ["headline_yoy", "Headline YoY", "#4E9CF5"],
+  ["core_yoy", "Core YoY", "#E8A33D"],
   ["headline_mom", "Headline MoM", "#8b5cf6"],
   ["core_mom", "Core MoM", "#06b6d4"],
-  ["core_3m_ann", "Core 3m ann.", "var(--up)"],
-  ["core_6m_ann", "Core 6m ann.", "var(--down)"],
+  ["core_3m_ann", "Core 3m ann.", "#3BD996"],
+  ["core_6m_ann", "Core 6m ann.", "#F56D77"],
 ];
 function TsyCpiCard({ apiFetch }) {
   const inf = useTsy(apiFetch, "inflation", 3600000);
@@ -14873,7 +14880,7 @@ function TsyMarketsCards({ apiFetch, onOpenTicker }) {
         </div>
         <div className="tsy-tablewrap">
           <table className="tsy-table">
-            <thead><tr><th>Contract</th><th>Last</th><th>Day %</th><th>Day range</th><th>Volume</th><th>Open int.</th><th>Implied yield</th></tr></thead>
+            <thead><tr><th>Contract</th><th>Last</th><th>Day %</th><th>Day range</th><th>Volume</th></tr></thead>
             <tbody>
               {futs.map(f => (
                 <tr key={f.code}>
@@ -14884,10 +14891,8 @@ function TsyMarketsCards({ apiFetch, onOpenTicker }) {
                       <td className={`num ${f.chg_pct != null ? (f.chg_pct >= 0 ? "cu" : "cd") : ""}`} title="Futures PRICE change — price up means yields down.">{f.chg_pct != null ? `${f.chg_pct >= 0 ? "+" : ""}${f.chg_pct}%` : "—"}</td>
                       <td className="num">{f.day_lo} – {f.day_hi}</td>
                       <td className="num">{f.volume != null ? f.volume.toLocaleString() : "—"}</td>
-                      <td><TsyNA why="Open interest needs CME data — not estimated." /></td>
-                      <td><TsyNA why="Implied yield requires the cheapest-to-deliver bond & conversion factor — not estimated from price alone." /></td>
                     </React.Fragment>
-                  ) : <td colSpan="6"><TsyNA /></td>}
+                  ) : <td colSpan="4"><TsyNA /></td>}
                 </tr>
               ))}
             </tbody>
@@ -15226,15 +15231,17 @@ function TreasuriesTab({ apiFetch, onOpenTicker }) {
     <div className="tsy">
       <TsyYieldCards core={core} />
       <TsyCurveCard core={core} />
+      {/* Two independent column stacks (not grid rows) so a short card never
+          leaves dead space beside a tall neighbor. */}
       <div className="tsy-grid2">
-        <TsySpreadsCard core={core} />
-        <TsySignalsCard core={core} />
-      </div>
-      <div className="tsy-grid2">
-        <TsyEventsCard core={core} />
-        <div>
-          <TsyExpectationsCard core={core} />
+        <div className="tsy-col">
+          <TsySpreadsCard core={core} />
+          <TsyEventsCard core={core} />
           <TsyMoveCard core={core} />
+        </div>
+        <div className="tsy-col">
+          <TsySignalsCard core={core} />
+          <TsyExpectationsCard core={core} />
         </div>
       </div>
       <TsyCpiCard apiFetch={apiFetch} />

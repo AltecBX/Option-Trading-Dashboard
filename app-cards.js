@@ -19734,7 +19734,11 @@ function TsyCurveCard({
   }, "Table")))), reg && /*#__PURE__*/React.createElement("div", {
     className: "tsy-regime",
     title: `Classified from the 5-day change: 2y ${reg.d2y_bp >= 0 ? "+" : ""}${reg.d2y_bp} bp, 10y ${reg.d10y_bp >= 0 ? "+" : ""}${reg.d10y_bp} bp → slope ${reg.slope_chg_bp >= 0 ? "+" : ""}${reg.slope_chg_bp} bp. "Bull" = yields falling (prices rallying), "bear" = yields rising. Steepener = long end rising vs short end.`
-  }, /*#__PURE__*/React.createElement("b", {
+  }, core.d.curve_shape && /*#__PURE__*/React.createElement("span", {
+    title: `Curve shape from today's official curve: ${core.d.curve_shape.detail}.`
+  }, "SHAPE ", /*#__PURE__*/React.createElement("b", {
+    className: core.d.curve_shape.label.startsWith("inverted") || core.d.curve_shape.label.startsWith("partially") ? "cd" : "cu"
+  }, core.d.curve_shape.label.toUpperCase()), " ·"), /*#__PURE__*/React.createElement("b", {
     className: reg.label.startsWith("bull") ? "cu" : reg.label.startsWith("bear") ? "cd" : ""
   }, reg.label.toUpperCase()), /*#__PURE__*/React.createElement("span", null, "2y ", /*#__PURE__*/React.createElement(TsyBp, {
     v: reg.d2y_bp
@@ -20075,7 +20079,9 @@ function TsySeriesSvg({
     }
   }, /*#__PURE__*/React.createElement("title", null, s.label))));
 }
-const TSY_CPI_SERIES = [["headline_yoy", "Headline YoY", "var(--accent)"], ["core_yoy", "Core YoY", "var(--warn)"], ["headline_mom", "Headline MoM", "#8b5cf6"], ["core_mom", "Core MoM", "#06b6d4"], ["core_3m_ann", "Core 3m ann.", "var(--up)"], ["core_6m_ann", "Core 6m ann.", "var(--down)"]];
+// Fixed distinct colors — theme accent is green, which collided with the
+// green "up" color when both series were shown (user report).
+const TSY_CPI_SERIES = [["headline_yoy", "Headline YoY", "#4E9CF5"], ["core_yoy", "Core YoY", "#E8A33D"], ["headline_mom", "Headline MoM", "#8b5cf6"], ["core_mom", "Core MoM", "#06b6d4"], ["core_3m_ann", "Core 3m ann.", "#3BD996"], ["core_6m_ann", "Core 6m ann.", "#F56D77"]];
 function TsyCpiCard({
   apiFetch
 }) {
@@ -20273,7 +20279,7 @@ function TsyMarketsCards({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Contract"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "Day %"), /*#__PURE__*/React.createElement("th", null, "Day range"), /*#__PURE__*/React.createElement("th", null, "Volume"), /*#__PURE__*/React.createElement("th", null, "Open int."), /*#__PURE__*/React.createElement("th", null, "Implied yield"))), /*#__PURE__*/React.createElement("tbody", null, futs.map(f => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Contract"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "Day %"), /*#__PURE__*/React.createElement("th", null, "Day range"), /*#__PURE__*/React.createElement("th", null, "Volume"))), /*#__PURE__*/React.createElement("tbody", null, futs.map(f => /*#__PURE__*/React.createElement("tr", {
     key: f.code
   }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, f.code), " ", /*#__PURE__*/React.createElement("span", {
     className: "muted"
@@ -20286,12 +20292,8 @@ function TsyMarketsCards({
     className: "num"
   }, f.day_lo, " – ", f.day_hi), /*#__PURE__*/React.createElement("td", {
     className: "num"
-  }, f.volume != null ? f.volume.toLocaleString() : "—"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(TsyNA, {
-    why: "Open interest needs CME data — not estimated."
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(TsyNA, {
-    why: "Implied yield requires the cheapest-to-deliver bond & conversion factor — not estimated from price alone."
-  }))) : /*#__PURE__*/React.createElement("td", {
-    colSpan: "6"
+  }, f.volume != null ? f.volume.toLocaleString() : "—")) : /*#__PURE__*/React.createElement("td", {
+    colSpan: "4"
   }, /*#__PURE__*/React.createElement(TsyNA, null))))))), /*#__PURE__*/React.createElement("div", {
     className: "tsy-sigd"
   }, mk.d.futures_note), /*#__PURE__*/React.createElement(TsyFoot, {
@@ -20802,17 +20804,19 @@ function TreasuriesTab({
     core: core
   }), /*#__PURE__*/React.createElement("div", {
     className: "tsy-grid2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tsy-col"
   }, /*#__PURE__*/React.createElement(TsySpreadsCard, {
     core: core
-  }), /*#__PURE__*/React.createElement(TsySignalsCard, {
-    core: core
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "tsy-grid2"
-  }, /*#__PURE__*/React.createElement(TsyEventsCard, {
-    core: core
-  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(TsyExpectationsCard, {
+  }), /*#__PURE__*/React.createElement(TsyEventsCard, {
     core: core
   }), /*#__PURE__*/React.createElement(TsyMoveCard, {
+    core: core
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-col"
+  }, /*#__PURE__*/React.createElement(TsySignalsCard, {
+    core: core
+  }), /*#__PURE__*/React.createElement(TsyExpectationsCard, {
     core: core
   }))), /*#__PURE__*/React.createElement(TsyCpiCard, {
     apiFetch: apiFetch
