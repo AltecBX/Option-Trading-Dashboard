@@ -258,6 +258,7 @@ def get_core() -> dict:
         prior_yr = [v for d, v in pairs if d < year_start]
         cards.append({
             "tenor": t, "yield": last,
+            "spark": [round(v, 3) for v in s[-90:]] if t == "10Y" else None,
             "bp1d": bp(1), "bp5d": bp(5), "bp21d": bp(21), "bp63d": bp(63),
             "bp_ytd": round((last - prior_yr[-1]) * 100, 1) if prior_yr else None,
             "pct52w": _pctile(yr, last),
@@ -436,6 +437,7 @@ def _fetch_move() -> dict | None:
                   "elevated" if last < 130 else "high" if last < 160 else "extreme")
         return {
             "value": round(last, 2), "d1": d(1), "d5": d(5), "d21": d(21),
+            "spark": [round(c, 1) for c in closes[-90:]],
             "pct52w": _pctile(closes[-252:], last), "regime": regime,
             "bands": "low <80 · normal 80–100 · elevated 100–130 · high 130–160 · extreme >160",
             "date": str(h.index[-1].date()),
@@ -768,6 +770,12 @@ def _cpi_reactions(head_vals, core_vals) -> dict:
                 "tlt": day_ret("TLT", d), "gld": day_ret("GLD", d), "uup": day_ret("UUP", d),
             })
         out["rows"] = rows[::-1]
+        # Average absolute CPI-day move (for "what does CPI day usually do")
+        def avg_abs(key):
+            vals = [abs(r[key]) for r in rows if r.get(key) is not None]
+            return round(sum(vals) / len(vals), 2) if len(vals) >= 5 else None
+        out["avg_abs"] = {"spy": avg_abs("spy"), "qqq": avg_abs("qqq"),
+                          "y10_bp": avg_abs("y10_bp"), "n": len(rows)}
         out["ok"] = bool(rows)
     except Exception as exc:  # noqa: BLE001
         out["error"] = str(exc)
@@ -804,6 +812,7 @@ def get_markets() -> dict:
                     futs.append({
                         "code": code, "label": label, "ok": True,
                         "last": round(last, 3),
+                        "chg_abs": round(last - prev, 3) if prev else None,
                         "chg_pct": round((last / prev - 1) * 100, 2) if prev else None,
                         "day_lo": round(float(sub["Low"].iloc[-1]), 3),
                         "day_hi": round(float(sub["High"].iloc[-1]), 3),
