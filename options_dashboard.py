@@ -4314,6 +4314,21 @@ _intraday.configure(
                                   if _push_configured() else None),
 )
 
+# ── Earnings Opportunities scanner ─────────────────────────────────────────
+try:
+    import earnings_scan as _earnscan
+    _earnscan.configure(
+        schwab_getter=lambda: _schwab(),
+        wlboard_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        chain_loader=load_option_chain,
+        data_dir=_STABLE_DIR,
+    )
+    _EARNSCAN_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[earnings_scan] module load failed: {_exc}", file=sys.stderr)
+    _EARNSCAN_AVAILABLE = False
+    _earnscan = None  # type: ignore
+
 # ── Premium Juice scanner (v3.22) ───────────────────────────────────────────
 import juice as _juice
 
@@ -7836,6 +7851,27 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, f"api/treasury/{section}", exc)
                 self._send_json({"error": str(exc), "ok": False}, status=500)
+            return
+        if parsed.path == "/api/earnings_scan":
+            if not _EARNSCAN_AVAILABLE:
+                self._send_json({"error": "earnings scan unavailable", "rows": []}, status=503)
+                return
+            try:
+                self._send_json(_earnscan.get_board())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/earnings_scan", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/earnings_scan/scan":
+            if not _EARNSCAN_AVAILABLE:
+                self._send_json({"error": "earnings scan unavailable"}, status=503)
+                return
+            try:
+                force = parse_qs(parsed.query).get("force", ["0"])[0] in ("1", "true")
+                self._send_json(_earnscan.trigger_scan(force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/earnings_scan/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/range_scan":
             if not _RANGESCAN_AVAILABLE:
