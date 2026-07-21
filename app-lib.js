@@ -179,6 +179,9 @@ const TABS = [{
   id: "treasuries",
   label: "US Treasuries"
 }, {
+  id: "earnops",
+  label: "Earnings Ops"
+}, {
   id: "manage",
   label: "Manage"
 }];
