@@ -5872,14 +5872,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                       ".webmanifest": "application/manifest+json"}
 
     def _allowed_origin(self):
-        # Prefer the env-configured origin (Vercel URL in prod) so the
-        # backend doesn't accept calls from arbitrary websites. Empty or
-        # "*" is also accepted for permissive local dev. Browsers will
-        # only honor matching origins.
-        return os.environ.get("ALLOWED_ORIGIN", "*")
+        # v3.64 security default: NO cross-origin access unless an origin is
+        # explicitly configured. The standard deployment is same-origin (the
+        # same server serves both the page and the API), which needs no CORS
+        # at all. Set ALLOWED_ORIGIN to a specific origin (or "*" if you
+        # really mean it) to allow a separate frontend host.
+        return os.environ.get("ALLOWED_ORIGIN", "").strip() or None
 
     def _cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
+        origin = self._allowed_origin()
+        if origin is None:
+            return  # same-origin only — browsers block cross-origin reads
+        self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Headers", "X-API-Key, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
 
@@ -9714,23 +9718,146 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api/"):
             self._send_json({"error": "endpoint not found", "path": parsed.path}, status=404)
             return
-        # Make root and /index serve the live dashboard. If a baked
-        # options_dashboard.html exists, serve it; otherwise fall back to
-        # the raw index.html which auto-fetches /api/ticker on load.
-        if parsed.path in ("/", "/index", "/index.html"):
-            self.path = "/options_dashboard.html" if (HERE / "options_dashboard.html").exists() else "/index.html"
-        # Parallel next-gen UI (v4 preview). Purely additive — the classic
-        # site above is untouched; /next has its own html/css/js files.
-        elif parsed.path in ("/next", "/next/"):
-            self.path = "/next.html"
-        super().do_GET()
+        self._serve_static(parsed)
+
+    # ── Static file serving (v3.64) ─────────────────────────────────────
+    # The old fallthrough to SimpleHTTPRequestHandler served the ENTIRE
+    # working directory — every .py source, seed data, Procfile — with
+    # Cache-Control: no-store on everything (a 2 MB re-download per visit).
+    # This replacement is an explicit allowlist: only the files the page
+    # actually references are reachable; versioned assets get immutable
+    # year-long caching; HTML/config stay no-cache so deploys apply
+    # immediately; dist/* is served pre-gzipped.
+    _STATIC_EXACT = {
+        # url -> (relative file, content-type, cache policy)
+        "/config.js": ("config.js", "application/javascript", "no-cache"),
+        "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json", "public, max-age=86400"),
+        "/favicon.ico": ("assets/favicon.ico", "image/x-icon", "public, max-age=86400"),
+        "/finviz-helper.zip": ("finviz-helper.zip", "application/zip", "no-cache"),
+    }
+    _STATIC_DIRS = {
+        # url-prefix -> (fs-subdir, allowed extensions, cache policy)
+        "/dist/": ("dist", {".js", ".css"}, "public, max-age=31536000, immutable"),
+        "/assets/": ("assets", {".png", ".ico", ".svg", ".jpg", ".jpeg", ".webp"},
+                     "public, max-age=31536000, immutable"),
+    }
+    _HTML_ROUTES = {"/", "/index", "/index.html"}
+
+    def do_HEAD(self):  # noqa: N802
+        # Route HEAD through the same allowlist as GET (v3.64). The inherited
+        # SimpleHTTPRequestHandler.do_HEAD served headers for ANY file in the
+        # working directory — an existence/size leak that also bypassed the
+        # cache-policy logic.
+        from urllib.parse import urlparse
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            self.send_response(405)
+            self.send_header("Allow", "GET, PUT, OPTIONS")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self._serve_static(parsed)
+
+    def _serve_static(self, parsed):
+        p = parsed.path
+        # HTML shell — always revalidated so a new deploy applies at once.
+        if p in self._HTML_ROUTES:
+            baked = HERE / "options_dashboard.html"
+            target = baked if baked.exists() else (HERE / "index.html")
+            return self._send_file(target, "text/html; charset=utf-8", "no-cache")
+        if p in self._STATIC_EXACT:
+            rel, ctype, cache = self._STATIC_EXACT[p]
+            return self._send_file(HERE / rel, ctype, cache)
+        for prefix, (sub, exts, cache) in self._STATIC_DIRS.items():
+            if p.startswith(prefix):
+                name = p[len(prefix):]
+                # One path segment only; extension must be allowlisted.
+                if "/" in name or "\\" in name or name.startswith("."):
+                    break
+                suffix = Path(name).suffix.lower()
+                # Allow the double-suffix ".min.js" form; suffix is ".js".
+                if suffix not in exts:
+                    break
+                base = (HERE / sub).resolve()
+                target = (base / name).resolve()
+                if not str(target).startswith(str(base) + os.sep):
+                    break  # traversal attempt
+                ctype = {".js": "application/javascript", ".css": "text/css",
+                         ".png": "image/png", ".ico": "image/x-icon",
+                         ".svg": "image/svg+xml", ".jpg": "image/jpeg",
+                         ".jpeg": "image/jpeg", ".webp": "image/webp"}[suffix]
+                return self._send_file(target, ctype, cache)
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", "9")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            if self.command != "HEAD":
+                self.wfile.write(b"not found")
+        except Exception:
+            pass
+
+    def _send_file(self, path: Path, ctype: str, cache: str):
+        try:
+            path = path.resolve()
+            if not str(path).startswith(str(HERE.resolve()) + os.sep) or not path.is_file():
+                raise FileNotFoundError(path)
+            accepts_gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
+            gz_path = Path(str(path) + ".gz")
+            body = None
+            encoding = None
+            if accepts_gz and gz_path.is_file():
+                body = gz_path.read_bytes()          # pre-compressed at build
+                encoding = "gzip"
+            else:
+                body = path.read_bytes()
+                if accepts_gz and len(body) > 1024 and ctype.startswith(("text/", "application/")):
+                    body = _gzip.compress(body, 5)
+                    encoding = "gzip"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", cache)
+            if encoding:
+                self.send_header("Content-Encoding", encoding)
+                self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "9")
+            self.end_headers()
+            try:
+                if self.command != "HEAD":
+                    self.wfile.write(b"not found")
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self.send_response(500)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            except Exception:
+                pass
+
+    def send_header(self, keyword, value):  # noqa: N802
+        if keyword.lower() == "cache-control":
+            self._cc_sent = True
+        super().send_header(keyword, value)
 
     def end_headers(self):  # noqa: N802
-        # Disable browser caching for our static assets so users always see
-        # the latest JS/CSS without needing a hard refresh.
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
+        # Default: anything that didn't set its own Cache-Control (older
+        # hand-rolled JSON writers) stays uncached. Static/HTML/JSON paths
+        # that DID set a policy above are left alone (v3.64 — previously
+        # this override forced no-store onto every response including the
+        # 2 MB of JS/CSS, defeating the browser cache entirely).
+        if not getattr(self, "_cc_sent", False):
+            self.send_header("Cache-Control", "no-store")
+        self._cc_sent = False
         super().end_headers()
 
     def log_message(self, format, *args):  # noqa: A002
@@ -9738,7 +9865,35 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         sys.stderr.write("· %s %s\n" % (self.address_string(), format % args))
 
 
+def check_deploy_security(host: str) -> list[str]:
+    """Refuse plainly-unsafe production configs (v3.64). Returns a list of
+    fatal problems; empty means safe to start. Loopback binds are always
+    fine (local dev). A non-loopback bind exposes the API — including
+    Schwab position endpoints — to the network, so it REQUIRES API_KEY
+    unless explicitly overridden with DANGEROUSLY_DISABLE_AUTH=1."""
+    problems: list[str] = []
+    loopback = host in ("127.0.0.1", "localhost", "::1", "")
+    if not loopback and not os.environ.get("API_KEY", "").strip() \
+            and os.environ.get("DANGEROUSLY_DISABLE_AUTH", "") != "1":
+        problems.append(
+            f"Refusing to bind {host} without auth: the API (including broker/"
+            "position endpoints) would be open to the network. Set API_KEY "
+            "(and the same value in config.js apiKey), or set "
+            "DANGEROUSLY_DISABLE_AUTH=1 if you truly want an open server.")
+    if os.environ.get("ALLOWED_ORIGIN", "").strip() == "*" and not loopback:
+        problems.append(
+            "ALLOWED_ORIGIN='*' on a non-loopback bind lets any website call "
+            "the API from a browser. Set it to your exact frontend origin, "
+            "or unset it for same-origin-only (recommended).")
+    return problems
+
+
 def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
+    problems = check_deploy_security(host)
+    if problems:
+        for p in problems:
+            print(f"🛑  SECURITY: {p}", file=sys.stderr)
+        sys.exit(2)
     DashboardHandler.weeks = weeks
     DashboardHandler.friday_baseline = friday_baseline
     # Prewarm the ticker autocomplete index in the background. Doing this off
