@@ -189,3 +189,42 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   no JS errors.
 - **Tests:** JS 107/107 (30+26+24+27), verify PASS, security+math 41 OK,
   http smoke 50/50.
+
+## Phases 6–9 — Cohesion, mobile, CI, schedules (v3.64)
+
+- **Opportunity ribbon (P6):** one compact line under the context bar —
+  the strongest current setup from each ALREADY-CACHED scanner board
+  (watchlist flow edge · HV rank · earnings ops · range location). Pure
+  reads only: juice/radar deliberately excluded because their GET
+  endpoints start background scan workers. Each chip shows the SOURCE
+  scanner's own number (no synthetic blend), the tooltip spells out the
+  inputs, boards >20 min old are labeled "Nm old", demo earnings data
+  never qualifies, and an explicit "no current setups / scanners idle"
+  state renders when nothing clears threshold. Chip click → the source
+  tab. Verified in Chromium: chips + stale label + thresholds + tab
+  navigation, no JS errors; horizontally scrollable on phones.
+- **Earnings cross-links (P6):** Market Calendar and the Earnings-vol-
+  crush card now link straight to the Earnings Ops scanner ("Earnings
+  Ops →"); Earnings Ops rows already open Analyze — the earnings surfaces
+  now navigate into each other instead of dead-ending.
+- **Mobile (P7):** verified at 390/520/620/700/750/760/900px — zero
+  horizontal overflow, fixed bottom bar, drawer nav, ribbon scrolls
+  horizontally; initial JS on phones reduced by the P4 lazy chunks
+  (4 heavy tabs load only when opened).
+- **CI (P8):** `.github/workflows/ci.yml` — py_compile all modules;
+  rebuild + `git diff --exit-code` artifact-sync gate (deploys never run
+  node, so drift = broken deploy); verify harness; JS tests (incl. the
+  cross-language BS fixture match); the full deterministic Python battery
+  with `JERRY_NO_NET=1` (skips the single test needing live Yahoo). No
+  paid keys anywhere.
+- **Maintained schedules (P9):** CPI/FOMC tables moved into
+  `treasury.MACRO_SCHEDULE` with explicit `valid_through`/`updated` and a
+  `schedule_status()` gate. When expired: `_events()` nulls the dates and
+  flags `needs_update` (never recycles stale dates), the Fed card gets
+  `schedule_note`, and the UI (events card, overview minis, fed chip)
+  shows "Schedule requires update". New `test_schedules.py` (7 tests)
+  FAILS when the schedule is expired or within 21 days of expiry — the
+  repo nags before the UI ever degrades — plus structure/coverage checks
+  and frozen-clock expiry-behavior tests.
+- **Tests:** unittest 48 OK (math/security/schedules) · py runners
+  123/123 · JS 107/107 · verify PASS.

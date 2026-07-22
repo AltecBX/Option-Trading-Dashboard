@@ -108,7 +108,12 @@ def test_unknown_endpoint_returns_json_404():
 
 def test_known_good_ticker_works():
     """Sanity: AAPL returns full payload. Confirms we didn't break the
-    happy path while fixing the failure paths."""
+    happy path while fixing the failure paths.
+    NOTE: the ONLY test in the repo that needs live upstream data (Yahoo).
+    Set JERRY_NO_NET=1 (CI does) to skip it deterministically."""
+    if os.environ.get("JERRY_NO_NET"):
+        print("        (skipped: JERRY_NO_NET=1 — needs live Yahoo data)")
+        return
     port = _find_free_port()
     proc = _start_server(port)
     try:

@@ -8636,6 +8636,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Bounded board lists (v3.64): top-N + pull-more controls */
 .bl-more { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
 .bl-count { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
+/* Expired maintained-schedule banner (v3.64) — never recycle stale dates */
+.tsy-sched-warn { padding: 6px 10px; border: 1px solid color-mix(in oklch, var(--warn), transparent 45%);
+  border-radius: 6px; font-size: 12px; color: var(--warn);
+  background: color-mix(in oklch, var(--warn), transparent 92%); cursor: help; }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 
 /* Mobile header: ident + bottom status are now tappable ticker-switchers. */
@@ -9289,6 +9293,26 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pc-rot-out { margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--down);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Opportunity ribbon (v3.64) — one line, terminal-flat, no new page ── */
+.opp-ribbon { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 13px; margin: -8px 0 14px; background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius); min-width: 0; }
+.opp-title { font-family: var(--font-mono); font-size: 9px; font-weight: 800;
+  letter-spacing: 0.07em; color: var(--fg-4); cursor: help; white-space: nowrap; }
+.opp-none { font-size: 11.5px; color: var(--fg-3); }
+.opp-chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 11px; font-weight: 600;
+  font-family: inherit; cursor: pointer; padding: 2px 9px; border-radius: 6px; white-space: nowrap;
+  border: 1px solid var(--line); background: var(--bg-3); color: var(--fg-2); }
+.opp-chip em { font-style: normal; font-family: var(--font-mono); font-size: 9px; font-weight: 800;
+  letter-spacing: 0.05em; color: var(--fg-4); }
+.opp-chip b { font-family: var(--font-mono); font-weight: 800; font-size: 11.5px; color: var(--fg); }
+.opp-chip .num { font-family: var(--font-mono); font-weight: 700; }
+.opp-chip.up .num { color: var(--up); } .opp-chip.down .num { color: var(--down); }
+.opp-chip:hover { border-color: color-mix(in oklch, var(--accent), transparent 40%); }
+.opp-stale { font-size: 9.5px; color: var(--warn); font-family: var(--font-mono); }
+@media (max-width: 900px) { .opp-ribbon { margin-top: 0; overflow-x: auto; flex-wrap: nowrap;
+  scrollbar-width: none; } .opp-ribbon::-webkit-scrollbar { display: none; } }
 
 /* ── Market Context bar (gamma · catalysts · rotation) ─────────────────── */
 .mctx { grid-column: 1 / -1; display: flex; flex-direction: column; justify-content: center; gap: 7px;

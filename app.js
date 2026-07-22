@@ -3673,7 +3673,13 @@ function App() {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker,
     onOpenBreadth: () => changeTab("breadth")
-  }), /*#__PURE__*/React.createElement(ExtremeRail, {
+  }), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Opportunity ribbon"
+  }, /*#__PURE__*/React.createElement(OpportunityRibbon, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker,
+    onChangeTab: changeTab
+  })), /*#__PURE__*/React.createElement(ExtremeRail, {
     kind: "high52",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
@@ -4310,7 +4316,8 @@ function App() {
     label: "Market Calendar"
   }, /*#__PURE__*/React.createElement(MarketCalendarCard, {
     apiFetch: apiFetch,
-    onSwitchTicker: switchTicker
+    onSwitchTicker: switchTicker,
+    onOpenEarnOps: () => changeTab("earnops")
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "treasuries",
     active: activeTab
@@ -5511,7 +5518,8 @@ function App() {
     active: activeTab
   }, /*#__PURE__*/React.createElement(EarningsCrushCard, {
     apiFetch: apiFetch,
-    onSwitchTicker: switchTicker
+    onSwitchTicker: switchTicker,
+    onOpenEarnOps: () => changeTab("earnops")
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
     active: activeTab

@@ -328,6 +328,11 @@ function TsyEventsCard({ core }) {
         </div>
       </div>
       <div className="tsy-events">
+        {ev.schedule && ev.schedule.note && (
+          <div className="tsy-sched-warn" title="The maintained CPI/FOMC schedule tables have run out. Old dates are never recycled — update MACRO_SCHEDULE in treasury.py from the official BLS / Federal Reserve calendars.">
+            ⚠ {ev.schedule.note}
+          </div>
+        )}
         {cpi && cpi.date && (
           <div className="tsy-cd" title={`Next CPI release per the BLS schedule: ${cpi.date} at ${cpi.time_et}. Consensus estimates need a paid feed — never estimated here.`}>
             <em>NEXT CPI · {cpi.date} · {cpi.time_et}</em>
@@ -337,8 +342,14 @@ function TsyEventsCard({ core }) {
             <span>Consensus: <TsyNA why="No free reliable consensus feed — not estimated." /></span>
           </div>
         )}
+        {cpi && !cpi.date && (
+          <div className="tsy-cd"><em>NEXT CPI</em><b>—</b>
+            <span><TsyNA why="Schedule unavailable — requires update (MACRO_SCHEDULE in treasury.py)." /> Schedule requires update</span>
+          </div>
+        )}
         <div className="tsy-evrows">
           {fomc && fomc.date && <div className="tsy-evrow"><em>FOMC decision</em><b className="num">{fomc.date}</b><span>{fomc.days} days · {fomc.source}</span></div>}
+          {fomc && !fomc.date && <div className="tsy-evrow"><em>FOMC decision</em><b>—</b><span>Schedule requires update</span></div>}
           {jobs && <div className="tsy-evrow"><em>Employment report</em><b className="num">{jobs.date}</b><span>{jobs.source}</span></div>}
           <div className="tsy-evrow"><em>PPI / PCE</em><b>—</b><span>{ev.note_ppi_pce}</span></div>
         </div>
@@ -664,6 +675,7 @@ function TsyFedCard({ apiFetch }) {
           <div className="card-title">Fed rate expectations</div>
         </div>
         {nm && <span className="tsy-datechip num" title="Next scheduled FOMC decision.">{nm.date} · {nm.days}d</span>}
+        {!nm && fd.d.schedule_note && <span className="tsy-datechip" title={fd.d.schedule_note}>⚠ schedule update needed</span>}
       </div>
       <div className="tsy-fed">
         {t && <div className="tsy-cd"><em>CURRENT TARGET RANGE</em><b className="num">{t.lower.toFixed(2)}–{t.upper.toFixed(2)}%</b><span>{t.source} · as of {t.date}</span></div>}
@@ -1202,6 +1214,11 @@ function TsyOvEvents({ core, inf }) {
           <span className="num warn">{cpi.countdown ? `${cpi.countdown.days}d ${cpi.countdown.hours}h` : ""}</span>
         </div>
       )}
+      {cpi && !cpi.date && (
+        <div className="tsy-kv big" title={(ev.schedule && ev.schedule.note) || "Maintained schedule exhausted."}>
+          <em>CPI</em><b>—</b><span className="warn">schedule update needed</span>
+        </div>
+      )}
       {head && head.ok && (
         <div className="tsy-kv" title="Previous print (the June data). Est column: no free consensus source — not estimated.">
           <em>Prev headline / core YoY</em>
@@ -1219,6 +1236,7 @@ function TsyOvEvents({ core, inf }) {
         <div className="tsy-kv" title="Average absolute 10y yield move on CPI days (FRED daily)."><em>Avg CPI-day 10y move</em><b className="num">±{avg.y10_bp.toFixed(1)} bp</b></div>
       )}
       {fomc && fomc.date && <div className="tsy-kv" title={fomc.source}><em>FOMC</em><b className="num">{fomc.date}</b><span className="num">{fomc.days}d</span></div>}
+      {fomc && !fomc.date && <div className="tsy-kv" title={(ev.schedule && ev.schedule.note) || "Maintained schedule exhausted."}><em>FOMC</em><b>—</b><span className="warn">schedule update needed</span></div>}
       {jobs && <div className="tsy-kv" title={jobs.source}><em>Jobs report</em><b className="num">{jobs.date}</b></div>}
       {(ev.upcoming_auctions || []).slice(0, 2).map((a, i) => (
         <div key={i} className="tsy-kv" title={`${a.term} ${a.type} auction${a.offering ? `, $${(a.offering / 1e9).toFixed(0)}B` : ""} (TreasuryDirect).`}>

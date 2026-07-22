@@ -466,18 +466,46 @@ def _fetch_move() -> dict | None:
 
 
 # ── Events calendar ──────────────────────────────────────────────────────────
-# CPI release dates per the BLS published schedule (8:30 AM ET).
-CPI_SCHEDULE = {
-    # 2025 (BLS schedule; Sep-data release was shutdown-delayed to Oct 24)
-    "2025": ["2025-01-15", "2025-02-12", "2025-03-12", "2025-04-10", "2025-05-13",
-             "2025-06-11", "2025-07-15", "2025-08-12", "2025-09-11", "2025-10-24",
-             "2025-11-13", "2025-12-18"],
-    "2026": ["2026-01-13", "2026-02-11", "2026-03-11", "2026-04-10", "2026-05-12",
-             "2026-06-10", "2026-07-14", "2026-08-12", "2026-09-11", "2026-10-13",
-             "2026-11-10", "2026-12-10"],
+# Macro release schedules (v3.64) — MAINTAINED DATA with an explicit
+# validity window, not code. When today passes `valid_through`, every
+# forward-looking consumer flags status="expired" and the UI shows
+# "Schedule requires update" instead of silently recycling stale dates,
+# and test_schedules.py FAILS (with a ≤21-day early-warning window) so the
+# repo nags for an update before the UI ever degrades.
+#
+# To update: append the next year's dates from the official calendars
+# (CPI: bls.gov/schedule/news_release/cpi.htm · FOMC:
+# federalreserve.gov/monetarypolicy/fomccalendars.htm), bump
+# valid_through + updated, and run: python3 -m unittest test_schedules
+MACRO_SCHEDULE = {
+    "valid_through": "2026-12-31",   # last date these tables cover
+    "updated": "2026-07-22",
+    # CPI release dates per the BLS published schedule (8:30 AM ET).
+    "cpi": {
+        # 2025 (BLS schedule; Sep-data release was shutdown-delayed to Oct 24)
+        "2025": ["2025-01-15", "2025-02-12", "2025-03-12", "2025-04-10", "2025-05-13",
+                 "2025-06-11", "2025-07-15", "2025-08-12", "2025-09-11", "2025-10-24",
+                 "2025-11-13", "2025-12-18"],
+        "2026": ["2026-01-13", "2026-02-11", "2026-03-11", "2026-04-10", "2026-05-12",
+                 "2026-06-10", "2026-07-14", "2026-08-12", "2026-09-11", "2026-10-13",
+                 "2026-11-10", "2026-12-10"],
+    },
+    # FOMC decision days (2 PM ET statement) — Federal Reserve calendar.
+    "fomc": ["2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
+             "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"],
 }
-FOMC_2026 = ["2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
-             "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"]
+# Legacy aliases (same objects — consumers below read through these).
+CPI_SCHEDULE = MACRO_SCHEDULE["cpi"]
+FOMC_2026 = MACRO_SCHEDULE["fomc"]
+
+
+def schedule_status(today: date | None = None) -> dict:
+    """Validity of the maintained macro schedule. {"ok", "valid_through",
+    "days_left", "updated"} — ok=False once today passes valid_through."""
+    t = today or _et_now().date()
+    vt = date.fromisoformat(MACRO_SCHEDULE["valid_through"])
+    return {"ok": t <= vt, "valid_through": MACRO_SCHEDULE["valid_through"],
+            "days_left": (vt - t).days, "updated": MACRO_SCHEDULE["updated"]}
 
 
 def _events() -> dict:
@@ -508,13 +536,26 @@ def _events() -> dict:
         except Exception:
             pass
     upcoming_auctions = _cached("upcoming_auctions", 21600, _fetch_upcoming_auctions)
+    # Validity gate (v3.64): once the maintained schedule is exhausted or
+    # past its window, say so explicitly — never recycle stale dates.
+    sched = schedule_status(today)
+    expired_note = (None if sched["ok"] and next_cpi and next_fomc else
+                    f"Schedule requires update (maintained through {sched['valid_through']}; "
+                    "see MACRO_SCHEDULE in treasury.py)")
+    if not sched["ok"]:
+        next_cpi = None
+        next_fomc = None
+        countdown = None
     return {
+        "schedule": {**sched, "note": expired_note},
         "next_cpi": {"date": next_cpi, "time_et": "8:30 AM ET", "countdown": countdown,
                      "consensus": None,   # no free reliable consensus source — never guessed
+                     "status": "ok" if next_cpi else "needs_update",
                      "source": "BLS published release schedule"},
         "next_fomc": {"date": next_fomc,
                       "days": (date.fromisoformat(next_fomc) - today).days if next_fomc else None,
-                      "source": "Federal Reserve 2026 meeting calendar"},
+                      "status": "ok" if next_fomc else "needs_update",
+                      "source": "Federal Reserve meeting calendar"},
         "next_jobs": {"date": jobs.isoformat(), "source": "typical schedule (first Friday, 8:30 AM ET)"},
         "note_ppi_pce": "PPI typically prints within a few days of CPI; PCE near month-end (BEA). Exact dates: bls.gov / bea.gov schedules.",
         "upcoming_auctions": upcoming_auctions or [],
@@ -1018,10 +1059,15 @@ def get_fed() -> dict:
                              "source": "FRED DFEDTARU/DFEDTARL (official target range)"}
             out["ok"] = True
         today = _et_now().date()
-        meetings = [d for d in FOMC_2026 if date.fromisoformat(d) >= today]
+        sched = schedule_status(today)
+        meetings = [d for d in FOMC_2026 if date.fromisoformat(d) >= today] if sched["ok"] else []
         out["meetings"] = meetings
         out["next_meeting"] = {"date": meetings[0], "days": (date.fromisoformat(meetings[0]) - today).days} if meetings else None
-        out["meetings_source"] = "Federal Reserve 2026 FOMC calendar"
+        out["meetings_source"] = "Federal Reserve FOMC calendar"
+        out["schedule"] = sched
+        if not meetings:
+            out["schedule_note"] = (f"Schedule requires update (maintained through "
+                                    f"{sched['valid_through']}; see MACRO_SCHEDULE in treasury.py)")
         # Market-implied path from CME 30-day fed funds futures (ZQ) via Yahoo.
         path = []
         if _YF_OK and meetings:

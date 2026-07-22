@@ -2828,6 +2828,11 @@ function App() {
       <MarketOverview apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       {/* Context bar under the strip: gamma regime + catalysts + rotation. */}
       <MarketContextBar apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenBreadth={() => changeTab("breadth")} />
+      {/* Cross-scanner opportunity ribbon (v3.64): the strongest current
+          setup per cached board — read-only, never triggers a scan. */}
+      <CardErrorBoundary label="Opportunity ribbon">
+        <OpportunityRibbon apiFetch={apiFetch} onSwitchTicker={switchTicker} onChangeTab={changeTab} />
+      </CardErrorBoundary>
       {/* Left-margin vertical ticker — near-52W-high names (wide screens only). */}
       <ExtremeRail kind="high52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       <ExtremeRail kind="dailyHigh" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
@@ -3317,7 +3322,8 @@ function App() {
         </TabPanel>
         <TabPanel tab="calendar" active={activeTab}>
           <CardErrorBoundary label="Market Calendar">
-            <MarketCalendarCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+            <MarketCalendarCard apiFetch={apiFetch} onSwitchTicker={switchTicker}
+                                onOpenEarnOps={() => changeTab("earnops")} />
           </CardErrorBoundary>
         </TabPanel>
 
@@ -4315,6 +4321,7 @@ function App() {
         <EarningsCrushCard
           apiFetch={apiFetch}
           onSwitchTicker={switchTicker}
+          onOpenEarnOps={() => changeTab("earnops")}
         />
         </TabPanel>
 

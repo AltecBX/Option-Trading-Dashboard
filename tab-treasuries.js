@@ -502,20 +502,29 @@ function TsyEventsCard({
     className: "card-title"
   }, "CPI countdown & upcoming events"))), /*#__PURE__*/React.createElement("div", {
     className: "tsy-events"
-  }, cpi && cpi.date && /*#__PURE__*/React.createElement("div", {
+  }, ev.schedule && ev.schedule.note && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-sched-warn",
+    title: "The maintained CPI/FOMC schedule tables have run out. Old dates are never recycled \u2014 update MACRO_SCHEDULE in treasury.py from the official BLS / Federal Reserve calendars."
+  }, "\u26A0 ", ev.schedule.note), cpi && cpi.date && /*#__PURE__*/React.createElement("div", {
     className: "tsy-cd",
     title: `Next CPI release per the BLS schedule: ${cpi.date} at ${cpi.time_et}. Consensus estimates need a paid feed — never estimated here.`
   }, /*#__PURE__*/React.createElement("em", null, "NEXT CPI \xB7 ", cpi.date, " \xB7 ", cpi.time_et), cpi.countdown ? /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, cpi.countdown.days, "d ", cpi.countdown.hours, "h ", cpi.countdown.minutes, "m") : /*#__PURE__*/React.createElement("b", null, "\u2014"), /*#__PURE__*/React.createElement("span", null, "Consensus: ", /*#__PURE__*/React.createElement(TsyNA, {
     why: "No free reliable consensus feed \u2014 not estimated."
-  }))), /*#__PURE__*/React.createElement("div", {
+  }))), cpi && !cpi.date && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-cd"
+  }, /*#__PURE__*/React.createElement("em", null, "NEXT CPI"), /*#__PURE__*/React.createElement("b", null, "\u2014"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(TsyNA, {
+    why: "Schedule unavailable \u2014 requires update (MACRO_SCHEDULE in treasury.py)."
+  }), " Schedule requires update")), /*#__PURE__*/React.createElement("div", {
     className: "tsy-evrows"
   }, fomc && fomc.date && /*#__PURE__*/React.createElement("div", {
     className: "tsy-evrow"
   }, /*#__PURE__*/React.createElement("em", null, "FOMC decision"), /*#__PURE__*/React.createElement("b", {
     className: "num"
-  }, fomc.date), /*#__PURE__*/React.createElement("span", null, fomc.days, " days \xB7 ", fomc.source)), jobs && /*#__PURE__*/React.createElement("div", {
+  }, fomc.date), /*#__PURE__*/React.createElement("span", null, fomc.days, " days \xB7 ", fomc.source)), fomc && !fomc.date && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-evrow"
+  }, /*#__PURE__*/React.createElement("em", null, "FOMC decision"), /*#__PURE__*/React.createElement("b", null, "\u2014"), /*#__PURE__*/React.createElement("span", null, "Schedule requires update")), jobs && /*#__PURE__*/React.createElement("div", {
     className: "tsy-evrow"
   }, /*#__PURE__*/React.createElement("em", null, "Employment report"), /*#__PURE__*/React.createElement("b", {
     className: "num"
@@ -1015,7 +1024,10 @@ function TsyFedCard({
   }, "Fed rate expectations")), nm && /*#__PURE__*/React.createElement("span", {
     className: "tsy-datechip num",
     title: "Next scheduled FOMC decision."
-  }, nm.date, " \xB7 ", nm.days, "d")), /*#__PURE__*/React.createElement("div", {
+  }, nm.date, " \xB7 ", nm.days, "d"), !nm && fd.d.schedule_note && /*#__PURE__*/React.createElement("span", {
+    className: "tsy-datechip",
+    title: fd.d.schedule_note
+  }, "\u26A0 schedule update needed")), /*#__PURE__*/React.createElement("div", {
     className: "tsy-fed"
   }, t && /*#__PURE__*/React.createElement("div", {
     className: "tsy-cd"
@@ -1831,7 +1843,12 @@ function TsyOvEvents({
     className: "num"
   }, cpi.date), /*#__PURE__*/React.createElement("span", {
     className: "num warn"
-  }, cpi.countdown ? `${cpi.countdown.days}d ${cpi.countdown.hours}h` : "")), head && head.ok && /*#__PURE__*/React.createElement("div", {
+  }, cpi.countdown ? `${cpi.countdown.days}d ${cpi.countdown.hours}h` : "")), cpi && !cpi.date && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv big",
+    title: ev.schedule && ev.schedule.note || "Maintained schedule exhausted."
+  }, /*#__PURE__*/React.createElement("em", null, "CPI"), /*#__PURE__*/React.createElement("b", null, "\u2014"), /*#__PURE__*/React.createElement("span", {
+    className: "warn"
+  }, "schedule update needed")), head && head.ok && /*#__PURE__*/React.createElement("div", {
     className: "tsy-kv",
     title: "Previous print (the June data). Est column: no free consensus source \u2014 not estimated."
   }, /*#__PURE__*/React.createElement("em", null, "Prev headline / core YoY"), /*#__PURE__*/React.createElement("b", {
@@ -1855,7 +1872,12 @@ function TsyOvEvents({
     className: "num"
   }, fomc.date), /*#__PURE__*/React.createElement("span", {
     className: "num"
-  }, fomc.days, "d")), jobs && /*#__PURE__*/React.createElement("div", {
+  }, fomc.days, "d")), fomc && !fomc.date && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-kv",
+    title: ev.schedule && ev.schedule.note || "Maintained schedule exhausted."
+  }, /*#__PURE__*/React.createElement("em", null, "FOMC"), /*#__PURE__*/React.createElement("b", null, "\u2014"), /*#__PURE__*/React.createElement("span", {
+    className: "warn"
+  }, "schedule update needed")), jobs && /*#__PURE__*/React.createElement("div", {
     className: "tsy-kv",
     title: jobs.source
   }, /*#__PURE__*/React.createElement("em", null, "Jobs report"), /*#__PURE__*/React.createElement("b", {

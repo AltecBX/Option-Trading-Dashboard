@@ -7352,7 +7352,8 @@ function WinRateCard({
 }
 function EarningsCrushCard({
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  onOpenEarnOps
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -7392,7 +7393,11 @@ function EarningsCrushCard({
     title: "Watchlist tickers with earnings inside 14 days, ranked by proximity. The crush figure is HEURISTIC: it uses pre vs post realized vol around past earnings as a proxy for implied vol crush since historical IV is paid data. Treat as directional not exact."
   }, "Watchlist \xB7 next 14 days \xB7 heuristic"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "Earnings vol crush")), /*#__PURE__*/React.createElement("button", {
+  }, "Earnings vol crush")), onOpenEarnOps && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: onOpenEarnOps,
+    title: "Open the Earnings Opportunities scanner \u2014 the same watchlist earnings names scored and classified into setups with trade plans."
+  }, "Earnings Ops \u2192"), /*#__PURE__*/React.createElement("button", {
     className: "ec-refresh-btn",
     disabled: loading,
     onClick: fetchCrush,
@@ -12389,7 +12394,8 @@ function MarketEarningsCard({
 }
 function MarketCalendarCard({
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  onOpenEarnOps
 }) {
   // ── data ────────────────────────────────────────────────────────────
   const [earn, setEarn] = useState(null);
@@ -12606,7 +12612,11 @@ function MarketCalendarCard({
     className: "card-title"
   }, "Earnings Calendar")), /*#__PURE__*/React.createElement("div", {
     className: "mc-head-controls"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, onOpenEarnOps && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: onOpenEarnOps,
+    title: "Open the Earnings Opportunities scanner \u2014 these same reporting names scored 0-100 and classified into setups with explicit trade plans (or NO TRADE)."
+  }, "Earnings Ops \u2192"), /*#__PURE__*/React.createElement("div", {
     className: "mc-weeknav"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setWeekOff(w => Math.max(0, w - 1)),
@@ -14810,6 +14820,139 @@ function MarketContextBar({
   }, r.sector, /*#__PURE__*/React.createElement("b", null, r.net > 0 ? "+" : "", r.net))), !rotation.length && /*#__PURE__*/React.createElement("span", {
     className: "mctx-quiet"
   }, "rotation pending scan\u2026")));
+}
+
+// ── Opportunity ribbon (v3.64) ─────────────────────────────────────────────
+// ONE compact cross-scanner line under the context bar: the strongest
+// current setup from each ALREADY-CACHED scanner board. Strictly read-only:
+// every source is a pure snapshot endpoint (juice/radar are deliberately
+// EXCLUDED — reading them starts their background workers), fetched through
+// sharedJson so the ribbon never adds a poll a card isn't already making.
+// No black-box score: each chip shows the source scanner's own number and
+// the tooltip spells out exactly what produced it. Boards older than 20
+// minutes are labeled with their age; demo earnings data never qualifies;
+// nothing qualifying = an explicit "no current setups" line.
+const OPP_STALE_MIN = 20;
+function OpportunityRibbon({
+  apiFetch,
+  onSwitchTicker,
+  onChangeTab
+}) {
+  const [b, setB] = useState(null);
+  useEffect(() => {
+    let stop = false,
+      t = null;
+    const load = async () => {
+      const grab = (u, ttl) => sharedJson(apiFetch, u, ttl).catch(() => null);
+      const [wl, iv, eo, rg] = await Promise.all([grab("/api/watchlist_table", 60000), grab("/api/ivrank", 120000), grab("/api/earnings_scan", 120000), grab("/api/range_scan", 120000)]);
+      if (!stop) setB({
+        wl,
+        iv,
+        eo,
+        rg
+      });
+      if (!stop) t = setTimeout(load, document.hidden ? 300000 : 90000);
+    };
+    load();
+    return () => {
+      stop = true;
+      if (t) clearTimeout(t);
+    };
+  }, []);
+  const chips = useMemo(() => {
+    if (!b) return [];
+    const out = [];
+    const ageMin = iso => {
+      if (!iso) return null;
+      const ms = Date.now() - new Date(iso).getTime();
+      return Number.isFinite(ms) && ms >= 0 ? Math.round(ms / 60000) : null;
+    };
+    // FLOW EDGE — the strongest |edge| on the watchlist board (same number
+    // as the Watchlist tab's EDGE column; computed from data already here).
+    if (b.wl && b.wl.rows && b.wl.rows.length) {
+      const scored = edgesFor(b.wl.rows).filter(r => r.edge != null);
+      const top = scored.slice().sort((x, y) => Math.abs(y.edge) - Math.abs(x.edge))[0];
+      if (top && Math.abs(top.edge) >= 40) out.push({
+        key: "edge",
+        label: "FLOW EDGE",
+        sym: top.symbol,
+        val: `${top.edge > 0 ? "+" : ""}${Math.round(top.edge)}`,
+        tone: top.edge > 0 ? "up" : "down",
+        tab: "watchlist",
+        age: ageMin(b.wl.as_of || b.wl.generated_at),
+        tip: `${top.symbol}: watchlist flow-edge ${Math.round(top.edge)} — net options-flow conviction (−100…+100) from premium lean, cross-sectional net-premium rank and signal confluence. Identical to the EDGE column on the Watchlist tab (source board, not a new scan). Click → Watchlist.`
+      });
+    }
+    // HV RANK — richest realized-vol rank (premium-selling candidate).
+    if (b.iv && b.iv.rows && b.iv.rows.length) {
+      const top = b.iv.rows[0]; // board is sorted rank-desc
+      if (top && top.rank >= 70) out.push({
+        key: "hv",
+        label: "HV RANK",
+        sym: top.ticker,
+        val: String(Math.round(top.rank)),
+        tone: "up",
+        tab: "discover",
+        age: ageMin(b.iv.status && b.iv.status.last_scan),
+        tip: `${top.ticker}: HV rank ${Math.round(top.rank)} — current 20d realized vol vs its own 1-year range ${top.hv_low}–${top.hv_high}%${top.rank_n ? ` (n=${top.rank_n} readings)` : ""}. A proxy for IV rank (premium likely rich). From the HV Rank scanner board. Click → Discover scanners.`
+      });
+    }
+    // EARNINGS — best actionable earnings-ops setup (never demo rows).
+    if (b.eo && !b.eo.demo && b.eo.rows && b.eo.rows.length) {
+      const cand = b.eo.rows.filter(r => (r.score || 0) >= 70 && !/no.?trade|avoid/i.test(String(r.action || r.setup || "")));
+      const top = cand.sort((x, y) => (y.score || 0) - (x.score || 0))[0];
+      if (top) out.push({
+        key: "earn",
+        label: "EARNINGS",
+        sym: top.ticker,
+        val: String(Math.round(top.score)),
+        tone: "up",
+        tab: "earnops",
+        age: ageMin(b.eo.status && b.eo.status.last_scan),
+        tip: `${top.ticker}: earnings-ops score ${Math.round(top.score)} (${String(top.setup || "").replace(/_/g, " ")}${top.days_to_earnings != null ? `, reports in ${top.days_to_earnings}d` : ""}). Score = the Earnings Ops scanner's own liquidity/IV-edge/confirmation blend — full breakdown on its row. Click → Earnings Ops.`
+      });
+    }
+    // RANGE — closest to a multi-week extreme (weekly-selling location).
+    if (b.rg && b.rg.rows && b.rg.rows.length) {
+      const top = b.rg.rows[0]; // board is sorted edge-desc
+      if (top && top.edge >= 80) out.push({
+        key: "range",
+        label: "RANGE",
+        sym: top.ticker,
+        val: `${Math.round(top.edge)}%`,
+        tone: top.side === "put" ? "down" : "up",
+        tab: "scanners",
+        age: ageMin(b.rg.status && b.rg.status.last_scan),
+        tip: `${top.ticker}: ${Math.round(top.edge)}% proximity to its ${top.side === "put" ? "multi-week LOW (put-selling zone)" : "multi-week HIGH (call-selling zone)"} — the Range Location scan's own edge number (location, not a probability). Click → Scanners.`
+      });
+    }
+    return out;
+  }, [b]);
+  if (!b) return null; // nothing fetched yet — no flash
+  const anyBoard = b.wl || b.iv || b.eo || b.rg;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "opp-ribbon",
+    role: "navigation",
+    "aria-label": "Current opportunities across scanners"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "opp-title",
+    title: "The strongest current setup from each cached scanner board (watchlist flow edge, HV rank, earnings ops, range location). Read-only: reuses each scanner's existing data \u2014 never triggers a scan. Each chip shows that scanner's own number; hover for the exact inputs."
+  }, "OPPORTUNITIES"), chips.length === 0 && /*#__PURE__*/React.createElement("span", {
+    className: "opp-none"
+  }, anyBoard ? "no current setups — scanners have nothing above threshold" : "scanners idle — boards not populated yet"), chips.map(c => /*#__PURE__*/React.createElement("button", {
+    key: c.key,
+    className: `opp-chip ${c.tone}`,
+    title: c.tip,
+    onClick: () => {
+      onSwitchTicker && onSwitchTicker(c.sym);
+      onChangeTab && onChangeTab(c.tab);
+    }
+  }, /*#__PURE__*/React.createElement("em", null, c.label), /*#__PURE__*/React.createElement("b", null, c.sym), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, c.val), c.age != null && c.age > OPP_STALE_MIN && /*#__PURE__*/React.createElement("span", {
+    className: "opp-stale",
+    title: `This board last refreshed ${c.age} minutes ago — treat as stale until its scanner runs again.`
+  }, c.age, "m old"))));
 }
 
 // ── Picks Journal ─────────────────────────────────────────────────────────
@@ -17269,6 +17412,7 @@ Object.assign(window, {
   CommandPalette,
   ShortcutsSheet,
   MarketContextBar: _memo(MarketContextBar),
+  OpportunityRibbon: _memo(OpportunityRibbon),
   PicksJournalCard: _memo(PicksJournalCard),
   VolSkewCard: _memo(VolSkewCard),
   WatchlistTableCard: _memo(WatchlistTableCard),
