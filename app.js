@@ -198,6 +198,74 @@ function LiveClock() {
     }, new Date(now).toString()));
   }
 }
+
+// ── Sidebar slider tuner (v3.64) ────────────────────────────────────────────
+// The three sidebar sliders (weeks / target delta / buffer) used to write
+// straight into App state on every drag tick — re-rendering the entire app
+// dozens of times per second mid-drag. This memoized tuner keeps the value
+// LOCAL while dragging (only this tiny component re-renders) and commits to
+// App on release (pointer up / key up), with a 250ms debounce fallback so
+// keyboard arrows and mid-drag pauses still land.
+const SliderTuner = React.memo(function SliderTuner({
+  label,
+  labelClass = "sb-label-sub",
+  termKey,
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+  fmtVal,
+  fmtHint
+}) {
+  const [local, setLocal] = useState(value);
+  const dragging = useRef(false);
+  const timer = useRef(null);
+  useEffect(() => {
+    if (!dragging.current) setLocal(value);
+  }, [value]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const commit = v => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    dragging.current = false;
+    if (v !== value) onCommit(v);
+  };
+  const onChange = e => {
+    const v = +e.target.value;
+    dragging.current = true;
+    setLocal(v);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => commit(v), 250);
+  };
+  const F = fmtVal || (v => v);
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "sb-row"
+  }, termKey ? /*#__PURE__*/React.createElement(Term, {
+    k: termKey,
+    className: labelClass
+  }, label) : /*#__PURE__*/React.createElement("span", {
+    className: labelClass
+  }, label), /*#__PURE__*/React.createElement("span", {
+    className: "sb-val"
+  }, F(local))), /*#__PURE__*/React.createElement("input", {
+    className: "sb-slider",
+    type: "range",
+    min: min,
+    max: max,
+    step: step,
+    value: local,
+    onChange: onChange,
+    onPointerUp: e => commit(+e.target.value),
+    onKeyUp: e => commit(+e.target.value)
+  }), fmtHint && /*#__PURE__*/React.createElement("div", {
+    className: "sb-hint"
+  }, fmtHint(local)));
+});
 function App() {
   // Floating-point-safe strike key. yfinance can return strikes with
   // tiny FP drift (e.g., 317.5 vs 317.4999999998), so we round to cents
@@ -2038,7 +2106,12 @@ function App() {
     // ~90s, install it NOW (no skeleton flash) and let the fetch below
     // revalidate in the background. A manual refresh (reloadNonce changed)
     // always shows the loading state and skips the hydrate.
-    const _lruKey = `${ticker}|${weeks}|${baseline}|${expiration}`;
+    // v3.64: /api/ticker always fetches the FULL 52 weeks and the weeks
+    // slider slices client-side (data.js buildWeekly already slices; rows
+    // are newest-first). Moving the slider used to refetch the whole heavy
+    // payload (daily bars + full chain) — now it's zero network, and every
+    // weeks setting shares one LRU/server-cache entry per symbol.
+    const _lruKey = `${ticker}|52|${baseline}|${expiration}`;
     const _manual = _TICKER_LAST_NONCE !== null && _TICKER_LAST_NONCE !== reloadNonce;
     _TICKER_LAST_NONCE = reloadNonce;
     const _hit = !_manual && _TICKER_LRU.get(_lruKey);
@@ -2057,7 +2130,7 @@ function App() {
       _PERF.resetCounter("ticker");
       _PERF.mark(`ticker → ${ticker}: /api/ticker fetch start`);
     }
-    let url = `/api/ticker?symbol=${encodeURIComponent(ticker)}` + `&weeks=${weeks}&baseline=${baseline}`;
+    let url = `/api/ticker?symbol=${encodeURIComponent(ticker)}` + `&weeks=52&baseline=${baseline}`;
     if (expiration) url += `&expiration=${encodeURIComponent(expiration)}`;
     apiFetch(url, {
       signal: ac.signal
@@ -2103,7 +2176,7 @@ function App() {
       cancelled = true;
       ac.abort();
     };
-  }, [ticker, weeks, baseline, expiration, reloadNonce]);
+  }, [ticker, baseline, expiration, reloadNonce]);
 
   // Reset expiration override whenever the ticker changes — different
   // symbols have different chains, so a stale date will silently fall back
@@ -4074,20 +4147,14 @@ function App() {
     }
   }, "Add"))), /*#__PURE__*/React.createElement("div", {
     className: "sb-section"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "sb-row"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "sb-label"
-  }, "Weeks of history"), /*#__PURE__*/React.createElement("span", {
-    className: "sb-val"
-  }, weeks)), /*#__PURE__*/React.createElement("input", {
-    className: "sb-slider",
-    type: "range",
-    min: "4",
-    max: "52",
-    step: "1",
+  }, /*#__PURE__*/React.createElement(SliderTuner, {
+    label: "Weeks of history",
+    labelClass: "sb-label",
     value: weeks,
-    onChange: e => setWeeks(+e.target.value)
+    min: 4,
+    max: 52,
+    step: 1,
+    onCommit: setWeeks
   })), /*#__PURE__*/React.createElement("div", {
     className: "sb-section"
   }, /*#__PURE__*/React.createElement("div", {
@@ -4103,38 +4170,25 @@ function App() {
   }, "By delta"), /*#__PURE__*/React.createElement("button", {
     className: strikeMode === "buffer" ? "active" : "",
     onClick: () => setStrikeMode("buffer")
-  }, "By buffer")), strikeMode === "delta" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "sb-row"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "sb-label-sub"
-  }, "Target delta"), /*#__PURE__*/React.createElement("span", {
-    className: "sb-val"
-  }, targetDelta.toFixed(2))), /*#__PURE__*/React.createElement("input", {
-    className: "sb-slider",
-    type: "range",
-    min: "0.05",
-    max: "0.45",
-    step: "0.01",
+  }, "By buffer")), strikeMode === "delta" ? /*#__PURE__*/React.createElement(SliderTuner, {
+    label: "Target delta",
     value: targetDelta,
-    onChange: e => setTargetDelta(+e.target.value)
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "sb-hint"
-  }, "Calls picked at +", targetDelta.toFixed(2), " \xB7 puts at -", targetDelta.toFixed(2))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "sb-row"
-  }, /*#__PURE__*/React.createElement(Term, {
-    k: "buffer",
-    className: "sb-label-sub"
-  }, "Buffer % beyond expected range"), /*#__PURE__*/React.createElement("span", {
-    className: "sb-val"
-  }, bufferPct.toFixed(1), "%")), /*#__PURE__*/React.createElement("input", {
-    className: "sb-slider",
-    type: "range",
-    min: "0",
-    max: "10",
-    step: "0.5",
+    min: 0.05,
+    max: 0.45,
+    step: 0.01,
+    onCommit: setTargetDelta,
+    fmtVal: v => v.toFixed(2),
+    fmtHint: v => `Calls picked at +${v.toFixed(2)} · puts at -${v.toFixed(2)}`
+  }) : /*#__PURE__*/React.createElement(SliderTuner, {
+    label: "Buffer % beyond expected range",
+    termKey: "buffer",
     value: bufferPct,
-    onChange: e => setBufferPct(+e.target.value)
-  }))), /*#__PURE__*/React.createElement("div", {
+    min: 0,
+    max: 10,
+    step: 0.5,
+    onCommit: setBufferPct,
+    fmtVal: v => v.toFixed(1) + "%"
+  })), /*#__PURE__*/React.createElement("div", {
     className: "sb-section"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "baseline",
@@ -4196,7 +4250,10 @@ function App() {
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Pattern discovery"
-  }, /*#__PURE__*/React.createElement(PatternDiscoveryCard, {
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-patterns",
+    component: "PatternDiscoveryCard",
+    label: "Pattern discovery",
     apiFetch: apiFetch,
     ticker: ticker,
     onOpenBacktest: () => changeTab("backtest")
@@ -4251,7 +4308,10 @@ function App() {
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "US Treasuries"
-  }, /*#__PURE__*/React.createElement(TreasuriesTab, {
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-treasuries",
+    component: "TreasuriesTab",
+    label: "US Treasuries",
     apiFetch: apiFetch,
     onOpenTicker: sym => {
       switchTicker(sym);
@@ -4262,7 +4322,10 @@ function App() {
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Earnings Opportunities"
-  }, /*#__PURE__*/React.createElement(EarningsOpsTab, {
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-earnops",
+    component: "EarningsOpsTab",
+    label: "Earnings Opportunities",
     apiFetch: apiFetch,
     onOpenTicker: sym => {
       switchTicker(sym);
@@ -6440,7 +6503,10 @@ function App() {
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Backtest Lab"
-  }, /*#__PURE__*/React.createElement(BacktestCard, {
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-backtest",
+    component: "BacktestCard",
+    label: "Backtest Lab",
     apiFetch: apiFetch
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "scanners",

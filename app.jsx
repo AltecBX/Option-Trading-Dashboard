@@ -129,6 +129,50 @@ function LiveClock() {
   }
 }
 
+// ── Sidebar slider tuner (v3.64) ────────────────────────────────────────────
+// The three sidebar sliders (weeks / target delta / buffer) used to write
+// straight into App state on every drag tick — re-rendering the entire app
+// dozens of times per second mid-drag. This memoized tuner keeps the value
+// LOCAL while dragging (only this tiny component re-renders) and commits to
+// App on release (pointer up / key up), with a 250ms debounce fallback so
+// keyboard arrows and mid-drag pauses still land.
+const SliderTuner = React.memo(function SliderTuner({ label, labelClass = "sb-label-sub",
+    termKey, value, min, max, step, onCommit, fmtVal, fmtHint }) {
+  const [local, setLocal] = useState(value);
+  const dragging = useRef(false);
+  const timer = useRef(null);
+  useEffect(() => { if (!dragging.current) setLocal(value); }, [value]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const commit = (v) => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    dragging.current = false;
+    if (v !== value) onCommit(v);
+  };
+  const onChange = (e) => {
+    const v = +e.target.value;
+    dragging.current = true;
+    setLocal(v);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => commit(v), 250);
+  };
+  const F = fmtVal || (v => v);
+  return (
+    <>
+      <div className="sb-row">
+        {termKey
+          ? <Term k={termKey} className={labelClass}>{label}</Term>
+          : <span className={labelClass}>{label}</span>}
+        <span className="sb-val">{F(local)}</span>
+      </div>
+      <input className="sb-slider" type="range" min={min} max={max} step={step}
+             value={local} onChange={onChange}
+             onPointerUp={e => commit(+e.target.value)}
+             onKeyUp={e => commit(+e.target.value)} />
+      {fmtHint && <div className="sb-hint">{fmtHint(local)}</div>}
+    </>
+  );
+});
+
 function App() {
   // Floating-point-safe strike key. yfinance can return strikes with
   // tiny FP drift (e.g., 317.5 vs 317.4999999998), so we round to cents
@@ -1608,7 +1652,12 @@ function App() {
     // ~90s, install it NOW (no skeleton flash) and let the fetch below
     // revalidate in the background. A manual refresh (reloadNonce changed)
     // always shows the loading state and skips the hydrate.
-    const _lruKey = `${ticker}|${weeks}|${baseline}|${expiration}`;
+    // v3.64: /api/ticker always fetches the FULL 52 weeks and the weeks
+    // slider slices client-side (data.js buildWeekly already slices; rows
+    // are newest-first). Moving the slider used to refetch the whole heavy
+    // payload (daily bars + full chain) — now it's zero network, and every
+    // weeks setting shares one LRU/server-cache entry per symbol.
+    const _lruKey = `${ticker}|52|${baseline}|${expiration}`;
     const _manual = _TICKER_LAST_NONCE !== null && _TICKER_LAST_NONCE !== reloadNonce;
     _TICKER_LAST_NONCE = reloadNonce;
     const _hit = !_manual && _TICKER_LRU.get(_lruKey);
@@ -1626,7 +1675,7 @@ function App() {
     const _tFetch = (window.performance && performance.now) ? performance.now() : Date.now();
     if (_PERF.on) { _PERF.resetCounter("ticker"); _PERF.mark(`ticker → ${ticker}: /api/ticker fetch start`); }
     let url = `/api/ticker?symbol=${encodeURIComponent(ticker)}`
-            + `&weeks=${weeks}&baseline=${baseline}`;
+            + `&weeks=52&baseline=${baseline}`;
     if (expiration) url += `&expiration=${encodeURIComponent(expiration)}`;
     apiFetch(url, { signal: ac.signal })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
@@ -1670,7 +1719,7 @@ function App() {
         setLoading(false);
       });
     return () => { cancelled = true; ac.abort(); };
-  }, [ticker, weeks, baseline, expiration, reloadNonce]);
+  }, [ticker, baseline, expiration, reloadNonce]);
 
   // Reset expiration override whenever the ticker changes — different
   // symbols have different chains, so a stale date will silently fall back
@@ -3161,12 +3210,9 @@ function App() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-row">
-            <span className="sb-label">Weeks of history</span>
-            <span className="sb-val">{weeks}</span>
-          </div>
-          <input className="sb-slider" type="range" min="4" max="52" step="1"
-                 value={weeks} onChange={e => setWeeks(+e.target.value)} />
+          <SliderTuner label="Weeks of history" labelClass="sb-label"
+                       value={weeks} min={4} max={52} step={1}
+                       onCommit={setWeeks} />
         </div>
 
         <div className="sb-section">
@@ -3176,24 +3222,16 @@ function App() {
             <button className={strikeMode === "buffer" ? "active" : ""} onClick={() => setStrikeMode("buffer")}>By buffer</button>
           </div>
           {strikeMode === "delta" ? (
-            <>
-              <div className="sb-row">
-                <span className="sb-label-sub">Target delta</span>
-                <span className="sb-val">{targetDelta.toFixed(2)}</span>
-              </div>
-              <input className="sb-slider" type="range" min="0.05" max="0.45" step="0.01"
-                     value={targetDelta} onChange={e => setTargetDelta(+e.target.value)} />
-              <div className="sb-hint">Calls picked at +{targetDelta.toFixed(2)} · puts at -{targetDelta.toFixed(2)}</div>
-            </>
+            <SliderTuner label="Target delta"
+                         value={targetDelta} min={0.05} max={0.45} step={0.01}
+                         onCommit={setTargetDelta}
+                         fmtVal={v => v.toFixed(2)}
+                         fmtHint={v => `Calls picked at +${v.toFixed(2)} · puts at -${v.toFixed(2)}`} />
           ) : (
-            <>
-              <div className="sb-row">
-                <Term k="buffer" className="sb-label-sub">Buffer % beyond expected range</Term>
-                <span className="sb-val">{bufferPct.toFixed(1)}%</span>
-              </div>
-              <input className="sb-slider" type="range" min="0" max="10" step="0.5"
-                     value={bufferPct} onChange={e => setBufferPct(+e.target.value)} />
-            </>
+            <SliderTuner label="Buffer % beyond expected range" termKey="buffer"
+                         value={bufferPct} min={0} max={10} step={0.5}
+                         onCommit={setBufferPct}
+                         fmtVal={v => v.toFixed(1) + "%"} />
           )}
         </div>
 
@@ -3247,8 +3285,9 @@ function App() {
         </TabPanel>
         <TabPanel tab="patterns" active={activeTab}>
           <CardErrorBoundary label="Pattern discovery">
-            <PatternDiscoveryCard apiFetch={apiFetch} ticker={ticker}
-                                  onOpenBacktest={() => changeTab("backtest")} />
+            <LazyTab chunk="tab-patterns" component="PatternDiscoveryCard" label="Pattern discovery"
+                     apiFetch={apiFetch} ticker={ticker}
+                     onOpenBacktest={() => changeTab("backtest")} />
           </CardErrorBoundary>
           <CardErrorBoundary label="Swing patterns">
             <SwingPatternCard apiFetch={apiFetch} ticker={ticker} />
@@ -3278,12 +3317,14 @@ function App() {
           </CardErrorBoundary>
         </TabPanel>
 
-        {/* US Treasuries — rates terminal (v3.59). Lazy-mounts on first open;
-            heavy sections inside are collapsed and fetch on expand. */}
+        {/* US Treasuries — rates terminal (v3.59). Lazy CHUNK (v3.64): the
+            code itself loads on first open; heavy sections inside are
+            collapsed and fetch on expand. */}
         <TabPanel tab="treasuries" active={activeTab}>
           <CardErrorBoundary label="US Treasuries">
-            <TreasuriesTab apiFetch={apiFetch}
-                           onOpenTicker={(sym) => { switchTicker(sym); changeTab("analyze"); }} />
+            <LazyTab chunk="tab-treasuries" component="TreasuriesTab" label="US Treasuries"
+                     apiFetch={apiFetch}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("analyze"); }} />
           </CardErrorBoundary>
         </TabPanel>
 
@@ -3291,9 +3332,10 @@ function App() {
             (v3.63). Lazy-mounts on first open; stays live afterwards. */}
         <TabPanel tab="earnops" active={activeTab}>
           <CardErrorBoundary label="Earnings Opportunities">
-            <EarningsOpsTab apiFetch={apiFetch}
-                            onOpenTicker={(sym) => { switchTicker(sym); changeTab("analyze"); }}
-                            onOpenIntraday={openIntraday} />
+            <LazyTab chunk="tab-earnops" component="EarningsOpsTab" label="Earnings Opportunities"
+                     apiFetch={apiFetch}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("analyze"); }}
+                     onOpenIntraday={openIntraday} />
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="breadth" active={activeTab}>
@@ -4980,7 +5022,8 @@ function App() {
 
         <TabPanel tab="backtest" active={activeTab}>
           <CardErrorBoundary label="Backtest Lab">
-            <BacktestCard apiFetch={apiFetch} />
+            <LazyTab chunk="tab-backtest" component="BacktestCard" label="Backtest Lab"
+                     apiFetch={apiFetch} />
           </CardErrorBoundary>
         </TabPanel>
 

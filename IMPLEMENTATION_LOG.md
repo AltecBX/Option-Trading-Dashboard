@@ -118,3 +118,37 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   unreachable from this sandbox — reproduced as a curl TLS reset inside
   yfinance, not a code path), JS 97/97, verify_frontend Layers 1+2 PASS,
   rebuilt dist stamped v3.64.
+
+## Phase 4 — Frontend performance (v3.64)
+
+- **Lazy tab chunks:** Treasuries (1,359 lines), Earnings Ops, Pattern
+  Discovery and Backtest Lab split out of app-cards.jsx into
+  `tab-*.jsx` → `dist/tab-*.min.js`, loaded by a new `loadChunk`/`LazyTab`
+  layer (app-lib.jsx) on first tab activation, cached for the session,
+  version-locked to the app bundle's `?v=`, skeleton loading state +
+  retry-able failure card, existing CardErrorBoundaries preserved.
+  **Measured (Chromium):** initial load fetches 0 chunks; each chunk
+  fetched exactly once on first open, no refetch on revisit; no JS
+  errors. app-cards.min.js 632K→496K (gz 168K→133K); 38K gz now
+  on-demand. Build + verify harness extended to compile/lint/load the
+  chunks in their real (post-load) order.
+- **Sidebar sliders:** new memoized `SliderTuner` (app.jsx) — weeks /
+  target-delta / buffer sliders keep value LOCAL during drag and commit
+  on release (+250ms debounce fallback). Dragging no longer re-renders
+  the whole App per tick.
+- **/api/ticker:** now always fetched at weeks=52; the weeks slider
+  slices client-side (rows are newest-first; data.js buildWeekly already
+  sliced). **Measured (Chromium):** slider dragged through 4 values →
+  0 additional /api/ticker requests (was 1 full ~payload refetch per
+  commit). Bonus: all weeks settings share one browser-LRU and one
+  server-TTL cache entry per symbol. Existing AbortController stale-
+  ticker cancellation + ETag/gzip verified in place.
+- **sharedJson v2:** stale-while-revalidate (serve ≤4×TTL-old data
+  instantly, refresh in background), refresh skipped while the tab is
+  hidden, 300-entry LRU bound. `/api/watchlist_table` confirmed to flow
+  through one shared source (6 consumers, network-coalesced).
+- **Bounded boards:** shared `useBoundedList` (top-150 + "show more/all"
+  + honest shown-count) applied to the three ~600-row scanner boards
+  (Analyst, HV Rank, Trend). Watchlist table already had 120-row
+  incremental windowing (kept). Range scan already capped (kept).
+- **Tests:** JS 97/97, verify Layers 1+2 PASS, security+math 41/41 OK.
