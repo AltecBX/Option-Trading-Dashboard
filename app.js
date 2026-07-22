@@ -3577,10 +3577,14 @@ function App() {
     };
   }, [plLegs, currentPrice]);
   const plCurve = useMemo(() => plLegs.length ? window.OptionStrats.pnlCurve(plLegs, plRange.lower, plRange.upper, 240) : [], [plLegs, plRange.lower, plRange.upper]);
-  const plBounds = useMemo(() => plCurve.length ? window.OptionStrats.pnlBounds(plCurve) : {
+  // ECONOMIC bounds (v3.64): honest max profit / max loss. Values are per
+  // CONTRACT (legs carry qty=±100); Infinity/−Infinity mark genuinely
+  // unbounded tails (long calls up, naked calls/strangles up). The sampled
+  // plCurve above remains what the chart DRAWS — visual, window-capped.
+  const plBounds = useMemo(() => plLegs.length ? window.OptionStrats.economicBounds(plLegs, currentPrice) : {
     min: 0,
     max: 0
-  }, [plCurve]);
+  }, [plLegs, currentPrice]);
   const plBreakEvens = useMemo(() => plCurve.length ? window.OptionStrats.breakEvens(plCurve) : [], [plCurve]);
   const plNetCredit = activeStrat ? window.OptionStrats.netCredit(plLegs) : 0;
   const fmt$ = window.fmt$ || (v => `${v < 0 ? "-" : ""}$${Math.abs(v).toFixed(2)}`);
@@ -3669,16 +3673,20 @@ function App() {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker,
     onOpenBreadth: () => changeTab("breadth")
-  }), /*#__PURE__*/React.createElement(LeftRail52W, {
+  }), /*#__PURE__*/React.createElement(ExtremeRail, {
+    kind: "high52",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), /*#__PURE__*/React.createElement(LeftRailDailyHigh, {
+  }), /*#__PURE__*/React.createElement(ExtremeRail, {
+    kind: "dailyHigh",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), /*#__PURE__*/React.createElement(RightRail52WLow, {
+  }), /*#__PURE__*/React.createElement(ExtremeRail, {
+    kind: "low52",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), /*#__PURE__*/React.createElement(RightRailDailyLow, {
+  }), /*#__PURE__*/React.createElement(ExtremeRail, {
+    kind: "dailyLow",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
   }), /*#__PURE__*/React.createElement("header", {
@@ -8905,20 +8913,21 @@ function App() {
     const acct = Number(sizingConfig.accountSize) || 0;
     const riskPct = Number(sizingConfig.maxRiskPct) || 0;
     const maxRiskDollars = acct * (riskPct / 100);
-    // Compute per-share max loss from the active strategy's legs
-    // by sweeping the P/L curve. If pnlBounds returns -Infinity
-    // (undefined-risk strategy like naked strangle), we can't size
-    // it — flag and skip the calculation.
+    // Max loss per contract from the active strategy's legs, using the
+    // ECONOMIC bounds (v3.64 fix): the old sweep capped the window at
+    // ±50% — pnlBounds over a finite window is always finite, so
+    // undefined-risk structures got silently sized to the window-edge
+    // loss, and the value (legs carry qty=±100, i.e. dollars per
+    // contract) was multiplied by 100 again. economicBounds returns
+    // -Infinity for genuinely unbounded risk (naked calls/strangles)
+    // → those show "undefined" and are never sized; finite structures
+    // (incl. CSPs: strike − credit) size off the true number.
     const O = window.OptionStrats;
-    let perShareLoss = null;
+    let perContractLoss = null;
     if (O && activeStrat?.legs && activeStrat.legs.length) {
-      const lo = Math.max(0.5, currentPrice * 0.5);
-      const hi = currentPrice * 1.5;
-      const curve = O.pnlCurve(activeStrat.legs, lo, hi, 240);
-      const b = O.pnlBounds(curve);
-      if (Number.isFinite(b.min)) perShareLoss = b.min;
+      const b = O.economicBounds(activeStrat.legs, currentPrice);
+      if (Number.isFinite(b.min)) perContractLoss = Math.abs(b.min);
     }
-    const perContractLoss = perShareLoss != null ? Math.abs(perShareLoss) * 100 : null;
     const contracts = perContractLoss && perContractLoss > 0 ? Math.floor(maxRiskDollars / perContractLoss) : null;
     const totalRiskAtCount = contracts ? contracts * perContractLoss : null;
     return /*#__PURE__*/React.createElement("div", {
@@ -9242,14 +9251,14 @@ function App() {
     style: {
       color: "var(--fg)"
     }
-  }, "$", plNetCredit.toFixed(2), "/sh")) : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+  }, "$", plNetCredit.toFixed(2), "/contract")) : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
     k: "net_debit"
   }, "Net debit"), ": ", /*#__PURE__*/React.createElement("b", {
     className: "mono",
     style: {
       color: "var(--fg)"
     }
-  }, "$", Math.abs(plNetCredit).toFixed(2), "/sh")))), /*#__PURE__*/React.createElement(PLChart, {
+  }, "$", Math.abs(plNetCredit).toFixed(2), "/contract")))), /*#__PURE__*/React.createElement(PLChart, {
     legs: plLegs,
     currentPrice: currentPrice,
     expectedMove: expectedDollarMove,
@@ -9272,7 +9281,7 @@ function App() {
     style: {
       color: "var(--up)"
     }
-  }, Number.isFinite(plBounds.max) ? `${fmt$(plBounds.max)} / sh` : "unlimited"), /*#__PURE__*/React.createElement("span", {
+  }, Number.isFinite(plBounds.max) ? `${fmt$(plBounds.max)} / contract` : "unlimited"), /*#__PURE__*/React.createElement("span", {
     className: "k"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "max_loss"
@@ -9280,8 +9289,9 @@ function App() {
     className: "v",
     style: {
       color: "var(--down)"
-    }
-  }, activeStrat.definedRisk && Number.isFinite(plBounds.min) ? `${fmt$(plBounds.min)} / sh` : "undefined"), plBreakEvens.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    },
+    title: Number.isFinite(plBounds.min) ? "True worst case at expiration (stock at $0 for downside structures)." : "UNBOUNDED: the loss keeps growing as the stock rises past the short call side. Size accordingly."
+  }, Number.isFinite(plBounds.min) ? `${fmt$(plBounds.min)} / contract` : "unlimited ⚠"), plBreakEvens.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "k"
   }, /*#__PURE__*/React.createElement(Term, {
     k: "break_even"
@@ -9459,7 +9469,9 @@ function App() {
       const lower = Math.max(0.5, currentPrice * 0.6);
       const upper = currentPrice * 1.4;
       const curve = O.pnlCurve(customLegs, lower, upper, 240);
-      const bounds = O.pnlBounds(curve);
+      // Economic bounds, not the drawing window (v3.64):
+      // unbounded tails come back as ±Infinity.
+      const bounds = O.economicBounds(customLegs, currentPrice);
       const bes = O.breakEvens(curve);
       const netCredit = O.netCredit(customLegs);
       // Detect strategy name by best match to STRATEGIES
@@ -9486,14 +9498,14 @@ function App() {
         style: {
           color: "var(--fg)"
         }
-      }, "$", netCredit.toFixed(2), "/sh")) : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
+      }, "$", netCredit.toFixed(2), "/contract")) : /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Term, {
         k: "net_debit"
       }, "Net debit"), ": ", /*#__PURE__*/React.createElement("b", {
         className: "mono",
         style: {
           color: "var(--fg)"
         }
-      }, "$", Math.abs(netCredit).toFixed(2), "/sh")))), /*#__PURE__*/React.createElement(PLChart, {
+      }, "$", Math.abs(netCredit).toFixed(2), "/contract")))), /*#__PURE__*/React.createElement(PLChart, {
         legs: customLegs,
         currentPrice: currentPrice,
         expectedMove: expDollarMove,
@@ -9516,7 +9528,7 @@ function App() {
         style: {
           color: "var(--up)"
         }
-      }, Number.isFinite(bounds.max) ? `$${bounds.max.toFixed(2)} / sh` : "unlimited"), /*#__PURE__*/React.createElement("span", {
+      }, Number.isFinite(bounds.max) ? `$${bounds.max.toFixed(2)} / contract` : "unlimited"), /*#__PURE__*/React.createElement("span", {
         className: "k"
       }, /*#__PURE__*/React.createElement(Term, {
         k: "max_loss"
@@ -9524,8 +9536,9 @@ function App() {
         className: "v",
         style: {
           color: "var(--down)"
-        }
-      }, Number.isFinite(bounds.min) ? `$${bounds.min.toFixed(2)} / sh` : "undefined"), bes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+        },
+        title: Number.isFinite(bounds.min) ? "True worst case at expiration (stock at $0 for downside structures)." : "UNBOUNDED: the loss keeps growing as the stock rises past the short call side."
+      }, Number.isFinite(bounds.min) ? `$${bounds.min.toFixed(2)} / contract` : "unlimited ⚠"), bes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
         className: "k"
       }, /*#__PURE__*/React.createElement(Term, {
         k: "break_even"

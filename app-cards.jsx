@@ -10457,37 +10457,112 @@ function lrailTopTag(rows) {
   return best ? { tag: best, n } : null;
 }
 
-// Left-margin vertical ticker (wide screens only): watchlist names closest to
-// their 52-week high, scrolling top→bottom. Ticker · price · change · %-from-52WH.
-function LeftRail52W({ apiFetch, onSwitchTicker }) {
-  const [scanRows, setScanRows] = useState([]);
-  const [liveQ, setLiveQ] = useState({});   // symbol -> {last, chg}
+// ── Extreme rails (v3.64) — ONE parameterized component ────────────────────
+// Formerly four near-identical ~110-line components (LeftRail52W,
+// LeftRailDailyHigh, RightRail52WLow, RightRailDailyLow). Everything that
+// differed is data in RAIL_CFG below; everything shared (owned-highlight,
+// live-quote overlay, viewport measurement, the seamless scroll loop, the
+// 3-line item layout) exists exactly once. DOM classes are unchanged, so
+// all existing CSS applies as before.
+const RAIL_CFG = {
+  // Watchlist names within 3% of their 52-week HIGH (scan + live overlay).
+  high52: {
+    source: "scan",
+    scanPick: all => all
+      .filter(x => x.from_52wh != null && x.from_52wh >= -6 && x.high_52w != null)
+      .sort((a, b) => b.from_52wh - a.from_52wh).slice(0, 60),
+    // Recompute distance against the LIVE price so a stale scan bar can't
+    // pin a stock at a high it isn't near; then the real 3% display gate.
+    liveFrom: (r, last) => r.high_52w ? Math.round((last / r.high_52w - 1) * 1000) / 10 : r.from_52wh,
+    keep: from => from != null && from >= -3,
+    sort: (a, b) => b._from - a._from,
+    wrapCls: "lrail rrail", titleCls: "lrail-title", subtagCls: "lrail-subtag",
+    aria: "Watchlist names near 52-week high", heading: "NEAR 52W HIGH",
+    headTip: "Watchlist stocks within 3% of their 52-week high",
+    subtagTip: t => `Most-represented tag near the 52-week high right now: ${t.tag} (${t.n})`,
+    itemTip: (r, own) => `${r.company || r.symbol} — ${r._from >= 0 ? "at" : Math.abs(r._from) + "% below"} 52-week high ($${r.high_52w != null ? r.high_52w : "?"})${own ? " · you own this (Schwab)" : ""}`,
+    cell2: r => <span className="lr-52" title="% from 52-week high">{r._from >= 0 ? "HIGH" : `${r._from}%`}</span>,
+    dash: false, emptyNote: null,
+  },
+  // Watchlist names within 3% of their 52-week LOW.
+  low52: {
+    source: "scan",
+    scanPick: all => all
+      .filter(x => x.from_52wl != null && x.from_52wl <= 6 && x.low_52w != null)
+      .sort((a, b) => a.from_52wl - b.from_52wl).slice(0, 60),
+    liveFrom: (r, last) => r.low_52w ? Math.round((last / r.low_52w - 1) * 1000) / 10 : r.from_52wl,
+    keep: from => from != null && from <= 3,
+    sort: (a, b) => a._from - b._from,
+    wrapCls: "lrail", titleCls: "lrail-title lrail-title--low", subtagCls: "lrail-subtag lrail-subtag--low",
+    aria: "Watchlist names near 52-week low", heading: "NEAR 52W LOW",
+    headTip: "Watchlist stocks within 3% of their 52-week low",
+    subtagTip: t => `Most-represented tag near the 52-week low right now: ${t.tag} (${t.n})`,
+    itemTip: (r, own) => `${r.company || r.symbol} — ${r._from <= 0 ? "at" : r._from + "% above"} 52-week low ($${r.low_52w != null ? r.low_52w : "?"})${own ? " · you own this (Schwab)" : ""}`,
+    cell2: r => <span className="lr-52" title="% above 52-week low">{r._from <= 0 ? "LOW" : `+${r._from}%`}</span>,
+    dash: false, emptyNote: null,
+  },
+  // Names AT (≤1% from) TODAY's session high — server does the ranking.
+  dailyHigh: {
+    source: "/api/daily_highs",
+    wrapCls: "lrail lrail--daily rrail rrail--daily",
+    titleCls: "lrail-title lrail-title--daily", subtagCls: "lrail-subtag",
+    aria: "Watchlist names at today's daily high", heading: "DAILY HIGH",
+    headTip: "Watchlist stocks at or within 1% of today's session high",
+    subtagTip: t => `Most-represented tag at the daily high right now: ${t.tag} (${t.n})`,
+    itemTip: (r, own) => `${r.company || r.symbol} — ${r.from_high >= 0 ? "at" : Math.abs(r.from_high) + "% below"} today's high ($${r.day_high != null ? Number(r.day_high).toFixed(2) : "?"})${own ? " · you own this (Schwab)" : ""}`,
+    ageTip: "Time since it last touched today's high",
+    dash: true,
+    emptyNote: "No names at the daily high yet — they show up after the open.",
+    emptyTip: "Nothing is at or near its intraday high right now — names appear once the session is underway.",
+  },
+  // Names AT today's session LOW.
+  dailyLow: {
+    source: "/api/daily_lows",
+    wrapCls: "lrail lrail--daily",
+    titleCls: "lrail-title lrail-title--low lrail-title--lowdaily", subtagCls: "lrail-subtag lrail-subtag--low",
+    aria: "Watchlist names at today's daily low", heading: "DAILY LOW",
+    headTip: "Watchlist stocks at or within 1% of today's session low",
+    subtagTip: t => `Most-represented tag at the daily low right now: ${t.tag} (${t.n})`,
+    itemTip: (r, own) => `${r.company || r.symbol} — ${r.from_low <= 0 ? "at" : r.from_low + "% above"} today's low ($${r.day_low != null ? Number(r.day_low).toFixed(2) : "?"})${own ? " · you own this (Schwab)" : ""}`,
+    ageTip: "Time since it last touched today's low",
+    dash: true,
+    emptyNote: "No names at the daily low yet — they show up after the open.",
+    emptyTip: "Nothing is at or near its intraday low right now — names appear once the session is underway.",
+  },
+};
+
+function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
+  const cfg = RAIL_CFG[kind];
+  const isScan = cfg.source === "scan";
+  const [scanRows, setScanRows] = useState([]);   // scan kinds: candidates
+  const [srvRows, setSrvRows] = useState([]);     // server kinds: final rows
+  const [liveQ, setLiveQ] = useState({});          // scan kinds: sym -> {last, chg}
   const [owned, setOwned] = useState(() => new Set()); // Schwab-held symbols
   const [vpH, setVpH] = useState(0);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const vpRef = useRef(null);
-  // Pull the scan board (cheap, cached) for 52W-high context: high_52w plus a
-  // candidate set near the high. We display LIVE price/change (below) so a
-  // stale or corrupt scan `last` never shows a price the stock never traded.
+
+  // Data source. Scan kinds: candidate set from the shared watchlist board,
+  // then a live-quote overlay (below) so a stale scan can never show a price
+  // the stock didn't trade. Server kinds: /api/daily_* does the ranking.
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
       try {
-        const d = await sharedJson(apiFetch, "/api/watchlist_table", 30000);
-        const all = (d && d.rows) || [];
-        // Candidates: anything the scan thinks is within ~6% of its high (a
-        // touch wider than the display threshold so a live intraday push to a
-        // new high still qualifies once live prices arrive).
-        const near = all
-          .filter(x => x.from_52wh != null && x.from_52wh >= -6 && x.high_52w != null)
-          .sort((a, b) => b.from_52wh - a.from_52wh)
-          .slice(0, 60);
-        if (!stop) setScanRows(near);
+        if (isScan) {
+          const d = await sharedJson(apiFetch, "/api/watchlist_table", 30000);
+          if (!stop) setScanRows(cfg.scanPick((d && d.rows) || []));
+        } else {
+          const r = await apiFetch(cfg.source);
+          const d = await r.json();
+          if (!stop) setSrvRows((d && d.rows) || []);
+        }
       } catch (_) {}
-      if (!stop) t = setTimeout(load, 60000);
+      if (!stop) t = setTimeout(load, isScan ? 60000 : 30000);
     };
     load();
     return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
+  }, [kind]);
 
   // Owned symbols from the Schwab portfolio (cached server-side ~5 min).
   useEffect(() => {
@@ -10505,8 +10580,8 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
     return () => { stop = true; if (t) clearTimeout(t); };
   }, []);
 
-  // Live-quote overlay for the candidate set (batched, pauses when hidden).
-  const candKey = scanRows.map(r => r.symbol).join(",");
+  // Live-quote overlay for scan kinds (batched, pauses when hidden).
+  const candKey = isScan ? scanRows.map(r => r.symbol).join(",") : "";
   useEffect(() => {
     if (!candKey) return;
     const syms = candKey.split(",");
@@ -10538,25 +10613,38 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
     return () => { stop = true; if (t) clearTimeout(t); };
   }, [candKey]);
 
-  // Build display rows: prefer the live price/change; recompute "% from 52W
-  // high" against the live price so the rail reflects reality intraday and a
-  // bad scan bar can't keep a stock pinned at a high it isn't near. Then apply
-  // the real display threshold (within 3% of the high) and sort by closeness.
+  // Age ticker for daily kinds: re-render every 5s so "35s/5m/2h since the
+  // touch" ages live without refetching (the CSS scroll keeps running).
+  useEffect(() => {
+    if (isScan) return;
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 5000);
+    return () => clearInterval(id);
+  }, [kind]);
+  const ageStr = (ts) => {
+    if (!ts) return "";
+    const s = Math.max(0, nowSec - Math.floor(ts));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return `${Math.floor(s / 3600)}h`;
+  };
+
+  // Display rows. Scan kinds: prefer live price/change, recompute the
+  // distance from the extreme, apply the real display gate, sort, cap 40.
   const rows = useMemo(() => {
+    if (!isScan) return srvRows;
     const out = [];
     for (const r of scanRows) {
       const q = liveQ[r.symbol];
       const last = q && q.last != null ? q.last : r.last;
       if (last == null) continue;
       const chg = q && q.chg != null ? q.chg : r.change;
-      const hi = r.high_52w;
-      const from = hi ? Math.round((last / hi - 1) * 1000) / 10 : r.from_52wh;
-      if (from == null || from < -3) continue;
+      const from = cfg.liveFrom(r, last);
+      if (!cfg.keep(from)) continue;
       out.push({ ...r, _last: last, _chg: chg, _from: from });
     }
-    out.sort((a, b) => b._from - a._from);
+    out.sort(cfg.sort);
     return out.slice(0, 40);
-  }, [scanRows, liveQ]);
+  }, [kind, scanRows, liveQ, srvRows]);
 
   // Measure the (full-height) viewport. Each list copy is forced to AT LEAST
   // this height (min-height + space-evenly), so the rail always fills top to
@@ -10569,146 +10657,41 @@ function LeftRail52W({ apiFetch, onSwitchTicker }) {
     return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
   }, [rows]);
 
-  if (!rows.length) return null;
-  const colH = Math.max(vpH || 0, rows.length * 62);
-  const dur = Math.max(16, Math.round(colH / 35));   // ~35 px/s (a hair slower)
-  const topTag = lrailTopTag(rows);
-  const Col = ({ hidden }) => (
-    <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
-      {rows.map((r, i) => {
-        const isOwned = owned.has(String(r.symbol).toUpperCase());
-        return (
-        <button key={i} className={`lr-item${isOwned ? " owned" : ""}`} onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
-                title={`${r.company || r.symbol} — ${r._from >= 0 ? "at" : Math.abs(r._from) + "% below"} 52-week high ($${r.high_52w != null ? r.high_52w : "?"})${isOwned ? " · you own this (Schwab)" : ""}`}>
-          <span className="lr-line1">
-            <span className="lr-sym">{r.symbol}</span>
-            <span className="lr-px">${Number(r._last).toFixed(2)}</span>
-          </span>
-          <span className="lr-line2">
-            <span className={`lr-chg ${(r._chg || 0) >= 0 ? "up" : "down"}`}>
-              {r._chg == null ? "—" : `${r._chg >= 0 ? "+" : ""}${Number(r._chg).toFixed(2)}%`}
-            </span>
-            <span className="lr-52" title="% from 52-week high">{r._from >= 0 ? "HIGH" : `${r._from}%`}</span>
-          </span>
-          <span className="lr-line3" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>
-            {r.tag || "—"}
-          </span>
-        </button>
-        );
-      })}
-    </div>
-  );
-  return (
-    <div className="lrail rrail" aria-label="Watchlist names near 52-week high">
-      <div className="lrail-title" title="Watchlist stocks within 3% of their 52-week high">NEAR 52W HIGH</div>
-      {topTag && (
-        <div className="lrail-subtag" title={`Most-represented tag near the 52-week high right now: ${topTag.tag} (${topTag.n})`}>
-          {topTag.tag} · {topTag.n}
-        </div>
-      )}
-      <div className="lrail-vp" ref={vpRef}>
-        <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
-          <Col inner />
-          <Col hidden />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Twin of LeftRail52W, but for stocks AT or near TODAY'S session high. The
-// server (/api/daily_highs) does the heavy lifting: it batches live quotes for
-// the whole watchlist, computes "% from today's high", filters + ranks, and
-// merges in each symbol's Tag. Everything else (owned-yellow highlight, the
-// 3-line layout, the seamless scroll) mirrors the 52W rail exactly.
-function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
-  const [rows, setRows] = useState([]);
-  const [owned, setOwned] = useState(() => new Set());
-  const [vpH, setVpH] = useState(0);
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
-  const vpRef = useRef(null);
-  // Tick once every 5s so the "time since it hit the high" ages live without
-  // re-fetching (CSS scroll animation keeps running — only text changes).
-  useEffect(() => {
-    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 5000);
-    return () => clearInterval(id);
-  }, []);
-  // Compact "time since last at the high": 35s, 5m, 2h.
-  const ageStr = (ts) => {
-    if (!ts) return "";
-    const s = Math.max(0, nowSec - Math.floor(ts));
-    if (s < 60) return `${s}s`;
-    if (s < 3600) return `${Math.floor(s / 60)}m`;
-    return `${Math.floor(s / 3600)}h`;
-  };
-  useEffect(() => {
-    let stop = false, t = null;
-    const load = async () => {
-      try {
-        const r = await apiFetch("/api/daily_highs");
-        const d = await r.json();
-        if (!stop) setRows((d && d.rows) || []);
-      } catch (_) {}
-      if (!stop) t = setTimeout(load, 30000);
-    };
-    load();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
-  useEffect(() => {
-    let stop = false, t = null;
-    const grab = async () => {
-      try {
-        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
-        if (!stop && d && Array.isArray(d.symbols)) {
-          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
-        }
-      } catch (_) {}
-      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
-    };
-    grab();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
-  useEffect(() => {
-    const measure = () => { if (vpRef.current) setVpH(vpRef.current.offsetHeight); };
-    measure();
-    window.addEventListener("resize", measure);
-    const id = setTimeout(measure, 80);
-    return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
-  }, [rows]);
-
-  // Keep the rail visible even with nothing at the daily high yet (e.g.
-  // pre-market, before the 9:30 open the session high isn't set so no name
-  // qualifies). Returning null made the whole rail vanish, which read as a
-  // missing feature — show the frame with a short note instead.
   if (!rows.length) {
+    // Daily rails keep their frame with a note (pre-open nothing qualifies —
+    // vanishing read as a missing feature); 52W rails simply hide.
+    if (!cfg.emptyNote) return null;
     return (
-      <div className="lrail lrail--daily rrail rrail--daily" aria-label="Watchlist names at today's daily high">
-        <div className="lrail-title lrail-title--daily" title="Watchlist stocks at or within 1% of today's session high">DAILY HIGH</div>
-        <div className="lrail-empty" title="Nothing is at or near its intraday high right now — names appear once the session is underway.">No names at the daily high yet — they show up after the open.</div>
+      <div className={cfg.wrapCls} aria-label={cfg.aria}>
+        <div className={cfg.titleCls} title={cfg.headTip}>{cfg.heading}</div>
+        <div className="lrail-empty" title={cfg.emptyTip}>{cfg.emptyNote}</div>
       </div>
     );
   }
   const colH = Math.max(vpH || 0, rows.length * 62);
-  const dur = Math.max(16, Math.round(colH / 35));
+  const dur = Math.max(16, Math.round(colH / 35));   // ~35 px/s scroll
   const topTag = lrailTopTag(rows);
   const Col = ({ hidden }) => (
     <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
       {rows.map((r, i) => {
         const isOwned = owned.has(String(r.symbol).toUpperCase());
-        const from = r.from_high;
+        const last = isScan ? r._last : r.last;
+        const chg = isScan ? r._chg : r.change;
         return (
         <button key={i} className={`lr-item${isOwned ? " owned" : ""}`} onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
-                title={`${r.company || r.symbol} — ${from >= 0 ? "at" : Math.abs(from) + "% below"} today's high ($${r.day_high != null ? Number(r.day_high).toFixed(2) : "?"})${isOwned ? " · you own this (Schwab)" : ""}`}>
+                title={cfg.itemTip(r, isOwned)}>
           <span className="lr-line1">
             <span className="lr-sym">{r.symbol}</span>
-            <span className="lr-dash">-</span>
-            <span className="lr-px">${Number(r.last).toFixed(2)}</span>
+            {cfg.dash && <span className="lr-dash">-</span>}
+            <span className="lr-px">${Number(last).toFixed(2)}</span>
           </span>
           <span className="lr-line2">
-            <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
-              {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`}
+            <span className={`lr-chg ${(chg || 0) >= 0 ? "up" : "down"}`}>
+              {chg == null ? "—" : `${chg >= 0 ? "+" : ""}${Number(chg).toFixed(2)}%`}
             </span>
-            <span className="lr-age" title="Time since it last touched today's high">{ageStr(r.hit_ts)}</span>
+            {isScan
+              ? cfg.cell2(r)
+              : <span className="lr-age" title={cfg.ageTip}>{ageStr(r.hit_ts)}</span>}
           </span>
           <span className="lr-line3" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>
             {r.tag || "—"}
@@ -10719,264 +10702,10 @@ function LeftRailDailyHigh({ apiFetch, onSwitchTicker }) {
     </div>
   );
   return (
-    <div className="lrail lrail--daily rrail rrail--daily" aria-label="Watchlist names at today's daily high">
-      <div className="lrail-title lrail-title--daily" title="Watchlist stocks at or within 1% of today's session high">DAILY HIGH</div>
+    <div className={cfg.wrapCls} aria-label={cfg.aria}>
+      <div className={cfg.titleCls} title={cfg.headTip}>{cfg.heading}</div>
       {topTag && (
-        <div className="lrail-subtag" title={`Most-represented tag at the daily high right now: ${topTag.tag} (${topTag.n})`}>
-          {topTag.tag} · {topTag.n}
-        </div>
-      )}
-      <div className="lrail-vp" ref={vpRef}>
-        <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
-          <Col inner />
-          <Col hidden />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Right-side mirror of LeftRail52W: watchlist names closest to their 52-week
-// LOW. `from_52wl` is how far ABOVE the low we are (>=0; 0 = at a new low).
-function RightRail52WLow({ apiFetch, onSwitchTicker }) {
-  const [scanRows, setScanRows] = useState([]);
-  const [liveQ, setLiveQ] = useState({});
-  const [owned, setOwned] = useState(() => new Set());
-  const [vpH, setVpH] = useState(0);
-  const vpRef = useRef(null);
-  useEffect(() => {
-    let stop = false, t = null;
-    const load = async () => {
-      try {
-        const d = await sharedJson(apiFetch, "/api/watchlist_table", 30000);
-        const all = (d && d.rows) || [];
-        // Candidates: within ~6% above the 52W low (wider than the 3% display
-        // threshold so a live intraday drop to a new low still qualifies).
-        const near = all
-          .filter(x => x.from_52wl != null && x.from_52wl <= 6 && x.low_52w != null)
-          .sort((a, b) => a.from_52wl - b.from_52wl)
-          .slice(0, 60);
-        if (!stop) setScanRows(near);
-      } catch (_) {}
-      if (!stop) t = setTimeout(load, 60000);
-    };
-    load();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
-  useEffect(() => {
-    let stop = false, t = null;
-    const grab = async () => {
-      try {
-        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
-        if (!stop && d && Array.isArray(d.symbols)) {
-          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
-        }
-      } catch (_) {}
-      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
-    };
-    grab();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
-  const candKey = scanRows.map(r => r.symbol).join(",");
-  useEffect(() => {
-    if (!candKey) return;
-    const syms = candKey.split(",");
-    let stop = false, t = null;
-    const poll = async () => {
-      if (!document.hidden) {
-        for (let i = 0; i < syms.length && !stop; i += 25) {
-          const batch = syms.slice(i, i + 25);
-          try {
-            const r = await apiFetch(`/api/quote?tickers=${encodeURIComponent(batch.join(","))}`);
-            if (!r.ok) continue;
-            const j = await r.json();
-            if (stop) return;
-            const res = j.results || {};
-            setLiveQ(prev => {
-              const next = { ...prev };
-              for (const s of batch) {
-                const q = res[s];
-                if (q && q.last != null) next[s] = { last: q.last, chg: q.change_pct != null ? q.change_pct : null };
-              }
-              return next;
-            });
-          } catch (_) {}
-        }
-      }
-      if (!stop) t = setTimeout(poll, 30000);
-    };
-    poll();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, [candKey]);
-  const rows = useMemo(() => {
-    const out = [];
-    for (const r of scanRows) {
-      const q = liveQ[r.symbol];
-      const last = q && q.last != null ? q.last : r.last;
-      if (last == null) continue;
-      const chg = q && q.chg != null ? q.chg : r.change;
-      const lo = r.low_52w;
-      const from = lo ? Math.round((last / lo - 1) * 1000) / 10 : r.from_52wl;
-      if (from == null || from > 3) continue;
-      out.push({ ...r, _last: last, _chg: chg, _from: from });
-    }
-    out.sort((a, b) => a._from - b._from);
-    return out.slice(0, 40);
-  }, [scanRows, liveQ]);
-  useEffect(() => {
-    const measure = () => { if (vpRef.current) setVpH(vpRef.current.offsetHeight); };
-    measure();
-    window.addEventListener("resize", measure);
-    const id = setTimeout(measure, 80);
-    return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
-  }, [rows]);
-
-  if (!rows.length) return null;
-  const colH = Math.max(vpH || 0, rows.length * 62);
-  const dur = Math.max(16, Math.round(colH / 35));
-  const topTag = lrailTopTag(rows);
-  const Col = ({ hidden }) => (
-    <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
-      {rows.map((r, i) => {
-        const isOwned = owned.has(String(r.symbol).toUpperCase());
-        return (
-        <button key={i} className={`lr-item${isOwned ? " owned" : ""}`} onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
-                title={`${r.company || r.symbol} — ${r._from <= 0 ? "at" : r._from + "% above"} 52-week low ($${r.low_52w != null ? r.low_52w : "?"})${isOwned ? " · you own this (Schwab)" : ""}`}>
-          <span className="lr-line1">
-            <span className="lr-sym">{r.symbol}</span>
-            <span className="lr-px">${Number(r._last).toFixed(2)}</span>
-          </span>
-          <span className="lr-line2">
-            <span className={`lr-chg ${(r._chg || 0) >= 0 ? "up" : "down"}`}>
-              {r._chg == null ? "—" : `${r._chg >= 0 ? "+" : ""}${Number(r._chg).toFixed(2)}%`}
-            </span>
-            <span className="lr-52" title="% above 52-week low">{r._from <= 0 ? "LOW" : `+${r._from}%`}</span>
-          </span>
-          <span className="lr-line3" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>
-            {r.tag || "—"}
-          </span>
-        </button>
-        );
-      })}
-    </div>
-  );
-  return (
-    <div className="lrail" aria-label="Watchlist names near 52-week low">
-      <div className="lrail-title lrail-title--low" title="Watchlist stocks within 3% of their 52-week low">NEAR 52W LOW</div>
-      {topTag && (
-        <div className="lrail-subtag lrail-subtag--low" title={`Most-represented tag near the 52-week low right now: ${topTag.tag} (${topTag.n})`}>
-          {topTag.tag} · {topTag.n}
-        </div>
-      )}
-      <div className="lrail-vp" ref={vpRef}>
-        <div className="lrail-track" style={{ animationDuration: `${dur}s` }}>
-          <Col inner />
-          <Col hidden />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Right-side mirror of LeftRailDailyHigh: stocks AT or near TODAY'S session LOW.
-function RightRailDailyLow({ apiFetch, onSwitchTicker }) {
-  const [rows, setRows] = useState([]);
-  const [owned, setOwned] = useState(() => new Set());
-  const [vpH, setVpH] = useState(0);
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
-  const vpRef = useRef(null);
-  useEffect(() => {
-    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 5000);
-    return () => clearInterval(id);
-  }, []);
-  const ageStr = (ts) => {
-    if (!ts) return "";
-    const s = Math.max(0, nowSec - Math.floor(ts));
-    if (s < 60) return `${s}s`;
-    if (s < 3600) return `${Math.floor(s / 60)}m`;
-    return `${Math.floor(s / 3600)}h`;
-  };
-  useEffect(() => {
-    let stop = false, t = null;
-    const load = async () => {
-      try {
-        const r = await apiFetch("/api/daily_lows");
-        const d = await r.json();
-        if (!stop) setRows((d && d.rows) || []);
-      } catch (_) {}
-      if (!stop) t = setTimeout(load, 30000);
-    };
-    load();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
-  useEffect(() => {
-    let stop = false, t = null;
-    const grab = async () => {
-      try {
-        const d = await sharedJson(apiFetch, "/api/broker/owned", 120000);
-        if (!stop && d && Array.isArray(d.symbols)) {
-          setOwned(new Set(d.symbols.map(s => String(s).toUpperCase())));
-        }
-      } catch (_) {}
-      if (!stop) t = setTimeout(grab, 5 * 60 * 1000);
-    };
-    grab();
-    return () => { stop = true; if (t) clearTimeout(t); };
-  }, []);
-  useEffect(() => {
-    const measure = () => { if (vpRef.current) setVpH(vpRef.current.offsetHeight); };
-    measure();
-    window.addEventListener("resize", measure);
-    const id = setTimeout(measure, 80);
-    return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
-  }, [rows]);
-
-  // Keep the rail visible even with nothing at the daily low yet (pre-market
-  // the session low isn't set, so no name qualifies). Returning null made the
-  // whole rail vanish — show the frame with a short note instead.
-  if (!rows.length) {
-    return (
-      <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily low">
-        <div className="lrail-title lrail-title--low lrail-title--lowdaily" title="Watchlist stocks at or within 1% of today's session low">DAILY LOW</div>
-        <div className="lrail-empty" title="Nothing is at or near its intraday low right now — names appear once the session is underway.">No names at the daily low yet — they show up after the open.</div>
-      </div>
-    );
-  }
-  const colH = Math.max(vpH || 0, rows.length * 62);
-  const dur = Math.max(16, Math.round(colH / 35));
-  const topTag = lrailTopTag(rows);
-  const Col = ({ hidden }) => (
-    <div className="lr-col" aria-hidden={hidden || undefined} style={vpH ? { minHeight: `${vpH}px` } : undefined}>
-      {rows.map((r, i) => {
-        const isOwned = owned.has(String(r.symbol).toUpperCase());
-        const from = r.from_low;
-        return (
-        <button key={i} className={`lr-item${isOwned ? " owned" : ""}`} onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
-                title={`${r.company || r.symbol} — ${from <= 0 ? "at" : from + "% above"} today's low ($${r.day_low != null ? Number(r.day_low).toFixed(2) : "?"})${isOwned ? " · you own this (Schwab)" : ""}`}>
-          <span className="lr-line1">
-            <span className="lr-sym">{r.symbol}</span>
-            <span className="lr-dash">-</span>
-            <span className="lr-px">${Number(r.last).toFixed(2)}</span>
-          </span>
-          <span className="lr-line2">
-            <span className={`lr-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
-              {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`}
-            </span>
-            <span className="lr-age" title="Time since it last touched today's low">{ageStr(r.hit_ts)}</span>
-          </span>
-          <span className="lr-line3" title={r.tag ? `Tag: ${r.tag}` : "No tag"}>
-            {r.tag || "—"}
-          </span>
-        </button>
-        );
-      })}
-    </div>
-  );
-  return (
-    <div className="lrail lrail--daily" aria-label="Watchlist names at today's daily low">
-      <div className="lrail-title lrail-title--low lrail-title--lowdaily" title="Watchlist stocks at or within 1% of today's session low">DAILY LOW</div>
-      {topTag && (
-        <div className="lrail-subtag lrail-subtag--low" title={`Most-represented tag at the daily low right now: ${topTag.tag} (${topTag.n})`}>
+        <div className={cfg.subtagCls} title={cfg.subtagTip(topTag)}>
           {topTag.tag} · {topTag.n}
         </div>
       )}
@@ -13284,9 +13013,8 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   MarketCalendarCard: _memo(MarketCalendarCard), NewsTicker: _memo(NewsTicker),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard),
   NewsHub: _memo(NewsHub), SchwabReconnect: _memo(SchwabReconnect),
-  WatchlistStreaksCard: _memo(WatchlistStreaksCard), LeftRail52W: _memo(LeftRail52W),
-  LeftRailDailyHigh: _memo(LeftRailDailyHigh),
-  RightRail52WLow: _memo(RightRail52WLow), RightRailDailyLow: _memo(RightRailDailyLow),
+  WatchlistStreaksCard: _memo(WatchlistStreaksCard),
+  ExtremeRail: _memo(ExtremeRail),
   MarketOverview: _memo(MarketOverview), MarketPosture: _memo(MarketPosture) });
 
 // ── Weekly Option Selling Setup (v3.48) ─────────────────────────────────────

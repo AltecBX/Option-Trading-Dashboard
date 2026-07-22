@@ -1,3 +1,17 @@
+/* ── Breakpoint scale (v3.64) ────────────────────────────────────────────
+   Normalized from 22 scattered values to one documented ladder. All merges
+   were EXPANSIONS (styles apply at slightly wider widths, never dropped).
+     1100px  compact desktop — sidebar/table squeeze
+      900px  MOBILE MODE — sticky header, bottom bar, single column
+      760px  phone refinements (was 640/680/700/720/760)
+      620px  narrow phone (was 560/600/620)
+      520px  small phone (was 480/520)
+      380px  tiny phone
+   Documented specials kept as-is: 1080/1081 complementary pair,
+   1000px calendar rails, 1200-1400px wide-desktop tweaks, min-1601/2080
+   ultra-wide rails, the 950px landscape-phone query, and every
+   prefers-reduced-motion block. New responsive rules MUST pick from the
+   ladder above. */
 /* Tweakable design tokens */
 :root {
   --accent-h: 152;
@@ -458,7 +472,7 @@ input, select, textarea {
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .metric-grid.five { grid-template-columns: repeat(5, 1fr); gap: 8px; }
 @media (max-width: 1100px) { .metric-grid.five { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 720px) { .metric-grid, .metric-grid.five { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .metric-grid, .metric-grid.five { grid-template-columns: repeat(2, 1fr); } }
 .metric {
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
   background: var(--bg);
@@ -1897,7 +1911,7 @@ input, select, textarea {
   font-size: 12.5px; color: var(--fg-2); line-height: 1.5;
 }
 .sref-row-risk .sref-val { color: var(--down); }
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .sref-tile-detail { grid-template-columns: 1fr; gap: 4px; }
   .sref-lbl { margin-top: 8px; }
 }
@@ -2056,7 +2070,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    - Modal takes full screen
    - Hide UI that doesn't translate well to mobile
    ═══════════════════════════════════════════════════════════════════════════ */
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   /* Honor iPhone safe-area insets so brand content isn't under the notch */
   body {
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -2493,7 +2507,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 8px;
   margin-bottom: 10px;
 }
-@media (max-width: 700px) { .pos-stats { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .pos-stats { grid-template-columns: repeat(2, 1fr); } }
 .pos-stat {
   background: var(--bg-2);
   border: 1px solid var(--line);
@@ -2621,7 +2635,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .assign-banner:hover .assign-arrow { opacity: 1; }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .assign-banner { padding: 10px 12px; font-size: 11px; }
   .assign-detail { width: 100%; flex-basis: 100%; }
   .assign-arrow { display: none; }
@@ -2677,7 +2691,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
   margin-bottom: 14px;
 }
-@media (max-width: 700px) { .ladder-summary { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .ladder-summary { grid-template-columns: repeat(2, 1fr); } }
 .ladder-stat {
   background: var(--bg-3); border: 1px solid var(--line);
   border-radius: 8px; padding: 10px 12px;
@@ -2729,7 +2743,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   margin-bottom: 14px;
 }
 @media (max-width: 1100px) { .bt-summary { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 700px) { .bt-summary { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .bt-summary { grid-template-columns: repeat(2, 1fr); } }
 .bt-stat {
   background: var(--bg-3); border: 1px solid var(--line);
   border-radius: 8px; padding: 9px 11px;
@@ -2785,7 +2799,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .bt-win { background: color-mix(in srgb, var(--up) 3%, transparent); }
 .bt-loss { background: color-mix(in srgb, var(--down) 3%, transparent); }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .ladder-table, .bt-trades-table { font-size: 10.5px; }
   .ladder-table th, .ladder-table td,
   .bt-trades-table th, .bt-trades-table td { padding: 5px 6px; }
@@ -3218,7 +3232,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   padding: 4px 8px; cursor: pointer; outline: none;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .wlm-card { width: 100vw; max-height: 100vh; border-radius: 0; }
   .wlm-edit-row { grid-template-columns: 1fr; }
   .wlm-edit-row label { padding-top: 0; }
@@ -3271,7 +3285,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   color: var(--down);
   font-size: 11px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .wr-table { font-size: 10.5px; }
   .wr-table th, .wr-table td { padding: 5px 6px; }
 }
@@ -3535,7 +3549,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   padding: 14px 16px 18px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pcalc-panel { width: 260px; right: -280px; height: 70vh; }
   .pcalc-tab-open { right: 260px; }
   .pcalc-result { width: 80px; }
@@ -4028,7 +4042,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   margin-top: 2px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .basing-row1 { grid-template-columns: 1fr; gap: 8px; }
   .basing-levels { grid-template-columns: repeat(3, 1fr); }
 }
@@ -4195,7 +4209,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .basing-row1 {
   grid-template-columns: 1fr 1.4fr 1.2fr 1.3fr;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .basing-row1 { grid-template-columns: 1fr; }
 }
 
@@ -4316,7 +4330,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
-@media (max-width: 720px) { .picks-row { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .picks-row { grid-template-columns: 1fr; } }
 .pick-card {
   background: var(--bg-3);
   border: 1px solid var(--line);
@@ -4430,7 +4444,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
 }
-@media (max-width: 720px) { .roll-choices { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .roll-choices { grid-template-columns: repeat(2, 1fr); } }
 .roll-choice {
   background: var(--bg-1);
   border: 1px solid var(--line);
@@ -4470,7 +4484,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 12px;
   margin-bottom: 14px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pullback-card .pullback-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .pullback-stat {
@@ -4512,7 +4526,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-template-columns: repeat(6, 1fr);
   gap: 6px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pullback-thresholds-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .pullback-thresh {
@@ -4554,7 +4568,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pullback-today-grid, .pullback-levels-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .pullback-today-stat, .pullback-level {
@@ -4778,7 +4792,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 8px;
   align-items: end;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pullback-backtest-controls { grid-template-columns: 1fr 1fr; }
 }
 .pbb-field {
@@ -4833,7 +4847,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 8px;
   margin-bottom: 10px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pbb-headline { grid-template-columns: repeat(2, 1fr); }
 }
 .pbb-stat {
@@ -4940,7 +4954,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-template-columns: repeat(5, 1fr);
   gap: 6px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pbb-weekday-grid { grid-template-columns: repeat(5, 1fr); gap: 4px; }
 }
 .pbb-wd {
@@ -5040,7 +5054,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (max-width: 1100px) {
   .chart-stats-grid { grid-template-columns: repeat(4, 1fr); }
 }
-@media (max-width: 600px) {
+@media (max-width: 620px) {
   .chart-stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .chart-stat {
@@ -5238,7 +5252,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
-@media (max-width: 600px) {
+@media (max-width: 620px) {
   .flow-subs { grid-template-columns: 1fr; }
 }
 .flow-sub { cursor: help; }
@@ -5345,7 +5359,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-weight: 800;
   font-size: 10px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .flow-trades-head, .flow-trade-row {
     grid-template-columns: repeat(5, 1fr);
     font-size: 10px;
@@ -5534,7 +5548,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .sector-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .sector-cell {
@@ -5714,7 +5728,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border-color: rgba(255, 180, 60, 0.45);
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .market-scan-head, .market-scan-row {
     /* On narrow screens: Ticker · Score · Dir · Total$ · Unus% · Price · Analyst · Earnings */
     grid-template-columns: 50px 40px 50px 70px 60px 70px 40px 80px;
@@ -5785,7 +5799,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   gap: 8px;
   margin-bottom: 14px;
 }
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .ema-stats-grid { grid-template-columns: repeat(4, 1fr); }
 }
 .ema-stat {
@@ -7611,7 +7625,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-family: var(--font-mono);
 }
 .lr-sweep { margin-top: 10px; }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .lr-stage { grid-template-columns: repeat(2, 1fr); }
   .lr-table { font-size: 12px; }
   .lr-table th, .lr-table td { padding: 6px 7px; }
@@ -8087,7 +8101,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .ab-pm.up { color: var(--up); } .ab-pm.down { color: var(--down); }
 .ab-cap { color: var(--fg-3); }
 .ab-reasons { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .ab-summary { grid-template-columns: 1fr 1fr; }
   .ab-sector { margin-left: 0; }
 }
@@ -8288,7 +8302,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-bar-fill.down { background: var(--down); }
 .swing-bar-fill.warn { background: var(--warn); }
 .swing-factors { font-size: 13px; color: var(--fg-3); line-height: 1.35; }
-@media (max-width: 560px) { .swing-scores { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .swing-scores { grid-template-columns: 1fr; } }
 
 .swing-subtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; color: var(--fg-2); }
 
@@ -8323,7 +8337,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-odds-grid b.up { color: var(--up); } .swing-odds-grid b.down { color: var(--down); }
 .swing-odds-grid .swing-sub { font-family: var(--font-mono); font-size: 11px; color: var(--fg-4); font-weight: 500; }
 .swing-odds-note { font-size: 12.5px; line-height: 1.5; color: var(--fg-2); margin-top: 8px; }
-@media (max-width: 680px) { .swing-odds-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .swing-odds-grid { grid-template-columns: 1fr 1fr; } }
 
 /* Bounce-at-level stat line under the level read. */
 .swing-levelstat {
@@ -8369,7 +8383,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-plan-h { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
 .swing-plan-h.up { color: var(--up); }
 .swing-plan-h.warn { color: var(--warn); }
-@media (max-width: 560px) { .swing-plan-cols { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .swing-plan-cols { grid-template-columns: 1fr; } }
 
 /* ── Up / down history toggle ────────────────────────────────────────── */
 .swing-histnav { display: flex; gap: 6px; }
@@ -8521,7 +8535,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 
 /* Phones: trim oversized headers, tighten further. */
-@media (max-width: 480px) {
+@media (max-width: 520px) {
   .card-title { font-size: 16px !important; }
   .kicker { font-size: 10px !important; }
   .mobile-header { padding: 6px 9px; }
@@ -10370,7 +10384,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 
 /* Phones: selling-setup range zone — let the proximity box wrap instead of
    overflowing, and size the extreme numbers to narrow screens. */
-@media (max-width: 480px) {
+@media (max-width: 520px) {
   .wos-prox-box { flex-wrap: wrap; row-gap: 2px; }
   .wos-end b { font-size: 18px; }
   .wos-dte { white-space: nowrap; }
@@ -10506,7 +10520,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 .tsy-cpicell .cu { color: var(--up); } .tsy-cpicell .cd { color: var(--down); }
 .tsy-annrow { margin-top: 2px; }
 @media (max-width: 1100px) { .tsy-cpigrid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 700px) { .tsy-cpigrid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .tsy-cpigrid { grid-template-columns: 1fr 1fr; } }
 .tsy-chartctrl { margin: 6px 0 2px; }
 .tsy-serbtn { background: var(--bg-2); color: var(--fg-3); border: 1px solid var(--line);
   border-radius: 8px; padding: 4px 10px; font-size: 11.5px; cursor: pointer; }
@@ -10621,7 +10635,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .tsy-ovrow.r3 { grid-template-columns: 1fr 1fr; }
   .tsy-ovrow.r4 { grid-template-columns: 1fr 1fr; }
 }
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .tsy-ovrow.r1, .tsy-ovrow.r2, .tsy-ovrow.r3, .tsy-ovrow.r4 { grid-template-columns: 1fr; }
   .tsy-ystrip { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 3px; }
   .tsy-ycell { flex: 0 0 66px; }
@@ -10654,7 +10668,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .tsy-ovrow.r3b { grid-template-columns: 1fr 1fr; }
   .tsy-ovrow.r3b > :nth-child(2) { grid-column: 1 / -1; }
 }
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .tsy-ovrow.r3b { grid-template-columns: 1fr; }
 }
 

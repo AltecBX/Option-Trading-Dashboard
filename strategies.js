@@ -125,7 +125,10 @@
     return cash;
   }
 
-  // Max profit / max loss from the sampled curve (with caveat: undefined-risk strategies cap at the sample window)
+  // VISUAL bounds of the sampled curve — used for chart axis scaling ONLY.
+  // For undefined-risk strategies these cap at the sample window and are NOT
+  // the economic max profit/loss; use economicBounds for anything displayed
+  // as "Max profit" / "Max loss" or used for position sizing.
   function pnlBounds(curve) {
     let lo = Infinity,
       hi = -Infinity;
@@ -136,6 +139,30 @@
     return {
       min: lo,
       max: hi
+    };
+  }
+
+  // ECONOMIC bounds (v3.64) — honest max profit / max loss in the same
+  // dollar scale as pnlAt (per contract with the app's qty=±100 legs).
+  // Upside tail: above every strike, at expiration each call leg's value
+  // slopes at its qty and each stock leg at its qty; puts go to zero (a
+  // BS-valued back-month call's delta → e^{-qT}·1 too, so the sign of the
+  // tail slope is exact even for calendars). Therefore:
+  //   net up-slope > 0 → max profit is UNBOUNDED (Infinity)
+  //   net up-slope < 0 → max loss is UNBOUNDED (-Infinity)  (naked calls /
+  //                       short stock — loss grows without limit above)
+  // The downside is always finite (price stops at 0): scan 0 → far above
+  // the highest strike so every kink is inside the scan.
+  function economicBounds(legs, refPrice) {
+    const upSlope = legs.reduce((s, l) => s + (l.type === "put" ? 0 : l.qty), 0);
+    const strikes = legs.filter(l => l.type !== "stock").map(l => l.strike);
+    const far = Math.max(refPrice || 0, ...(strikes.length ? strikes : [1])) * 4;
+    const curve = pnlCurve(legs, 0, far, 480); // S=0 exact: CSP loss = strike − credit
+    const b = pnlBounds(curve);
+    return {
+      max: upSlope > 1e-9 ? Infinity : b.max,
+      min: upSlope < -1e-9 ? -Infinity : b.min,
+      upSlope
     };
   }
 
@@ -1725,6 +1752,7 @@
     breakEvens,
     netCredit,
     pnlBounds,
+    economicBounds,
     midOf,
     nearest,
     bsPrice,

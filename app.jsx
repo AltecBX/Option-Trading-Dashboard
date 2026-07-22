@@ -2740,9 +2740,13 @@ function App() {
     () => plLegs.length ? window.OptionStrats.pnlCurve(plLegs, plRange.lower, plRange.upper, 240) : [],
     [plLegs, plRange.lower, plRange.upper]
   );
+  // ECONOMIC bounds (v3.64): honest max profit / max loss. Values are per
+  // CONTRACT (legs carry qty=±100); Infinity/−Infinity mark genuinely
+  // unbounded tails (long calls up, naked calls/strangles up). The sampled
+  // plCurve above remains what the chart DRAWS — visual, window-capped.
   const plBounds = useMemo(
-    () => plCurve.length ? window.OptionStrats.pnlBounds(plCurve) : { min: 0, max: 0 },
-    [plCurve]
+    () => plLegs.length ? window.OptionStrats.economicBounds(plLegs, currentPrice) : { min: 0, max: 0 },
+    [plLegs, currentPrice]
   );
   const plBreakEvens = useMemo(
     () => plCurve.length ? window.OptionStrats.breakEvens(plCurve) : [],
@@ -2825,10 +2829,10 @@ function App() {
       {/* Context bar under the strip: gamma regime + catalysts + rotation. */}
       <MarketContextBar apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenBreadth={() => changeTab("breadth")} />
       {/* Left-margin vertical ticker — near-52W-high names (wide screens only). */}
-      <LeftRail52W apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      <LeftRailDailyHigh apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      <RightRail52WLow apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      <RightRailDailyLow apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      <ExtremeRail kind="high52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      <ExtremeRail kind="dailyHigh" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      <ExtremeRail kind="low52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      <ExtremeRail kind="dailyLow" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       {/* Mobile sticky header (phones/tablets only; hidden on desktop via CSS) */}
       <header className="mobile-header">
         <button className="mh-btn mh-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}>☰</button>
@@ -7163,22 +7167,21 @@ function App() {
           const acct = Number(sizingConfig.accountSize) || 0;
           const riskPct = Number(sizingConfig.maxRiskPct) || 0;
           const maxRiskDollars = acct * (riskPct / 100);
-          // Compute per-share max loss from the active strategy's legs
-          // by sweeping the P/L curve. If pnlBounds returns -Infinity
-          // (undefined-risk strategy like naked strangle), we can't size
-          // it — flag and skip the calculation.
+          // Max loss per contract from the active strategy's legs, using the
+          // ECONOMIC bounds (v3.64 fix): the old sweep capped the window at
+          // ±50% — pnlBounds over a finite window is always finite, so
+          // undefined-risk structures got silently sized to the window-edge
+          // loss, and the value (legs carry qty=±100, i.e. dollars per
+          // contract) was multiplied by 100 again. economicBounds returns
+          // -Infinity for genuinely unbounded risk (naked calls/strangles)
+          // → those show "undefined" and are never sized; finite structures
+          // (incl. CSPs: strike − credit) size off the true number.
           const O = window.OptionStrats;
-          let perShareLoss = null;
+          let perContractLoss = null;
           if (O && activeStrat?.legs && activeStrat.legs.length) {
-            const lo = Math.max(0.5, currentPrice * 0.5);
-            const hi = currentPrice * 1.5;
-            const curve = O.pnlCurve(activeStrat.legs, lo, hi, 240);
-            const b = O.pnlBounds(curve);
-            if (Number.isFinite(b.min)) perShareLoss = b.min;
+            const b = O.economicBounds(activeStrat.legs, currentPrice);
+            if (Number.isFinite(b.min)) perContractLoss = Math.abs(b.min);
           }
-          const perContractLoss = perShareLoss != null
-            ? Math.abs(perShareLoss) * 100
-            : null;
           const contracts = perContractLoss && perContractLoss > 0
             ? Math.floor(maxRiskDollars / perContractLoss)
             : null;
@@ -7497,8 +7500,8 @@ function App() {
               </div>
               <div className="card-sub">
                 {plNetCredit >= 0
-                  ? <span><Term k="net_credit">Net credit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${plNetCredit.toFixed(2)}/sh</b></span>
-                  : <span><Term k="net_debit">Net debit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${Math.abs(plNetCredit).toFixed(2)}/sh</b></span>}
+                  ? <span><Term k="net_credit">Net credit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${plNetCredit.toFixed(2)}/contract</b></span>
+                  : <span><Term k="net_debit">Net debit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${Math.abs(plNetCredit).toFixed(2)}/contract</b></span>}
               </div>
             </div>
             <PLChart
@@ -7512,11 +7515,14 @@ function App() {
               <div className="spec-list">
                 <span className="k"><Term k="max_profit">Max profit</Term></span>
                 <span className="v" style={{color: "var(--up)"}}>
-                  {Number.isFinite(plBounds.max) ? `${fmt$(plBounds.max)} / sh` : "unlimited"}
+                  {Number.isFinite(plBounds.max) ? `${fmt$(plBounds.max)} / contract` : "unlimited"}
                 </span>
                 <span className="k"><Term k="max_loss">Max loss</Term></span>
-                <span className="v" style={{color: "var(--down)"}}>
-                  {activeStrat.definedRisk && Number.isFinite(plBounds.min) ? `${fmt$(plBounds.min)} / sh` : "undefined"}
+                <span className="v" style={{color: "var(--down)"}}
+                      title={Number.isFinite(plBounds.min)
+                        ? "True worst case at expiration (stock at $0 for downside structures)."
+                        : "UNBOUNDED: the loss keeps growing as the stock rises past the short call side. Size accordingly."}>
+                  {Number.isFinite(plBounds.min) ? `${fmt$(plBounds.min)} / contract` : "unlimited ⚠"}
                 </span>
                 {plBreakEvens.length > 0 && (
                   <>
@@ -7696,7 +7702,9 @@ function App() {
                           const lower = Math.max(0.5, currentPrice * 0.6);
                           const upper = currentPrice * 1.4;
                           const curve = O.pnlCurve(customLegs, lower, upper, 240);
-                          const bounds = O.pnlBounds(curve);
+                          // Economic bounds, not the drawing window (v3.64):
+                          // unbounded tails come back as ±Infinity.
+                          const bounds = O.economicBounds(customLegs, currentPrice);
                           const bes = O.breakEvens(curve);
                           const netCredit = O.netCredit(customLegs);
                           // Detect strategy name by best match to STRATEGIES
@@ -7713,8 +7721,8 @@ function App() {
                                 </div>
                                 <div className="card-sub">
                                   {netCredit >= 0
-                                    ? <span><Term k="net_credit">Net credit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${netCredit.toFixed(2)}/sh</b></span>
-                                    : <span><Term k="net_debit">Net debit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${Math.abs(netCredit).toFixed(2)}/sh</b></span>}
+                                    ? <span><Term k="net_credit">Net credit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${netCredit.toFixed(2)}/contract</b></span>
+                                    : <span><Term k="net_debit">Net debit</Term>: <b className="mono" style={{color: "var(--fg)"}}>${Math.abs(netCredit).toFixed(2)}/contract</b></span>}
                                 </div>
                               </div>
                               <PLChart
@@ -7728,11 +7736,14 @@ function App() {
                                 <div className="spec-list">
                                   <span className="k"><Term k="max_profit">Max profit</Term></span>
                                   <span className="v" style={{color: "var(--up)"}}>
-                                    {Number.isFinite(bounds.max) ? `$${bounds.max.toFixed(2)} / sh` : "unlimited"}
+                                    {Number.isFinite(bounds.max) ? `$${bounds.max.toFixed(2)} / contract` : "unlimited"}
                                   </span>
                                   <span className="k"><Term k="max_loss">Max loss</Term></span>
-                                  <span className="v" style={{color: "var(--down)"}}>
-                                    {Number.isFinite(bounds.min) ? `$${bounds.min.toFixed(2)} / sh` : "undefined"}
+                                  <span className="v" style={{color: "var(--down)"}}
+                                        title={Number.isFinite(bounds.min)
+                                          ? "True worst case at expiration (stock at $0 for downside structures)."
+                                          : "UNBOUNDED: the loss keeps growing as the stock rises past the short call side."}>
+                                    {Number.isFinite(bounds.min) ? `$${bounds.min.toFixed(2)} / contract` : "unlimited ⚠"}
                                   </span>
                                   {bes.length > 0 && (
                                     <>

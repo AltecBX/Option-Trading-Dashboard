@@ -99,5 +99,45 @@ const backLeg = [{ type: "call", strike: 100, qty: 1, premium: 4.0, dte: 33, iv:
 ok("T=0 call intrinsic", OS.bsPrice(100, 90, 0, 0.3, true, 0.045) === 10);
 ok("σ=0 put intrinsic", OS.bsPrice(100, 110, 30 / 365, 0, false, 0.045) === 10);
 
+// ── 7. economicBounds: honest (not window-capped) max profit / loss ───────
+// Values are per CONTRACT — the app's legs carry qty=±100.
+{
+  const longCall1 = [{ type: "call", strike: 105, qty: 100, premium: 2.5, dte: 5, iv: 0.3 }];
+  const b1 = OS.economicBounds(longCall1, 100);
+  ok("long call: unlimited profit", b1.max === Infinity);
+  ok("long call: max loss = debit", Math.abs(b1.min - (-250)) < 1e-6);
+
+  const csp = [{ type: "put", strike: 95, qty: -100, premium: 2.5, dte: 5, iv: 0.3 }];
+  const b2 = OS.economicBounds(csp, 100);
+  ok("CSP: max profit = credit", Math.abs(b2.max - 250) < 1e-6);
+  ok("CSP: max loss = strike−credit (finite, NOT window-capped)", Math.abs(b2.min - (-(95 - 2.5) * 100)) < 1e-6);
+
+  const shortStrangle = [
+    { type: "put", strike: 95, qty: -100, premium: 2.5, dte: 5, iv: 0.3 },
+    { type: "call", strike: 105, qty: -100, premium: 2.5, dte: 5, iv: 0.3 },
+  ];
+  const b3 = OS.economicBounds(shortStrangle, 100);
+  ok("short strangle: unbounded loss (upside)", b3.min === -Infinity);
+  ok("short strangle: max profit = total credit", Math.abs(b3.max - 500) < 1e-6);
+
+  const coveredCall = [
+    { type: "stock", strike: 100, qty: 100, premium: 0, dte: 0, iv: 0 },
+    { type: "call", strike: 105, qty: -100, premium: 2.5, dte: 5, iv: 0.3 },
+  ];
+  const b4 = OS.economicBounds(coveredCall, 100);
+  ok("covered call: capped upside (flat tail)", Number.isFinite(b4.max) && Math.abs(b4.max - ((105 - 100) + 2.5) * 100) < 1e-6);
+  ok("covered call: max loss = stock to 0 − credit", Math.abs(b4.min - (-(100 - 2.5) * 100)) < 1e-6);
+
+  const condor = [
+    { type: "put", strike: 90, qty: 100, premium: 0.5, dte: 5, iv: 0.3 },
+    { type: "put", strike: 95, qty: -100, premium: 1.5, dte: 5, iv: 0.3 },
+    { type: "call", strike: 105, qty: -100, premium: 1.5, dte: 5, iv: 0.3 },
+    { type: "call", strike: 110, qty: 100, premium: 0.5, dte: 5, iv: 0.3 },
+  ];
+  const b5 = OS.economicBounds(condor, 100);
+  ok("iron condor: defined both ways", Number.isFinite(b5.min) && Number.isFinite(b5.max));
+  ok("iron condor: max loss = width − credit", Math.abs(b5.min - (-(5 - 2) * 100)) < 1e-6);
+}
+
 console.log(`\n${passed}/${passed + failed} passed, ${failed} failed`);
 if (failed) { console.log("Failed: " + fails.join(", ")); process.exit(1); }

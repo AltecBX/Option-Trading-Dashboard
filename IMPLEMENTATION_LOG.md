@@ -152,3 +152,40 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   (Analyst, HV Rank, Trend). Watchlist table already had 120-row
   incremental windowing (kept). Range scan already capped (kept).
 - **Tests:** JS 97/97, verify Layers 1+2 PASS, security+math 41/41 OK.
+
+## Phase 5 — Duplication removal + fork decision (v3.64)
+
+- **Rails 4 → 1:** LeftRail52W / LeftRailDailyHigh / RightRail52WLow /
+  RightRailDailyLow (four ~110-line near-clones) replaced by ONE
+  parameterized `ExtremeRail` + a `RAIL_CFG` table. All DOM classes
+  unchanged (existing CSS untouched); shared logic (owned-highlight,
+  live-quote overlay, viewport measure, seamless scroll) exists once.
+- **Honest strategy economics (`economicBounds`):** `pnlBounds` is now
+  documented as VISUAL (chart-axis) only; new `OptionStrats.economicBounds`
+  derives the true tail behavior — net call+stock slope > 0 → max profit
+  unbounded; < 0 → max loss unbounded; downside always finite (scanned to
+  S=0, so a CSP shows its real strike−credit worst case).
+  **Real bugs fixed:** (1) the P/L card's "Max profit" could show a
+  window-edge dollar figure for unlimited-upside strategies (pnlBounds
+  over a finite window is never Infinity — the "unlimited" branch was
+  dead); (2) the Position-sizing card sized undefined-risk structures to
+  the window-edge loss AND multiplied the per-contract loss by 100 again
+  (legs carry qty=±100, so pnlAt is already per-contract) — contracts
+  were ~100× understated; (3) "/sh" labels on per-contract values → now
+  "/ contract" everywhere in the P/L + custom-builder cards.
+  12 new fixture tests (long call, CSP, short strangle, covered call,
+  iron condor) in test_strategy_fixtures.js (now 27 checks).
+- **`/next` fork removed:** next-app.jsx, next-app.js, next.html,
+  next.css, build_next.js deleted (production is classic — P1 evidence;
+  the server route was already gone in P2 and test_security proves
+  non-allowlisted files 404). No references remained.
+- **Breakpoint ladder:** 22 scattered media-query values normalized to a
+  documented 6-step scale (1100 / 900-mobile-mode / 760 / 620 / 520 /
+  380) via EXPANSION-only merges (640/680/700/720→760, 800→900,
+  560/600→620, 480→520) + documented specials (1080/1081 pair, wide-
+  desktop 1200-1400, ultra-wide min-1601/2080, 950px landscape,
+  reduced-motion). **Measured (Chromium):** zero horizontal overflow at
+  1200/900/760/750/700/620/520/390px, mobile chrome engages ≤900,
+  no JS errors.
+- **Tests:** JS 107/107 (30+26+24+27), verify PASS, security+math 41 OK,
+  http smoke 50/50.
