@@ -202,6 +202,23 @@ def _curve_year(year: int) -> list[dict] | None:
     return rows or None
 
 
+def risk_free_3m_cached() -> tuple[float, str] | None:
+    """Latest 3-month T-bill yield as a DECIMAL from the ALREADY-CACHED
+    curve, for metrics.risk_free_rate(). Peek-only: never triggers a
+    network fetch (pricing calls must stay instant), so it returns None
+    until the Treasuries tab / any curve consumer has warmed the cache."""
+    with _CACHE_LOCK:
+        hit = _CACHE.get("curve_hist")
+    rows = hit[1] if hit else None
+    if not rows:
+        return None
+    latest = rows[-1]
+    y3m = latest.get("3M")
+    if y3m is None:
+        return None
+    return y3m / 100.0, f"3M T-bill {y3m:.2f}% (Treasury.gov, {latest.get('date')})"
+
+
 def _curve_history() -> list[dict]:
     """~3 years of daily curves, oldest→newest (for percentiles & compares)."""
     def fetch():

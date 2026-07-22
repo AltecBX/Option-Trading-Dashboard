@@ -66,3 +66,55 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
 - **Measured after:** `/dist/app.min.js` → 200, immutable, gzip 56,494 B
   (was 423,340 B no-store); `/` → no-cache; `/options_dashboard.py` → 404
   (was 200).
+
+## Phase 3 — Options-math contract (v3.64)
+
+- **One canonical Black-Scholes (`metrics.py` v2.0):** documented contract
+  (T = days/365, sigma decimal, theta $/calendar-day, vega $/vol-point,
+  explicit `r` + continuous dividend `q`, exact erf CDF). `option_reprice.py`
+  and `backtest.py` now delegate — the audit's 4 divergent copies are 1
+  implementation + 1 fixture-matched JS mirror.
+- **Live risk-free rate:** `metrics.risk_free_rate()` → (rate, source);
+  wired to `treasury.risk_free_3m_cached()` (peek-only — pricing never
+  blocks on network). Unavailable → labeled `fallback constant 4.00%
+  (live curve unavailable)`, never a silent constant. backtest's default
+  rate resolves through it.
+- **Expected-move vocabulary:** `/api/expected_move` now returns `method`
+  ("atm_straddle" | "one_sigma_iv"), `method_label`, and BOTH measures
+  (`straddle_dollars/pct`, `one_sigma_dollars/pct`). ExpectedMoveCard
+  displays the method actually used plus a "Straddle vs 1σ" comparison
+  row; no more silent substitution.
+- **Iron-fly POP fixed (`juice.py`):** `2·Φ(credit/x)−1` now divides by the
+  true 1σ (S·σ·√T) instead of the ATM straddle (≈1.25σ) — the old formula
+  understated POP ~8–10 pts. Every juice strategy POP carries `pop_basis`
+  ("delta" | "one_sigma") and the UI labels each ("POP (delta est.)" /
+  "POP (1σ est.)") with P(ITM)-vs-P(touch) tooltips. Juice `iv_rank` now
+  carries `iv_rank_src` ("iv_history" | "hv_proxy").
+- **One shared rank:** `metrics.rank_and_percentile` replaces three
+  divergent copies (storage `_iv_history_compute_rank`, ivrank
+  `_vol_metrics`, options_dashboard inline HV rank) + the inline
+  hv-percentile in build_expected_move. Payloads carry sample size
+  (`volRankN`, `rank_n`, `iv_rank_days`).
+- **HV-proxy labeling:** scanner tab/card renamed "HV Rank (IV rank proxy)",
+  sidebar pill "HV rank" with n and a proxy-explainer tooltip; true IV rank
+  (stored IV30 history) keeps the name "IV rank" and now shows its n.
+- **Modeled backtests:** structured `result.modeled` block (assumptions
+  incl. BS-on-HV20 premiums, spread/commission model, next-bar fills) +
+  prominent MODELED badge on the results header.
+- **Beta verified:** Treasuries UI labels Pearson correlation as
+  "Correlation vs Δ10y" and the rate-sense "β per +10bp" is a genuine
+  regression slope (cov/var, `treasury.py:1230`) with n + t-stat +
+  confidence — audit flag #5 was fixed by the v3.60–62 rebuild; verified,
+  no change needed.
+- **Cross-language fixtures:** `fixtures/options_math.json` (435 cases,
+  generated from metrics.py by `fixtures/generate_math_fixtures.py`);
+  `test_math_contract.py` (21 tests: fixtures, cross-module identity,
+  parity, conventions via finite differences, normalize_iv/rank/1σ edges,
+  rate plumbing, juice POP); `test_strategy_fixtures.js` (17 checks: JS
+  engine matches the same fixtures, worst |Δprice| 1.3e-4 on a $1025
+  underlying, payoff identities, break-even dedupe fix).
+- **Tests:** all suites green — 11 Python suites OK (test_failure_modes
+  8/9: the 1 failure is `/api/ticker?symbol=AAPL` 500 because Yahoo is
+  unreachable from this sandbox — reproduced as a curl TLS reset inside
+  yfinance, not a code path), JS 97/97, verify_frontend Layers 1+2 PASS,
+  rebuilt dist stamped v3.64.

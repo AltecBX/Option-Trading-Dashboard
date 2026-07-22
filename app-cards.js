@@ -5107,7 +5107,7 @@ function ScreenersHub({
     label: "Trend"
   }, {
     id: "ivrank",
-    label: "Vol Rank"
+    label: "HV Rank"
   }];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "screener-subnav",
@@ -5488,8 +5488,15 @@ function IVRankCard({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
   }, "Premium selling"), /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
-  }, "Volatility rank")), /*#__PURE__*/React.createElement("div", {
+    className: "card-title",
+    title: "Realized (historical) volatility rank \u2014 a free PROXY for IV rank. No free source provides a year of option-IV history for ~600 names, so this ranks each stock's current 20-day realized vol inside its own 1-year range. True option IV shows per-name on the Trade tab."
+  }, "HV Rank ", /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontWeight: 400,
+      fontSize: "0.72em"
+    }
+  }, "(IV rank proxy)"))), /*#__PURE__*/React.createElement("div", {
     className: "ab-controls"
   }, /*#__PURE__*/React.createElement("button", {
     className: "scan-run-btn",
@@ -5596,7 +5603,11 @@ function IVRankCard({
     className: "ab-sector"
   }, fmtUsd(r.last))), /*#__PURE__*/React.createElement("div", {
     className: "ab-rowsub"
-  }, /*#__PURE__*/React.createElement("span", null, "HV ", /*#__PURE__*/React.createElement("b", null, r.hv, "%")), /*#__PURE__*/React.createElement("span", null, "1y range ", /*#__PURE__*/React.createElement("b", null, r.hv_low, "\u2013", r.hv_high, "%")), /*#__PURE__*/React.createElement("span", null, "Vol rank ", /*#__PURE__*/React.createElement("b", null, Math.round(r.rank))), /*#__PURE__*/React.createElement("span", null, "Pctile ", /*#__PURE__*/React.createElement("b", null, Math.round(r.percentile)))), r.reasons && r.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "HV ", /*#__PURE__*/React.createElement("b", null, r.hv, "%")), /*#__PURE__*/React.createElement("span", null, "1y range ", /*#__PURE__*/React.createElement("b", null, r.hv_low, "\u2013", r.hv_high, "%")), /*#__PURE__*/React.createElement("span", {
+    title: `Where current realized vol sits in its 1-year min–max range${r.rank_n ? ` (${r.rank_n} daily readings)` : ""}. HV-based proxy for IV rank.`
+  }, "HV rank ", /*#__PURE__*/React.createElement("b", null, Math.round(r.rank))), /*#__PURE__*/React.createElement("span", null, "Pctile ", /*#__PURE__*/React.createElement("b", null, Math.round(r.percentile)), r.rank_n ? /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 n=", r.rank_n) : null)), r.reasons && r.reasons.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "ab-reasons"
   }, r.reasons.join(" · ")))))));
 }
@@ -16098,8 +16109,8 @@ function ExpectedMoveCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
-    title: `How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration. "IV × √t" is the theoretical fallback when quotes are missing. ATM strike used: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.${err ? ` Latest refresh failed (${err}) — showing the last good reading and retrying every minute.` : ""}`
-  }, em.method, " \xB7 ATM IV ", em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—", " \xB7 updated ", updated, err && /*#__PURE__*/React.createElement("span", {
+    title: `How the range is computed. "ATM straddle" = at-the-money call mid + put mid — the market's own price for the move to expiration (≈1.25σ under Black-Scholes). "1σ (IV·√t)" = the one-standard-deviation move S·σ·√t — the theoretical fallback when straddle quotes are missing. These are two DIFFERENT measures and the method shown is the one actually used. ATM strike: ${em.atm_strike != null ? "$" + em.atm_strike : "n/a"}.${err ? ` Latest refresh failed (${err}) — showing the last good reading and retrying every minute.` : ""}`
+  }, em.method_label || em.method, " \xB7 ATM IV ", em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—", " \xB7 updated ", updated, err && /*#__PURE__*/React.createElement("span", {
     className: "emx-stale"
   }, " \xB7 stale \u2014 retrying")), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
@@ -16188,7 +16199,12 @@ function ExpectedMoveCard({
     className: "emx-range-edge up"
   }, fmt$(em.upper))), /*#__PURE__*/React.createElement("div", {
     className: "emx-cmp"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, em.straddle_dollars != null && em.one_sigma_dollars != null && /*#__PURE__*/React.createElement("div", {
+    className: "emx-cmp-row",
+    title: "The two distinct move measures, side by side. ATM Straddle Price = call mid + put mid \u2014 what the market charges for the move (\u22481.25\u03C3). One Sigma Move = S\xB7\u03C3\xB7\u221At \u2014 the statistical 68% band. They are related but NOT interchangeable; the bold method above is the one driving this card's range."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "emx-cmp-lbl"
+  }, "Straddle vs 1\u03C3"), /*#__PURE__*/React.createElement("b", null, "\xB1", fmt$(em.straddle_dollars), " (", em.straddle_pct != null ? em.straddle_pct.toFixed(2) : "—", "%) \xB7 1\u03C3 \xB1", fmt$(em.one_sigma_dollars), " (", em.one_sigma_pct != null ? em.one_sigma_pct.toFixed(2) : "—", "%)")), /*#__PURE__*/React.createElement("div", {
     className: "emx-cmp-row",
     title: `The stock's AVERAGE actual move over ${data.dte}-day stretches during the past year (${cmp.avg_actual_windows || 0} samples). Comparing what options PRICE vs what the stock actually DOES tells you if premium is rich or cheap.`
   }, /*#__PURE__*/React.createElement("span", {
@@ -16236,7 +16252,7 @@ function ExpectedMoveCard({
     title: "Is this expected move big or small FOR THIS STOCK? Compares the options-implied % move against the stock's own average actual move over the same number of days."
   }, "EM ", sum.size_verdict || "—"), /*#__PURE__*/React.createElement("span", {
     className: `emx-chip big ${volTone}`,
-    title: `Is the options market pricing elevated volatility? ATM IV ${em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—"} vs 20-day realized vol ${cmp.hv20 != null ? cmp.hv20 + "%" : "—"} (${cmp.iv_vs_hv != null ? cmp.iv_vs_hv + "×" : "—"})${cmp.iv_rank != null ? ` · IV rank ${cmp.iv_rank}` : ""}${cmp.hv_percentile != null ? ` · realized vol at its ${cmp.hv_percentile}th percentile this year` : ""}. Elevated = premium selling has an edge; subdued = long options are cheap.`
+    title: `Is the options market pricing elevated volatility? ATM IV ${em.iv != null ? (em.iv * 100).toFixed(1) + "%" : "—"} vs 20-day realized vol ${cmp.hv20 != null ? cmp.hv20 + "%" : "—"} (${cmp.iv_vs_hv != null ? cmp.iv_vs_hv + "×" : "—"})${cmp.iv_rank != null ? ` · true IV rank ${cmp.iv_rank} (${cmp.iv_rank_days || "?"}d of stored IV history)` : ""}${cmp.hv_percentile != null ? ` · realized vol at its ${cmp.hv_percentile}th percentile this year` : ""}. Elevated = premium selling has an edge; subdued = long options are cheap.`
   }, "vol ", sum.vol_state || "—"), /*#__PURE__*/React.createElement("span", {
     className: "emx-chip big",
     title: "Room left inside the expected range from the current price. Once one side is nearly exhausted, continuation trades in that direction fight the odds the options market has priced."
@@ -16580,6 +16596,9 @@ function PJStrategy({
   const F = v => v == null ? "—" : typeof v === "number" ? Math.abs(v) >= 100 ? "$" + v.toLocaleString() : fmt$(v) : v;
   // Strike formatter — strips floating-point noise (1026.6399999 → 1026.64).
   const K = v => v == null ? "—" : String(+(+v).toFixed(2));
+  // POP basis, from the server's pop_basis tag — each estimate says exactly
+  // which approximation produced it (never presented as a fill probability).
+  const POP_TIP = s.pop_basis === "one_sigma" ? "Probability of closing inside the break-evens: 2·Φ(credit ÷ 1σ) − 1, where 1σ = S·σ·√t from ATM IV. A normal-distribution estimate of P(profit at expiration), not a fill." : "Delta-based estimate: P(expiring OTM) ≈ 1 − |short delta| per side. This approximates P(in the money at expiration) — NOT P(touch), which is roughly 2× higher. Not a fill.";
   const rows = [];
   const push = (lbl, v, tip) => rows.push([lbl, v, tip]);
   if (s.kind === "short_strangle") {
@@ -16588,31 +16607,31 @@ function PJStrategy({
     push("Break-evens", `${fmt$(s.be_low)} – ${fmt$(s.be_high)}`, "Profitable at expiration anywhere inside this range.");
     push("Max profit", F(s.max_profit), "Full credit if both sides expire worthless.");
     push("Buying power", F(s.bp), "Approximate margin requirement (max(20% spot − OTM, 10% strike) + credit — broker formulas vary).");
-    push("POP", s.pop != null ? s.pop + "%" : "—", "Probability of profit ≈ 1 − (short call delta + |short put delta|). Approximation, not a fill.");
+    push("POP (delta est.)", s.pop != null ? s.pop + "%" : "—", POP_TIP);
     push("EM coverage", s.em_coverage != null ? s.em_coverage + "×" : "—", "Nearest strike distance ÷ the expected move. Above 1.0 = strikes sit outside the priced move.");
     push("Strike distance", `−${s.put_dist_pct}% / +${s.call_dist_pct}%`, "How far each short strike sits from the current price.");
     push("Exit / stop", `take ${fmt$(s.exit_target)} · stop ${fmt$(s.stop_level)}`, "Suggested management: buy back at 50% of the credit; stop or adjust if the position marks at 2× the credit received.");
   } else if (s.kind === "iron_condor" || s.kind === "iron_fly") {
-    push("Strikes", s.kind === "iron_condor" ? `${K(s.put_wing)}/${K(s.put_strike)}P · ${K(s.call_strike)}/${K(s.call_wing)}C` : `${K(s.put_wing)}/${K(s.short_strike)}/${K(s.call_wing)}`, s.kind === "iron_condor" ? "Short strangle with protective wings." : "Short the ATM straddle, wings ~1 expected move out.");
+    push("Strikes", s.kind === "iron_condor" ? `${K(s.put_wing)}/${K(s.put_strike)}P · ${K(s.call_strike)}/${K(s.call_wing)}C` : `${K(s.put_wing)}/${K(s.short_strike)}/${K(s.call_wing)}`, s.kind === "iron_condor" ? "Short strangle with protective wings." : "Short the ATM straddle, wings ~1 straddle-width out.");
     push("Credit", fmt$(s.credit), "Net credit after buying the wings.");
     push("Break-evens", `${fmt$(s.be_low)} – ${fmt$(s.be_high)}`, "Profitable range at expiration.");
     push("Max profit / loss", `${F(s.max_profit)} / ${F(s.max_loss)}`, "Defined risk: worst case is the wing width minus the credit — known before entry.");
     push("Return on risk", s.ror != null ? s.ror + "%" : "—", "Max profit ÷ max loss.");
-    push("POP", s.pop != null ? s.pop + "%" : "—", "Probability of profit approximation.");
+    push(s.pop_basis === "one_sigma" ? "POP (1σ est.)" : "POP (delta est.)", s.pop != null ? s.pop + "%" : "—", POP_TIP);
   } else if (s.kind.endsWith("credit_spread")) {
     push("Strikes", `${K(s.short_strike)} / ${K(s.long_strike)}`, "Sell the short strike, buy the long strike for protection.");
     push("Credit", fmt$(s.credit), "Net credit received.");
     push("Break-even", fmt$(s.be), "Short strike adjusted by the credit.");
     push("Max profit / loss", `${F(s.max_profit)} / ${F(s.max_loss)}`, "Defined risk — width minus credit is the most you can lose.");
     push("Return on risk", s.ror != null ? s.ror + "%" : "—", "Max profit ÷ max loss.");
-    push("POP", s.pop != null ? s.pop + "%" : "—", "≈ 1 − |short strike delta|.");
+    push("POP (delta est.)", s.pop != null ? s.pop + "%" : "—", POP_TIP);
   } else {
     push("Strike", K(s.short_strike), s.kind === "csp" ? "Sell this put with cash to cover assignment." : "Sell this call against 100 shares.");
     push("Credit", fmt$(s.credit), "Premium collected per share.");
     push("Break-even", fmt$(s.be), s.kind === "csp" ? "Effective cost basis if assigned." : "Shares called away above this = still profitable.");
     if (s.bp != null) push("Cash required", F(s.bp), "Cash to secure the put (strike × 100).");
     push("Yield", s.yield_pct != null ? s.yield_pct + "%" : "—", "Credit as % of the collateral, for this expiration alone.");
-    push("POP", s.pop != null ? s.pop + "%" : "—", "≈ 1 − |delta|.");
+    push("POP (delta est.)", s.pop != null ? s.pop + "%" : "—", POP_TIP);
   }
   return /*#__PURE__*/React.createElement("div", {
     className: `pj-strat ${s.risk === "undefined" ? "pj-undef" : "pj-def"}`
@@ -18913,7 +18932,10 @@ function BacktestCard({
   }, /*#__PURE__*/React.createElement("div", {
     className: "bt-sec-title",
     title: `Mode: ${result.mode || "daily"}. Symbols: ${(result.symbols_tested || []).length}. Completed in ${result.elapsed_sec || "?"}s. Metrics are computed on realized trade P&L from $${Number(M.start_equity || 100000).toLocaleString()} starting equity.`
-  }, "Results"), (result.warnings || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Results", /*#__PURE__*/React.createElement("span", {
+    className: "bt-modeled-badge",
+    title: `These are SIMULATED results, not historical fills. Model assumptions:\n• ${(result.modeled && result.modeled.assumptions || ["Fills at the next bar's open; modeled spread, slippage and commissions"]).join("\n• ")}`
+  }, result.modeled && result.modeled.option_premiums ? "MODELED — synthetic option prices" : "MODELED — simulated fills")), (result.warnings || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "bt-warn"
   }, result.warnings.map((w, i) => /*#__PURE__*/React.createElement("div", {
     key: i

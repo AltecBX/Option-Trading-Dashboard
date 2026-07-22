@@ -194,6 +194,17 @@ except Exception as _exc:  # noqa: BLE001
     _TREASURY_AVAILABLE = False
     _treasury = None  # type: ignore
 
+# Wire the live risk-free curve into the options-math contract (v3.64):
+# metrics.risk_free_rate() now answers with the cached 3M T-bill yield
+# once any Treasuries consumer has warmed the curve cache, and falls back
+# to a clearly-labeled constant otherwise. Peek-only — never blocks.
+if _TREASURY_AVAILABLE:
+    try:
+        import metrics as _metrics_mod
+        _metrics_mod.set_rate_provider(_treasury.risk_free_3m_cached)
+    except Exception as _exc:  # noqa: BLE001
+        print(f"[metrics] rate provider wiring failed: {_exc}", file=sys.stderr)
+
 try:
     import news as _news
     _NEWS_AVAILABLE = True
@@ -1672,6 +1683,11 @@ from metrics import (  # noqa: F401
     _bs_gamma,
     _bs_vega,
     _bs_price,
+    one_sigma_move,
+    normalize_iv,
+    rank_and_percentile,
+    risk_free_rate,
+    year_fraction,
 )
 
 
@@ -3600,6 +3616,7 @@ def build_payload(
     # which is the question premium-sellers actually need answered.
     vol_rank = None
     vol_pct = None
+    vol_rank_n = None
     hv_current = None
     if len(daily) >= 31:
         import math
@@ -3628,15 +3645,14 @@ def build_payload(
                     hv_series.append(math.sqrt(var) * math.sqrt(252))
                 if hv_series:
                     hv_current = hv_series[-1]
-                    sorted_hv = sorted(hv_series)
-                    rank_pos = sum(1 for v in sorted_hv if v <= hv_current)
-                    vol_pct = (rank_pos / len(sorted_hv)) * 100.0
-                    # IV Rank-style: where is current within (min, max)?
-                    hv_min, hv_max = sorted_hv[0], sorted_hv[-1]
-                    if hv_max > hv_min:
-                        vol_rank = ((hv_current - hv_min) / (hv_max - hv_min)) * 100.0
-                    else:
-                        vol_rank = 50.0
+                    # Shared rank math (metrics.rank_and_percentile) — same
+                    # definition as ivrank.py and the IV-history rank (v3.64
+                    # consolidation of three divergent copies).
+                    rk = rank_and_percentile(hv_series, hv_current)
+                    if rk is not None:
+                        vol_rank = rk["rank"]
+                        vol_pct = rk["percentile"]
+                        vol_rank_n = rk["n"]
         except Exception:
             pass
 
@@ -3664,8 +3680,12 @@ def build_payload(
             "week_start": current["week_start"] if current else target_fri.strftime("%Y-%m-%d"),
         },
         "chain": {"calls": calls, "puts": puts, "atm": atm},
+        # HV rank — realized-vol proxy for IV rank (labeled as such in the
+        # UI). volRankN = sample size (days of 30d-window HV readings).
         "volRank": vol_rank,
         "volPct": vol_pct,
+        "volRankN": vol_rank_n,
+        "volRankKind": "hv_proxy",
         "hvCurrent": hv_current,
         "earningsHistory": earnings_history,
     }
@@ -5512,10 +5532,16 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
         l = float(row.get("last") or 0)
         return l if l > 0 else 0.0
 
-    em_d = None
+    # ── Two DISTINCT move measures (v3.64 vocabulary fix) ───────────────
+    # "ATM straddle" = current call+put mid premium (≈1.25σ under BS) and
+    # "1σ (IV)" = S·σ·√t are different quantities. Both are computed when
+    # available and returned separately; the card's headline uses the
+    # straddle when quotes exist, ALWAYS labeled with its method — never a
+    # silent semantic substitution.
+    straddle_d = None
+    one_sigma_d = None
     atm_iv = None
     atm_strike = None
-    method = None
     if calls and puts:
         atm_call = min(calls, key=lambda r: abs((r.get("strike") or 0) - spot))
         atm_put = min(puts, key=lambda r: abs((r.get("strike") or 0) - spot))
@@ -5524,14 +5550,14 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
         atm_iv = sum(ivs) / len(ivs) if ivs else None
         c_px, p_px = mid(atm_call), mid(atm_put)
         if c_px > 0 and p_px > 0:
-            em_d = c_px + p_px
-            method = "ATM straddle"
-    if em_d is None and atm_iv:
-        # Theoretical fallback when quotes are missing (closed market, thin
-        # chain): 1σ move = S · IV · √t.
-        em_d = spot * atm_iv * math.sqrt(max(dte, 0.5) / 365.0)
-        method = "IV × √t"
-    if em_d is None:
+            straddle_d = c_px + p_px
+    if atm_iv:
+        one_sigma_d = one_sigma_move(spot, atm_iv, max(dte, 0.5))
+    if straddle_d is not None:
+        em_d, method, method_label = straddle_d, "atm_straddle", "ATM straddle"
+    elif one_sigma_d is not None:
+        em_d, method, method_label = one_sigma_d, "one_sigma_iv", "1σ (IV·√t)"
+    else:
         return _em_fail(symbol, expiry, f"no usable option quotes for {sel_str}")
     em_pct = em_d / spot * 100.0
     upper, lower = spot + em_d, spot - em_d
@@ -5566,8 +5592,8 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             hvs.append(math.sqrt(var) * math.sqrt(252) * 100.0)
         if hvs:
             hv20 = hvs[-1]
-            yr = hvs[-252:]
-            hv_pctile = sum(1 for v in yr if v < hv20) / len(yr) * 100.0
+            rk = rank_and_percentile(hvs[-252:], hv20)
+            hv_pctile = rk["percentile"] if rk else None
 
     # ── Previous EM reading (persisted across restarts on /data) ────────
     now_ts = time.time()
@@ -5591,13 +5617,16 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
     # ── Support / resistance pivots ─────────────────────────────────────
     levels = _em_pivot_levels(bars, spot)
 
-    # ── IV rank vs the symbol's own stored IV30 history (approximate) ───
+    # ── IV rank vs the symbol's own stored IV30 history (true IV rank —
+    # needs ≥20 stored daily snapshots; iv_rank_days says how many) ─────
     iv_rank = iv_pct = None
+    iv_rank_days = 0
     try:
         if atm_iv:
             hist = _iv_history_load(symbol)
             rank = _iv_history_compute_rank(hist, atm_iv)
             iv_rank, iv_pct = rank.get("iv_rank"), rank.get("iv_pct")
+            iv_rank_days = rank.get("iv_rank_days") or 0
     except Exception:
         pass
 
@@ -5661,7 +5690,13 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             "lower": round(lower, 2),
             "iv": round(atm_iv, 4) if atm_iv else None,
             "atm_strike": atm_strike,
-            "method": method,
+            "method": method,                 # "atm_straddle" | "one_sigma_iv"
+            "method_label": method_label,     # display vocabulary (v3.64)
+            # Both measures, separately named — never interchangeable:
+            "straddle_dollars": round(straddle_d, 2) if straddle_d is not None else None,
+            "straddle_pct": round(straddle_d / spot * 100.0, 2) if straddle_d is not None else None,
+            "one_sigma_dollars": round(one_sigma_d, 2) if one_sigma_d is not None else None,
+            "one_sigma_pct": round(one_sigma_d / spot * 100.0, 2) if one_sigma_d is not None else None,
         },
         "compare": {
             "avg_actual_pct": round(avg_actual, 2) if avg_actual is not None else None,
@@ -5676,6 +5711,7 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             "iv_vs_hv": round(iv_vs_hv, 2) if iv_vs_hv is not None else None,
             "iv_rank": iv_rank,
             "iv_pct": iv_pct,
+            "iv_rank_days": iv_rank_days,
         },
         "levels": levels,
         "summary": {

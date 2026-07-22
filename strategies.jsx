@@ -20,6 +20,10 @@
 
   // ─────────────────────────────────────────────────────────────────────────
   // Black-Scholes for back-month leg valuation at front-month expiration.
+  // Fixture-matched against the canonical server engine (metrics.py) by
+  // test_strategy_fixtures.js via fixtures/options_math.json — same
+  // conventions: T = days/365, sigma annualized decimal, r default 0.045,
+  // q = 0 (this preview engine does not model dividends).
   // ─────────────────────────────────────────────────────────────────────────
   function normCdf(x) {
     // Abramowitz-Stegun 7.1.26 approximation. Max error ~7.5e-8.
@@ -94,7 +98,11 @@
       if ((a.pl <= 0 && b.pl >= 0) || (a.pl >= 0 && b.pl <= 0)) {
         if (a.pl === b.pl) continue;
         const t = -a.pl / (b.pl - a.pl);
-        out.push(a.s + t * (b.s - a.s));
+        const s = a.s + t * (b.s - a.s);
+        // Dedupe: when a sample lands exactly on zero, both adjacent
+        // segments report the same crossing — keep one marker.
+        if (out.length && Math.abs(s - out[out.length - 1]) < 1e-6) continue;
+        out.push(s);
       }
     }
     return out;

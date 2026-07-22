@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.63";
+const APP_VERSION = "3.64";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4499,13 +4499,15 @@ function App() {
               {window.__LIVE && window.__LIVE.volRank != null && (() => {
                 const rank = window.__LIVE.volRank;
                 const pct = window.__LIVE.volPct;
+                const n = window.__LIVE.volRankN;
                 const tone = rank >= 67 ? "high" : rank <= 33 ? "low" : "mid";
                 return (
-                  <div className={`vol-rank-pill vr-${tone}`}>
+                  <div className={`vol-rank-pill vr-${tone}`}
+                       title={`HV Rank — where the current 30-day REALIZED vol sits in its 1-year min–max range${n ? ` (${n} daily readings)` : ""}. A free proxy for IV rank: realized and implied vol track closely, but this is NOT option IV. True IV rank appears per-name once ~20 days of IV history accumulate.`}>
                     <span className="vr-num">{rank.toFixed(0)}</span>
                     <div className="vr-meta">
-                      <div className="vr-lbl">Vol rank</div>
-                      <div className="vr-sub">{pct != null ? `${pct.toFixed(0)}th pct · 1y` : "1y range"}</div>
+                      <div className="vr-lbl">HV rank</div>
+                      <div className="vr-sub">{pct != null ? `${pct.toFixed(0)}th pct · 1y` : "1y range"}{n ? ` · n=${n}` : ""}</div>
                     </div>
                   </div>
                 );

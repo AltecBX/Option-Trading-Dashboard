@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.63";
+const APP_VERSION = "3.64";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -5804,18 +5804,20 @@ function App() {
   }, "Is premium expensive this week?")), window.__LIVE && window.__LIVE.volRank != null && (() => {
     const rank = window.__LIVE.volRank;
     const pct = window.__LIVE.volPct;
+    const n = window.__LIVE.volRankN;
     const tone = rank >= 67 ? "high" : rank <= 33 ? "low" : "mid";
     return /*#__PURE__*/React.createElement("div", {
-      className: `vol-rank-pill vr-${tone}`
+      className: `vol-rank-pill vr-${tone}`,
+      title: `HV Rank — where the current 30-day REALIZED vol sits in its 1-year min–max range${n ? ` (${n} daily readings)` : ""}. A free proxy for IV rank: realized and implied vol track closely, but this is NOT option IV. True IV rank appears per-name once ~20 days of IV history accumulate.`
     }, /*#__PURE__*/React.createElement("span", {
       className: "vr-num"
     }, rank.toFixed(0)), /*#__PURE__*/React.createElement("div", {
       className: "vr-meta"
     }, /*#__PURE__*/React.createElement("div", {
       className: "vr-lbl"
-    }, "Vol rank"), /*#__PURE__*/React.createElement("div", {
+    }, "HV rank"), /*#__PURE__*/React.createElement("div", {
       className: "vr-sub"
-    }, pct != null ? `${pct.toFixed(0)}th pct · 1y` : "1y range")));
+    }, pct != null ? `${pct.toFixed(0)}th pct · 1y` : "1y range", n ? ` · n=${n}` : "")));
   })()), /*#__PURE__*/React.createElement("div", {
     className: "iv-cmp"
   }, /*#__PURE__*/React.createElement("div", {
