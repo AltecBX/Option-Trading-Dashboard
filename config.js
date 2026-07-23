@@ -22,5 +22,5 @@ window.__APP_CONFIG = {
   apiBase: "",
   // Must match the API_KEY env var on Railway (v3.64 startup gate). Sent as
   // X-API-Key on every API call; not a secret — see the note above.
-  apiKey: "282329J2639G394107",
+  apiKey: "3D2321F2633H242231",
 };
