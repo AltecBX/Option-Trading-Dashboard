@@ -17,6 +17,10 @@
  * Railway (set to your Vercel URL) for a second layer of defense.
  */
 window.__APP_CONFIG = {
+  // apiBase stays empty: Railway serves the page AND the API from the same
+  // origin, so relative /api/... requests are correct (and local dev too).
   apiBase: "",
-  apiKey: "",
+  // Must match the API_KEY env var on Railway (v3.64 startup gate). Sent as
+  // X-API-Key on every API call; not a secret — see the note above.
+  apiKey: "282329J2639G394107",
 };
