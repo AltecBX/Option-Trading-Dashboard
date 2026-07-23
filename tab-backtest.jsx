@@ -429,6 +429,103 @@ function BTReplay({ trades, idx, onStep, onClose }) {
   );
 }
 
+// ── B5: live trading plans — research → checklist, NEVER automation ───────
+function BTLogTradeForm({ apiFetch, planId, onDone }) {
+  const [f, setF] = useState({ ticker: "", type: "put", entry_premium: "", closed_premium: "",
+                               qty: -1, opened_at: "", closed_at: "" });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const submit = async () => {
+    try {
+      const body = { ...f, entry_premium: +f.entry_premium, closed_premium: +f.closed_premium,
+                     qty: +f.qty, ticker: f.ticker.toUpperCase(), plan_id: planId };
+      const r = await apiFetch("/api/trade_journal", { method: "POST", body: JSON.stringify(body) });
+      const d = await r.json();
+      if (d.ok) onDone(true); else onDone(false, d.error);
+    } catch (e) { onDone(false, String(e)); }
+  };
+  return (
+    <div className="btp-log" title="Log a CLOSED trade against this plan. It lands in the same trade journal as everything else, tagged with the plan — the adherence report splits plan trades from off-plan trades.">
+      <input placeholder="Ticker" value={f.ticker} onChange={set("ticker")} style={{ width: 64 }} />
+      <select value={f.type} onChange={set("type")}><option>put</option><option>call</option></select>
+      <input placeholder="entry prem" type="number" step="0.01" value={f.entry_premium} onChange={set("entry_premium")} style={{ width: 78 }} />
+      <input placeholder="closed prem" type="number" step="0.01" value={f.closed_premium} onChange={set("closed_premium")} style={{ width: 78 }} />
+      <input placeholder="qty (−=short)" type="number" value={f.qty} onChange={set("qty")} style={{ width: 70 }} />
+      <input placeholder="opened YYYY-MM-DD" value={f.opened_at} onChange={set("opened_at")} style={{ width: 130 }} />
+      <input placeholder="closed YYYY-MM-DD" value={f.closed_at} onChange={set("closed_at")} style={{ width: 130 }} />
+      <button className="rr-btn" onClick={submit}
+              disabled={!f.ticker || !f.entry_premium || !f.closed_premium || !f.opened_at || !f.closed_at}>log</button>
+    </div>
+  );
+}
+
+function BTPlans({ apiFetch }) {
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [logFor, setLogFor] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const load = () => sharedJson(apiFetch, "/api/plans", 30000).then(d => setData(d)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  if (!data || !(data.plans || []).length) return null;
+  const active = data.plans.filter(p => p.status === "active");
+  const adh = data.adherence || {};
+  const adhFor = (id) => (adh.plans || []).find(x => x.plan_id === id);
+  return (
+    <div className="btp">
+      <button className="btp-head" onClick={() => setOpen(!open)}
+              title="Trading plans deployed from validated backtests: the tested entry checklist, evidence, Monte-Carlo-derived sizing, and how your real journaled trades measure against each plan. A plan is a checklist — this app never places or routes orders.">
+        <em>LIVE TRADING PLANS</em>
+        <b>{active.length} active</b>
+        {adh.off_plan && adh.off_plan.n > 0 && (
+          <span className="num" title={adh.note}>
+            plan trades {(adh.plans || []).reduce((s, p) => s + p.n, 0)} · off-plan {adh.off_plan.n}
+          </span>
+        )}
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && data.plans.map(p => {
+        const a = adhFor(p.id);
+        const ev = p.evidence || {};
+        return (
+          <div key={p.id} className={`btp-plan ${p.status}`}>
+            <div className="btp-top">
+              <b>{p.label}</b>
+              <span className="btp-chips">
+                {ev.wf_efficiency != null && <span className="bt-score-chip" title={`Walk-forward efficiency at deploy time. ${ev.wf_verdict || ""}`}><em>WF</em><b>{ev.wf_efficiency}×</b></span>}
+                {ev.dsr != null && <span className="bt-score-chip" title={ev.dsr_verdict || ""}><em>DSR</em><b>{ev.dsr}</b></span>}
+                {ev.sensitivity_verdict && <span className={`bt-score-chip ${/survives/.test(ev.sensitivity_verdict) ? "ok" : "bad"}`} title={ev.sensitivity_verdict}><em>BAND</em><b>{/survives/.test(ev.sensitivity_verdict) ? "holds" : "flips"}</b></span>}
+              </span>
+              <span className="btp-actions">
+                <button className="rr-btn" onClick={() => setLogFor(logFor === p.id ? null : p.id)}>log trade</button>
+                <button className="rr-btn" onClick={async () => {
+                  await apiFetch("/api/plans/status", { method: "POST",
+                    body: JSON.stringify({ id: p.id, status: p.status === "active" ? "archived" : "active" }) }).catch(() => {});
+                  load();
+                }}>{p.status === "active" ? "archive" : "reactivate"}</button>
+              </span>
+            </div>
+            <ol className="btp-check" title="The EXACT conditions the backtest required — hold live entries to the same bar. Modeled evidence, not fills.">
+              {(p.checklist || []).map((c, i) => <li key={i}>{c}</li>)}
+            </ol>
+            <div className="btp-meta">
+              Tested: {ev.n_trades} trades · {ev.win_rate}% win · {ev.avg_return_on_bp_pct != null ? `${ev.avg_return_on_bp_pct}% avg on BP · ` : ""}max DD {ev.max_drawdown_pct}%
+              {p.sizing && p.sizing.suggested_capital_fraction != null && (
+                <span title={`${p.sizing.basis} Monte-Carlo P95 drawdown at tested sizing: ${p.sizing.tested_mc_p95_drawdown_pct}%.`}>
+                  {" · "}suggested allocation ≤ {(p.sizing.suggested_capital_fraction * 100).toFixed(0)}% of account
+                </span>
+              )}
+              {a && <span className="btp-adh" title="Real journaled trades logged against this plan."> · LIVE: {a.n} trades, {a.win_rate}% win, ${Math.round(a.pnl).toLocaleString()}</span>}
+            </div>
+            {logFor === p.id && <BTLogTradeForm apiFetch={apiFetch} planId={p.id}
+              onDone={(ok, err) => { setMsg(ok ? "logged ✓" : `failed: ${err}`); if (ok) { setLogFor(null); load(); } }} />}
+            <div className="btp-noauto">{p.not_automation}</div>
+          </div>
+        );
+      })}
+      {msg && <div className="bt-bd-note">{msg}</div>}
+    </div>
+  );
+}
+
 function BacktestCard({ apiFetch }) {
   const [text, setText] = useState(() => { try { return localStorage.getItem("jerry_bt_text") || ""; } catch (e) { return ""; } });
   const [rules, setRules] = useState(null);
@@ -440,6 +537,7 @@ function BacktestCard({ apiFetch }) {
   const [err, setErr] = useState(null);
   const [showJson, setShowJson] = useState(false);
   const [replayIdx, setReplayIdx] = useState(null);   // B4: trade replay
+  const [plansNonce, setPlansNonce] = useState(0);    // B5: refresh plans
   const [pinned, setPinned] = useState(null);         // B4: A/B comparison
   const [jsonDraft, setJsonDraft] = useState("");
   const [showTrades, setShowTrades] = useState(false);
@@ -518,6 +616,7 @@ function BacktestCard({ apiFetch }) {
                 placeholder='e.g. "Buy stocks that open down at least 2%, reverse above the opening price, and have volume at least twice the 20 day average. Exit at a 5% profit, a 2% stop loss, or before the market closes."'
                 onChange={e => setText(e.target.value)}
                 title="Your strategy, in your words. Supported vocabulary: gaps, reversals over/under the open, volume vs average, drawdowns from highs, RSI, moving averages and crosses, new highs/lows, consecutive days, price filters, SPY regime, calls/puts with DTE and strike (ATM / % OTM / delta), profit targets, stops, trailing stops, time and same-day exits, position sizing, symbol lists ('on AAPL, MSFT'), and test windows ('last 2 years')." />
+      <BTPlans key={plansNonce} apiFetch={apiFetch} />
       <div className="bt-examples">
         {BT_EXAMPLES.map((ex, i) => (
           <button key={i} className="rr-btn" onClick={() => setText(ex)}
@@ -662,6 +761,19 @@ function BacktestCard({ apiFetch }) {
         <div className="bt-results">
           <div className="bt-sec-title" title={`Mode: ${result.mode || "daily"}. Symbols: ${(result.symbols_tested || []).length}. Completed in ${result.elapsed_sec || "?"}s. Metrics are computed on realized trade P&L from $${Number(M.start_equity || 100000).toLocaleString()} starting equity.`}>
             Results
+            <button className="rr-btn bt-deploy"
+                    onClick={async () => {
+                      try {
+                        const r = await apiFetch("/api/plans", { method: "POST",
+                          body: JSON.stringify({ result, rules_text: text }) });
+                        const d = await r.json();
+                        setErr(d.ok ? null : (d.error || "plan failed"));
+                        if (d.ok) setPlansNonce(n => n + 1);
+                      } catch (e) { setErr(String(e)); }
+                    }}
+                    title="Deploy this validated result as a LIVE TRADING PLAN: the tested entry checklist, management rules, Monte-Carlo-derived sizing guidance, and the validation evidence — then track whether your real journaled trades follow it. A plan is a checklist; this app never places or routes orders.">
+              deploy as plan →
+            </button>
             <button className="rr-btn bt-pin" onClick={() => setPinned(pinned ? null : { metrics: result.metrics, label: `${result.structure || "run"} · ${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` })}
                     title={pinned ? "Unpin the saved run." : "Pin this run's headline metrics, then run a variation — the next result shows a side-by-side delta against the pin."}>
               {pinned ? "unpin A/B" : "pin for A/B"}

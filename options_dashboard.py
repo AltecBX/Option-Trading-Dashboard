@@ -4427,6 +4427,10 @@ _backtest.configure(
     vix_fn=_backtest_vix_closes,
 )
 
+# Trading plans (Backtest v2, B5) — research → checklist, never automation.
+import bt_plans as _bt_plans
+_bt_plans.configure(_STABLE_DIR)
+
 # Chain snapshot store (Backtest v2, B2): every chain the app fetches is
 # snapshotted once per symbol per day, so backtests increasingly price
 # entry fills from REAL bid/ask instead of the model.
@@ -6240,6 +6244,34 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        if parsed.path == "/api/plans":
+            # Backtest v2 (B5): create a live trading plan from a completed,
+            # validated result. A plan is a checklist — never automation.
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 2_000_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                result = payload.get("result")
+                if not isinstance(result, dict) or not result.get("metrics"):
+                    raise ValueError("a completed backtest result is required")
+                plan = _bt_plans.create_plan(result,
+                                             rules_text=str(payload.get("rules_text") or "")[:2000],
+                                             account_size=payload.get("account_size"))
+                self._send_json({"ok": True, "plan": plan}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/plans/status":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                ok = _bt_plans.set_status(str(payload.get("id") or ""),
+                                          str(payload.get("status") or ""))
+                self._send_json({"ok": ok}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         if parsed.path == "/api/watchlist_alerts/dismiss":
             try:
                 length = int(self.headers.get("Content-Length", "0") or "0")
@@ -7440,6 +7472,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             try:
                 q = parse_qs(parsed.query)
                 self._send_json(_backtest.job_status((q.get("job") or [""])[0]), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/plans":
+            try:
+                self._send_json({"plans": _bt_plans.list_plans(),
+                                 "adherence": _bt_plans.adherence(_load_trade_journal()),
+                                 "not_automation": _bt_plans.NOT_AUTOMATION}, no_store=True)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
             return

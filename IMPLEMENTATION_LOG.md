@@ -354,3 +354,30 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   cells, 12 histogram bars, 37 MAE/MFE dots, 4 breakdown tables,
   replay open/step, A/B pin — zero JS errors. All inside the lazy
   tab-backtest chunk (no initial-load cost).
+
+## B5 — Research → live trading plan + adherence loop
+
+- **`bt_plans.py`** — plan objects persisted to /data: the tested rules
+  as a human ENTRY CHECKLIST (grammar conditions → plain English),
+  Monte-Carlo-derived sizing guidance (scale so MC P95 drawdown ≤15% of
+  the account), the validation evidence snapshot (WF/DSR/sensitivity
+  verdicts, n, win rate, DD), and a PERMANENT not-automation statement.
+  Adherence: journal trades carrying `plan_id` are split from off-plan
+  trades with per-plan n/win-rate/P&L (and the honest note when
+  off-plan beats plan).
+- **Endpoints**: GET /api/plans (plans + adherence), POST /api/plans
+  (create from a completed result), POST /api/plans/status
+  (archive/reactivate). Journal tagging rides the existing
+  /api/trade_journal (extra `plan_id` field).
+- **UI (tab-backtest chunk)**: "deploy as plan →" on any completed
+  result; LIVE TRADING PLANS panel — checklist, evidence chips,
+  suggested allocation, LIVE adherence line, log-trade-against-plan
+  form, archive/reactivate; the not-automation line rendered on every
+  plan card.
+- **Verified**: full API round-trip on the real handler (create →
+  checklist derived → journal trade tagged → adherence 220.0 computed →
+  archive) + Chromium render (checklist, chips, adherence, log form,
+  zero JS errors). test_bt_plans (4 tests: checklist derivation, MC
+  sizing, persistence round-trip, adherence math). CI extended.
+- **Backtest v2 final battery: 116 unittest + smoke 50/50 + JS 107 +
+  verify both layers — all green.**

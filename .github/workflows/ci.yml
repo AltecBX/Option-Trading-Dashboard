@@ -70,7 +70,7 @@ jobs:
           JERRY_NO_NET: "1"
         run: |
           set -e
-          python3 -m unittest -v test_math_contract test_security test_schedules test_bt_options test_bt_iv test_chain_store test_bt_validate
+          python3 -m unittest -v test_math_contract test_security test_schedules test_bt_options test_bt_iv test_chain_store test_bt_validate test_bt_plans
           python3 test_earnings_scan.py
           python3 test_strategy_math.py
           python3 test_reprice.py
