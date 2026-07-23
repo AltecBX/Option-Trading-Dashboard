@@ -266,3 +266,32 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   BP + max-position gating, mark-to-model curve identity, grammar → end-
   to-end runs on a stubbed client, earnings filter, legacy path intact).
   Full battery green: 69 unittest + runners + JS 107 + smoke 50/50.
+
+## B2 — IV realism + self-building real-quote layer
+
+- **`bt_iv.py`** — layered, LABELED IV model replacing flat HV20×1.1:
+  0.6·HV20+0.4·HV60 base × per-symbol IV/HV ratio (CALIBRATED from the
+  app's own stored daily IV30 snapshots when ≥20 matched obs — clamped
+  0.8–2.0 — else 1.10 "assumed") × VIX-percentile regime scaler
+  (0.85–1.20, flat 1.0 + labeled when Yahoo is out) × earnings ramp
+  (+35% into known report dates over the final 7 days, crush after),
+  floored 8%. Result carries per-symbol calibration provenance.
+- **Premium-sensitivity harness** (unique vs every named platform): each
+  options run repeats at 0.85×/1.15× IV; result carries the P/L band +
+  a verdict ("edge survives the full band" / "edge FLIPS SIGN at the
+  pessimistic assumption — that's a premium assumption, not an edge").
+- **`chain_store.py`** — EOD chain snapshots: every chain the app fetches
+  (juice/ticker/EM — recorder hooked at the schwab_client choke point,
+  once per symbol per day, ≤75 DTE, ±30% strikes, 500-day retention,
+  atomic). Engine precedence: entry fills use REAL bid/ask when a
+  same-day snapshot exists (leg snapped to the real listed strike,
+  collision-guarded); trades labeled real_quote/mixed/modeled; result
+  reports real-fill %. Accuracy compounds with normal app use.
+- **Wiring**: providers injected (iv_history_fn, vix_fn cached 6h,
+  earnings_fn); modeled-assumptions block now states the layered model +
+  provenance. UI: PREMIUM SENSITIVITY verdict band + real-fill line.
+- **Tests**: test_bt_iv (11 — calibration recovery/clamping, VIX
+  percentile mapping, ramp shape + crush, floor, warm-up honesty),
+  test_chain_store (8 — round-trip, throttle, DTE/strike lookup, wrong-
+  day rejection, engine precedence real/model/collision). CI extended.
+  Battery: 88 unittest OK + JS 107 + smoke 50/50.

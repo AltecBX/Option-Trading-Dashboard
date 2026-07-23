@@ -703,7 +703,15 @@ function BacktestCard({
     className: "bt-warn"
   }, result.warnings.map((w, i) => /*#__PURE__*/React.createElement("div", {
     key: i
-  }, "\u26A0 ", w))), /*#__PURE__*/React.createElement("div", {
+  }, "\u26A0 ", w))), result.sensitivity && /*#__PURE__*/React.createElement("div", {
+    className: `bt-sens ${/FLIPS|EVERY/.test(result.sensitivity.verdict) ? "bad" : "ok"}`,
+    title: `The identical run repeated at 0.85× and 1.15× the modeled IV. Pessimistic P&L $${result.sensitivity.low.total_pnl.toLocaleString()} · base $${result.sensitivity.base_total_pnl.toLocaleString()} · optimistic $${result.sensitivity.high.total_pnl.toLocaleString()}. If the sign only holds at one end, the "edge" is a premium assumption.`
+  }, /*#__PURE__*/React.createElement("b", null, "PREMIUM SENSITIVITY"), " ", result.sensitivity.verdict, /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, " \xB7 $", result.sensitivity.low.total_pnl.toLocaleString(), " / $", result.sensitivity.base_total_pnl.toLocaleString(), " / $", result.sensitivity.high.total_pnl.toLocaleString())), M.real_fill_pct != null && /*#__PURE__*/React.createElement("div", {
+    className: "bt-fillsrc",
+    title: `Entry fills priced from REAL recorded bid/ask (the app snapshots every chain it touches, once per symbol per day) vs the model. Real coverage grows automatically with normal app use. Sources: ${JSON.stringify(M.entry_fill_sources)}.`
+  }, M.real_fill_pct > 0 ? `${M.real_fill_pct}% of entry fills priced from REAL recorded quotes` : "All fills model-priced — real-quote coverage builds as the app records daily chain snapshots"), /*#__PURE__*/React.createElement("div", {
     className: "bt-tiles"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bt-tile",

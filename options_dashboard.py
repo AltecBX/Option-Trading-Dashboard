@@ -4397,13 +4397,47 @@ def _backtest_earnings_dates(symbol: str) -> list:
         return []
 
 
+_VIX_CACHE: dict = {"t": 0.0, "data": {}}
+
+
+def _backtest_vix_closes() -> dict:
+    """{date: ^VIX close} for the IV model's regime scaler. Cached 6h;
+    empty dict (labeled 'unavailable' downstream) when Yahoo is out."""
+    now = time.time()
+    if _VIX_CACHE["data"] and now - _VIX_CACHE["t"] < 21600:
+        return _VIX_CACHE["data"]
+    try:
+        h = yf.Ticker("^VIX").history(period="2y", auto_adjust=False)
+        if h is not None and not h.empty:
+            data = {str(d.date()): float(v) for d, v in h["Close"].dropna().items()}
+            _VIX_CACHE.update({"t": now, "data": data})
+            return data
+    except Exception as exc:  # noqa: BLE001
+        print(f"[backtest] VIX fetch failed: {exc}", file=sys.stderr)
+    return _VIX_CACHE["data"]
+
+
 _backtest.configure(
     schwab_getter=lambda: _schwab(),
     minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
     universe_fn=_backtest_universe,
     data_dir=_STABLE_DIR,
     earnings_fn=_backtest_earnings_dates,
+    iv_history_fn=lambda sym: _iv_history_load(sym),
+    vix_fn=_backtest_vix_closes,
 )
+
+# Chain snapshot store (Backtest v2, B2): every chain the app fetches is
+# snapshotted once per symbol per day, so backtests increasingly price
+# entry fills from REAL bid/ask instead of the model.
+try:
+    import chain_store as _chain_store
+    _chain_store.configure(_STABLE_DIR)
+    if _SCHWAB_AVAILABLE:
+        import schwab_client as _schwab_client_mod
+        _schwab_client_mod.set_chain_recorder(_chain_store.record)
+except Exception as _exc:  # noqa: BLE001
+    print(f"[chain_store] wiring failed: {_exc}", file=sys.stderr)
 
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
 import patterns as _patterns

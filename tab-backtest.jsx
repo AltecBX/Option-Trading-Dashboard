@@ -342,6 +342,20 @@ function BacktestCard({ apiFetch }) {
               {result.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
             </div>
           )}
+          {result.sensitivity && (
+            <div className={`bt-sens ${/FLIPS|EVERY/.test(result.sensitivity.verdict) ? "bad" : "ok"}`}
+                 title={`The identical run repeated at 0.85× and 1.15× the modeled IV. Pessimistic P&L $${result.sensitivity.low.total_pnl.toLocaleString()} · base $${result.sensitivity.base_total_pnl.toLocaleString()} · optimistic $${result.sensitivity.high.total_pnl.toLocaleString()}. If the sign only holds at one end, the "edge" is a premium assumption.`}>
+              <b>PREMIUM SENSITIVITY</b> {result.sensitivity.verdict}
+              <span className="num"> · ${result.sensitivity.low.total_pnl.toLocaleString()} / ${result.sensitivity.base_total_pnl.toLocaleString()} / ${result.sensitivity.high.total_pnl.toLocaleString()}</span>
+            </div>
+          )}
+          {M.real_fill_pct != null && (
+            <div className="bt-fillsrc" title={`Entry fills priced from REAL recorded bid/ask (the app snapshots every chain it touches, once per symbol per day) vs the model. Real coverage grows automatically with normal app use. Sources: ${JSON.stringify(M.entry_fill_sources)}.`}>
+              {M.real_fill_pct > 0
+                ? `${M.real_fill_pct}% of entry fills priced from REAL recorded quotes`
+                : "All fills model-priced — real-quote coverage builds as the app records daily chain snapshots"}
+            </div>
+          )}
           <div className="bt-tiles">
             <div className="bt-tile" title="Sum of all realized trade P&L as a % of starting equity ($100k), after modeled costs."><span>Total return</span><b className={M.total_return_pct >= 0 ? "up" : "down"}>{M.total_return_pct}%</b></div>
             <div className="bt-tile" title="Realized profit and loss in dollars, after spread, slippage and commissions."><span>Total P&L</span><b className={M.total_pnl >= 0 ? "up" : "down"}>{fmtD(M.total_pnl)}</b></div>

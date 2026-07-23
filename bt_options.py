@@ -216,7 +216,8 @@ def bp_requirement(structure: str, legs, spot: float, credit: float,
 def simulate_position(bars: list, i_signal: int, structure: str,
                       iv_series: list, mgmt: dict, contracts: int = 1,
                       params: dict | None = None,
-                      dividends: list | None = None) -> dict | None:
+                      dividends: list | None = None,
+                      quote_fn=None) -> dict | None:
     """One position from signal to close. Fill at bars[i_signal+1].open.
 
     bars: [{"date": "YYYY-MM-DD", "open","high","low","close"}...]
@@ -244,13 +245,34 @@ def simulate_position(bars: list, i_signal: int, structure: str,
     entry_date = date.fromisoformat(fill["date"][:10])
     expiry = entry_date + timedelta(days=int(dte))
 
-    # Entry fill: each leg crosses its own half-spread against us.
+    # Entry fill: REAL bid/ask when a same-day chain snapshot exists
+    # (chain_store via quote_fn), else the modeled mid ± half-spread.
     T0 = year_fraction(dte)
     entry_cash = 0.0            # + = credit received, − = debit paid ($/share)
+    n_real = 0
+    used_strikes = set()
     for L in legs:
-        mid = _bs_price(spot0, L["strike"], T0, iv0, L["right"])
-        sp = option_spread(mid, spot0, L["strike"], dte)
-        px = mid - sp if L["qty"] < 0 else mid + sp   # sell at bid, buy at ask
+        q = None
+        if quote_fn is not None:
+            try:
+                q = quote_fn(fill["date"][:10], L["right"], L["strike"], dte)
+            except Exception:
+                q = None
+            # Snapping to the real listed strike must not collapse two legs
+            # onto the same contract.
+            if q and (q["strike"], L["right"]) in used_strikes:
+                q = None
+        if q:
+            L["strike"] = q["strike"]                  # trade the REAL strike
+            px = q["bid"] if L["qty"] < 0 else q["ask"]
+            L["fill_src"] = "real"
+            n_real += 1
+            used_strikes.add((q["strike"], L["right"]))
+        else:
+            mid = _bs_price(spot0, L["strike"], T0, iv0, L["right"])
+            sp = option_spread(mid, spot0, L["strike"], dte)
+            px = mid - sp if L["qty"] < 0 else mid + sp   # sell at bid, buy at ask
+            L["fill_src"] = "model"
         if px <= 0.01 and L["qty"] < 0:
             return None                                # can't sell worthless legs
         L["entry_px"] = round(px, 4)
@@ -274,7 +296,7 @@ def simulate_position(bars: list, i_signal: int, structure: str,
     events = [{"date": fill["date"][:10], "type": "open",
                "detail": f"{structure} ×{contracts}, "
                          f"{'credit' if is_credit else 'debit'} ${abs(credit):.2f}/sh",
-               "legs": [{k: L[k] for k in ("right", "strike", "qty", "entry_px")} for L in legs]}]
+               "legs": [{k: L.get(k) for k in ("right", "strike", "qty", "entry_px", "fill_src")} for L in legs]}]
     marks = []                                         # daily {date, value} audit
 
     def make_trade(exit_val_per_share, exit_date, reason, extra_cash=0.0,
@@ -296,7 +318,7 @@ def simulate_position(bars: list, i_signal: int, structure: str,
             "expiry": expiry.isoformat(), "dte": int(dte),
             "credit": round(credit, 4) if is_credit else round(-credit, 4),
             "is_credit": is_credit,
-            "legs": [{k: L[k] for k in ("right", "strike", "qty", "entry_px")} for L in legs],
+            "legs": [{k: L.get(k) for k in ("right", "strike", "qty", "entry_px", "fill_src")} for L in legs],
             "reason": reason,
             "pnl": round(net, 2),
             "bp": round(bp, 2),
@@ -304,7 +326,8 @@ def simulate_position(bars: list, i_signal: int, structure: str,
             "held_days": (date.fromisoformat(exit_date) - entry_date).days,
             "events": events, "marks": marks,
             "iv_entry": round(iv0, 4),
-            "priced": "modeled",
+            "priced": ("real_quote" if n_real == len(legs)
+                       else "mixed" if n_real else "modeled"),
         }
 
     # ── walk the days ──
@@ -457,7 +480,7 @@ def simulate_position(bars: list, i_signal: int, structure: str,
 
 # ── Chains: rolls and the wheel ─────────────────────────────────────────────
 def simulate_chain(bars, i_signal, structure, iv_series, mgmt, contracts=1,
-                   params=None, dividends=None, max_links=40):
+                   params=None, dividends=None, max_links=40, quote_fn=None):
     """simulate_position plus continuation logic:
       • reason "roll"            → re-enter the SAME structure next bar
       • wheel: short_put assigned → covered calls (basis = put strike) until
@@ -477,7 +500,8 @@ def simulate_chain(bars, i_signal, structure, iv_series, mgmt, contracts=1,
         if cur_struct == "covered_call" and basis is not None:
             pp["stock_basis"] = basis
         t = simulate_position(bars, i, cur_struct, iv_series, mgmt,
-                              contracts=contracts, params=pp, dividends=dividends)
+                              contracts=contracts, params=pp, dividends=dividends,
+                              quote_fn=quote_fn)
         if t is None:
             break
         t["chain_id"] = chain_id
@@ -513,7 +537,8 @@ def simulate_chain(bars, i_signal, structure, iv_series, mgmt, contracts=1,
 def run_portfolio(signals, bars_by_sym, iv_by_sym, structure, mgmt,
                   params=None, start_equity=100_000.0,
                   budget_per_trade=10_000.0, max_positions=5,
-                  dividends_by_sym=None, progress_cb=None):
+                  dividends_by_sym=None, progress_cb=None,
+                  quote_fn_by_sym=None):
     """signals: chronological [(date_str, sym, i_signal)]. Each accepted
     signal runs simulate_chain; entries are gated by concurrent position
     count AND buying power (Σ open BP ≤ equity). Returns trades plus a
@@ -575,7 +600,8 @@ def run_portfolio(signals, bars_by_sym, iv_by_sym, structure, mgmt,
                 continue
         chain = simulate_chain(bars, i, structure, iv_series, mgmt,
                                contracts=contracts, params=params,
-                               dividends=div_by.get(sym))
+                               dividends=div_by.get(sym),
+                               quote_fn=(quote_fn_by_sym or {}).get(sym))
         for t in chain:
             t["symbol"] = sym
         if not chain:

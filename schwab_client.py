@@ -118,6 +118,16 @@ AUTHORIZE_URL = f"{API_BASE}/v1/oauth/authorize"
 REDIRECT_URI = os.environ.get("SCHWAB_REDIRECT_URI", "https://127.0.0.1:8182").strip()
 QUOTES_URL = f"{API_BASE}/marketdata/v1/quotes"
 CHAINS_URL = f"{API_BASE}/marketdata/v1/chains"
+
+# Optional chain-snapshot recorder (Backtest v2): options_dashboard wires
+# chain_store.record here so every fetched chain can be snapshotted EOD.
+_CHAIN_RECORDER = None
+
+
+def set_chain_recorder(fn) -> None:
+    global _CHAIN_RECORDER
+    _CHAIN_RECORDER = fn
+
 HISTORY_URL_TPL = f"{API_BASE}/marketdata/v1/pricehistory"
 
 # Cache TTLs (seconds). Quotes refresh fast (faster than the frontend
@@ -680,6 +690,15 @@ class SchwabClient:
         out = self._normalize_chain(data)
         if out:
             self._cache_set(cache_key, out, TTL_CHAIN)
+            # Backtest v2 (B2): every live chain the app fetches feeds the
+            # EOD snapshot store (once per symbol per day) so backtests
+            # increasingly price from REAL quotes. Best-effort, never
+            # blocks a live request.
+            if _CHAIN_RECORDER is not None:
+                try:
+                    _CHAIN_RECORDER(symbol, out)
+                except Exception:
+                    pass
         return out
 
     @staticmethod

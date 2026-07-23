@@ -43,15 +43,20 @@ _schwab_getter = lambda: None
 _minute_day_fn = lambda sym, d: None
 _universe_fn = lambda: {"starred": [], "all": []}
 _earnings_fn = None            # sym -> ["YYYY-MM-DD", ...] past+known earnings
+_iv_history_fn = None          # sym -> [{"date","iv"}, ...] stored IV30 rows
+_vix_fn = None                 # () -> {"YYYY-MM-DD": vix_close}
 _data_dir: Path | None = None
 
 def configure(schwab_getter, minute_day_fn, universe_fn, data_dir,
-              earnings_fn=None):
+              earnings_fn=None, iv_history_fn=None, vix_fn=None):
     global _schwab_getter, _minute_day_fn, _universe_fn, _data_dir, _earnings_fn
+    global _iv_history_fn, _vix_fn
     _schwab_getter = schwab_getter
     _minute_day_fn = minute_day_fn
     _universe_fn = universe_fn
     _earnings_fn = earnings_fn
+    _iv_history_fn = iv_history_fn
+    _vix_fn = vix_fn
     _data_dir = Path(data_dir) if data_dir else None
 
 
@@ -1136,27 +1141,82 @@ def _run_structure_portfolio(rules, structure, options, signals, daily_entry,
             else:
                 signals = [s for s in signals if near_earnings(s[1], s[0])]
 
-    # Per-bar IV series (legacy model, replaced in B2): HV20 × 1.1 with an
-    # 8% annualized floor — listed options never trade at ~zero IV, and a
-    # degenerate vol makes delta-targeting meaningless.
+    # IV model v2 (bt_iv): HV blend × per-symbol calibrated IV/HV ratio ×
+    # VIX-regime scaler × earnings ramp, floored — every component labeled.
+    import bt_iv
+    vix_by_date = {}
+    if _vix_fn is not None:
+        try:
+            vix_by_date = _vix_fn() or {}
+        except Exception:
+            vix_by_date = {}
     iv_by_sym = {}
+    iv_meta_by_sym = {}
+    vix_src = None
     for sym, bars in per_symbol_bars.items():
-        closes = [b["close"] for b in bars]
-        series = []
-        last = None
-        for k in range(len(bars)):
-            v = _realized_vol(closes, k, 20)
-            iv = max(0.08, v * 1.1) if v is not None else last
-            series.append(iv)
-            if iv:
-                last = iv
-        iv_by_sym[sym] = series
+        ratio, ratio_src = bt_iv.DEFAULT_RATIO, "assumed"
+        if _iv_history_fn is not None:
+            try:
+                hist = _iv_history_fn(sym) or []
+                closes_by_date = {b["date"][:10]: b["close"] for b in bars}
+                ratio, ratio_src = bt_iv.calibrate_ratio(hist, closes_by_date)
+            except Exception:
+                pass
+        dates = [b["date"][:10] for b in bars]
+        scalers, vix_src = bt_iv.vix_scaler_series(dates, vix_by_date)
+        edates = []
+        if _earnings_fn is not None:
+            try:
+                edates = _earnings_fn(sym) or []
+            except Exception:
+                edates = []
+        iv_by_sym[sym] = bt_iv.build_iv_series(bars, ratio, scalers, edates)
+        iv_meta_by_sym[sym] = {"ratio": round(ratio, 3), "ratio_src": ratio_src,
+                               "earnings_dates": len(edates)}
+
+    # Real-quote precedence (B2): entry fills use REAL bid/ask from the
+    # chain snapshot store wherever a same-day snapshot exists.
+    quote_fn_by_sym = {}
+    try:
+        import chain_store
+        for sym in per_symbol_bars:
+            store = chain_store.load(sym)
+            if store:
+                quote_fn_by_sym[sym] = (
+                    lambda day, right, strike, dte, _s=store:
+                        chain_store.lookup(_s, day, right, strike, dte))
+    except Exception:
+        quote_fn_by_sym = {}
 
     res_p = bo.run_portfolio(signals, per_symbol_bars, iv_by_sym, structure,
                              mgmt, params=params, start_equity=start_equity,
                              budget_per_trade=per_trade_budget,
-                             max_positions=max_pos, progress_cb=progress_cb)
+                             max_positions=max_pos, progress_cb=progress_cb,
+                             quote_fn_by_sym=quote_fn_by_sym)
     trades = res_p["trades"]
+
+    # ── premium-assumption sensitivity (unique to this platform): the same
+    # run at pessimistic/optimistic IV multipliers. If the edge only exists
+    # at one end of the band, it's a premium ASSUMPTION, not an edge. ──
+    sensitivity = {}
+    for tag, mult in (("low", 0.85), ("high", 1.15)):
+        if progress_cb:
+            progress_cb(f"premium sensitivity ({tag})", 1, 2)
+        iv_alt = {s: [v * mult if v else v for v in ser]
+                  for s, ser in iv_by_sym.items()}
+        alt = bo.run_portfolio(signals, per_symbol_bars, iv_alt, structure,
+                               mgmt, params=params, start_equity=start_equity,
+                               budget_per_trade=per_trade_budget,
+                               max_positions=max_pos,
+                               quote_fn_by_sym=quote_fn_by_sym)
+        at = alt["trades"]
+        wins = sum(1 for t in at if t["pnl"] > 0)
+        sensitivity[tag] = {
+            "iv_mult": mult,
+            "n_trades": len(at),
+            "total_pnl": round(sum(t["pnl"] for t in at), 2),
+            "win_rate": round(wins / len(at) * 100.0, 1) if at else None,
+        }
     for t in trades:
         t["regime"] = spy_reg.get(t["entry_date"]) or "unknown"
 
@@ -1188,13 +1248,39 @@ def _run_structure_portfolio(rules, structure, options, signals, daily_entry,
     if result.get("metrics") and trades:
         n_assigned = sum(1 for t in trades if "assigned" in (t.get("reason") or ""))
         result["metrics"]["assignments"] = n_assigned
+        by_src = {"real_quote": 0, "mixed": 0, "modeled": 0}
+        for t in trades:
+            by_src[t.get("priced") or "modeled"] = by_src.get(t.get("priced") or "modeled", 0) + 1
+        result["metrics"]["entry_fill_sources"] = by_src
+        result["metrics"]["real_fill_pct"] = round(
+            (by_src["real_quote"] + 0.5 * by_src["mixed"]) / len(trades) * 100.0, 1)
         bps = [t["pnl_on_bp"] for t in trades if t.get("pnl_on_bp") is not None]
         if bps:
             result["metrics"]["avg_return_on_bp_pct"] = round(sum(bps) / len(bps), 2)
+    # Sensitivity verdict: does the P/L sign survive the whole band?
+    base_pnl = result["metrics"].get("total_pnl", 0.0) if result.get("metrics") else 0.0
+    if sensitivity:
+        pnls = [sensitivity["low"]["total_pnl"], base_pnl, sensitivity["high"]["total_pnl"]]
+        if all(p > 0 for p in pnls):
+            sens_verdict = "edge survives the full premium-assumption band (0.85×–1.15× IV)"
+        elif all(p <= 0 for p in pnls):
+            sens_verdict = "strategy loses at EVERY premium assumption tested"
+        else:
+            which = "pessimistic (0.85×)" if sensitivity["low"]["total_pnl"] <= 0 else "optimistic (1.15×)"
+            sens_verdict = f"edge FLIPS SIGN at the {which} premium assumption — treat the headline number as a premium assumption, not an edge"
+        result["sensitivity"] = {"base_total_pnl": round(base_pnl, 2),
+                                 **sensitivity, "verdict": sens_verdict}
+    any_calib = any("calibrated" in m["ratio_src"] for m in iv_meta_by_sym.values())
+    any_earn = any(m["earnings_dates"] > 0 for m in iv_meta_by_sym.values())
+    ratio_desc = ("per-symbol calibrated from stored IV30 history where available, else 1.10 assumed"
+                  if any_calib else "1.10 assumed (no stored IV history yet — accrues daily)")
+    result["iv_model"] = {"per_symbol": iv_meta_by_sym, "vix_scaling": vix_src}
     result["modeled"] = {
         "option_premiums": True,
         "assumptions": [
-            "Option premiums: Black-Scholes on 20-day realized vol × 1.1, floored at 8% annualized (no historical quotes; B2 upgrades this model)",
+            "Option premiums: Black-Scholes on layered IV model — 0.6·HV20+0.4·HV60 base × IV/HV ratio (%s) × VIX-regime scaler (%s) × earnings ramp%s; floored at 8%%"
+            % (ratio_desc, vix_src or "unavailable",
+               "" if any_earn else " (no report dates for this run)"),
             "American intrinsic floor on all marks; early assignment when extrinsic < $%.02f or dividend > extrinsic" % bo.ASSIGN_EXTRINSIC,
             "Per-leg half-spread f(mid, DTE, moneyness); $%.2f commission + $%.2f fees per contract per side" % (bo.COMMISSION_PER_CONTRACT, bo.REG_FEES_PER_CONTRACT),
             "Buying power per standard broker formulas; entries rejected when BP is exhausted",

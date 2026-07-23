@@ -8636,6 +8636,16 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 /* Bounded board lists (v3.64): top-N + pull-more controls */
 .bl-more { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
 .bl-count { font-size: 11.5px; color: var(--fg-3); font-family: var(--font-mono); }
+/* Backtest v2: premium-sensitivity + fill-source lines */
+.bt-sens { padding: 6px 10px; border-radius: 6px; font-size: 12px; cursor: help;
+  border: 1px solid var(--line); }
+.bt-sens b { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; }
+.bt-sens.ok { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%);
+  background: color-mix(in oklch, var(--up), transparent 93%); }
+.bt-sens.bad { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 45%);
+  background: color-mix(in oklch, var(--warn), transparent 92%); }
+.bt-fillsrc { font-size: 11.5px; color: var(--fg-3); cursor: help; }
+
 /* Expired maintained-schedule banner (v3.64) — never recycle stale dates */
 .tsy-sched-warn { padding: 6px 10px; border: 1px solid color-mix(in oklch, var(--warn), transparent 45%);
   border-radius: 6px; font-size: 12px; color: var(--warn);
