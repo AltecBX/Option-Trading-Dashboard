@@ -773,7 +773,7 @@ def run_backtest(rules: dict, progress_cb=None) -> dict:
         return _run_structure_portfolio(
             rules, structure, options, signals, daily_entry, per_symbol_bars,
             ctxs, spy_reg, eff_days, per_trade_budget, max_pos, start_equity,
-            liq_mult, warnings, progress_cb, t0)
+            liq_mult, warnings, progress_cb, t0, spy_bars=spy_bars)
 
     if intraday_mode:
         trades, skipped_liq = _run_intraday(
@@ -1067,7 +1067,8 @@ def _run_intraday(rules, symbols, per_symbol_bars, ctxs, eff_days, slip, commiss
 def _run_structure_portfolio(rules, structure, options, signals, daily_entry,
                              per_symbol_bars, ctxs, spy_reg, eff_days,
                              per_trade_budget, max_pos, start_equity,
-                             liq_mult, warnings, progress_cb, t0):
+                             liq_mult, warnings, progress_cb, t0,
+                             spy_bars=None):
     """v2 path: premium-selling / multi-leg structures via the bt_options
     lifecycle engine (management rules, assignment, rolls, wheel, BP-gated
     portfolio with a daily mark-to-model equity curve)."""
@@ -1257,6 +1258,98 @@ def _run_structure_portfolio(rules, structure, options, signals, daily_entry,
         bps = [t["pnl_on_bp"] for t in trades if t.get("pnl_on_bp") is not None]
         if bps:
             result["metrics"]["avg_return_on_bp_pct"] = round(sum(bps) / len(bps), 2)
+    # ── Validation suite (B3) — automatic on every structure run ──
+    import bt_validate as bv
+    if progress_cb:
+        progress_cb("validation (walk-forward, Monte Carlo)", 1, 1)
+    rf = _risk_free_rate()[0]
+    curve_stats = bv.sharpe_from_curve(res_p["equity_curve"], rf_annual=rf)
+    if curve_stats and result.get("metrics"):
+        result["metrics"].update({k: curve_stats[k] for k in
+                                  ("sharpe", "sortino", "cagr_pct") if curve_stats.get(k) is not None})
+    result["monte_carlo"] = bv.monte_carlo([t["pnl"] for t in trades], start_equity)
+
+    def _wf_runner(lo, hi):
+        sub = [s for s in signals if lo <= s[0] <= hi]
+        r = bo.run_portfolio(sub, per_symbol_bars, iv_by_sym, structure, mgmt,
+                             params=params, start_equity=start_equity,
+                             budget_per_trade=per_trade_budget,
+                             max_positions=max_pos,
+                             quote_fn_by_sym=quote_fn_by_sym)
+        tt = r["trades"]
+        return {"total_pnl": round(sum(t["pnl"] for t in tt), 2),
+                "n_trades": len(tt),
+                "win_rate": round(sum(1 for t in tt if t["pnl"] > 0) / len(tt) * 100.0, 1) if tt else None}
+    sig_dates = sorted({s[0] for s in signals})
+    result["walk_forward"] = bv.walk_forward(sig_dates, _wf_runner, folds=4)
+
+    # Regime matrix (trend × VIX tercile) — only meaningful with VIX data.
+    if vix_by_date:
+        result["regime_matrix"] = bv.regime_matrix(trades, bv.vol_terciles(vix_by_date))
+
+    # Benchmarks: SPY buy-and-hold over the same window + T-bill carry.
+    bench = {}
+    if spy_bars and res_p["equity_curve"]:
+        lo_d, hi_d = res_p["equity_curve"][0]["date"], res_p["equity_curve"][-1]["date"]
+        win = [b for b in spy_bars if lo_d <= b["date"][:10] <= hi_d]
+        if len(win) > 10 and win[0]["close"]:
+            spy_ret = (win[-1]["close"] / win[0]["close"] - 1.0) * 100.0
+            spy_curve = [start_equity * b["close"] / win[0]["close"] for b in win]
+            bench["spy_buy_hold"] = {"return_pct": round(spy_ret, 2),
+                                     "max_drawdown_pct": round(bv.max_drawdown_pct(spy_curve), 2)}
+        yrs = curve_stats["years"] if curve_stats else None
+        if yrs:
+            bench["t_bill"] = {"return_pct": round(((1 + rf) ** yrs - 1) * 100.0, 2),
+                               "rate_source": _risk_free_rate()[1]}
+    if bench and result.get("metrics"):
+        bench["strategy_return_pct"] = result["metrics"].get("total_return_pct")
+        result["benchmarks"] = bench
+
+    # Optimizer (opt-in via rules["optimize"]): small grid over delta × DTE
+    # (+ optional profit-take), plateau-scored, DSR-deflated by trials.
+    optimize = rules.get("optimize")
+    n_trials = 1
+    trial_sharpes = []
+    if optimize and isinstance(optimize, dict):
+        deltas = [float(x) for x in (optimize.get("target_delta") or [params["target_delta"]])][:6]
+        dtes = [int(x) for x in (optimize.get("dte") or [params["dte"]])][:5]
+        pts = [x for x in (optimize.get("profit_take_pct") or [mgmt.get("profit_take_pct")])][:3]
+        combos = [(d, t, p) for d in deltas for t in dtes for p in pts][:48]
+        n_trials = max(1, len(combos))
+        grid = []
+        for gi, (d, t, p) in enumerate(combos):
+            if progress_cb:
+                progress_cb("optimizing (grid)", gi + 1, len(combos))
+            pp = {**params, "target_delta": d, "dte": t}
+            mm = dict(mgmt)
+            if p is not None:
+                mm["profit_take_pct"] = p
+            rr = bo.run_portfolio(signals, per_symbol_bars, iv_by_sym, structure,
+                                  mm, params=pp, start_equity=start_equity,
+                                  budget_per_trade=per_trade_budget,
+                                  max_positions=max_pos,
+                                  quote_fn_by_sym=quote_fn_by_sym)
+            tt = rr["trades"]
+            cs = bv.sharpe_from_curve(rr["equity_curve"], rf_annual=rf)
+            if cs and cs.get("sr_raw") is not None:
+                trial_sharpes.append(cs["sr_raw"])
+            grid.append({"target_delta": d, "dte": t, "profit_take_pct": p,
+                         "n_trades": len(tt),
+                         "total_pnl": round(sum(x["pnl"] for x in tt), 2),
+                         "sharpe": cs["sharpe"] if cs else None})
+        result["optimizer"] = {
+            "grid": grid,
+            "plateau": bv.plateau_score(grid, "target_delta", "dte", "total_pnl"),
+            "n_combos": len(combos),
+        }
+
+    # Deflated Sharpe: the observed Sharpe against the best-of-N hurdle.
+    if curve_stats and curve_stats.get("sr_raw") is not None:
+        result["deflated_sharpe"] = bv.deflated_sharpe(
+            curve_stats["sr_raw"], curve_stats["daily_n"],
+            curve_stats["skew"], curve_stats["kurtosis"],
+            n_trials, trial_sharpes or None)
+
     # Sensitivity verdict: does the P/L sign survive the whole band?
     base_pnl = result["metrics"].get("total_pnl", 0.0) if result.get("metrics") else 0.0
     if sensitivity:

@@ -295,3 +295,36 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   test_chain_store (8 — round-trip, throttle, DTE/strike lookup, wrong-
   day rejection, engine precedence real/model/collision). CI extended.
   Battery: 88 unittest OK + JS 107 + smoke 50/50.
+
+## B3 — Validation suite
+
+- **`bt_validate.py`** (pure, seeded, no network):
+  · `monte_carlo` — 10k-path trade-order bootstrap → maxDD/final-equity
+    P5/P50/P95 + risk-of-ruin at the tested sizing (deterministic seed).
+  · `walk_forward` — rolling IS/OOS folds over an injected runner, WFE +
+    per-fold table + verdicts ("consistent" / "weaker" / "does NOT hold
+    out of sample — likely curve-fit").
+  · `psr`/`deflated_sharpe` — Bailey & López de Prado: observed Sharpe
+    vs the expected best-of-N-trials hurdle. Tests PIN the honest
+    behavior: a 3.0 Sharpe over 3 years clears a best-of-50 hurdle, the
+    SAME Sharpe over 1 year does not (estimator noise).
+  · `plateau_score` — parameter-grid 3×3-neighborhood robustness;
+    recommends the ROBUST cell, not the lucky peak.
+  · `regime_matrix` + `vol_terciles` — trend × VIX-tercile cells with a
+    ">70% of the edge in one regime" concentration warning.
+  · `sharpe_from_curve` — Sharpe/Sortino/CAGR + skew/kurtosis off the
+    daily mark-to-model curve.
+- **Routing integration** — every structure run now automatically gets:
+  Sharpe/Sortino/CAGR in metrics, Monte Carlo, 4-fold walk-forward
+  (re-running the real portfolio per fold, real-quote precedence
+  preserved), regime matrix (when VIX data present), benchmarks (SPY
+  buy-and-hold same window, T-bill carry at the labeled live/fallback
+  rate, vs strategy return), and Deflated Sharpe (n_trials=1 baseline;
+  when the opt-in `rules["optimize"]` grid runs — delta × DTE × PT,
+  capped 48 combos — DSR uses the true trial count and trial-Sharpe
+  variance, plus plateau scoring of the grid).
+- **Tests**: test_bt_validate (17) incl. WF consistent-vs-curve-fit,
+  seeded-MC determinism + ruin detection, DSR trial penalty, plateau vs
+  lone-peak. End-to-end smoke: full payload (MC/WF/DSR/optimizer/
+  benchmarks/sensitivity) on the stub client. CI extended.
+  Battery: 112 unittest OK + JS 107 + smoke 50/50.
