@@ -74,29 +74,122 @@ def _atr(bars: list[dict], period: int = 14) -> list[float | None]:
     return out
 
 
-def _norm_cdf(x: float) -> float:
-    # Abramowitz & Stegun 7.1.26 approximation — no scipy dependency
+# ── Options-math contract (v2.0) ─────────────────────────────────────────
+# THE canonical Black-Scholes implementation for the whole app. Every other
+# Python copy (option_reprice.py, backtest.py) now imports from here; the
+# small JS engine in strategies.jsx is fixture-matched against this file by
+# test_strategy_fixtures.js. Conventions, stated once:
+#   • time:   T in YEARS = calendar_days / 365 (year_fraction helper).
+#   • sigma:  annualized DECIMAL vol (0.32 = 32%). normalize_iv() validates.
+#   • r:      annualized continuously-compounded rate, DECIMAL. Callers pass
+#             risk_free_rate()[0]; the legacy default stays 0.045 so existing
+#             call sites are bit-for-bit unchanged until they opt in.
+#   • q:      continuous dividend yield, DECIMAL, default 0.
+#   • theta:  dollars per CALENDAR day (year theta / 365).
+#   • vega:   dollars per 1 vol POINT (standard vega / 100).
+
+DAYS_PER_YEAR = 365.0
+RISK_FREE_FALLBACK = 0.04          # used only when no live curve is wired
+_RATE_PROVIDER = None              # callable -> (rate_decimal, source_str)
+
+
+def year_fraction(calendar_days: float) -> float:
+    """Calendar-day year fraction — the app-wide time convention."""
+    return max(0.0, calendar_days) / DAYS_PER_YEAR
+
+
+def set_rate_provider(fn) -> None:
+    """Wire a live risk-free source: fn() -> (rate_decimal, source_str)."""
+    global _RATE_PROVIDER
+    _RATE_PROVIDER = fn
+
+
+def risk_free_rate() -> tuple[float, str]:
+    """(rate, source). Live/recently-cached 3-month Treasury yield when the
+    provider is wired and healthy; otherwise a clearly-labeled fallback."""
+    if _RATE_PROVIDER is not None:
+        try:
+            got = _RATE_PROVIDER()
+            if got and got[0] is not None and 0.0 <= got[0] <= 0.25:
+                return float(got[0]), str(got[1])
+        except Exception:
+            pass
+    return RISK_FREE_FALLBACK, f"fallback constant {RISK_FREE_FALLBACK:.2%} (live curve unavailable)"
+
+
+def normalize_iv(iv) -> float | None:
+    """One IV validator for the whole app. Accepts decimal (0.32) or percent
+    (32.0) forms; returns annualized DECIMAL or None when unusable.
+    Threshold: values ≥ 3 are treated as percent-form (a real 300%+ decimal
+    IV is rarer than a 3-point percent-form IV; documented tradeoff)."""
+    try:
+        v = float(iv)
+    except (TypeError, ValueError):
+        return None
+    if v != v or v <= 0:
+        return None
+    if v >= 3.0:
+        v = v / 100.0
+    if v <= 0 or v > 10.0:            # >1000% → stale/garbage quote
+        return None
+    return v
+
+
+def rank_and_percentile(history: list[float], current: float) -> dict | None:
+    """THE shared rank implementation (was triplicated across storage.py,
+    ivrank.py and an inline copy in options_dashboard.py).
+    rank       = (current − min) / (max − min) × 100   (50 when flat)
+    percentile = share of history strictly below current × 100
+    Returns {"rank","percentile","n","min","max"} or None if n < 20."""
+    vals = [v for v in history if v is not None and v == v]
+    n = len(vals)
+    if n < 20:
+        return None
+    lo, hi = min(vals), max(vals)
+    rank = 50.0 if hi <= lo else (current - lo) / (hi - lo) * 100.0
+    pct = sum(1 for v in vals if v < current) / n * 100.0
+    return {"rank": round(max(0.0, min(100.0, rank)), 1),
+            "percentile": round(pct, 1), "n": n,
+            "min": round(lo, 4), "max": round(hi, 4)}
+
+
+def one_sigma_move(spot: float, iv, calendar_days: float) -> float | None:
+    """One-standard-deviation move in DOLLARS: S·σ·√T. This is the ONLY
+    thing the app calls a '1σ move'. The ATM straddle price is a separate,
+    differently-named measure (≈1.25σ under BS) — never interchangeable."""
+    sigma = normalize_iv(iv)
+    if not spot or spot <= 0 or sigma is None:
+        return None
+    T = year_fraction(calendar_days)
+    if T <= 0:
+        return None
     import math
-    a1, a2, a3, a4, a5 = 0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429
-    p = 0.3275911
-    sign = 1.0 if x >= 0 else -1.0
-    x = abs(x) / math.sqrt(2.0)
-    t = 1.0 / (1.0 + p * x)
-    y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * math.exp(-x * x)
-    return 0.5 * (1.0 + sign * y)
+    return spot * sigma * math.sqrt(T)
 
 
-def _bs_delta(spot: float, strike: float, T: float, sigma: float, side: str, r: float = 0.045) -> float:
-    """Black-Scholes delta. Falls back to 0.5 / -0.5 for invalid inputs."""
+def _norm_cdf(x: float) -> float:
+    # Exact via math.erf (v2.0 — replaces the A&S 7.1.26 approximation; the
+    # two agree to ~7.5e-8, but exact means every Python module now shares
+    # one definition with zero drift).
+    import math
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _bs_delta(spot: float, strike: float, T: float, sigma: float, side: str,
+              r: float = 0.045, q: float = 0.0) -> float:
+    """Black-Scholes delta (continuous dividend yield q). Falls back to
+    0.5 / -0.5 for invalid inputs."""
     import math
     if spot <= 0 or strike <= 0 or T <= 0 or sigma <= 0:
         return 0.5 if side == "call" else -0.5
-    d1 = (math.log(spot / strike) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+    d1 = (math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+    dq = math.exp(-q * T)
     cd = _norm_cdf(d1)
-    return cd if side == "call" else cd - 1.0
+    return dq * cd if side == "call" else dq * (cd - 1.0)
 
 
-def _bs_theta(spot: float, strike: float, T: float, sigma: float, side: str, r: float = 0.045) -> float:
+def _bs_theta(spot: float, strike: float, T: float, sigma: float, side: str,
+              r: float = 0.045, q: float = 0.0) -> float:
     """Black-Scholes theta in dollars per CALENDAR DAY (not per-year). Used
     so a typical short-dated short premium shows a familiar small negative
     number like -0.08 rather than the per-year -29.20. Returns 0 on invalid
@@ -105,29 +198,34 @@ def _bs_theta(spot: float, strike: float, T: float, sigma: float, side: str, r: 
     if spot <= 0 or strike <= 0 or T <= 0 or sigma <= 0:
         return 0.0
     sqrtT = math.sqrt(T)
-    d1 = (math.log(spot / strike) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
+    d1 = (math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
     d2 = d1 - sigma * sqrtT
+    dq = math.exp(-q * T)
     pdf_d1 = math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi)
-    term1 = -(spot * pdf_d1 * sigma) / (2 * sqrtT)
+    term1 = -(spot * dq * pdf_d1 * sigma) / (2 * sqrtT)
     if side == "call":
-        theta_year = term1 - r * strike * math.exp(-r * T) * _norm_cdf(d2)
+        theta_year = term1 - r * strike * math.exp(-r * T) * _norm_cdf(d2) \
+            + q * spot * dq * _norm_cdf(d1)
     else:
-        theta_year = term1 + r * strike * math.exp(-r * T) * _norm_cdf(-d2)
+        theta_year = term1 + r * strike * math.exp(-r * T) * _norm_cdf(-d2) \
+            - q * spot * dq * _norm_cdf(-d1)
     return theta_year / 365.0
 
 
-def _bs_gamma(spot: float, strike: float, T: float, sigma: float, r: float = 0.045) -> float:
+def _bs_gamma(spot: float, strike: float, T: float, sigma: float,
+              r: float = 0.045, q: float = 0.0) -> float:
     """Black-Scholes gamma. Same for calls and puts."""
     import math
     if spot <= 0 or strike <= 0 or T <= 0 or sigma <= 0:
         return 0.0
     sqrtT = math.sqrt(T)
-    d1 = (math.log(spot / strike) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
+    d1 = (math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
     pdf_d1 = math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi)
-    return pdf_d1 / (spot * sigma * sqrtT)
+    return math.exp(-q * T) * pdf_d1 / (spot * sigma * sqrtT)
 
 
-def _bs_vega(spot: float, strike: float, T: float, sigma: float, r: float = 0.045) -> float:
+def _bs_vega(spot: float, strike: float, T: float, sigma: float,
+             r: float = 0.045, q: float = 0.0) -> float:
     """Black-Scholes vega per 1% IV change (i.e. /100). Same for calls and
     puts. Standard vega is per 1.0 IV change — dividing by 100 gives the
     familiar 'dollars per share per vol point' that brokers display."""
@@ -135,12 +233,13 @@ def _bs_vega(spot: float, strike: float, T: float, sigma: float, r: float = 0.04
     if spot <= 0 or strike <= 0 or T <= 0 or sigma <= 0:
         return 0.0
     sqrtT = math.sqrt(T)
-    d1 = (math.log(spot / strike) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
+    d1 = (math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
     pdf_d1 = math.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi)
-    return spot * pdf_d1 * sqrtT / 100.0
+    return spot * math.exp(-q * T) * pdf_d1 * sqrtT / 100.0
 
 
-def _bs_price(spot: float, strike: float, T: float, sigma: float, side: str, r: float = 0.045) -> float:
+def _bs_price(spot: float, strike: float, T: float, sigma: float, side: str,
+              r: float = 0.045, q: float = 0.0) -> float:
     """Black-Scholes theoretical option price. Returns intrinsic value for
     invalid inputs (T<=0 or sigma<=0). Used for synthetic backtesting where
     we don't have real bid/ask history.
@@ -154,8 +253,9 @@ def _bs_price(spot: float, strike: float, T: float, sigma: float, side: str, r: 
             return max(0.0, spot - strike)
         return max(0.0, strike - spot)
     sqrtT = math.sqrt(T)
-    d1 = (math.log(spot / strike) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
+    d1 = (math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
     d2 = d1 - sigma * sqrtT
+    dq = math.exp(-q * T)
     if side == "call":
-        return spot * _norm_cdf(d1) - strike * math.exp(-r * T) * _norm_cdf(d2)
-    return strike * math.exp(-r * T) * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+        return spot * dq * _norm_cdf(d1) - strike * math.exp(-r * T) * _norm_cdf(d2)
+    return strike * math.exp(-r * T) * _norm_cdf(-d2) - spot * dq * _norm_cdf(-d1)

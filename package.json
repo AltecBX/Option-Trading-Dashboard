@@ -1,0 +1,17 @@
+{
+  "name": "option-trading-dashboard-frontend-build",
+  "private": true,
+  "description": "Dev-only toolchain for compiling, minifying and verifying the precompiled-React frontend. The deployed app has no Node runtime dependency.",
+  "scripts": {
+    "build": "node build_frontend.js",
+    "verify": "node verify_frontend.js",
+    "test": "node test_recommendation.js && node test_journal.js && node test_weather.js && node test_strategy_fixtures.js"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/parser": "^7.24.0",
+    "@babel/preset-react": "^7.23.3",
+    "@babel/traverse": "^7.24.0",
+    "esbuild": "^0.28.1"
+  }
+}

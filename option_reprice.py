@@ -9,9 +9,12 @@ No external dependencies.
 
 import math
 
-
-def normal_cdf(x):
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+# v2.0: pricing/greeks delegate to the canonical implementation in
+# metrics.py (the app-wide options-math contract). This module keeps its
+# public signatures (S, K, T, r, sigma, kind) so callers are unchanged.
+from metrics import _bs_price as _m_price, _bs_delta as _m_delta, \
+    _bs_gamma as _m_gamma, _bs_theta as _m_theta, _bs_vega as _m_vega, \
+    _norm_cdf as normal_cdf
 
 
 def normal_pdf(x):
@@ -19,14 +22,9 @@ def normal_pdf(x):
 
 
 def bs_price(S, K, T, r, sigma, kind="call"):
-    """Black Scholes price. T in years, r and sigma annualized."""
-    if T <= 0 or sigma <= 0:
-        return max(S - K, 0.0) if kind == "call" else max(K - S, 0.0)
-    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
-    if kind == "call":
-        return S * normal_cdf(d1) - K * math.exp(-r * T) * normal_cdf(d2)
-    return K * math.exp(-r * T) * normal_cdf(-d2) - S * normal_cdf(-d1)
+    """Black Scholes price. T in years, r and sigma annualized.
+    Delegates to metrics._bs_price (canonical)."""
+    return _m_price(S, K, T, sigma, kind, r=r)
 
 
 def implied_vol(price, S, K, T, r, kind="call"):
@@ -46,21 +44,12 @@ def implied_vol(price, S, K, T, r, kind="call"):
 
 
 def greeks(S, K, T, r, sigma, kind="call"):
-    """delta, gamma, theta per day, vega per 1 vol point."""
-    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
-    d2 = d1 - sigma * math.sqrt(T)
-    pdf = normal_pdf(d1)
-    gamma = pdf / (S * sigma * math.sqrt(T))
-    vega = S * pdf * math.sqrt(T) / 100.0
-    if kind == "call":
-        delta = normal_cdf(d1)
-        theta = (-(S * pdf * sigma) / (2 * math.sqrt(T))
-                 - r * K * math.exp(-r * T) * normal_cdf(d2)) / 365.0
-    else:
-        delta = normal_cdf(d1) - 1.0
-        theta = (-(S * pdf * sigma) / (2 * math.sqrt(T))
-                 + r * K * math.exp(-r * T) * normal_cdf(-d2)) / 365.0
-    return delta, gamma, theta, vega
+    """delta, gamma, theta per day, vega per 1 vol point.
+    Delegates to metrics (canonical)."""
+    return (_m_delta(S, K, T, sigma, kind, r=r),
+            _m_gamma(S, K, T, sigma, r=r),
+            _m_theta(S, K, T, sigma, kind, r=r),
+            _m_vega(S, K, T, sigma, r=r))
 
 
 def reprice_after_move(current_price, S_old, S_new, K, days_to_exp,

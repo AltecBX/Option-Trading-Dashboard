@@ -378,28 +378,27 @@ def _realized_vol(closes, i, n=20):
     var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
     return math.sqrt(var * 252)
 
-def _norm_cdf(x):
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+from metrics import _norm_cdf, _bs_price as _metrics_bs_price, \
+    _bs_delta as _metrics_bs_delta, risk_free_rate as _risk_free_rate
 
-def _bs_price(spot, strike, t_years, vol, right, r=0.04):
-    """Black-Scholes. Used ONLY because no historical option quotes exist —
-    every option result carries a modeled-prices warning."""
-    if t_years <= 0:
-        intrinsic = max(0.0, spot - strike) if right == "call" else max(0.0, strike - spot)
-        return intrinsic
-    if vol is None or vol <= 0 or spot <= 0 or strike <= 0:
+def _bs_price(spot, strike, t_years, vol, right, r=None):
+    """MODELED price — no historical option quotes exist; every option
+    result carries a modeled-prices warning. Delegates to the canonical
+    metrics._bs_price; rate defaults to the app risk-free rate."""
+    if vol is None or (t_years > 0 and vol <= 0) or spot <= 0 or strike <= 0:
+        if t_years <= 0 and spot > 0 and strike > 0:
+            return max(0.0, spot - strike) if right == "call" else max(0.0, strike - spot)
         return None
-    d1 = (math.log(spot / strike) + (r + vol * vol / 2) * t_years) / (vol * math.sqrt(t_years))
-    d2 = d1 - vol * math.sqrt(t_years)
-    if right == "call":
-        return spot * _norm_cdf(d1) - strike * math.exp(-r * t_years) * _norm_cdf(d2)
-    return strike * math.exp(-r * t_years) * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+    if r is None:
+        r = _risk_free_rate()[0]
+    return _metrics_bs_price(spot, strike, t_years, vol, right, r=r)
 
-def _bs_delta(spot, strike, t_years, vol, right, r=0.04):
+def _bs_delta(spot, strike, t_years, vol, right, r=None):
     if t_years <= 0 or not vol or vol <= 0:
         return None
-    d1 = (math.log(spot / strike) + (r + vol * vol / 2) * t_years) / (vol * math.sqrt(t_years))
-    return _norm_cdf(d1) if right == "call" else _norm_cdf(d1) - 1.0
+    if r is None:
+        r = _risk_free_rate()[0]
+    return _metrics_bs_delta(spot, strike, t_years, vol, right, r=r)
 
 def _strike_for(spot, vol, dte, strike_cfg, right):
     mode = (strike_cfg or {}).get("mode", "atm")
@@ -710,6 +709,19 @@ def run_backtest(rules: dict, progress_cb=None) -> dict:
     result["mode"] = "intraday (1-minute bars)" if intraday_mode else "daily bars"
     result["rules"] = rules
     result["elapsed_sec"] = round(time.time() - t0, 1)
+    # Structured modeling disclosure (v3.64) — the UI renders this as a
+    # prominent MODELED badge; the assumptions are the exact model inputs.
+    result["modeled"] = {
+        "option_premiums": bool(is_option),
+        "assumptions": ([
+            "Option premiums: Black-Scholes on 20-day realized vol (no historical option quotes)",
+            "Option spread: max($0.02, 1.5% of premium) each way",
+            "Commission: max(user setting, $0.65/contract)",
+        ] if is_option else []) + [
+            f"Stock slippage: {int(slip * 10000)} bps + price-bucket half-spread",
+            "Fills at the NEXT bar's open (no look-ahead)",
+        ],
+    }
     if is_option:
         result["warnings"].insert(0,
             "OPTION RESULTS ARE MODEL-PRICED (Black-Scholes on 20-day realized vol + estimated spreads). "

@@ -250,7 +250,7 @@ function TweaksPanel({
     "aria-label": "Close tweaks",
     onMouseDown: e => e.stopPropagation(),
     onClick: dismiss
-  }, "✕")), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
     className: "twk-body"
   }, children)));
 }

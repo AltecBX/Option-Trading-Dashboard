@@ -30,6 +30,8 @@ try:
 except Exception:  # pragma: no cover
     _ET = None
 
+from metrics import one_sigma_move
+
 _SCHWAB_GETTER = None
 _BOARD_GETTER = None
 _IV_RANK_FN = None       # (symbol, iv_decimal) -> {"iv_rank", "iv_pct"} | None
@@ -88,9 +90,15 @@ def _norm_cdf(x: float) -> float:
 
 
 # ── Strategy builders ────────────────────────────────────────────────────────
-# All returns are per-share (×100 for a contract). POP figures are standard
-# delta/EM approximations; buying power for undefined risk uses the common
-# broker formula max(20%·spot − OTM, 10%·strike) + credit, per side.
+# All returns are per-share (×100 for a contract). POP figures are estimates,
+# never fills, and each carries a "pop_basis" tag so the UI can say exactly
+# which approximation produced it:
+#   "delta"     — P(expire OTM) ≈ 1 − |short delta| (per side, summed for
+#                 two-sided structures). A P(ITM) proxy, not P(touch).
+#   "one_sigma" — P(close inside break-evens) = 2·Φ(credit/1σ) − 1 with the
+#                 true 1σ move S·σ·√T (NOT the straddle, which is ≈1.25σ).
+# Buying power for undefined risk uses the common broker formula
+# max(20%·spot − OTM, 10%·strike) + credit, per side.
 
 def _by_delta(rows: list, target: float, side: str) -> dict | None:
     """The strike whose |delta| is closest to target, restricted OTM."""
@@ -128,11 +136,18 @@ def _strangle_bp(spot: float, put_k: float, call_k: float, credit: float) -> flo
 
 
 def build_strategies(spot: float, em: float, calls: list, puts: list,
-                     earnings_inside: bool, atm_call: dict, atm_put: dict) -> list:
+                     earnings_inside: bool, atm_call: dict, atm_put: dict,
+                     one_sigma: float | None = None) -> list:
     """Every structure worth evaluating, best-first, with risk clearly
     labeled. Never hides max loss; never leads with undefined risk when the
-    setup argues for defined (earnings inside the window, or a wide market)."""
+    setup argues for defined (earnings inside the window, or a wide market).
+    `em` is the ATM STRADDLE price (used for strike selection / coverage);
+    `one_sigma` is the true 1σ move S·σ·√T used for probability math. When
+    IV is missing, 1σ falls back to straddle/1.25 (the BS relationship),
+    still labeled as an estimate via pop_basis."""
     out = []
+    if one_sigma is None or one_sigma <= 0:
+        one_sigma = em / 1.25 if em > 0 else None
     sp = _by_delta(puts, 0.18, "put")
     sc_ = _by_delta(calls, 0.18, "call")
     # Fallback to EM-based strikes when deltas are missing (thin 0DTE wings).
@@ -157,7 +172,7 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
             "be_low": round(pk - credit, 2), "be_high": round(ck + credit, 2),
             "max_profit": round(credit * 100, 0),
             "bp": _strangle_bp(spot, pk, ck, credit),
-            "pop": pop,
+            "pop": pop, "pop_basis": "delta",
             "em_coverage": round(min(spot - pk, ck - spot) / em, 2) if em > 0 else None,
             "put_dist_pct": round((spot - pk) / spot * 100, 1),
             "call_dist_pct": round((ck - spot) / spot * 100, 1),
@@ -188,6 +203,7 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
                     "be_low": round(float(sp["strike"]) - credit, 2),
                     "be_high": round(float(sc_["strike"]) + credit, 2),
                     "pop": round((1 - (dp + dc)) * 100, 0) if (dp and dc) else None,
+                    "pop_basis": "delta",
                 })
 
     # ── Credit spreads (DEFINED), each side ──────────────────────────────
@@ -213,6 +229,7 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
             "ror": round(credit / (width - credit) * 100, 0),
             "be": round(be, 2),
             "pop": round((1 - d) * 100, 0) if d else None,
+            "pop_basis": "delta",
         })
 
     # ── Iron fly (DEFINED) — short the ATM straddle, buy EM wings ───────
@@ -225,8 +242,13 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
             credit = straddle - _mid(wp) - _mid(wc)
             width = max(k - float(wp["strike"]), float(wc["strike"]) - k)
             if credit > 0 and width > credit:
-                # POP ≈ probability of closing inside break-evens, EM as 1σ.
-                pop = round((2 * _norm_cdf(credit / em) - 1) * 100, 0)
+                # POP = P(close inside ±credit of the short strike) under a
+                # normal move: 2·Φ(credit/1σ) − 1. v3.64 fix: the divisor is
+                # the true 1σ move (S·σ·√T), NOT the straddle — the straddle
+                # is ≈1.25σ, so using it understated POP by ~8-10 points.
+                pop = None
+                if one_sigma and one_sigma > 0:
+                    pop = round((2 * _norm_cdf(credit / one_sigma) - 1) * 100, 0)
                 out.append({
                     "kind": "iron_fly", "risk": "defined",
                     "short_strike": k,
@@ -236,7 +258,7 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
                     "max_loss": round((width - credit) * 100, 0),
                     "ror": round(credit / (width - credit) * 100, 0),
                     "be_low": round(k - credit, 2), "be_high": round(k + credit, 2),
-                    "pop": pop,
+                    "pop": pop, "pop_basis": "one_sigma",
                 })
 
     # ── Cash-secured put / covered call quick lines ──────────────────────
@@ -248,6 +270,7 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
                     "max_profit": round(_mid(sp) * 100, 0),
                     "bp": round(pk * 100, 0), "be": round(pk - _mid(sp), 2),
                     "pop": round((1 - d) * 100, 0) if d else None,
+                    "pop_basis": "delta",
                     "yield_pct": round(_mid(sp) / pk * 100, 2)})
     if sc_ is not None and _mid(sc_) > 0:
         ck = float(sc_["strike"])
@@ -257,6 +280,7 @@ def build_strategies(spot: float, em: float, calls: list, puts: list,
                     "max_profit": round(_mid(sc_) * 100, 0),
                     "be": round(ck + _mid(sc_), 2),
                     "pop": round((1 - d) * 100, 0) if d else None,
+                    "pop_basis": "delta",
                     "yield_pct": round(_mid(sc_) / spot * 100, 2)})
 
     # Suggested order: earnings inside the window (or very expensive stock)
@@ -338,14 +362,19 @@ def analyze_symbol(symbol: str, chain_payload: dict, brow: dict | None,
     hv = brow.get("rvol")            # 20d realized vol, annualized %
     iv_vs_hv = round(atm_iv * 100.0 / hv, 2) if (atm_iv and hv) else None
     ivr = ivp = None
+    ivr_src = None
     if _IV_RANK_FN is not None and atm_iv:
         try:
             rk = _IV_RANK_FN(symbol, atm_iv) or {}
             ivr, ivp = rk.get("iv_rank"), rk.get("iv_pct")
+            if ivr is not None:
+                ivr_src = "iv_history"   # true IV rank from stored IV30 history
         except Exception:
             pass
     if ivr is None:
-        ivr = brow.get("rvol_rank")  # HV-rank proxy when no IV history yet
+        ivr = brow.get("rvol_rank")      # HV-rank proxy when no IV history yet
+        if ivr is not None:
+            ivr_src = "hv_proxy"
 
     days_to_earn = brow.get("days_to_earnings")
     next_earn = brow.get("next_earnings")
@@ -360,8 +389,12 @@ def analyze_symbol(symbol: str, chain_payload: dict, brow: dict | None,
     except Exception:
         pass
 
+    # True 1σ move for probability math (distinct from the straddle, which
+    # is the market's own price for the move — ≈1.25σ under BS). Intraday
+    # 0DTE floors at half a calendar day, matching the EM engine.
+    one_sig = one_sigma_move(spot, atm_iv, max(dte, 0.5)) if atm_iv else None
     strategies = build_strategies(spot, straddle, calls, puts, earnings_inside,
-                                  atm_call, atm_put)
+                                  atm_call, atm_put, one_sigma=one_sig)
 
     # ── Juice Score ──────────────────────────────────────────────────────
     reasons, flags = [], []
@@ -408,8 +441,11 @@ def analyze_symbol(symbol: str, chain_payload: dict, brow: dict | None,
         "dte_frac": round(dte_frac, 2),
         "atm_strike": atm_call.get("strike"),
         "atm_iv": round(atm_iv, 4) if atm_iv else None,
-        "iv_rank": ivr, "iv_pct": ivp, "hv20": hv, "iv_vs_hv": iv_vs_hv,
+        "iv_rank": ivr, "iv_rank_src": ivr_src, "iv_pct": ivp,
+        "hv20": hv, "iv_vs_hv": iv_vs_hv,
+        # em_* here IS the ATM straddle (the UI labels the column "Straddle").
         "em_dollars": round(straddle, 2), "em_pct": round(straddle_pct, 2),
+        "one_sigma": round(one_sig, 2) if one_sig else None,
         "call_mid": round(c_mid, 2), "put_mid": round(p_mid, 2),
         "straddle": round(straddle, 2),
         "call_bid": atm_call.get("bid"), "call_ask": atm_call.get("ask"),

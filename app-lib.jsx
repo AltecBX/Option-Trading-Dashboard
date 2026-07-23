@@ -150,18 +150,124 @@ class RootErrorBoundary extends React.Component {
 // dedupes them: identical GETs within the TTL share one cached result, and
 // concurrent calls share one in-flight request. Components keep their own
 // polling loops — only the network call is coalesced.
+// v3.64: + stale-while-revalidate, hidden-tab pause, and a size bound.
+//   fresh (age < ttl)          → cached data, no request
+//   stale (ttl ≤ age < 4×ttl)  → cached data NOW + one background refresh
+//                                (skipped while the tab is hidden — pollers
+//                                keep painting the last data for free)
+//   expired (≥ 4×ttl) or miss  → real fetch (deduped while in flight)
 const _SJ_CACHE = new Map();     // url -> { t, data }
 const _SJ_INFLIGHT = new Map();  // url -> promise
-function sharedJson(apiFetch, url, ttlMs = 15000) {
-  const hit = _SJ_CACHE.get(url);
-  if (hit && Date.now() - hit.t < ttlMs) return Promise.resolve(hit.data);
+const _SJ_MAX = 300;             // bound: ~worst case a few MB, LRU-ish trim
+function _sjFetch(apiFetch, url) {
   if (_SJ_INFLIGHT.has(url)) return _SJ_INFLIGHT.get(url);
   const p = apiFetch(url)
     .then(r => r.json())
-    .then(d => { _SJ_CACHE.set(url, { t: Date.now(), data: d }); _SJ_INFLIGHT.delete(url); return d; })
+    .then(d => {
+      if (_SJ_CACHE.size >= _SJ_MAX) {
+        let oldest = null, oldestT = Infinity;
+        for (const [k, v] of _SJ_CACHE) if (v.t < oldestT) { oldestT = v.t; oldest = k; }
+        if (oldest) _SJ_CACHE.delete(oldest);
+      }
+      _SJ_CACHE.set(url, { t: Date.now(), data: d }); _SJ_INFLIGHT.delete(url); return d;
+    })
     .catch(e => { _SJ_INFLIGHT.delete(url); throw e; });
   _SJ_INFLIGHT.set(url, p);
   return p;
+}
+function sharedJson(apiFetch, url, ttlMs = 15000) {
+  const hit = _SJ_CACHE.get(url);
+  const age = hit ? Date.now() - hit.t : Infinity;
+  if (age < ttlMs) return Promise.resolve(hit.data);
+  if (hit && age < ttlMs * 4) {
+    // Stale-while-revalidate: serve instantly, refresh behind the scenes
+    // (unless hidden — no point refreshing a tab nobody is looking at).
+    if (!(typeof document !== "undefined" && document.hidden)) {
+      _sjFetch(apiFetch, url).catch(() => {});
+    }
+    return Promise.resolve(hit.data);
+  }
+  return _sjFetch(apiFetch, url);
+}
+
+// ── Bounded board rendering (v3.64) ────────────────────────────────────────
+// The scanner boards (~600 names) used to render EVERY row into the DOM at
+// once. Boards are sorted best-first, so render the top slice and let the
+// user pull more on demand — no virtualization dep, no scroll-jitter, and
+// the count is always shown so nothing is silently hidden.
+function useBoundedList(items, initial = 150, step = 300) {
+  const [n, setN] = useState(initial);
+  const arr = items || [];
+  const shown = arr.length > n ? arr.slice(0, n) : arr;
+  const more = arr.length - shown.length;
+  const controls = more > 0 ? (
+    <div className="bl-more">
+      <button className="rr-btn" onClick={() => setN(x => x + step)}>Show {Math.min(step, more)} more</button>
+      <button className="rr-btn" onClick={() => setN(arr.length)}>Show all {arr.length}</button>
+      <span className="bl-count">{shown.length} of {arr.length} shown</span>
+    </div>
+  ) : null;
+  return [shown, controls];
+}
+
+// ── Lazy tab chunks (v3.64) ────────────────────────────────────────────────
+// Heavy tabs (Treasuries, Earnings Ops, Patterns discovery, Backtest Lab)
+// live in dist/tab-*.min.js chunks that are NOT part of the initial page
+// load. loadChunk() injects the script on first activation and caches the
+// promise for the session; LazyTab renders a skeleton while it arrives and
+// the real component (a window export the chunk publishes) afterwards.
+// Version comes from the app.min.js tag so chunk URLs bust caches in
+// lock-step with the main bundle.
+const _CHUNKS = new Map();   // chunk name -> load promise
+function chunkVersion() {
+  try {
+    const s = document.querySelector('script[src*="dist/app.min.js"]');
+    const m = s && /[?&]v=([^&]+)/.exec(s.src);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+function loadChunk(name) {
+  if (_CHUNKS.has(name)) return _CHUNKS.get(name);
+  const v = chunkVersion();
+  const p = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = `dist/${name}.min.js${v ? `?v=${v}` : ""}`;
+    s.async = true;
+    s.onload = () => resolve(true);
+    s.onerror = () => { _CHUNKS.delete(name); reject(new Error(`${name} failed to load`)); };
+    document.head.appendChild(s);
+  });
+  _CHUNKS.set(name, p);
+  return p;
+}
+function LazyTab({ chunk, component, label, ...props }) {
+  const [, bump] = useState(0);
+  const [err, setErr] = useState(null);
+  const Comp = window[component];
+  useEffect(() => {
+    if (Comp || err) return;
+    let stop = false;
+    loadChunk(chunk)
+      .then(() => { if (!stop) bump(x => x + 1); })
+      .catch(e => { if (!stop) setErr(e); });
+    return () => { stop = true; };
+  }, [chunk, Comp, err]);
+  if (Comp) return <Comp {...props} />;
+  if (err) return (
+    <div className="card lz-fail">
+      <div className="kicker">{label || component}</div>
+      <div className="lz-fail-msg">This section failed to load ({String(err.message || err)}) — usually a dropped connection.</div>
+      <button className="card-error-btn" onClick={() => { setErr(null); bump(x => x + 1); }}>Retry</button>
+    </div>
+  );
+  return (
+    <div className="card lz-loading" aria-busy="true" aria-label={`Loading ${label || component}…`}>
+      <div className="skel skel-line" style={{ width: "34%" }} />
+      <div className="skel skel-line" style={{ width: "88%" }} />
+      <div className="skel skel-line" style={{ width: "72%" }} />
+      <div className="skel skel-line" style={{ width: "80%" }} />
+    </div>
+  );
 }
 
 // ── Finviz embed helper (v3.25) ─────────────────────────────────────────────
@@ -221,4 +327,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, FINVIZ, TVIEW, UWHALES });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES });

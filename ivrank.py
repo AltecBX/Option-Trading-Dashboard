@@ -35,6 +35,7 @@ except Exception:
     _OK = False
 
 import analyst_board
+from metrics import rank_and_percentile
 
 CHUNK = 60
 
@@ -60,16 +61,19 @@ def _vol_metrics(closes) -> dict | None:
         return None
     current = float(hv.iloc[-1])
     window = hv.tail(252)
-    mn, mx = float(window.min()), float(window.max())
-    rank = (current - mn) / (mx - mn) * 100.0 if mx > mn else 50.0
-    pct = float((window < current).mean() * 100.0)
+    # Shared rank math (metrics.rank_and_percentile) — same definition as
+    # the IV-history rank and the Trade-tab HV rank (v3.64 consolidation).
+    rk = rank_and_percentile([float(x) for x in window], current)
+    if rk is None:
+        return None
     month_ago = float(hv.iloc[-21]) if len(hv) >= 21 else current
     return {
         "hv": round(current, 1),
-        "hv_low": round(mn, 1),
-        "hv_high": round(mx, 1),
-        "rank": round(max(0.0, min(100.0, rank)), 0),
-        "percentile": round(pct, 0),
+        "hv_low": round(rk["min"], 1),
+        "hv_high": round(rk["max"], 1),
+        "rank": round(rk["rank"], 0),
+        "percentile": round(rk["percentile"], 0),
+        "n": rk["n"],
         "expanding": current > month_ago * 1.05,
         "contracting": current < month_ago * 0.95,
     }
@@ -113,6 +117,7 @@ def _scan_worker(symbols: list[str]) -> None:
                         "last": round(float(closes.iloc[-1]), 2),
                         "hv": m["hv"], "hv_low": m["hv_low"], "hv_high": m["hv_high"],
                         "rank": m["rank"], "percentile": m["percentile"],
+                        "rank_n": m["n"],  # sample size behind the rank (days)
                         "regime": regime,
                         "expanding": m["expanding"], "contracting": m["contracting"],
                         "score": m["rank"],  # rank IS the premium-richness score

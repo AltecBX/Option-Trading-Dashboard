@@ -194,6 +194,17 @@ except Exception as _exc:  # noqa: BLE001
     _TREASURY_AVAILABLE = False
     _treasury = None  # type: ignore
 
+# Wire the live risk-free curve into the options-math contract (v3.64):
+# metrics.risk_free_rate() now answers with the cached 3M T-bill yield
+# once any Treasuries consumer has warmed the curve cache, and falls back
+# to a clearly-labeled constant otherwise. Peek-only — never blocks.
+if _TREASURY_AVAILABLE:
+    try:
+        import metrics as _metrics_mod
+        _metrics_mod.set_rate_provider(_treasury.risk_free_3m_cached)
+    except Exception as _exc:  # noqa: BLE001
+        print(f"[metrics] rate provider wiring failed: {_exc}", file=sys.stderr)
+
 try:
     import news as _news
     _NEWS_AVAILABLE = True
@@ -1672,6 +1683,11 @@ from metrics import (  # noqa: F401
     _bs_gamma,
     _bs_vega,
     _bs_price,
+    one_sigma_move,
+    normalize_iv,
+    rank_and_percentile,
+    risk_free_rate,
+    year_fraction,
 )
 
 
@@ -3600,6 +3616,7 @@ def build_payload(
     # which is the question premium-sellers actually need answered.
     vol_rank = None
     vol_pct = None
+    vol_rank_n = None
     hv_current = None
     if len(daily) >= 31:
         import math
@@ -3628,15 +3645,14 @@ def build_payload(
                     hv_series.append(math.sqrt(var) * math.sqrt(252))
                 if hv_series:
                     hv_current = hv_series[-1]
-                    sorted_hv = sorted(hv_series)
-                    rank_pos = sum(1 for v in sorted_hv if v <= hv_current)
-                    vol_pct = (rank_pos / len(sorted_hv)) * 100.0
-                    # IV Rank-style: where is current within (min, max)?
-                    hv_min, hv_max = sorted_hv[0], sorted_hv[-1]
-                    if hv_max > hv_min:
-                        vol_rank = ((hv_current - hv_min) / (hv_max - hv_min)) * 100.0
-                    else:
-                        vol_rank = 50.0
+                    # Shared rank math (metrics.rank_and_percentile) — same
+                    # definition as ivrank.py and the IV-history rank (v3.64
+                    # consolidation of three divergent copies).
+                    rk = rank_and_percentile(hv_series, hv_current)
+                    if rk is not None:
+                        vol_rank = rk["rank"]
+                        vol_pct = rk["percentile"]
+                        vol_rank_n = rk["n"]
         except Exception:
             pass
 
@@ -3664,8 +3680,12 @@ def build_payload(
             "week_start": current["week_start"] if current else target_fri.strftime("%Y-%m-%d"),
         },
         "chain": {"calls": calls, "puts": puts, "atm": atm},
+        # HV rank — realized-vol proxy for IV rank (labeled as such in the
+        # UI). volRankN = sample size (days of 30d-window HV readings).
         "volRank": vol_rank,
         "volPct": vol_pct,
+        "volRankN": vol_rank_n,
+        "volRankKind": "hv_proxy",
         "hvCurrent": hv_current,
         "earningsHistory": earnings_history,
     }
@@ -5512,10 +5532,16 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
         l = float(row.get("last") or 0)
         return l if l > 0 else 0.0
 
-    em_d = None
+    # ── Two DISTINCT move measures (v3.64 vocabulary fix) ───────────────
+    # "ATM straddle" = current call+put mid premium (≈1.25σ under BS) and
+    # "1σ (IV)" = S·σ·√t are different quantities. Both are computed when
+    # available and returned separately; the card's headline uses the
+    # straddle when quotes exist, ALWAYS labeled with its method — never a
+    # silent semantic substitution.
+    straddle_d = None
+    one_sigma_d = None
     atm_iv = None
     atm_strike = None
-    method = None
     if calls and puts:
         atm_call = min(calls, key=lambda r: abs((r.get("strike") or 0) - spot))
         atm_put = min(puts, key=lambda r: abs((r.get("strike") or 0) - spot))
@@ -5524,14 +5550,14 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
         atm_iv = sum(ivs) / len(ivs) if ivs else None
         c_px, p_px = mid(atm_call), mid(atm_put)
         if c_px > 0 and p_px > 0:
-            em_d = c_px + p_px
-            method = "ATM straddle"
-    if em_d is None and atm_iv:
-        # Theoretical fallback when quotes are missing (closed market, thin
-        # chain): 1σ move = S · IV · √t.
-        em_d = spot * atm_iv * math.sqrt(max(dte, 0.5) / 365.0)
-        method = "IV × √t"
-    if em_d is None:
+            straddle_d = c_px + p_px
+    if atm_iv:
+        one_sigma_d = one_sigma_move(spot, atm_iv, max(dte, 0.5))
+    if straddle_d is not None:
+        em_d, method, method_label = straddle_d, "atm_straddle", "ATM straddle"
+    elif one_sigma_d is not None:
+        em_d, method, method_label = one_sigma_d, "one_sigma_iv", "1σ (IV·√t)"
+    else:
         return _em_fail(symbol, expiry, f"no usable option quotes for {sel_str}")
     em_pct = em_d / spot * 100.0
     upper, lower = spot + em_d, spot - em_d
@@ -5566,8 +5592,8 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             hvs.append(math.sqrt(var) * math.sqrt(252) * 100.0)
         if hvs:
             hv20 = hvs[-1]
-            yr = hvs[-252:]
-            hv_pctile = sum(1 for v in yr if v < hv20) / len(yr) * 100.0
+            rk = rank_and_percentile(hvs[-252:], hv20)
+            hv_pctile = rk["percentile"] if rk else None
 
     # ── Previous EM reading (persisted across restarts on /data) ────────
     now_ts = time.time()
@@ -5591,13 +5617,16 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
     # ── Support / resistance pivots ─────────────────────────────────────
     levels = _em_pivot_levels(bars, spot)
 
-    # ── IV rank vs the symbol's own stored IV30 history (approximate) ───
+    # ── IV rank vs the symbol's own stored IV30 history (true IV rank —
+    # needs ≥20 stored daily snapshots; iv_rank_days says how many) ─────
     iv_rank = iv_pct = None
+    iv_rank_days = 0
     try:
         if atm_iv:
             hist = _iv_history_load(symbol)
             rank = _iv_history_compute_rank(hist, atm_iv)
             iv_rank, iv_pct = rank.get("iv_rank"), rank.get("iv_pct")
+            iv_rank_days = rank.get("iv_rank_days") or 0
     except Exception:
         pass
 
@@ -5661,7 +5690,13 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             "lower": round(lower, 2),
             "iv": round(atm_iv, 4) if atm_iv else None,
             "atm_strike": atm_strike,
-            "method": method,
+            "method": method,                 # "atm_straddle" | "one_sigma_iv"
+            "method_label": method_label,     # display vocabulary (v3.64)
+            # Both measures, separately named — never interchangeable:
+            "straddle_dollars": round(straddle_d, 2) if straddle_d is not None else None,
+            "straddle_pct": round(straddle_d / spot * 100.0, 2) if straddle_d is not None else None,
+            "one_sigma_dollars": round(one_sigma_d, 2) if one_sigma_d is not None else None,
+            "one_sigma_pct": round(one_sigma_d / spot * 100.0, 2) if one_sigma_d is not None else None,
         },
         "compare": {
             "avg_actual_pct": round(avg_actual, 2) if avg_actual is not None else None,
@@ -5676,6 +5711,7 @@ def build_expected_move(symbol: str, expiry: str = "") -> dict:
             "iv_vs_hv": round(iv_vs_hv, 2) if iv_vs_hv is not None else None,
             "iv_rank": iv_rank,
             "iv_pct": iv_pct,
+            "iv_rank_days": iv_rank_days,
         },
         "levels": levels,
         "summary": {
@@ -5872,14 +5908,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                       ".webmanifest": "application/manifest+json"}
 
     def _allowed_origin(self):
-        # Prefer the env-configured origin (Vercel URL in prod) so the
-        # backend doesn't accept calls from arbitrary websites. Empty or
-        # "*" is also accepted for permissive local dev. Browsers will
-        # only honor matching origins.
-        return os.environ.get("ALLOWED_ORIGIN", "*")
+        # v3.64 security default: NO cross-origin access unless an origin is
+        # explicitly configured. The standard deployment is same-origin (the
+        # same server serves both the page and the API), which needs no CORS
+        # at all. Set ALLOWED_ORIGIN to a specific origin (or "*" if you
+        # really mean it) to allow a separate frontend host.
+        return os.environ.get("ALLOWED_ORIGIN", "").strip() or None
 
     def _cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
+        origin = self._allowed_origin()
+        if origin is None:
+            return  # same-origin only — browsers block cross-origin reads
+        self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Headers", "X-API-Key, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
 
@@ -9714,23 +9754,146 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api/"):
             self._send_json({"error": "endpoint not found", "path": parsed.path}, status=404)
             return
-        # Make root and /index serve the live dashboard. If a baked
-        # options_dashboard.html exists, serve it; otherwise fall back to
-        # the raw index.html which auto-fetches /api/ticker on load.
-        if parsed.path in ("/", "/index", "/index.html"):
-            self.path = "/options_dashboard.html" if (HERE / "options_dashboard.html").exists() else "/index.html"
-        # Parallel next-gen UI (v4 preview). Purely additive — the classic
-        # site above is untouched; /next has its own html/css/js files.
-        elif parsed.path in ("/next", "/next/"):
-            self.path = "/next.html"
-        super().do_GET()
+        self._serve_static(parsed)
+
+    # ── Static file serving (v3.64) ─────────────────────────────────────
+    # The old fallthrough to SimpleHTTPRequestHandler served the ENTIRE
+    # working directory — every .py source, seed data, Procfile — with
+    # Cache-Control: no-store on everything (a 2 MB re-download per visit).
+    # This replacement is an explicit allowlist: only the files the page
+    # actually references are reachable; versioned assets get immutable
+    # year-long caching; HTML/config stay no-cache so deploys apply
+    # immediately; dist/* is served pre-gzipped.
+    _STATIC_EXACT = {
+        # url -> (relative file, content-type, cache policy)
+        "/config.js": ("config.js", "application/javascript", "no-cache"),
+        "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json", "public, max-age=86400"),
+        "/favicon.ico": ("assets/favicon.ico", "image/x-icon", "public, max-age=86400"),
+        "/finviz-helper.zip": ("finviz-helper.zip", "application/zip", "no-cache"),
+    }
+    _STATIC_DIRS = {
+        # url-prefix -> (fs-subdir, allowed extensions, cache policy)
+        "/dist/": ("dist", {".js", ".css"}, "public, max-age=31536000, immutable"),
+        "/assets/": ("assets", {".png", ".ico", ".svg", ".jpg", ".jpeg", ".webp"},
+                     "public, max-age=31536000, immutable"),
+    }
+    _HTML_ROUTES = {"/", "/index", "/index.html"}
+
+    def do_HEAD(self):  # noqa: N802
+        # Route HEAD through the same allowlist as GET (v3.64). The inherited
+        # SimpleHTTPRequestHandler.do_HEAD served headers for ANY file in the
+        # working directory — an existence/size leak that also bypassed the
+        # cache-policy logic.
+        from urllib.parse import urlparse
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            self.send_response(405)
+            self.send_header("Allow", "GET, PUT, OPTIONS")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self._serve_static(parsed)
+
+    def _serve_static(self, parsed):
+        p = parsed.path
+        # HTML shell — always revalidated so a new deploy applies at once.
+        if p in self._HTML_ROUTES:
+            baked = HERE / "options_dashboard.html"
+            target = baked if baked.exists() else (HERE / "index.html")
+            return self._send_file(target, "text/html; charset=utf-8", "no-cache")
+        if p in self._STATIC_EXACT:
+            rel, ctype, cache = self._STATIC_EXACT[p]
+            return self._send_file(HERE / rel, ctype, cache)
+        for prefix, (sub, exts, cache) in self._STATIC_DIRS.items():
+            if p.startswith(prefix):
+                name = p[len(prefix):]
+                # One path segment only; extension must be allowlisted.
+                if "/" in name or "\\" in name or name.startswith("."):
+                    break
+                suffix = Path(name).suffix.lower()
+                # Allow the double-suffix ".min.js" form; suffix is ".js".
+                if suffix not in exts:
+                    break
+                base = (HERE / sub).resolve()
+                target = (base / name).resolve()
+                if not str(target).startswith(str(base) + os.sep):
+                    break  # traversal attempt
+                ctype = {".js": "application/javascript", ".css": "text/css",
+                         ".png": "image/png", ".ico": "image/x-icon",
+                         ".svg": "image/svg+xml", ".jpg": "image/jpeg",
+                         ".jpeg": "image/jpeg", ".webp": "image/webp"}[suffix]
+                return self._send_file(target, ctype, cache)
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", "9")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            if self.command != "HEAD":
+                self.wfile.write(b"not found")
+        except Exception:
+            pass
+
+    def _send_file(self, path: Path, ctype: str, cache: str):
+        try:
+            path = path.resolve()
+            if not str(path).startswith(str(HERE.resolve()) + os.sep) or not path.is_file():
+                raise FileNotFoundError(path)
+            accepts_gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
+            gz_path = Path(str(path) + ".gz")
+            body = None
+            encoding = None
+            if accepts_gz and gz_path.is_file():
+                body = gz_path.read_bytes()          # pre-compressed at build
+                encoding = "gzip"
+            else:
+                body = path.read_bytes()
+                if accepts_gz and len(body) > 1024 and ctype.startswith(("text/", "application/")):
+                    body = _gzip.compress(body, 5)
+                    encoding = "gzip"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", cache)
+            if encoding:
+                self.send_header("Content-Encoding", encoding)
+                self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "9")
+            self.end_headers()
+            try:
+                if self.command != "HEAD":
+                    self.wfile.write(b"not found")
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self.send_response(500)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            except Exception:
+                pass
+
+    def send_header(self, keyword, value):  # noqa: N802
+        if keyword.lower() == "cache-control":
+            self._cc_sent = True
+        super().send_header(keyword, value)
 
     def end_headers(self):  # noqa: N802
-        # Disable browser caching for our static assets so users always see
-        # the latest JS/CSS without needing a hard refresh.
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
+        # Default: anything that didn't set its own Cache-Control (older
+        # hand-rolled JSON writers) stays uncached. Static/HTML/JSON paths
+        # that DID set a policy above are left alone (v3.64 — previously
+        # this override forced no-store onto every response including the
+        # 2 MB of JS/CSS, defeating the browser cache entirely).
+        if not getattr(self, "_cc_sent", False):
+            self.send_header("Cache-Control", "no-store")
+        self._cc_sent = False
         super().end_headers()
 
     def log_message(self, format, *args):  # noqa: A002
@@ -9738,7 +9901,35 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         sys.stderr.write("· %s %s\n" % (self.address_string(), format % args))
 
 
+def check_deploy_security(host: str) -> list[str]:
+    """Refuse plainly-unsafe production configs (v3.64). Returns a list of
+    fatal problems; empty means safe to start. Loopback binds are always
+    fine (local dev). A non-loopback bind exposes the API — including
+    Schwab position endpoints — to the network, so it REQUIRES API_KEY
+    unless explicitly overridden with DANGEROUSLY_DISABLE_AUTH=1."""
+    problems: list[str] = []
+    loopback = host in ("127.0.0.1", "localhost", "::1", "")
+    if not loopback and not os.environ.get("API_KEY", "").strip() \
+            and os.environ.get("DANGEROUSLY_DISABLE_AUTH", "") != "1":
+        problems.append(
+            f"Refusing to bind {host} without auth: the API (including broker/"
+            "position endpoints) would be open to the network. Set API_KEY "
+            "(and the same value in config.js apiKey), or set "
+            "DANGEROUSLY_DISABLE_AUTH=1 if you truly want an open server.")
+    if os.environ.get("ALLOWED_ORIGIN", "").strip() == "*" and not loopback:
+        problems.append(
+            "ALLOWED_ORIGIN='*' on a non-loopback bind lets any website call "
+            "the API from a browser. Set it to your exact frontend origin, "
+            "or unset it for same-origin-only (recommended).")
+    return problems
+
+
 def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
+    problems = check_deploy_security(host)
+    if problems:
+        for p in problems:
+            print(f"🛑  SECURITY: {p}", file=sys.stderr)
+        sys.exit(2)
     DashboardHandler.weeks = weeks
     DashboardHandler.friday_baseline = friday_baseline
     # Prewarm the ticker autocomplete index in the background. Doing this off

@@ -30,7 +30,10 @@ const traverse = require("@babel/traverse").default;
 
 const ORDER = ["config.js", "data.js", "recommendation.js", "weather.js",
                "journal.js", "strategies.js", "tweaks-panel.js", "tooltips.js",
-               "charts.js", "app-lib.js", "app-cards.js", "app.js"];
+               "charts.js", "app-lib.js", "app-cards.js", "app.js",
+               // Lazy chunks (v3.64): loaded on demand AFTER everything else,
+               // so linting/loading them last models the real load order.
+               "tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js"];
 
 // ── Layer 1: free variable lint ─────────────────────────────────────
 const ENV = new Set(("window document navigator localStorage sessionStorage fetch console " +
@@ -121,7 +124,10 @@ for (const f of ORDER) {
 }
 const expects = ["fmt$", "fmtPct", "CardErrorBoundary", "RootErrorBoundary",
                  "skipWhenHidden", "LevelRepriceCard", "WinRateCard", "TweaksPanel",
-                 "PriceChart", "Term", "OptionStrats", "APP_VERSION"];
+                 "PriceChart", "Term", "OptionStrats", "APP_VERSION",
+                 // Lazy-chunk machinery + the components the chunks publish.
+                 "LazyTab", "loadChunk", "TreasuriesTab", "EarningsOpsTab",
+                 "BacktestCard", "PatternDiscoveryCard"];
 const missing = expects.filter(n => !(n in sandbox));
 if (missing.length) { loadFailed = true; console.log("MISSING EXPORTS: " + missing.join(", ")); }
 if (rendered !== 1) { loadFailed = true; console.log(`MOUNT: createRoot render ran ${rendered} times, expected 1`); }

@@ -1,0 +1,82 @@
+# CI (v3.64) — every push/PR proves the repo is coherent WITHOUT any paid
+# keys or live market data:
+#   1. every Python module compiles
+#   2. the committed frontend artifacts (.js + dist/*.min.*) exactly match
+#      a fresh build from the .jsx sources (the deploy never runs node, so
+#      artifact drift = a broken deploy)
+#   3. the two-layer verify harness passes (free-variable lint + vm load)
+#   4. JS tests — including the cross-language Black-Scholes fixture match
+#      against fixtures/options_math.json
+#   5. Python tests — math contract, security/allowlist/CORS/startup gate,
+#      maintained-schedule validity (fails when the CPI/FOMC tables near
+#      expiry), storage, reprice, earnings scan, failure modes, HTTP smoke.
+#      JERRY_NO_NET=1 skips the single test that needs live Yahoo data;
+#      everything else runs on deterministic fixtures/stubs.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python deps (free sources only — no paid keys anywhere)
+        run: pip install -r requirements.txt pandas numpy
+
+      - name: Every Python module compiles
+        run: python3 -m py_compile *.py
+
+      - name: Node dev toolchain
+        run: npm install
+
+      - name: Frontend artifacts match sources
+        run: |
+          node build_frontend.js
+          if ! git diff --exit-code --stat -- '*.js' index.html dist; then
+            echo "::error::Committed artifacts are out of sync with the .jsx sources — run 'node build_frontend.js' locally and commit the result."
+            exit 1
+          fi
+
+      - name: Verify harness (free-variable lint + vm load, incl. lazy chunks)
+        run: node verify_frontend.js
+
+      - name: JS tests (recommendation, journal, weather, BS fixture match)
+        run: npm test
+
+      - name: Python tests (deterministic — no live network)
+        env:
+          JERRY_NO_NET: "1"
+        run: |
+          set -e
+          python3 -m unittest -v test_math_contract test_security test_schedules
+          python3 test_earnings_scan.py
+          python3 test_strategy_math.py
+          python3 test_reprice.py
+          python3 test_iv_history.py
+          python3 test_v115_storage.py
+          python3 test_v116_push.py
+          python3 test_v117_broker.py
+          python3 test_failure_modes.py
+          python3 test_http_smoke.py

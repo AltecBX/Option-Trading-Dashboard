@@ -20,6 +20,10 @@
 
   // ─────────────────────────────────────────────────────────────────────────
   // Black-Scholes for back-month leg valuation at front-month expiration.
+  // Fixture-matched against the canonical server engine (metrics.py) by
+  // test_strategy_fixtures.js via fixtures/options_math.json — same
+  // conventions: T = days/365, sigma annualized decimal, r default 0.045,
+  // q = 0 (this preview engine does not model dividends).
   // ─────────────────────────────────────────────────────────────────────────
   function normCdf(x) {
     // Abramowitz-Stegun 7.1.26 approximation. Max error ~7.5e-8.
@@ -94,7 +98,11 @@
       if ((a.pl <= 0 && b.pl >= 0) || (a.pl >= 0 && b.pl <= 0)) {
         if (a.pl === b.pl) continue;
         const t = -a.pl / (b.pl - a.pl);
-        out.push(a.s + t * (b.s - a.s));
+        const s = a.s + t * (b.s - a.s);
+        // Dedupe: when a sample lands exactly on zero, both adjacent
+        // segments report the same crossing — keep one marker.
+        if (out.length && Math.abs(s - out[out.length - 1]) < 1e-6) continue;
+        out.push(s);
       }
     }
     return out;
@@ -112,11 +120,38 @@
     return cash;
   }
 
-  // Max profit / max loss from the sampled curve (with caveat: undefined-risk strategies cap at the sample window)
+  // VISUAL bounds of the sampled curve — used for chart axis scaling ONLY.
+  // For undefined-risk strategies these cap at the sample window and are NOT
+  // the economic max profit/loss; use economicBounds for anything displayed
+  // as "Max profit" / "Max loss" or used for position sizing.
   function pnlBounds(curve) {
     let lo = Infinity, hi = -Infinity;
     for (const pt of curve) { if (pt.pl < lo) lo = pt.pl; if (pt.pl > hi) hi = pt.pl; }
     return { min: lo, max: hi };
+  }
+
+  // ECONOMIC bounds (v3.64) — honest max profit / max loss in the same
+  // dollar scale as pnlAt (per contract with the app's qty=±100 legs).
+  // Upside tail: above every strike, at expiration each call leg's value
+  // slopes at its qty and each stock leg at its qty; puts go to zero (a
+  // BS-valued back-month call's delta → e^{-qT}·1 too, so the sign of the
+  // tail slope is exact even for calendars). Therefore:
+  //   net up-slope > 0 → max profit is UNBOUNDED (Infinity)
+  //   net up-slope < 0 → max loss is UNBOUNDED (-Infinity)  (naked calls /
+  //                       short stock — loss grows without limit above)
+  // The downside is always finite (price stops at 0): scan 0 → far above
+  // the highest strike so every kink is inside the scan.
+  function economicBounds(legs, refPrice) {
+    const upSlope = legs.reduce((s, l) => s + (l.type === "put" ? 0 : l.qty), 0);
+    const strikes = legs.filter(l => l.type !== "stock").map(l => l.strike);
+    const far = Math.max(refPrice || 0, ...(strikes.length ? strikes : [1])) * 4;
+    const curve = pnlCurve(legs, 0, far, 480);   // S=0 exact: CSP loss = strike − credit
+    const b = pnlBounds(curve);
+    return {
+      max: upSlope > 1e-9 ? Infinity : b.max,
+      min: upSlope < -1e-9 ? -Infinity : b.min,
+      upSlope,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1374,6 +1409,7 @@
     breakEvens,
     netCredit,
     pnlBounds,
+    economicBounds,
     midOf,
     nearest,
     bsPrice,

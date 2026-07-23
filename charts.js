@@ -1002,7 +1002,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.7"
-    }, "+2σ"), /*#__PURE__*/React.createElement("text", {
+    }, "+2\u03C3"), /*#__PURE__*/React.createElement("text", {
       x: s1.lastUpper[0] - 4,
       y: s1.lastUpper[1] - 3,
       fontSize: "10",
@@ -1010,7 +1010,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.85"
-    }, "+1σ"), /*#__PURE__*/React.createElement("text", {
+    }, "+1\u03C3"), /*#__PURE__*/React.createElement("text", {
       x: s1.lastLower[0] - 4,
       y: s1.lastLower[1] + 11,
       fontSize: "10",
@@ -1018,7 +1018,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.85"
-    }, "-1σ"), /*#__PURE__*/React.createElement("text", {
+    }, "-1\u03C3"), /*#__PURE__*/React.createElement("text", {
       x: s2.lastLower[0] - 4,
       y: s2.lastLower[1] + 11,
       fontSize: "10",
@@ -1026,7 +1026,7 @@ function PriceChart({
       fill: colors.accent,
       fontFamily: "ui-monospace, monospace",
       opacity: "0.7"
-    }, "-2σ"));
+    }, "-2\u03C3"));
   })(), callStrike > 0 && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
     x1: padL,
     x2: W - padR,
@@ -2424,7 +2424,7 @@ function PLChart({
     fill: "#bcd0f5",
     fontSize: "11",
     fontFamily: "ui-sans-serif, system-ui"
-  }, strategyName ? strategyName + " · " : "", "±$", sigma.toFixed(2), " 1σ"))), hoverPt && /*#__PURE__*/React.createElement("div", {
+  }, strategyName ? strategyName + " · " : "", "\xB1$", sigma.toFixed(2), " 1\u03C3"))), hoverPt && /*#__PURE__*/React.createElement("div", {
     className: "chart-tooltip pl-tip",
     style: {
       left: `${xScale(hoverPt.s) / W * 100}%`
@@ -2916,7 +2916,7 @@ function IntradayChart({
   }, [data]);
   if (!LC) return /*#__PURE__*/React.createElement("div", {
     className: "ic-nolc"
-  }, "Intraday chart needs the chart library (offline?) — falling back unavailable.");
+  }, "Intraday chart needs the chart library (offline?) \u2014 falling back unavailable.");
   return /*#__PURE__*/React.createElement("div", {
     className: "tv-price-chart",
     ref: wrapRef

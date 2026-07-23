@@ -15,6 +15,8 @@ import urllib.parse  # noqa: F401  (kept for parity with prior scope)
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from metrics import rank_and_percentile
+
 
 # ─── Watchlist storage ─────────────────────────────────────────────────────
 # Server-side persisted watchlist so all devices hitting the dashboard
@@ -179,27 +181,19 @@ def _iv_history_append(symbol: str, iv: float) -> None:
 
 
 def _iv_history_compute_rank(history: list, current_iv: float) -> dict:
-    """Compute IV rank and IV percentile from a history list.
-    Returns dict with iv_rank, iv_pct, iv_rank_days. Returns null fields
-    when there is insufficient history (< 20 days)."""
+    """Compute IV rank and IV percentile from a history list. Delegates the
+    math to metrics.rank_and_percentile — THE shared rank implementation
+    (v3.64; was one of three divergent copies). Returns dict with iv_rank,
+    iv_pct, iv_rank_days; null fields when history is insufficient (< 20)."""
     out = {"iv_rank": None, "iv_pct": None, "iv_rank_days": 0}
     if not history or current_iv is None or current_iv <= 0:
         return out
     out["iv_rank_days"] = len(history)
-    if len(history) < 20:
-        # Below 20 entries the rank is too noisy to be useful.
+    rk = rank_and_percentile([r.get("iv") for r in history], float(current_iv))
+    if rk is None:
         return out
-    ivs = [r["iv"] for r in history if r.get("iv") is not None]
-    if not ivs:
-        return out
-    lo = min(ivs)
-    hi = max(ivs)
-    if hi > lo:
-        out["iv_rank"] = round(((current_iv - lo) / (hi - lo)) * 100.0, 1)
-    else:
-        out["iv_rank"] = 50.0  # all values equal — undefined, return midpoint
-    below = sum(1 for v in ivs if v < current_iv)
-    out["iv_pct"] = round((below / len(ivs)) * 100.0, 1)
+    out["iv_rank"] = rk["rank"]
+    out["iv_pct"] = rk["percentile"]
     return out
 
 
