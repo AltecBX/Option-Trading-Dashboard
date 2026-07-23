@@ -42,13 +42,21 @@ from pathlib import Path
 _schwab_getter = lambda: None
 _minute_day_fn = lambda sym, d: None
 _universe_fn = lambda: {"starred": [], "all": []}
+_earnings_fn = None            # sym -> ["YYYY-MM-DD", ...] past+known earnings
+_iv_history_fn = None          # sym -> [{"date","iv"}, ...] stored IV30 rows
+_vix_fn = None                 # () -> {"YYYY-MM-DD": vix_close}
 _data_dir: Path | None = None
 
-def configure(schwab_getter, minute_day_fn, universe_fn, data_dir):
-    global _schwab_getter, _minute_day_fn, _universe_fn, _data_dir
+def configure(schwab_getter, minute_day_fn, universe_fn, data_dir,
+              earnings_fn=None, iv_history_fn=None, vix_fn=None):
+    global _schwab_getter, _minute_day_fn, _universe_fn, _data_dir, _earnings_fn
+    global _iv_history_fn, _vix_fn
     _schwab_getter = schwab_getter
     _minute_day_fn = minute_day_fn
     _universe_fn = universe_fn
+    _earnings_fn = earnings_fn
+    _iv_history_fn = iv_history_fn
+    _vix_fn = vix_fn
     _data_dir = Path(data_dir) if data_dir else None
 
 
@@ -76,13 +84,46 @@ def _build_patterns():
     # ── unsupported data first (so they don't half-match something else) ──
     add(r"\b(news|headline|announcement)\b",
         lambda m: ("warn", "News-based conditions can't be tested: no historical news feed is available in this app's data."))
-    add(r"\b(earnings)\b",
-        lambda m: ("warn", "Earnings-date conditions can't be tested yet: no reliable historical earnings calendar is available in this app's data."))
+    # Earnings DATE rules are supported (v2 — the app has per-symbol
+    # earnings histories); anything fancier still warns below.
+    add(r"\b(?:skip|avoid|no)\s+(?:trades?\s+)?(?:during\s+|in\s+|over\s+)?earnings(?:\s*weeks?)?\b",
+        lambda m: ("earnings_filter", {"mode": "skip", "window": 5}))
+    add(r"\bonly\s+(?:during\s+|in\s+)?earnings(?:\s*weeks?)?\b",
+        lambda m: ("earnings_filter", {"mode": "only", "window": 5}))
+    add(r"\bearnings\s+(?:surprise|beat|miss|estimate)\b",
+        lambda m: ("warn", "Earnings surprise/estimate conditions can't be tested — no free historical consensus source. Earnings DATE rules (skip/only earnings week) ARE supported."))
     add(r"\b(iv|implied vol\w*)\b.*?\b(above|below|over|under|rank|percentile)\b",
         lambda m: ("warn", "Historical implied volatility isn't available. IV conditions are skipped; option premiums are model-priced from realized volatility instead."))
     add(r"\b(delta|gamma|theta|vega)\b\s*(above|below|over|under|of|at)?\s*" + _NUM,
         lambda m: ("options_delta", _f(m, 3)) if m.group(1).lower() == "delta"
         else ("warn", f"Historical {m.group(1).lower()} isn't available — Greek-based conditions other than strike-by-delta are skipped."))
+
+    # ── option STRUCTURES (v2 — the premium-selling engine) ──
+    # Recognized before generic call/put words so "sell a put" doesn't just
+    # flip direction. Structure → bt_options lifecycle engine.
+    add(r"\b(?:cash.?secured\s+puts?|csp)\b|\bsell\w*\s+(?:a\s+)?(?:\d+\s*delta\s+)?puts?\b|\bshort\s+puts?\b",
+        lambda m: ("structure", "short_put"))
+    add(r"\bcovered\s+calls?\b|\bsell\w*\s+(?:a\s+)?(?:\d+\s*delta\s+)?calls?\s+against\b",
+        lambda m: ("structure", "covered_call"))
+    add(r"\b(?:short\s+)?strangles?\b", lambda m: ("structure", "short_strangle"))
+    add(r"\biron\s+condors?\b", lambda m: ("structure", "iron_condor"))
+    add(r"\biron\s+(?:fl(?:y|ies)|butterfl\w*)\b", lambda m: ("structure", "iron_fly"))
+    add(r"\bput\s+credit\s+spreads?\b|\bbull\s+put\s+spreads?\b",
+        lambda m: ("structure", "put_credit_spread"))
+    add(r"\bcall\s+credit\s+spreads?\b|\bbear\s+call\s+spreads?\b",
+        lambda m: ("structure", "call_credit_spread"))
+    add(r"\bwheel\b", lambda m: ("structure", "wheel"))
+    # ── management rules (the levers premium sellers actually test) ──
+    add(r"\b(?:take\s+profit|close|buy\s*back)\s*(?:at|when)?\s*" + _NUM + r"\s*%\s*(?:of\s*(?:max\s*)?(?:profit|credit))?",
+        lambda m: ("mgmt_pt", _f(m)))
+    add(r"\bstop\s*(?:loss)?\s*(?:at|when)?\s*" + _NUM + r"\s*(?:x|times)\s*(?:the\s*)?credit\b",
+        lambda m: ("mgmt_stop_x", _f(m)))
+    add(r"\b(?:exit|close|manage)\s*(?:at|by)?\s*" + _NUM + r"\s*dte\b",
+        lambda m: ("mgmt_exit_dte", _f(m)))
+    add(r"\broll\s*(?:at|by)?\s*" + _NUM + r"\s*dte\b",
+        lambda m: ("mgmt_roll_dte", _f(m)))
+    add(r"\bwing\s*(?:s\s*)?(?:at\s*)?" + _NUM + r"\s*delta\b",
+        lambda m: ("options_wing_delta", _f(m)))
 
     # ── direction / instrument ──
     add(r"\b(short|fade|sell short)\b", lambda m: ("direction", "short"))
@@ -252,6 +293,12 @@ def parse_strategy(text: str) -> dict:
         if syms:
             rules["universe"] = {"source": "symbols", "symbols": syms}
             matched_spans.append(m.span())
+    # Collect every pattern hit first, then resolve number-ownership:
+    # management phrases ("exit at 21 dte", "roll at 21 dte") and wing
+    # phrases ("wings at 10 delta") OWN their numbers — the generic
+    # "N dte" / "N delta" patterns must not also claim them (they'd
+    # overwrite the structure's DTE / short-strike delta).
+    _hits = []
     for rx, fn in _PATTERNS:
         for mm in rx.finditer(text):
             try:
@@ -261,14 +308,26 @@ def parse_strategy(text: str) -> dict:
             if not res:
                 continue
             matched_spans.append(mm.span())
-            kind, val = res
+            _hits.append((res[0], res[1], mm.span()))
+    _own = [sp for k, _, sp in _hits
+            if k in ("mgmt_exit_dte", "mgmt_roll_dte", "options_wing_delta")]
+    def _olap(a, b):
+        return not (a[1] <= b[0] or a[0] >= b[1])
+    for kind, val, mm_span in _hits:
+        if _own:
+            if kind in ("options_dte", "options_delta") and any(_olap(mm_span, o) for o in _own):
+                continue
+            if (kind == "options_strike" and isinstance(val, dict)
+                    and val.get("mode") == "delta" and any(_olap(mm_span, o) for o in _own)):
+                continue
+        if True:
             if kind == "warn":
                 if val not in warnings:
                     warnings.append(val)
             elif kind == "entry":
                 if val not in rules["entry"]:
                     rules["entry"].append(val)
-                    cond_spans.append((val, mm.span()))
+                    cond_spans.append((val, mm_span))
             elif kind == "exit":
                 if val not in rules["exit"]:
                     rules["exit"].append(val)
@@ -291,6 +350,20 @@ def parse_strategy(text: str) -> dict:
                 opt["strike"] = val
             elif kind == "options_delta":
                 opt["strike"] = {"mode": "delta", "value": val}
+            elif kind == "structure":
+                opt["structure"] = val
+            elif kind == "options_wing_delta":
+                opt["wing_delta"] = val
+            elif kind == "mgmt_pt":
+                opt.setdefault("management", {})["profit_take_pct"] = val
+            elif kind == "mgmt_stop_x":
+                opt.setdefault("management", {})["stop_x_credit"] = val
+            elif kind == "mgmt_exit_dte":
+                opt.setdefault("management", {})["exit_dte"] = int(val)
+            elif kind == "mgmt_roll_dte":
+                opt.setdefault("management", {})["roll_dte"] = int(val)
+            elif kind == "earnings_filter":
+                rules["earnings_filter"] = val
 
     # De-dupe overlap: "opens down 2%" matches BOTH gap_pct and the generic
     # day_change_pct — when their text spans overlap, the gap wins.
@@ -306,9 +379,24 @@ def parse_strategy(text: str) -> dict:
 
     if opt:
         rules["instrument"] = "option"
-        opt.setdefault("right", "put" if rules["direction"] == "short" else "call")
-        opt.setdefault("dte", 30)
-        opt.setdefault("strike", {"mode": "atm"})
+        if opt.get("structure"):
+            # Lifecycle-engine path (v2): structure + target delta + DTE +
+            # management. "sell a 30 delta put" puts the delta in `strike`;
+            # promote it to target_delta.
+            sk = opt.get("strike") or {}
+            if sk.get("mode") == "delta" and sk.get("value"):
+                opt.setdefault("target_delta", abs(float(sk["value"])) / 100.0)
+            opt.setdefault("target_delta", 0.30)
+            if opt.get("wing_delta"):
+                opt["wing_delta"] = abs(float(opt["wing_delta"])) / 100.0
+            opt.setdefault("dte", 45)
+            opt.setdefault("management", {})
+            if not opt["management"]:
+                opt["management"]["hold_to_expiry"] = True
+        else:
+            opt.setdefault("right", "put" if rules["direction"] == "short" else "call")
+            opt.setdefault("dte", 30)
+            opt.setdefault("strike", {"mode": "atm"})
         rules["options"] = opt
         warnings.append(
             "Option prices are MODELED (Black-Scholes on 20-day realized volatility), "
@@ -327,10 +415,14 @@ def parse_strategy(text: str) -> dict:
             unparsed.append(c)
 
     if not rules["entry"]:
-        warnings.append("No entry condition was recognized — add one below before running.")
-    if not any(x["type"] in ("profit_pct", "stop_pct", "trailing_stop_pct",
-                             "same_day_close", "time_days", "hold_to_expiry")
-               for x in rules["exit"]):
+        if opt.get("structure"):
+            warnings.append("No entry condition — CONTINUOUS entry: a new position opens whenever the previous one closes (subject to position/buying-power limits). Add entry conditions to be selective.")
+        else:
+            warnings.append("No entry condition was recognized — add one below before running.")
+    if not opt.get("structure") and not any(
+            x["type"] in ("profit_pct", "stop_pct", "trailing_stop_pct",
+                          "same_day_close", "time_days", "hold_to_expiry")
+            for x in rules["exit"]):
         rules["exit"].append({"type": "time_days", "value": 10})
         warnings.append("No exit was recognized — a default 10-trading-day time exit was added; edit it below.")
 
@@ -586,7 +678,8 @@ def run_backtest(rules: dict, progress_cb=None) -> dict:
     costs = rules.get("costs") or {}
     options = rules.get("options")
     is_option = rules.get("instrument") == "option" and options
-    if is_option and direction == "short":
+    structure = (options or {}).get("structure") if is_option else None
+    if is_option and direction == "short" and not structure:
         warnings.append("Selling options short isn't modeled — the bearish view is expressed as LONG puts instead.")
         rules = {**rules, "direction": "long"}
         if options.get("right") != "put":
@@ -675,6 +768,12 @@ def run_backtest(rules: dict, progress_cb=None) -> dict:
                 signals.append((bars[i]["date"][:10], sym, i))
 
     signals.sort(key=lambda s: s[0])
+
+    if structure and not intraday_mode:
+        return _run_structure_portfolio(
+            rules, structure, options, signals, daily_entry, per_symbol_bars,
+            ctxs, spy_reg, eff_days, per_trade_budget, max_pos, start_equity,
+            liq_mult, warnings, progress_cb, t0, spy_bars=spy_bars)
 
     if intraday_mode:
         trades, skipped_liq = _run_intraday(
@@ -963,6 +1062,328 @@ def _run_intraday(rules, symbols, per_symbol_bars, ctxs, eff_days, slip, commiss
             done["regime"] = spy_reg.get(d) or "unknown"
             trades.append(done)
     return trades, skipped_liq
+
+
+def _run_structure_portfolio(rules, structure, options, signals, daily_entry,
+                             per_symbol_bars, ctxs, spy_reg, eff_days,
+                             per_trade_budget, max_pos, start_equity,
+                             liq_mult, warnings, progress_cb, t0,
+                             spy_bars=None):
+    """v2 path: premium-selling / multi-leg structures via the bt_options
+    lifecycle engine (management rules, assignment, rolls, wheel, BP-gated
+    portfolio with a daily mark-to-model equity curve)."""
+    import bt_options as bo
+
+    mgmt = dict((options or {}).get("management") or {})
+    params = {"dte": int((options or {}).get("dte") or 45),
+              "target_delta": float((options or {}).get("target_delta") or 0.30)}
+    if (options or {}).get("wing_delta"):
+        params["wing_delta"] = float(options["wing_delta"])
+    if (options or {}).get("strike"):
+        params["strike"] = options["strike"]
+
+    cutoff = (datetime.now() - timedelta(days=eff_days)).date().isoformat()
+
+    # Continuous entry when no conditions: a signal every bar — the
+    # portfolio's one-position-per-symbol gate turns that into "re-enter
+    # the day after the previous chain closes".
+    if not daily_entry:
+        signals = []
+        for sym, bars in per_symbol_bars.items():
+            for i in range(21, len(bars) - 1):
+                if bars[i]["date"][:10] >= cutoff:
+                    signals.append((bars[i]["date"][:10], sym, i))
+        signals.sort()
+
+    # Underlying-liquidity gate (same spirit as the stock path: thin names
+    # are skipped as unfillable, not filled at fantasy prices).
+    kept = []
+    skipped_liq = 0
+    for sig in signals:
+        _, sym, i = sig
+        bars = per_symbol_bars[sym]
+        n20 = min(20, i)
+        avg_dvol = sum((b["close"] or 0) * (b.get("volume") or 0)
+                       for b in bars[i - n20:i]) / max(1, n20)
+        if avg_dvol < liq_mult * per_trade_budget:
+            skipped_liq += 1
+            continue
+        kept.append(sig)
+    signals = kept
+
+    # Earnings filter (v2): real per-symbol earnings dates when a provider
+    # is wired; otherwise the filter is skipped LOUDLY, never silently.
+    ef = rules.get("earnings_filter")
+    if ef:
+        if _earnings_fn is None:
+            warnings.append("Earnings filter requested but no earnings-date source is wired — filter skipped.")
+        else:
+            from datetime import date as _date
+            win = int(ef.get("window") or 5)
+            edates = {}
+            for sym in per_symbol_bars:
+                try:
+                    edates[sym] = [_date.fromisoformat(str(d)[:10])
+                                   for d in (_earnings_fn(sym) or [])]
+                except Exception:
+                    edates[sym] = []
+            missing = [s for s, v in edates.items() if not v]
+            if missing:
+                warnings.append(f"No earnings dates found for {', '.join(sorted(missing)[:8])}"
+                                f"{'…' if len(missing) > 8 else ''} — the earnings filter can't"
+                                " apply there" + (" (rows kept)." if ef.get("mode") == "skip"
+                                                  else " (rows dropped)."))
+            def near_earnings(sym, dstr):
+                d = _date.fromisoformat(dstr)
+                return any(abs((d - e).days) <= win for e in edates.get(sym) or [])
+            if ef.get("mode") == "skip":
+                signals = [s for s in signals
+                           if not edates.get(s[1]) or not near_earnings(s[1], s[0])]
+            else:
+                signals = [s for s in signals if near_earnings(s[1], s[0])]
+
+    # IV model v2 (bt_iv): HV blend × per-symbol calibrated IV/HV ratio ×
+    # VIX-regime scaler × earnings ramp, floored — every component labeled.
+    import bt_iv
+    vix_by_date = {}
+    if _vix_fn is not None:
+        try:
+            vix_by_date = _vix_fn() or {}
+        except Exception:
+            vix_by_date = {}
+    iv_by_sym = {}
+    iv_meta_by_sym = {}
+    vix_src = None
+    for sym, bars in per_symbol_bars.items():
+        ratio, ratio_src = bt_iv.DEFAULT_RATIO, "assumed"
+        if _iv_history_fn is not None:
+            try:
+                hist = _iv_history_fn(sym) or []
+                closes_by_date = {b["date"][:10]: b["close"] for b in bars}
+                ratio, ratio_src = bt_iv.calibrate_ratio(hist, closes_by_date)
+            except Exception:
+                pass
+        dates = [b["date"][:10] for b in bars]
+        scalers, vix_src = bt_iv.vix_scaler_series(dates, vix_by_date)
+        edates = []
+        if _earnings_fn is not None:
+            try:
+                edates = _earnings_fn(sym) or []
+            except Exception:
+                edates = []
+        iv_by_sym[sym] = bt_iv.build_iv_series(bars, ratio, scalers, edates)
+        iv_meta_by_sym[sym] = {"ratio": round(ratio, 3), "ratio_src": ratio_src,
+                               "earnings_dates": len(edates)}
+
+    # Real-quote precedence (B2): entry fills use REAL bid/ask from the
+    # chain snapshot store wherever a same-day snapshot exists.
+    quote_fn_by_sym = {}
+    try:
+        import chain_store
+        for sym in per_symbol_bars:
+            store = chain_store.load(sym)
+            if store:
+                quote_fn_by_sym[sym] = (
+                    lambda day, right, strike, dte, _s=store:
+                        chain_store.lookup(_s, day, right, strike, dte))
+    except Exception:
+        quote_fn_by_sym = {}
+
+    res_p = bo.run_portfolio(signals, per_symbol_bars, iv_by_sym, structure,
+                             mgmt, params=params, start_equity=start_equity,
+                             budget_per_trade=per_trade_budget,
+                             max_positions=max_pos, progress_cb=progress_cb,
+                             quote_fn_by_sym=quote_fn_by_sym)
+    trades = res_p["trades"]
+
+    # ── premium-assumption sensitivity (unique to this platform): the same
+    # run at pessimistic/optimistic IV multipliers. If the edge only exists
+    # at one end of the band, it's a premium ASSUMPTION, not an edge. ──
+    sensitivity = {}
+    for tag, mult in (("low", 0.85), ("high", 1.15)):
+        if progress_cb:
+            progress_cb(f"premium sensitivity ({tag})", 1, 2)
+        iv_alt = {s: [v * mult if v else v for v in ser]
+                  for s, ser in iv_by_sym.items()}
+        alt = bo.run_portfolio(signals, per_symbol_bars, iv_alt, structure,
+                               mgmt, params=params, start_equity=start_equity,
+                               budget_per_trade=per_trade_budget,
+                               max_positions=max_pos,
+                               quote_fn_by_sym=quote_fn_by_sym)
+        at = alt["trades"]
+        wins = sum(1 for t in at if t["pnl"] > 0)
+        sensitivity[tag] = {
+            "iv_mult": mult,
+            "n_trades": len(at),
+            "total_pnl": round(sum(t["pnl"] for t in at), 2),
+            "win_rate": round(wins / len(at) * 100.0, 1) if at else None,
+        }
+    for t in trades:
+        t["regime"] = spy_reg.get(t["entry_date"]) or "unknown"
+
+    result = _metrics(trades, start_equity, warnings)
+    # The lifecycle engine produces a DAILY mark-to-model curve (open
+    # positions included) — strictly more honest than the realized-only
+    # curve _metrics builds; swap it in and recompute drawdown from it.
+    curve = res_p["equity_curve"]
+    if curve:
+        peak = curve[0]["equity"]
+        max_dd = 0.0
+        for pt in curve:
+            peak = max(peak, pt["equity"])
+            if peak > 0:
+                max_dd = max(max_dd, (peak - pt["equity"]) / peak * 100.0)
+        result["equity_curve"] = curve
+        if result.get("metrics"):
+            result["metrics"]["max_drawdown_pct"] = round(max_dd, 2)
+            result["metrics"]["equity_curve_kind"] = "daily_mark_to_model"
+    result["skipped_no_liquidity"] = skipped_liq
+    result["skipped_bp"] = res_p["skipped_bp"]
+    result["skipped_max_positions"] = res_p["skipped_max_positions"]
+    result["symbols_tested"] = sorted(per_symbol_bars.keys())
+    result["mode"] = f"options lifecycle · {structure}"
+    result["structure"] = structure
+    result["management"] = mgmt
+    result["rules"] = rules
+    result["elapsed_sec"] = round(time.time() - t0, 1)
+    if result.get("metrics") and trades:
+        n_assigned = sum(1 for t in trades if "assigned" in (t.get("reason") or ""))
+        result["metrics"]["assignments"] = n_assigned
+        by_src = {"real_quote": 0, "mixed": 0, "modeled": 0}
+        for t in trades:
+            by_src[t.get("priced") or "modeled"] = by_src.get(t.get("priced") or "modeled", 0) + 1
+        result["metrics"]["entry_fill_sources"] = by_src
+        result["metrics"]["real_fill_pct"] = round(
+            (by_src["real_quote"] + 0.5 * by_src["mixed"]) / len(trades) * 100.0, 1)
+        bps = [t["pnl_on_bp"] for t in trades if t.get("pnl_on_bp") is not None]
+        if bps:
+            result["metrics"]["avg_return_on_bp_pct"] = round(sum(bps) / len(bps), 2)
+    # ── Validation suite (B3) — automatic on every structure run ──
+    import bt_validate as bv
+    if progress_cb:
+        progress_cb("validation (walk-forward, Monte Carlo)", 1, 1)
+    rf = _risk_free_rate()[0]
+    curve_stats = bv.sharpe_from_curve(res_p["equity_curve"], rf_annual=rf)
+    if curve_stats and result.get("metrics"):
+        result["metrics"].update({k: curve_stats[k] for k in
+                                  ("sharpe", "sortino", "cagr_pct") if curve_stats.get(k) is not None})
+    result["monte_carlo"] = bv.monte_carlo([t["pnl"] for t in trades], start_equity)
+
+    def _wf_runner(lo, hi):
+        sub = [s for s in signals if lo <= s[0] <= hi]
+        r = bo.run_portfolio(sub, per_symbol_bars, iv_by_sym, structure, mgmt,
+                             params=params, start_equity=start_equity,
+                             budget_per_trade=per_trade_budget,
+                             max_positions=max_pos,
+                             quote_fn_by_sym=quote_fn_by_sym)
+        tt = r["trades"]
+        return {"total_pnl": round(sum(t["pnl"] for t in tt), 2),
+                "n_trades": len(tt),
+                "win_rate": round(sum(1 for t in tt if t["pnl"] > 0) / len(tt) * 100.0, 1) if tt else None}
+    sig_dates = sorted({s[0] for s in signals})
+    result["walk_forward"] = bv.walk_forward(sig_dates, _wf_runner, folds=4)
+
+    # Regime matrix (trend × VIX tercile) — only meaningful with VIX data.
+    if vix_by_date:
+        result["regime_matrix"] = bv.regime_matrix(trades, bv.vol_terciles(vix_by_date))
+
+    # Benchmarks: SPY buy-and-hold over the same window + T-bill carry.
+    bench = {}
+    if spy_bars and res_p["equity_curve"]:
+        lo_d, hi_d = res_p["equity_curve"][0]["date"], res_p["equity_curve"][-1]["date"]
+        win = [b for b in spy_bars if lo_d <= b["date"][:10] <= hi_d]
+        if len(win) > 10 and win[0]["close"]:
+            spy_ret = (win[-1]["close"] / win[0]["close"] - 1.0) * 100.0
+            spy_curve = [start_equity * b["close"] / win[0]["close"] for b in win]
+            bench["spy_buy_hold"] = {"return_pct": round(spy_ret, 2),
+                                     "max_drawdown_pct": round(bv.max_drawdown_pct(spy_curve), 2)}
+        yrs = curve_stats["years"] if curve_stats else None
+        if yrs:
+            bench["t_bill"] = {"return_pct": round(((1 + rf) ** yrs - 1) * 100.0, 2),
+                               "rate_source": _risk_free_rate()[1]}
+    if bench and result.get("metrics"):
+        bench["strategy_return_pct"] = result["metrics"].get("total_return_pct")
+        result["benchmarks"] = bench
+
+    # Optimizer (opt-in via rules["optimize"]): small grid over delta × DTE
+    # (+ optional profit-take), plateau-scored, DSR-deflated by trials.
+    optimize = rules.get("optimize")
+    n_trials = 1
+    trial_sharpes = []
+    if optimize and isinstance(optimize, dict):
+        deltas = [float(x) for x in (optimize.get("target_delta") or [params["target_delta"]])][:6]
+        dtes = [int(x) for x in (optimize.get("dte") or [params["dte"]])][:5]
+        pts = [x for x in (optimize.get("profit_take_pct") or [mgmt.get("profit_take_pct")])][:3]
+        combos = [(d, t, p) for d in deltas for t in dtes for p in pts][:48]
+        n_trials = max(1, len(combos))
+        grid = []
+        for gi, (d, t, p) in enumerate(combos):
+            if progress_cb:
+                progress_cb("optimizing (grid)", gi + 1, len(combos))
+            pp = {**params, "target_delta": d, "dte": t}
+            mm = dict(mgmt)
+            if p is not None:
+                mm["profit_take_pct"] = p
+            rr = bo.run_portfolio(signals, per_symbol_bars, iv_by_sym, structure,
+                                  mm, params=pp, start_equity=start_equity,
+                                  budget_per_trade=per_trade_budget,
+                                  max_positions=max_pos,
+                                  quote_fn_by_sym=quote_fn_by_sym)
+            tt = rr["trades"]
+            cs = bv.sharpe_from_curve(rr["equity_curve"], rf_annual=rf)
+            if cs and cs.get("sr_raw") is not None:
+                trial_sharpes.append(cs["sr_raw"])
+            grid.append({"target_delta": d, "dte": t, "profit_take_pct": p,
+                         "n_trades": len(tt),
+                         "total_pnl": round(sum(x["pnl"] for x in tt), 2),
+                         "sharpe": cs["sharpe"] if cs else None})
+        result["optimizer"] = {
+            "grid": grid,
+            "plateau": bv.plateau_score(grid, "target_delta", "dte", "total_pnl"),
+            "n_combos": len(combos),
+        }
+
+    # Deflated Sharpe: the observed Sharpe against the best-of-N hurdle.
+    if curve_stats and curve_stats.get("sr_raw") is not None:
+        result["deflated_sharpe"] = bv.deflated_sharpe(
+            curve_stats["sr_raw"], curve_stats["daily_n"],
+            curve_stats["skew"], curve_stats["kurtosis"],
+            n_trials, trial_sharpes or None)
+
+    # Sensitivity verdict: does the P/L sign survive the whole band?
+    base_pnl = result["metrics"].get("total_pnl", 0.0) if result.get("metrics") else 0.0
+    if sensitivity:
+        pnls = [sensitivity["low"]["total_pnl"], base_pnl, sensitivity["high"]["total_pnl"]]
+        if all(p > 0 for p in pnls):
+            sens_verdict = "edge survives the full premium-assumption band (0.85×–1.15× IV)"
+        elif all(p <= 0 for p in pnls):
+            sens_verdict = "strategy loses at EVERY premium assumption tested"
+        else:
+            which = "pessimistic (0.85×)" if sensitivity["low"]["total_pnl"] <= 0 else "optimistic (1.15×)"
+            sens_verdict = f"edge FLIPS SIGN at the {which} premium assumption — treat the headline number as a premium assumption, not an edge"
+        result["sensitivity"] = {"base_total_pnl": round(base_pnl, 2),
+                                 **sensitivity, "verdict": sens_verdict}
+    any_calib = any("calibrated" in m["ratio_src"] for m in iv_meta_by_sym.values())
+    any_earn = any(m["earnings_dates"] > 0 for m in iv_meta_by_sym.values())
+    ratio_desc = ("per-symbol calibrated from stored IV30 history where available, else 1.10 assumed"
+                  if any_calib else "1.10 assumed (no stored IV history yet — accrues daily)")
+    result["iv_model"] = {"per_symbol": iv_meta_by_sym, "vix_scaling": vix_src}
+    result["modeled"] = {
+        "option_premiums": True,
+        "assumptions": [
+            "Option premiums: Black-Scholes on layered IV model — 0.6·HV20+0.4·HV60 base × IV/HV ratio (%s) × VIX-regime scaler (%s) × earnings ramp%s; floored at 8%%"
+            % (ratio_desc, vix_src or "unavailable",
+               "" if any_earn else " (no report dates for this run)"),
+            "American intrinsic floor on all marks; early assignment when extrinsic < $%.02f or dividend > extrinsic" % bo.ASSIGN_EXTRINSIC,
+            "Per-leg half-spread f(mid, DTE, moneyness); $%.2f commission + $%.2f fees per contract per side" % (bo.COMMISSION_PER_CONTRACT, bo.REG_FEES_PER_CONTRACT),
+            "Buying power per standard broker formulas; entries rejected when BP is exhausted",
+            "Fills at the NEXT bar's open (no look-ahead); same-bar stop-before-target ordering",
+        ],
+    }
+    result["warnings"].insert(0,
+        "OPTION RESULTS ARE MODEL-PRICED (Black-Scholes on realized vol + estimated spreads). "
+        "No historical option quotes are available — treat these numbers as directional estimates, not fills you could have had.")
+    return result
 
 
 def _metrics(trades, start_equity, warnings):

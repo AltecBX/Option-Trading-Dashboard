@@ -228,3 +228,156 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   and frozen-clock expiry-behavior tests.
 - **Tests:** unittest 48 OK (math/security/schedules) · py runners
   123/123 · JS 107/107 · verify PASS.
+
+# Backtest v2 (BACKTEST_UPGRADE.md)
+
+## B1 — Options lifecycle engine
+
+- **`bt_options.py`** — the single leg-based simulator: 9 structures
+  (short_put/CC/strangle/IC/credit spreads/iron fly/long legs; wheel and
+  rolls as linked chains), strike-by-delta solver, management rules
+  (profit-take % of credit, stop ×credit, DTE exit, roll-at-DTE),
+  assignment model (American intrinsic floor — found+fixed the European
+  deep-ITM negative-extrinsic artifact; deep-ITM early exercise; ex-div
+  call assignment; expiry settlement + pin-risk flag; trader exits
+  checked before overnight assignment), per-leg spread f(mid, DTE,
+  moneyness) + commissions/fees, portfolio simulator with broker-formula
+  buying power, one-position-per-symbol continuous entry, and a DAILY
+  mark-to-model equity curve (open-position pain included — v1 counted
+  only realized P/L).
+- **Grammar v2** (backtest.py): structure names, "take profit at 50% of
+  credit", "stop at 2x credit", "exit/roll at 21 dte", "wings at 5
+  delta", "skip/only earnings week" (real per-symbol earnings dates via
+  load_earnings_history — replaces the old "can't test earnings"
+  rejection). Span-based number-ownership so "exit at 21 dte" can't
+  overwrite the structure's 45 DTE (found+fixed), and "short strangle"
+  no longer trips the legacy long-puts conversion.
+- **Routing**: structure strategies → `_run_structure_portfolio`
+  (liquidity gate, earnings filter with loud-skip when dates missing,
+  IV series = HV20×1.1 floored at 8% — degenerate-vol delta-targeting
+  guard added after a fixture caught 0-IV selling ITM puts as "30Δ"),
+  daily curve swapped into the result, new metrics (assignments, avg
+  return on BP), structured modeled-assumptions block.
+- **UI**: premium-selling presets first in the examples row; trade table
+  renders structure trades (credit, legs tooltip, ×contracts); Avg-ret-
+  on-BP and Assignments tiles.
+- **Tests**: test_bt_options.py — 28 tests (builders, every management
+  path, assignment incl. ex-div, defined-risk bounds, roll/wheel chains,
+  BP + max-position gating, mark-to-model curve identity, grammar → end-
+  to-end runs on a stubbed client, earnings filter, legacy path intact).
+  Full battery green: 69 unittest + runners + JS 107 + smoke 50/50.
+
+## B2 — IV realism + self-building real-quote layer
+
+- **`bt_iv.py`** — layered, LABELED IV model replacing flat HV20×1.1:
+  0.6·HV20+0.4·HV60 base × per-symbol IV/HV ratio (CALIBRATED from the
+  app's own stored daily IV30 snapshots when ≥20 matched obs — clamped
+  0.8–2.0 — else 1.10 "assumed") × VIX-percentile regime scaler
+  (0.85–1.20, flat 1.0 + labeled when Yahoo is out) × earnings ramp
+  (+35% into known report dates over the final 7 days, crush after),
+  floored 8%. Result carries per-symbol calibration provenance.
+- **Premium-sensitivity harness** (unique vs every named platform): each
+  options run repeats at 0.85×/1.15× IV; result carries the P/L band +
+  a verdict ("edge survives the full band" / "edge FLIPS SIGN at the
+  pessimistic assumption — that's a premium assumption, not an edge").
+- **`chain_store.py`** — EOD chain snapshots: every chain the app fetches
+  (juice/ticker/EM — recorder hooked at the schwab_client choke point,
+  once per symbol per day, ≤75 DTE, ±30% strikes, 500-day retention,
+  atomic). Engine precedence: entry fills use REAL bid/ask when a
+  same-day snapshot exists (leg snapped to the real listed strike,
+  collision-guarded); trades labeled real_quote/mixed/modeled; result
+  reports real-fill %. Accuracy compounds with normal app use.
+- **Wiring**: providers injected (iv_history_fn, vix_fn cached 6h,
+  earnings_fn); modeled-assumptions block now states the layered model +
+  provenance. UI: PREMIUM SENSITIVITY verdict band + real-fill line.
+- **Tests**: test_bt_iv (11 — calibration recovery/clamping, VIX
+  percentile mapping, ramp shape + crush, floor, warm-up honesty),
+  test_chain_store (8 — round-trip, throttle, DTE/strike lookup, wrong-
+  day rejection, engine precedence real/model/collision). CI extended.
+  Battery: 88 unittest OK + JS 107 + smoke 50/50.
+
+## B3 — Validation suite
+
+- **`bt_validate.py`** (pure, seeded, no network):
+  · `monte_carlo` — 10k-path trade-order bootstrap → maxDD/final-equity
+    P5/P50/P95 + risk-of-ruin at the tested sizing (deterministic seed).
+  · `walk_forward` — rolling IS/OOS folds over an injected runner, WFE +
+    per-fold table + verdicts ("consistent" / "weaker" / "does NOT hold
+    out of sample — likely curve-fit").
+  · `psr`/`deflated_sharpe` — Bailey & López de Prado: observed Sharpe
+    vs the expected best-of-N-trials hurdle. Tests PIN the honest
+    behavior: a 3.0 Sharpe over 3 years clears a best-of-50 hurdle, the
+    SAME Sharpe over 1 year does not (estimator noise).
+  · `plateau_score` — parameter-grid 3×3-neighborhood robustness;
+    recommends the ROBUST cell, not the lucky peak.
+  · `regime_matrix` + `vol_terciles` — trend × VIX-tercile cells with a
+    ">70% of the edge in one regime" concentration warning.
+  · `sharpe_from_curve` — Sharpe/Sortino/CAGR + skew/kurtosis off the
+    daily mark-to-model curve.
+- **Routing integration** — every structure run now automatically gets:
+  Sharpe/Sortino/CAGR in metrics, Monte Carlo, 4-fold walk-forward
+  (re-running the real portfolio per fold, real-quote precedence
+  preserved), regime matrix (when VIX data present), benchmarks (SPY
+  buy-and-hold same window, T-bill carry at the labeled live/fallback
+  rate, vs strategy return), and Deflated Sharpe (n_trials=1 baseline;
+  when the opt-in `rules["optimize"]` grid runs — delta × DTE × PT,
+  capped 48 combos — DSR uses the true trial count and trial-Sharpe
+  variance, plus plateau scoring of the grid).
+- **Tests**: test_bt_validate (17) incl. WF consistent-vs-curve-fit,
+  seeded-MC determinism + ruin detection, DSR trial penalty, plateau vs
+  lone-peak. End-to-end smoke: full payload (MC/WF/DSR/optimizer/
+  benchmarks/sensitivity) on the stub client. CI extended.
+  Battery: 112 unittest OK + JS 107 + smoke 50/50.
+
+## B4 — Tear sheet, scorecard, trade replay, A/B (tab-backtest chunk)
+
+- **Validation scorecard** — chip row of REAL statistics (no blended
+  score): sample size, walk-forward WFE + OOS-positive folds, Monte
+  Carlo P95 drawdown + risk-of-ruin, Deflated Sharpe, premium-band
+  sign-survival, regime concentration, real-fill share. Tooltips carry
+  the full meaning of each number.
+- **Tear sheet** — drawdown underlay beneath the equity curve (mark-to-
+  model, open pain included), monthly-returns heatmap, per-trade P/L
+  histogram with zero-line, MAE/MFE scatter from each trade's daily
+  marks (labeled daily-resolution), breakdown tables (by exit reason,
+  by symbol, trend×vol regime cells with the concentration warning,
+  walk-forward fold table, benchmarks strip, optimizer grid with
+  ★robust vs ·peak rows).
+- **Trade replay** — click any structure trade → its full lifecycle:
+  daily open-P/L path (labeled MODELED marks) with event dots
+  (open/profit-take/stop/roll/assigned/expired), legs with real-fill •
+  markers, BP, prev/next stepping.
+- **A/B comparison** — pin a run's headline metrics, run a variation,
+  get a per-metric delta table (direction-aware coloring).
+- **Verified in Chromium** against a REAL engine payload (37-trade CSP
+  run with full validation fields): 5 scorecard chips, 17 monthly
+  cells, 12 histogram bars, 37 MAE/MFE dots, 4 breakdown tables,
+  replay open/step, A/B pin — zero JS errors. All inside the lazy
+  tab-backtest chunk (no initial-load cost).
+
+## B5 — Research → live trading plan + adherence loop
+
+- **`bt_plans.py`** — plan objects persisted to /data: the tested rules
+  as a human ENTRY CHECKLIST (grammar conditions → plain English),
+  Monte-Carlo-derived sizing guidance (scale so MC P95 drawdown ≤15% of
+  the account), the validation evidence snapshot (WF/DSR/sensitivity
+  verdicts, n, win rate, DD), and a PERMANENT not-automation statement.
+  Adherence: journal trades carrying `plan_id` are split from off-plan
+  trades with per-plan n/win-rate/P&L (and the honest note when
+  off-plan beats plan).
+- **Endpoints**: GET /api/plans (plans + adherence), POST /api/plans
+  (create from a completed result), POST /api/plans/status
+  (archive/reactivate). Journal tagging rides the existing
+  /api/trade_journal (extra `plan_id` field).
+- **UI (tab-backtest chunk)**: "deploy as plan →" on any completed
+  result; LIVE TRADING PLANS panel — checklist, evidence chips,
+  suggested allocation, LIVE adherence line, log-trade-against-plan
+  form, archive/reactivate; the not-automation line rendered on every
+  plan card.
+- **Verified**: full API round-trip on the real handler (create →
+  checklist derived → journal trade tagged → adherence 220.0 computed →
+  archive) + Chromium render (checklist, chips, adherence, log form,
+  zero JS errors). test_bt_plans (4 tests: checklist derivation, MC
+  sizing, persistence round-trip, adherence math). CI extended.
+- **Backtest v2 final battery: 116 unittest + smoke 50/50 + JS 107 +
+  verify both layers — all green.**

@@ -4383,12 +4383,65 @@ def _backtest_universe() -> dict:
         return {"starred": [], "all": []}
 
 
+def _backtest_earnings_dates(symbol: str) -> list:
+    """Past + known-future earnings dates (ISO) for the backtest earnings
+    filter (v2). Best-effort: an empty list makes the engine warn loudly
+    instead of silently pretending the filter applied."""
+    try:
+        h = load_earnings_history(symbol, weeks=110)
+        out = list(h.get("past") or [])
+        if h.get("next"):
+            out.append(h["next"])
+        return out
+    except Exception:
+        return []
+
+
+_VIX_CACHE: dict = {"t": 0.0, "data": {}}
+
+
+def _backtest_vix_closes() -> dict:
+    """{date: ^VIX close} for the IV model's regime scaler. Cached 6h;
+    empty dict (labeled 'unavailable' downstream) when Yahoo is out."""
+    now = time.time()
+    if _VIX_CACHE["data"] and now - _VIX_CACHE["t"] < 21600:
+        return _VIX_CACHE["data"]
+    try:
+        h = yf.Ticker("^VIX").history(period="2y", auto_adjust=False)
+        if h is not None and not h.empty:
+            data = {str(d.date()): float(v) for d, v in h["Close"].dropna().items()}
+            _VIX_CACHE.update({"t": now, "data": data})
+            return data
+    except Exception as exc:  # noqa: BLE001
+        print(f"[backtest] VIX fetch failed: {exc}", file=sys.stderr)
+    return _VIX_CACHE["data"]
+
+
 _backtest.configure(
     schwab_getter=lambda: _schwab(),
     minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
     universe_fn=_backtest_universe,
     data_dir=_STABLE_DIR,
+    earnings_fn=_backtest_earnings_dates,
+    iv_history_fn=lambda sym: _iv_history_load(sym),
+    vix_fn=_backtest_vix_closes,
 )
+
+# Trading plans (Backtest v2, B5) — research → checklist, never automation.
+import bt_plans as _bt_plans
+_bt_plans.configure(_STABLE_DIR)
+
+# Chain snapshot store (Backtest v2, B2): every chain the app fetches is
+# snapshotted once per symbol per day, so backtests increasingly price
+# entry fills from REAL bid/ask instead of the model.
+try:
+    import chain_store as _chain_store
+    _chain_store.configure(_STABLE_DIR)
+    if _SCHWAB_AVAILABLE:
+        import schwab_client as _schwab_client_mod
+        _schwab_client_mod.set_chain_recorder(_chain_store.record)
+except Exception as _exc:  # noqa: BLE001
+    print(f"[chain_store] wiring failed: {_exc}", file=sys.stderr)
 
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
 import patterns as _patterns
@@ -6191,6 +6244,34 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        if parsed.path == "/api/plans":
+            # Backtest v2 (B5): create a live trading plan from a completed,
+            # validated result. A plan is a checklist — never automation.
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 2_000_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                result = payload.get("result")
+                if not isinstance(result, dict) or not result.get("metrics"):
+                    raise ValueError("a completed backtest result is required")
+                plan = _bt_plans.create_plan(result,
+                                             rules_text=str(payload.get("rules_text") or "")[:2000],
+                                             account_size=payload.get("account_size"))
+                self._send_json({"ok": True, "plan": plan}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/plans/status":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                ok = _bt_plans.set_status(str(payload.get("id") or ""),
+                                          str(payload.get("status") or ""))
+                self._send_json({"ok": ok}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         if parsed.path == "/api/watchlist_alerts/dismiss":
             try:
                 length = int(self.headers.get("Content-Length", "0") or "0")
@@ -7391,6 +7472,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             try:
                 q = parse_qs(parsed.query)
                 self._send_json(_backtest.job_status((q.get("job") or [""])[0]), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/plans":
+            try:
+                self._send_json({"plans": _bt_plans.list_plans(),
+                                 "adherence": _bt_plans.adherence(_load_trade_journal()),
+                                 "not_automation": _bt_plans.NOT_AUTOMATION}, no_store=True)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
             return
