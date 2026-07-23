@@ -228,3 +228,41 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   and frozen-clock expiry-behavior tests.
 - **Tests:** unittest 48 OK (math/security/schedules) · py runners
   123/123 · JS 107/107 · verify PASS.
+
+# Backtest v2 (BACKTEST_UPGRADE.md)
+
+## B1 — Options lifecycle engine
+
+- **`bt_options.py`** — the single leg-based simulator: 9 structures
+  (short_put/CC/strangle/IC/credit spreads/iron fly/long legs; wheel and
+  rolls as linked chains), strike-by-delta solver, management rules
+  (profit-take % of credit, stop ×credit, DTE exit, roll-at-DTE),
+  assignment model (American intrinsic floor — found+fixed the European
+  deep-ITM negative-extrinsic artifact; deep-ITM early exercise; ex-div
+  call assignment; expiry settlement + pin-risk flag; trader exits
+  checked before overnight assignment), per-leg spread f(mid, DTE,
+  moneyness) + commissions/fees, portfolio simulator with broker-formula
+  buying power, one-position-per-symbol continuous entry, and a DAILY
+  mark-to-model equity curve (open-position pain included — v1 counted
+  only realized P/L).
+- **Grammar v2** (backtest.py): structure names, "take profit at 50% of
+  credit", "stop at 2x credit", "exit/roll at 21 dte", "wings at 5
+  delta", "skip/only earnings week" (real per-symbol earnings dates via
+  load_earnings_history — replaces the old "can't test earnings"
+  rejection). Span-based number-ownership so "exit at 21 dte" can't
+  overwrite the structure's 45 DTE (found+fixed), and "short strangle"
+  no longer trips the legacy long-puts conversion.
+- **Routing**: structure strategies → `_run_structure_portfolio`
+  (liquidity gate, earnings filter with loud-skip when dates missing,
+  IV series = HV20×1.1 floored at 8% — degenerate-vol delta-targeting
+  guard added after a fixture caught 0-IV selling ITM puts as "30Δ"),
+  daily curve swapped into the result, new metrics (assignments, avg
+  return on BP), structured modeled-assumptions block.
+- **UI**: premium-selling presets first in the examples row; trade table
+  renders structure trades (credit, legs tooltip, ×contracts); Avg-ret-
+  on-BP and Assignments tiles.
+- **Tests**: test_bt_options.py — 28 tests (builders, every management
+  path, assignment incl. ex-div, defined-risk bounds, roll/wheel chains,
+  BP + max-position gating, mark-to-model curve identity, grammar → end-
+  to-end runs on a stubbed client, earnings filter, legacy path intact).
+  Full battery green: 69 unittest + runners + JS 107 + smoke 50/50.

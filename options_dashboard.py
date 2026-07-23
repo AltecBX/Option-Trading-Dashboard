@@ -4383,11 +4383,26 @@ def _backtest_universe() -> dict:
         return {"starred": [], "all": []}
 
 
+def _backtest_earnings_dates(symbol: str) -> list:
+    """Past + known-future earnings dates (ISO) for the backtest earnings
+    filter (v2). Best-effort: an empty list makes the engine warn loudly
+    instead of silently pretending the filter applied."""
+    try:
+        h = load_earnings_history(symbol, weeks=110)
+        out = list(h.get("past") or [])
+        if h.get("next"):
+            out.append(h["next"])
+        return out
+    except Exception:
+        return []
+
+
 _backtest.configure(
     schwab_getter=lambda: _schwab(),
     minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
     universe_fn=_backtest_universe,
     data_dir=_STABLE_DIR,
+    earnings_fn=_backtest_earnings_dates,
 )
 
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────

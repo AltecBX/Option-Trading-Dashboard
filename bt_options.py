@@ -94,8 +94,8 @@ def build_structure(name: str, spot: float, iv: float, dte: float,
     p = params or {}
     delta = float(p.get("target_delta") or 0.30)
     wing_delta = float(p.get("wing_delta") or 0.10)
-    if spot <= 0 or iv is None or iv <= 0 or dte <= 0:
-        return None
+    if spot <= 0 or iv is None or iv <= 0.01 or dte <= 0:
+        return None       # degenerate vol → delta targeting is meaningless
 
     def K(t, right):
         return strike_by_delta(spot, iv, dte, t, right)
@@ -524,19 +524,24 @@ def run_portfolio(signals, bars_by_sym, iv_by_sym, structure, mgmt,
     trades = []
     skipped_bp = 0
     skipped_full = 0
-    open_intervals = []          # (entry_date, exit_date, bp_dollars)
+    open_intervals = []          # (entry_date, exit_date, bp_dollars, sym)
+    sym_busy_until = {}          # one position per symbol at a time
 
     for idx, (sig_date, sym, i) in enumerate(sorted(signals)):
         if progress_cb and idx % 10 == 0:
             progress_cb("simulating positions", idx + 1, len(signals))
         bars = bars_by_sym[sym]
         iv_series = iv_by_sym[sym]
-        open_intervals = [(a, b, x) for (a, b, x) in open_intervals if b >= sig_date]
-        live = [(a, b, x) for (a, b, x) in open_intervals if a <= sig_date]
+        # One live position (or chain) per symbol — continuous-entry signal
+        # streams re-enter the day after the previous chain closes.
+        if sym_busy_until.get(sym) and sig_date <= sym_busy_until[sym]:
+            continue
+        open_intervals = [iv_ for iv_ in open_intervals if iv_[1] >= sig_date]
+        live = [iv_ for iv_ in open_intervals if iv_[0] <= sig_date]
         if len(live) >= max_positions:
             skipped_full += 1
             continue
-        bp_used = sum(x for (_, _, x) in live)
+        bp_used = sum(iv_[2] for iv_ in live)
         # Size from budget; require at least 1 contract-set inside both the
         # budget AND remaining buying power.
         iv0 = iv_series[i] if i < len(iv_series) else None
@@ -579,7 +584,8 @@ def run_portfolio(signals, bars_by_sym, iv_by_sym, structure, mgmt,
         # Reserve capacity from the SIGNAL date (the decision moment), not
         # the T+1 fill date — otherwise every same-day signal sees zero
         # open positions and the BP/position gates never bind.
-        open_intervals.append((sig_date, chain[-1]["exit_date"], need))
+        open_intervals.append((sig_date, chain[-1]["exit_date"], need, sym))
+        sym_busy_until[sym] = chain[-1]["exit_date"]
 
     # ── daily mark-to-model equity curve ──
     daily = {}                   # date → unrealized Δ from open marks

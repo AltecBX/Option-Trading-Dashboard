@@ -333,5 +333,69 @@ class TestPortfolio(unittest.TestCase):
         self.assertAlmostEqual(curve[-1]["equity"], final, places=2)
 
 
+
+
+class TestEndToEnd(unittest.TestCase):
+    """Grammar → rules → run_backtest → lifecycle portfolio, on a stubbed
+    data client. The full v2 path with zero network."""
+
+    def _run(self, text, closes=None, n=400):
+        import backtest as bt
+        closes = closes or [100.0 + 0.01 * i for i in range(n)]
+        bars = mk_bars(closes=closes)
+        for b in bars:
+            b["volume"] = 1_000_000
+        class Stub:
+            def get_price_history(self, sym, days=365):
+                return bars
+        bt.configure(lambda: Stub(), lambda s, d: None,
+                     lambda: {"starred": ["TEST"], "all": ["TEST"]}, None,
+                     earnings_fn=lambda sym: ["2026-03-15"])
+        parsed = bt.parse_strategy(text)
+        return bt.run_backtest(parsed["rules"])
+
+    def test_csp_managed_end_to_end(self):
+        res = self._run("sell a 30 delta put 45 dte on TEST, take profit at "
+                        "50% of credit, stop at 2x credit, exit at 21 dte, last 1 year")
+        self.assertNotIn("error", res)
+        self.assertEqual(res["structure"], "short_put")
+        self.assertGreater(res["n_trades"], 3)
+        m = res["metrics"]
+        self.assertEqual(m["equity_curve_kind"], "daily_mark_to_model")
+        self.assertIn("assignments", m)
+        self.assertTrue(res["modeled"]["option_premiums"])
+        # Continuous entry in a gently rising market with a 50% PT: every
+        # trade should be a winner or a dte-exit, none held past expiry+1.
+        for t in res["trades"]:
+            self.assertIn(t["reason"], ("target", "dte_exit", "expired", "stop",
+                                        "assigned_shares", "roll", "called_away"))
+            self.assertEqual(t["symbol"], "TEST")
+
+    def test_strangle_end_to_end(self):
+        res = self._run("sell strangles on TEST at 20 delta, 45 dte, "
+                        "take profit at 50%, last 1 year")
+        self.assertNotIn("error", res)
+        self.assertEqual(res["structure"], "short_strangle")
+        self.assertGreater(res["n_trades"], 2)
+
+    def test_earnings_skip_filter_applies(self):
+        import backtest as bt
+        base = self._run("sell a 30 delta put 45 dte on TEST, last 1 year")
+        # Same run with skip-earnings: signals near 2026-03-15 must vanish.
+        filt = self._run("sell a 30 delta put 45 dte on TEST, skip earnings week, last 1 year")
+        self.assertNotIn("error", filt)
+        from datetime import date as _d
+        for t in filt["trades"]:
+            d = _d.fromisoformat(t["entry_date"])
+            # entry fills are signal+1: signals within ±5d of 3/15 were dropped
+            self.assertGreater(abs((d - _d(2026, 3, 15)).days), 4)
+
+    def test_legacy_long_option_path_still_works(self):
+        res = self._run("buy calls 30 dte at the money on TEST when rsi is below 40, "
+                        "50% profit target, hold for 10 days, last 1 year")
+        self.assertNotIn("error", res)
+        self.assertNotIn("structure", res)      # legacy engine path
+
+
 if __name__ == "__main__":
     unittest.main()

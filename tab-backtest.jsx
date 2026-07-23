@@ -35,6 +35,13 @@ const BT_EXIT_TYPES = {
   hold_to_expiry: { label: "Hold option to expiry", make: () => ({ type: "hold_to_expiry" }) },
 };
 const BT_EXAMPLES = [
+  // Premium-selling lifecycle presets (v2 engine: management, assignment, BP)
+  "Sell a 30 delta put 45 dte, take profit at 50% of credit, stop at 2x credit, exit at 21 dte, skip earnings week.",
+  "Sell strangles at 16 delta, 45 dte, take profit at 50%, exit at 21 dte, skip earnings week.",
+  "Sell an iron condor at 20 delta, 45 dte, wings at 5 delta, take profit at 50%, exit at 21 dte.",
+  "Wheel on KO, 30 dte, 30 delta, take profit at 60%.",
+  "Sell covered calls at 25 delta, 30 dte, roll at 7 dte.",
+  // Stock / long-option strategies (v1 engine)
   "Buy stocks that open down at least 2%, reverse above the opening price, and have volume at least twice the 20 day average. Exit at a 5% profit, a 2% stop loss, or before the market closes.",
   "Buy stock after a 30% drawdown from a recent high. Hold for 15 days with a 10% trailing stop. $5,000 per trade on AAPL, MSFT and NVDA.",
   "Buy 30 dte calls at the money when RSI 14 below 30 and price above the 200 day moving average, only when SPY is in an uptrend. 50% profit target, 25% stop loss.",
@@ -345,6 +352,12 @@ function BacktestCard({ apiFetch }) {
             <div className="bt-tile" title="Gross profits ÷ gross losses. Above 1.0 = the wins outweigh the losses; below 1.0 the strategy loses money overall."><span>Profit factor</span><b>{M.profit_factor == null ? "∞" : M.profit_factor}</b></div>
             <div className="bt-tile" title="Deepest peak-to-trough drop of the equity curve, as a % of the peak."><span>Max drawdown</span><b className="down">{M.max_drawdown_pct}%</b></div>
             <div className="bt-tile" title="Expected $ per trade: win-rate × avg gain − loss-rate × avg loss. Positive = the edge survives its costs."><span>Expectancy</span><b className={M.expectancy >= 0 ? "up" : "down"}>{fmtD(M.expectancy)}</b></div>
+            {M.avg_return_on_bp_pct != null && (
+              <div className="bt-tile" title="Average per-trade return on the buying power the position actually tied up (broker-formula BP). The honest efficiency number for premium selling."><span>Avg ret on BP</span><b className={M.avg_return_on_bp_pct >= 0 ? "up" : "down"}>{M.avg_return_on_bp_pct}%</b></div>
+            )}
+            {M.assignments != null && (
+              <div className="bt-tile" title="Trades that ended by assignment (deep ITM or ex-div early exercise) — modeled, labeled in each trade's lifecycle log."><span>Assignments</span><b>{M.assignments}</b></div>
+            )}
           </div>
           <BTEquityCurve curve={result.equity_curve} start={M.start_equity || 100000} />
           <div className="bt-detail">
@@ -382,9 +395,16 @@ function BacktestCard({ apiFetch }) {
                 <tbody>
                   {(result.trades || []).slice().reverse().map((t, i) => (
                     <tr key={i}>
-                      <td>{t.symbol}{t.option ? ` ${t.option.strike}${t.option.right[0].toUpperCase()}` : ""}</td>
+                      <td title={t.structure && t.legs ? t.legs.map(l => `${l.qty > 0 ? "+" : "−"}${l.strike}${l.right[0].toUpperCase()}@${l.entry_px}`).join(" ") : undefined}>
+                        {t.symbol}
+                        {t.option ? ` ${t.option.strike}${t.option.right[0].toUpperCase()}` : ""}
+                        {t.structure ? ` ${String(t.structure).replace(/_/g, " ")}${t.contracts > 1 ? ` ×${t.contracts}` : ""}` : ""}
+                      </td>
                       <td>{t.entry_date}</td><td>{t.exit_date}</td>
-                      <td>${t.entry_px}</td><td>${t.exit_px}</td><td>{t.reason}</td>
+                      {t.structure
+                        ? <td colSpan="2" title="Net credit received (per share) for the structure; legs and fills in the row tooltip.">{t.is_credit ? "cr" : "db"} ${t.credit}</td>
+                        : <><td>${t.entry_px}</td><td>${t.exit_px}</td></>}
+                      <td>{t.reason}</td>
                       <td className={t.pnl >= 0 ? "up" : "down"}>{fmtD(t.pnl)}</td>
                       <td className={t.pnl >= 0 ? "up" : "down"}>{t.pnl_pct}%</td>
                     </tr>

@@ -175,7 +175,11 @@ const BT_EXIT_TYPES = {
     })
   }
 };
-const BT_EXAMPLES = ["Buy stocks that open down at least 2%, reverse above the opening price, and have volume at least twice the 20 day average. Exit at a 5% profit, a 2% stop loss, or before the market closes.", "Buy stock after a 30% drawdown from a recent high. Hold for 15 days with a 10% trailing stop. $5,000 per trade on AAPL, MSFT and NVDA.", "Buy 30 dte calls at the money when RSI 14 below 30 and price above the 200 day moving average, only when SPY is in an uptrend. 50% profit target, 25% stop loss."];
+const BT_EXAMPLES = [
+// Premium-selling lifecycle presets (v2 engine: management, assignment, BP)
+"Sell a 30 delta put 45 dte, take profit at 50% of credit, stop at 2x credit, exit at 21 dte, skip earnings week.", "Sell strangles at 16 delta, 45 dte, take profit at 50%, exit at 21 dte, skip earnings week.", "Sell an iron condor at 20 delta, 45 dte, wings at 5 delta, take profit at 50%, exit at 21 dte.", "Wheel on KO, 30 dte, 30 delta, take profit at 60%.", "Sell covered calls at 25 delta, 30 dte, roll at 7 dte.",
+// Stock / long-option strategies (v1 engine)
+"Buy stocks that open down at least 2%, reverse above the opening price, and have volume at least twice the 20 day average. Exit at a 5% profit, a 2% stop loss, or before the market closes.", "Buy stock after a 30% drawdown from a recent high. Hold for 15 days with a 10% trailing stop. $5,000 per trade on AAPL, MSFT and NVDA.", "Buy 30 dte calls at the money when RSI 14 below 30 and price above the 200 day moving average, only when SPY is in an uptrend. 50% profit target, 25% stop loss."];
 function BTParamInputs({
   cond,
   onChange
@@ -740,7 +744,15 @@ function BacktestCard({
     title: "Expected $ per trade: win-rate \xD7 avg gain \u2212 loss-rate \xD7 avg loss. Positive = the edge survives its costs."
   }, /*#__PURE__*/React.createElement("span", null, "Expectancy"), /*#__PURE__*/React.createElement("b", {
     className: M.expectancy >= 0 ? "up" : "down"
-  }, fmtD(M.expectancy)))), /*#__PURE__*/React.createElement(BTEquityCurve, {
+  }, fmtD(M.expectancy))), M.avg_return_on_bp_pct != null && /*#__PURE__*/React.createElement("div", {
+    className: "bt-tile",
+    title: "Average per-trade return on the buying power the position actually tied up (broker-formula BP). The honest efficiency number for premium selling."
+  }, /*#__PURE__*/React.createElement("span", null, "Avg ret on BP"), /*#__PURE__*/React.createElement("b", {
+    className: M.avg_return_on_bp_pct >= 0 ? "up" : "down"
+  }, M.avg_return_on_bp_pct, "%")), M.assignments != null && /*#__PURE__*/React.createElement("div", {
+    className: "bt-tile",
+    title: "Trades that ended by assignment (deep ITM or ex-div early exercise) \u2014 modeled, labeled in each trade's lifecycle log."
+  }, /*#__PURE__*/React.createElement("span", null, "Assignments"), /*#__PURE__*/React.createElement("b", null, M.assignments))), /*#__PURE__*/React.createElement(BTEquityCurve, {
     curve: result.equity_curve,
     start: M.start_equity || 100000
   }), /*#__PURE__*/React.createElement("div", {
@@ -774,7 +786,12 @@ function BacktestCard({
     className: "bt-trades"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Sym"), /*#__PURE__*/React.createElement("th", null, "In"), /*#__PURE__*/React.createElement("th", null, "Out"), /*#__PURE__*/React.createElement("th", null, "Entry"), /*#__PURE__*/React.createElement("th", null, "Exit"), /*#__PURE__*/React.createElement("th", null, "Why"), /*#__PURE__*/React.createElement("th", null, "P&L"), /*#__PURE__*/React.createElement("th", null, "%"))), /*#__PURE__*/React.createElement("tbody", null, (result.trades || []).slice().reverse().map((t, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
-  }, /*#__PURE__*/React.createElement("td", null, t.symbol, t.option ? ` ${t.option.strike}${t.option.right[0].toUpperCase()}` : ""), /*#__PURE__*/React.createElement("td", null, t.entry_date), /*#__PURE__*/React.createElement("td", null, t.exit_date), /*#__PURE__*/React.createElement("td", null, "$", t.entry_px), /*#__PURE__*/React.createElement("td", null, "$", t.exit_px), /*#__PURE__*/React.createElement("td", null, t.reason), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("td", {
+    title: t.structure && t.legs ? t.legs.map(l => `${l.qty > 0 ? "+" : "−"}${l.strike}${l.right[0].toUpperCase()}@${l.entry_px}`).join(" ") : undefined
+  }, t.symbol, t.option ? ` ${t.option.strike}${t.option.right[0].toUpperCase()}` : "", t.structure ? ` ${String(t.structure).replace(/_/g, " ")}${t.contracts > 1 ? ` ×${t.contracts}` : ""}` : ""), /*#__PURE__*/React.createElement("td", null, t.entry_date), /*#__PURE__*/React.createElement("td", null, t.exit_date), t.structure ? /*#__PURE__*/React.createElement("td", {
+    colSpan: "2",
+    title: "Net credit received (per share) for the structure; legs and fills in the row tooltip."
+  }, t.is_credit ? "cr" : "db", " $", t.credit) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", null, "$", t.entry_px), /*#__PURE__*/React.createElement("td", null, "$", t.exit_px)), /*#__PURE__*/React.createElement("td", null, t.reason), /*#__PURE__*/React.createElement("td", {
     className: t.pnl >= 0 ? "up" : "down"
   }, fmtD(t.pnl)), /*#__PURE__*/React.createElement("td", {
     className: t.pnl >= 0 ? "up" : "down"
