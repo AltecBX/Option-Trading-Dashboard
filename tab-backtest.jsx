@@ -101,6 +101,334 @@ function BTEquityCurve({ curve, start }) {
   );
 }
 
+// ── B4: validation scorecard ────────────────────────────────────────────────
+// The honest "should I trust this?" header. Every chip is a REAL statistic
+// with its meaning in the tooltip — no blended black-box score.
+function BTScorecard({ result }) {
+  const M = result.metrics || {};
+  const chips = [];
+  const add = (label, value, tone, tip) => chips.push({ label, value, tone, tip });
+  if (M.n_trades != null)
+    add("SAMPLE", `${M.n_trades} trades`, M.n_trades >= 30 ? "ok" : "warn",
+        M.n_trades >= 30 ? "30+ trades — statistics start to mean something."
+          : "Under 30 trades — every number here is noisy; treat as anecdote, not evidence.");
+  const wf = result.walk_forward;
+  if (wf && wf.wf_efficiency != null)
+    add("WALK-FWD", `${wf.wf_efficiency}× · ${wf.oos_positive_folds} OOS+`,
+        wf.wf_efficiency >= 0.5 ? "ok" : wf.wf_efficiency > 0 ? "warn" : "bad",
+        `Out-of-sample P&L-per-trade ÷ in-sample, across ${wf.folds.length} rolling folds. ${wf.verdict}. 1.0 = the edge fully persists on data that follows each fit window.`);
+  const mc = result.monte_carlo;
+  if (mc)
+    add("MONTE CARLO", `P95 DD ${mc.max_dd_pct.p95}% · ruin ${mc.risk_of_ruin_pct}%`,
+        mc.risk_of_ruin_pct <= 1 ? "ok" : mc.risk_of_ruin_pct <= 10 ? "warn" : "bad",
+        `${mc.n_paths.toLocaleString()} seeded reorderings of your own trades: 95th-percentile max drawdown ${mc.max_dd_pct.p95}% (median ${mc.max_dd_pct.p50}%), and ${mc.risk_of_ruin_pct}% of paths breached the ${mc.ruin_threshold_dd_pct}% drawdown "ruin" line at this sizing. ${mc.note}`);
+  const ds = result.deflated_sharpe;
+  if (ds)
+    add("DEFLATED SHARPE", `${ds.dsr}`, ds.dsr >= 0.95 ? "ok" : ds.dsr >= 0.5 ? "warn" : "bad",
+        `Probability the observed Sharpe beats the best of ${ds.n_trials} tried configuration(s) by skill rather than selection luck (Bailey & López de Prado). Hurdle: ${ds.hurdle_sr_annual} annualized. ${ds.verdict}.`);
+  const sens = result.sensitivity;
+  if (sens)
+    add("PREMIUM BAND", /survives/.test(sens.verdict) ? "sign holds" : "sign flips",
+        /survives/.test(sens.verdict) ? "ok" : "bad",
+        sens.verdict);
+  const rm = result.regime_matrix;
+  if (rm && rm.concentration_warning)
+    add("REGIME", "concentrated", "warn", rm.concentration_warning);
+  if (M.real_fill_pct != null && M.real_fill_pct > 0)
+    add("REAL FILLS", `${M.real_fill_pct}%`, "ok",
+        "Share of entry fills priced from real recorded bid/ask instead of the model.");
+  if (!chips.length) return null;
+  return (
+    <div className="bt-score" role="group" aria-label="Validation scorecard">
+      {chips.map((c, i) => (
+        <span key={i} className={`bt-score-chip ${c.tone}`} title={c.tip}>
+          <em>{c.label}</em><b>{c.value}</b>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── B4: drawdown underlay ───────────────────────────────────────────────────
+function BTDrawdown({ curve }) {
+  if (!curve || curve.length < 3) return null;
+  const W = 640, H = 46, PAD = 6;
+  let peak = -Infinity;
+  const dds = curve.map(p => {
+    peak = Math.max(peak, p.equity);
+    return peak > 0 ? (peak - p.equity) / peak * 100 : 0;
+  });
+  const maxDD = Math.max(0.1, ...dds);
+  const x = i => PAD + (W - 2 * PAD) * (i / (curve.length - 1));
+  const y = v => PAD + (H - 2 * PAD) * (v / maxDD);
+  const pts = [`${PAD},${PAD}`]
+    .concat(dds.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+    .concat([`${W - PAD},${PAD}`]).join(" ");
+  return (
+    <div className="bt-dd" title={`Drawdown underlay (mark-to-model — open-position pain included). Deepest: ${maxDD.toFixed(1)}%.`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        <polygon points={pts} className="bt-dd-area" />
+      </svg>
+      <span className="bt-dd-lbl num">−{maxDD.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+// ── B4: monthly returns heatmap ─────────────────────────────────────────────
+function BTMonthly({ curve }) {
+  if (!curve || curve.length < 25) return null;
+  const byMonth = new Map();       // "YYYY-MM" -> {first, last}
+  for (const p of curve) {
+    const m = p.date.slice(0, 7);
+    const e = byMonth.get(m);
+    if (!e) byMonth.set(m, { first: p.equity, last: p.equity });
+    else e.last = p.equity;
+  }
+  const months = [...byMonth.keys()].sort();
+  if (months.length < 3) return null;
+  let prev = null;
+  const cells = months.map(m => {
+    const e = byMonth.get(m);
+    const base = prev != null ? prev : e.first;
+    prev = e.last;
+    const ret = base > 0 ? (e.last / base - 1) * 100 : 0;
+    return { m, ret };
+  });
+  const amax = Math.max(0.5, ...cells.map(c => Math.abs(c.ret)));
+  return (
+    <div className="bt-months" title="Month-by-month return of the mark-to-model equity curve. Consistent light green beats occasional dark green next to dark red.">
+      {cells.map(c => (
+        <span key={c.m} className="bt-month" title={`${c.m}: ${c.ret >= 0 ? "+" : ""}${c.ret.toFixed(2)}%`}
+              style={{ background: `color-mix(in oklch, var(${c.ret >= 0 ? "--up" : "--down"}), transparent ${Math.round(90 - 55 * Math.min(1, Math.abs(c.ret) / amax))}%)` }}>
+          <em>{c.m.slice(2)}</em><b className="num">{c.ret >= 0 ? "+" : ""}{c.ret.toFixed(1)}</b>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── B4: P/L distribution + MAE/MFE ─────────────────────────────────────────
+function BTHistogram({ trades }) {
+  if (!trades || trades.length < 8) return null;
+  const pnls = trades.map(t => t.pnl);
+  const lo = Math.min(...pnls), hi = Math.max(...pnls);
+  if (hi <= lo) return null;
+  const NB = Math.min(21, Math.max(9, Math.floor(trades.length / 3)));
+  const bins = new Array(NB).fill(0);
+  for (const p of pnls) bins[Math.min(NB - 1, Math.floor((p - lo) / (hi - lo) * NB))]++;
+  const mx = Math.max(...bins);
+  const zeroX = lo < 0 && hi > 0 ? (0 - lo) / (hi - lo) * 100 : null;
+  return (
+    <div className="bt-hist" title={`Distribution of the ${trades.length} trade P&Ls. Premium selling should look like many small wins left-skewed by a few larger losses — if the LEFT tail dominates the total, the strategy is picking up pennies in front of the steamroller.`}>
+      <div className="bt-hist-bars">
+        {bins.map((b, i) => {
+          const mid = lo + (i + 0.5) / NB * (hi - lo);
+          return <span key={i} className={mid >= 0 ? "up" : "down"}
+                       style={{ height: `${(b / mx) * 100}%` }}
+                       title={`$${Math.round(lo + i / NB * (hi - lo)).toLocaleString()} … $${Math.round(lo + (i + 1) / NB * (hi - lo)).toLocaleString()}: ${b} trade${b === 1 ? "" : "s"}`} />;
+        })}
+        {zeroX != null && <i className="bt-hist-zero" style={{ left: `${zeroX}%` }} />}
+      </div>
+      <div className="bt-hist-lbls num"><span>${Math.round(lo).toLocaleString()}</span><span>P&L per trade</span><span>${Math.round(hi).toLocaleString()}</span></div>
+    </div>
+  );
+}
+
+function btExcursions(t) {
+  // MAE/MFE from the trade's daily marks (open P/L path, $ per position).
+  if (!t.marks || !t.marks.length) return null;
+  const entryCash = t.is_credit ? t.credit : -t.credit;
+  const mult = (t.contracts || 1) * 100;
+  let mae = 0, mfe = 0;
+  for (const m of t.marks) {
+    const pl = (entryCash + m.value) * mult;
+    mae = Math.min(mae, pl);
+    mfe = Math.max(mfe, pl);
+  }
+  return { mae, mfe };
+}
+
+function BTMaeMfe({ trades }) {
+  const pts = (trades || []).map(t => ({ t, e: btExcursions(t) })).filter(x => x.e);
+  if (pts.length < 8) return null;
+  const W = 300, H = 170, PAD = 26;
+  const maxX = Math.max(50, ...pts.map(p => -p.e.mae));
+  const maxY = Math.max(50, ...pts.map(p => Math.max(p.e.mfe, p.t.pnl, 0)));
+  const x = v => PAD + (W - PAD - 6) * (v / maxX);
+  const y = v => H - PAD - (H - PAD - 6) * (v / maxY);
+  return (
+    <div className="bt-maemfe" title="Each dot is a trade: how far it went AGAINST you at its worst (→, Maximum Adverse Excursion, from daily marks) vs its final P&L color. A cluster of green dots far right = winners that survived deep pain — your stop may be doing nothing; red dots near the left axis = losses that never recovered — a tighter stop was free.">
+      <svg viewBox={`0 0 ${W} ${H}`}>
+        <line x1={PAD} y1={H - PAD} x2={W - 4} y2={H - PAD} className="bt-ax" />
+        <line x1={PAD} y1={4} x2={PAD} y2={H - PAD} className="bt-ax" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={x(-p.e.mae)} cy={y(Math.max(0, p.e.mfe))} r="3"
+                  className={p.t.pnl >= 0 ? "up" : "down"}>
+            <title>{`${p.t.symbol} ${p.t.entry_date}: worst ${Math.round(p.e.mae).toLocaleString()}, best +${Math.round(p.e.mfe).toLocaleString()}, final ${Math.round(p.t.pnl).toLocaleString()}`}</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="bt-maemfe-lbl"><span>MAE → (worst open loss)</span><span>MFE ↑</span></div>
+    </div>
+  );
+}
+
+// ── B4: breakdown tables + WF folds + benchmarks + optimizer grid ──────────
+function BTBreakdowns({ result }) {
+  const trades = result.trades || [];
+  const fmtD = v => `${v < 0 ? "−" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
+  const groupBy = (key) => {
+    const g = {};
+    for (const t of trades) {
+      const k = key(t) || "—";
+      const e = g[k] || (g[k] = { n: 0, pnl: 0, wins: 0 });
+      e.n++; e.pnl += t.pnl; e.wins += t.pnl > 0 ? 1 : 0;
+    }
+    return Object.entries(g).sort((a, b) => b[1].pnl - a[1].pnl);
+  };
+  const Tbl = ({ title, rows, tip }) => (
+    <div className="bt-bd" title={tip}>
+      <em>{title}</em>
+      <table><tbody>
+        {rows.map(([k, v]) => (
+          <tr key={k}><td>{k}</td><td className="num">{v.n}</td>
+            <td className="num">{Math.round(v.wins / v.n * 100)}%</td>
+            <td className={`num ${v.pnl >= 0 ? "up" : "down"}`}>{fmtD(v.pnl)}</td></tr>
+        ))}
+      </tbody></table>
+    </div>
+  );
+  const wf = result.walk_forward;
+  const bench = result.benchmarks;
+  const opt = result.optimizer;
+  const rm = result.regime_matrix;
+  return (
+    <div className="bt-bds">
+      {trades.length > 3 && <Tbl title="BY EXIT" rows={groupBy(t => t.reason)}
+        tip="Where the P&L actually comes from. Healthy managed premium selling earns most from 'target' (profit-takes); heavy 'stop'/'assigned' P&L means the entries are the problem." />}
+      {trades.length > 3 && new Set(trades.map(t => t.symbol)).size > 1 &&
+        <Tbl title="BY SYMBOL" rows={groupBy(t => t.symbol)}
+          tip="Concentration check — if one name carries the whole result, this is a stock thesis wearing a strategy costume." />}
+      {rm && rm.cells && rm.cells.length > 1 && (
+        <div className="bt-bd" title="Trend regime (SPY 50/200) × volatility regime (VIX tercile) at entry. An edge that only exists in one cell needs that cell to persist.">
+          <em>BY REGIME (trend × vol)</em>
+          <table><tbody>
+            {rm.cells.map(c => (
+              <tr key={c.trend + c.vol}><td>{c.trend} / {c.vol} vol</td>
+                <td className="num">{c.n}</td><td className="num">{c.win_rate}%</td>
+                <td className={`num ${c.pnl >= 0 ? "up" : "down"}`}>{fmtD(c.pnl)}</td></tr>
+            ))}
+          </tbody></table>
+          {rm.concentration_warning && <div className="bt-bd-warn">⚠ {rm.concentration_warning}</div>}
+        </div>
+      )}
+      {wf && wf.folds && (
+        <div className="bt-bd" title="Rolling in-sample / out-of-sample folds. The OOS column is the honest one — it's performance on data that FOLLOWS each window.">
+          <em>WALK-FORWARD FOLDS {wf.wf_efficiency != null ? `· WFE ${wf.wf_efficiency}×` : ""}</em>
+          <table><tbody>
+            <tr><td></td><td className="num">IS P&L</td><td className="num">OOS P&L</td><td className="num">OOS n</td></tr>
+            {wf.folds.map(f => (
+              <tr key={f.fold}><td>fold {f.fold}</td>
+                <td className={`num ${(f.is.total_pnl || 0) >= 0 ? "up" : "down"}`}>{fmtD(f.is.total_pnl || 0)}</td>
+                <td className={`num ${(f.oos.total_pnl || 0) >= 0 ? "up" : "down"}`}>{fmtD(f.oos.total_pnl || 0)}</td>
+                <td className="num">{f.oos.n_trades ?? "—"}</td></tr>
+            ))}
+          </tbody></table>
+          <div className="bt-bd-note">{wf.verdict}</div>
+        </div>
+      )}
+      {bench && (
+        <div className="bt-bd" title="Context, not competition: a short-premium book targets a different risk shape than buy-and-hold. But if SPY beat you with LESS drawdown, the strategy earned nothing for its complexity.">
+          <em>BENCHMARKS (same window)</em>
+          <table><tbody>
+            <tr><td>This strategy</td><td className={`num ${(bench.strategy_return_pct || 0) >= 0 ? "up" : "down"}`}>{bench.strategy_return_pct}%</td><td></td></tr>
+            {bench.spy_buy_hold && <tr><td>SPY buy & hold</td><td className="num">{bench.spy_buy_hold.return_pct}%</td><td className="num">DD {bench.spy_buy_hold.max_drawdown_pct}%</td></tr>}
+            {bench.t_bill && <tr><td title={bench.t_bill.rate_source}>T-bills (risk-free)</td><td className="num">{bench.t_bill.return_pct}%</td><td></td></tr>}
+          </tbody></table>
+        </div>
+      )}
+      {opt && opt.grid && (
+        <div className="bt-bd bt-opt" title={opt.plateau ? opt.plateau.note : ""}>
+          <em>OPTIMIZER GRID · {opt.n_combos} combos{opt.plateau && opt.plateau.plateau != null ? ` · plateau ${opt.plateau.plateau}` : ""}</em>
+          <table><tbody>
+            <tr><td>Δ / DTE / PT</td><td className="num">n</td><td className="num">P&L</td><td className="num">Sharpe</td></tr>
+            {opt.grid.map((g, i) => {
+              const isBest = opt.plateau && opt.plateau.best === g;
+              const isRobust = opt.plateau && opt.plateau.robust === g;
+              return (
+                <tr key={i} className={isRobust ? "bt-opt-robust" : isBest ? "bt-opt-best" : ""}>
+                  <td>{g.target_delta}Δ / {g.dte}d{g.profit_take_pct != null ? ` / ${g.profit_take_pct}%` : ""}
+                    {isRobust ? " ★robust" : isBest ? " ·peak" : ""}</td>
+                  <td className="num">{g.n_trades}</td>
+                  <td className={`num ${g.total_pnl >= 0 ? "up" : "down"}`}>{fmtD(g.total_pnl)}</td>
+                  <td className="num">{g.sharpe ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody></table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── B4: trade replay ────────────────────────────────────────────────────────
+// The lifecycle of ONE trade: its daily modeled value path with every
+// management/assignment event marked. Step through trades with ‹ ›.
+function BTReplay({ trades, idx, onStep, onClose }) {
+  const t = trades[idx];
+  if (!t || !t.marks || !t.marks.length) return null;
+  const entryCash = t.is_credit ? t.credit : -t.credit;
+  const mult = (t.contracts || 1) * 100;
+  const pls = t.marks.map(m => (entryCash + m.value) * mult);
+  const W = 640, H = 160, PAD = 8;
+  const lo = Math.min(0, ...pls, t.pnl), hi = Math.max(0, ...pls, t.pnl);
+  const span = Math.max(1, hi - lo);
+  const x = i => PAD + (W - 2 * PAD) * (i / Math.max(1, t.marks.length - 1));
+  const y = v => H - PAD - (H - 2 * PAD) * ((v - lo) / span);
+  const evByDate = {};
+  for (const e of (t.events || [])) evByDate[e.date] = e;
+  return (
+    <div className="bt-replay">
+      <div className="bt-replay-head">
+        <b>{t.symbol} · {String(t.structure || "").replace(/_/g, " ")} · {t.entry_date} → {t.exit_date}</b>
+        <span className={`num ${t.pnl >= 0 ? "up" : "down"}`}>{t.pnl >= 0 ? "+" : ""}{Math.round(t.pnl).toLocaleString()}</span>
+        <span className="bt-replay-nav">
+          <button className="rr-btn" disabled={idx <= 0} onClick={() => onStep(-1)}>‹ prev</button>
+          <span className="num">{idx + 1}/{trades.length}</span>
+          <button className="rr-btn" disabled={idx >= trades.length - 1} onClick={() => onStep(1)}>next ›</button>
+          <button className="rr-btn" onClick={onClose}>close</button>
+        </span>
+      </div>
+      <div className="bt-replay-meta">
+        {t.is_credit ? `credit $${t.credit}/sh` : `debit $${t.credit}/sh`} ×{t.contracts}
+        {" · "}legs {(t.legs || []).map(l => `${l.qty > 0 ? "+" : "−"}${l.strike}${l.right[0].toUpperCase()}${l.fill_src === "real" ? "•" : ""}`).join(" ")}
+        {" · "}BP ${Math.round(t.bp || 0).toLocaleString()} · exit: {t.reason}
+        {(t.legs || []).some(l => l.fill_src === "real") && <span title="• = leg filled at REAL recorded bid/ask"> · • real fill</span>}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="bt-replay-svg"
+           aria-label="Open P&L path (modeled daily marks)">
+        <line x1={PAD} x2={W - PAD} y1={y(0)} y2={y(0)} className="bt-curve-base" />
+        <polyline className={`bt-curve-line ${t.pnl >= 0 ? "up" : "down"}`}
+                  points={t.marks.map((m, i) => `${x(i).toFixed(1)},${y(pls[i]).toFixed(1)}`).join(" ")} />
+        {t.marks.map((m, i) => evByDate[m.date] ? (
+          <circle key={i} cx={x(i)} cy={y(pls[i])} r="4" className="bt-replay-ev">
+            <title>{`${m.date}: ${evByDate[m.date].type} — ${evByDate[m.date].detail || ""}`}</title>
+          </circle>
+        ) : null)}
+      </svg>
+      <div className="bt-replay-events">
+        {(t.events || []).map((e, i) => (
+          <span key={i} className={`bt-replay-echip ${e.type}`} title={e.detail || e.type}>
+            {e.date.slice(5)} {e.type}
+          </span>
+        ))}
+      </div>
+      <div className="bt-bd-note">Daily MODELED marks (option value re-priced off the underlying's close) — the path between marks is unknown; events show the engine's actual decisions.</div>
+    </div>
+  );
+}
+
 function BacktestCard({ apiFetch }) {
   const [text, setText] = useState(() => { try { return localStorage.getItem("jerry_bt_text") || ""; } catch (e) { return ""; } });
   const [rules, setRules] = useState(null);
@@ -111,6 +439,8 @@ function BacktestCard({ apiFetch }) {
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
   const [showJson, setShowJson] = useState(false);
+  const [replayIdx, setReplayIdx] = useState(null);   // B4: trade replay
+  const [pinned, setPinned] = useState(null);         // B4: A/B comparison
   const [jsonDraft, setJsonDraft] = useState("");
   const [showTrades, setShowTrades] = useState(false);
   const pollRef = useRef(null);
@@ -332,6 +662,10 @@ function BacktestCard({ apiFetch }) {
         <div className="bt-results">
           <div className="bt-sec-title" title={`Mode: ${result.mode || "daily"}. Symbols: ${(result.symbols_tested || []).length}. Completed in ${result.elapsed_sec || "?"}s. Metrics are computed on realized trade P&L from $${Number(M.start_equity || 100000).toLocaleString()} starting equity.`}>
             Results
+            <button className="rr-btn bt-pin" onClick={() => setPinned(pinned ? null : { metrics: result.metrics, label: `${result.structure || "run"} · ${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` })}
+                    title={pinned ? "Unpin the saved run." : "Pin this run's headline metrics, then run a variation — the next result shows a side-by-side delta against the pin."}>
+              {pinned ? "unpin A/B" : "pin for A/B"}
+            </button>
             <span className="bt-modeled-badge"
                   title={`These are SIMULATED results, not historical fills. Model assumptions:\n• ${((result.modeled && result.modeled.assumptions) || ["Fills at the next bar's open; modeled spread, slippage and commissions"]).join("\n• ")}`}>
               {result.modeled && result.modeled.option_premiums ? "MODELED — synthetic option prices" : "MODELED — simulated fills"}
@@ -356,6 +690,26 @@ function BacktestCard({ apiFetch }) {
                 : "All fills model-priced — real-quote coverage builds as the app records daily chain snapshots"}
             </div>
           )}
+          <BTScorecard result={result} />
+          {pinned && pinned.metrics && (
+            <div className="bt-bd bt-ab" title={`Side-by-side vs the pinned run (${pinned.label}). Positive delta = the current run is better on that metric.`}>
+              <em>A/B vs pinned · {pinned.label}</em>
+              <table><tbody>
+                {["total_pnl", "win_rate", "max_drawdown_pct", "sharpe", "avg_return_on_bp_pct"].map(k => {
+                  const a = pinned.metrics[k], b = M[k];
+                  if (a == null && b == null) return null;
+                  const d = (b != null && a != null) ? +(b - a).toFixed(2) : null;
+                  const betterUp = k !== "max_drawdown_pct";
+                  return (
+                    <tr key={k}><td>{k.replace(/_/g, " ")}</td>
+                      <td className="num">{a ?? "—"}</td>
+                      <td className="num">{b ?? "—"}</td>
+                      <td className={`num ${d == null ? "" : (betterUp ? d >= 0 : d <= 0) ? "up" : "down"}`}>{d == null ? "" : `${d >= 0 ? "+" : ""}${d}`}</td></tr>
+                  );
+                })}
+              </tbody></table>
+            </div>
+          )}
           <div className="bt-tiles">
             <div className="bt-tile" title="Sum of all realized trade P&L as a % of starting equity ($100k), after modeled costs."><span>Total return</span><b className={M.total_return_pct >= 0 ? "up" : "down"}>{M.total_return_pct}%</b></div>
             <div className="bt-tile" title="Realized profit and loss in dollars, after spread, slippage and commissions."><span>Total P&L</span><b className={M.total_pnl >= 0 ? "up" : "down"}>{fmtD(M.total_pnl)}</b></div>
@@ -374,6 +728,18 @@ function BacktestCard({ apiFetch }) {
             )}
           </div>
           <BTEquityCurve curve={result.equity_curve} start={M.start_equity || 100000} />
+          <BTDrawdown curve={result.equity_curve} />
+          <div className="bt-tear">
+            <BTMonthly curve={result.equity_curve} />
+            <BTHistogram trades={result.trades} />
+            <BTMaeMfe trades={result.trades} />
+          </div>
+          <BTBreakdowns result={result} />
+          {replayIdx != null && (
+            <BTReplay trades={result.trades || []} idx={replayIdx}
+                      onStep={(d) => setReplayIdx(i => Math.max(0, Math.min((result.trades || []).length - 1, i + d)))}
+                      onClose={() => setReplayIdx(null)} />
+          )}
           <div className="bt-detail">
             {result.best_trade && (
               <span title={`Best single trade: ${result.best_trade.symbol} ${result.best_trade.entry_date} → ${result.best_trade.exit_date} (${result.best_trade.reason}).`}>
@@ -407,8 +773,10 @@ function BacktestCard({ apiFetch }) {
               <table className="bt-trades">
                 <thead><tr><th>Sym</th><th>In</th><th>Out</th><th>Entry</th><th>Exit</th><th>Why</th><th>P&L</th><th>%</th></tr></thead>
                 <tbody>
-                  {(result.trades || []).slice().reverse().map((t, i) => (
-                    <tr key={i}>
+                  {(result.trades || []).slice().reverse().map((t, i, arr) => (
+                    <tr key={i} className={t.marks && t.marks.length ? "bt-tr-replay" : ""}
+                        title={t.marks && t.marks.length ? "Click to replay this trade's daily lifecycle." : undefined}
+                        onClick={() => { if (t.marks && t.marks.length) setReplayIdx((result.trades || []).indexOf(t)); }}>
                       <td title={t.structure && t.legs ? t.legs.map(l => `${l.qty > 0 ? "+" : "−"}${l.strike}${l.right[0].toUpperCase()}@${l.entry_px}`).join(" ") : undefined}>
                         {t.symbol}
                         {t.option ? ` ${t.option.strike}${t.option.right[0].toUpperCase()}` : ""}

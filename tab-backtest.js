@@ -271,6 +271,417 @@ function BTEquityCurve({
     className: up ? "up" : "down"
   }, "$", Math.round(vals[vals.length - 1]).toLocaleString()), /*#__PURE__*/React.createElement("span", null, curve[curve.length - 1].date)));
 }
+
+// ── B4: validation scorecard ────────────────────────────────────────────────
+// The honest "should I trust this?" header. Every chip is a REAL statistic
+// with its meaning in the tooltip — no blended black-box score.
+function BTScorecard({
+  result
+}) {
+  const M = result.metrics || {};
+  const chips = [];
+  const add = (label, value, tone, tip) => chips.push({
+    label,
+    value,
+    tone,
+    tip
+  });
+  if (M.n_trades != null) add("SAMPLE", `${M.n_trades} trades`, M.n_trades >= 30 ? "ok" : "warn", M.n_trades >= 30 ? "30+ trades — statistics start to mean something." : "Under 30 trades — every number here is noisy; treat as anecdote, not evidence.");
+  const wf = result.walk_forward;
+  if (wf && wf.wf_efficiency != null) add("WALK-FWD", `${wf.wf_efficiency}× · ${wf.oos_positive_folds} OOS+`, wf.wf_efficiency >= 0.5 ? "ok" : wf.wf_efficiency > 0 ? "warn" : "bad", `Out-of-sample P&L-per-trade ÷ in-sample, across ${wf.folds.length} rolling folds. ${wf.verdict}. 1.0 = the edge fully persists on data that follows each fit window.`);
+  const mc = result.monte_carlo;
+  if (mc) add("MONTE CARLO", `P95 DD ${mc.max_dd_pct.p95}% · ruin ${mc.risk_of_ruin_pct}%`, mc.risk_of_ruin_pct <= 1 ? "ok" : mc.risk_of_ruin_pct <= 10 ? "warn" : "bad", `${mc.n_paths.toLocaleString()} seeded reorderings of your own trades: 95th-percentile max drawdown ${mc.max_dd_pct.p95}% (median ${mc.max_dd_pct.p50}%), and ${mc.risk_of_ruin_pct}% of paths breached the ${mc.ruin_threshold_dd_pct}% drawdown "ruin" line at this sizing. ${mc.note}`);
+  const ds = result.deflated_sharpe;
+  if (ds) add("DEFLATED SHARPE", `${ds.dsr}`, ds.dsr >= 0.95 ? "ok" : ds.dsr >= 0.5 ? "warn" : "bad", `Probability the observed Sharpe beats the best of ${ds.n_trials} tried configuration(s) by skill rather than selection luck (Bailey & López de Prado). Hurdle: ${ds.hurdle_sr_annual} annualized. ${ds.verdict}.`);
+  const sens = result.sensitivity;
+  if (sens) add("PREMIUM BAND", /survives/.test(sens.verdict) ? "sign holds" : "sign flips", /survives/.test(sens.verdict) ? "ok" : "bad", sens.verdict);
+  const rm = result.regime_matrix;
+  if (rm && rm.concentration_warning) add("REGIME", "concentrated", "warn", rm.concentration_warning);
+  if (M.real_fill_pct != null && M.real_fill_pct > 0) add("REAL FILLS", `${M.real_fill_pct}%`, "ok", "Share of entry fills priced from real recorded bid/ask instead of the model.");
+  if (!chips.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-score",
+    role: "group",
+    "aria-label": "Validation scorecard"
+  }, chips.map((c, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: `bt-score-chip ${c.tone}`,
+    title: c.tip
+  }, /*#__PURE__*/React.createElement("em", null, c.label), /*#__PURE__*/React.createElement("b", null, c.value))));
+}
+
+// ── B4: drawdown underlay ───────────────────────────────────────────────────
+function BTDrawdown({
+  curve
+}) {
+  if (!curve || curve.length < 3) return null;
+  const W = 640,
+    H = 46,
+    PAD = 6;
+  let peak = -Infinity;
+  const dds = curve.map(p => {
+    peak = Math.max(peak, p.equity);
+    return peak > 0 ? (peak - p.equity) / peak * 100 : 0;
+  });
+  const maxDD = Math.max(0.1, ...dds);
+  const x = i => PAD + (W - 2 * PAD) * (i / (curve.length - 1));
+  const y = v => PAD + (H - 2 * PAD) * (v / maxDD);
+  const pts = [`${PAD},${PAD}`].concat(dds.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`)).concat([`${W - PAD},${PAD}`]).join(" ");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-dd",
+    title: `Drawdown underlay (mark-to-model — open-position pain included). Deepest: ${maxDD.toFixed(1)}%.`
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none"
+  }, /*#__PURE__*/React.createElement("polygon", {
+    points: pts,
+    className: "bt-dd-area"
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "bt-dd-lbl num"
+  }, "\u2212", maxDD.toFixed(1), "%"));
+}
+
+// ── B4: monthly returns heatmap ─────────────────────────────────────────────
+function BTMonthly({
+  curve
+}) {
+  if (!curve || curve.length < 25) return null;
+  const byMonth = new Map(); // "YYYY-MM" -> {first, last}
+  for (const p of curve) {
+    const m = p.date.slice(0, 7);
+    const e = byMonth.get(m);
+    if (!e) byMonth.set(m, {
+      first: p.equity,
+      last: p.equity
+    });else e.last = p.equity;
+  }
+  const months = [...byMonth.keys()].sort();
+  if (months.length < 3) return null;
+  let prev = null;
+  const cells = months.map(m => {
+    const e = byMonth.get(m);
+    const base = prev != null ? prev : e.first;
+    prev = e.last;
+    const ret = base > 0 ? (e.last / base - 1) * 100 : 0;
+    return {
+      m,
+      ret
+    };
+  });
+  const amax = Math.max(0.5, ...cells.map(c => Math.abs(c.ret)));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-months",
+    title: "Month-by-month return of the mark-to-model equity curve. Consistent light green beats occasional dark green next to dark red."
+  }, cells.map(c => /*#__PURE__*/React.createElement("span", {
+    key: c.m,
+    className: "bt-month",
+    title: `${c.m}: ${c.ret >= 0 ? "+" : ""}${c.ret.toFixed(2)}%`,
+    style: {
+      background: `color-mix(in oklch, var(${c.ret >= 0 ? "--up" : "--down"}), transparent ${Math.round(90 - 55 * Math.min(1, Math.abs(c.ret) / amax))}%)`
+    }
+  }, /*#__PURE__*/React.createElement("em", null, c.m.slice(2)), /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, c.ret >= 0 ? "+" : "", c.ret.toFixed(1)))));
+}
+
+// ── B4: P/L distribution + MAE/MFE ─────────────────────────────────────────
+function BTHistogram({
+  trades
+}) {
+  if (!trades || trades.length < 8) return null;
+  const pnls = trades.map(t => t.pnl);
+  const lo = Math.min(...pnls),
+    hi = Math.max(...pnls);
+  if (hi <= lo) return null;
+  const NB = Math.min(21, Math.max(9, Math.floor(trades.length / 3)));
+  const bins = new Array(NB).fill(0);
+  for (const p of pnls) bins[Math.min(NB - 1, Math.floor((p - lo) / (hi - lo) * NB))]++;
+  const mx = Math.max(...bins);
+  const zeroX = lo < 0 && hi > 0 ? (0 - lo) / (hi - lo) * 100 : null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-hist",
+    title: `Distribution of the ${trades.length} trade P&Ls. Premium selling should look like many small wins left-skewed by a few larger losses — if the LEFT tail dominates the total, the strategy is picking up pennies in front of the steamroller.`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bt-hist-bars"
+  }, bins.map((b, i) => {
+    const mid = lo + (i + 0.5) / NB * (hi - lo);
+    return /*#__PURE__*/React.createElement("span", {
+      key: i,
+      className: mid >= 0 ? "up" : "down",
+      style: {
+        height: `${b / mx * 100}%`
+      },
+      title: `$${Math.round(lo + i / NB * (hi - lo)).toLocaleString()} … $${Math.round(lo + (i + 1) / NB * (hi - lo)).toLocaleString()}: ${b} trade${b === 1 ? "" : "s"}`
+    });
+  }), zeroX != null && /*#__PURE__*/React.createElement("i", {
+    className: "bt-hist-zero",
+    style: {
+      left: `${zeroX}%`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "bt-hist-lbls num"
+  }, /*#__PURE__*/React.createElement("span", null, "$", Math.round(lo).toLocaleString()), /*#__PURE__*/React.createElement("span", null, "P&L per trade"), /*#__PURE__*/React.createElement("span", null, "$", Math.round(hi).toLocaleString())));
+}
+function btExcursions(t) {
+  // MAE/MFE from the trade's daily marks (open P/L path, $ per position).
+  if (!t.marks || !t.marks.length) return null;
+  const entryCash = t.is_credit ? t.credit : -t.credit;
+  const mult = (t.contracts || 1) * 100;
+  let mae = 0,
+    mfe = 0;
+  for (const m of t.marks) {
+    const pl = (entryCash + m.value) * mult;
+    mae = Math.min(mae, pl);
+    mfe = Math.max(mfe, pl);
+  }
+  return {
+    mae,
+    mfe
+  };
+}
+function BTMaeMfe({
+  trades
+}) {
+  const pts = (trades || []).map(t => ({
+    t,
+    e: btExcursions(t)
+  })).filter(x => x.e);
+  if (pts.length < 8) return null;
+  const W = 300,
+    H = 170,
+    PAD = 26;
+  const maxX = Math.max(50, ...pts.map(p => -p.e.mae));
+  const maxY = Math.max(50, ...pts.map(p => Math.max(p.e.mfe, p.t.pnl, 0)));
+  const x = v => PAD + (W - PAD - 6) * (v / maxX);
+  const y = v => H - PAD - (H - PAD - 6) * (v / maxY);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-maemfe",
+    title: "Each dot is a trade: how far it went AGAINST you at its worst (\u2192, Maximum Adverse Excursion, from daily marks) vs its final P&L color. A cluster of green dots far right = winners that survived deep pain \u2014 your stop may be doing nothing; red dots near the left axis = losses that never recovered \u2014 a tighter stop was free."
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`
+  }, /*#__PURE__*/React.createElement("line", {
+    x1: PAD,
+    y1: H - PAD,
+    x2: W - 4,
+    y2: H - PAD,
+    className: "bt-ax"
+  }), /*#__PURE__*/React.createElement("line", {
+    x1: PAD,
+    y1: 4,
+    x2: PAD,
+    y2: H - PAD,
+    className: "bt-ax"
+  }), pts.map((p, i) => /*#__PURE__*/React.createElement("circle", {
+    key: i,
+    cx: x(-p.e.mae),
+    cy: y(Math.max(0, p.e.mfe)),
+    r: "3",
+    className: p.t.pnl >= 0 ? "up" : "down"
+  }, /*#__PURE__*/React.createElement("title", null, `${p.t.symbol} ${p.t.entry_date}: worst ${Math.round(p.e.mae).toLocaleString()}, best +${Math.round(p.e.mfe).toLocaleString()}, final ${Math.round(p.t.pnl).toLocaleString()}`)))), /*#__PURE__*/React.createElement("div", {
+    className: "bt-maemfe-lbl"
+  }, /*#__PURE__*/React.createElement("span", null, "MAE \u2192 (worst open loss)"), /*#__PURE__*/React.createElement("span", null, "MFE \u2191")));
+}
+
+// ── B4: breakdown tables + WF folds + benchmarks + optimizer grid ──────────
+function BTBreakdowns({
+  result
+}) {
+  const trades = result.trades || [];
+  const fmtD = v => `${v < 0 ? "−" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
+  const groupBy = key => {
+    const g = {};
+    for (const t of trades) {
+      const k = key(t) || "—";
+      const e = g[k] || (g[k] = {
+        n: 0,
+        pnl: 0,
+        wins: 0
+      });
+      e.n++;
+      e.pnl += t.pnl;
+      e.wins += t.pnl > 0 ? 1 : 0;
+    }
+    return Object.entries(g).sort((a, b) => b[1].pnl - a[1].pnl);
+  };
+  const Tbl = ({
+    title,
+    rows,
+    tip
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd",
+    title: tip
+  }, /*#__PURE__*/React.createElement("em", null, title), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, rows.map(([k, v]) => /*#__PURE__*/React.createElement("tr", {
+    key: k
+  }, /*#__PURE__*/React.createElement("td", null, k), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, v.n), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, Math.round(v.wins / v.n * 100), "%"), /*#__PURE__*/React.createElement("td", {
+    className: `num ${v.pnl >= 0 ? "up" : "down"}`
+  }, fmtD(v.pnl)))))));
+  const wf = result.walk_forward;
+  const bench = result.benchmarks;
+  const opt = result.optimizer;
+  const rm = result.regime_matrix;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-bds"
+  }, trades.length > 3 && /*#__PURE__*/React.createElement(Tbl, {
+    title: "BY EXIT",
+    rows: groupBy(t => t.reason),
+    tip: "Where the P&L actually comes from. Healthy managed premium selling earns most from 'target' (profit-takes); heavy 'stop'/'assigned' P&L means the entries are the problem."
+  }), trades.length > 3 && new Set(trades.map(t => t.symbol)).size > 1 && /*#__PURE__*/React.createElement(Tbl, {
+    title: "BY SYMBOL",
+    rows: groupBy(t => t.symbol),
+    tip: "Concentration check \u2014 if one name carries the whole result, this is a stock thesis wearing a strategy costume."
+  }), rm && rm.cells && rm.cells.length > 1 && /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd",
+    title: "Trend regime (SPY 50/200) \xD7 volatility regime (VIX tercile) at entry. An edge that only exists in one cell needs that cell to persist."
+  }, /*#__PURE__*/React.createElement("em", null, "BY REGIME (trend \xD7 vol)"), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, rm.cells.map(c => /*#__PURE__*/React.createElement("tr", {
+    key: c.trend + c.vol
+  }, /*#__PURE__*/React.createElement("td", null, c.trend, " / ", c.vol, " vol"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, c.n), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, c.win_rate, "%"), /*#__PURE__*/React.createElement("td", {
+    className: `num ${c.pnl >= 0 ? "up" : "down"}`
+  }, fmtD(c.pnl)))))), rm.concentration_warning && /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd-warn"
+  }, "\u26A0 ", rm.concentration_warning)), wf && wf.folds && /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd",
+    title: "Rolling in-sample / out-of-sample folds. The OOS column is the honest one \u2014 it's performance on data that FOLLOWS each window."
+  }, /*#__PURE__*/React.createElement("em", null, "WALK-FORWARD FOLDS ", wf.wf_efficiency != null ? `· WFE ${wf.wf_efficiency}×` : ""), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "IS P&L"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "OOS P&L"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "OOS n")), wf.folds.map(f => /*#__PURE__*/React.createElement("tr", {
+    key: f.fold
+  }, /*#__PURE__*/React.createElement("td", null, "fold ", f.fold), /*#__PURE__*/React.createElement("td", {
+    className: `num ${(f.is.total_pnl || 0) >= 0 ? "up" : "down"}`
+  }, fmtD(f.is.total_pnl || 0)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${(f.oos.total_pnl || 0) >= 0 ? "up" : "down"}`
+  }, fmtD(f.oos.total_pnl || 0)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, f.oos.n_trades ?? "—"))))), /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd-note"
+  }, wf.verdict)), bench && /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd",
+    title: "Context, not competition: a short-premium book targets a different risk shape than buy-and-hold. But if SPY beat you with LESS drawdown, the strategy earned nothing for its complexity."
+  }, /*#__PURE__*/React.createElement("em", null, "BENCHMARKS (same window)"), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "This strategy"), /*#__PURE__*/React.createElement("td", {
+    className: `num ${(bench.strategy_return_pct || 0) >= 0 ? "up" : "down"}`
+  }, bench.strategy_return_pct, "%"), /*#__PURE__*/React.createElement("td", null)), bench.spy_buy_hold && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "SPY buy & hold"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, bench.spy_buy_hold.return_pct, "%"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "DD ", bench.spy_buy_hold.max_drawdown_pct, "%")), bench.t_bill && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    title: bench.t_bill.rate_source
+  }, "T-bills (risk-free)"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, bench.t_bill.return_pct, "%"), /*#__PURE__*/React.createElement("td", null))))), opt && opt.grid && /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd bt-opt",
+    title: opt.plateau ? opt.plateau.note : ""
+  }, /*#__PURE__*/React.createElement("em", null, "OPTIMIZER GRID \xB7 ", opt.n_combos, " combos", opt.plateau && opt.plateau.plateau != null ? ` · plateau ${opt.plateau.plateau}` : ""), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\u0394 / DTE / PT"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "n"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "P&L"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, "Sharpe")), opt.grid.map((g, i) => {
+    const isBest = opt.plateau && opt.plateau.best === g;
+    const isRobust = opt.plateau && opt.plateau.robust === g;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: i,
+      className: isRobust ? "bt-opt-robust" : isBest ? "bt-opt-best" : ""
+    }, /*#__PURE__*/React.createElement("td", null, g.target_delta, "\u0394 / ", g.dte, "d", g.profit_take_pct != null ? ` / ${g.profit_take_pct}%` : "", isRobust ? " ★robust" : isBest ? " ·peak" : ""), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, g.n_trades), /*#__PURE__*/React.createElement("td", {
+      className: `num ${g.total_pnl >= 0 ? "up" : "down"}`
+    }, fmtD(g.total_pnl)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, g.sharpe ?? "—"));
+  })))));
+}
+
+// ── B4: trade replay ────────────────────────────────────────────────────────
+// The lifecycle of ONE trade: its daily modeled value path with every
+// management/assignment event marked. Step through trades with ‹ ›.
+function BTReplay({
+  trades,
+  idx,
+  onStep,
+  onClose
+}) {
+  const t = trades[idx];
+  if (!t || !t.marks || !t.marks.length) return null;
+  const entryCash = t.is_credit ? t.credit : -t.credit;
+  const mult = (t.contracts || 1) * 100;
+  const pls = t.marks.map(m => (entryCash + m.value) * mult);
+  const W = 640,
+    H = 160,
+    PAD = 8;
+  const lo = Math.min(0, ...pls, t.pnl),
+    hi = Math.max(0, ...pls, t.pnl);
+  const span = Math.max(1, hi - lo);
+  const x = i => PAD + (W - 2 * PAD) * (i / Math.max(1, t.marks.length - 1));
+  const y = v => H - PAD - (H - 2 * PAD) * ((v - lo) / span);
+  const evByDate = {};
+  for (const e of t.events || []) evByDate[e.date] = e;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "bt-replay"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bt-replay-head"
+  }, /*#__PURE__*/React.createElement("b", null, t.symbol, " \xB7 ", String(t.structure || "").replace(/_/g, " "), " \xB7 ", t.entry_date, " \u2192 ", t.exit_date), /*#__PURE__*/React.createElement("span", {
+    className: `num ${t.pnl >= 0 ? "up" : "down"}`
+  }, t.pnl >= 0 ? "+" : "", Math.round(t.pnl).toLocaleString()), /*#__PURE__*/React.createElement("span", {
+    className: "bt-replay-nav"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    disabled: idx <= 0,
+    onClick: () => onStep(-1)
+  }, "\u2039 prev"), /*#__PURE__*/React.createElement("span", {
+    className: "num"
+  }, idx + 1, "/", trades.length), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    disabled: idx >= trades.length - 1,
+    onClick: () => onStep(1)
+  }, "next \u203A"), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: onClose
+  }, "close"))), /*#__PURE__*/React.createElement("div", {
+    className: "bt-replay-meta"
+  }, t.is_credit ? `credit $${t.credit}/sh` : `debit $${t.credit}/sh`, " \xD7", t.contracts, " · ", "legs ", (t.legs || []).map(l => `${l.qty > 0 ? "+" : "−"}${l.strike}${l.right[0].toUpperCase()}${l.fill_src === "real" ? "•" : ""}`).join(" "), " · ", "BP $", Math.round(t.bp || 0).toLocaleString(), " \xB7 exit: ", t.reason, (t.legs || []).some(l => l.fill_src === "real") && /*#__PURE__*/React.createElement("span", {
+    title: "\u2022 = leg filled at REAL recorded bid/ask"
+  }, " \xB7 \u2022 real fill")), /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none",
+    className: "bt-replay-svg",
+    "aria-label": "Open P&L path (modeled daily marks)"
+  }, /*#__PURE__*/React.createElement("line", {
+    x1: PAD,
+    x2: W - PAD,
+    y1: y(0),
+    y2: y(0),
+    className: "bt-curve-base"
+  }), /*#__PURE__*/React.createElement("polyline", {
+    className: `bt-curve-line ${t.pnl >= 0 ? "up" : "down"}`,
+    points: t.marks.map((m, i) => `${x(i).toFixed(1)},${y(pls[i]).toFixed(1)}`).join(" ")
+  }), t.marks.map((m, i) => evByDate[m.date] ? /*#__PURE__*/React.createElement("circle", {
+    key: i,
+    cx: x(i),
+    cy: y(pls[i]),
+    r: "4",
+    className: "bt-replay-ev"
+  }, /*#__PURE__*/React.createElement("title", null, `${m.date}: ${evByDate[m.date].type} — ${evByDate[m.date].detail || ""}`)) : null)), /*#__PURE__*/React.createElement("div", {
+    className: "bt-replay-events"
+  }, (t.events || []).map((e, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: `bt-replay-echip ${e.type}`,
+    title: e.detail || e.type
+  }, e.date.slice(5), " ", e.type))), /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd-note"
+  }, "Daily MODELED marks (option value re-priced off the underlying's close) \u2014 the path between marks is unknown; events show the engine's actual decisions."));
+}
 function BacktestCard({
   apiFetch
 }) {
@@ -289,6 +700,8 @@ function BacktestCard({
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
   const [showJson, setShowJson] = useState(false);
+  const [replayIdx, setReplayIdx] = useState(null); // B4: trade replay
+  const [pinned, setPinned] = useState(null); // B4: A/B comparison
   const [jsonDraft, setJsonDraft] = useState("");
   const [showTrades, setShowTrades] = useState(false);
   const pollRef = useRef(null);
@@ -696,7 +1109,17 @@ function BacktestCard({
   }, /*#__PURE__*/React.createElement("div", {
     className: "bt-sec-title",
     title: `Mode: ${result.mode || "daily"}. Symbols: ${(result.symbols_tested || []).length}. Completed in ${result.elapsed_sec || "?"}s. Metrics are computed on realized trade P&L from $${Number(M.start_equity || 100000).toLocaleString()} starting equity.`
-  }, "Results", /*#__PURE__*/React.createElement("span", {
+  }, "Results", /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn bt-pin",
+    onClick: () => setPinned(pinned ? null : {
+      metrics: result.metrics,
+      label: `${result.structure || "run"} · ${new Date().toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit"
+      })}`
+    }),
+    title: pinned ? "Unpin the saved run." : "Pin this run's headline metrics, then run a variation — the next result shows a side-by-side delta against the pin."
+  }, pinned ? "unpin A/B" : "pin for A/B"), /*#__PURE__*/React.createElement("span", {
     className: "bt-modeled-badge",
     title: `These are SIMULATED results, not historical fills. Model assumptions:\n• ${(result.modeled && result.modeled.assumptions || ["Fills at the next bar's open; modeled spread, slippage and commissions"]).join("\n• ")}`
   }, result.modeled && result.modeled.option_premiums ? "MODELED — synthetic option prices" : "MODELED — simulated fills")), (result.warnings || []).length > 0 && /*#__PURE__*/React.createElement("div", {
@@ -711,7 +1134,27 @@ function BacktestCard({
   }, " \xB7 $", result.sensitivity.low.total_pnl.toLocaleString(), " / $", result.sensitivity.base_total_pnl.toLocaleString(), " / $", result.sensitivity.high.total_pnl.toLocaleString())), M.real_fill_pct != null && /*#__PURE__*/React.createElement("div", {
     className: "bt-fillsrc",
     title: `Entry fills priced from REAL recorded bid/ask (the app snapshots every chain it touches, once per symbol per day) vs the model. Real coverage grows automatically with normal app use. Sources: ${JSON.stringify(M.entry_fill_sources)}.`
-  }, M.real_fill_pct > 0 ? `${M.real_fill_pct}% of entry fills priced from REAL recorded quotes` : "All fills model-priced — real-quote coverage builds as the app records daily chain snapshots"), /*#__PURE__*/React.createElement("div", {
+  }, M.real_fill_pct > 0 ? `${M.real_fill_pct}% of entry fills priced from REAL recorded quotes` : "All fills model-priced — real-quote coverage builds as the app records daily chain snapshots"), /*#__PURE__*/React.createElement(BTScorecard, {
+    result: result
+  }), pinned && pinned.metrics && /*#__PURE__*/React.createElement("div", {
+    className: "bt-bd bt-ab",
+    title: `Side-by-side vs the pinned run (${pinned.label}). Positive delta = the current run is better on that metric.`
+  }, /*#__PURE__*/React.createElement("em", null, "A/B vs pinned \xB7 ", pinned.label), /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, ["total_pnl", "win_rate", "max_drawdown_pct", "sharpe", "avg_return_on_bp_pct"].map(k => {
+    const a = pinned.metrics[k],
+      b = M[k];
+    if (a == null && b == null) return null;
+    const d = b != null && a != null ? +(b - a).toFixed(2) : null;
+    const betterUp = k !== "max_drawdown_pct";
+    return /*#__PURE__*/React.createElement("tr", {
+      key: k
+    }, /*#__PURE__*/React.createElement("td", null, k.replace(/_/g, " ")), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, a ?? "—"), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, b ?? "—"), /*#__PURE__*/React.createElement("td", {
+      className: `num ${d == null ? "" : (betterUp ? d >= 0 : d <= 0) ? "up" : "down"}`
+    }, d == null ? "" : `${d >= 0 ? "+" : ""}${d}`));
+  })))), /*#__PURE__*/React.createElement("div", {
     className: "bt-tiles"
   }, /*#__PURE__*/React.createElement("div", {
     className: "bt-tile",
@@ -763,6 +1206,23 @@ function BacktestCard({
   }, /*#__PURE__*/React.createElement("span", null, "Assignments"), /*#__PURE__*/React.createElement("b", null, M.assignments))), /*#__PURE__*/React.createElement(BTEquityCurve, {
     curve: result.equity_curve,
     start: M.start_equity || 100000
+  }), /*#__PURE__*/React.createElement(BTDrawdown, {
+    curve: result.equity_curve
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "bt-tear"
+  }, /*#__PURE__*/React.createElement(BTMonthly, {
+    curve: result.equity_curve
+  }), /*#__PURE__*/React.createElement(BTHistogram, {
+    trades: result.trades
+  }), /*#__PURE__*/React.createElement(BTMaeMfe, {
+    trades: result.trades
+  })), /*#__PURE__*/React.createElement(BTBreakdowns, {
+    result: result
+  }), replayIdx != null && /*#__PURE__*/React.createElement(BTReplay, {
+    trades: result.trades || [],
+    idx: replayIdx,
+    onStep: d => setReplayIdx(i => Math.max(0, Math.min((result.trades || []).length - 1, i + d))),
+    onClose: () => setReplayIdx(null)
   }), /*#__PURE__*/React.createElement("div", {
     className: "bt-detail"
   }, result.best_trade && /*#__PURE__*/React.createElement("span", {
@@ -792,8 +1252,13 @@ function BacktestCard({
     className: "bt-trades-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "bt-trades"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Sym"), /*#__PURE__*/React.createElement("th", null, "In"), /*#__PURE__*/React.createElement("th", null, "Out"), /*#__PURE__*/React.createElement("th", null, "Entry"), /*#__PURE__*/React.createElement("th", null, "Exit"), /*#__PURE__*/React.createElement("th", null, "Why"), /*#__PURE__*/React.createElement("th", null, "P&L"), /*#__PURE__*/React.createElement("th", null, "%"))), /*#__PURE__*/React.createElement("tbody", null, (result.trades || []).slice().reverse().map((t, i) => /*#__PURE__*/React.createElement("tr", {
-    key: i
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Sym"), /*#__PURE__*/React.createElement("th", null, "In"), /*#__PURE__*/React.createElement("th", null, "Out"), /*#__PURE__*/React.createElement("th", null, "Entry"), /*#__PURE__*/React.createElement("th", null, "Exit"), /*#__PURE__*/React.createElement("th", null, "Why"), /*#__PURE__*/React.createElement("th", null, "P&L"), /*#__PURE__*/React.createElement("th", null, "%"))), /*#__PURE__*/React.createElement("tbody", null, (result.trades || []).slice().reverse().map((t, i, arr) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    className: t.marks && t.marks.length ? "bt-tr-replay" : "",
+    title: t.marks && t.marks.length ? "Click to replay this trade's daily lifecycle." : undefined,
+    onClick: () => {
+      if (t.marks && t.marks.length) setReplayIdx((result.trades || []).indexOf(t));
+    }
   }, /*#__PURE__*/React.createElement("td", {
     title: t.structure && t.legs ? t.legs.map(l => `${l.qty > 0 ? "+" : "−"}${l.strike}${l.right[0].toUpperCase()}@${l.entry_px}`).join(" ") : undefined
   }, t.symbol, t.option ? ` ${t.option.strike}${t.option.right[0].toUpperCase()}` : "", t.structure ? ` ${String(t.structure).replace(/_/g, " ")}${t.contracts > 1 ? ` ×${t.contracts}` : ""}` : ""), /*#__PURE__*/React.createElement("td", null, t.entry_date), /*#__PURE__*/React.createElement("td", null, t.exit_date), t.structure ? /*#__PURE__*/React.createElement("td", {

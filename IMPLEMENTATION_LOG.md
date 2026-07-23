@@ -328,3 +328,29 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   lone-peak. End-to-end smoke: full payload (MC/WF/DSR/optimizer/
   benchmarks/sensitivity) on the stub client. CI extended.
   Battery: 112 unittest OK + JS 107 + smoke 50/50.
+
+## B4 — Tear sheet, scorecard, trade replay, A/B (tab-backtest chunk)
+
+- **Validation scorecard** — chip row of REAL statistics (no blended
+  score): sample size, walk-forward WFE + OOS-positive folds, Monte
+  Carlo P95 drawdown + risk-of-ruin, Deflated Sharpe, premium-band
+  sign-survival, regime concentration, real-fill share. Tooltips carry
+  the full meaning of each number.
+- **Tear sheet** — drawdown underlay beneath the equity curve (mark-to-
+  model, open pain included), monthly-returns heatmap, per-trade P/L
+  histogram with zero-line, MAE/MFE scatter from each trade's daily
+  marks (labeled daily-resolution), breakdown tables (by exit reason,
+  by symbol, trend×vol regime cells with the concentration warning,
+  walk-forward fold table, benchmarks strip, optimizer grid with
+  ★robust vs ·peak rows).
+- **Trade replay** — click any structure trade → its full lifecycle:
+  daily open-P/L path (labeled MODELED marks) with event dots
+  (open/profit-take/stop/roll/assigned/expired), legs with real-fill •
+  markers, BP, prev/next stepping.
+- **A/B comparison** — pin a run's headline metrics, run a variation,
+  get a per-metric delta table (direction-aware coloring).
+- **Verified in Chromium** against a REAL engine payload (37-trade CSP
+  run with full validation fields): 5 scorecard chips, 17 monthly
+  cells, 12 histogram bars, 37 MAE/MFE dots, 4 breakdown tables,
+  replay open/step, A/B pin — zero JS errors. All inside the lazy
+  tab-backtest chunk (no initial-load cost).
