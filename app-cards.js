@@ -15788,6 +15788,143 @@ function ValuationCard({
   }, " \xB7 cheaper than ", 100 - p.percentile, "% of peers")));
 }
 
+// ── Credit Risk monitor (v3.65) ─────────────────────────────────────────────
+// Bloomberg-style single-name credit view WITHOUT Bloomberg. Single-name CDS
+// quotes are paid dealer data (S&P Global/Bloomberg/ICE) — never shown,
+// never faked. Instead: the Merton structural-model 5Y spread (market cap +
+// equity vol + balance-sheet debt, the Moody's-KMV approach) trended daily,
+// the live crash-put skew gauge (dealers hedge CDS with deep OTM puts), and
+// the REAL traded credit-index backdrop (ICE BofA OAS via FRED).
+function CRSeriesSvg({
+  series
+}) {
+  if (!series || series.length < 10) return null;
+  const W = 620,
+    H = 120,
+    PAD = 6;
+  const vals = series.map(p => p.spread_bps);
+  const lo = Math.min(...vals),
+    hi = Math.max(...vals);
+  const span = Math.max(1, hi - lo);
+  const x = i => PAD + (W - 2 * PAD) * (i / (series.length - 1));
+  const y = v => H - PAD - (H - 2 * PAD) * ((v - lo) / span);
+  const widening = vals[vals.length - 1] > vals[0];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "cr-chart",
+    title: `Merton model 5Y credit spread, daily, ${series[0].date} → ${series[series.length - 1].date}. Range ${Math.round(lo)}–${Math.round(hi)} bps. A STRUCTURAL MODEL from market cap, equity vol and balance-sheet debt — trends with real CDS, but is not a traded quote.`
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none"
+  }, /*#__PURE__*/React.createElement("polyline", {
+    className: `cr-line ${widening ? "down" : "up"}`,
+    points: series.map((p, i) => `${x(i).toFixed(1)},${y(p.spread_bps).toFixed(1)}`).join(" ")
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "cr-chart-lbls num"
+  }, /*#__PURE__*/React.createElement("span", null, series[0].date), /*#__PURE__*/React.createElement("span", null, Math.round(lo), "\u2013", Math.round(hi), " bps"), /*#__PURE__*/React.createElement("span", null, series[series.length - 1].date)));
+}
+function CreditRiskCard({
+  apiFetch,
+  ticker
+}) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    setD(null);
+    setErr(null);
+  }, [ticker]);
+  useEffect(() => {
+    let stop = false;
+    const load = () => {
+      sharedJson(apiFetch, `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, 5 * 60 * 1000).then(x => {
+        if (!stop) {
+          if (x && !x.error) setD(x);else setErr(x && x.error || "no data");
+        }
+      }).catch(e => {
+        if (!stop) setErr(String(e && e.message || e));
+      });
+    };
+    load();
+    const t = setInterval(skipWhenHidden(load), 10 * 60 * 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [ticker]);
+  if (err && !d) return /*#__PURE__*/React.createElement("div", {
+    className: "card cr-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "structural credit \xB7 no Bloomberg required"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Credit Risk"))), /*#__PURE__*/React.createElement("div", {
+    className: "tsy-sigd"
+  }, "Unavailable: ", err));
+  if (!d) return null;
+  const m = d.merton || {};
+  const latest = m.latest;
+  const mk = d.market || {};
+  const skew = d.skew;
+  const fmtChg = v => v == null ? "" : `${v >= 0 ? "+" : ""}${v} bps/1m`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card cr-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: (d.notes || []).join("\n\n")
+  }, "structural credit \xB7 single-name CDS is paid dealer data \u2014 this is the honest free version"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Credit Risk \u2014 model 5Y spread")), latest && /*#__PURE__*/React.createElement("div", {
+    className: "cr-big num",
+    title: `Merton structural estimate. Distance-to-default ${latest.dd ?? "—"}σ · risk-neutral 5Y default probability ${latest.pd_pct}% · leverage (default point ÷ assets) ${latest.leverage_pct}%.`
+  }, Math.round(latest.spread_bps), " ", /*#__PURE__*/React.createElement("em", null, "bps"))), m.interpretation && /*#__PURE__*/React.createElement("div", {
+    className: "cr-interp"
+  }, m.interpretation), m.unavailable_reason ? /*#__PURE__*/React.createElement("div", {
+    className: "tsy-sigd"
+  }, "Model series unavailable: ", m.unavailable_reason, ".") : /*#__PURE__*/React.createElement(CRSeriesSvg, {
+    series: m.series
+  }), latest && /*#__PURE__*/React.createElement("div", {
+    className: "cr-stats"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: "Distance to default: how many standard deviations of asset value sit between the firm and its default point over 5 years. Higher = safer."
+  }, "DD ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, latest.dd ?? "—", "\u03C3")), /*#__PURE__*/React.createElement("span", {
+    title: "Risk-neutral probability of hitting the default point within 5 years \u2014 the model's raw output; real-world PDs are lower."
+  }, "PD\u2085\u1D67 ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, latest.pd_pct, "%")), /*#__PURE__*/React.createElement("span", {
+    title: m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` : ""
+  }, "leverage ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, latest.leverage_pct, "%"))), skew && /*#__PURE__*/React.createElement("div", {
+    className: "cr-skew",
+    title: skew.note
+  }, /*#__PURE__*/React.createElement("em", null, "LIVE CREDIT FEAR (options market \xB7 ", skew.expiry, ", ", skew.dte, "d)"), skew.rr25_vol_pts != null && /*#__PURE__*/React.createElement("span", {
+    title: `25Δ risk reversal: OTM put IV ${skew.put25_iv}% − OTM call IV ${skew.call25_iv}%. Rising = downside protection getting bid — the same flow that widens CDS.`
+  }, "25\u0394 skew ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, skew.rr25_vol_pts, " pts")), skew.crash_put && /*#__PURE__*/React.createElement("span", {
+    title: `The ${skew.crash_put.strike} put (${skew.crash_put.otm_pct}% OTM) costs ${skew.crash_put.cost_pct_of_spot}% of spot — ${skew.crash_put.annualized_pct}%/year to insure a >20% collapse. This is the equity market's closest listed analogue to paying CDS premium.`
+  }, "crash insurance ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, skew.crash_put.annualized_pct, "%/yr"))), mk && (mk.ig || mk.hy) && /*#__PURE__*/React.createElement("div", {
+    className: "cr-mkt",
+    title: `${mk.source}. The sector backdrop: if IG/HY are widening too, it's a credit-market story; if only this name's model spread moves, it's idiosyncratic.`
+  }, /*#__PURE__*/React.createElement("em", null, "REAL TRADED CREDIT (ICE BofA OAS \xB7 FRED)"), ["ig", "bbb", "hy"].map(k => mk[k] && /*#__PURE__*/React.createElement("span", {
+    key: k,
+    className: mk[k].chg_1m_bps > 0 ? "warn" : ""
+  }, mk[k].label.replace("US ", "").replace(" OAS", ""), " ", /*#__PURE__*/React.createElement("b", {
+    className: "num"
+  }, mk[k].bps), /*#__PURE__*/React.createElement("i", {
+    className: "num"
+  }, fmtChg(mk[k].chg_1m_bps))))), /*#__PURE__*/React.createElement("div", {
+    className: "cr-note"
+  }, "Model + options-market gauges \u2014 not a traded CDS quote (that data is dealer/paid only). Hover anything for the full math."));
+}
+
 // ── Expected Move card (v3.17) ─────────────────────────────────────────────
 // Options-implied expected move for the selected ticker: pick an expiration
 // (weeklies / monthly / earnings), see the ±range, how it compares with the
@@ -17403,6 +17540,7 @@ Object.assign(window, {
   TVPanel: _memo(TVPanel),
   UWPanel: _memo(UWPanel),
   ValuationCard: _memo(ValuationCard),
+  CreditRiskCard: _memo(CreditRiskCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard),
   RadarReportCard: _memo(RadarReportCard),

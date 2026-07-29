@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.64";
+const APP_VERSION = "3.65";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4495,6 +4495,11 @@ function App() {
         <TabPanel tab="analyze" active={activeTab}>
         <div id="jump-analyst" className="jump-anchor" aria-hidden="true"></div>
         <AnalystCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} onData={setAnalystData} strategyMode={strategyMode} />
+        {/* Credit Risk (v3.65): Merton model 5Y spread + crash-put skew +
+            real ICE BofA index OAS — the honest no-Bloomberg CDS view. */}
+        <CardErrorBoundary label="Credit risk">
+          <CreditRiskCard apiFetch={apiFetch} ticker={ticker} />
+        </CardErrorBoundary>
         </TabPanel>
 
         {/* Trade Builder — recommendation engine that combines the

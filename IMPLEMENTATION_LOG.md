@@ -381,3 +381,31 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   sizing, persistence round-trip, adherence math). CI extended.
 - **Backtest v2 final battery: 116 unittest + smoke 50/50 + JS 107 +
   verify both layers — all green.**
+
+# v3.65 — Credit Risk monitor (the honest no-Bloomberg CDS view)
+
+- **Reality stated up front**: single-name CDS quotes are OTC dealer data
+  (S&P Global/Bloomberg/ICE) — no free source exists; nothing is faked.
+- **`credit_risk.py`**: Merton structural model — bisection solver for
+  (asset value, asset vol) from market cap + rolling HV60 + KMV default
+  point (short + ½·long-term debt; 75% of total when split unavailable);
+  5Y model spread in bps, distance-to-default, risk-neutral PD; DAILY
+  series over the past year; crash-put skew gauge (25Δ risk reversal +
+  annualized ~20%-OTM put cost) from live chains; honest interpretations
+  incl. the negligible-leverage case (NVDA: model ≈ 0 → watch skew +
+  sector indices instead).
+- **Endpoint** `/api/credit_risk?symbol=` — Merton series (Schwab bars +
+  yfinance balance sheet, hourly cache), live skew, and REAL traded ICE
+  BofA IG/BBB/HY OAS via FRED (verified live from the sandbox: HY 284
+  bps +10/1m, IG 81, BBB 100 as of 2026-07-28). Every component labels
+  itself unavailable rather than estimating.
+- **CreditRiskCard** (Analyze tab): big model-spread number + 1y trend
+  chart + DD/PD/leverage + LIVE CREDIT FEAR (options) + REAL TRADED
+  CREDIT strip with 1-month deltas + permanent model-not-quote note.
+  Browser-verified, zero JS errors.
+- **Tests**: test_credit_risk (14) — solver roundtrip against the Merton
+  call formula, realistic-regime monotonicity (with the extreme-leverage
+  vol-compensation effect documented), joint price-drop+vol-spike
+  widening, NVDA-style negligible-debt → ~0 bps, KMV default point,
+  widening series direction, skew-gauge math. CI extended. APP_VERSION
+  3.65. Battery: 83 unittest slice + smoke 50/50 + JS 107 + verify PASS.
