@@ -8735,6 +8735,27 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border-radius: 5px; color: var(--fg); padding: 4px 6px; font-size: 11.5px; }
 .btp-noauto { font-size: 10px; color: var(--fg-4); font-style: italic; }
 
+/* Credit Risk monitor (v3.65) */
+.cr-card { display: flex; flex-direction: column; gap: 10px; }
+.cr-big { font-size: 26px; font-weight: 800; color: var(--fg); cursor: help; }
+.cr-big em { font-style: normal; font-size: 12px; color: var(--fg-3); font-weight: 700; }
+.cr-interp { font-size: 12.5px; color: var(--fg-2); }
+.cr-chart svg { width: 100%; height: 110px; display: block; }
+.cr-line { fill: none; stroke-width: 1.6; }
+.cr-line.up { stroke: var(--up); } .cr-line.down { stroke: var(--down); }
+.cr-chart-lbls { display: flex; justify-content: space-between; font-size: 10px; color: var(--fg-4); }
+.cr-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--fg-3); }
+.cr-stats span { cursor: help; }
+.cr-stats b { color: var(--fg); margin-left: 4px; }
+.cr-skew, .cr-mkt { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline;
+  font-size: 12px; color: var(--fg-2); border-top: 1px dashed var(--line); padding-top: 8px; }
+.cr-skew em, .cr-mkt em { font-style: normal; font-family: var(--font-mono); font-size: 9px;
+  font-weight: 800; letter-spacing: 0.06em; color: var(--fg-4); flex-basis: 100%; }
+.cr-skew span, .cr-mkt span { cursor: help; }
+.cr-mkt span.warn b { color: var(--warn); }
+.cr-mkt i { font-style: normal; font-size: 10px; color: var(--fg-4); margin-left: 4px; }
+.cr-note { font-size: 10.5px; color: var(--fg-4); font-style: italic; }
+
 /* Expired maintained-schedule banner (v3.64) — never recycle stale dates */
 .tsy-sched-warn { padding: 6px 10px; border: 1px solid color-mix(in oklch, var(--warn), transparent 45%);
   border-radius: 6px; font-size: 12px; color: var(--warn);

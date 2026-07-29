@@ -3691,6 +3691,160 @@ def build_payload(
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  Credit-risk monitor (Bloomberg-style CDS view from free data)
+# ═══════════════════════════════════════════════════════════════════════════
+_CREDIT_CACHE: dict = {}
+_CREDIT_LOCK = threading.Lock()
+_CREDIT_TTL = 3600            # merton/debt/FRED refresh hourly; skew is live
+
+
+def build_credit_risk(symbol: str) -> dict:
+    """Per-symbol credit monitor: Merton model 5Y spread series (market cap
+    + equity vol + balance-sheet debt), live crash-put skew gauge, and the
+    REAL traded credit-index backdrop (ICE BofA OAS via FRED). Single-name
+    CDS quotes are paid dealer data — never shown, never faked."""
+    import credit_risk as _cr
+    symbol = symbol.upper().strip()
+    now = time.time()
+    with _CREDIT_LOCK:
+        hit = _CREDIT_CACHE.get(symbol)
+    base = hit[1] if hit and now - hit[0] < _CREDIT_TTL else None
+
+    if base is None:
+        base = {"symbol": symbol}
+        sc = _schwab()
+        bars = []
+        if sc is not None:
+            try:
+                bars = sc.get_price_history(symbol, days=420) or []
+            except Exception:
+                bars = []
+        # Balance sheet + shares (yfinance, best-effort, labeled).
+        shares = debt_short = debt_long = debt_total = None
+        try:
+            tk = yf.Ticker(symbol)
+            info = tk.info or {}
+            shares = info.get("sharesOutstanding")
+            debt_total = info.get("totalDebt")
+            try:
+                bs = tk.balance_sheet
+                if bs is not None and not bs.empty:
+                    col = bs.columns[0]
+                    for row_name, target in (("Current Debt", "short"),
+                                             ("Current Debt And Capital Lease Obligation", "short"),
+                                             ("Long Term Debt", "long"),
+                                             ("Long Term Debt And Capital Lease Obligation", "long")):
+                        if row_name in bs.index:
+                            v = bs.loc[row_name, col]
+                            if v == v and v is not None:
+                                if target == "short" and debt_short is None:
+                                    debt_short = float(v)
+                                elif target == "long" and debt_long is None:
+                                    debt_long = float(v)
+            except Exception:
+                pass
+        except Exception as exc:  # noqa: BLE001
+            print(f"[credit] fundamentals failed for {symbol}: {exc}", file=sys.stderr)
+        dp = _cr.default_point(debt_short, debt_long, debt_total)
+        r_rf, r_src = risk_free_rate()
+        series = []
+        if bars and shares and dp is not None:
+            series = _cr.merton_series(bars, float(shares), float(dp), r_rf)
+        latest = series[-1] if series else None
+        base.update({
+            "merton": {
+                "series": series[-260:],
+                "latest": latest,
+                "inputs": {
+                    "shares_outstanding": shares,
+                    "default_point": dp,
+                    "default_point_basis": ("short + ½·long-term debt (KMV)"
+                                            if (debt_short is not None or debt_long is not None)
+                                            else "75% of total debt (split unavailable)"
+                                            if debt_total is not None else None),
+                    "debt_total": debt_total,
+                    "equity_vol": "rolling HV60 (annualized)",
+                    "risk_free": {"rate": r_rf, "source": r_src},
+                    "tenor_years": _cr.T_YEARS,
+                    "lgd": _cr.LGD,
+                },
+                "interpretation": _cr.interpret(series,
+                                                latest["leverage_pct"] if latest else None),
+                "unavailable_reason": (None if series else
+                                       "missing price history" if not bars else
+                                       "shares outstanding unavailable" if not shares else
+                                       "balance-sheet debt unavailable"),
+            },
+        })
+        # REAL credit-index backdrop (traded, free): ICE BofA OAS via FRED.
+        market = {}
+        try:
+            for key, sid, label in (("ig", "BAMLC0A0CM", "US IG OAS"),
+                                    ("bbb", "BAMLC0A4CBBB", "US BBB OAS"),
+                                    ("hy", "BAMLH0A0HYM2", "US High-Yield OAS")):
+                rows = _treasury._fred_series(sid) or []
+                if rows:
+                    vals = [(d, v * 100.0) for d, v in rows[-280:] if v is not None]
+                    if vals:
+                        cur = vals[-1][1]
+                        m_ago = next((v for d, v in reversed(vals)
+                                      if d <= vals[-1][0][:8] + "01"), None)
+                        market[key] = {"label": label, "series_id": sid,
+                                       "bps": round(cur, 0),
+                                       "spark": [round(v, 0) for _, v in vals[-120:]],
+                                       "as_of": vals[-1][0],
+                                       "chg_1m_bps": round(cur - m_ago, 0) if m_ago else None}
+        except Exception as exc:  # noqa: BLE001
+            print(f"[credit] FRED OAS failed: {exc}", file=sys.stderr)
+        base["market"] = {**market,
+                          "source": "ICE BofA option-adjusted spreads (FRED, official; traded index data)"} if market else None
+        base["notes"] = [
+            "Single-name CDS quotes (e.g. 'NVDA 5Y CDS') are OTC dealer data sold by S&P Global/Bloomberg/ICE — no free source exists, so none is shown.",
+            "The Merton 5Y spread is a STRUCTURAL MODEL estimate from market cap, equity volatility and balance-sheet debt (Moody's-KMV approach) — it trends with real CDS but is not a traded quote.",
+            "Market-cap history uses the CURRENT share count; the default point uses the most recent quarterly balance sheet.",
+            "The IG/BBB/HY spreads ARE real traded index data (ICE BofA via FRED).",
+        ]
+        with _CREDIT_LOCK:
+            _CREDIT_CACHE[symbol] = (now, base)
+            if len(_CREDIT_CACHE) > 40:
+                oldest = min(_CREDIT_CACHE, key=lambda k: _CREDIT_CACHE[k][0])
+                _CREDIT_CACHE.pop(oldest, None)
+
+    out = dict(base)
+    # Live crash-put skew gauge (fresh each request; chain TTL applies).
+    skew = None
+    sc = _schwab()
+    if sc is not None:
+        try:
+            full = sc.get_option_chain(symbol, strike_count=80) or {}
+            spot = float((full.get("underlying") or {}).get("last") or 0)
+            best_exp, best_diff = None, 9e9
+            today = date.today()
+            for e in (full.get("expirations") or []):
+                try:
+                    dte = (date.fromisoformat(str(e)[:10]) - today).days
+                except ValueError:
+                    continue
+                if 45 <= dte <= 240 and abs(dte - 120) < best_diff:
+                    best_exp, best_diff = str(e)[:10], abs(dte - 120)
+            if best_exp and spot > 0:
+                ch = (full.get("chains") or {}).get(best_exp) or {}
+                import credit_risk as _cr2
+                dte = (date.fromisoformat(best_exp) - today).days
+                g = _cr2.skew_gauge(ch.get("calls") or [], ch.get("puts") or [],
+                                    spot, dte)
+                if g:
+                    skew = {**g, "expiry": best_exp, "dte": dte, "spot": spot,
+                            "note": ("Dealers hedge single-name CDS with deep OTM puts — "
+                                     "this is the LIVE equity-market price of credit fear.")}
+        except Exception:
+            pass
+    out["skew"] = skew
+    out["as_of"] = (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat())
+    return out
+
+
 SHIM_TEMPLATE = """
 <script id="__live_data" type="application/json">__JSON__</script>
 <script>
@@ -8037,6 +8191,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     syms, weeks=weeks, friday_baseline=friday_baseline, force=force))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/range_scan/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/credit_risk":
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", ["AAPL"])[0] or "AAPL").upper().strip()
+            try:
+                self._send_json(build_credit_risk(symbol), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/credit_risk", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/ivrank":
