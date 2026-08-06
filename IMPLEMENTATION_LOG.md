@@ -409,3 +409,50 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   widening, NVDA-style negligible-debt → ~0 bps, KMV default point,
   widening series direction, skew-gauge math. CI extended. APP_VERSION
   3.65. Battery: 83 unittest slice + smoke 50/50 + JS 107 + verify PASS.
+
+# v3.66 — Options Playbook (best/worst performers × premium richness)
+
+- **The ask, encoded literally**: "buy calls and buy puts, or sell calls
+  and sell puts — it just depends where the premiums are." One board now
+  answers it per name: strong + cheap premium → BUY CALLS · weak + cheap
+  → BUY PUTS · strong + rich → SELL PUTS · weak + rich → SELL CALLS
+  (defined-risk call credit spread first — naked calls flagged as
+  unlimited risk).
+- **`trend.py`**: rows now carry realized returns over 1w/1m/3m/6m/~1y
+  (`_returns`, strict windows — a short history yields None, never a
+  shrunk window relabeled; ~1y uses the full downloaded year when ≥240
+  bars). This makes "best/worst performing stocks" a direct sort.
+- **`playbook.py`** (new): PURE JOIN of three already-cached boards —
+  Trend (direction/strength/returns) × HV-Rank (premium rich vs cheap,
+  the documented realized-vol proxy for IV rank) × watchlist table
+  (sector, market cap, earnings dates). Never fetches, never starts a
+  worker, never fabricates: names missing from either scanner are
+  excluded AND counted (`excluded`), enrichment fields stay None when
+  absent. Quadrant at HV-rank 50; conviction = 60% trend strength + 40%
+  premium edge (|rank−50|×2) — transparent, both inputs shown per row.
+  Context flags: earnings ≤9d (event premium/vol crush), vol
+  expanding/contracting worded per SIDE (tailwind for buyers vs "early
+  for sellers"), overbought/oversold, 52wk high/low.
+- **Endpoints**: `/api/playbook` (pure read, ETag incl. scan progress) +
+  `/api/playbook/scan` (explicit trigger for BOTH source scans — they
+  serialize on HEAVY_SCAN_LOCK).
+- **PlaybookCard** — new first sub-tab Discover › Playbook: best/worst
+  performer strips over a selectable window (1w/1m/3m/6m/~1y), four
+  quadrant boxes with conviction chips, filters (play, min conviction,
+  earnings ≤9d hide/only, search), full table with play pills + flag
+  chips, row click → Trade tab for the real chain/IV/premiums. Honest
+  proxy note pinned on the card. Opportunity ribbon gained a PLAYBOOK
+  chip (top conviction ≥70, earnings-soon excluded) — still pure-read.
+- **Tests**: test_playbook (12) — the 4-cell quadrant matrix, rank-50
+  boundary, conviction bounds/monotonicity, join exclusion counts,
+  watchlist enrichment + earnings flag, side-dependent vol-trend
+  wording, empty-source guidance, sources passthrough, malformed-row
+  skipping, strict return-window math. CI + smoke extended
+  (`/api/playbook` → 51/51). APP_VERSION 3.66.
+- **Browser-verified** (real Chromium, real bundles, payload generated
+  through the real `assemble()`): desktop + 390px — 4 quadrant boxes,
+  2 perf strips, 16 rows, 16 play pills, 7 earnings flags, ribbon chip
+  "PLAYBOOK UNH SELL CALLS 77", zero JS errors, zero horizontal
+  overflow; phone table stacks into cards.
+- **Battery: 142 unittest + smoke 51/51 + JS 107 + verify both layers —
+  all green.**

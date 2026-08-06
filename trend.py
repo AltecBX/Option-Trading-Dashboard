@@ -9,6 +9,10 @@ calls), then scores each name's trend from price action only:
   • proximity to the 52-week high / low
   • RSI(14)
   • up/down day streak
+  • realized returns over 1w / 1m / 3m / 6m / ~1y windows (v3.66 — feeds
+    the Playbook's best/worst performer ranking; the "1y" figure uses the
+    full downloaded history when at least ~240 bars exist, so it is the
+    return over the available year, never an extrapolation)
 
 Names are ranked by trend strength and split bull vs bear. Background
 scan + progress + cache, same pattern as movers/analyst_board.
@@ -43,6 +47,31 @@ _THREAD: threading.Thread | None = None
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _returns(closes) -> dict:
+    """Percent returns over standard lookbacks from a daily close series.
+
+    Strict windows (a "1m return" is exactly 21 trading days back); a window
+    longer than the history is None — never a shorter span dressed up as the
+    label. Exception: r1y uses the earliest available close when ≥240 bars
+    exist, because a "1y" download rarely returns 253 rows — that IS the
+    return over the year of data we have.
+    """
+    last = float(closes.iloc[-1])
+    out = {}
+    for key, n in (("r1w", 5), ("r1m", 21), ("r3m", 63), ("r6m", 126)):
+        if len(closes) > n:
+            base = float(closes.iloc[-(n + 1)])
+            out[key] = round((last / base - 1) * 100.0, 1) if base else None
+        else:
+            out[key] = None
+    if len(closes) >= 240:
+        base = float(closes.iloc[0])
+        out["r1y"] = round((last / base - 1) * 100.0, 1) if base else None
+    else:
+        out["r1y"] = None
+    return out
 
 
 def _signals(closes) -> dict | None:
@@ -134,6 +163,7 @@ def _scan_worker(symbols: list[str]) -> None:
                     rows.append({
                         "ticker": sym,
                         "last": round(sig["last"], 2),
+                        **_returns(closes),
                         "rsi": round(sig["rsi"], 1) if sig["rsi"] is not None else None,
                         "from_high": round(sig["from_high"], 1) if sig["from_high"] is not None else None,
                         "from_low": round(sig["from_low"], 1) if sig["from_low"] is not None else None,

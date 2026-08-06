@@ -166,6 +166,16 @@ except Exception as _exc:  # noqa: BLE001
     _IVRANK_AVAILABLE = False
     _ivrank = None  # type: ignore
 
+# Options Playbook — pure join of trend × HV-rank × watchlist boards into
+# buy-calls / buy-puts / sell-puts / sell-calls quadrants (v3.66).
+try:
+    import playbook as _playbook
+    _PLAYBOOK_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[playbook] module load failed: {_exc}", file=sys.stderr)
+    _PLAYBOOK_AVAILABLE = False
+    _playbook = None  # type: ignore
+
 # Swing pattern recognition — low→high swings, rhythm, projected targets.
 try:
     import swings as _swings
@@ -8254,6 +8264,48 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json(_trend.trigger_scan(syms, force=force))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/trend/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/playbook":
+            # Pure read: joins the cached trend + HV-rank (+ watchlist) boards.
+            # Never starts a worker — /api/playbook/scan is the explicit trigger.
+            if not (_PLAYBOOK_AVAILABLE and _TREND_AVAILABLE and _IVRANK_AVAILABLE):
+                self._send_json({"error": "playbook unavailable", "rows": []}, status=503)
+                return
+            try:
+                wb = _wltable.get_board() if _WLTABLE_AVAILABLE else None
+                board = _playbook.assemble(_trend.get_board(), _ivrank.get_board(), wb)
+                s = board.get("sources") or {}
+                t, v = (s.get("trend") or {}), (s.get("ivrank") or {})
+                # Tag includes scan progress so pollers see the progress bar
+                # move during a scan, and the joined count once rows publish.
+                tag = (f'W/"pb-{t.get("last_scan")}-{t.get("scanned")}-'
+                       f'{v.get("last_scan")}-{v.get("scanned")}-{board.get("count")}"')
+                self._send_json(board, etag=tag)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/playbook", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/playbook/scan":
+            # Convenience trigger: kicks BOTH source scans. Their workers share
+            # HEAVY_SCAN_LOCK, so they serialize — trend first, then HV rank.
+            if not (_TREND_AVAILABLE and _IVRANK_AVAILABLE):
+                self._send_json({"error": "playbook scanners unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:
+                syms = []
+            try:
+                self._send_json({
+                    "trend": _trend.trigger_scan(syms, force=force),
+                    "ivrank": _ivrank.trigger_scan(syms, force=force),
+                })
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/playbook/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/movers":
