@@ -182,6 +182,7 @@ for p in [
     f"/api/option_quote?symbol={S}&strike=100&kind=call",
     "/api/search?q=fa",
     "/api/scan",
+    "/api/playbook",
     "/api/watchlist",
     "/api/watchlist_alerts",
     f"/api/weekly_range?symbol={S}",

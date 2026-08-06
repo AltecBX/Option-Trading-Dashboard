@@ -3308,13 +3308,246 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   );
 }
 
+// ── Options Playbook (v3.66) ───────────────────────────────────────────────
+// Best/worst performers × premium richness → the right options structure per
+// name. Encodes the whole decision rule in one board: strong + cheap premium
+// → BUY CALLS · weak + cheap → BUY PUTS · strong + rich → SELL PUTS · weak +
+// rich → SELL CALLS. Pure JOIN of three boards the app already scans (Trend
+// gives direction/strength/returns, HV-Rank gives premium rich vs cheap,
+// watchlist table gives sector + earnings dates) — reading it never starts a
+// worker; "Scan both" is the explicit trigger. HV rank is the documented
+// realized-vol PROXY for IV rank; real premiums show on the Trade tab.
+const PB_QUADS = [
+  { id: "sell_puts", title: "Strong + rich premium → SELL PUTS", tone: "up" },
+  { id: "buy_calls", title: "Strong + cheap premium → BUY CALLS", tone: "up" },
+  { id: "sell_calls", title: "Weak + rich premium → SELL CALLS", tone: "down" },
+  { id: "buy_puts", title: "Weak + cheap premium → BUY PUTS", tone: "down" },
+];
+const PB_WINDOWS = [["r1w", "1 week"], ["r1m", "1 month"], ["r3m", "3 months"], ["r6m", "6 months"], ["r1y", "~1 year"]];
+
+function PlaybookCard({ apiFetch, onSwitchTicker }) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [win, setWin] = useState(() => { try { return localStorage.getItem("jerry_pb_win_v1") || "r1m"; } catch { return "r1m"; } });
+  const [fQuad, setFQuad] = useState("all");
+  const [minConv, setMinConv] = useState(0);
+  const [fEarn, setFEarn] = useState("all");
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+
+  const pickWin = (w) => { setWin(w); try { localStorage.setItem("jerry_pb_win_v1", w); } catch {} };
+  const load = async () => {
+    try { const r = await apiFetch("/api/playbook"); const d = await r.json(); setBoard(d); return d; }
+    catch (e) { setErr(String(e)); return null; }
+  };
+  const isScanning = (d) => {
+    const s = (d && d.sources) || {};
+    return !!((s.trend && s.trend.scanning) || (s.ivrank && s.ivrank.scanning));
+  };
+  const watchScan = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !isScanning(d)) { clearInterval(pollRef.current); pollRef.current = null; }
+    }, 4000);
+  };
+  useEffect(() => {
+    load().then(d => { if (d && isScanning(d)) watchScan(); });
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try { await apiFetch("/api/playbook/scan?force=1"); } catch (e) { setErr(String(e)); return; }
+    await load();
+    watchScan();
+  };
+
+  const rows = (board && board.rows) || [];
+  const summary = (board && board.summary) || {};
+  const sources = (board && board.sources) || {};
+  const missing = (board && board.missing) || [];
+  const scanning = isScanning(board);
+  const src = (k) => sources[k] || {};
+  const prog = useMemo(() => {
+    const parts = ["trend", "ivrank"].map(src).filter(s => s.scanning);
+    const done = parts.reduce((a, s) => a + (s.scanned || 0), 0);
+    const total = parts.reduce((a, s) => a + (s.total || 0), 0);
+    return { done, total };
+  }, [board]);
+
+  const winLabel = (PB_WINDOWS.find(w => w[0] === win) || ["", "?"])[1];
+  const perf = useMemo(() => {
+    const withRet = rows.filter(r => r[win] != null);
+    const sorted = withRet.slice().sort((a, b) => b[win] - a[win]);
+    return { best: sorted.slice(0, 10), worst: sorted.slice(-10).reverse() };
+  }, [rows, win]);
+
+  const filtered = useMemo(() => rows.filter(r => {
+    if (fQuad !== "all" && r.quadrant !== fQuad) return false;
+    if (minConv && r.conviction < minConv) return false;
+    if (fEarn === "hide" && r.earnings_soon) return false;
+    if (fEarn === "only" && !r.earnings_soon) return false;
+    if (q && !String(r.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [rows, fQuad, minConv, fEarn, q]);
+  const [visRows, moreCtl] = useBoundedList(filtered);
+
+  const srcLine = (label, s) => s && s.last_scan
+    ? `${label} ${new Date(s.last_scan).toLocaleString()}`
+    : `${label} — no scan yet`;
+  const Chips = ({ list, showRet }) => (
+    <div className="ab-chips">
+      {(list || []).length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+      {(list || []).map((r, i) => (
+        <button key={r.ticker + i} className={`ab-chip ab-${r.tone === "bull" ? "bull" : "bear"}`}
+                onClick={() => onSwitchTicker(r.ticker)}
+                title={`${r.play} · conviction ${Math.round(r.conviction)} — ${(r.reasons || []).join(" · ")}${(r.flags || []).length ? " · ⚠ " + r.flags.join(" · ") : ""}`}>
+          {r.ticker} <b>{showRet ? `${r[win] > 0 ? "+" : ""}${r[win]}%` : Math.round(r.conviction)}</b>
+        </button>
+      ))}
+    </div>
+  );
+  const SummaryBox = ({ title, tone, children }) => (
+    <div className={`ab-sumbox ${tone || ""}`}><div className="ab-sumbox-title">{title}</div>{children}</div>
+  );
+  const fmtRet = (v) => v == null ? <span className="muted">—</span>
+    : <span className={v >= 0 ? "cu" : "cd"}>{v > 0 ? "+" : ""}{v.toFixed(1)}%</span>;
+
+  return (
+    <div className="card ab-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Direction × premium — the whole decision in one board</div>
+          <div className="card-title" title="Strong + cheap premium → buy calls · weak + cheap → buy puts · strong + rich → sell puts · weak + rich → sell calls. Joins the Trend scan (direction, strength, returns) with the HV-Rank scan (premium rich vs cheap, realized-vol proxy for IV rank) and the watchlist table (sector, earnings dates).">Options Playbook</div>
+        </div>
+        <div className="ab-controls">
+          <select className="sb-select" value={win} onChange={e => pickWin(e.target.value)}
+                  title="Performance window for the best/worst ranking and the Perf column.">
+            {PB_WINDOWS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <button className="scan-run-btn" onClick={startScan} disabled={scanning}>
+            {scanning ? "Scanning…" : "Scan both"}
+          </button>
+        </div>
+      </div>
+      <div className="ab-status">
+        {rows.length
+          ? <span>{srcLine("Trend", src("trend"))} · {srcLine("HV rank", src("ivrank"))} · {rows.length} names in both</span>
+          : <span className="muted">Ranks every name by performance AND premium richness, then names the structure: buy calls, buy puts, sell puts or sell calls. Click <b>Scan both</b> to populate (a few minutes for ~600 names).</span>}
+        {(src("trend").error || src("ivrank").error) && <span className="ab-err"> · {src("trend").error || src("ivrank").error}</span>}
+        {err && <span className="ab-err"> · {err}</span>}
+      </div>
+      {missing.length > 0 && rows.length === 0 && !scanning && (
+        <div className="ab-status muted" style={{ marginTop: -6 }}>{missing.join(" ")}</div>
+      )}
+      <div className="ab-status muted" style={{ marginTop: -6 }}>
+        Premium side = HV rank, the free realized-vol proxy for IV rank — real option IV and live premiums are on the Trade tab per name. Structures are suggestions to research, never orders.
+      </div>
+      {scanning && (
+        <div className="ab-progress">
+          <div className="ab-progress-bar" style={{ width: `${prog.total ? (prog.done / prog.total * 100) : 0}%` }}></div>
+          <span className="ab-progress-txt">{prog.done} / {prog.total}</span>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="ab-summary pb-perf">
+          <SummaryBox title={`Best performers · ${winLabel}`} tone="up"><Chips list={perf.best} showRet /></SummaryBox>
+          <SummaryBox title={`Worst performers · ${winLabel}`} tone="down"><Chips list={perf.worst} showRet /></SummaryBox>
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div className="ab-summary pb-quads">
+          {PB_QUADS.map(qd => (
+            <SummaryBox key={qd.id} title={qd.title} tone={qd.tone}><Chips list={summary[qd.id]} /></SummaryBox>
+          ))}
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="ab-filters">
+          <input className="sb-select ab-search" placeholder="Ticker…" value={q} onChange={e => setQ(e.target.value)} />
+          <select className="sb-select" value={fQuad} onChange={e => setFQuad(e.target.value)}>
+            <option value="all">All plays</option>
+            <option value="buy_calls">Buy calls</option>
+            <option value="buy_puts">Buy puts</option>
+            <option value="sell_puts">Sell puts</option>
+            <option value="sell_calls">Sell calls</option>
+          </select>
+          <select className="sb-select" value={minConv} onChange={e => setMinConv(+e.target.value)}
+                  title="Conviction = 60% trend strength + 40% premium edge (distance of the HV rank from 50). Both inputs show on every row.">
+            <option value={0}>Any conviction</option>
+            <option value={40}>≥ 40</option>
+            <option value={55}>≥ 55 (strong)</option>
+            <option value={70}>≥ 70 (top shelf)</option>
+          </select>
+          <select className="sb-select" value={fEarn} onChange={e => setFEarn(e.target.value)}
+                  title="Earnings inside 9 days mean event-inflated premium and a post-report vol crush — a different trade.">
+            <option value="all">Earnings: any</option>
+            <option value="hide">Hide earnings ≤9d</option>
+            <option value="only">Only earnings ≤9d</option>
+          </select>
+          <span className="muted" style={{ fontSize: 12 }}>{filtered.length} of {rows.length}</span>
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="pb-wrap">
+          <table className="pb-table">
+            <thead><tr>
+              <th>Ticker</th><th>Last</th>
+              <th title={`Return over the selected window (${winLabel}).`}>Perf {winLabel}</th>
+              <th title="Trend strength 0-100 from the Trend scan (MA stack, 52wk levels, RSI, streaks) with direction.">Trend</th>
+              <th>RSI</th>
+              <th title="Where current realized vol sits in its own 1-year range (0-100). ≥50 → selling structures, <50 → buying structures.">HV rank</th>
+              <th>Play</th>
+              <th title="60% trend strength + 40% premium edge — transparent blend of the two columns to its left.">Conv</th>
+              <th>Notes</th>
+            </tr></thead>
+            <tbody>
+              {visRows.map(r => (
+                <tr key={r.ticker} className="pb-row" onClick={() => onSwitchTicker(r.ticker)}
+                    title={`Open ${r.ticker} on the Trade tab — real chain, IV and premiums live there.\n${(r.reasons || []).join("\n")}`}>
+                  <td className="pb-tk" data-label="">{r.ticker}{r.sector ? <span className="pb-sec">{r.sector}</span> : null}</td>
+                  <td className="num" data-label="Last">{fmt$(r.last, r.last >= 1000 ? 0 : 2)}</td>
+                  <td className="num" data-label={`Perf ${winLabel}`}>{fmtRet(r[win])}</td>
+                  <td className="num" data-label="Trend">
+                    <span className={r.direction === "up" ? "cu" : "cd"}>{r.direction === "up" ? "▲" : "▼"} {Math.round(r.trend_score || 0)}</span>
+                  </td>
+                  <td className="num" data-label="RSI">{r.rsi != null ? Math.round(r.rsi) : "—"}</td>
+                  <td className="num" data-label="HV rank">{Math.round(r.hv_rank)} <span className={`pb-reg pb-reg-${r.premium_regime}`}>{r.premium_regime}</span></td>
+                  <td className="pb-playcell" data-label="Play"><span className={`pb-play ${r.tone}`} title={`${r.structure}${r.alt ? ` — alt: ${r.alt}` : ""}`}>{r.play}</span></td>
+                  <td className="num pb-conv" data-label="Conv">{Math.round(r.conviction)}</td>
+                  <td className="pb-notes" data-label="Notes">
+                    {r.earnings_soon && <span className="pb-flag warn" title={(r.flags || []).find(f => f.indexOf("earnings") === 0) || "earnings soon"}>E-{r.days_to_earnings}d</span>}
+                    {r.expanding && <span className="pb-flag" title="Realized vol expanding vs a month ago">vol↑</span>}
+                    {r.contracting && <span className="pb-flag" title="Realized vol contracting vs a month ago">vol↓</span>}
+                    {r.new_high && <span className="pb-flag" title="At/near a 52-week high">52wH</span>}
+                    {r.new_low && <span className="pb-flag" title="At/near a 52-week low">52wL</span>}
+                    {(r.overbought || r.oversold) && <span className="pb-flag warn" title={r.overbought ? "RSI overbought" : "RSI oversold"}>{r.overbought ? "OB" : "OS"}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {moreCtl}
+        </div>
+      )}
+      {rows.length > 0 && filtered.length === 0 && (
+        <div className="research-empty">Nothing matches these filters — loosen conviction/earnings or clear the search.</div>
+      )}
+    </div>
+  );
+}
+
 function ScreenersHub({ apiFetch, onSwitchTicker }) {
   const KEY = "jerry_screener_sub_v1";
   const [sub, setSub] = useState(() => {
-    try { return localStorage.getItem(KEY) || "analyst"; } catch { return "analyst"; }
+    try { return localStorage.getItem(KEY) || "playbook"; } catch { return "playbook"; }
   });
   const pick = (id) => { setSub(id); try { localStorage.setItem(KEY, id); } catch {} };
   const SUBS = [
+    { id: "playbook", label: "Playbook" },
     { id: "analyst", label: "Analyst calls" },
     { id: "movers", label: "Movers" },
     { id: "trend", label: "Trend" },
@@ -3330,6 +3563,7 @@ function ScreenersHub({ apiFetch, onSwitchTicker }) {
           </button>
         ))}
       </div>
+      {sub === "playbook" && <PlaybookCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
       {sub === "analyst" && <AnalystBoardCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
       {sub === "movers" && <MoversCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
       {sub === "trend" && <TrendCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
@@ -11155,11 +11389,12 @@ function OpportunityRibbon({ apiFetch, onSwitchTicker, onChangeTab }) {
     let stop = false, t = null;
     const load = async () => {
       const grab = (u, ttl) => sharedJson(apiFetch, u, ttl).catch(() => null);
-      const [wl, iv, eo, rg] = await Promise.all([
+      const [wl, iv, eo, rg, pb] = await Promise.all([
         grab("/api/watchlist_table", 60000), grab("/api/ivrank", 120000),
         grab("/api/earnings_scan", 120000), grab("/api/range_scan", 120000),
+        grab("/api/playbook", 120000),   // pure join of cached boards — never scans
       ]);
-      if (!stop) setB({ wl, iv, eo, rg });
+      if (!stop) setB({ wl, iv, eo, rg, pb });
       if (!stop) t = setTimeout(load, document.hidden ? 300000 : 90000);
     };
     load();
@@ -11207,6 +11442,17 @@ function OpportunityRibbon({ apiFetch, onSwitchTicker, onChangeTab }) {
         tone: "up", tab: "earnops",
         age: ageMin(b.eo.status && b.eo.status.last_scan),
         tip: `${top.ticker}: earnings-ops score ${Math.round(top.score)} (${String(top.setup || "").replace(/_/g, " ")}${top.days_to_earnings != null ? `, reports in ${top.days_to_earnings}d` : ""}). Score = the Earnings Ops scanner's own liquidity/IV-edge/confirmation blend — full breakdown on its row. Click → Earnings Ops.`,
+      });
+    }
+    // PLAYBOOK — highest-conviction direction×premium quadrant call.
+    if (b.pb && b.pb.rows && b.pb.rows.length) {
+      const top = b.pb.rows[0];   // board is sorted conviction-desc
+      if (top && top.conviction >= 70 && !top.earnings_soon) out.push({
+        key: "playbook", label: "PLAYBOOK", sym: top.ticker,
+        val: `${top.play} ${Math.round(top.conviction)}`,
+        tone: top.tone === "bull" ? "up" : "down", tab: "discover",
+        age: ageMin((b.pb.sources && b.pb.sources.trend && b.pb.sources.trend.last_scan) || null),
+        tip: `${top.ticker}: ${top.play} — conviction ${Math.round(top.conviction)} (60% trend strength ${Math.round(top.trend_score || 0)} + 40% premium edge, HV rank ${Math.round(top.hv_rank)}). ${(top.reasons || [])[0] || ""} Click → Discover › Playbook.`,
       });
     }
     // RANGE — closest to a multi-week extreme (weekly-selling location).
@@ -13233,6 +13479,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   VolSkewCard: _memo(VolSkewCard), WatchlistTableCard: _memo(WatchlistTableCard),
   AnalystBoardCard: _memo(AnalystBoardCard), MoversCard: _memo(MoversCard),
   TrendCard: _memo(TrendCard), IVRankCard: _memo(IVRankCard),
+  PlaybookCard: _memo(PlaybookCard),
   RangeEdgeScanCard: _memo(RangeEdgeScanCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard), TabBar, TabPanel, WeatherBadge,
   LevelRepriceCard: _memo(LevelRepriceCard), WinRateCard: _memo(WinRateCard),

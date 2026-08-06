@@ -5079,6 +5079,363 @@ function WatchlistTableCard({
     onClick: () => doRemove(ctx.symbol)
   }, "Remove from watchlist")));
 }
+
+// ── Options Playbook (v3.66) ───────────────────────────────────────────────
+// Best/worst performers × premium richness → the right options structure per
+// name. Encodes the whole decision rule in one board: strong + cheap premium
+// → BUY CALLS · weak + cheap → BUY PUTS · strong + rich → SELL PUTS · weak +
+// rich → SELL CALLS. Pure JOIN of three boards the app already scans (Trend
+// gives direction/strength/returns, HV-Rank gives premium rich vs cheap,
+// watchlist table gives sector + earnings dates) — reading it never starts a
+// worker; "Scan both" is the explicit trigger. HV rank is the documented
+// realized-vol PROXY for IV rank; real premiums show on the Trade tab.
+const PB_QUADS = [{
+  id: "sell_puts",
+  title: "Strong + rich premium → SELL PUTS",
+  tone: "up"
+}, {
+  id: "buy_calls",
+  title: "Strong + cheap premium → BUY CALLS",
+  tone: "up"
+}, {
+  id: "sell_calls",
+  title: "Weak + rich premium → SELL CALLS",
+  tone: "down"
+}, {
+  id: "buy_puts",
+  title: "Weak + cheap premium → BUY PUTS",
+  tone: "down"
+}];
+const PB_WINDOWS = [["r1w", "1 week"], ["r1m", "1 month"], ["r3m", "3 months"], ["r6m", "6 months"], ["r1y", "~1 year"]];
+function PlaybookCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [board, setBoard] = useState(null);
+  const [err, setErr] = useState(null);
+  const [win, setWin] = useState(() => {
+    try {
+      return localStorage.getItem("jerry_pb_win_v1") || "r1m";
+    } catch {
+      return "r1m";
+    }
+  });
+  const [fQuad, setFQuad] = useState("all");
+  const [minConv, setMinConv] = useState(0);
+  const [fEarn, setFEarn] = useState("all");
+  const [q, setQ] = useState("");
+  const pollRef = useRef(null);
+  const pickWin = w => {
+    setWin(w);
+    try {
+      localStorage.setItem("jerry_pb_win_v1", w);
+    } catch {}
+  };
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/playbook");
+      const d = await r.json();
+      setBoard(d);
+      return d;
+    } catch (e) {
+      setErr(String(e));
+      return null;
+    }
+  };
+  const isScanning = d => {
+    const s = d && d.sources || {};
+    return !!(s.trend && s.trend.scanning || s.ivrank && s.ivrank.scanning);
+  };
+  const watchScan = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !isScanning(d)) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 4000);
+  };
+  useEffect(() => {
+    load().then(d => {
+      if (d && isScanning(d)) watchScan();
+    });
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+  const startScan = async () => {
+    setErr(null);
+    try {
+      await apiFetch("/api/playbook/scan?force=1");
+    } catch (e) {
+      setErr(String(e));
+      return;
+    }
+    await load();
+    watchScan();
+  };
+  const rows = board && board.rows || [];
+  const summary = board && board.summary || {};
+  const sources = board && board.sources || {};
+  const missing = board && board.missing || [];
+  const scanning = isScanning(board);
+  const src = k => sources[k] || {};
+  const prog = useMemo(() => {
+    const parts = ["trend", "ivrank"].map(src).filter(s => s.scanning);
+    const done = parts.reduce((a, s) => a + (s.scanned || 0), 0);
+    const total = parts.reduce((a, s) => a + (s.total || 0), 0);
+    return {
+      done,
+      total
+    };
+  }, [board]);
+  const winLabel = (PB_WINDOWS.find(w => w[0] === win) || ["", "?"])[1];
+  const perf = useMemo(() => {
+    const withRet = rows.filter(r => r[win] != null);
+    const sorted = withRet.slice().sort((a, b) => b[win] - a[win]);
+    return {
+      best: sorted.slice(0, 10),
+      worst: sorted.slice(-10).reverse()
+    };
+  }, [rows, win]);
+  const filtered = useMemo(() => rows.filter(r => {
+    if (fQuad !== "all" && r.quadrant !== fQuad) return false;
+    if (minConv && r.conviction < minConv) return false;
+    if (fEarn === "hide" && r.earnings_soon) return false;
+    if (fEarn === "only" && !r.earnings_soon) return false;
+    if (q && !String(r.ticker || "").toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  }), [rows, fQuad, minConv, fEarn, q]);
+  const [visRows, moreCtl] = useBoundedList(filtered);
+  const srcLine = (label, s) => s && s.last_scan ? `${label} ${new Date(s.last_scan).toLocaleString()}` : `${label} — no scan yet`;
+  const Chips = ({
+    list,
+    showRet
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "ab-chips"
+  }, (list || []).length === 0 && /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, "\u2014"), (list || []).map((r, i) => /*#__PURE__*/React.createElement("button", {
+    key: r.ticker + i,
+    className: `ab-chip ab-${r.tone === "bull" ? "bull" : "bear"}`,
+    onClick: () => onSwitchTicker(r.ticker),
+    title: `${r.play} · conviction ${Math.round(r.conviction)} — ${(r.reasons || []).join(" · ")}${(r.flags || []).length ? " · ⚠ " + r.flags.join(" · ") : ""}`
+  }, r.ticker, " ", /*#__PURE__*/React.createElement("b", null, showRet ? `${r[win] > 0 ? "+" : ""}${r[win]}%` : Math.round(r.conviction)))));
+  const SummaryBox = ({
+    title,
+    tone,
+    children
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `ab-sumbox ${tone || ""}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-sumbox-title"
+  }, title), children);
+  const fmtRet = v => v == null ? /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2014") : /*#__PURE__*/React.createElement("span", {
+    className: v >= 0 ? "cu" : "cd"
+  }, v > 0 ? "+" : "", v.toFixed(1), "%");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card ab-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Direction \xD7 premium \u2014 the whole decision in one board"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title",
+    title: "Strong + cheap premium \u2192 buy calls \xB7 weak + cheap \u2192 buy puts \xB7 strong + rich \u2192 sell puts \xB7 weak + rich \u2192 sell calls. Joins the Trend scan (direction, strength, returns) with the HV-Rank scan (premium rich vs cheap, realized-vol proxy for IV rank) and the watchlist table (sector, earnings dates)."
+  }, "Options Playbook")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-controls"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: win,
+    onChange: e => pickWin(e.target.value),
+    title: "Performance window for the best/worst ranking and the Perf column."
+  }, PB_WINDOWS.map(([id, label]) => /*#__PURE__*/React.createElement("option", {
+    key: id,
+    value: id
+  }, label))), /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: scanning
+  }, scanning ? "Scanning…" : "Scan both"))), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status"
+  }, rows.length ? /*#__PURE__*/React.createElement("span", null, srcLine("Trend", src("trend")), " \xB7 ", srcLine("HV rank", src("ivrank")), " \xB7 ", rows.length, " names in both") : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "Ranks every name by performance AND premium richness, then names the structure: buy calls, buy puts, sell puts or sell calls. Click ", /*#__PURE__*/React.createElement("b", null, "Scan both"), " to populate (a few minutes for ~600 names)."), (src("trend").error || src("ivrank").error) && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " \xB7 ", src("trend").error || src("ivrank").error), err && /*#__PURE__*/React.createElement("span", {
+    className: "ab-err"
+  }, " \xB7 ", err)), missing.length > 0 && rows.length === 0 && !scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-status muted",
+    style: {
+      marginTop: -6
+    }
+  }, missing.join(" ")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-status muted",
+    style: {
+      marginTop: -6
+    }
+  }, "Premium side = HV rank, the free realized-vol proxy for IV rank \u2014 real option IV and live premiums are on the Trade tab per name. Structures are suggestions to research, never orders."), scanning && /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "ab-progress-bar",
+    style: {
+      width: `${prog.total ? prog.done / prog.total * 100 : 0}%`
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ab-progress-txt"
+  }, prog.done, " / ", prog.total)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-summary pb-perf"
+  }, /*#__PURE__*/React.createElement(SummaryBox, {
+    title: `Best performers · ${winLabel}`,
+    tone: "up"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    list: perf.best,
+    showRet: true
+  })), /*#__PURE__*/React.createElement(SummaryBox, {
+    title: `Worst performers · ${winLabel}`,
+    tone: "down"
+  }, /*#__PURE__*/React.createElement(Chips, {
+    list: perf.worst,
+    showRet: true
+  }))), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-summary pb-quads"
+  }, PB_QUADS.map(qd => /*#__PURE__*/React.createElement(SummaryBox, {
+    key: qd.id,
+    title: qd.title,
+    tone: qd.tone
+  }, /*#__PURE__*/React.createElement(Chips, {
+    list: summary[qd.id]
+  })))), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "ab-filters"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "sb-select ab-search",
+    placeholder: "Ticker\u2026",
+    value: q,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fQuad,
+    onChange: e => setFQuad(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "All plays"), /*#__PURE__*/React.createElement("option", {
+    value: "buy_calls"
+  }, "Buy calls"), /*#__PURE__*/React.createElement("option", {
+    value: "buy_puts"
+  }, "Buy puts"), /*#__PURE__*/React.createElement("option", {
+    value: "sell_puts"
+  }, "Sell puts"), /*#__PURE__*/React.createElement("option", {
+    value: "sell_calls"
+  }, "Sell calls")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: minConv,
+    onChange: e => setMinConv(+e.target.value),
+    title: "Conviction = 60% trend strength + 40% premium edge (distance of the HV rank from 50). Both inputs show on every row."
+  }, /*#__PURE__*/React.createElement("option", {
+    value: 0
+  }, "Any conviction"), /*#__PURE__*/React.createElement("option", {
+    value: 40
+  }, "\u2265 40"), /*#__PURE__*/React.createElement("option", {
+    value: 55
+  }, "\u2265 55 (strong)"), /*#__PURE__*/React.createElement("option", {
+    value: 70
+  }, "\u2265 70 (top shelf)")), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select",
+    value: fEarn,
+    onChange: e => setFEarn(e.target.value),
+    title: "Earnings inside 9 days mean event-inflated premium and a post-report vol crush \u2014 a different trade."
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Earnings: any"), /*#__PURE__*/React.createElement("option", {
+    value: "hide"
+  }, "Hide earnings \u22649d"), /*#__PURE__*/React.createElement("option", {
+    value: "only"
+  }, "Only earnings \u22649d")), /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    style: {
+      fontSize: 12
+    }
+  }, filtered.length, " of ", rows.length)), filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pb-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "pb-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Ticker"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", {
+    title: `Return over the selected window (${winLabel}).`
+  }, "Perf ", winLabel), /*#__PURE__*/React.createElement("th", {
+    title: "Trend strength 0-100 from the Trend scan (MA stack, 52wk levels, RSI, streaks) with direction."
+  }, "Trend"), /*#__PURE__*/React.createElement("th", null, "RSI"), /*#__PURE__*/React.createElement("th", {
+    title: "Where current realized vol sits in its own 1-year range (0-100). \u226550 \u2192 selling structures, <50 \u2192 buying structures."
+  }, "HV rank"), /*#__PURE__*/React.createElement("th", null, "Play"), /*#__PURE__*/React.createElement("th", {
+    title: "60% trend strength + 40% premium edge \u2014 transparent blend of the two columns to its left."
+  }, "Conv"), /*#__PURE__*/React.createElement("th", null, "Notes"))), /*#__PURE__*/React.createElement("tbody", null, visRows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.ticker,
+    className: "pb-row",
+    onClick: () => onSwitchTicker(r.ticker),
+    title: `Open ${r.ticker} on the Trade tab — real chain, IV and premiums live there.\n${(r.reasons || []).join("\n")}`
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "pb-tk",
+    "data-label": ""
+  }, r.ticker, r.sector ? /*#__PURE__*/React.createElement("span", {
+    className: "pb-sec"
+  }, r.sector) : null), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    "data-label": "Last"
+  }, fmt$(r.last, r.last >= 1000 ? 0 : 2)), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    "data-label": `Perf ${winLabel}`
+  }, fmtRet(r[win])), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    "data-label": "Trend"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: r.direction === "up" ? "cu" : "cd"
+  }, r.direction === "up" ? "▲" : "▼", " ", Math.round(r.trend_score || 0))), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    "data-label": "RSI"
+  }, r.rsi != null ? Math.round(r.rsi) : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    "data-label": "HV rank"
+  }, Math.round(r.hv_rank), " ", /*#__PURE__*/React.createElement("span", {
+    className: `pb-reg pb-reg-${r.premium_regime}`
+  }, r.premium_regime)), /*#__PURE__*/React.createElement("td", {
+    className: "pb-playcell",
+    "data-label": "Play"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `pb-play ${r.tone}`,
+    title: `${r.structure}${r.alt ? ` — alt: ${r.alt}` : ""}`
+  }, r.play)), /*#__PURE__*/React.createElement("td", {
+    className: "num pb-conv",
+    "data-label": "Conv"
+  }, Math.round(r.conviction)), /*#__PURE__*/React.createElement("td", {
+    className: "pb-notes",
+    "data-label": "Notes"
+  }, r.earnings_soon && /*#__PURE__*/React.createElement("span", {
+    className: "pb-flag warn",
+    title: (r.flags || []).find(f => f.indexOf("earnings") === 0) || "earnings soon"
+  }, "E-", r.days_to_earnings, "d"), r.expanding && /*#__PURE__*/React.createElement("span", {
+    className: "pb-flag",
+    title: "Realized vol expanding vs a month ago"
+  }, "vol\u2191"), r.contracting && /*#__PURE__*/React.createElement("span", {
+    className: "pb-flag",
+    title: "Realized vol contracting vs a month ago"
+  }, "vol\u2193"), r.new_high && /*#__PURE__*/React.createElement("span", {
+    className: "pb-flag",
+    title: "At/near a 52-week high"
+  }, "52wH"), r.new_low && /*#__PURE__*/React.createElement("span", {
+    className: "pb-flag",
+    title: "At/near a 52-week low"
+  }, "52wL"), (r.overbought || r.oversold) && /*#__PURE__*/React.createElement("span", {
+    className: "pb-flag warn",
+    title: r.overbought ? "RSI overbought" : "RSI oversold"
+  }, r.overbought ? "OB" : "OS")))))), moreCtl), rows.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "research-empty"
+  }, "Nothing matches these filters \u2014 loosen conviction/earnings or clear the search."));
+}
 function ScreenersHub({
   apiFetch,
   onSwitchTicker
@@ -5086,9 +5443,9 @@ function ScreenersHub({
   const KEY = "jerry_screener_sub_v1";
   const [sub, setSub] = useState(() => {
     try {
-      return localStorage.getItem(KEY) || "analyst";
+      return localStorage.getItem(KEY) || "playbook";
     } catch {
-      return "analyst";
+      return "playbook";
     }
   });
   const pick = id => {
@@ -5098,6 +5455,9 @@ function ScreenersHub({
     } catch {}
   };
   const SUBS = [{
+    id: "playbook",
+    label: "Playbook"
+  }, {
     id: "analyst",
     label: "Analyst calls"
   }, {
@@ -5121,7 +5481,10 @@ function ScreenersHub({
     "aria-selected": sub === s.id,
     className: sub === s.id ? "active" : "",
     onClick: () => pick(s.id)
-  }, s.label))), sub === "analyst" && /*#__PURE__*/React.createElement(AnalystBoardCard, {
+  }, s.label))), sub === "playbook" && /*#__PURE__*/React.createElement(PlaybookCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: onSwitchTicker
+  }), sub === "analyst" && /*#__PURE__*/React.createElement(AnalystBoardCard, {
     apiFetch: apiFetch,
     onSwitchTicker: onSwitchTicker
   }), sub === "movers" && /*#__PURE__*/React.createElement(MoversCard, {
@@ -14844,12 +15207,14 @@ function OpportunityRibbon({
       t = null;
     const load = async () => {
       const grab = (u, ttl) => sharedJson(apiFetch, u, ttl).catch(() => null);
-      const [wl, iv, eo, rg] = await Promise.all([grab("/api/watchlist_table", 60000), grab("/api/ivrank", 120000), grab("/api/earnings_scan", 120000), grab("/api/range_scan", 120000)]);
+      const [wl, iv, eo, rg, pb] = await Promise.all([grab("/api/watchlist_table", 60000), grab("/api/ivrank", 120000), grab("/api/earnings_scan", 120000), grab("/api/range_scan", 120000), grab("/api/playbook", 120000) // pure join of cached boards — never scans
+      ]);
       if (!stop) setB({
         wl,
         iv,
         eo,
-        rg
+        rg,
+        pb
       });
       if (!stop) t = setTimeout(load, document.hidden ? 300000 : 90000);
     };
@@ -14910,6 +15275,20 @@ function OpportunityRibbon({
         tab: "earnops",
         age: ageMin(b.eo.status && b.eo.status.last_scan),
         tip: `${top.ticker}: earnings-ops score ${Math.round(top.score)} (${String(top.setup || "").replace(/_/g, " ")}${top.days_to_earnings != null ? `, reports in ${top.days_to_earnings}d` : ""}). Score = the Earnings Ops scanner's own liquidity/IV-edge/confirmation blend — full breakdown on its row. Click → Earnings Ops.`
+      });
+    }
+    // PLAYBOOK — highest-conviction direction×premium quadrant call.
+    if (b.pb && b.pb.rows && b.pb.rows.length) {
+      const top = b.pb.rows[0]; // board is sorted conviction-desc
+      if (top && top.conviction >= 70 && !top.earnings_soon) out.push({
+        key: "playbook",
+        label: "PLAYBOOK",
+        sym: top.ticker,
+        val: `${top.play} ${Math.round(top.conviction)}`,
+        tone: top.tone === "bull" ? "up" : "down",
+        tab: "discover",
+        age: ageMin(b.pb.sources && b.pb.sources.trend && b.pb.sources.trend.last_scan || null),
+        tip: `${top.ticker}: ${top.play} — conviction ${Math.round(top.conviction)} (60% trend strength ${Math.round(top.trend_score || 0)} + 40% premium edge, HV rank ${Math.round(top.hv_rank)}). ${(top.reasons || [])[0] || ""} Click → Discover › Playbook.`
       });
     }
     // RANGE — closest to a multi-week extreme (weekly-selling location).
@@ -17558,6 +17937,7 @@ Object.assign(window, {
   MoversCard: _memo(MoversCard),
   TrendCard: _memo(TrendCard),
   IVRankCard: _memo(IVRankCard),
+  PlaybookCard: _memo(PlaybookCard),
   RangeEdgeScanCard: _memo(RangeEdgeScanCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard),
   TabBar,

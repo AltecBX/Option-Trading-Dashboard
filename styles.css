@@ -10871,3 +10871,66 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .eop-wrap { max-height: none; }
   .eop-co { display: none; }
 }
+
+/* ═══ v3.66: Options Playbook (Discover › Playbook) ══════════════════════ */
+/* Direction × premium quadrant board. Table mirrors the range-scan pattern:
+   scrolls in its own wrapper on tablets, stacks into cards on phones. */
+.pb-quads { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.pb-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.pb-table th { text-align: left; font-family: var(--font-mono); font-size: 10px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-3); padding: 7px 9px; border-bottom: 1px solid var(--line);
+  cursor: help; white-space: nowrap; }
+.pb-table td { padding: 6px 9px; border-bottom: 1px dashed var(--line);
+  white-space: nowrap; vertical-align: middle; }
+.pb-table tr.pb-row { cursor: pointer; }
+.pb-table tr.pb-row:hover { background: color-mix(in oklch, var(--accent) 7%, transparent); }
+.pb-tk { font-weight: 700; font-family: var(--font-mono); }
+.pb-sec { color: var(--fg-3); font-size: 10px; font-weight: 500; margin-left: 6px; }
+.pb-reg { font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  border-radius: 4px; padding: 0 4px; margin-left: 4px; border: 1px solid var(--line);
+  color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.pb-reg-rich { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); }
+.pb-reg-elevated { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 55%); }
+.pb-reg-cheap { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%); }
+.pb-play { font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.08em; border-radius: 6px; padding: 2px 7px;
+  border: 1px solid var(--line); white-space: nowrap; }
+.pb-play.bull { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%);
+  background: color-mix(in oklch, var(--up) 10%, transparent); }
+.pb-play.bear { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%);
+  background: color-mix(in oklch, var(--down) 10%, transparent); }
+.pb-conv { font-weight: 700; font-size: 13.5px; }
+.pb-notes { display: table-cell; }
+.pb-flag { font-family: var(--font-mono); font-size: 9px; color: var(--fg-3);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 4px; }
+.pb-flag.warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn), transparent 55%); }
+
+/* Phones: playbook table becomes stacked cards — no sideways scroll. */
+@media (max-width: 620px) {
+  .pb-wrap { overflow-x: visible; }
+  .pb-table { border-collapse: separate; }
+  .pb-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .pb-table, .pb-table tbody { display: block; width: 100%; }
+  .pb-table tr.pb-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px;
+    border: 1px solid var(--line); border-radius: 11px;
+    background: var(--bg-2); padding: 10px 12px; margin-bottom: 8px;
+  }
+  .pb-table td {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    border: none !important; padding: 2px 0 !important; white-space: normal;
+  }
+  .pb-table td::before {
+    content: attr(data-label); color: var(--fg-3); font-weight: 600;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+    text-align: left; white-space: nowrap;
+  }
+  .pb-table td.pb-tk { grid-column: 1 / -1; font-size: 15px; justify-content: flex-start; }
+  .pb-table td.pb-tk::before { content: none; }
+  .pb-table td.pb-playcell { grid-column: 1 / -1; justify-content: flex-start; }
+  .pb-table td.pb-playcell::before { content: none; }
+  .pb-table td.pb-notes { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+  .pb-table td.pb-notes::before { content: none; }
+}
