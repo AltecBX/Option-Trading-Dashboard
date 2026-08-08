@@ -16212,13 +16212,222 @@ function PfKv({
     title: tip || undefined
   }, /*#__PURE__*/React.createElement("span", null, k), /*#__PURE__*/React.createElement("b", null, v))));
 }
+
+// Whisper/expectation sources (v3.68): every provider's own value, clearly
+// labeled by KIND (provider whisper vs community estimate vs published
+// consensus vs what you entered), each provider's live status, quick-open
+// links, and the source-attributed manual entry form. Nothing here is ever
+// synthesized — a provider with no number shows why it has none.
+const PF_KIND_LABEL = {
+  provider_whisper: "PROVIDER WHISPER",
+  community_estimate: "COMMUNITY EST",
+  consensus_only: "CONSENSUS ONLY",
+  user_supplied: "YOU ENTERED"
+};
+const PF_STATUS_TEXT = {
+  ok: "read OK",
+  no_data: "no data published yet",
+  no_public_data: "no public data (registration required)",
+  blocked: "blocked by anti-bot challenge — not evaded by design",
+  unreachable: "unreachable from this deploy",
+  layout_changed: "page/API shape changed — extraction disabled rather than guessing",
+  error: "adapter error"
+};
+function PfWhisperSources({
+  panel,
+  symbol,
+  apiFetch,
+  reload
+}) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    source: "",
+    eps: "",
+    revenue: "",
+    url: "",
+    note: ""
+  });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  if (!panel) return null;
+  const links = panel.quick_links || {};
+  const statuses = panel.statuses || {};
+  const sources = panel.sources || [];
+  const submit = async e => {
+    e.preventDefault();
+    if (!form.source.trim() || !form.eps && !form.revenue) {
+      setMsg("Source attribution and at least one value are required.");
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await apiFetch("/api/whisper/manual", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol,
+          source: form.source,
+          eps: form.eps || null,
+          revenue: form.revenue || null,
+          url: form.url || null,
+          note: form.note || null
+        })
+      });
+      const j = await r.json();
+      if (j.error) {
+        setMsg(j.error);
+      } else {
+        setMsg("Saved — attributed to you and tied to this earnings event.");
+        setForm({
+          source: "",
+          eps: "",
+          revenue: "",
+          url: "",
+          note: ""
+        });
+        if (reload) reload();
+      }
+    } catch (err) {
+      setMsg(String(err));
+    }
+    setBusy(false);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pf-wsrc"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pf-wh-head"
+  }, "Expectation sources"), sources.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-wsrc-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "pf-wsrc-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Source"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "Whisper EPS"), /*#__PURE__*/React.createElement("th", null, "Consensus EPS"), /*#__PURE__*/React.createElement("th", null, "Consensus rev"), /*#__PURE__*/React.createElement("th", null, "Earnings"), /*#__PURE__*/React.createElement("th", null, "As of"))), /*#__PURE__*/React.createElement("tbody", null, sources.map((s, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "pf-wsrc-name"
+  }, s.source_url ? /*#__PURE__*/React.createElement("a", {
+    href: s.source_url,
+    target: "_blank",
+    rel: "noopener noreferrer"
+  }, s.source_name) : s.source_name, s.validation_note && /*#__PURE__*/React.createElement("div", {
+    className: "pf-wsrc-note",
+    title: "Value rejected by validation \u2014 not shown as data."
+  }, s.validation_note), s.note && /*#__PURE__*/React.createElement("div", {
+    className: "pf-wsrc-note"
+  }, s.note)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: `pf-kind pf-kind-${s.kind}`
+  }, PF_KIND_LABEL[s.kind] || s.kind)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, s.whisper_eps != null ? `$${s.whisper_eps}` : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2014")), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, s.consensus_eps != null ? `$${s.consensus_eps}` : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2014")), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, s.consensus_revenue != null ? pfBig(s.consensus_revenue) : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2014")), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, s.earnings_date || "—", s.session && s.session !== "unknown" ? ` ${s.session}` : "", s.confirmed ? " ✓" : ""), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, String(s.asof || "").replace("T", " ").slice(0, 16))))))), /*#__PURE__*/React.createElement("div", {
+    className: "pf-wstatus"
+  }, Object.keys(statuses).map(k2 => {
+    const st = statuses[k2] || {};
+    const good = st.status === "ok";
+    return /*#__PURE__*/React.createElement("span", {
+      key: k2,
+      className: `pf-wstat ${good ? "ok" : "off"}`,
+      title: `${k2}: ${PF_STATUS_TEXT[st.status] || st.status}${st.error ? ` — ${st.error}` : ""}`
+    }, k2, " ", /*#__PURE__*/React.createElement("b", null, st.status));
+  })), (panel.conflicts || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-wconflict",
+    title: "Providers disagree on the published consensus \u2014 usually a different vintage or quarter. The headline gap switches to same-provider pairs so numbers are never mixed across sources."
+  }, panel.conflicts.map((c2, i) => /*#__PURE__*/React.createElement("div", {
+    key: i
+  }, "\u26A0 ", c2)), panel.gap_basis && /*#__PURE__*/React.createElement("div", {
+    className: "pf-wsrc-note"
+  }, "Gap basis: ", panel.gap_basis)), /*#__PURE__*/React.createElement("div", {
+    className: "pf-wlinks"
+  }, /*#__PURE__*/React.createElement("span", null, "Open source:"), Object.keys(links).map(k2 => /*#__PURE__*/React.createElement("a", {
+    key: k2,
+    href: links[k2],
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "pf-wlink"
+  }, k2))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "pf-why",
+    onClick: () => setOpen(o => !o),
+    "aria-expanded": open
+  }, open ? "▾" : "▸", " Add a whisper you read yourself (source required)"), open && /*#__PURE__*/React.createElement("form", {
+    className: "pf-wform",
+    onSubmit: submit
+  }, /*#__PURE__*/React.createElement("label", null, "Source", /*#__PURE__*/React.createElement("input", {
+    required: true,
+    value: form.source,
+    placeholder: "e.g. Earnings Whispers",
+    onChange: e => setForm(f => ({
+      ...f,
+      source: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("label", null, "Whisper EPS", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.01",
+    value: form.eps,
+    placeholder: "1.61",
+    onChange: e => setForm(f => ({
+      ...f,
+      eps: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("label", null, "Whisper revenue", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "1000000",
+    value: form.revenue,
+    placeholder: "13400000000",
+    onChange: e => setForm(f => ({
+      ...f,
+      revenue: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "pf-wform-wide"
+  }, "Source URL", /*#__PURE__*/React.createElement("input", {
+    type: "url",
+    value: form.url,
+    placeholder: "https://\u2026",
+    onChange: e => setForm(f => ({
+      ...f,
+      url: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "pf-wform-wide"
+  }, "Note", /*#__PURE__*/React.createElement("input", {
+    value: form.note,
+    placeholder: "optional context",
+    onChange: e => setForm(f => ({
+      ...f,
+      note: e.target.value
+    }))
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "submit",
+    disabled: busy,
+    className: "pf-asm-apply"
+  }, busy ? "Saving…" : "Save entry"), msg && /*#__PURE__*/React.createElement("span", {
+    className: "pf-wmsg"
+  }, msg), /*#__PURE__*/React.createElement("div", {
+    className: "pf-wsrc-note pf-wform-wide"
+  }, "Stored with your attribution and this earnings date. A URL raises its confidence from low to medium; it never counts as a provider whisper.")));
+}
 function PfComponentDetail({
   k,
   c,
   d,
   asm,
   setAsm,
-  applyAsm
+  applyAsm,
+  apiFetch,
+  reload
 }) {
   const cur = c.current || {},
     bm = c.benchmarks || {},
@@ -16309,7 +16518,12 @@ function PfComponentDetail({
     title: "Derived from the reverse valuation \u2014 a requirement embedded in the price. Deliberately NOT called a whisper."
   }, /*#__PURE__*/React.createElement("b", null, bm.market_implied_hurdle.label), /*#__PURE__*/React.createElement("div", null, bm.market_implied_hurdle.read)), bm.guidance && !bm.guidance.available && /*#__PURE__*/React.createElement("div", {
     className: "pf-wh-none muted-line"
-  }, bm.guidance.note))), k === "reaction_asymmetry" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PfKv, {
+  }, bm.guidance.note), /*#__PURE__*/React.createElement(PfWhisperSources, {
+    panel: d.whisper_panel,
+    symbol: (d.header || {}).symbol,
+    apiFetch: apiFetch,
+    reload: reload
+  }))), k === "reaction_asymmetry" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PfKv, {
     items: [["Events analyzed", cur.events_analyzed], ["Beats / misses", `${cur.beats} / ${cur.misses}`], ["Beat-and-fade", cur.beat_fade_count != null ? `${cur.beat_fade_count} (${pfFmt(cur.beat_fade_freq_pct, 0, "%")} of beats)` : null], ["Avg reaction after a beat", pfSign(cur.avg_reaction_after_beat_pct)], ["Avg reaction after a miss", pfSign(cur.avg_reaction_after_miss_pct)], ["Beat-reaction trend", pfSign(cur.beat_reaction_trend_pp, 1, "pp"), "Newer beats vs older beats — negative = good news paying less."], ["Moves beyond recorded implied", cur.moves_exceeding_implied]]
   }), (det.events || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "pf-events-wrap"
@@ -16367,7 +16581,7 @@ function PerfectionCard({
   const [openComp, setOpenComp] = useState(null);
   const [showLimits, setShowLimits] = useState(false);
   const [asm, setAsm] = useState({});
-  const url = withAsm => {
+  const url = (withAsm, bust) => {
     let u = `/api/perfection?symbol=${encodeURIComponent(ticker)}`;
     if (withAsm) {
       if (asm.horizon) u += `&horizon=${asm.horizon}`;
@@ -16375,12 +16589,15 @@ function PerfectionCard({
       if (asm.terminal) u += `&terminal=${Number(asm.terminal) / 100}`;
       if (asm.margin) u += `&margin_target=${Number(asm.margin) / 100}`;
     }
+    // A fresh key after a manual whisper entry — otherwise the shared 10-min
+    // cache would hand back the pre-entry payload.
+    if (bust) u += `&_r=${bust}`;
     return u;
   };
-  const load = withAsm => {
+  const load = (withAsm, bust) => {
     setLoading(true);
     setErr(null);
-    sharedJson(apiFetch, url(withAsm), 10 * 60 * 1000).then(x => {
+    sharedJson(apiFetch, url(withAsm, bust), 10 * 60 * 1000).then(x => {
       setD(x);
       setLoading(false);
     }).catch(e => {
@@ -16544,7 +16761,9 @@ function PerfectionCard({
       d: d,
       asm: asm,
       setAsm: setAsm,
-      applyAsm: applyAsm
+      applyAsm: applyAsm,
+      apiFetch: apiFetch,
+      reload: () => load(false, Date.now())
     }));
   })), /*#__PURE__*/React.createElement("div", {
     className: "pf-options"

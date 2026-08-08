@@ -1,0 +1,20 @@
+{
+ "ticker": "CSCO",
+ "company": "Cisco Systems, Inc.",
+ "nextEPSDate": "2026-08-12T00:00:00",
+ "releaseTime": 3,
+ "confirmDate": "2026-08-05T16:45:10.16",
+ "twitter": "Cisco",
+ "lastEPSTime": "2026-05-13T16:05:00",
+ "description": " Cisco Systems Inc. is an IP-based networking company offering products and services to service providers, companies, commercial users and individuals. Cisco is rapidly expanding its presence in network security domain. Security includes products and services preventing unauthorized access to system resources and protecting from worms, spam, viruses and other malware. The Data Center product category includes Cisco Unified Computing System (UCS) and Server Access Virtualization. It also comprises of The Other products segment and Related Services.The company offers identity and access, advanced threat, and unified threat management solutions. The company has introduced Secure Remote Worker, which leverages Zero Trust Architecture, combined with robust endpoint security portfolio of AnyConnect, Umbrella, Duo and AMP for Endpoints.Cisco provides Next-Generation Network (NGN) Routers, that transport data, voice and video information from one IP network to another.   \n",
+ "epsImpact": null,
+ "avgEPSMove": null,
+ "consensusEst": 1.17,
+ "revenueEst": 16850000000.0,
+ "whisper": 1.2,
+ "quarterDate": "2026-07-31T00:00:00",
+ "quarter": 4,
+ "indNo": 814,
+ "sectNo": 8,
+ "sectName": "Technology"
+}
