@@ -12032,6 +12032,438 @@ function ValuationCard({ apiFetch, ticker }) {
   );
 }
 
+// ── Priced for Perfection (v3.67) ──────────────────────────────────────────
+// Pre-earnings module answering ONE question: how much future success is
+// already in the price, and can the stock fall even on strong results?
+// Everything renders from /api/perfection — a versioned, transparent model
+// (weights shipped in the payload, contributions reconcile to the composite,
+// missing data renormalizes and lowers confidence, nothing fabricated).
+const PF_BAND_CLASS = { Low: "low", Moderate: "mod", Elevated: "elev", High: "high", Extreme: "extreme" };
+const pfFmt = (v, d = 1, suf = "") => (v == null ? "—" : `${Number(v).toFixed(d)}${suf}`);
+const pfSign = (v, d = 1, suf = "%") => (v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}${suf}`);
+const pfBig = (v) => {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  return a >= 1e12 ? `$${(v / 1e12).toFixed(2)}T` : a >= 1e9 ? `$${(v / 1e9).toFixed(1)}B`
+    : a >= 1e6 ? `$${(v / 1e6).toFixed(0)}M` : `$${Math.round(v).toLocaleString()}`;
+};
+
+function PfScoreBar({ score }) {
+  if (score == null) return null;
+  return (
+    <div className="pf-bar" aria-hidden="true">
+      <i style={{ width: `${Math.max(2, Math.min(100, score))}%` }} />
+    </div>
+  );
+}
+
+function PfKv({ items }) {
+  const rows = (items || []).filter(([, v]) => v !== null && v !== undefined && v !== "—");
+  if (!rows.length) return null;
+  return (
+    <div className="pf-kv">
+      {rows.map(([k, v, tip]) => (
+        <div key={k} title={tip || undefined}><span>{k}</span><b>{v}</b></div>
+      ))}
+    </div>
+  );
+}
+
+function PfComponentDetail({ k, c, d, asm, setAsm, applyAsm }) {
+  const cur = c.current || {}, bm = c.benchmarks || {}, det = c.detail || {};
+  return (
+    <div className="pf-detail">
+      {k === "execution_hurdle" && (
+        <React.Fragment>
+          <PfKv items={[
+            ["Market cap", pfBig(cur.market_cap)], ["Enterprise value", pfBig(cur.enterprise_value)],
+            ["Revenue (TTM)", pfBig(cur.revenue_ttm)],
+            ["Implied revenue CAGR", pfFmt(cur.implied_rev_cagr_pct, 1, "%"),
+             "Revenue growth the current EV requires under the assumptions below (reverse DCF, bisection-solved)."],
+            ["Consensus growth (FY0/FY1 blend)", pfFmt(cur.consensus_rev_growth_pct, 1, "%")],
+            ["Delivered 3y CAGR", pfFmt(cur.revenue_cagr_3y_pct, 1, "%")],
+            ["Gap vs consensus", pfSign(bm.gap_vs_consensus_pp, 1, "pp"),
+             "Positive = the price demands MORE than analysts model."],
+            ["Gap vs history", pfSign(bm.gap_vs_history_pp, 1, "pp")],
+            ["Required FCF margin", pfFmt(cur.required_fcf_margin_pct, 1, "%")],
+            ["FCF margin now / best-3y", `${pfFmt(cur.fcf_margin_ttm_pct, 1, "%")} / ${pfFmt(cur.fcf_margin_best_pct, 1, "%")}`],
+          ]} />
+          <div className="pf-asm">
+            <span className="pf-asm-title" title="The reverse-DCF assumptions. Change them and re-solve — the score updates from the server, nothing is hidden in the UI.">Assumptions</span>
+            <label>Horizon <input type="number" min="3" max="7" value={asm.horizon ?? (det.assumptions && det.assumptions.horizon_years) ?? 5}
+              onChange={e => setAsm(s => ({ ...s, horizon: e.target.value }))} />y</label>
+            <label>Discount <input type="number" step="0.5" min="6" max="18"
+              value={asm.discount ?? ((det.assumptions && det.assumptions.discount_rate) != null ? (det.assumptions.discount_rate * 100) : 10)}
+              onChange={e => setAsm(s => ({ ...s, discount: e.target.value }))} />%</label>
+            <label>Terminal <input type="number" step="0.25" min="0" max="4"
+              value={asm.terminal ?? ((det.assumptions && det.assumptions.terminal_growth) != null ? (det.assumptions.terminal_growth * 100) : 2.5)}
+              onChange={e => setAsm(s => ({ ...s, terminal: e.target.value }))} />%</label>
+            <label>End FCF margin <input type="number" step="1" min="0" max="60"
+              value={asm.margin ?? ((det.assumptions && det.assumptions.fcf_margin_target) != null ? Math.round(det.assumptions.fcf_margin_target * 100) : "")}
+              onChange={e => setAsm(s => ({ ...s, margin: e.target.value }))} />%</label>
+            <button type="button" className="pf-asm-apply" onClick={applyAsm}>Re-solve</button>
+            <button type="button" className="pf-asm-reset" onClick={() => { setAsm({}); applyAsm(true); }}>Reset</button>
+          </div>
+          {det.sensitivity_implied_cagr_pct && (
+            <div className="pf-sens" title="Implied CAGR under shifted assumptions — how sensitive the hurdle is.">
+              Sensitivity: dr −1% → <b>{pfFmt(det.sensitivity_implied_cagr_pct["dr-1"], 1, "%")}</b> ·
+              dr +1% → <b>{pfFmt(det.sensitivity_implied_cagr_pct["dr+1"], 1, "%")}</b> ·
+              tg −0.5% → <b>{pfFmt(det.sensitivity_implied_cagr_pct["tg-05"], 1, "%")}</b> ·
+              tg +0.5% → <b>{pfFmt(det.sensitivity_implied_cagr_pct["tg+05"], 1, "%")}</b>
+            </div>
+          )}
+          {(det.checklist || []).length > 0 && (
+            <div className="pf-check">
+              <div className="pf-check-title">What must go right</div>
+              {det.checklist.map((t, i) => <div key={i} className="pf-check-item">☐ {t}</div>)}
+            </div>
+          )}
+        </React.Fragment>
+      )}
+      {k === "valuation_stretch" && (
+        <PfKv items={[
+          ["Forward P/E", pfFmt(cur.forward_pe, 1, "×")], ["EV/Revenue", pfFmt(cur.ev_to_revenue, 1, "×")],
+          ["EV/EBITDA", pfFmt(cur.ev_to_ebitda, 1, "×")], ["PEG", pfFmt(cur.peg, 2)],
+          ["Price/FCF", pfFmt(cur.price_to_fcf, 1, "×")], ["FCF yield", pfFmt(cur.fcf_yield_pct, 2, "%")],
+          ["EV/S percentile (own 3y, trailing)", pfFmt(bm.evs_hist_pctile, 0)],
+          ["P/E percentile (own 3y, trailing)", pfFmt(bm.pe_hist_pctile, 0)],
+          ["vs peers (fwd P/E pctile)", bm.peer_fwd_pe_pctile != null ? `${Math.round(bm.peer_fwd_pe_pctile)} (median ${pfFmt(bm.peer_median_fwd_pe, 1, "×")})` : null],
+          ["Multiple expansion 30/90/180d", bm.evs_expansion_pct ?
+            `${pfSign(bm.evs_expansion_pct.d30, 0)} / ${pfSign(bm.evs_expansion_pct.d90, 0)} / ${pfSign(bm.evs_expansion_pct.d180, 0)}` : null],
+        ]} />
+      )}
+      {k === "expectations_gap" && (
+        <React.Fragment>
+          <PfKv items={[
+            ["Consensus EPS (this qtr)", cur.consensus_eps != null ? `$${Number(cur.consensus_eps).toFixed(2)} (${cur.consensus_eps_analysts || "?"} analysts)` : null],
+            ["Consensus revenue", pfBig(cur.consensus_revenue)],
+            ["EPS revisions 7/30/90d", cur.eps_rev_pct ? `${pfSign(cur.eps_rev_pct.d7)} / ${pfSign(cur.eps_rev_pct.d30)} / ${pfSign(cur.eps_rev_pct.d90)}` : null],
+            ["Up / down revisions (30d)", cur.revisions_up_30d != null ? `${cur.revisions_up_30d} / ${cur.revisions_down_30d}` : null],
+            ["Estimate dispersion", pfFmt(cur.eps_dispersion_pct, 1, "%"),
+             "(high − low) / |avg|. TIGHT dispersion = a crowded single-point consensus."],
+            ["Required acceleration", pfSign(cur.required_accel_pp, 1, "pp"),
+             "Consensus quarter growth minus the growth actually delivered last quarter."],
+          ]} />
+          <div className="pf-whisper">
+            <div className="pf-wh-head">Whisper</div>
+            {bm.whisper && bm.whisper.available ? (
+              <PfKv items={[
+                ["Median whisper EPS", bm.whisper.median_eps != null ? `$${bm.whisper.median_eps}` : null],
+                ["Range", bm.whisper.range ? `$${bm.whisper.range[0]} – $${bm.whisper.range[1]}` : null],
+                ["Gap vs consensus", pfSign(bm.whisper.eps_gap_pct)],
+                ["Sources", (bm.whisper.sources || []).join(", ") || null],
+                ["Confidence", bm.whisper.confidence], ["As of", bm.whisper.asof],
+              ]} />
+            ) : (
+              <div className="pf-wh-none">{(bm.whisper && bm.whisper.note) || "No reliable whisper estimate available."}</div>
+            )}
+            {bm.market_implied_hurdle && (
+              <div className="pf-mih" title="Derived from the reverse valuation — a requirement embedded in the price. Deliberately NOT called a whisper.">
+                <b>{bm.market_implied_hurdle.label}</b>
+                <div>{bm.market_implied_hurdle.read}</div>
+              </div>
+            )}
+            {bm.guidance && !bm.guidance.available && (
+              <div className="pf-wh-none muted-line">{bm.guidance.note}</div>
+            )}
+          </div>
+        </React.Fragment>
+      )}
+      {k === "reaction_asymmetry" && (
+        <React.Fragment>
+          <PfKv items={[
+            ["Events analyzed", cur.events_analyzed], ["Beats / misses", `${cur.beats} / ${cur.misses}`],
+            ["Beat-and-fade", cur.beat_fade_count != null ? `${cur.beat_fade_count} (${pfFmt(cur.beat_fade_freq_pct, 0, "%")} of beats)` : null],
+            ["Avg reaction after a beat", pfSign(cur.avg_reaction_after_beat_pct)],
+            ["Avg reaction after a miss", pfSign(cur.avg_reaction_after_miss_pct)],
+            ["Beat-reaction trend", pfSign(cur.beat_reaction_trend_pp, 1, "pp"), "Newer beats vs older beats — negative = good news paying less."],
+            ["Moves beyond recorded implied", cur.moves_exceeding_implied],
+          ]} />
+          {(det.events || []).length > 0 && (
+            <div className="pf-events-wrap"><table className="pf-events">
+              <thead><tr><th>Date</th><th>Session</th><th>EPS est → act</th><th>Surprise</th><th>1d</th><th>5d</th><th>vs SPY</th></tr></thead>
+              <tbody>
+                {det.events.slice(0, 10).map((e, i) => (
+                  <tr key={i} className={e.beat_consensus === false ? "pf-ev-miss" : (e.reaction_1d_pct != null && e.reaction_1d_pct <= 0 ? "pf-ev-fade" : "")}>
+                    <td>{e.date}</td><td>{e.session}</td>
+                    <td className="num">{e.eps_estimate != null ? Number(e.eps_estimate).toFixed(2) : "—"} → {e.eps_actual != null ? Number(e.eps_actual).toFixed(2) : "—"}</td>
+                    <td className={`num ${e.surprise_pct > 0 ? "cu" : "cd"}`}>{pfSign(e.surprise_pct)}</td>
+                    <td className={`num ${e.reaction_1d_pct > 0 ? "cu" : "cd"}`}>{pfSign(e.reaction_1d_pct)}</td>
+                    <td className={`num ${e.reaction_5d_pct > 0 ? "cu" : "cd"}`}>{pfSign(e.reaction_5d_pct)}</td>
+                    <td className="num">{pfSign(e.rel_spy_1d_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+          {bm.classification_note && <div className="pf-note">{bm.classification_note}</div>}
+        </React.Fragment>
+      )}
+      {k === "momentum_stretch" && (
+        <PfKv items={[
+          ["Returns 5/20/60/120d", cur.returns_pct ? `${pfSign(cur.returns_pct.d5)} / ${pfSign(cur.returns_pct.d20)} / ${pfSign(cur.returns_pct.d60)} / ${pfSign(cur.returns_pct.d120)}` : null],
+          ["vs sector (20/60d)", cur.vs_sector_pct ? `${pfSign(cur.vs_sector_pct.d20)} / ${pfSign(cur.vs_sector_pct.d60)}` : null],
+          ["vs market (20/60d)", cur.vs_market_pct ? `${pfSign(cur.vs_market_pct.d20)} / ${pfSign(cur.vs_market_pct.d60)}` : null],
+          ["Distance from MA20/50/200", cur.ma_distance_pct ? `${pfSign(cur.ma_distance_pct.ma20)} / ${pfSign(cur.ma_distance_pct.ma50)} / ${pfSign(cur.ma_distance_pct.ma200)}` : null],
+          ["From 52-wk high", pfSign(cur.from_52wk_high_pct)],
+          ["20d pre-earnings run-up", pfSign(cur.runup_20d_pct)],
+          ["Drift since last report", pfSign(cur.drift_since_last_er_pct)],
+          ["Rel-60d percentile (own 3y)", pfFmt(bm.rel60_hist_pctile, 0)],
+          ["MA50-distance percentile", pfFmt(bm.ma50_dist_hist_pctile, 0)],
+          ["Volume vs 120d", cur.rvol20 != null ? `${cur.rvol20}×` : null],
+          ["3%+ gaps (60d)", cur.gap_days_60d],
+        ]} />
+      )}
+      {k === "crowding" && (
+        <PfKv items={[
+          ["Mean price target", cur.target_mean != null ? `$${Number(cur.target_mean).toFixed(0)} (${pfSign(cur.pt_upside_pct, 1)} upside)` : null],
+          ["Buy ratings", cur.buy_ratio_pct != null ? `${Math.round(cur.buy_ratio_pct)}% of ${cur.analyst_count || "?"}` : null],
+          ["Rating actions net (30d)", pfSign(cur.pt_changes_net_30d, 0, "")],
+          ["Short interest", cur.short_pct_float != null ? `${cur.short_pct_float}% float · ${pfFmt(cur.days_to_cover, 1)}d to cover` : null],
+          ["Call/put OI · volume", cur.call_put_oi_ratio != null || cur.call_put_vol_ratio != null ?
+            `${pfFmt(cur.call_put_oi_ratio, 2, "×")} · ${pfFmt(cur.call_put_vol_ratio, 2, "×")}` : null],
+          ["25Δ skew", cur.call_put_skew_vol_pts != null ? `${pfSign(cur.call_put_skew_vol_pts, 1)} vol pts` : null],
+          ["Institutional", pfFmt(cur.institutional_pct, 0, "%")],
+        ]} />
+      )}
+      {k === "conversion_risk" && (
+        <PfKv items={[
+          ["Gross-margin trend", pfSign(cur.gross_margin_slope_pp_q, 2, "pp/q")],
+          ["Op-margin trend", pfSign(cur.op_margin_slope_pp_q, 2, "pp/q")],
+          ["FCF margin (TTM)", pfFmt(cur.fcf_margin_ttm_pct, 1, "%")],
+          ["OCF / net income", pfFmt(cur.ocf_conversion, 2, "×")],
+          ["SBC % of OCF", pfFmt(cur.sbc_pct_ocf, 0, "%")],
+          ["CapEx % of revenue", pfFmt(cur.capex_pct_revenue, 1, "%")],
+          ["Revenue vs FCF growth", pfSign(cur.rev_vs_fcf_growth_gap, 0, "pp")],
+          ["Revenue vs EPS growth", pfSign(cur.rev_vs_eps_growth_gap, 0, "pp")],
+          ["Inventory vs revenue growth", pfSign(cur.inventory_vs_rev_growth_gap, 0, "pp")],
+        ]} />
+      )}
+      {(c.signals_up || []).length > 0 && (
+        <div className="pf-signals">{c.signals_up.map((s, i) => <span key={i} className="pf-sig up" title="Risk-increasing signal">▲ {s}</span>)}</div>
+      )}
+      {(c.signals_down || []).length > 0 && (
+        <div className="pf-signals">{c.signals_down.map((s, i) => <span key={i} className="pf-sig down" title="Risk-reducing signal">▼ {s}</span>)}</div>
+      )}
+      <div className="pf-explain">{c.explain}</div>
+      <div className="pf-sources">
+        {(c.sources || []).map((s, i) => (
+          <span key={i}>{s.source}{s.stmt_asof ? ` (filing ${s.stmt_asof})` : ""}{s.asof ? ` · as of ${String(s.asof).replace("T", " ").slice(0, 16)}` : ""}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PerfectionCard({ apiFetch, ticker }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [why, setWhy] = useState(false);
+  const [openComp, setOpenComp] = useState(null);
+  const [showLimits, setShowLimits] = useState(false);
+  const [asm, setAsm] = useState({});
+
+  const url = (withAsm) => {
+    let u = `/api/perfection?symbol=${encodeURIComponent(ticker)}`;
+    if (withAsm) {
+      if (asm.horizon) u += `&horizon=${asm.horizon}`;
+      if (asm.discount) u += `&discount=${Number(asm.discount) / 100}`;
+      if (asm.terminal) u += `&terminal=${Number(asm.terminal) / 100}`;
+      if (asm.margin) u += `&margin_target=${Number(asm.margin) / 100}`;
+    }
+    return u;
+  };
+  const load = (withAsm) => {
+    setLoading(true); setErr(null);
+    sharedJson(apiFetch, url(withAsm), 10 * 60 * 1000)
+      .then(x => { setD(x); setLoading(false); })
+      .catch(e => { setErr(String(e)); setLoading(false); });
+  };
+  useEffect(() => { setD(null); setAsm({}); setOpenComp(null); setWhy(false); load(false); }, [ticker]);
+  const applyAsm = (reset) => load(!reset);
+
+  if (loading && !d) return (
+    <div className="card pf-card"><CardNote kind="loading">Scoring how much perfection is priced into {ticker}… (reverse DCF + history percentiles + reaction history; first load takes a few seconds)</CardNote></div>
+  );
+  if (err && !d) return <div className="card pf-card"><CardNote kind="error">Priced-for-Perfection unavailable: {err}</CardNote></div>;
+  if (!d || d.error) return (
+    <div className="card pf-card"><CardNote kind="empty">Priced-for-Perfection unavailable{d && d.error ? `: ${d.error}` : ""}.</CardNote></div>
+  );
+
+  const h = d.header || {};
+  const comps = d.components || {};
+  const order = ["execution_hurdle", "valuation_stretch", "expectations_gap", "reaction_asymmetry", "momentum_stretch", "crowding", "conversion_risk"];
+  const band = PF_BAND_CLASS[d.classification] || "none";
+  const op = d.options_panel || {};
+  const warn = d.warning || {};
+  const ex = d.explanations || {};
+  const countdown = h.days_to_earnings == null ? null
+    : h.days_to_earnings === 0 ? "TODAY" : `in ${h.days_to_earnings}d`;
+
+  return (
+    <div className="card pf-card" style={{ marginBottom: "var(--row-gap)" }}>
+      <div className="card-head">
+        <div>
+          <div className="kicker">Pre-earnings · how much perfection is already priced in</div>
+          <div className="card-title">Priced for Perfection · {h.symbol}{h.company ? ` — ${h.company}` : ""}</div>
+        </div>
+        <div className={`pf-score pf-${band}`}
+             title={`Perfection Risk Score ${d.score != null ? d.score : "—"}/100 (${d.classification || "not shown"}). Model v${d.model && d.model.version}: weighted average of the component scores below — weights ship in the payload and contributions reconcile to this number${d.reconciled === false ? " (RECONCILIATION FAILED — treat with suspicion)" : ""}.`}>
+          <b>{d.score != null ? Math.round(d.score) : "—"}</b>
+          <span>{d.classification || (d.confidence === "Insufficient" ? "insufficient data" : "—")}</span>
+        </div>
+      </div>
+
+      <div className="pf-meta">
+        {h.next_earnings ? (
+          <span title={`Next earnings ${h.next_earnings} (${h.session === "AMC" ? "after market close" : h.session === "BMO" ? "before market open" : "session unknown"})`}>
+            Earnings <b>{h.next_earnings}</b> <span className={`pf-sess ${h.session}`}>{h.session}</span> {countdown && <b className="pf-count">{countdown}</b>}
+          </span>
+        ) : <span className="muted">No upcoming earnings date found</span>}
+        {h.price != null && <span>Price <b>${h.price}</b></span>}
+        <span title="Weighted share of the model that had real data behind it, minus freshness penalties.">
+          Confidence <b className={`pf-conf pf-conf-${(d.confidence || "").toLowerCase()}`}>{d.confidence}</b> ({Math.round(d.coverage_pct || 0)}% coverage)
+        </span>
+        <span title="Composite blended 70/30 with the reaction-asymmetry score — how dangerous an UNHEDGED long is into the print.">
+          Unprotected long risk <b className={`pf-ulr pf-${PF_BAND_CLASS[d.unprotected_long_risk] || "none"}`}>{d.unprotected_long_risk || "—"}</b>
+        </span>
+        <span className="muted">as of {String(h.as_of || "").replace("T", " ").slice(0, 16)}Z</span>
+        {d.snapshot_stored && <span className="pf-snap" title="Today's pre-earnings snapshot was stored (append-only). Snapshots accumulate so future reaction analysis can compare against what was ACTUALLY priced in beforehand — point-in-time by construction.">● snapshot stored</span>}
+      </div>
+
+      {d.summary && <div className="pf-summary">{d.summary}</div>}
+      {d.reconciled === false && (
+        <div className="pf-warnbanner">Component contributions failed to reconcile to the composite — treat this score as suspect (bug guard).</div>
+      )}
+
+      <button type="button" className="pf-why" onClick={() => setWhy(w => !w)} aria-expanded={why}>
+        {why ? "▾" : "▸"} Why this score?
+      </button>
+      {why && (
+        <div className="pf-whybox">
+          {(ex.risk_increasing || []).length > 0 && (
+            <div>
+              <div className="pf-why-title up">Risk increasing</div>
+              {ex.risk_increasing.map((r, i) => <div key={i} className="pf-why-item">▲ {r.text} <span className="pf-why-src">({r.component})</span></div>)}
+            </div>
+          )}
+          {(ex.risk_reducing || []).length > 0 && (
+            <div>
+              <div className="pf-why-title down">Risk reducing</div>
+              {ex.risk_reducing.map((r, i) => <div key={i} className="pf-why-item">▼ {r.text} <span className="pf-why-src">({r.component})</span></div>)}
+            </div>
+          )}
+          <div className="pf-formula" title="The full model ships in the payload — nothing hidden in the UI.">
+            Score = Σ component × weight (renormalized over available components) · model v{d.model && d.model.version} ·
+            weights: hurdle 25 / valuation 20 / expectations 15 / reactions 15 / momentum 10 / crowding 10 / conversion 5 ·
+            contributions total {d.contribution_total != null ? d.contribution_total : "—"} {d.reconciled ? "✓" : ""}
+          </div>
+        </div>
+      )}
+
+      {warn.fired && (
+        <div className="pf-warnbanner" role="alert">
+          <b>⚠ {warn.headline}</b>
+          <ul>{(warn.conditions || []).map((c, i) => <li key={i}>{c}</li>)}</ul>
+        </div>
+      )}
+      {d.good_news_saturation && !warn.fired && (
+        <div className="pf-satbanner" title="Repeated beats have produced small, flat or negative reactions — good news has been getting saturated.">
+          Good-news saturation: recent beats are no longer being paid.
+        </div>
+      )}
+
+      <div className="pf-comps">
+        {order.map(k => {
+          const c = comps[k];
+          if (!c) return (
+            <div key={k} className="pf-comp pf-comp-missing" title="This component could not be computed from available data — its weight was redistributed and confidence reduced. Nothing was estimated in its place.">
+              <span className="pf-comp-name">{{ execution_hurdle: "Implied execution hurdle", valuation_stretch: "Valuation stretch", expectations_gap: "Expectations & whisper gap", reaction_asymmetry: "Earnings reaction asymmetry", momentum_stretch: "Momentum stretch", crowding: "Crowding & positioning", conversion_risk: "Conversion risk" }[k]}</span>
+              <span className="pf-comp-na">unavailable — weight redistributed</span>
+            </div>
+          );
+          const isOpen = openComp === k;
+          return (
+            <div key={k} className={`pf-comp ${isOpen ? "open" : ""}`}>
+              <button type="button" className="pf-comp-row" onClick={() => setOpenComp(isOpen ? null : k)}
+                      aria-expanded={isOpen}
+                      title={`${c.label}: score ${c.score}/100 · weight ${c.weight_effective_pct}% (base ${c.weight_base_pct}%) · contributes ${c.contribution} points · ${c.coverage != null ? c.coverage + "% of its sub-signals had data" : ""}`}>
+                <span className="pf-comp-name">{c.label}</span>
+                <PfScoreBar score={c.score} />
+                <span className="pf-comp-score num">{Math.round(c.score)}</span>
+                <span className="pf-comp-w num">{c.weight_effective_pct}%{c.weight_effective_pct !== c.weight_base_pct ? <i title={`Renormalized from base ${c.weight_base_pct}% because other components are missing.`}>*</i> : null}</span>
+                <span className="pf-comp-contrib num" title="Points contributed to the composite.">+{c.contribution}</span>
+                <span className="pf-comp-caret">{isOpen ? "▾" : "▸"}</span>
+              </button>
+              {isOpen && <PfComponentDetail k={k} c={c} d={d} asm={asm} setAsm={setAsm} applyAsm={applyAsm} />}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="pf-options">
+        <div className="pf-sec-title" title={op.disclaimer || ""}>Options & expected move <span className="pf-sec-sub">(event uncertainty — deliberately NOT part of the risk score)</span></div>
+        {op.available ? (
+          <PfKv items={[
+            ["Straddle implied move", op.implied_move_pct != null ? `±${op.implied_move_pct}% ($${op.straddle} @ ${op.expiry})` : null],
+            ["Implied range", op.implied_range ? `$${op.implied_range[0]} – $${op.implied_range[1]}` : null],
+            ["IV percentile (own history)", op.iv_percentile != null ? `${op.iv_percentile} (${op.iv_history_days}d observed)` : null],
+            ["Median realized ER move", op.median_realized_move_pct != null ? `±${op.median_realized_move_pct}% (${(op.realized_er_moves_pct || []).length} events)` : null],
+            ["Implied ÷ realized", pfFmt(op.implied_vs_realized, 2, "×"),
+             "Above 1 = options price MORE movement than this stock's typical earnings move."],
+            ["25Δ skew", op.call_put_skew_vol_pts != null ? `${pfSign(op.call_put_skew_vol_pts, 1)} vol pts` : null],
+            ["Key OI strikes", (op.oi_concentration || []).slice(0, 3).map(w => `${w.kind}$${w.strike} (${(w.oi / 1000).toFixed(0)}k)`).join(" · ") || null],
+            ["~5% OTM put", op.protection ? `$${op.protection.mid} (${op.protection.pct_of_spot}% of spot)` : null],
+          ]} />
+        ) : (
+          <div className="pf-note">{op.note || "Options data unavailable right now."} Historical realized moves{(op.realized_er_moves_pct || []).length ? ` (median ±${op.median_realized_move_pct}%)` : ""} still shown in the reaction component.</div>
+        )}
+      </div>
+
+      {(d.scenarios || []).length > 0 && (
+        <div className="pf-scen">
+          <div className="pf-sec-title">Scenario matrix <span className="pf-sec-sub">(historical analogs from this stock's own events — no manufactured price targets)</span></div>
+          <div className="pf-scen-wrap"><table className="pf-scen-table">
+            <thead><tr><th>Scenario</th><th>Bar cleared</th><th>Risk</th><th title="Whether multiple compression stays live even if results are good.">Compression</th><th>Historical analog</th></tr></thead>
+            <tbody>
+              {d.scenarios.map(s => (
+                <tr key={s.key}>
+                  <td className="pf-scen-label">{s.label}{s.note ? <div className="pf-scen-note">{s.note}</div> : null}</td>
+                  <td>{(s.satisfies || []).join(", ") || "none"}</td>
+                  <td><span className={`pf-dir ${s.risk_direction}`}>{s.risk_direction === "up" ? "▲ up" : s.risk_direction === "down" ? "▼ down" : "◆ mixed"}</span></td>
+                  <td>{s.compression_risk ? "live" : "—"}</td>
+                  <td className="pf-scen-analog">
+                    {s.analog && s.analog.n > 0 ? (
+                      <React.Fragment>
+                        {s.analog.basis}: median {pfSign(s.analog.median_pct)}
+                        {s.analog.range ? ` (range ${pfSign(s.analog.range[0])} … ${pfSign(s.analog.range[1])})` : " (too few samples for a range)"}
+                      </React.Fragment>
+                    ) : (s.analog && s.analog.basis) || "insufficient history"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      <button type="button" className="pf-why" onClick={() => setShowLimits(s => !s)} aria-expanded={showLimits}>
+        {showLimits ? "▾" : "▸"} Data limitations & point-in-time notes
+      </button>
+      {showLimits && (
+        <div className="pf-limits">
+          {(d.limitations || []).map((l, i) => <div key={i}>• {l}</div>)}
+          {(d.data_issues || []).length > 0 && (
+            <div className="pf-issues">Fetch issues this load: {d.data_issues.join(" · ")}</div>
+          )}
+        </div>
+      )}
+      <div className="pf-disclaimer">{d.disclaimer}</div>
+    </div>
+  );
+}
+
 // ── Credit Risk monitor (v3.65) ─────────────────────────────────────────────
 // Bloomberg-style single-name credit view WITHOUT Bloomberg. Single-name CDS
 // quotes are paid dealer data (S&P Global/Bloomberg/ICE) — never shown,
@@ -13469,6 +13901,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   TVPanel: _memo(TVPanel),
   UWPanel: _memo(UWPanel),
   ValuationCard: _memo(ValuationCard), CreditRiskCard: _memo(CreditRiskCard),
+  PerfectionCard: _memo(PerfectionCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard), RadarReportCard: _memo(RadarReportCard),
   RadarAlerts: _memo(RadarAlerts),

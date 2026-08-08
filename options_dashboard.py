@@ -4607,6 +4607,21 @@ try:
 except Exception as _exc:  # noqa: BLE001
     print(f"[chain_store] wiring failed: {_exc}", file=sys.stderr)
 
+# ── Priced-for-Perfection pre-earnings model (v3.67) ───────────────────────
+try:
+    import perfection_data as _perfection_data
+    _perfection_data.configure(
+        schwab_getter=lambda: _schwab(),
+        data_dir=_STABLE_DIR,
+        peers_getter=lambda: (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else None),
+        iv_history_load=_iv_history_load,
+    )
+    _PERFECTION_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[perfection] wiring failed: {_exc}", file=sys.stderr)
+    _PERFECTION_AVAILABLE = False
+    _perfection_data = None  # type: ignore
+
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
 import patterns as _patterns
 
@@ -8211,6 +8226,37 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/credit_risk", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/perfection":
+            # Priced-for-Perfection pre-earnings model (v3.67). Assumption
+            # query params make the reverse-DCF inputs user-configurable:
+            #   horizon (3-7y), discount (0.06-0.18), terminal (0-0.04),
+            #   margin_target (0-0.6 decimal).
+            if not _PERFECTION_AVAILABLE:
+                self._send_json({"error": "perfection module unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", ["AAPL"])[0] or "AAPL").upper().strip()
+
+            def _qnum(name, lo, hi, cast=float):
+                raw = qs.get(name, [""])[0]
+                if not raw:
+                    return None
+                try:
+                    return max(lo, min(hi, cast(raw)))
+                except (TypeError, ValueError):
+                    return None
+            assumptions = {
+                "horizon_years": _qnum("horizon", 3, 7, int),
+                "discount_rate": _qnum("discount", 0.06, 0.18),
+                "terminal_growth": _qnum("terminal", 0.0, 0.04),
+                "margin_target": _qnum("margin_target", 0.0, 0.6),
+            }
+            try:
+                self._send_json(_perfection_data.build(symbol, assumptions), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/perfection", exc)
+                self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/ivrank":
             if not _IVRANK_AVAILABLE:

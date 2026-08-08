@@ -456,3 +456,82 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   overflow; phone table stacks into cards.
 - **Battery: 142 unittest + smoke 51/51 + JS 107 + verify both layers —
   all green.**
+
+# v3.67 — Priced for Perfection (pre-earnings module)
+
+- **The question**: how much future success is already in the price, and
+  can the stock fall even on strong results? NOT a company-quality score.
+- **`perfection.py`** (pure, versioned MODEL v1.0): 7 weighted components
+  (hurdle 25 / valuation 20 / expectations 15 / reactions 15 / momentum
+  10 / crowding 10 / conversion 5), bands 0-24/25-49/50-69/70-84/85-100,
+  reverse DCF (bisection, roundtrip-tested) for implied revenue CAGR +
+  required FCF margin with configurable horizon/discount/terminal/margin,
+  winsorized own-history percentiles, documented anchors where no
+  distribution exists, missing components renormalize (contributions
+  reconcile exactly; sub-40%-coverage components excluded, not shown
+  thin), confidence High/Medium/Low/Insufficient from weighted coverage −
+  freshness penalties (<50% → NO composite shown), whisper pathway with
+  source-confidence weighting (full/half/excluded) — no legitimate free
+  whisper source exists so the slot ships EMPTY and a separately-labeled
+  MARKET-IMPLIED HURDLE (reverse-valuation derivation) is shown instead,
+  "Consensus is not the hurdle" warning (≥3 conditions), 6-scenario
+  matrix from the stock's own event analogs (ranges only with ≥4 samples,
+  median±1.5·MAD), explanation layer (top-3 up / top-2 down from real
+  signals), Good-News Saturation from stored beat/fade data, deep
+  sanitize pass (json allow_nan=False contract).
+- **`perfection_data.py`**: adapters over EXISTING providers only —
+  yfinance (info, quarterly/annual statements with aligned-TTM windows
+  that skip the provider's partial newest column, earnings_dates with
+  report-clock AMC/BMO detection, eps_trend/eps_revisions/estimates,
+  get_shares_full, recommendations/upgrades) + Schwab (live quote, chain:
+  earnings-expiry straddle implied move, 25Δ skew, OI walls, 5%-OTM put
+  cost) + stored IV history (percentile) + watchlist board (sector
+  peers). Per-group TTL caches; every fetch guarded → data_issues, never
+  fabricated. Trailing EV/S & P/E percentile series rebuilt from daily
+  price × actual share count ÷ quarterly filings (labeled approximation).
+  Point-in-time: append-only pre-earnings snapshots
+  (data/perfection/SYM.jsonl, one/day); per-event vs-implied comparisons
+  ONLY from own stored snapshots (accumulate forward, never backfilled).
+  Reactions use session-correct cutoffs (BMO=same day, AMC=next trading
+  day) on split-safe auto-adjusted closes, relative to SPY + sector ETF.
+- **`/api/perfection?symbol=&horizon=&discount=&terminal=&margin_target=`**
+  (assumptions clamped server-side). JERRY_NO_NET guard.
+- **PerfectionCard** (Analyze tab, above Credit Risk): score badge +
+  classification + confidence + coverage + Unprotected-Long-Risk label +
+  countdown + AMC/BMO + as-of + snapshot dot; one-sentence summary; "Why
+  this score?" expander (top factors + formula + reconciliation ✓);
+  warning/saturation banners; 7 expandable component rows (score bar,
+  effective vs base weight, contribution) with full detail grids,
+  signals, sources+timestamps; execution-hurdle detail has the
+  assumptions editor (re-solve server-side) + sensitivity + What-Must-Go-
+  Right checklist; whisper box states "No reliable whisper estimate
+  available" + market-implied hurdle; reaction detail shows the 10-event
+  table with fade/miss highlighting; options & expected-move panel
+  (explicitly OUTSIDE the score); scenario matrix; limitations expander;
+  disclaimer. Mobile: single-column KV grids, compact component rows.
+- **Tests**: test_perfection (34) — composite/reconciliation/renorm,
+  confidence bands incl. Insufficient→no score, freshness penalties,
+  reverse-DCF roundtrips + monotonicity + guards, percentiles/winsorize,
+  whisper full/half/excluded + multi-source + never-fabricated, reaction
+  classification/saturation/<8 events/scenario analogs+range gating,
+  warning conditions, NaN/inf/zero-div hygiene (allow_nan=False), BMO/AMC
+  reaction-day rule, snapshot future-leak protection, options panel
+  outside the score. CI + smoke extended (52/52).
+- **Live validation (sandbox, real data)**: `validate_perfection.py AMD
+  SNDK` — AMD 53.9 Elevated (High conf, 100% coverage; EV/S 71st pctile,
+  +132%/90d expansion, revisions +6.2%/30d, 5 of 9 beats faded →
+  saturation; price implies 57.2%/yr vs consensus 58.8% blend — hurdle
+  moderate); SNDK 37.6 Moderate (High conf; price implies LESS than the
+  memory-boom consensus). Values are data-determined, nothing hardcoded;
+  structural checks (reconciliation, weight sums, no-fabricated-whisper,
+  sources present) all pass. Bugs found & fixed by live validation: tz
+  clash in share-history alignment, single-year consensus growth →
+  FY0/FY1 geometric blend, provider's partial newest quarterly column →
+  aligned TTM windows, FCF row fallback for spin-offs.
+- **Browser-verified** (real Chromium, real bundles, real AMD payload):
+  desktop + 390px — header/meta complete, why-box, saturation banner, 7
+  components, assumptions editor, whisper honesty box + market-implied
+  hurdle, 10-event reaction table (5 fades highlighted), options panel,
+  6-row scenario matrix, zero JS errors, zero horizontal overflow.
+- **Battery: 176 unittest + 8 runner suites + smoke 52/52 + JS 107 +
+  verify both layers — all green.** APP_VERSION 3.67.

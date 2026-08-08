@@ -183,6 +183,7 @@ for p in [
     "/api/search?q=fa",
     "/api/scan",
     "/api/playbook",
+    f"/api/perfection?symbol={S}",
     "/api/watchlist",
     "/api/watchlist_alerts",
     f"/api/weekly_range?symbol={S}",

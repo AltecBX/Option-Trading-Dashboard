@@ -16167,6 +16167,434 @@ function ValuationCard({
   }, " \xB7 cheaper than ", 100 - p.percentile, "% of peers")));
 }
 
+// ── Priced for Perfection (v3.67) ──────────────────────────────────────────
+// Pre-earnings module answering ONE question: how much future success is
+// already in the price, and can the stock fall even on strong results?
+// Everything renders from /api/perfection — a versioned, transparent model
+// (weights shipped in the payload, contributions reconcile to the composite,
+// missing data renormalizes and lowers confidence, nothing fabricated).
+const PF_BAND_CLASS = {
+  Low: "low",
+  Moderate: "mod",
+  Elevated: "elev",
+  High: "high",
+  Extreme: "extreme"
+};
+const pfFmt = (v, d = 1, suf = "") => v == null ? "—" : `${Number(v).toFixed(d)}${suf}`;
+const pfSign = (v, d = 1, suf = "%") => v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}${suf}`;
+const pfBig = v => {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  return a >= 1e12 ? `$${(v / 1e12).toFixed(2)}T` : a >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : a >= 1e6 ? `$${(v / 1e6).toFixed(0)}M` : `$${Math.round(v).toLocaleString()}`;
+};
+function PfScoreBar({
+  score
+}) {
+  if (score == null) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pf-bar",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("i", {
+    style: {
+      width: `${Math.max(2, Math.min(100, score))}%`
+    }
+  }));
+}
+function PfKv({
+  items
+}) {
+  const rows = (items || []).filter(([, v]) => v !== null && v !== undefined && v !== "—");
+  if (!rows.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pf-kv"
+  }, rows.map(([k, v, tip]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    title: tip || undefined
+  }, /*#__PURE__*/React.createElement("span", null, k), /*#__PURE__*/React.createElement("b", null, v))));
+}
+function PfComponentDetail({
+  k,
+  c,
+  d,
+  asm,
+  setAsm,
+  applyAsm
+}) {
+  const cur = c.current || {},
+    bm = c.benchmarks || {},
+    det = c.detail || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pf-detail"
+  }, k === "execution_hurdle" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Market cap", pfBig(cur.market_cap)], ["Enterprise value", pfBig(cur.enterprise_value)], ["Revenue (TTM)", pfBig(cur.revenue_ttm)], ["Implied revenue CAGR", pfFmt(cur.implied_rev_cagr_pct, 1, "%"), "Revenue growth the current EV requires under the assumptions below (reverse DCF, bisection-solved)."], ["Consensus growth (FY0/FY1 blend)", pfFmt(cur.consensus_rev_growth_pct, 1, "%")], ["Delivered 3y CAGR", pfFmt(cur.revenue_cagr_3y_pct, 1, "%")], ["Gap vs consensus", pfSign(bm.gap_vs_consensus_pp, 1, "pp"), "Positive = the price demands MORE than analysts model."], ["Gap vs history", pfSign(bm.gap_vs_history_pp, 1, "pp")], ["Required FCF margin", pfFmt(cur.required_fcf_margin_pct, 1, "%")], ["FCF margin now / best-3y", `${pfFmt(cur.fcf_margin_ttm_pct, 1, "%")} / ${pfFmt(cur.fcf_margin_best_pct, 1, "%")}`]]
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "pf-asm"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pf-asm-title",
+    title: "The reverse-DCF assumptions. Change them and re-solve \u2014 the score updates from the server, nothing is hidden in the UI."
+  }, "Assumptions"), /*#__PURE__*/React.createElement("label", null, "Horizon ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    min: "3",
+    max: "7",
+    value: asm.horizon ?? (det.assumptions && det.assumptions.horizon_years) ?? 5,
+    onChange: e => setAsm(s => ({
+      ...s,
+      horizon: e.target.value
+    }))
+  }), "y"), /*#__PURE__*/React.createElement("label", null, "Discount ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.5",
+    min: "6",
+    max: "18",
+    value: asm.discount ?? ((det.assumptions && det.assumptions.discount_rate) != null ? det.assumptions.discount_rate * 100 : 10),
+    onChange: e => setAsm(s => ({
+      ...s,
+      discount: e.target.value
+    }))
+  }), "%"), /*#__PURE__*/React.createElement("label", null, "Terminal ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.25",
+    min: "0",
+    max: "4",
+    value: asm.terminal ?? ((det.assumptions && det.assumptions.terminal_growth) != null ? det.assumptions.terminal_growth * 100 : 2.5),
+    onChange: e => setAsm(s => ({
+      ...s,
+      terminal: e.target.value
+    }))
+  }), "%"), /*#__PURE__*/React.createElement("label", null, "End FCF margin ", /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "1",
+    min: "0",
+    max: "60",
+    value: asm.margin ?? ((det.assumptions && det.assumptions.fcf_margin_target) != null ? Math.round(det.assumptions.fcf_margin_target * 100) : ""),
+    onChange: e => setAsm(s => ({
+      ...s,
+      margin: e.target.value
+    }))
+  }), "%"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "pf-asm-apply",
+    onClick: applyAsm
+  }, "Re-solve"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "pf-asm-reset",
+    onClick: () => {
+      setAsm({});
+      applyAsm(true);
+    }
+  }, "Reset")), det.sensitivity_implied_cagr_pct && /*#__PURE__*/React.createElement("div", {
+    className: "pf-sens",
+    title: "Implied CAGR under shifted assumptions \u2014 how sensitive the hurdle is."
+  }, "Sensitivity: dr \u22121% \u2192 ", /*#__PURE__*/React.createElement("b", null, pfFmt(det.sensitivity_implied_cagr_pct["dr-1"], 1, "%")), " \xB7 dr +1% \u2192 ", /*#__PURE__*/React.createElement("b", null, pfFmt(det.sensitivity_implied_cagr_pct["dr+1"], 1, "%")), " \xB7 tg \u22120.5% \u2192 ", /*#__PURE__*/React.createElement("b", null, pfFmt(det.sensitivity_implied_cagr_pct["tg-05"], 1, "%")), " \xB7 tg +0.5% \u2192 ", /*#__PURE__*/React.createElement("b", null, pfFmt(det.sensitivity_implied_cagr_pct["tg+05"], 1, "%"))), (det.checklist || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-check"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pf-check-title"
+  }, "What must go right"), det.checklist.map((t, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "pf-check-item"
+  }, "\u2610 ", t)))), k === "valuation_stretch" && /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Forward P/E", pfFmt(cur.forward_pe, 1, "×")], ["EV/Revenue", pfFmt(cur.ev_to_revenue, 1, "×")], ["EV/EBITDA", pfFmt(cur.ev_to_ebitda, 1, "×")], ["PEG", pfFmt(cur.peg, 2)], ["Price/FCF", pfFmt(cur.price_to_fcf, 1, "×")], ["FCF yield", pfFmt(cur.fcf_yield_pct, 2, "%")], ["EV/S percentile (own 3y, trailing)", pfFmt(bm.evs_hist_pctile, 0)], ["P/E percentile (own 3y, trailing)", pfFmt(bm.pe_hist_pctile, 0)], ["vs peers (fwd P/E pctile)", bm.peer_fwd_pe_pctile != null ? `${Math.round(bm.peer_fwd_pe_pctile)} (median ${pfFmt(bm.peer_median_fwd_pe, 1, "×")})` : null], ["Multiple expansion 30/90/180d", bm.evs_expansion_pct ? `${pfSign(bm.evs_expansion_pct.d30, 0)} / ${pfSign(bm.evs_expansion_pct.d90, 0)} / ${pfSign(bm.evs_expansion_pct.d180, 0)}` : null]]
+  }), k === "expectations_gap" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Consensus EPS (this qtr)", cur.consensus_eps != null ? `$${Number(cur.consensus_eps).toFixed(2)} (${cur.consensus_eps_analysts || "?"} analysts)` : null], ["Consensus revenue", pfBig(cur.consensus_revenue)], ["EPS revisions 7/30/90d", cur.eps_rev_pct ? `${pfSign(cur.eps_rev_pct.d7)} / ${pfSign(cur.eps_rev_pct.d30)} / ${pfSign(cur.eps_rev_pct.d90)}` : null], ["Up / down revisions (30d)", cur.revisions_up_30d != null ? `${cur.revisions_up_30d} / ${cur.revisions_down_30d}` : null], ["Estimate dispersion", pfFmt(cur.eps_dispersion_pct, 1, "%"), "(high − low) / |avg|. TIGHT dispersion = a crowded single-point consensus."], ["Required acceleration", pfSign(cur.required_accel_pp, 1, "pp"), "Consensus quarter growth minus the growth actually delivered last quarter."]]
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "pf-whisper"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pf-wh-head"
+  }, "Whisper"), bm.whisper && bm.whisper.available ? /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Median whisper EPS", bm.whisper.median_eps != null ? `$${bm.whisper.median_eps}` : null], ["Range", bm.whisper.range ? `$${bm.whisper.range[0]} – $${bm.whisper.range[1]}` : null], ["Gap vs consensus", pfSign(bm.whisper.eps_gap_pct)], ["Sources", (bm.whisper.sources || []).join(", ") || null], ["Confidence", bm.whisper.confidence], ["As of", bm.whisper.asof]]
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "pf-wh-none"
+  }, bm.whisper && bm.whisper.note || "No reliable whisper estimate available."), bm.market_implied_hurdle && /*#__PURE__*/React.createElement("div", {
+    className: "pf-mih",
+    title: "Derived from the reverse valuation \u2014 a requirement embedded in the price. Deliberately NOT called a whisper."
+  }, /*#__PURE__*/React.createElement("b", null, bm.market_implied_hurdle.label), /*#__PURE__*/React.createElement("div", null, bm.market_implied_hurdle.read)), bm.guidance && !bm.guidance.available && /*#__PURE__*/React.createElement("div", {
+    className: "pf-wh-none muted-line"
+  }, bm.guidance.note))), k === "reaction_asymmetry" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Events analyzed", cur.events_analyzed], ["Beats / misses", `${cur.beats} / ${cur.misses}`], ["Beat-and-fade", cur.beat_fade_count != null ? `${cur.beat_fade_count} (${pfFmt(cur.beat_fade_freq_pct, 0, "%")} of beats)` : null], ["Avg reaction after a beat", pfSign(cur.avg_reaction_after_beat_pct)], ["Avg reaction after a miss", pfSign(cur.avg_reaction_after_miss_pct)], ["Beat-reaction trend", pfSign(cur.beat_reaction_trend_pp, 1, "pp"), "Newer beats vs older beats — negative = good news paying less."], ["Moves beyond recorded implied", cur.moves_exceeding_implied]]
+  }), (det.events || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-events-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "pf-events"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Session"), /*#__PURE__*/React.createElement("th", null, "EPS est \u2192 act"), /*#__PURE__*/React.createElement("th", null, "Surprise"), /*#__PURE__*/React.createElement("th", null, "1d"), /*#__PURE__*/React.createElement("th", null, "5d"), /*#__PURE__*/React.createElement("th", null, "vs SPY"))), /*#__PURE__*/React.createElement("tbody", null, det.events.slice(0, 10).map((e, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    className: e.beat_consensus === false ? "pf-ev-miss" : e.reaction_1d_pct != null && e.reaction_1d_pct <= 0 ? "pf-ev-fade" : ""
+  }, /*#__PURE__*/React.createElement("td", null, e.date), /*#__PURE__*/React.createElement("td", null, e.session), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, e.eps_estimate != null ? Number(e.eps_estimate).toFixed(2) : "—", " \u2192 ", e.eps_actual != null ? Number(e.eps_actual).toFixed(2) : "—"), /*#__PURE__*/React.createElement("td", {
+    className: `num ${e.surprise_pct > 0 ? "cu" : "cd"}`
+  }, pfSign(e.surprise_pct)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${e.reaction_1d_pct > 0 ? "cu" : "cd"}`
+  }, pfSign(e.reaction_1d_pct)), /*#__PURE__*/React.createElement("td", {
+    className: `num ${e.reaction_5d_pct > 0 ? "cu" : "cd"}`
+  }, pfSign(e.reaction_5d_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, pfSign(e.rel_spy_1d_pct))))))), bm.classification_note && /*#__PURE__*/React.createElement("div", {
+    className: "pf-note"
+  }, bm.classification_note)), k === "momentum_stretch" && /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Returns 5/20/60/120d", cur.returns_pct ? `${pfSign(cur.returns_pct.d5)} / ${pfSign(cur.returns_pct.d20)} / ${pfSign(cur.returns_pct.d60)} / ${pfSign(cur.returns_pct.d120)}` : null], ["vs sector (20/60d)", cur.vs_sector_pct ? `${pfSign(cur.vs_sector_pct.d20)} / ${pfSign(cur.vs_sector_pct.d60)}` : null], ["vs market (20/60d)", cur.vs_market_pct ? `${pfSign(cur.vs_market_pct.d20)} / ${pfSign(cur.vs_market_pct.d60)}` : null], ["Distance from MA20/50/200", cur.ma_distance_pct ? `${pfSign(cur.ma_distance_pct.ma20)} / ${pfSign(cur.ma_distance_pct.ma50)} / ${pfSign(cur.ma_distance_pct.ma200)}` : null], ["From 52-wk high", pfSign(cur.from_52wk_high_pct)], ["20d pre-earnings run-up", pfSign(cur.runup_20d_pct)], ["Drift since last report", pfSign(cur.drift_since_last_er_pct)], ["Rel-60d percentile (own 3y)", pfFmt(bm.rel60_hist_pctile, 0)], ["MA50-distance percentile", pfFmt(bm.ma50_dist_hist_pctile, 0)], ["Volume vs 120d", cur.rvol20 != null ? `${cur.rvol20}×` : null], ["3%+ gaps (60d)", cur.gap_days_60d]]
+  }), k === "crowding" && /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Mean price target", cur.target_mean != null ? `$${Number(cur.target_mean).toFixed(0)} (${pfSign(cur.pt_upside_pct, 1)} upside)` : null], ["Buy ratings", cur.buy_ratio_pct != null ? `${Math.round(cur.buy_ratio_pct)}% of ${cur.analyst_count || "?"}` : null], ["Rating actions net (30d)", pfSign(cur.pt_changes_net_30d, 0, "")], ["Short interest", cur.short_pct_float != null ? `${cur.short_pct_float}% float · ${pfFmt(cur.days_to_cover, 1)}d to cover` : null], ["Call/put OI · volume", cur.call_put_oi_ratio != null || cur.call_put_vol_ratio != null ? `${pfFmt(cur.call_put_oi_ratio, 2, "×")} · ${pfFmt(cur.call_put_vol_ratio, 2, "×")}` : null], ["25Δ skew", cur.call_put_skew_vol_pts != null ? `${pfSign(cur.call_put_skew_vol_pts, 1)} vol pts` : null], ["Institutional", pfFmt(cur.institutional_pct, 0, "%")]]
+  }), k === "conversion_risk" && /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Gross-margin trend", pfSign(cur.gross_margin_slope_pp_q, 2, "pp/q")], ["Op-margin trend", pfSign(cur.op_margin_slope_pp_q, 2, "pp/q")], ["FCF margin (TTM)", pfFmt(cur.fcf_margin_ttm_pct, 1, "%")], ["OCF / net income", pfFmt(cur.ocf_conversion, 2, "×")], ["SBC % of OCF", pfFmt(cur.sbc_pct_ocf, 0, "%")], ["CapEx % of revenue", pfFmt(cur.capex_pct_revenue, 1, "%")], ["Revenue vs FCF growth", pfSign(cur.rev_vs_fcf_growth_gap, 0, "pp")], ["Revenue vs EPS growth", pfSign(cur.rev_vs_eps_growth_gap, 0, "pp")], ["Inventory vs revenue growth", pfSign(cur.inventory_vs_rev_growth_gap, 0, "pp")]]
+  }), (c.signals_up || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-signals"
+  }, c.signals_up.map((s, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "pf-sig up",
+    title: "Risk-increasing signal"
+  }, "\u25B2 ", s))), (c.signals_down || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-signals"
+  }, c.signals_down.map((s, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: "pf-sig down",
+    title: "Risk-reducing signal"
+  }, "\u25BC ", s))), /*#__PURE__*/React.createElement("div", {
+    className: "pf-explain"
+  }, c.explain), /*#__PURE__*/React.createElement("div", {
+    className: "pf-sources"
+  }, (c.sources || []).map((s, i) => /*#__PURE__*/React.createElement("span", {
+    key: i
+  }, s.source, s.stmt_asof ? ` (filing ${s.stmt_asof})` : "", s.asof ? ` · as of ${String(s.asof).replace("T", " ").slice(0, 16)}` : ""))));
+}
+function PerfectionCard({
+  apiFetch,
+  ticker
+}) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [why, setWhy] = useState(false);
+  const [openComp, setOpenComp] = useState(null);
+  const [showLimits, setShowLimits] = useState(false);
+  const [asm, setAsm] = useState({});
+  const url = withAsm => {
+    let u = `/api/perfection?symbol=${encodeURIComponent(ticker)}`;
+    if (withAsm) {
+      if (asm.horizon) u += `&horizon=${asm.horizon}`;
+      if (asm.discount) u += `&discount=${Number(asm.discount) / 100}`;
+      if (asm.terminal) u += `&terminal=${Number(asm.terminal) / 100}`;
+      if (asm.margin) u += `&margin_target=${Number(asm.margin) / 100}`;
+    }
+    return u;
+  };
+  const load = withAsm => {
+    setLoading(true);
+    setErr(null);
+    sharedJson(apiFetch, url(withAsm), 10 * 60 * 1000).then(x => {
+      setD(x);
+      setLoading(false);
+    }).catch(e => {
+      setErr(String(e));
+      setLoading(false);
+    });
+  };
+  useEffect(() => {
+    setD(null);
+    setAsm({});
+    setOpenComp(null);
+    setWhy(false);
+    load(false);
+  }, [ticker]);
+  const applyAsm = reset => load(!reset);
+  if (loading && !d) return /*#__PURE__*/React.createElement("div", {
+    className: "card pf-card"
+  }, /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Scoring how much perfection is priced into ", ticker, "\u2026 (reverse DCF + history percentiles + reaction history; first load takes a few seconds)"));
+  if (err && !d) return /*#__PURE__*/React.createElement("div", {
+    className: "card pf-card"
+  }, /*#__PURE__*/React.createElement(CardNote, {
+    kind: "error"
+  }, "Priced-for-Perfection unavailable: ", err));
+  if (!d || d.error) return /*#__PURE__*/React.createElement("div", {
+    className: "card pf-card"
+  }, /*#__PURE__*/React.createElement(CardNote, {
+    kind: "empty"
+  }, "Priced-for-Perfection unavailable", d && d.error ? `: ${d.error}` : "", "."));
+  const h = d.header || {};
+  const comps = d.components || {};
+  const order = ["execution_hurdle", "valuation_stretch", "expectations_gap", "reaction_asymmetry", "momentum_stretch", "crowding", "conversion_risk"];
+  const band = PF_BAND_CLASS[d.classification] || "none";
+  const op = d.options_panel || {};
+  const warn = d.warning || {};
+  const ex = d.explanations || {};
+  const countdown = h.days_to_earnings == null ? null : h.days_to_earnings === 0 ? "TODAY" : `in ${h.days_to_earnings}d`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card pf-card",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Pre-earnings \xB7 how much perfection is already priced in"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Priced for Perfection \xB7 ", h.symbol, h.company ? ` — ${h.company}` : "")), /*#__PURE__*/React.createElement("div", {
+    className: `pf-score pf-${band}`,
+    title: `Perfection Risk Score ${d.score != null ? d.score : "—"}/100 (${d.classification || "not shown"}). Model v${d.model && d.model.version}: weighted average of the component scores below — weights ship in the payload and contributions reconcile to this number${d.reconciled === false ? " (RECONCILIATION FAILED — treat with suspicion)" : ""}.`
+  }, /*#__PURE__*/React.createElement("b", null, d.score != null ? Math.round(d.score) : "—"), /*#__PURE__*/React.createElement("span", null, d.classification || (d.confidence === "Insufficient" ? "insufficient data" : "—")))), /*#__PURE__*/React.createElement("div", {
+    className: "pf-meta"
+  }, h.next_earnings ? /*#__PURE__*/React.createElement("span", {
+    title: `Next earnings ${h.next_earnings} (${h.session === "AMC" ? "after market close" : h.session === "BMO" ? "before market open" : "session unknown"})`
+  }, "Earnings ", /*#__PURE__*/React.createElement("b", null, h.next_earnings), " ", /*#__PURE__*/React.createElement("span", {
+    className: `pf-sess ${h.session}`
+  }, h.session), " ", countdown && /*#__PURE__*/React.createElement("b", {
+    className: "pf-count"
+  }, countdown)) : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "No upcoming earnings date found"), h.price != null && /*#__PURE__*/React.createElement("span", null, "Price ", /*#__PURE__*/React.createElement("b", null, "$", h.price)), /*#__PURE__*/React.createElement("span", {
+    title: "Weighted share of the model that had real data behind it, minus freshness penalties."
+  }, "Confidence ", /*#__PURE__*/React.createElement("b", {
+    className: `pf-conf pf-conf-${(d.confidence || "").toLowerCase()}`
+  }, d.confidence), " (", Math.round(d.coverage_pct || 0), "% coverage)"), /*#__PURE__*/React.createElement("span", {
+    title: "Composite blended 70/30 with the reaction-asymmetry score \u2014 how dangerous an UNHEDGED long is into the print."
+  }, "Unprotected long risk ", /*#__PURE__*/React.createElement("b", {
+    className: `pf-ulr pf-${PF_BAND_CLASS[d.unprotected_long_risk] || "none"}`
+  }, d.unprotected_long_risk || "—")), /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "as of ", String(h.as_of || "").replace("T", " ").slice(0, 16), "Z"), d.snapshot_stored && /*#__PURE__*/React.createElement("span", {
+    className: "pf-snap",
+    title: "Today's pre-earnings snapshot was stored (append-only). Snapshots accumulate so future reaction analysis can compare against what was ACTUALLY priced in beforehand \u2014 point-in-time by construction."
+  }, "\u25CF snapshot stored")), d.summary && /*#__PURE__*/React.createElement("div", {
+    className: "pf-summary"
+  }, d.summary), d.reconciled === false && /*#__PURE__*/React.createElement("div", {
+    className: "pf-warnbanner"
+  }, "Component contributions failed to reconcile to the composite \u2014 treat this score as suspect (bug guard)."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "pf-why",
+    onClick: () => setWhy(w => !w),
+    "aria-expanded": why
+  }, why ? "▾" : "▸", " Why this score?"), why && /*#__PURE__*/React.createElement("div", {
+    className: "pf-whybox"
+  }, (ex.risk_increasing || []).length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "pf-why-title up"
+  }, "Risk increasing"), ex.risk_increasing.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "pf-why-item"
+  }, "\u25B2 ", r.text, " ", /*#__PURE__*/React.createElement("span", {
+    className: "pf-why-src"
+  }, "(", r.component, ")")))), (ex.risk_reducing || []).length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "pf-why-title down"
+  }, "Risk reducing"), ex.risk_reducing.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "pf-why-item"
+  }, "\u25BC ", r.text, " ", /*#__PURE__*/React.createElement("span", {
+    className: "pf-why-src"
+  }, "(", r.component, ")")))), /*#__PURE__*/React.createElement("div", {
+    className: "pf-formula",
+    title: "The full model ships in the payload \u2014 nothing hidden in the UI."
+  }, "Score = \u03A3 component \xD7 weight (renormalized over available components) \xB7 model v", d.model && d.model.version, " \xB7 weights: hurdle 25 / valuation 20 / expectations 15 / reactions 15 / momentum 10 / crowding 10 / conversion 5 \xB7 contributions total ", d.contribution_total != null ? d.contribution_total : "—", " ", d.reconciled ? "✓" : "")), warn.fired && /*#__PURE__*/React.createElement("div", {
+    className: "pf-warnbanner",
+    role: "alert"
+  }, /*#__PURE__*/React.createElement("b", null, "\u26A0 ", warn.headline), /*#__PURE__*/React.createElement("ul", null, (warn.conditions || []).map((c, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, c)))), d.good_news_saturation && !warn.fired && /*#__PURE__*/React.createElement("div", {
+    className: "pf-satbanner",
+    title: "Repeated beats have produced small, flat or negative reactions \u2014 good news has been getting saturated."
+  }, "Good-news saturation: recent beats are no longer being paid."), /*#__PURE__*/React.createElement("div", {
+    className: "pf-comps"
+  }, order.map(k => {
+    const c = comps[k];
+    if (!c) return /*#__PURE__*/React.createElement("div", {
+      key: k,
+      className: "pf-comp pf-comp-missing",
+      title: "This component could not be computed from available data \u2014 its weight was redistributed and confidence reduced. Nothing was estimated in its place."
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-name"
+    }, {
+      execution_hurdle: "Implied execution hurdle",
+      valuation_stretch: "Valuation stretch",
+      expectations_gap: "Expectations & whisper gap",
+      reaction_asymmetry: "Earnings reaction asymmetry",
+      momentum_stretch: "Momentum stretch",
+      crowding: "Crowding & positioning",
+      conversion_risk: "Conversion risk"
+    }[k]), /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-na"
+    }, "unavailable \u2014 weight redistributed"));
+    const isOpen = openComp === k;
+    return /*#__PURE__*/React.createElement("div", {
+      key: k,
+      className: `pf-comp ${isOpen ? "open" : ""}`
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "pf-comp-row",
+      onClick: () => setOpenComp(isOpen ? null : k),
+      "aria-expanded": isOpen,
+      title: `${c.label}: score ${c.score}/100 · weight ${c.weight_effective_pct}% (base ${c.weight_base_pct}%) · contributes ${c.contribution} points · ${c.coverage != null ? c.coverage + "% of its sub-signals had data" : ""}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-name"
+    }, c.label), /*#__PURE__*/React.createElement(PfScoreBar, {
+      score: c.score
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-score num"
+    }, Math.round(c.score)), /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-w num"
+    }, c.weight_effective_pct, "%", c.weight_effective_pct !== c.weight_base_pct ? /*#__PURE__*/React.createElement("i", {
+      title: `Renormalized from base ${c.weight_base_pct}% because other components are missing.`
+    }, "*") : null), /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-contrib num",
+      title: "Points contributed to the composite."
+    }, "+", c.contribution), /*#__PURE__*/React.createElement("span", {
+      className: "pf-comp-caret"
+    }, isOpen ? "▾" : "▸")), isOpen && /*#__PURE__*/React.createElement(PfComponentDetail, {
+      k: k,
+      c: c,
+      d: d,
+      asm: asm,
+      setAsm: setAsm,
+      applyAsm: applyAsm
+    }));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "pf-options"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pf-sec-title",
+    title: op.disclaimer || ""
+  }, "Options & expected move ", /*#__PURE__*/React.createElement("span", {
+    className: "pf-sec-sub"
+  }, "(event uncertainty \u2014 deliberately NOT part of the risk score)")), op.available ? /*#__PURE__*/React.createElement(PfKv, {
+    items: [["Straddle implied move", op.implied_move_pct != null ? `±${op.implied_move_pct}% ($${op.straddle} @ ${op.expiry})` : null], ["Implied range", op.implied_range ? `$${op.implied_range[0]} – $${op.implied_range[1]}` : null], ["IV percentile (own history)", op.iv_percentile != null ? `${op.iv_percentile} (${op.iv_history_days}d observed)` : null], ["Median realized ER move", op.median_realized_move_pct != null ? `±${op.median_realized_move_pct}% (${(op.realized_er_moves_pct || []).length} events)` : null], ["Implied ÷ realized", pfFmt(op.implied_vs_realized, 2, "×"), "Above 1 = options price MORE movement than this stock's typical earnings move."], ["25Δ skew", op.call_put_skew_vol_pts != null ? `${pfSign(op.call_put_skew_vol_pts, 1)} vol pts` : null], ["Key OI strikes", (op.oi_concentration || []).slice(0, 3).map(w => `${w.kind}$${w.strike} (${(w.oi / 1000).toFixed(0)}k)`).join(" · ") || null], ["~5% OTM put", op.protection ? `$${op.protection.mid} (${op.protection.pct_of_spot}% of spot)` : null]]
+  }) : /*#__PURE__*/React.createElement("div", {
+    className: "pf-note"
+  }, op.note || "Options data unavailable right now.", " Historical realized moves", (op.realized_er_moves_pct || []).length ? ` (median ±${op.median_realized_move_pct}%)` : "", " still shown in the reaction component.")), (d.scenarios || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-scen"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "pf-sec-title"
+  }, "Scenario matrix ", /*#__PURE__*/React.createElement("span", {
+    className: "pf-sec-sub"
+  }, "(historical analogs from this stock's own events \u2014 no manufactured price targets)")), /*#__PURE__*/React.createElement("div", {
+    className: "pf-scen-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "pf-scen-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Scenario"), /*#__PURE__*/React.createElement("th", null, "Bar cleared"), /*#__PURE__*/React.createElement("th", null, "Risk"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether multiple compression stays live even if results are good."
+  }, "Compression"), /*#__PURE__*/React.createElement("th", null, "Historical analog"))), /*#__PURE__*/React.createElement("tbody", null, d.scenarios.map(s => /*#__PURE__*/React.createElement("tr", {
+    key: s.key
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "pf-scen-label"
+  }, s.label, s.note ? /*#__PURE__*/React.createElement("div", {
+    className: "pf-scen-note"
+  }, s.note) : null), /*#__PURE__*/React.createElement("td", null, (s.satisfies || []).join(", ") || "none"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: `pf-dir ${s.risk_direction}`
+  }, s.risk_direction === "up" ? "▲ up" : s.risk_direction === "down" ? "▼ down" : "◆ mixed")), /*#__PURE__*/React.createElement("td", null, s.compression_risk ? "live" : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "pf-scen-analog"
+  }, s.analog && s.analog.n > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, s.analog.basis, ": median ", pfSign(s.analog.median_pct), s.analog.range ? ` (range ${pfSign(s.analog.range[0])} … ${pfSign(s.analog.range[1])})` : " (too few samples for a range)") : s.analog && s.analog.basis || "insufficient history"))))))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "pf-why",
+    onClick: () => setShowLimits(s => !s),
+    "aria-expanded": showLimits
+  }, showLimits ? "▾" : "▸", " Data limitations & point-in-time notes"), showLimits && /*#__PURE__*/React.createElement("div", {
+    className: "pf-limits"
+  }, (d.limitations || []).map((l, i) => /*#__PURE__*/React.createElement("div", {
+    key: i
+  }, "\u2022 ", l)), (d.data_issues || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pf-issues"
+  }, "Fetch issues this load: ", d.data_issues.join(" · "))), /*#__PURE__*/React.createElement("div", {
+    className: "pf-disclaimer"
+  }, d.disclaimer));
+}
+
 // ── Credit Risk monitor (v3.65) ─────────────────────────────────────────────
 // Bloomberg-style single-name credit view WITHOUT Bloomberg. Single-name CDS
 // quotes are paid dealer data (S&P Global/Bloomberg/ICE) — never shown,
@@ -17920,6 +18348,7 @@ Object.assign(window, {
   UWPanel: _memo(UWPanel),
   ValuationCard: _memo(ValuationCard),
   CreditRiskCard: _memo(CreditRiskCard),
+  PerfectionCard: _memo(PerfectionCard),
   ExpectedMoveCard: _memo(ExpectedMoveCard),
   ReversalRadarCard: _memo(ReversalRadarCard),
   RadarReportCard: _memo(RadarReportCard),
