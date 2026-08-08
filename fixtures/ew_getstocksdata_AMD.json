@@ -1,0 +1,20 @@
+{
+ "ticker": "AMD",
+ "company": "Advanced Micro Devices, Inc.",
+ "nextEPSDate": "2026-11-03T00:00:00",
+ "releaseTime": 3,
+ "confirmDate": null,
+ "twitter": "AMD",
+ "lastEPSTime": "2026-05-05T16:15:00",
+ "description": " Advanced Micro Devices offers the industry?s broadest portfolio of leadership high-performance and adaptive processor technologies, combining CPUs, GPUs, FPGAs, Adaptive SoCs and deep software expertise to enable leadership computing platforms for cloud, edge and end devices.   \n",
+ "epsImpact": null,
+ "avgEPSMove": null,
+ "consensusEst": 1.61,
+ "revenueEst": 13060000000.0,
+ "whisper": null,
+ "quarterDate": "2026-09-30T00:00:00",
+ "quarter": 3,
+ "indNo": 830,
+ "sectNo": 8,
+ "sectName": "Technology"
+}

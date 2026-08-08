@@ -11076,3 +11076,53 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .pf-comp-row .pf-bar, .pf-comp-w { display: none; }
   .pf-meta { gap: 4px 10px; }
 }
+
+/* ═══ v3.68: whisper/expectation source panel (inside Priced for Perfection) */
+.pf-wsrc { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.pf-wsrc-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pf-wsrc-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.pf-wsrc-table th { text-align: left; font-family: var(--font-mono); font-size: 9px;
+  font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3);
+  padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.pf-wsrc-table td { padding: 4px 8px; border-bottom: 1px dashed var(--line);
+  vertical-align: top; white-space: nowrap; }
+.pf-wsrc-name { font-weight: 600; white-space: normal; min-width: 130px; }
+.pf-wsrc-name a { color: var(--accent); text-decoration: none; }
+.pf-wsrc-name a:hover { text-decoration: underline; }
+.pf-wsrc-note { font-weight: 400; font-size: 10.5px; color: var(--fg-3); white-space: normal;
+  margin-top: 2px; }
+.pf-kind { font-family: var(--font-mono); font-size: 8.5px; font-weight: 800;
+  letter-spacing: 0.05em; border-radius: 4px; padding: 1px 5px; border: 1px solid var(--line);
+  color: var(--fg-3); white-space: nowrap; }
+.pf-kind-provider_whisper { color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent), transparent 45%);
+  background: color-mix(in oklch, var(--accent) 10%, transparent); }
+.pf-kind-community_estimate { color: var(--warn);
+  border-color: color-mix(in oklch, var(--warn), transparent 50%); }
+.pf-kind-consensus_only { color: var(--fg-2); }
+.pf-kind-user_supplied { color: var(--up);
+  border-color: color-mix(in oklch, var(--up), transparent 50%); }
+.pf-wstatus { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.pf-wstat { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3);
+  border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; cursor: help; }
+.pf-wstat.ok { color: var(--up); border-color: color-mix(in oklch, var(--up), transparent 55%); }
+.pf-wstat.off { color: var(--fg-3); }
+.pf-wconflict { font-size: 11.5px; color: var(--warn); margin: 6px 0; cursor: help;
+  border-left: 3px solid color-mix(in oklch, var(--warn), transparent 45%); padding-left: 8px; }
+.pf-wlinks { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  font-size: 11.5px; color: var(--fg-3); margin: 6px 0; }
+.pf-wlink { color: var(--accent); text-decoration: none; border: 1px solid var(--line);
+  border-radius: 6px; padding: 2px 8px; min-height: 24px; display: inline-flex; align-items: center; }
+.pf-wlink:hover { border-color: color-mix(in oklch, var(--accent), transparent 40%); }
+.pf-wform { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 12px; align-items: end; border: 1px dashed var(--line); border-radius: 8px;
+  padding: 10px; margin: 4px 0; }
+.pf-wform label { display: flex; flex-direction: column; gap: 3px; font-size: 11px;
+  color: var(--fg-3); }
+.pf-wform input { background: var(--bg-2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font-size: 12.5px; min-height: 32px; width: 100%; }
+.pf-wform-wide { grid-column: 1 / -1; }
+.pf-wmsg { font-size: 11.5px; color: var(--fg-2); align-self: center; }
+@media (max-width: 620px) {
+  .pf-wform { grid-template-columns: 1fr; }
+}

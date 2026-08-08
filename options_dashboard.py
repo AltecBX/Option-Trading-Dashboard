@@ -4607,7 +4607,15 @@ try:
 except Exception as _exc:  # noqa: BLE001
     print(f"[chain_store] wiring failed: {_exc}", file=sys.stderr)
 
-# ── Priced-for-Perfection pre-earnings model (v3.67) ───────────────────────
+# ── Priced-for-Perfection pre-earnings model (v3.67) + whisper sources (v3.68)
+try:
+    import whisper_sources as _whisper_sources
+    _whisper_sources.configure(data_dir=_STABLE_DIR)
+    _WHISPER_SOURCES_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[whisper_sources] wiring failed: {_exc}", file=sys.stderr)
+    _WHISPER_SOURCES_AVAILABLE = False
+    _whisper_sources = None  # type: ignore
 try:
     import perfection_data as _perfection_data
     _perfection_data.configure(
@@ -6510,6 +6518,36 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        # ── Whisper: user-supplied source-attributed entry (v3.68) ──
+        if parsed.path == "/api/whisper/manual":
+            try:
+                if not _WHISPER_SOURCES_AVAILABLE:
+                    raise ValueError("whisper sources unavailable")
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 20_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(payload, dict) or not payload.get("symbol"):
+                    raise ValueError("expected object with symbol")
+                sym = str(payload["symbol"]).upper().strip()
+                ne = None
+                if _PERFECTION_AVAILABLE:
+                    try:
+                        est = _perfection_data._estimates(sym, [])
+                        ne = (est.get("next_event") or {}).get("date")
+                    except Exception:
+                        ne = None
+                res = _whisper_sources.add_manual(
+                    sym, payload.get("source"), eps=payload.get("eps"),
+                    revenue=payload.get("revenue"), url=payload.get("url"),
+                    note=payload.get("note"), next_earnings=ne)
+                if not res.get("ok"):
+                    raise ValueError(res.get("error") or "store failed")
+                self._send_json({"ok": True, "entry": res["entry"],
+                                 "next_earnings": ne})
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         # ── Pick journal: snapshot an early-mover suggestion (v3.02) ──
         if parsed.path == "/api/pick_journal":
             try:
@@ -8256,6 +8294,35 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json(_perfection_data.build(symbol, assumptions), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/perfection", exc)
+                self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/whisper":
+            # Whisper/expectation sources view (v3.68): per-provider values +
+            # statuses + quick-open links + stored manual entries.
+            if not _WHISPER_SOURCES_AVAILABLE:
+                self._send_json({"error": "whisper sources unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                ce = cr = ne = None
+                if _PERFECTION_AVAILABLE:
+                    try:
+                        est = _perfection_data._estimates(symbol, [])
+                        ce, cr = est.get("consensus_eps"), est.get("consensus_revenue")
+                        ne = (est.get("next_event") or {}).get("date")
+                    except Exception:
+                        pass
+                out = _whisper_sources.collect(symbol, consensus_eps=ce,
+                                               consensus_revenue=cr, next_earnings=ne)
+                self._send_json({"symbol": symbol, "next_earnings": ne,
+                                 "consensus_eps": ce, "consensus_revenue": cr,
+                                 **out}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/whisper", exc)
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/ivrank":

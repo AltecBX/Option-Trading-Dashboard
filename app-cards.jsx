@@ -12069,7 +12069,144 @@ function PfKv({ items }) {
   );
 }
 
-function PfComponentDetail({ k, c, d, asm, setAsm, applyAsm }) {
+// Whisper/expectation sources (v3.68): every provider's own value, clearly
+// labeled by KIND (provider whisper vs community estimate vs published
+// consensus vs what you entered), each provider's live status, quick-open
+// links, and the source-attributed manual entry form. Nothing here is ever
+// synthesized — a provider with no number shows why it has none.
+const PF_KIND_LABEL = {
+  provider_whisper: "PROVIDER WHISPER",
+  community_estimate: "COMMUNITY EST",
+  consensus_only: "CONSENSUS ONLY",
+  user_supplied: "YOU ENTERED",
+};
+const PF_STATUS_TEXT = {
+  ok: "read OK",
+  no_data: "no data published yet",
+  no_public_data: "no public data (registration required)",
+  blocked: "blocked by anti-bot challenge — not evaded by design",
+  unreachable: "unreachable from this deploy",
+  layout_changed: "page/API shape changed — extraction disabled rather than guessing",
+  error: "adapter error",
+};
+
+function PfWhisperSources({ panel, symbol, apiFetch, reload }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ source: "", eps: "", revenue: "", url: "", note: "" });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  if (!panel) return null;
+  const links = panel.quick_links || {};
+  const statuses = panel.statuses || {};
+  const sources = panel.sources || [];
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.source.trim() || (!form.eps && !form.revenue)) {
+      setMsg("Source attribution and at least one value are required."); return;
+    }
+    setBusy(true); setMsg(null);
+    try {
+      const r = await apiFetch("/api/whisper/manual", {
+        method: "POST",
+        body: JSON.stringify({
+          symbol, source: form.source, eps: form.eps || null,
+          revenue: form.revenue || null, url: form.url || null, note: form.note || null,
+        }),
+      });
+      const j = await r.json();
+      if (j.error) { setMsg(j.error); }
+      else {
+        setMsg("Saved — attributed to you and tied to this earnings event.");
+        setForm({ source: "", eps: "", revenue: "", url: "", note: "" });
+        if (reload) reload();
+      }
+    } catch (err) { setMsg(String(err)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="pf-wsrc">
+      <div className="pf-wh-head">Expectation sources</div>
+      {sources.length > 0 && (
+        <div className="pf-wsrc-wrap"><table className="pf-wsrc-table">
+          <thead><tr>
+            <th>Source</th><th>Type</th><th>Whisper EPS</th><th>Consensus EPS</th>
+            <th>Consensus rev</th><th>Earnings</th><th>As of</th>
+          </tr></thead>
+          <tbody>
+            {sources.map((s, i) => (
+              <tr key={i}>
+                <td className="pf-wsrc-name">
+                  {s.source_url
+                    ? <a href={s.source_url} target="_blank" rel="noopener noreferrer">{s.source_name}</a>
+                    : s.source_name}
+                  {s.validation_note && <div className="pf-wsrc-note" title="Value rejected by validation — not shown as data.">{s.validation_note}</div>}
+                  {s.note && <div className="pf-wsrc-note">{s.note}</div>}
+                </td>
+                <td><span className={`pf-kind pf-kind-${s.kind}`}>{PF_KIND_LABEL[s.kind] || s.kind}</span></td>
+                <td className="num">{s.whisper_eps != null ? `$${s.whisper_eps}` : <span className="muted">—</span>}</td>
+                <td className="num">{s.consensus_eps != null ? `$${s.consensus_eps}` : <span className="muted">—</span>}</td>
+                <td className="num">{s.consensus_revenue != null ? pfBig(s.consensus_revenue) : <span className="muted">—</span>}</td>
+                <td className="num">{s.earnings_date || "—"}{s.session && s.session !== "unknown" ? ` ${s.session}` : ""}{s.confirmed ? " ✓" : ""}</td>
+                <td className="num">{String(s.asof || "").replace("T", " ").slice(0, 16)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      <div className="pf-wstatus">
+        {Object.keys(statuses).map(k2 => {
+          const st = statuses[k2] || {};
+          const good = st.status === "ok";
+          return (
+            <span key={k2} className={`pf-wstat ${good ? "ok" : "off"}`}
+                  title={`${k2}: ${PF_STATUS_TEXT[st.status] || st.status}${st.error ? ` — ${st.error}` : ""}`}>
+              {k2} <b>{st.status}</b>
+            </span>
+          );
+        })}
+      </div>
+      {(panel.conflicts || []).length > 0 && (
+        <div className="pf-wconflict" title="Providers disagree on the published consensus — usually a different vintage or quarter. The headline gap switches to same-provider pairs so numbers are never mixed across sources.">
+          {panel.conflicts.map((c2, i) => <div key={i}>⚠ {c2}</div>)}
+          {panel.gap_basis && <div className="pf-wsrc-note">Gap basis: {panel.gap_basis}</div>}
+        </div>
+      )}
+      <div className="pf-wlinks">
+        <span>Open source:</span>
+        {Object.keys(links).map(k2 => (
+          <a key={k2} href={links[k2]} target="_blank" rel="noopener noreferrer" className="pf-wlink">{k2}</a>
+        ))}
+      </div>
+      <button type="button" className="pf-why" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        {open ? "▾" : "▸"} Add a whisper you read yourself (source required)
+      </button>
+      {open && (
+        <form className="pf-wform" onSubmit={submit}>
+          <label>Source<input required value={form.source} placeholder="e.g. Earnings Whispers"
+            onChange={e => setForm(f => ({ ...f, source: e.target.value }))} /></label>
+          <label>Whisper EPS<input type="number" step="0.01" value={form.eps} placeholder="1.61"
+            onChange={e => setForm(f => ({ ...f, eps: e.target.value }))} /></label>
+          <label>Whisper revenue<input type="number" step="1000000" value={form.revenue} placeholder="13400000000"
+            onChange={e => setForm(f => ({ ...f, revenue: e.target.value }))} /></label>
+          <label className="pf-wform-wide">Source URL<input type="url" value={form.url} placeholder="https://…"
+            onChange={e => setForm(f => ({ ...f, url: e.target.value }))} /></label>
+          <label className="pf-wform-wide">Note<input value={form.note} placeholder="optional context"
+            onChange={e => setForm(f => ({ ...f, note: e.target.value }))} /></label>
+          <button type="submit" disabled={busy} className="pf-asm-apply">{busy ? "Saving…" : "Save entry"}</button>
+          {msg && <span className="pf-wmsg">{msg}</span>}
+          <div className="pf-wsrc-note pf-wform-wide">
+            Stored with your attribution and this earnings date. A URL raises its confidence from low to medium;
+            it never counts as a provider whisper.
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function PfComponentDetail({ k, c, d, asm, setAsm, applyAsm, apiFetch, reload }) {
   const cur = c.current || {}, bm = c.benchmarks || {}, det = c.detail || {};
   return (
     <div className="pf-detail">
@@ -12166,6 +12303,8 @@ function PfComponentDetail({ k, c, d, asm, setAsm, applyAsm }) {
             {bm.guidance && !bm.guidance.available && (
               <div className="pf-wh-none muted-line">{bm.guidance.note}</div>
             )}
+            <PfWhisperSources panel={d.whisper_panel} symbol={(d.header || {}).symbol}
+                              apiFetch={apiFetch} reload={reload} />
           </div>
         </React.Fragment>
       )}
@@ -12264,7 +12403,7 @@ function PerfectionCard({ apiFetch, ticker }) {
   const [showLimits, setShowLimits] = useState(false);
   const [asm, setAsm] = useState({});
 
-  const url = (withAsm) => {
+  const url = (withAsm, bust) => {
     let u = `/api/perfection?symbol=${encodeURIComponent(ticker)}`;
     if (withAsm) {
       if (asm.horizon) u += `&horizon=${asm.horizon}`;
@@ -12272,11 +12411,14 @@ function PerfectionCard({ apiFetch, ticker }) {
       if (asm.terminal) u += `&terminal=${Number(asm.terminal) / 100}`;
       if (asm.margin) u += `&margin_target=${Number(asm.margin) / 100}`;
     }
+    // A fresh key after a manual whisper entry — otherwise the shared 10-min
+    // cache would hand back the pre-entry payload.
+    if (bust) u += `&_r=${bust}`;
     return u;
   };
-  const load = (withAsm) => {
+  const load = (withAsm, bust) => {
     setLoading(true); setErr(null);
-    sharedJson(apiFetch, url(withAsm), 10 * 60 * 1000)
+    sharedJson(apiFetch, url(withAsm, bust), 10 * 60 * 1000)
       .then(x => { setD(x); setLoading(false); })
       .catch(e => { setErr(String(e)); setLoading(false); });
   };
@@ -12396,7 +12538,9 @@ function PerfectionCard({ apiFetch, ticker }) {
                 <span className="pf-comp-contrib num" title="Points contributed to the composite.">+{c.contribution}</span>
                 <span className="pf-comp-caret">{isOpen ? "▾" : "▸"}</span>
               </button>
-              {isOpen && <PfComponentDetail k={k} c={c} d={d} asm={asm} setAsm={setAsm} applyAsm={applyAsm} />}
+              {isOpen && <PfComponentDetail k={k} c={c} d={d} asm={asm} setAsm={setAsm}
+                                            applyAsm={applyAsm} apiFetch={apiFetch}
+                                            reload={() => load(false, Date.now())} />}
             </div>
           );
         })}

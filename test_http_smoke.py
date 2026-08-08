@@ -184,6 +184,7 @@ for p in [
     "/api/scan",
     "/api/playbook",
     f"/api/perfection?symbol={S}",
+    f"/api/whisper?symbol={S}",
     "/api/watchlist",
     "/api/watchlist_alerts",
     f"/api/weekly_range?symbol={S}",
@@ -241,6 +242,8 @@ hit("POST", "/api/trade_journal", {"symbol": S, "side": "cc", "strike": 105,
                                    "premium": 1.2, "contracts": 1,
                                    "opened": "2026-06-01"})
 hit("POST", "/api/watchlist_alerts/dismiss", {"id": "smoke-test-id"})
+hit("POST", "/api/whisper/manual", {"symbol": S, "source": "smoke-test", "eps": 1.23,
+                                    "url": "https://example.com/note"})
 hit("POST", "/api/push/test", {})
 hit("POST", "/api/push/roll_flag", {"symbol": S, "strike": 105, "kind": "call"})
 

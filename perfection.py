@@ -160,14 +160,23 @@ def scale(value, lo_anchor: float, hi_anchor: float) -> float | None:
     return clamp((v - lo_anchor) / (hi_anchor - lo_anchor) * 100.0)
 
 
+def _band_of(score: float, bands) -> str:
+    """Map a score onto its band. Bands are declared with INTEGER bounds
+    (0-24, 25-49, …) but scores are fractional, so each band covers
+    [lo, hi+1) — otherwise 69.4 would fall between "50-69" and "70-84" and
+    silently mislabel an Elevated setup. The last band absorbs anything above.
+    """
+    for lo, hi, label in bands:
+        if lo <= score < hi + 1:
+            return label
+    return bands[-1][2] if score >= bands[-1][0] else bands[0][2]
+
+
 def classify(score) -> str | None:
     s = _num(score)
     if s is None:
         return None
-    for lo, hi, label in MODEL["bands"]:
-        if lo <= s <= hi:
-            return label
-    return "Extreme" if s > 100 else "Low"
+    return _band_of(s, MODEL["bands"])
 
 
 def ulr_label(composite, reaction_score) -> str | None:
@@ -177,10 +186,7 @@ def ulr_label(composite, reaction_score) -> str | None:
     r = _num(reaction_score)
     cfg = MODEL["ulr"]
     s = cfg["composite_w"] * c + cfg["reaction_w"] * (r if r is not None else c)
-    for lo, hi, label in cfg["bands"]:
-        if lo <= s <= hi:
-            return label
-    return "Extreme"
+    return _band_of(s, cfg["bands"])
 
 
 def _mean(vals):
@@ -550,8 +556,8 @@ def build_expectations_gap(d: dict) -> dict | None:
          "eps_dispersion_pct": _rnd(disp, 1), "required_accel_pp": _rnd(accel, 1)},
         {"whisper": {
             "available": bool(wh.get("available")),
-            "note": wh.get("note") or ("No reliable whisper estimate available — no legitimate, "
-                                       "attributable whisper source is configured; nothing is inferred "
+            "note": wh.get("note") or ("No reliable whisper estimate available — the configured "
+                                       "sources returned none for this event; nothing is inferred "
                                        "or invented in its place."),
             "median_eps": wh.get("median_eps"), "range": wh.get("range"),
             "sources": wh.get("sources"), "source_count": wh.get("source_count"),
@@ -566,9 +572,10 @@ def build_expectations_gap(d: dict) -> dict | None:
          "market_implied_hurdle": mih},
         up, down,
         ("Tracks how the bar itself is moving: published consensus and its revisions, any credible "
-         "whisper (none configured — stated, not faked), guidance where available, and how crowded "
-         "the estimate range is. The separately-labeled MARKET-IMPLIED HURDLE comes from the reverse "
-         "valuation — it is a derived requirement, never a whisper."),
+         "whisper collected from the configured sources (each labeled by provider; absent means "
+         "absent, never inferred), guidance where available, and how crowded the estimate range is. "
+         "The separately-labeled MARKET-IMPLIED HURDLE comes from the reverse valuation — it is a "
+         "derived requirement, never a whisper."),
         d.get("sources_expectations") or [],
         {"subweights": sw, "whisper_weight_applied": wh_weight,
          "subweight_coverage_pct": round(used / full * 100.0, 0)})

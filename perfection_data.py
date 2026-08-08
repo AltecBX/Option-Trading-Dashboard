@@ -44,6 +44,12 @@ except Exception:  # pragma: no cover
 import perfection
 from perfection import SECTOR_ETF, _num
 
+try:
+    import whisper_sources as _whisper
+    _WHISPER_OK = True
+except Exception:  # pragma: no cover
+    _WHISPER_OK = False
+
 _SCHWAB_GETTER = None
 _PEERS_GETTER = None          # () -> watchlist_table board dict | None
 _IV_HISTORY_LOAD = None       # (symbol) -> [{date, iv}]
@@ -971,9 +977,7 @@ def build(symbol: str, assumptions: dict | None = None) -> dict:
         "eps_dispersion_pct": est.get("eps_dispersion_pct"),
         "required_accel_pp": required_accel,
         "whisper": {"available": False,
-                    "note": ("No reliable whisper estimate available — no legitimate, attributable "
-                             "whisper source is configured (free feeds do not exist; nothing is "
-                             "inferred in its place).")},
+                    "note": "whisper sources unavailable"},   # replaced below when collect() runs
         "guidance": {"available": False,
                      "note": "No structured guidance feed from the configured free providers."},
         "market_implied_hurdle": None,   # filled below from component 1
@@ -1027,7 +1031,34 @@ def build(symbol: str, assumptions: dict | None = None) -> dict:
         "freshness_penalties": freshness,
     }
 
+    # Whisper sources (v3.68): run the provider adapters + manual entries.
+    whisper_panel = None
+    if _WHISPER_OK:
+        try:
+            wc = _whisper.collect(symbol,
+                                  consensus_eps=est.get("consensus_eps"),
+                                  consensus_revenue=est.get("consensus_revenue"),
+                                  next_earnings=(next_ev or {}).get("date"))
+            inputs["whisper"] = wc["model_input"]
+            whisper_panel = wc["panel"]
+        except Exception as exc:  # noqa: BLE001
+            issues.append(f"whisper sources: {exc}")
+    # Per-event pre-announcement whisper, ONLY from snapshots recorded
+    # before the event (accumulates forward; nothing backfilled).
+    if _WHISPER_OK:
+        for ev in inputs["events"]:
+            try:
+                snap = _whisper.whisper_for_event(symbol, ev.get("date"))
+            except Exception:
+                snap = None
+            if snap:
+                ev["whisper_eps_pre"] = snap.get("whisper_eps")
+                ev["whisper_source"] = snap.get("source")
+                ev["whisper_snap_date"] = snap.get("date")
+
     payload = perfection.assemble(inputs, assumptions)
+    if whisper_panel is not None:
+        payload["whisper_panel"] = whisper_panel
 
     # Market-Implied Hurdle (labeled derivation, never a whisper): from the
     # reverse valuation vs consensus.
@@ -1075,8 +1106,13 @@ def build(symbol: str, assumptions: dict | None = None) -> dict:
         "Estimate revisions and consensus values are the provider's CURRENT state — historical "
         "snapshots of estimates are not archived by free sources, so earlier snapshots cannot be "
         "reconstructed retroactively (this module's own daily snapshots accumulate from now on).",
-        "No legitimate free whisper source exists; the whisper slot stays empty rather than inferred. "
-        "The market-implied hurdle shown is a labeled reverse-valuation derivation.",
+        "Whisper coverage: Earnings Whispers is read from its public, unauthenticated JSON "
+        "(politely: cached, rate-limited). WhisperNumber's data sits behind registration and its "
+        "endpoint does not verify from this deployment — no logged-in session is automated, so its "
+        "path is the quick-open link + manual attributed entry. Seeking Alpha answers with an "
+        "anti-bot challenge; no evasion is attempted (its consensus is covered by yfinance). "
+        "When no source yields a whisper the slot stays empty — the market-implied hurdle shown "
+        "is a labeled reverse-valuation derivation, never a whisper.",
         "Historical guidance and per-event revenue consensus are unavailable from configured "
         "providers, so event classifications are consensus-EPS-based.",
         "Valuation history percentiles use rebuilt TRAILING multiples (forward-multiple history is "

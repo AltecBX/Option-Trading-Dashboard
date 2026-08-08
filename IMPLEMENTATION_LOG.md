@@ -535,3 +535,81 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   6-row scenario matrix, zero JS errors, zero horizontal overflow.
 - **Battery: 176 unittest + 8 runner suites + smoke 52/52 + JS 107 +
   verify both layers — all green.** APP_VERSION 3.67.
+
+# v3.68 — Whisper/expectation source adapters (Priced for Perfection)
+
+- **Extends** the v3.67 whisper slot with real source adapters. The model,
+  scoring and UI were NOT rebuilt — the confidence-weighted whisper input
+  the model already accepted is now fed by live providers.
+- **`whisper_sources.py`** (new): adapters + aggregation.
+  - **Earnings Whispers** — the public, unauthenticated JSON its own pages
+    call, discovered by reading the site's `cal.js`/`stocks.js` bundles:
+    `/api/getstocksdata/{SYM}` (pre-event whisper, consensus EPS,
+    consensus revenue, next earnings date, release-time slot→BMO/DMT/AMC,
+    confirm flag) and `/api/epsdetails/{SYM}` (last reported event: actual
+    vs estimate vs the whisper that stood, high/low estimate range) — the
+    latter is POST-EVENT history only, never offered as an upcoming
+    whisper. 6h cache, ≥2s/domain rate limit, 2 retries with backoff on
+    timeouts/5xx only (4xx never retries), strict ticker/shape validation,
+    whisper-vs-provider-consensus sanity check (garbage discarded WITH a
+    visible validation note), HTML-instead-of-JSON → `layout_changed`.
+  - **WhisperNumber** — TLS does not verify from this deploy and the data
+    sits behind registration. We do NOT disable verification and do NOT
+    automate a logged-in session (credentialed scraping of subscription
+    data). Adapter attempts a plain public read, reports
+    `unreachable`/`no_public_data`; quick link + manual entry is the path.
+  - **Seeking Alpha** — public endpoints answer with a PerimeterX
+    challenge (403). No bot-detection evasion is attempted; reports
+    `blocked`. Its consensus/calendar content is already covered by the
+    app's yfinance estimates. A `consensus_only` parse path exists and is
+    tested should access ever become legitimate.
+- **Aggregation**: every value labeled by KIND — `provider_whisper` /
+  `community_estimate` / `consensus_only` / `user_supplied`. Multiple
+  sources → median + range + count (never a silent pick). Confidence
+  ladder: fresh provider whisper → high; stale provider or user entry
+  WITH a source URL → medium; unattributed user entry → low; dispersion
+  >10% caps at medium, >20% → low. Conflict handling: when a provider's
+  consensus diverges >15% from the app's published consensus, the
+  divergence is surfaced AND the headline gap switches to same-provider
+  pairs so numbers are never mixed across vintages (`gap_basis` shipped).
+- **Point-in-time**: snapshots appended once per source per UTC day to
+  `data/whisper/snaps/{SYM}.jsonl`; `whisper_for_event` only accepts
+  snapshots dated STRICTLY BEFORE the event and collected FOR it — a
+  post-earnings revision can never become "what was expected". Manual
+  entries bind to the upcoming event at entry time and are excluded from
+  events that already happened.
+- **Endpoints**: `GET /api/whisper?symbol=` (per-source values, statuses,
+  quick links, manual entries, conflicts) and `POST /api/whisper/manual`
+  (source attribution + at least one value required). Both JERRY_NO_NET-safe.
+- **UI**: `PfWhisperSources` inside the expectations component —
+  per-source table (kind badge, whisper/consensus EPS, consensus revenue,
+  earnings date+session+confirmed, as-of, clickable source URL), live
+  per-provider status chips with plain-English tooltips, conflict banner
+  with the gap basis, quick-open links for all three, and the
+  source-attributed manual entry form (posts + refetches with a
+  cache-busted key).
+- **BUG FOUND BY LIVE DATA & FIXED**: composite bands are declared with
+  INTEGER bounds (0-24, 25-49, 50-69, …) but scores are fractional — CSCO
+  scored 69.4 and fell between "50-69" and "70-84", displaying as **Low**
+  when it was Elevated. `_band_of` now treats each band as [lo, hi+1);
+  regression tests sweep all 1001 tenths for both the composite and ULR
+  ladders and assert label monotonicity.
+- **Tests**: `test_whisper_sources` (29) on SAVED FIXTURES captured from
+  the real provider (`fixtures/ew_*.json`) — whisper present, whisper
+  absent but consensus present, session mapping, 204/HTML/wrong-ticker
+  layout changes, sanity-check rejection, 5xx retry vs 4xx no-retry,
+  cache hit, last-event history, SA blocked + consensus-only path, WN
+  unreachable/no-public-data/public-parse, manual roundtrip + validation +
+  event binding, post-event exclusion, snapshot leakage guard, once-per-
+  day snapshots, collect() confidence ladder, conflict basis switch,
+  dispersion capping, no-net guard, JSON safety, and an end-to-end model
+  integration asserting the collected whisper gets full weight and fires
+  the warning. CI + smoke extended (54/54).
+- **Live verification**: CSCO (reports in 4d) — Earnings Whispers $1.20 vs
+  consensus $1.17 = **+2.7% gap, high confidence**, "Consensus is NOT the
+  hurdle" FIRED citing it; AMD (87d out) — no whisper published yet, panel
+  says so honestly while still collecting consensus + calendar. Browser-
+  verified desktop + 390px: source table, kind badges, three status chips,
+  three quick links, working manual form, zero JS errors, zero overflow.
+- **Battery: 207 unittest + 8 runner suites + smoke 54/54 + JS 107 +
+  verify both layers — all green.** APP_VERSION 3.68.

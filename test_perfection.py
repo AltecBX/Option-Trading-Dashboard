@@ -121,6 +121,29 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(pf.classify(85), "Extreme")
         self.assertIsNone(pf.classify(None))
 
+    def test_fractional_scores_never_fall_between_bands(self):
+        # Regression (found by live CSCO run): bands are declared with integer
+        # bounds, so 69.4 sat in neither "50-69" nor "70-84" and was labeled
+        # Low. Every fractional score must land in the band it belongs to.
+        self.assertEqual(pf.classify(69.4), "Elevated")
+        self.assertEqual(pf.classify(24.9), "Low")
+        self.assertEqual(pf.classify(49.5), "Moderate")
+        self.assertEqual(pf.classify(84.7), "High")
+        self.assertEqual(pf.classify(99.9), "Extreme")
+        self.assertEqual(pf.classify(100), "Extreme")
+        order = ["Low", "Moderate", "Elevated", "High", "Extreme"]
+        seen = [pf.classify(x / 10.0) for x in range(0, 1001)]
+        self.assertTrue(all(s in order for s in seen))
+        # Monotonic: the label index never decreases as the score rises.
+        idx = [order.index(s) for s in seen]
+        self.assertEqual(idx, sorted(idx))
+
+    def test_ulr_bands_have_no_gaps(self):
+        labels = [pf.ulr_label(x / 10.0, x / 10.0) for x in range(0, 1001)]
+        self.assertTrue(all(l in ("Low", "Moderate", "High", "Extreme") for l in labels))
+        self.assertEqual(pf.ulr_label(39.5, 39.5), "Low")
+        self.assertEqual(pf.ulr_label(79.6, 79.6), "High")
+
 
 class TestReverseValuation(unittest.TestCase):
     def test_roundtrip_growth(self):
