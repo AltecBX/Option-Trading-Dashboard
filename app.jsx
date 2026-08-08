@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.66";
+const APP_VERSION = "3.67";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4495,6 +4495,12 @@ function App() {
         <TabPanel tab="analyze" active={activeTab}>
         <div id="jump-analyst" className="jump-anchor" aria-hidden="true"></div>
         <AnalystCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} onData={setAnalystData} strategyMode={strategyMode} />
+        {/* Priced for Perfection (v3.67): pre-earnings module — how much
+            future success is already in the price, and can the stock fall
+            even on strong results. Versioned transparent model. */}
+        <CardErrorBoundary label="Priced for Perfection">
+          <PerfectionCard apiFetch={apiFetch} ticker={ticker} />
+        </CardErrorBoundary>
         {/* Credit Risk (v3.65): Merton model 5Y spread + crash-put skew +
             real ICE BofA index OAS — the honest no-Bloomberg CDS view. */}
         <CardErrorBoundary label="Credit risk">
