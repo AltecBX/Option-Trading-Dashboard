@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.70";
+const APP_VERSION = "3.71";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -8178,17 +8178,26 @@ function App() {
     className: `ladder-stat-val ${earningsLadder.summary.avg_edge >= 0 ? "up" : "down"}`
   }, earningsLadder.summary.avg_edge >= 0 ? "+" : "", earningsLadder.summary.avg_edge, "%"))), /*#__PURE__*/React.createElement("table", {
     className: "ladder-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The earnings report date this row measures."
+  }, "Date"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "The stock price going into that report."
   }, "Spot"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "The implied-volatility estimate used to derive the implied move for this event. A PROXY rebuilt from price action \u2014 historical option IV is not available from free sources \u2014 so read it as an estimate, not a quote."
   }, "IV proxy"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "The \xB1 percentage move the options market was pricing for this report. This is what a premium seller was being paid to cover."
   }, "Implied move"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "How far the stock ACTUALLY moved on the report \u2014 compare against the implied move to its left."
   }, "Realized move"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "Edge"), /*#__PURE__*/React.createElement("th", null, "Winner"))), /*#__PURE__*/React.createElement("tbody", null, earningsLadder.events.map(e => /*#__PURE__*/React.createElement("tr", {
+    className: "num",
+    title: "Implied move minus realized move. Positive = options overpriced the event and premium SELLERS kept the difference; negative = the move exceeded what was priced, favouring buyers."
+  }, "Edge"), /*#__PURE__*/React.createElement("th", {
+    title: "Who came out ahead on this event \u2014 the option seller or the option buyer."
+  }, "Winner"))), /*#__PURE__*/React.createElement("tbody", null, earningsLadder.events.map(e => /*#__PURE__*/React.createElement("tr", {
     key: e.date,
     className: e.winner === "sellers" ? "ladder-row-sell" : "ladder-row-buy"
   }, /*#__PURE__*/React.createElement("td", null, fmtUSDate(e.date)), /*#__PURE__*/React.createElement("td", {
@@ -8400,18 +8409,28 @@ function App() {
     className: "bt-trades-details"
   }, /*#__PURE__*/React.createElement("summary", null, "All ", backtest.trades.length, " weekly cycles"), /*#__PURE__*/React.createElement("table", {
     className: "bt-trades-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Open"), /*#__PURE__*/React.createElement("th", null, "Close"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The Monday this weekly position was opened in the backtest."
+  }, "Open"), /*#__PURE__*/React.createElement("th", {
+    title: "The Friday expiration the cycle closed on."
+  }, "Close"), /*#__PURE__*/React.createElement("th", {
+    className: "num",
+    title: "Stock price when the position was opened."
   }, "Spot open"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Stock price at expiration."
   }, "Spot close"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Implied volatility used to price the option at entry."
   }, "IV"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Premium collected per share when the option was sold."
   }, "Credit"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "What the option was worth at expiration \u2014 the intrinsic value charged back against the credit."
   }, "Exp value"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
+    className: "num",
+    title: "Profit or loss for the week: credit collected minus the option value at expiration."
   }, "P/L"))), /*#__PURE__*/React.createElement("tbody", null, backtest.trades.map(t => /*#__PURE__*/React.createElement("tr", {
     key: t.monday,
     className: t.win ? "bt-win" : "bt-loss"
@@ -9581,20 +9600,53 @@ function App() {
     }, /*#__PURE__*/React.createElement("table", {
       className: "oc-table"
     }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
-      className: "oc-side oc-side-call"
+      className: "oc-side oc-side-call",
+      title: "Add or remove this call as a leg of the position you are building."
     }, "+/\u2212"), /*#__PURE__*/React.createElement("th", {
       colSpan: "7",
-      className: "oc-side oc-side-call"
+      className: "oc-side oc-side-call",
+      title: "Call contracts for the selected expiration \u2014 the right to BUY the stock at the strike."
     }, "CALLS"), /*#__PURE__*/React.createElement("th", {
-      className: "oc-strike-h"
+      className: "oc-strike-h",
+      title: "The strike price. Calls are listed to the left and puts to the right, sharing this centre column."
     }, "STRIKE"), /*#__PURE__*/React.createElement("th", {
       colSpan: "7",
-      className: "oc-side oc-side-put"
+      className: "oc-side oc-side-put",
+      title: "Put contracts for the selected expiration \u2014 the right to SELL the stock at the strike."
     }, "PUTS"), /*#__PURE__*/React.createElement("th", {
-      className: "oc-side oc-side-put"
+      className: "oc-side oc-side-put",
+      title: "Add or remove this put as a leg of the position you are building."
     }, "+/\u2212")), /*#__PURE__*/React.createElement("tr", {
       className: "oc-sub-head"
-    }, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "Bid"), /*#__PURE__*/React.createElement("th", null, "Ask"), /*#__PURE__*/React.createElement("th", null, "IV"), /*#__PURE__*/React.createElement("th", null, "Delta"), /*#__PURE__*/React.createElement("th", null, "Theta"), /*#__PURE__*/React.createElement("th", null, "Vol"), /*#__PURE__*/React.createElement("th", null, "OI"), /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "Bid"), /*#__PURE__*/React.createElement("th", null, "Ask"), /*#__PURE__*/React.createElement("th", null, "IV"), /*#__PURE__*/React.createElement("th", null, "Delta"), /*#__PURE__*/React.createElement("th", null, "Theta"), /*#__PURE__*/React.createElement("th", null, "Vol"), /*#__PURE__*/React.createElement("th", null, "OI"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, visible.map(strike => {
+    }, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", {
+      title: "Highest price a buyer is currently bidding for this contract \u2014 what you would receive if you SOLD at market."
+    }, "Bid"), /*#__PURE__*/React.createElement("th", {
+      title: "Lowest price a seller is asking \u2014 what you would pay if you BOUGHT at market. The gap to the bid is the spread you cross on entry."
+    }, "Ask"), /*#__PURE__*/React.createElement("th", {
+      title: "Implied volatility for this contract \u2014 the annualized move the market is pricing in. Higher IV means richer premium for sellers and a costlier option for buyers."
+    }, "IV"), /*#__PURE__*/React.createElement("th", {
+      title: "How much the option price moves per $1 move in the stock, and a rough proxy for the chance of finishing in the money (0.20 \u2248 20%)."
+    }, "Delta"), /*#__PURE__*/React.createElement("th", {
+      title: "Daily time decay \u2014 how much value this contract loses per day, all else equal. A cost for the buyer, income for the seller."
+    }, "Theta"), /*#__PURE__*/React.createElement("th", {
+      title: "Contracts traded so far today \u2014 how active this strike is right now."
+    }, "Vol"), /*#__PURE__*/React.createElement("th", {
+      title: "Open interest: contracts currently outstanding at this strike. Higher means deeper liquidity and tighter fills."
+    }, "OI"), /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", {
+      title: "Highest price a buyer is currently bidding for this contract \u2014 what you would receive if you SOLD at market."
+    }, "Bid"), /*#__PURE__*/React.createElement("th", {
+      title: "Lowest price a seller is asking \u2014 what you would pay if you BOUGHT at market. The gap to the bid is the spread you cross on entry."
+    }, "Ask"), /*#__PURE__*/React.createElement("th", {
+      title: "Implied volatility for this contract \u2014 the annualized move the market is pricing in. Higher IV means richer premium for sellers and a costlier option for buyers."
+    }, "IV"), /*#__PURE__*/React.createElement("th", {
+      title: "How much the option price moves per $1 move in the stock, and a rough proxy for the chance of finishing in the money (0.20 \u2248 20%)."
+    }, "Delta"), /*#__PURE__*/React.createElement("th", {
+      title: "Daily time decay \u2014 how much value this contract loses per day, all else equal. A cost for the buyer, income for the seller."
+    }, "Theta"), /*#__PURE__*/React.createElement("th", {
+      title: "Contracts traded so far today \u2014 how active this strike is right now."
+    }, "Vol"), /*#__PURE__*/React.createElement("th", {
+      title: "Open interest: contracts currently outstanding at this strike. Higher means deeper liquidity and tighter fills."
+    }, "OI"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, visible.map(strike => {
       const k = skey(strike);
       const c = callMap[k] || {};
       const p = putMap[k] || {};

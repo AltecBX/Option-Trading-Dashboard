@@ -2671,7 +2671,19 @@ function SwingPrediction({
     className: "swing-pred-h"
   }, "2 \xB7 Projected next targets"), /*#__PURE__*/React.createElement("table", {
     className: "swing-pred-tbl"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Target"), /*#__PURE__*/React.createElement("th", null, "Price"), /*#__PURE__*/React.createElement("th", null, "From here"), /*#__PURE__*/React.createElement("th", null, "By"), /*#__PURE__*/React.createElement("th", null, "Hit rate"), /*#__PURE__*/React.createElement("th", null, "Conf"))), /*#__PURE__*/React.createElement("tbody", null, tgts.map(t => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which projected target tier this row is \u2014 successively more ambitious moves measured off the swing origin."
+  }, "Target"), /*#__PURE__*/React.createElement("th", {
+    title: "The price this target maps to."
+  }, "Price"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent move still required from the current price to reach this target."
+  }, "From here"), /*#__PURE__*/React.createElement("th", {
+    title: "Estimated date this target is reached, based on how long similar past moves took."
+  }, "By"), /*#__PURE__*/React.createElement("th", {
+    title: "Share of comparable past swings that actually reached this target."
+  }, "Hit rate"), /*#__PURE__*/React.createElement("th", {
+    title: "Confidence in this projection \u2014 driven by how many similar past moves support it and how consistent they were."
+  }, "Conf"))), /*#__PURE__*/React.createElement("tbody", null, tgts.map(t => /*#__PURE__*/React.createElement("tr", {
     key: t.label
   }, /*#__PURE__*/React.createElement("td", {
     className: "cap"
@@ -2748,7 +2760,17 @@ function SwingPrediction({
     className: "swing-pred-h"
   }, "5 \xB7 Most-similar past moves"), /*#__PURE__*/React.createElement("table", {
     className: "swing-pred-tbl"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Move"), /*#__PURE__*/React.createElement("th", null, "Size"), /*#__PURE__*/React.createElement("th", null, "Days"), /*#__PURE__*/React.createElement("th", null, "/day"), /*#__PURE__*/React.createElement("th", null, "What followed"))), /*#__PURE__*/React.createElement("tbody", null, similar.map((s, i) => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The start date of a past swing that resembles the current one."
+  }, "Move"), /*#__PURE__*/React.createElement("th", {
+    title: "How far that past move ran, in percent."
+  }, "Size"), /*#__PURE__*/React.createElement("th", {
+    title: "How many calendar days that move took."
+  }, "Days"), /*#__PURE__*/React.createElement("th", {
+    title: "Average percent move per day during that swing \u2014 its pace."
+  }, "/day"), /*#__PURE__*/React.createElement("th", {
+    title: "What the stock did AFTER that move completed \u2014 the closest read on what may come next."
+  }, "What followed"))), /*#__PURE__*/React.createElement("tbody", null, similar.map((s, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
   }, /*#__PURE__*/React.createElement("td", {
     className: "muted"
@@ -3467,40 +3489,58 @@ function SwingPatternCard({
   }, /*#__PURE__*/React.createElement("thead", null, tab === "up" ? /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
     k: "swing_low"
   }, "Swing low")), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Price at the swing low \u2014 where the move started."
   }, "Low $"), /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
     k: "swing_high"
   }, "Swing high")), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Price at the swing high \u2014 where the move ended."
   }, "High $"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Calendar days from the swing low to the swing high."
   }, "Days"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Dollar change from the low to the high."
   }, "$ chg"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Percent gain from the swing low to the swing high."
   }, "% chg"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Average percent gain per day across the swing \u2014 its pace."
   }, "Avg/day"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
-  }, "Rhythm"), /*#__PURE__*/React.createElement("th", null, "Flags")) : /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
+    className: "scan-th-num",
+    title: "How steadily the swing progressed instead of arriving in one burst \u2014 smoother moves tend to repeat more reliably."
+  }, "Rhythm"), /*#__PURE__*/React.createElement("th", {
+    title: "Notable conditions during the swing, such as an earnings report inside the window or unusual gaps."
+  }, "Flags")) : /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
     k: "swing_high"
   }, "Swing high")), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Price at the swing high \u2014 where the decline started."
   }, "High $"), /*#__PURE__*/React.createElement("th", null, /*#__PURE__*/React.createElement(Term, {
     k: "swing_low"
   }, "Swing low")), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Price at the swing low \u2014 where the decline ended."
   }, "Low $"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Calendar days from the swing high to the swing low."
   }, "Days"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Dollar change from the high to the low."
   }, "$ chg"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Percent decline from the swing high to the swing low."
   }, "% drop"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
+    className: "scan-th-num",
+    title: "Average percent decline per day across the swing \u2014 its pace."
   }, "Avg/day"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-th-num"
-  }, "Rhythm"), /*#__PURE__*/React.createElement("th", null, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, histSwings.slice().reverse().map((s, i) => {
+    className: "scan-th-num",
+    title: "How steadily the swing progressed instead of arriving in one burst \u2014 smoother moves tend to repeat more reliably."
+  }, "Rhythm"), /*#__PURE__*/React.createElement("th", {
+    title: "Notable conditions during the swing, such as an earnings report inside the window or unusual gaps."
+  }, "Flags"))), /*#__PURE__*/React.createElement("tbody", null, histSwings.slice().reverse().map((s, i) => {
     const rk = `${tab}-${i}`;
     const open = openRow === rk;
     const det = s.detail || {};
@@ -5365,15 +5405,25 @@ function PlaybookCard({
     className: "pb-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "pb-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Ticker"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The stock symbol. Click any row to open it on the Trade tab, where the real chain, IV and premiums live."
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: "Most recent price for the stock."
+  }, "Last"), /*#__PURE__*/React.createElement("th", {
     title: `Return over the selected window (${winLabel}).`
   }, "Perf ", winLabel), /*#__PURE__*/React.createElement("th", {
     title: "Trend strength 0-100 from the Trend scan (MA stack, 52wk levels, RSI, streaks) with direction."
-  }, "Trend"), /*#__PURE__*/React.createElement("th", null, "RSI"), /*#__PURE__*/React.createElement("th", {
+  }, "Trend"), /*#__PURE__*/React.createElement("th", {
+    title: "Relative Strength Index (14-day), 0-100. Above 70 is overbought \u2014 chase risk on fresh longs; below 30 is oversold \u2014 bounce risk on fresh shorts."
+  }, "RSI"), /*#__PURE__*/React.createElement("th", {
     title: "Where current realized vol sits in its own 1-year range (0-100). \u226550 \u2192 selling structures, <50 \u2192 buying structures."
-  }, "HV rank"), /*#__PURE__*/React.createElement("th", null, "Play"), /*#__PURE__*/React.createElement("th", {
+  }, "HV rank"), /*#__PURE__*/React.createElement("th", {
+    title: "The options structure this name's direction-plus-premium combination points to: buy calls, buy puts, sell puts or sell call spreads."
+  }, "Play"), /*#__PURE__*/React.createElement("th", {
     title: "60% trend strength + 40% premium edge \u2014 transparent blend of the two columns to its left."
-  }, "Conv"), /*#__PURE__*/React.createElement("th", null, "Notes"))), /*#__PURE__*/React.createElement("tbody", null, visRows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, "Conv"), /*#__PURE__*/React.createElement("th", {
+    title: "Context flags that change the trade: earnings within 9 days, expanding or contracting volatility, 52-week extremes, and overbought/oversold readings."
+  }, "Notes"))), /*#__PURE__*/React.createElement("tbody", null, visRows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.ticker,
     className: "pb-row",
     onClick: () => onSwitchTicker(r.ticker),
@@ -5700,7 +5750,13 @@ function RangeEdgeScanCard({
     className: "rgs-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "rgs-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Ticker"), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "This wk"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The stock symbol. Click a row to open it on the Analyze tab."
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: "Most recent price."
+  }, "Last"), /*#__PURE__*/React.createElement("th", {
+    title: "This week's return so far, measured from the week's baseline."
+  }, "This wk"), /*#__PURE__*/React.createElement("th", {
     title: "This week's position inside the lookback range: worst weekly low on the left, best weekly high on the right."
   }, "Range location"), /*#__PURE__*/React.createElement("th", {
     title: "How close to the LOW side of the range (100 = at the worst low). Location only \u2014 not P(OTM)."
@@ -5710,7 +5766,9 @@ function RangeEdgeScanCard({
     title: "Best weekly high of the lookback, and the price it maps to."
   }, "Best high"), /*#__PURE__*/React.createElement("th", {
     title: "% of lookback weeks whose weekly LOW had already printed by today's weekday. High + near the low = little room usually left below."
-  }, "LOW in by"), /*#__PURE__*/React.createElement("th", null, "Side"))), /*#__PURE__*/React.createElement("tbody", null, (showAll ? filtered : filtered.slice(0, SHOW_CAP)).map(r => /*#__PURE__*/React.createElement("tr", {
+  }, "LOW in by"), /*#__PURE__*/React.createElement("th", {
+    title: "Which premium-selling side the location favours: near the range low means sell puts, near the range high means sell calls."
+  }, "Side"))), /*#__PURE__*/React.createElement("tbody", null, (showAll ? filtered : filtered.slice(0, SHOW_CAP)).map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.ticker,
     className: "rgs-row",
     onClick: () => open(r.ticker),
@@ -14771,20 +14829,25 @@ function BreadthStockList({
   const cols = [{
     k: "sym",
     label: "Sym",
-    str: true
+    str: true,
+    tip: "Ticker symbol. Click a row to load this stock across the dashboard."
   }, {
     k: "name",
     label: "Name",
-    str: true
+    str: true,
+    tip: "Company name."
   }, {
     k: "price",
-    label: "Price"
+    label: "Price",
+    tip: "Latest traded price."
   }, {
     k: "chg",
-    label: "Chg%"
+    label: "Chg%",
+    tip: "Percent change on the session so far."
   }, {
     k: "mktCap",
-    label: "Cap"
+    label: "Cap",
+    tip: "Market capitalisation — shares outstanding times price."
   }];
   const rows = stocks.slice().sort((a, b) => {
     const c = cols.find(x => x.k === sort.k);
@@ -14804,7 +14867,7 @@ function BreadthStockList({
       k: c.k,
       dir: c.str ? "asc" : "desc"
     }),
-    title: "Sort"
+    title: `${c.tip} Click to sort by this column.`
   }, c.label, sort.k === c.k ? sort.dir === "desc" ? " ↓" : " ↑" : "");
   return /*#__PURE__*/React.createElement("div", {
     className: `mb-drill-col mb-${tone}`

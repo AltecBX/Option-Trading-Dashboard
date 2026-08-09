@@ -868,7 +868,7 @@ function BacktestCard({ apiFetch }) {
           </div>
           {result.by_regime && Object.keys(result.by_regime).length > 0 && (
             <table className="bt-regime" title="The same trades bucketed by the S&P 500's condition on entry day (SPY vs its 50/200-day averages): does the edge only exist in one type of market?">
-              <thead><tr><th>Market condition</th><th>Trades</th><th>Win rate</th><th>P&L</th></tr></thead>
+              <thead><tr><th title="The S&P 500's state on the entry day (SPY versus its 50- and 200-day averages) — this tests whether the edge only exists in one type of market.">Market condition</th><th title="Number of trades opened while the market was in this condition.">Trades</th><th title="Percent of those trades that closed profitably.">Win rate</th><th title="Total profit or loss from the trades opened in this condition.">P&L</th></tr></thead>
               <tbody>
                 {Object.entries(result.by_regime).map(([r, d]) => (
                   <tr key={r}><td>{r}</td><td>{d.n}</td><td>{d.win_rate}%</td>
@@ -883,7 +883,7 @@ function BacktestCard({ apiFetch }) {
           {showTrades && (
             <div className="bt-trades-wrap">
               <table className="bt-trades">
-                <thead><tr><th>Sym</th><th>In</th><th>Out</th><th>Entry</th><th>Exit</th><th>Why</th><th>P&L</th><th>%</th></tr></thead>
+                <thead><tr><th title="Symbol traded, with the option strike or structure where applicable.">Sym</th><th title="Entry date — when the position was opened.">In</th><th title="Exit date — when the position was closed.">Out</th><th title="Fill price on entry, including modelled spread cost.">Entry</th><th title="Fill price on exit.">Exit</th><th title="Why the trade closed: profit target, stop, time/DTE rule, expiration or assignment.">Why</th><th title="Dollar profit or loss on the trade, after commissions and modelled slippage.">P&L</th><th title="Return measured against the capital the trade required.">%</th></tr></thead>
                 <tbody>
                   {(result.trades || []).slice().reverse().map((t, i, arr) => (
                     <tr key={i} className={t.marks && t.marks.length ? "bt-tr-replay" : ""}

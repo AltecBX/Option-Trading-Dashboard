@@ -319,11 +319,11 @@ function EarningsOpsTab({ apiFetch, onOpenTicker, onOpenIntraday }) {
         <div className="eop-wrap">
           <table className="eop-table">
             <thead><tr>
-              {th("Ticker", "ticker")}
+              {th("Ticker", "ticker", "The reporting company's symbol. Click a row to expand its full setup breakdown.")}
               {th("Score", "score", "Earnings Opportunity Score 0–100 — liquidity, rel volume, options liquidity, weeklys, implied-vs-historical edge, move-vs-expected, confirmation, spread, market alignment, R:R. Click a row for the full breakdown.")}
-              <th>Action</th><th>Setup · status</th>
+              <th title="What the scanner suggests doing with this name — or NO TRADE when the setup does not qualify.">Action</th><th title="Which setup pattern this name matches, and where that setup currently stands.">Setup · status</th>
               {th("Report", "report", "Report date + BMO/AMC (from the earnings-dates timestamp).")}
-              {th("Price", "price")}
+              {th("Price", "price", "Latest traded price for the stock going into its report.")}
               {th("Day %", "chg", "Session-aware change (includes pre/after-market when that's the latest print).")}
               {th("RelVol", "relvol", "Today's volume ÷ average volume.")}
               {th("Imp move", "im", "ATM straddle mid — the option market's expected move. ± range shown beneath.")}
@@ -333,7 +333,7 @@ function EarningsOpsTab({ apiFetch, onOpenTicker, onOpenIntraday }) {
               {th("OptVol", "optvol", "Front-expiry options volume + open interest.")}
               {th("IV", "iv", "ATM implied volatility + ATM spread quality.")}
               <th title="Weekly options available">Wkly</th>
-              {th("MCap", "mcap")}
+              {th("MCap", "mcap", "Market capitalisation — a size filter; the biggest names usually have the deepest options.")}
             </tr></thead>
             <tbody>
               {sorted.map(r => (
