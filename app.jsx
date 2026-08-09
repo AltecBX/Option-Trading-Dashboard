@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.70";
+const APP_VERSION = "3.71";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -6498,13 +6498,13 @@ function App() {
               <table className="ladder-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th className="num">Spot</th>
-                    <th className="num">IV proxy</th>
-                    <th className="num">Implied move</th>
-                    <th className="num">Realized move</th>
-                    <th className="num">Edge</th>
-                    <th>Winner</th>
+                    <th title="The earnings report date this row measures.">Date</th>
+                    <th className="num" title="The stock price going into that report.">Spot</th>
+                    <th className="num" title="The implied-volatility estimate used to derive the implied move for this event. A PROXY rebuilt from price action — historical option IV is not available from free sources — so read it as an estimate, not a quote.">IV proxy</th>
+                    <th className="num" title="The ± percentage move the options market was pricing for this report. This is what a premium seller was being paid to cover.">Implied move</th>
+                    <th className="num" title="How far the stock ACTUALLY moved on the report — compare against the implied move to its left.">Realized move</th>
+                    <th className="num" title="Implied move minus realized move. Positive = options overpriced the event and premium SELLERS kept the difference; negative = the move exceeded what was priced, favouring buyers.">Edge</th>
+                    <th title="Who came out ahead on this event — the option seller or the option buyer.">Winner</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6673,14 +6673,14 @@ function App() {
                 <table className="bt-trades-table">
                   <thead>
                     <tr>
-                      <th>Open</th>
-                      <th>Close</th>
-                      <th className="num">Spot open</th>
-                      <th className="num">Spot close</th>
-                      <th className="num">IV</th>
-                      <th className="num">Credit</th>
-                      <th className="num">Exp value</th>
-                      <th className="num">P/L</th>
+                      <th title="The Monday this weekly position was opened in the backtest.">Open</th>
+                      <th title="The Friday expiration the cycle closed on.">Close</th>
+                      <th className="num" title="Stock price when the position was opened.">Spot open</th>
+                      <th className="num" title="Stock price at expiration.">Spot close</th>
+                      <th className="num" title="Implied volatility used to price the option at entry.">IV</th>
+                      <th className="num" title="Premium collected per share when the option was sold.">Credit</th>
+                      <th className="num" title="What the option was worth at expiration — the intrinsic value charged back against the credit.">Exp value</th>
+                      <th className="num" title="Profit or loss for the week: credit collected minus the option value at expiration.">P/L</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -7790,17 +7790,17 @@ function App() {
                     <table className="oc-table">
                       <thead>
                         <tr>
-                          <th className="oc-side oc-side-call">+/−</th>
-                          <th colSpan="7" className="oc-side oc-side-call">CALLS</th>
-                          <th className="oc-strike-h">STRIKE</th>
-                          <th colSpan="7" className="oc-side oc-side-put">PUTS</th>
-                          <th className="oc-side oc-side-put">+/−</th>
+                          <th className="oc-side oc-side-call" title="Add or remove this call as a leg of the position you are building.">+/−</th>
+                          <th colSpan="7" className="oc-side oc-side-call" title="Call contracts for the selected expiration — the right to BUY the stock at the strike.">CALLS</th>
+                          <th className="oc-strike-h" title="The strike price. Calls are listed to the left and puts to the right, sharing this centre column.">STRIKE</th>
+                          <th colSpan="7" className="oc-side oc-side-put" title="Put contracts for the selected expiration — the right to SELL the stock at the strike.">PUTS</th>
+                          <th className="oc-side oc-side-put" title="Add or remove this put as a leg of the position you are building.">+/−</th>
                         </tr>
                         <tr className="oc-sub-head">
                           <th></th>
-                          <th>Bid</th><th>Ask</th><th>IV</th><th>Delta</th><th>Theta</th><th>Vol</th><th>OI</th>
+                          <th title="Highest price a buyer is currently bidding for this contract — what you would receive if you SOLD at market.">Bid</th><th title="Lowest price a seller is asking — what you would pay if you BOUGHT at market. The gap to the bid is the spread you cross on entry.">Ask</th><th title="Implied volatility for this contract — the annualized move the market is pricing in. Higher IV means richer premium for sellers and a costlier option for buyers.">IV</th><th title="How much the option price moves per $1 move in the stock, and a rough proxy for the chance of finishing in the money (0.20 ≈ 20%).">Delta</th><th title="Daily time decay — how much value this contract loses per day, all else equal. A cost for the buyer, income for the seller.">Theta</th><th title="Contracts traded so far today — how active this strike is right now.">Vol</th><th title="Open interest: contracts currently outstanding at this strike. Higher means deeper liquidity and tighter fills.">OI</th>
                           <th></th>
-                          <th>Bid</th><th>Ask</th><th>IV</th><th>Delta</th><th>Theta</th><th>Vol</th><th>OI</th>
+                          <th title="Highest price a buyer is currently bidding for this contract — what you would receive if you SOLD at market.">Bid</th><th title="Lowest price a seller is asking — what you would pay if you BOUGHT at market. The gap to the bid is the spread you cross on entry.">Ask</th><th title="Implied volatility for this contract — the annualized move the market is pricing in. Higher IV means richer premium for sellers and a costlier option for buyers.">IV</th><th title="How much the option price moves per $1 move in the stock, and a rough proxy for the chance of finishing in the money (0.20 ≈ 20%).">Delta</th><th title="Daily time decay — how much value this contract loses per day, all else equal. A cost for the buyer, income for the seller.">Theta</th><th title="Contracts traded so far today — how active this strike is right now.">Vol</th><th title="Open interest: contracts currently outstanding at this strike. Higher means deeper liquidity and tighter fills.">OI</th>
                           <th></th>
                         </tr>
                       </thead>

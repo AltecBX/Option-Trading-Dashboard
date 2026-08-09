@@ -1844,7 +1844,7 @@ function SwingPrediction({ data }) {
         <div className="swing-pred-box">
           <div className="swing-pred-h">2 · Projected next targets</div>
           <table className="swing-pred-tbl">
-            <thead><tr><th>Target</th><th>Price</th><th>From here</th><th>By</th><th>Hit rate</th><th>Conf</th></tr></thead>
+            <thead><tr><th title="Which projected target tier this row is — successively more ambitious moves measured off the swing origin.">Target</th><th title="The price this target maps to.">Price</th><th title="Percent move still required from the current price to reach this target.">From here</th><th title="Estimated date this target is reached, based on how long similar past moves took.">By</th><th title="Share of comparable past swings that actually reached this target.">Hit rate</th><th title="Confidence in this projection — driven by how many similar past moves support it and how consistent they were.">Conf</th></tr></thead>
             <tbody>
               {tgts.map(t => (
                 <tr key={t.label}>
@@ -1904,7 +1904,7 @@ function SwingPrediction({ data }) {
           <div className="swing-pred-box">
             <div className="swing-pred-h">5 · Most-similar past moves</div>
             <table className="swing-pred-tbl">
-              <thead><tr><th>Move</th><th>Size</th><th>Days</th><th>/day</th><th>What followed</th></tr></thead>
+              <thead><tr><th title="The start date of a past swing that resembles the current one.">Move</th><th title="How far that past move ran, in percent.">Size</th><th title="How many calendar days that move took.">Days</th><th title="Average percent move per day during that swing — its pace.">/day</th><th title="What the stock did AFTER that move completed — the closest read on what may come next.">What followed</th></tr></thead>
               <tbody>
                 {similar.map((s, i) => (
                   <tr key={i}>
@@ -2431,19 +2431,19 @@ function SwingPatternCard({ apiFetch, ticker }) {
             <thead>
               {tab === "up" ? (
                 <tr>
-                  <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num">Low $</th>
-                  <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num">High $</th>
-                  <th className="scan-th-num">Days</th><th className="scan-th-num">$ chg</th>
-                  <th className="scan-th-num">% chg</th><th className="scan-th-num">Avg/day</th>
-                  <th className="scan-th-num">Rhythm</th><th>Flags</th>
+                  <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num" title="Price at the swing low — where the move started.">Low $</th>
+                  <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num" title="Price at the swing high — where the move ended.">High $</th>
+                  <th className="scan-th-num" title="Calendar days from the swing low to the swing high.">Days</th><th className="scan-th-num" title="Dollar change from the low to the high.">$ chg</th>
+                  <th className="scan-th-num" title="Percent gain from the swing low to the swing high.">% chg</th><th className="scan-th-num" title="Average percent gain per day across the swing — its pace.">Avg/day</th>
+                  <th className="scan-th-num" title="How steadily the swing progressed instead of arriving in one burst — smoother moves tend to repeat more reliably.">Rhythm</th><th title="Notable conditions during the swing, such as an earnings report inside the window or unusual gaps.">Flags</th>
                 </tr>
               ) : (
                 <tr>
-                  <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num">High $</th>
-                  <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num">Low $</th>
-                  <th className="scan-th-num">Days</th><th className="scan-th-num">$ chg</th>
-                  <th className="scan-th-num">% drop</th><th className="scan-th-num">Avg/day</th>
-                  <th className="scan-th-num">Rhythm</th><th>Flags</th>
+                  <th><Term k="swing_high">Swing high</Term></th><th className="scan-th-num" title="Price at the swing high — where the decline started.">High $</th>
+                  <th><Term k="swing_low">Swing low</Term></th><th className="scan-th-num" title="Price at the swing low — where the decline ended.">Low $</th>
+                  <th className="scan-th-num" title="Calendar days from the swing high to the swing low.">Days</th><th className="scan-th-num" title="Dollar change from the high to the low.">$ chg</th>
+                  <th className="scan-th-num" title="Percent decline from the swing high to the swing low.">% drop</th><th className="scan-th-num" title="Average percent decline per day across the swing — its pace.">Avg/day</th>
+                  <th className="scan-th-num" title="How steadily the swing progressed instead of arriving in one burst — smoother moves tend to repeat more reliably.">Rhythm</th><th title="Notable conditions during the swing, such as an earnings report inside the window or unusual gaps.">Flags</th>
                 </tr>
               )}
             </thead>
@@ -3495,14 +3495,14 @@ function PlaybookCard({ apiFetch, onSwitchTicker }) {
         <div className="pb-wrap">
           <table className="pb-table">
             <thead><tr>
-              <th>Ticker</th><th>Last</th>
+              <th title="The stock symbol. Click any row to open it on the Trade tab, where the real chain, IV and premiums live.">Ticker</th><th title="Most recent price for the stock.">Last</th>
               <th title={`Return over the selected window (${winLabel}).`}>Perf {winLabel}</th>
               <th title="Trend strength 0-100 from the Trend scan (MA stack, 52wk levels, RSI, streaks) with direction.">Trend</th>
-              <th>RSI</th>
+              <th title="Relative Strength Index (14-day), 0-100. Above 70 is overbought — chase risk on fresh longs; below 30 is oversold — bounce risk on fresh shorts.">RSI</th>
               <th title="Where current realized vol sits in its own 1-year range (0-100). ≥50 → selling structures, <50 → buying structures.">HV rank</th>
-              <th>Play</th>
+              <th title="The options structure this name's direction-plus-premium combination points to: buy calls, buy puts, sell puts or sell call spreads.">Play</th>
               <th title="60% trend strength + 40% premium edge — transparent blend of the two columns to its left.">Conv</th>
-              <th>Notes</th>
+              <th title="Context flags that change the trade: earnings within 9 days, expanding or contracting volatility, 52-week extremes, and overbought/oversold readings.">Notes</th>
             </tr></thead>
             <tbody>
               {visRows.map(r => (
@@ -3702,13 +3702,13 @@ function RangeEdgeScanCard({ apiFetch, onSwitchTicker, onOpenAnalyze }) {
         <div className="rgs-wrap">
           <table className="rgs-table">
             <thead><tr>
-              <th>Ticker</th><th>Last</th><th>This wk</th>
+              <th title="The stock symbol. Click a row to open it on the Analyze tab.">Ticker</th><th title="Most recent price.">Last</th><th title="This week's return so far, measured from the week's baseline.">This wk</th>
               <th title="This week's position inside the lookback range: worst weekly low on the left, best weekly high on the right.">Range location</th>
               <th title="How close to the LOW side of the range (100 = at the worst low). Location only — not P(OTM).">Bot&nbsp;prox</th>
               <th title="Worst weekly low of the lookback, and the price it maps to off this week's baseline.">Worst low</th>
               <th title="Best weekly high of the lookback, and the price it maps to.">Best high</th>
               <th title="% of lookback weeks whose weekly LOW had already printed by today's weekday. High + near the low = little room usually left below.">LOW in by</th>
-              <th>Side</th>
+              <th title="Which premium-selling side the location favours: near the range low means sell puts, near the range high means sell calls.">Side</th>
             </tr></thead>
             <tbody>
               {(showAll ? filtered : filtered.slice(0, SHOW_CAP)).map(r => (
@@ -11118,8 +11118,12 @@ function strengthTier(s) {
 
 function BreadthStockList({ title, tone, stocks, sort, setSort, onLoadTicker }) {
   const cols = [
-    { k: "sym", label: "Sym", str: true }, { k: "name", label: "Name", str: true },
-    { k: "price", label: "Price" }, { k: "chg", label: "Chg%" }, { k: "mktCap", label: "Cap" },
+    { k: "sym", label: "Sym", str: true,
+      tip: "Ticker symbol. Click a row to load this stock across the dashboard." },
+    { k: "name", label: "Name", str: true, tip: "Company name." },
+    { k: "price", label: "Price", tip: "Latest traded price." },
+    { k: "chg", label: "Chg%", tip: "Percent change on the session so far." },
+    { k: "mktCap", label: "Cap", tip: "Market capitalisation — shares outstanding times price." },
   ];
   const rows = stocks.slice().sort((a, b) => {
     const c = cols.find(x => x.k === sort.k);
@@ -11131,7 +11135,7 @@ function BreadthStockList({ title, tone, stocks, sort, setSort, onLoadTicker }) 
     <th key={c.k} className={c.str ? "" : "num"} onClick={() =>
       setSort(sort.k === c.k ? { k: c.k, dir: sort.dir === "desc" ? "asc" : "desc" }
                              : { k: c.k, dir: c.str ? "asc" : "desc" })}
-      title="Sort">{c.label}{sort.k === c.k ? (sort.dir === "desc" ? " ↓" : " ↑") : ""}</th>
+      title={`${c.tip} Click to sort by this column.`}>{c.label}{sort.k === c.k ? (sort.dir === "desc" ? " ↓" : " ↑") : ""}</th>
   );
   return (
     <div className={`mb-drill-col mb-${tone}`}>

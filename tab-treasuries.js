@@ -330,9 +330,16 @@ function TsyCurveCard({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Maturity"), /*#__PURE__*/React.createElement("th", null, "Now"), cmps.map(([k, l]) => snaps[k] ? /*#__PURE__*/React.createElement("th", {
-    key: k
-  }, l, " ago") : null), /*#__PURE__*/React.createElement("th", null, "\u0394 vs ", cmp !== "none" ? cmp : "—"))), /*#__PURE__*/React.createElement("tbody", null, TSY_TENORS.filter(t => snaps.current && snaps.current.points[t] != null).map(t => {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Treasury maturity (tenor) \u2014 how long until the bond repays its principal."
+  }, "Maturity"), /*#__PURE__*/React.createElement("th", {
+    title: "Today's yield for this maturity, in percent."
+  }, "Now"), cmps.map(([k, l]) => snaps[k] ? /*#__PURE__*/React.createElement("th", {
+    key: k,
+    title: "This maturity's yield as of that earlier date, for comparison with today."
+  }, l, " ago") : null), /*#__PURE__*/React.createElement("th", {
+    title: "Change in this maturity's yield versus the selected comparison date, in basis points. Positive means yields rose, which means bond prices fell."
+  }, "\u0394 vs ", cmp !== "none" ? cmp : "—"))), /*#__PURE__*/React.createElement("tbody", null, TSY_TENORS.filter(t => snaps.current && snaps.current.points[t] != null).map(t => {
     const cur = snaps.current.points[t];
     const oldv = cmp !== "none" && snaps[cmp] ? snaps[cmp].points[t] : null;
     return /*#__PURE__*/React.createElement("tr", {
@@ -372,7 +379,23 @@ function TsySpreadsCard({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Spread"), /*#__PURE__*/React.createElement("th", null, "Now"), /*#__PURE__*/React.createElement("th", null, "1d"), /*#__PURE__*/React.createElement("th", null, "1w"), /*#__PURE__*/React.createElement("th", null, "1m"), /*#__PURE__*/React.createElement("th", null, "%ile (3y)"), /*#__PURE__*/React.createElement("th", null, "State"), /*#__PURE__*/React.createElement("th", null, "Direction"))), /*#__PURE__*/React.createElement("tbody", null, sp.map(s => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The yield difference between two maturities \u2014 the classic measures of curve shape."
+  }, "Spread"), /*#__PURE__*/React.createElement("th", {
+    title: "Current spread in basis points. Negative means inverted: the shorter maturity yields MORE than the longer one."
+  }, "Now"), /*#__PURE__*/React.createElement("th", {
+    title: "Change in this spread over one day, in basis points."
+  }, "1d"), /*#__PURE__*/React.createElement("th", {
+    title: "Change in this spread over one week, in basis points."
+  }, "1w"), /*#__PURE__*/React.createElement("th", {
+    title: "Change in this spread over one month, in basis points."
+  }, "1m"), /*#__PURE__*/React.createElement("th", {
+    title: "Where today's spread sits within its own roughly 3-year daily range, 0-100."
+  }, "%ile (3y)"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether the spread is currently normal (positive) or inverted (negative)."
+  }, "State"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether the spread is steepening or flattening, taken from the one-week change."
+  }, "Direction"))), /*#__PURE__*/React.createElement("tbody", null, sp.map(s => /*#__PURE__*/React.createElement("tr", {
     key: s.key,
     title: s.note || `${s.label}. Percentile over ~3 years of daily history. Direction from the 1-week change.`
   }, /*#__PURE__*/React.createElement("td", null, s.label), /*#__PURE__*/React.createElement("td", {
@@ -455,7 +478,19 @@ function TsyExpectationsCard({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Series"), /*#__PURE__*/React.createElement("th", null, "Now"), /*#__PURE__*/React.createElement("th", null, "1d"), /*#__PURE__*/React.createElement("th", null, "1w"), /*#__PURE__*/React.createElement("th", null, "1m"), /*#__PURE__*/React.createElement("th", null, "52w %ile"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(([k, l]) => {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The inflation-expectation or TIPS real-yield series, sourced daily from FRED."
+  }, "Series"), /*#__PURE__*/React.createElement("th", {
+    title: "Latest value, in percent."
+  }, "Now"), /*#__PURE__*/React.createElement("th", {
+    title: "Change over one day, in basis points."
+  }, "1d"), /*#__PURE__*/React.createElement("th", {
+    title: "Change over one week, in basis points."
+  }, "1w"), /*#__PURE__*/React.createElement("th", {
+    title: "Change over one month, in basis points."
+  }, "1m"), /*#__PURE__*/React.createElement("th", {
+    title: "Where today's value sits within its own 52-week range, 0-100."
+  }, "52w %ile"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(([k, l]) => {
     const s = e[k];
     return /*#__PURE__*/React.createElement("tr", {
       key: k
@@ -798,7 +833,33 @@ function TsyCpiReactions({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Release"), /*#__PURE__*/React.createElement("th", null, "Data mo."), /*#__PURE__*/React.createElement("th", null, "Head MoM"), /*#__PURE__*/React.createElement("th", null, "Core MoM"), /*#__PURE__*/React.createElement("th", null, "vs trend"), /*#__PURE__*/React.createElement("th", null, "2y"), /*#__PURE__*/React.createElement("th", null, "10y"), /*#__PURE__*/React.createElement("th", null, "SPY"), /*#__PURE__*/React.createElement("th", null, "QQQ"), /*#__PURE__*/React.createElement("th", null, "IWM"), /*#__PURE__*/React.createElement("th", null, "TLT"), /*#__PURE__*/React.createElement("th", null, "GLD"), /*#__PURE__*/React.createElement("th", null, "UUP"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The date the CPI report was published."
+  }, "Release"), /*#__PURE__*/React.createElement("th", {
+    title: "The month the inflation data covers \u2014 published the following month."
+  }, "Data mo."), /*#__PURE__*/React.createElement("th", {
+    title: "Headline CPI month-over-month percent change: all items, including food and energy."
+  }, "Head MoM"), /*#__PURE__*/React.createElement("th", {
+    title: "Core CPI month-over-month, excluding food and energy \u2014 the reading the Fed watches most closely."
+  }, "Core MoM"), /*#__PURE__*/React.createElement("th", {
+    title: "How this core reading compared with its own recent trend: hot, cool or in line."
+  }, "vs trend"), /*#__PURE__*/React.createElement("th", {
+    title: "Move in the 2-year Treasury yield on release day, in basis points \u2014 the most Fed-sensitive tenor."
+  }, "2y"), /*#__PURE__*/React.createElement("th", {
+    title: "Move in the 10-year Treasury yield on release day, in basis points."
+  }, "10y"), /*#__PURE__*/React.createElement("th", {
+    title: "S&P 500 ETF percent move on release day."
+  }, "SPY"), /*#__PURE__*/React.createElement("th", {
+    title: "Nasdaq-100 ETF percent move on release day \u2014 usually the most rate-sensitive equity proxy."
+  }, "QQQ"), /*#__PURE__*/React.createElement("th", {
+    title: "Russell 2000 small-cap ETF percent move on release day."
+  }, "IWM"), /*#__PURE__*/React.createElement("th", {
+    title: "20+ year Treasury bond ETF percent move \u2014 it rises when long yields fall."
+  }, "TLT"), /*#__PURE__*/React.createElement("th", {
+    title: "Gold ETF percent move on release day."
+  }, "GLD"), /*#__PURE__*/React.createElement("th", {
+    title: "US dollar index ETF percent move on release day."
+  }, "UUP"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.date
   }, /*#__PURE__*/React.createElement("td", {
     className: "num"
@@ -859,7 +920,29 @@ function TsyMarketsCards({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "ETF"), /*#__PURE__*/React.createElement("th", null, "Price"), /*#__PURE__*/React.createElement("th", null, "1d"), /*#__PURE__*/React.createElement("th", null, "5d"), /*#__PURE__*/React.createElement("th", null, "1m"), /*#__PURE__*/React.createElement("th", null, "Duration\u2248"), /*#__PURE__*/React.createElement("th", null, "Vol"), /*#__PURE__*/React.createElement("th", null, "RelVol"), /*#__PURE__*/React.createElement("th", null, "vs 20d"), /*#__PURE__*/React.createElement("th", null, "vs 50d"), /*#__PURE__*/React.createElement("th", null, "vs 200d"))), /*#__PURE__*/React.createElement("tbody", null, etfs.map(t => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Bond ETF proxy. Click a row to open it in the Analyze workflow."
+  }, "ETF"), /*#__PURE__*/React.createElement("th", {
+    title: "Latest price."
+  }, "Price"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent price change over one day."
+  }, "1d"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent price change over five days."
+  }, "5d"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent price change over one month."
+  }, "1m"), /*#__PURE__*/React.createElement("th", {
+    title: "Approximate effective duration in years: a +10bp yield move implies roughly a \u2212duration \xD7 0.1% price move."
+  }, "Duration\u2248"), /*#__PURE__*/React.createElement("th", {
+    title: "Shares traded today."
+  }, "Vol"), /*#__PURE__*/React.createElement("th", {
+    title: "Today's volume divided by its average \u2014 above 1 means unusually active."
+  }, "RelVol"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent distance from the 20-day moving average. Positive means trading above it."
+  }, "vs 20d"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent distance from the 50-day moving average."
+  }, "vs 50d"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent distance from the 200-day moving average \u2014 the long-term trend line."
+  }, "vs 200d"))), /*#__PURE__*/React.createElement("tbody", null, etfs.map(t => /*#__PURE__*/React.createElement("tr", {
     key: t.sym,
     className: "tsy-rowlink",
     onClick: () => t.ok && onOpenTicker && onOpenTicker(t.sym),
@@ -961,7 +1044,27 @@ function TsyAuctions({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Auction"), /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Settle"), /*#__PURE__*/React.createElement("th", null, "Size"), /*#__PURE__*/React.createElement("th", null, "High yield"), /*#__PURE__*/React.createElement("th", null, "Bid-to-cover"), /*#__PURE__*/React.createElement("th", null, "Indirect"), /*#__PURE__*/React.createElement("th", null, "Direct"), /*#__PURE__*/React.createElement("th", null, "Dealers"), /*#__PURE__*/React.createElement("th", null, "Read"))), /*#__PURE__*/React.createElement("tbody", null, (au.d.recent_coupons || []).map((a, i) => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which Treasury security was auctioned \u2014 its term and type."
+  }, "Auction"), /*#__PURE__*/React.createElement("th", {
+    title: "The date the auction was held."
+  }, "Date"), /*#__PURE__*/React.createElement("th", {
+    title: "Settlement date, when the bonds are delivered and paid for."
+  }, "Settle"), /*#__PURE__*/React.createElement("th", {
+    title: "Total amount offered at the auction."
+  }, "Size"), /*#__PURE__*/React.createElement("th", {
+    title: "The highest yield accepted \u2014 the auction's clearing yield."
+  }, "High yield"), /*#__PURE__*/React.createElement("th", {
+    title: "Total bids divided by the amount sold. Higher means stronger demand; below recent averages signals a weak auction."
+  }, "Bid-to-cover"), /*#__PURE__*/React.createElement("th", {
+    title: "Share taken by indirect bidders, largely foreign central banks \u2014 a read on overseas demand."
+  }, "Indirect"), /*#__PURE__*/React.createElement("th", {
+    title: "Share taken by direct bidders: domestic institutions buying for their own accounts."
+  }, "Direct"), /*#__PURE__*/React.createElement("th", {
+    title: "Share left with primary dealers, who must absorb whatever nobody else buys. A HIGH dealer take means weak end demand."
+  }, "Dealers"), /*#__PURE__*/React.createElement("th", {
+    title: "Verdict on the auction \u2014 strong, average or weak \u2014 from bid-to-cover and indirect share measured against the last ten comparable auctions."
+  }, "Read"))), /*#__PURE__*/React.createElement("tbody", null, (au.d.recent_coupons || []).map((a, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
   }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, a.term), " ", a.type), /*#__PURE__*/React.createElement("td", {
     className: "num"
@@ -1042,7 +1145,13 @@ function TsyFedCard({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Month"), /*#__PURE__*/React.createElement("th", null, "Implied avg rate"), /*#__PURE__*/React.createElement("th", null, "1d \u0394"))), /*#__PURE__*/React.createElement("tbody", null, path.map(p => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Contract month of the fed funds futures being priced."
+  }, "Month"), /*#__PURE__*/React.createElement("th", {
+    title: "The average fed funds rate the futures market implies for that month, from 100 minus the futures price."
+  }, "Implied avg rate"), /*#__PURE__*/React.createElement("th", {
+    title: "How much that implied rate moved in the last session, in basis points \u2014 the market repricing the Fed path."
+  }, "1d \u0394"))), /*#__PURE__*/React.createElement("tbody", null, path.map(p => /*#__PURE__*/React.createElement("tr", {
     key: p.month
   }, /*#__PURE__*/React.createElement("td", {
     className: "num"
@@ -1088,7 +1197,19 @@ function TsyCot({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Futures"), /*#__PURE__*/React.createElement("th", null, "Report"), /*#__PURE__*/React.createElement("th", null, "Asset managers"), /*#__PURE__*/React.createElement("th", null, "Leveraged funds"), /*#__PURE__*/React.createElement("th", null, "Dealers"), /*#__PURE__*/React.createElement("th", null, "Non-comm. (AM+Lev)"))), /*#__PURE__*/React.createElement("tbody", null, (ct.d.rows || []).map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The Treasury futures contract this positioning row covers."
+  }, "Futures"), /*#__PURE__*/React.createElement("th", {
+    title: "The CFTC report date. Positioning data is published weekly, with a lag."
+  }, "Report"), /*#__PURE__*/React.createElement("th", {
+    title: "Net position held by asset managers \u2014 real-money, typically long-biased \u2014 with the weekly change and its 3-year percentile."
+  }, "Asset managers"), /*#__PURE__*/React.createElement("th", {
+    title: "Net position held by leveraged funds: hedge funds, often the fast money on the other side of asset managers."
+  }, "Leveraged funds"), /*#__PURE__*/React.createElement("th", {
+    title: "Net position held by dealers and intermediaries, who typically absorb the other side of client flow."
+  }, "Dealers"), /*#__PURE__*/React.createElement("th", {
+    title: "Asset managers plus leveraged funds combined \u2014 the total speculative net position."
+  }, "Non-comm. (AM+Lev)"))), /*#__PURE__*/React.createElement("tbody", null, (ct.d.rows || []).map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.code
   }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.code)), r.ok ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", {
     className: "num"
@@ -1181,7 +1302,17 @@ function TsySense({
     className: "tsy-tablewrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Ticker"), /*#__PURE__*/React.createElement("th", null, "\u03B2 per +10bp"), /*#__PURE__*/React.createElement("th", null, "Corr"), /*#__PURE__*/React.createElement("th", null, "n"), /*#__PURE__*/React.createElement("th", null, "Confidence"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Watchlist stock measured against the selected rate factor. Click to open it in Analyze."
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: "How much this stock moves on average when the rate factor rises 10 basis points. Negative means it falls as rates rise."
+  }, "\u03B2 per +10bp"), /*#__PURE__*/React.createElement("th", {
+    title: "Correlation between the stock's daily returns and the rate factor, from \u22121 to +1."
+  }, "Corr"), /*#__PURE__*/React.createElement("th", {
+    title: "Number of trading sessions in the sample behind these estimates."
+  }, "n"), /*#__PURE__*/React.createElement("th", {
+    title: "How reliable the sensitivity estimate is, from the sample size and its statistical significance."
+  }, "Confidence"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.ticker,
     className: "tsy-rowlink",
     onClick: () => onOpenTicker && onOpenTicker(r.ticker),
@@ -1472,7 +1603,13 @@ function TsyOvFutures({
     style: {
       textAlign: "left"
     }
-  }), /*#__PURE__*/React.createElement("th", null, "Last"), /*#__PURE__*/React.createElement("th", null, "Chg"), /*#__PURE__*/React.createElement("th", null, "%"))), /*#__PURE__*/React.createElement("tbody", null, futs.map(f => /*#__PURE__*/React.createElement("tr", {
+  }), /*#__PURE__*/React.createElement("th", {
+    title: "Latest futures price. These are PRICES \u2014 they move OPPOSITE to yields."
+  }, "Last"), /*#__PURE__*/React.createElement("th", {
+    title: "Change in price from the prior session."
+  }, "Chg"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent change from the prior session."
+  }, "%"))), /*#__PURE__*/React.createElement("tbody", null, futs.map(f => /*#__PURE__*/React.createElement("tr", {
     key: f.code,
     title: `${f.label} front-month continuous, ${f.date}. Range ${f.day_lo}–${f.day_hi}, volume ${f.volume != null ? f.volume.toLocaleString() : "—"}. PRICE — moves opposite to yields.`
   }, /*#__PURE__*/React.createElement("td", {
@@ -1578,8 +1715,19 @@ function TsyOvSpreads({
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     style: {
       textAlign: "left"
-    }
-  }, "Spread"), /*#__PURE__*/React.createElement("th", null, "bps"), /*#__PURE__*/React.createElement("th", null, "1D"), /*#__PURE__*/React.createElement("th", null, "1W"), /*#__PURE__*/React.createElement("th", null, "%ile"), /*#__PURE__*/React.createElement("th", null, "Status"))), /*#__PURE__*/React.createElement("tbody", null, sp.map(s => /*#__PURE__*/React.createElement("tr", {
+    },
+    title: "The curve spread being tracked."
+  }, "Spread"), /*#__PURE__*/React.createElement("th", {
+    title: "Current spread in basis points. Negative means inverted."
+  }, "bps"), /*#__PURE__*/React.createElement("th", {
+    title: "One-day change in the spread, in basis points."
+  }, "1D"), /*#__PURE__*/React.createElement("th", {
+    title: "One-week change in the spread, in basis points."
+  }, "1W"), /*#__PURE__*/React.createElement("th", {
+    title: "Where the spread sits within its own roughly 3-year range, 0-100."
+  }, "%ile"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether the spread is normal or inverted, and which way it is trending."
+  }, "Status"))), /*#__PURE__*/React.createElement("tbody", null, sp.map(s => /*#__PURE__*/React.createElement("tr", {
     key: s.key,
     title: `${s.label} · 1m ${s.d21 != null ? s.d21 + " bp" : "—"} · percentile over ~3y of daily history · ${s.trend || ""}`
   }, /*#__PURE__*/React.createElement("td", {
@@ -1611,7 +1759,8 @@ function TsyOvMatrix({
   }, /*#__PURE__*/React.createElement("table", {
     className: "tsy-matrix num"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), cols.map(([k, l]) => /*#__PURE__*/React.createElement("th", {
-    key: k
+    key: k,
+    title: "Change in this maturity's yield over the period, in basis points. Positive (red) means yields rose, which means bond prices fell."
   }, l)))), /*#__PURE__*/React.createElement("tbody", null, rows.map(c => /*#__PURE__*/React.createElement("tr", {
     key: c.tenor
   }, /*#__PURE__*/React.createElement("td", {
@@ -1765,7 +1914,17 @@ function TsyOvExpectations({
     style: {
       textAlign: "left"
     }
-  }), /*#__PURE__*/React.createElement("th", null, "Value"), /*#__PURE__*/React.createElement("th", null, "1D"), /*#__PURE__*/React.createElement("th", null, "1W"), /*#__PURE__*/React.createElement("th", null, "1M"), /*#__PURE__*/React.createElement("th", null, "%ile"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(([k, label]) => {
+  }), /*#__PURE__*/React.createElement("th", {
+    title: "Latest level of this inflation-expectation or real-yield series, in percent."
+  }, "Value"), /*#__PURE__*/React.createElement("th", {
+    title: "Change over one day, in basis points."
+  }, "1D"), /*#__PURE__*/React.createElement("th", {
+    title: "Change over one week, in basis points."
+  }, "1W"), /*#__PURE__*/React.createElement("th", {
+    title: "Change over one month, in basis points."
+  }, "1M"), /*#__PURE__*/React.createElement("th", {
+    title: "Where the current value sits within its own historical range, 0-100."
+  }, "%ile"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(([k, label]) => {
     const s = e[k];
     if (!s) return null;
     const bp = v => v != null ? v * 100 : null;
@@ -1797,7 +1956,15 @@ function TsyOvCot({
     }, rows[0].date)
   }, ct.loading ? /*#__PURE__*/React.createElement(TsyLoading, null) : rows.length ? /*#__PURE__*/React.createElement("table", {
     className: "tsy-matrix num"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", null, "Asset mgr"), /*#__PURE__*/React.createElement("th", null, "wk \u0394"), /*#__PURE__*/React.createElement("th", null, "Lev funds"), /*#__PURE__*/React.createElement("th", null, "wk \u0394"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), /*#__PURE__*/React.createElement("th", {
+    title: "Asset managers' net futures position in thousands of contracts \u2014 real-money positioning."
+  }, "Asset mgr"), /*#__PURE__*/React.createElement("th", {
+    title: "Change in the asset-manager net position over the last week, in thousands of contracts."
+  }, "wk \u0394"), /*#__PURE__*/React.createElement("th", {
+    title: "Leveraged funds' net futures position in thousands of contracts \u2014 typically the fast money."
+  }, "Lev funds"), /*#__PURE__*/React.createElement("th", {
+    title: "Change in the leveraged-fund net position over the last week, in thousands of contracts."
+  }, "wk \u0394"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
     const net = k => r[k] ? `${r[k].net >= 0 ? "+" : ""}${(r[k].net / 1000).toFixed(0)}k` : "—";
     const wk = k => r[k] && r[k].wk_chg != null ? `${r[k].wk_chg >= 0 ? "+" : ""}${(r[k].wk_chg / 1000).toFixed(0)}k` : "—";
     const crowded = ["asset_mgr", "lev_funds"].map(k => r[k] && r[k].crowded ? `${k === "asset_mgr" ? "AM" : "LEV"} ${r[k].crowded}` : null).filter(Boolean)[0];

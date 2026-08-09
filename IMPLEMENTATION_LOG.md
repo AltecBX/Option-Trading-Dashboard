@@ -707,3 +707,44 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
 
 - Battery: 226 unittest + smoke 55/55 + JS 107 + verify both layers — all
   green. Browser-verified in dark theme. APP_VERSION 3.70.
+
+# v3.71 — app-wide column tooltip sweep
+
+- Completes the sweep deferred in v3.70. **169 column tooltips added**
+  across every remaining table in the app, written per table rather than
+  from a shared glossary (the v3.70 note stands: "1D" means a stock
+  reaction in one table and a basis-point yield change in another, so a
+  global label→text map would have shipped confidently wrong text).
+- Coverage by file: app.jsx 34/37 titled, app-cards.jsx 109/121,
+  tab-treasuries.jsx 85/90, tab-backtest.jsx 12/12, tab-earnops.jsx 4/4.
+- Tables covered: earnings implied-vs-realized ladder; weekly cycle
+  backtest; the full option chain (bid/ask/IV/delta/theta/vol/OI on both
+  sides, plus the CALLS/STRIKE/PUTS group headers and the leg +/− buttons);
+  swing projected targets; most-similar past moves; swing history up and
+  down legs; Options Playbook; weekly range-location scan; breadth stock
+  lists; Treasury yield curve, curve spreads, inflation expectations, CPI
+  release reactions (all 13 columns incl. each ETF proxy), Treasury ETFs,
+  auctions (bid-to-cover, indirect/direct/dealer takedown, read), Fed
+  implied path, COT positioning, rate-sensitivity scan, and all five
+  overview strips; backtest regime + trade blotter; earnings-ops board.
+- **20 headers deliberately left untitled and verified as intentional**:
+  12 empty spacer cells (nothing to explain), 5 already covered by the
+  existing `<Term>` glossary component (adding `title` too would fire two
+  tooltips at once), and 3 dynamic headers that already build their own
+  title. Two of those dynamic ones were UPGRADED from placeholder text —
+  the breadth list's `title="Sort"` now describes each column, and the
+  earnings-ops Ticker/Price/MCap headers gained real descriptions instead
+  of the "Sort by X" fallback.
+- Applied by a verifying script (scratchpad `apply_tips.py`): every
+  insertion is matched to its expected header label first and the run
+  aborts on any mismatch, so no tooltip can land on the wrong column.
+- Verified: build + both verify layers pass; rendered audit shows Earnings
+  Ops 16/16 and Trade 19/22 titled (the 3 being the option chain's empty
+  spacers); tooltip strings confirmed present in the minified
+  dist/app.min.js, dist/tab-treasuries.min.js and dist/tab-backtest.min.js.
+  The Treasuries tab could not be rendered in this sandbox (its data
+  endpoints use yfinance's curl_cffi TLS path, which this environment
+  blocks) — its coverage is confirmed by static analysis plus the
+  artifact check.
+- Battery: 226 unittest + 8 runner suites + smoke 55/55 + JS 107 + verify
+  both layers — all green. APP_VERSION 3.71.

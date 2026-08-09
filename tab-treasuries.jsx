@@ -178,7 +178,7 @@ function TsyCurveCard({ core }) {
       ) : (
         <div className="tsy-tablewrap">
           <table className="tsy-table">
-            <thead><tr><th>Maturity</th><th>Now</th>{cmps.map(([k, l]) => snaps[k] ? <th key={k}>{l} ago</th> : null)}<th>Δ vs {cmp !== "none" ? cmp : "—"}</th></tr></thead>
+            <thead><tr><th title="Treasury maturity (tenor) — how long until the bond repays its principal.">Maturity</th><th title="Today's yield for this maturity, in percent.">Now</th>{cmps.map(([k, l]) => snaps[k] ? <th key={k} title="This maturity's yield as of that earlier date, for comparison with today.">{l} ago</th> : null)}<th title="Change in this maturity's yield versus the selected comparison date, in basis points. Positive means yields rose, which means bond prices fell.">Δ vs {cmp !== "none" ? cmp : "—"}</th></tr></thead>
             <tbody>
               {TSY_TENORS.filter(t => snaps.current && snaps.current.points[t] != null).map(t => {
                 const cur = snaps.current.points[t];
@@ -215,7 +215,7 @@ function TsySpreadsCard({ core }) {
       </div>
       <div className="tsy-tablewrap">
         <table className="tsy-table">
-          <thead><tr><th>Spread</th><th>Now</th><th>1d</th><th>1w</th><th>1m</th><th>%ile (3y)</th><th>State</th><th>Direction</th></tr></thead>
+          <thead><tr><th title="The yield difference between two maturities — the classic measures of curve shape.">Spread</th><th title="Current spread in basis points. Negative means inverted: the shorter maturity yields MORE than the longer one.">Now</th><th title="Change in this spread over one day, in basis points.">1d</th><th title="Change in this spread over one week, in basis points.">1w</th><th title="Change in this spread over one month, in basis points.">1m</th><th title="Where today's spread sits within its own roughly 3-year daily range, 0-100.">%ile (3y)</th><th title="Whether the spread is currently normal (positive) or inverted (negative).">State</th><th title="Whether the spread is steepening or flattening, taken from the one-week change.">Direction</th></tr></thead>
           <tbody>
             {sp.map(s => (
               <tr key={s.key} title={s.note || `${s.label}. Percentile over ~3 years of daily history. Direction from the 1-week change.`}>
@@ -282,7 +282,7 @@ function TsyExpectationsCard({ core }) {
       </div>
       <div className="tsy-tablewrap">
         <table className="tsy-table">
-          <thead><tr><th>Series</th><th>Now</th><th>1d</th><th>1w</th><th>1m</th><th>52w %ile</th></tr></thead>
+          <thead><tr><th title="The inflation-expectation or TIPS real-yield series, sourced daily from FRED.">Series</th><th title="Latest value, in percent.">Now</th><th title="Change over one day, in basis points.">1d</th><th title="Change over one week, in basis points.">1w</th><th title="Change over one month, in basis points.">1m</th><th title="Where today's value sits within its own 52-week range, 0-100.">52w %ile</th></tr></thead>
           <tbody>
             {rows.map(([k, l]) => {
               const s = e[k];
@@ -518,7 +518,7 @@ function TsyCpiReactions({ apiFetch }) {
       </div>
       <div className="tsy-tablewrap">
         <table className="tsy-table">
-          <thead><tr><th>Release</th><th>Data mo.</th><th>Head MoM</th><th>Core MoM</th><th>vs trend</th><th>2y</th><th>10y</th><th>SPY</th><th>QQQ</th><th>IWM</th><th>TLT</th><th>GLD</th><th>UUP</th></tr></thead>
+          <thead><tr><th title="The date the CPI report was published.">Release</th><th title="The month the inflation data covers — published the following month.">Data mo.</th><th title="Headline CPI month-over-month percent change: all items, including food and energy.">Head MoM</th><th title="Core CPI month-over-month, excluding food and energy — the reading the Fed watches most closely.">Core MoM</th><th title="How this core reading compared with its own recent trend: hot, cool or in line.">vs trend</th><th title="Move in the 2-year Treasury yield on release day, in basis points — the most Fed-sensitive tenor.">2y</th><th title="Move in the 10-year Treasury yield on release day, in basis points.">10y</th><th title="S&P 500 ETF percent move on release day.">SPY</th><th title="Nasdaq-100 ETF percent move on release day — usually the most rate-sensitive equity proxy.">QQQ</th><th title="Russell 2000 small-cap ETF percent move on release day.">IWM</th><th title="20+ year Treasury bond ETF percent move — it rises when long yields fall.">TLT</th><th title="Gold ETF percent move on release day.">GLD</th><th title="US dollar index ETF percent move on release day.">UUP</th></tr></thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.date}>
@@ -561,7 +561,7 @@ function TsyMarketsCards({ apiFetch, onOpenTicker }) {
         </div>
         <div className="tsy-tablewrap">
           <table className="tsy-table">
-            <thead><tr><th>ETF</th><th>Price</th><th>1d</th><th>5d</th><th>1m</th><th>Duration≈</th><th>Vol</th><th>RelVol</th><th>vs 20d</th><th>vs 50d</th><th>vs 200d</th></tr></thead>
+            <thead><tr><th title="Bond ETF proxy. Click a row to open it in the Analyze workflow.">ETF</th><th title="Latest price.">Price</th><th title="Percent price change over one day.">1d</th><th title="Percent price change over five days.">5d</th><th title="Percent price change over one month.">1m</th><th title="Approximate effective duration in years: a +10bp yield move implies roughly a −duration × 0.1% price move.">Duration≈</th><th title="Shares traded today.">Vol</th><th title="Today's volume divided by its average — above 1 means unusually active.">RelVol</th><th title="Percent distance from the 20-day moving average. Positive means trading above it.">vs 20d</th><th title="Percent distance from the 50-day moving average.">vs 50d</th><th title="Percent distance from the 200-day moving average — the long-term trend line.">vs 200d</th></tr></thead>
             <tbody>
               {etfs.map(t => (
                 <tr key={t.sym} className="tsy-rowlink" onClick={() => t.ok && onOpenTicker && onOpenTicker(t.sym)}
@@ -636,7 +636,7 @@ function TsyAuctions({ apiFetch }) {
     <div>
       <div className="tsy-tablewrap">
         <table className="tsy-table">
-          <thead><tr><th>Auction</th><th>Date</th><th>Settle</th><th>Size</th><th>High yield</th><th>Bid-to-cover</th><th>Indirect</th><th>Direct</th><th>Dealers</th><th>Read</th></tr></thead>
+          <thead><tr><th title="Which Treasury security was auctioned — its term and type.">Auction</th><th title="The date the auction was held.">Date</th><th title="Settlement date, when the bonds are delivered and paid for.">Settle</th><th title="Total amount offered at the auction.">Size</th><th title="The highest yield accepted — the auction's clearing yield.">High yield</th><th title="Total bids divided by the amount sold. Higher means stronger demand; below recent averages signals a weak auction.">Bid-to-cover</th><th title="Share taken by indirect bidders, largely foreign central banks — a read on overseas demand.">Indirect</th><th title="Share taken by direct bidders: domestic institutions buying for their own accounts.">Direct</th><th title="Share left with primary dealers, who must absorb whatever nobody else buys. A HIGH dealer take means weak end demand.">Dealers</th><th title="Verdict on the auction — strong, average or weak — from bid-to-cover and indirect share measured against the last ten comparable auctions.">Read</th></tr></thead>
           <tbody>
             {(au.d.recent_coupons || []).map((a, i) => (
               <tr key={i}>
@@ -689,7 +689,7 @@ function TsyFedCard({ apiFetch }) {
         {path.length > 0 ? (
           <div className="tsy-tablewrap">
             <table className="tsy-table">
-              <thead><tr><th>Month</th><th>Implied avg rate</th><th>1d Δ</th></tr></thead>
+              <thead><tr><th title="Contract month of the fed funds futures being priced.">Month</th><th title="The average fed funds rate the futures market implies for that month, from 100 minus the futures price.">Implied avg rate</th><th title="How much that implied rate moved in the last session, in basis points — the market repricing the Fed path.">1d Δ</th></tr></thead>
               <tbody>
                 {path.map(p => (
                   <tr key={p.month}><td className="num">{p.month}</td><td className="num"><b>{p.implied_rate.toFixed(2)}%</b></td><td><TsyBp v={p.d1_bp} d={0} /></td></tr>
@@ -720,7 +720,7 @@ function TsyCot({ apiFetch }) {
     <div>
       <div className="tsy-tablewrap">
         <table className="tsy-table">
-          <thead><tr><th>Futures</th><th>Report</th><th>Asset managers</th><th>Leveraged funds</th><th>Dealers</th><th>Non-comm. (AM+Lev)</th></tr></thead>
+          <thead><tr><th title="The Treasury futures contract this positioning row covers.">Futures</th><th title="The CFTC report date. Positioning data is published weekly, with a lag.">Report</th><th title="Net position held by asset managers — real-money, typically long-biased — with the weekly change and its 3-year percentile.">Asset managers</th><th title="Net position held by leveraged funds: hedge funds, often the fast money on the other side of asset managers.">Leveraged funds</th><th title="Net position held by dealers and intermediaries, who typically absorb the other side of client flow.">Dealers</th><th title="Asset managers plus leveraged funds combined — the total speculative net position.">Non-comm. (AM+Lev)</th></tr></thead>
           <tbody>
             {(ct.d.rows || []).map(r => (
               <tr key={r.code}>
@@ -789,7 +789,7 @@ function TsySense({ apiFetch, onOpenTicker }) {
       {rows.length > 0 ? (
         <div className="tsy-tablewrap">
           <table className="tsy-table">
-            <thead><tr><th>Ticker</th><th>β per +10bp</th><th>Corr</th><th>n</th><th>Confidence</th></tr></thead>
+            <thead><tr><th title="Watchlist stock measured against the selected rate factor. Click to open it in Analyze.">Ticker</th><th title="How much this stock moves on average when the rate factor rises 10 basis points. Negative means it falls as rates rise.">β per +10bp</th><th title="Correlation between the stock's daily returns and the rate factor, from −1 to +1.">Corr</th><th title="Number of trading sessions in the sample behind these estimates.">n</th><th title="How reliable the sensitivity estimate is, from the sample size and its statistical significance.">Confidence</th></tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.ticker} className="tsy-rowlink" onClick={() => onOpenTicker && onOpenTicker(r.ticker)}
@@ -946,7 +946,7 @@ function TsyOvFutures({ mk }) {
     <TsyMini kicker="Treasury futures · delayed" right={<span className="tsy-mini-note">price ↑ = yields ↓</span>}>
       {futs.length ? (
         <table className="tsy-matrix num">
-          <thead><tr><th style={{ textAlign: "left" }}></th><th>Last</th><th>Chg</th><th>%</th></tr></thead>
+          <thead><tr><th style={{ textAlign: "left" }}></th><th title="Latest futures price. These are PRICES — they move OPPOSITE to yields.">Last</th><th title="Change in price from the prior session.">Chg</th><th title="Percent change from the prior session.">%</th></tr></thead>
           <tbody>
             {futs.map(f => (
               <tr key={f.code} title={`${f.label} front-month continuous, ${f.date}. Range ${f.day_lo}–${f.day_hi}, volume ${f.volume != null ? f.volume.toLocaleString() : "—"}. PRICE — moves opposite to yields.`}>
@@ -1022,7 +1022,7 @@ function TsyOvSpreads({ core }) {
   return (
     <TsyMini kicker="Important Treasury spreads">
       <table className="tsy-matrix num">
-        <thead><tr><th style={{ textAlign: "left" }}>Spread</th><th>bps</th><th>1D</th><th>1W</th><th>%ile</th><th>Status</th></tr></thead>
+        <thead><tr><th style={{ textAlign: "left" }} title="The curve spread being tracked.">Spread</th><th title="Current spread in basis points. Negative means inverted.">bps</th><th title="One-day change in the spread, in basis points.">1D</th><th title="One-week change in the spread, in basis points.">1W</th><th title="Where the spread sits within its own roughly 3-year range, 0-100.">%ile</th><th title="Whether the spread is normal or inverted, and which way it is trending.">Status</th></tr></thead>
         <tbody>
           {sp.map(s => (
             <tr key={s.key} title={`${s.label} · 1m ${s.d21 != null ? s.d21 + " bp" : "—"} · percentile over ~3y of daily history · ${s.trend || ""}`}>
@@ -1046,7 +1046,7 @@ function TsyOvMatrix({ core }) {
   return (
     <TsyMini kicker="Rate change (bp)" right={<span className="tsy-mini-note" title={TSY_INV}>red = yields up</span>}>
       <table className="tsy-matrix num">
-        <thead><tr><th></th>{cols.map(([k, l]) => <th key={k}>{l}</th>)}</tr></thead>
+        <thead><tr><th></th>{cols.map(([k, l]) => <th key={k} title="Change in this maturity's yield over the period, in basis points. Positive (red) means yields rose, which means bond prices fell.">{l}</th>)}</tr></thead>
         <tbody>
           {rows.map(c => (
             <tr key={c.tenor}>
@@ -1142,7 +1142,7 @@ function TsyOvExpectations({ core }) {
   return (
     <TsyMini kicker="Inflation expectations · FRED daily">
       <table className="tsy-matrix num">
-        <thead><tr><th style={{ textAlign: "left" }}></th><th>Value</th><th>1D</th><th>1W</th><th>1M</th><th>%ile</th></tr></thead>
+        <thead><tr><th style={{ textAlign: "left" }}></th><th title="Latest level of this inflation-expectation or real-yield series, in percent.">Value</th><th title="Change over one day, in basis points.">1D</th><th title="Change over one week, in basis points.">1W</th><th title="Change over one month, in basis points.">1M</th><th title="Where the current value sits within its own historical range, 0-100.">%ile</th></tr></thead>
         <tbody>
           {rows.map(([k, label]) => {
             const s = e[k];
@@ -1177,7 +1177,7 @@ function TsyOvCot({ ct }) {
     <TsyMini kicker="COT positioning · CFTC weekly" right={rows[0] && <span className="tsy-datechip num">{rows[0].date}</span>}>
       {ct.loading ? <TsyLoading /> : rows.length ? (
         <table className="tsy-matrix num">
-          <thead><tr><th></th><th>Asset mgr</th><th>wk Δ</th><th>Lev funds</th><th>wk Δ</th><th></th></tr></thead>
+          <thead><tr><th></th><th title="Asset managers' net futures position in thousands of contracts — real-money positioning.">Asset mgr</th><th title="Change in the asset-manager net position over the last week, in thousands of contracts.">wk Δ</th><th title="Leveraged funds' net futures position in thousands of contracts — typically the fast money.">Lev funds</th><th title="Change in the leveraged-fund net position over the last week, in thousands of contracts.">wk Δ</th><th></th></tr></thead>
           <tbody>
             {rows.map(r => {
               const net = k => r[k] ? `${r[k].net >= 0 ? "+" : ""}${(r[k].net / 1000).toFixed(0)}k` : "—";

@@ -1451,7 +1451,15 @@ function BacktestCard({
   }, "skipped (max positions): ", /*#__PURE__*/React.createElement("b", null, result.skipped_max_positions || 0))), result.by_regime && Object.keys(result.by_regime).length > 0 && /*#__PURE__*/React.createElement("table", {
     className: "bt-regime",
     title: "The same trades bucketed by the S&P 500's condition on entry day (SPY vs its 50/200-day averages): does the edge only exist in one type of market?"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Market condition"), /*#__PURE__*/React.createElement("th", null, "Trades"), /*#__PURE__*/React.createElement("th", null, "Win rate"), /*#__PURE__*/React.createElement("th", null, "P&L"))), /*#__PURE__*/React.createElement("tbody", null, Object.entries(result.by_regime).map(([r, d]) => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The S&P 500's state on the entry day (SPY versus its 50- and 200-day averages) \u2014 this tests whether the edge only exists in one type of market."
+  }, "Market condition"), /*#__PURE__*/React.createElement("th", {
+    title: "Number of trades opened while the market was in this condition."
+  }, "Trades"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent of those trades that closed profitably."
+  }, "Win rate"), /*#__PURE__*/React.createElement("th", {
+    title: "Total profit or loss from the trades opened in this condition."
+  }, "P&L"))), /*#__PURE__*/React.createElement("tbody", null, Object.entries(result.by_regime).map(([r, d]) => /*#__PURE__*/React.createElement("tr", {
     key: r
   }, /*#__PURE__*/React.createElement("td", null, r), /*#__PURE__*/React.createElement("td", null, d.n), /*#__PURE__*/React.createElement("td", null, d.win_rate, "%"), /*#__PURE__*/React.createElement("td", {
     className: d.pnl >= 0 ? "up" : "down"
@@ -1463,7 +1471,23 @@ function BacktestCard({
     className: "bt-trades-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "bt-trades"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Sym"), /*#__PURE__*/React.createElement("th", null, "In"), /*#__PURE__*/React.createElement("th", null, "Out"), /*#__PURE__*/React.createElement("th", null, "Entry"), /*#__PURE__*/React.createElement("th", null, "Exit"), /*#__PURE__*/React.createElement("th", null, "Why"), /*#__PURE__*/React.createElement("th", null, "P&L"), /*#__PURE__*/React.createElement("th", null, "%"))), /*#__PURE__*/React.createElement("tbody", null, (result.trades || []).slice().reverse().map((t, i, arr) => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Symbol traded, with the option strike or structure where applicable."
+  }, "Sym"), /*#__PURE__*/React.createElement("th", {
+    title: "Entry date \u2014 when the position was opened."
+  }, "In"), /*#__PURE__*/React.createElement("th", {
+    title: "Exit date \u2014 when the position was closed."
+  }, "Out"), /*#__PURE__*/React.createElement("th", {
+    title: "Fill price on entry, including modelled spread cost."
+  }, "Entry"), /*#__PURE__*/React.createElement("th", {
+    title: "Fill price on exit."
+  }, "Exit"), /*#__PURE__*/React.createElement("th", {
+    title: "Why the trade closed: profit target, stop, time/DTE rule, expiration or assignment."
+  }, "Why"), /*#__PURE__*/React.createElement("th", {
+    title: "Dollar profit or loss on the trade, after commissions and modelled slippage."
+  }, "P&L"), /*#__PURE__*/React.createElement("th", {
+    title: "Return measured against the capital the trade required."
+  }, "%"))), /*#__PURE__*/React.createElement("tbody", null, (result.trades || []).slice().reverse().map((t, i, arr) => /*#__PURE__*/React.createElement("tr", {
     key: i,
     className: t.marks && t.marks.length ? "bt-tr-replay" : "",
     title: t.marks && t.marks.length ? "Click to replay this trade's daily lifecycle." : undefined,
