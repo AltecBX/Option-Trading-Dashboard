@@ -52,7 +52,7 @@ function applyCookieException() {
       note: "contentSettings API unavailable in this browser — relying on SameSite upgrade only" });
     return;
   }
-  for (const primary of ["https://[*.]finviz.com/*", "https://[*.]tradingview.com/*", "https://[*.]unusualwhales.com/*"]) {
+  for (const primary of ["https://[*.]finviz.com/*", "https://[*.]tradingview.com/*", "https://[*.]unusualwhales.com/*", "https://[*.]simplywall.st/*"]) {
     for (const secondary of DASHBOARDS) {
       chrome.contentSettings.cookies.set(
         { primaryPattern: primary, secondaryPattern: secondary, setting: "allow" },
@@ -120,7 +120,7 @@ function eligible(cookie) {
 chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
   try {
     const bare = (cookie.domain || "").replace(/^\./, "");
-    const watched = ["finviz.com", "tradingview.com", "unusualwhales.com"];
+    const watched = ["finviz.com", "tradingview.com", "unusualwhales.com", "simplywall.st"];
     if (!watched.some((d) => bare === d || bare.endsWith("." + d))) return;
     diag("cookie", { name: cookie.name, domain: cookie.domain, path: cookie.path,
                      sameSite: cookie.sameSite, secure: cookie.secure,

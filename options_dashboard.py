@@ -5130,8 +5130,9 @@ def _symbol_listing(symbol: str) -> dict:
             for q in (r.json().get("quotes") or []):
                 if str(q.get("symbol") or "").upper() != symbol.upper():
                     continue
+                out["quote_type"] = q.get("quoteType")
                 if q.get("quoteType") and q["quoteType"] != "EQUITY":
-                    continue
+                    break
                 out["sector"] = out["sector"] or q.get("sector")
                 out["industry"] = out["industry"] or q.get("industry")
                 out["company"] = out["company"] or q.get("longname") or q.get("shortname")
@@ -8385,8 +8386,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 #   2. cached .info profile   — sector + industry (flaky)
                 #   3. watchlist board row    — sector + industry, no network
                 listing = _symbol_listing(symbol)
-                prof = dict(_symbol_profile(symbol) or {})
-                prof["_source"] = "yfinance .info"
+                # Only pay for the slow/rate-limited .info call when the light
+                # endpoints left a gap — it is the one that stalls requests.
+                if listing.get("company") and listing.get("exchange") \
+                        and (listing.get("sector") or listing.get("industry")):
+                    prof = {"_source": "skipped (.info not needed)"}
+                else:
+                    prof = dict(_symbol_profile(symbol) or {})
+                    prof["_source"] = "yfinance .info"
                 board_row = {"_source": "watchlist board"}
                 if _WLTABLE_AVAILABLE and _wltable is not None:
                     try:
@@ -8399,7 +8406,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     except Exception:
                         pass
                 merged = _site_links.merge_profile(listing, prof, board_row)
-                out = _site_links.simplywallst_url(symbol, merged)
+                qt = listing.get("quote_type")
+                if qt and qt != "EQUITY":
+                    # Simply Wall St's /stocks/ space covers listed COMPANIES.
+                    # ETFs/funds/indices live elsewhere and their slug scheme
+                    # is not derivable, so say so instead of building a URL
+                    # that would 404 (the panel then offers Browse stocks).
+                    out = {"url": None, "quote_type": qt,
+                           "reason": f"{symbol} is a {str(qt).lower()}, not a listed company — "
+                                     f"Simply Wall St's company pages don't cover it"}
+                else:
+                    out = _site_links.simplywallst_url(symbol, merged)
+                    out["quote_type"] = qt
                 self._send_json({"symbol": symbol, "site": site, **out})
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/site_link", exc)

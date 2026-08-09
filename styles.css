@@ -11176,3 +11176,15 @@ a.tabsheet-btn.site { text-decoration: none; }
 }
 @keyframes mc-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .mc-col-skel i { animation: none; } }
+
+/* v3.73: Simply Wall St panel — resolve-failure notice inside the site card. */
+.sws-err {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px; color: var(--fg);
+  background: color-mix(in oklch, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warn), transparent 55%);
+  border-radius: 10px; padding: 10px 12px; margin: 6px 0;
+}
+/* A frame still showing the previous company is dimmed so it can never be
+   mistaken for the active ticker (v3.73). */
+.fv-frame.sws-stale { opacity: 0.45; filter: saturate(0.6); }

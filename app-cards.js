@@ -6634,101 +6634,6 @@ function WatchlistAlertsCard({
 // selected ticker. External rather than embedded: simplywall.st refuses
 // third-party framing and non-browser traffic, so an iframe panel would show
 // a blank box. The URL is resolved server-side from the cached profile
-// (exchange + company + sector) because only the "{exchange}-{ticker}"
-// segment is derivable from the ticker alone.
-function SwsLink({
-  ticker,
-  apiFetch
-}) {
-  const [info, setInfo] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const fetchUrl = bust => sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}${bust ? `&_r=${bust}` : ""}`, 12 * 3600 * 1000);
-  useEffect(() => {
-    let stop = false;
-    setInfo(null);
-    if (!ticker || !apiFetch) return undefined;
-    fetchUrl().then(d => {
-      if (!stop) setInfo(d);
-    }).catch(() => {
-      if (!stop) setInfo({
-        url: null,
-        reason: "lookup failed"
-      });
-    });
-    return () => {
-      stop = true;
-    };
-  }, [ticker, apiFetch]);
-  const url = info && info.url;
-  // Never a dead chip: if the lookup came back empty (an upstream hiccup),
-  // clicking RETRIES the resolution and opens the page on success.
-  const retry = e => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    fetchUrl(Date.now()).then(d => {
-      setInfo(d);
-      if (d && d.url) window.open(d.url, "_blank", "noopener,noreferrer");
-    }).catch(() => setInfo({
-      url: null,
-      reason: "lookup failed"
-    })).finally(() => setBusy(false));
-  };
-  const tip = url ? `Open ${ticker} on Simply Wall St in a new tab — follows the ticker selected here.` + `${info.derived && info.derived.exchange ? `\nResolved from the listing exchange (${info.derived.exchange}), company name and sector.` : ""}` + `\nOpens externally because Simply Wall St blocks embedding.` : info ? `Couldn't resolve the Simply Wall St page for ${ticker}${info.reason ? ` — ${info.reason}` : ""}.\nCLICK TO RETRY.` : `Resolving the Simply Wall St page for ${ticker}…`;
-  return /*#__PURE__*/React.createElement("a", {
-    className: `tab-btn tab-btn-ext${url ? "" : " unresolved"}`,
-    href: url || undefined,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    onClick: e => {
-      if (!url) retry(e);
-    },
-    title: tip
-  }, "Simply Wall St ", /*#__PURE__*/React.createElement("span", {
-    className: "tab-ext-mark",
-    "aria-hidden": "true"
-  }, busy ? "…" : url ? "↗" : "⟳"));
-}
-
-// Same resolver, styled for the mobile sections sheet.
-function SwsSheetLink({
-  ticker,
-  apiFetch,
-  onGo
-}) {
-  const [info, setInfo] = useState(null);
-  useEffect(() => {
-    let stop = false;
-    setInfo(null);
-    if (!ticker || !apiFetch) return undefined;
-    sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}`, 12 * 3600 * 1000).then(d => {
-      if (!stop) setInfo(d);
-    }).catch(() => {
-      if (!stop) setInfo({
-        url: null
-      });
-    });
-    return () => {
-      stop = true;
-    };
-  }, [ticker, apiFetch]);
-  const url = info && info.url;
-  return /*#__PURE__*/React.createElement("a", {
-    className: `tabsheet-btn site${url ? "" : " disabled"}`,
-    href: url || undefined,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    "aria-disabled": url ? undefined : "true",
-    onClick: e => {
-      if (!url) {
-        e.preventDefault();
-        return;
-      }
-      if (onGo) onGo();
-    },
-    title: url ? `Open ${ticker} on Simply Wall St in a new tab.` : `Simply Wall St link unavailable for ${ticker}.`
-  }, "Simply Wall St \u2197");
-}
 function TabBar({
   active,
   onChange,
@@ -6784,7 +6689,8 @@ function TabBar({
   const EXT = {
     finviz: 1,
     tview: 1,
-    whales: 1
+    whales: 1,
+    swst: 1
   };
   const appTabs = list.filter(t => !EXT[t.id]);
   const extTabs = list.filter(t => EXT[t.id]);
@@ -6830,11 +6736,8 @@ function TabBar({
     className: "tab-row tab-row-ext"
   }, extTabs.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "tab-row-lbl",
-    title: "Partner sites that follow the globally selected ticker. Finviz, TradingView and Unusual Whales render inside the dashboard (two-way sync); Simply Wall St opens in a new tab because it blocks embedding."
-  }, "Sites -"), extTabs.map(renderBtn), /*#__PURE__*/React.createElement(SwsLink, {
-    ticker: ticker,
-    apiFetch: apiFetch
-  })), hasEarn && /*#__PURE__*/React.createElement("div", {
+    title: "Embedded partner sites \u2014 each renders inside the dashboard and follows the globally selected ticker both ways. All four need the Site Helper extension to lift their frame-blocking headers."
+  }, "Sites -"), extTabs.map(renderBtn)), hasEarn && /*#__PURE__*/React.createElement("div", {
     className: `tab-earn ${soon ? "soon" : ""}`,
     title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
   }, /*#__PURE__*/React.createElement("span", {
@@ -18281,6 +18184,179 @@ function UWPanel({
   }, "Log into UW inside the frame once \u2014 account, watchlists and alert settings are all yours. Flow/sweeps/OI/IV live on the stock page's own tabs."));
 }
 
+// ── Simply Wall St embedded view (v3.73) ────────────────────────────────────
+// Same architecture as the Finviz / TradingView / Unusual Whales panels: the
+// Site Helper extension (v2.8+) removes simplywall.st's X-Frame-Options on
+// sub-frame responses so the REAL site renders in-panel, and sws-sync.js
+// reports the ticker back for two-way sync.
+//
+// One difference from the other three: a Simply Wall St stock URL is not
+// derivable from the ticker alone (their path carries their own sector and
+// company slugs), so the frame src is resolved server-side via
+// /api/site_link. Cloudflare's bot challenge on those pages is a non-issue
+// here — the frame is fetched by YOUR browser with your normal cookies,
+// exactly as if you had typed the address.
+function SWSTPanel({
+  ticker,
+  onSwitchTicker,
+  inWatchlist,
+  onAddWatchlist,
+  onResearch,
+  onResearch1m,
+  apiFetch
+}) {
+  const [follow, setFollow] = useState(SWST.follow());
+  const [src, setSrc] = useState(null);
+  // Which symbol the CURRENT src belongs to. Without this a failed
+  // re-resolve would silently keep the previous company on screen while the
+  // dashboard header said a different ticker — the worst possible outcome
+  // for a panel whose whole job is to follow the ticker.
+  const [srcSym, setSrcSym] = useState(null);
+  const [resolveErr, setResolveErr] = useState(null);
+  const [resolving, setResolving] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const frameSym = useRef(null);
+  const tickerRef = useRef(ticker);
+  tickerRef.current = ticker;
+  const followRef = useRef(follow);
+  followRef.current = follow;
+
+  // Two-way sync: sws-sync.js posts the symbol it is showing.
+  useEffect(() => {
+    const onMsg = e => {
+      if (!/^https:\/\/(www\.)?simplywall\.st$/.test(e.origin)) return;
+      const d = e.data;
+      if (!d || d.type !== "jth-sws-ticker" || typeof d.symbol !== "string") return;
+      const sym = d.symbol.toUpperCase();
+      if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(sym)) return;
+      frameSym.current = sym;
+      if (followRef.current && onSwitchTicker && sym !== tickerRef.current) onSwitchTicker(sym);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onSwitchTicker]);
+
+  // Resolve the per-ticker URL whenever the global ticker changes.
+  const resolve = React.useCallback((sym, bust) => {
+    if (!sym || !apiFetch) return Promise.resolve(null);
+    setResolving(true);
+    setResolveErr(null);
+    return sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(sym)}${bust ? `&_r=${bust}` : ""}`, 12 * 3600 * 1000).then(d => {
+      if (d && d.url) {
+        setSrc(d.url);
+        setSrcSym(sym);
+        return d.url;
+      }
+      setResolveErr(d && d.reason || "no page found for this ticker");
+      return null;
+    }).catch(e => {
+      setResolveErr(String(e));
+      return null;
+    }).finally(() => setResolving(false));
+  }, [apiFetch]);
+  useEffect(() => {
+    if (!follow || !ticker || ticker === frameSym.current) return undefined;
+    let cancelled = false;
+    // One automatic retry: the resolver touches upstream metadata endpoints,
+    // and a single transient failure should not strand the panel.
+    resolve(ticker).then(url => {
+      if (!url && !cancelled) setTimeout(() => {
+        if (!cancelled) resolve(ticker, Date.now());
+      }, 1200);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker, follow, resolve]);
+
+  // The frame is only trustworthy while it shows the active ticker.
+  const stale = !!src && !!srcSym && srcSym !== ticker && ticker !== frameSym.current;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card fv-card fv-live",
+    style: {
+      marginBottom: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "fv-toolbar",
+    style: {
+      marginTop: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "fv-now",
+    title: "The Simply Wall St company page follows the dashboard's globally selected ticker \u2014 valuation, future growth, past performance, financial health and dividend for the symbol you're working. Navigating to another company inside Simply Wall St drives the app's ticker back."
+  }, ticker), inWatchlist ? /*#__PURE__*/React.createElement("span", {
+    className: "fv-star on fv-star-static",
+    title: `${ticker} is on your JerryTrade watchlist. Not a button — removal only happens in Manage.`
+  }, "\u2605 on watchlist") : onAddWatchlist && /*#__PURE__*/React.createElement("button", {
+    className: "fv-star",
+    onClick: onAddWatchlist,
+    title: `Add ${ticker} to your JerryTrade watchlist. Add-only — this control can never remove.`
+  }, "\u2606 add to watchlist"), onResearch && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onResearch(ticker),
+    title: `Jump to the Trade tab with ${ticker} loaded.`
+  }, "Trade \u2192"), onResearch1m && /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => onResearch1m(ticker),
+    title: `Jump to the app's 1-minute chart for ${ticker}.`
+  }, "1-Min \u2192"), /*#__PURE__*/React.createElement(CookieSetupChip, null)), /*#__PURE__*/React.createElement("div", {
+    className: "fv-toolbar fv-row2"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: `pj-toggle ${follow ? "active" : ""}`,
+    onClick: () => {
+      SWST.setFollow(!follow);
+      setFollow(!follow);
+    },
+    title: "Two-way sync. ON: ticker changes anywhere in the dashboard load that company's Simply Wall St page, and opening another company inside the frame drives the app. OFF: browse Simply Wall St freely with no effect either way."
+  }, "Follow ", follow ? "ON" : "OFF"), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => resolve(ticker, Date.now()),
+    title: "Re-resolve and point the frame back at the active ticker's company page."
+  }, "\u21BA ", ticker), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => setNonce(n => n + 1),
+    title: "Hard-reload the embedded view."
+  }, "Reload"), /*#__PURE__*/React.createElement("span", {
+    className: "fv-sep"
+  }), [["Stocks", "/stocks", "Simply Wall St's stock screener and browse pages."], ["Markets", "/markets/us", "US market overview — sector performance and valuation."], ["Watchlist", "/user/watchlist", "Your Simply Wall St watchlist (requires login inside the frame)."], ["Portfolio", "/user/portfolio", "Your Simply Wall St portfolio (requires login inside the frame)."]].map(([l, p, tip]) => /*#__PURE__*/React.createElement("button", {
+    key: l,
+    className: "fv-chip",
+    onClick: () => setSrc(SWST.url(p)),
+    title: tip
+  }, l))), resolving && (!src || stale) && /*#__PURE__*/React.createElement("div", {
+    className: "fv-hint",
+    role: "status"
+  }, "Resolving the Simply Wall St page for ", ticker, "\u2026"), resolveErr && (!src || stale) && /*#__PURE__*/React.createElement("div", {
+    className: "sws-err",
+    role: "alert"
+  }, "Couldn't load the Simply Wall St page for ", /*#__PURE__*/React.createElement("b", null, ticker), " \u2014 ", resolveErr, ".", /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => resolve(ticker, Date.now())
+  }, "Retry"), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => {
+      setSrc(SWST.home());
+      setSrcSym(ticker);
+    }
+  }, "Browse stocks instead")), stale && !resolving && !resolveErr && /*#__PURE__*/React.createElement("div", {
+    className: "sws-err",
+    role: "status"
+  }, "Showing ", /*#__PURE__*/React.createElement("b", null, srcSym), " \u2014 still switching to ", /*#__PURE__*/React.createElement("b", null, ticker), ".", /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => resolve(ticker, Date.now())
+  }, "Load ", ticker)), src && /*#__PURE__*/React.createElement("iframe", {
+    key: `${src}#${nonce}`,
+    className: `fv-frame${stale ? " sws-stale" : ""}`,
+    src: src,
+    title: "Simply Wall St",
+    referrerPolicy: "no-referrer-when-downgrade",
+    allow: "clipboard-write; fullscreen"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "fv-hint",
+    title: "Simply Wall St sends X-Frame-Options: SAMEORIGIN, so the Site Helper extension must remove it on frame responses \u2014 the same mechanism that lets TradingView and Unusual Whales render here. The page itself is fetched by your own browser with your own session."
+  }, "Real simplywall.st inside the dashboard \u2014 needs Site Helper v2.8+. Log in inside the frame once and your account, watchlist and portfolio are all yours."));
+}
+
 // ── TradingView embedded view (v3.33) ───────────────────────────────────────
 // Same architecture as the Finviz tab: the helper extension (v2.0+) lifts
 // TradingView's frame-ancestors block and keeps its login cookies working
@@ -18808,8 +18884,7 @@ Object.assign(window, {
   TabBar,
   TabPanel,
   WeatherBadge,
-  SwsLink,
-  SwsSheetLink,
+  SWSTPanel: _memo(SWSTPanel),
   LevelRepriceCard: _memo(LevelRepriceCard),
   WinRateCard: _memo(WinRateCard),
   EarningsCrushCard: _memo(EarningsCrushCard),

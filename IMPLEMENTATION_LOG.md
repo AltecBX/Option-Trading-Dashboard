@@ -785,3 +785,80 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   `python3 test_site_links.py` run executes every class.
 - Battery: 230 unittest + smoke 55/55 + JS 107 + verify both layers — all
   green. APP_VERSION 3.72.
+
+# v3.73 — Simply Wall St as a real in-app Sites panel (no more new tab)
+
+## Investigation first — two independent blockers, both measured
+- Direct iframe: simplywall.st app pages send `X-Frame-Options: SAMEORIGIN`
+  (the homepage does not; `/stocks` and `/markets/us` do).
+- Server-side reverse proxy: every `/stocks/*` path answers **403 with a
+  Cloudflare managed JS challenge** ("Just a moment…", `__cf_chl`,
+  `challenges.cloudflare.com`) — 5/5 consecutive attempts, with full browser
+  headers, a warmed session carrying `__cf_bm`, and across every variant
+  tried: `/health`, `/past`, `/amp-v2`, bare `{exchange}-{ticker}`,
+  `/quote/…`, `/stock-quotes/…`, category pages, `api.simplywall.st`, and
+  the sitemap targets. `robots.txt` also disallows `/api/*`. So no
+  server-side retrieval, HTML rewriting or asset proxying can work without
+  auto-solving the challenge — bot-detection circumvention, not built.
+
+## The solution the architecture already had
+The app ships a **Site Helper extension** whose `declarativeNetRequest`
+rules strip `x-frame-options`/`content-security-policy` on SUB-FRAME
+responses — that is how TradingView and Unusual Whales already embed.
+Applied to simplywall.st this solves both blockers at once: the header
+rule removes the frame block, and the Cloudflare challenge is irrelevant
+because the frame is fetched by the USER'S OWN BROWSER with their normal
+cookies, exactly as a normal tab.
+
+- **`finviz-helper` → v2.8**: rules.json rule 4 (simplywall.st sub-frames),
+  host_permissions, `sws-sync.js` content script, third-party-cookie
+  exception so the site session + Cloudflare clearance cookie survive in
+  the frame, and simplywall.st added to the watched-cookie list.
+  Deliberately NOT added to REWRITE_DOMAINS (the SameSite rewrite is the
+  path that once broke TradingView logins). README + zip rebuilt.
+- **`sws-sync.js`**: reads the ticker from
+  `/stocks/{country}/{sector}/{exchange}-{ticker}/{name}` and posts
+  `jth-sws-ticker` up to the dashboard — the same two-way sync contract as
+  uw-sync.js. Regex verified against 8 real URL shapes.
+- **`SWSTPanel`**: same card, toolbar, sizing, Follow toggle, ↺/Reload,
+  quick links and hint line as the UW panel. `swst` joins the `EXT` map so
+  it renders in the Sites row and the mobile sheet next to the other three.
+- **External link REMOVED**: `SwsLink`/`SwsSheetLink` deleted; zero
+  `target="_blank"` links to simplywall.st remain (asserted in the browser).
+
+## Robustness fixes found by testing
+- **Stale-frame guard**: a failed re-resolve used to leave the PREVIOUS
+  company on screen while the header showed a different ticker. The panel
+  now tracks `srcSym`, dims the frame (`.sws-stale`), says "Showing X —
+  still switching to Y", and surfaces resolve errors even when an old frame
+  exists. One automatic retry on transient failure.
+- **Resolver latency**: the endpoint no longer calls the slow, rate-limited
+  `.info` when the light Yahoo endpoints already supplied company +
+  exchange + sector. Resolution went from timing out to ~1s cold and ~1ms
+  cached (12h server cache).
+- **ETFs handled**: SPY is detected as an ETF and returns no deep link with
+  a clear reason (Simply Wall St's `/stocks/` space is listed companies),
+  and the panel offers Retry / Browse stocks instead.
+
+## Verification
+- Resolver, all 10 requested tickers: NVDA, SNDK, AAPL, TSLA, AMD, MSFT,
+  META, AMZN, PLTR all resolve to their correct company page; SPY returns
+  the ETF notice.
+- Browser, desktop 1700px AND mobile 390px: **9/10 correct on both**
+  (SPY = the ETF notice, by design), clicking through all ten tickers in
+  sequence; zero `target="_blank"` simplywall links; zero JS errors.
+- A first pass showed the frame lagging; instrumenting proved the
+  `/api/site_link` requests were issued but got no response — head-of-line
+  blocking on the browser's 6-connection pool, saturated by this sandbox's
+  crippled yfinance endpoints (curl on the same server answered in 1ms).
+  With the other endpoints stubbed the panel tracked every ticker
+  correctly, confirming the panel logic — and the stale-guard above means
+  even a slow resolve can never show the wrong company as if it were right.
+- Battery: 230 unittest + smoke 55/55 + JS 107 + verify both layers.
+  APP_VERSION 3.73.
+
+## What the user must do once
+Install/refresh the Site Helper (v2.8) — the same one-time step Finviz,
+TradingView and Unusual Whales already require. Without it the frame is
+blocked by simplywall.st's X-Frame-Options, exactly as it would be for the
+other three.

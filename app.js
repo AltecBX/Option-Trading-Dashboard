@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.72";
+const APP_VERSION = "3.73";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -6517,6 +6517,24 @@ function App() {
     },
     onResearch1m: openIntraday
   }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "swst",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Simply Wall St"
+  }, /*#__PURE__*/React.createElement(SWSTPanel, {
+    ticker: ticker,
+    onSwitchTicker: switchTicker,
+    apiFetch: apiFetch,
+    inWatchlist: watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker),
+    onAddWatchlist: () => {
+      if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
+    },
+    onResearch: sym => {
+      switchTicker(sym);
+      changeTab("trade");
+    },
+    onResearch1m: openIntraday
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "juice",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
@@ -10015,7 +10033,7 @@ function App() {
     onClick: () => setTabSheetOpen(false)
   }, "\u2715")), /*#__PURE__*/React.createElement("div", {
     className: "tabsheet-grid"
-  }, orderedTabs.filter(t => !["finviz", "tview", "whales"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
+  }, orderedTabs.filter(t => !["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     className: `tabsheet-btn ${activeTab === t.id ? "on" : ""}`,
     onClick: () => {
@@ -10026,18 +10044,14 @@ function App() {
     className: "tabsheet-sites"
   }, /*#__PURE__*/React.createElement("span", {
     className: "tabsheet-siteslbl"
-  }, "Sites -"), orderedTabs.filter(t => ["finviz", "tview", "whales"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
+  }, "Sites -"), orderedTabs.filter(t => ["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     className: `tabsheet-btn site ${activeTab === t.id ? "on" : ""}`,
     onClick: () => {
       changeTab(t.id);
       setTabSheetOpen(false);
     }
-  }, t.label)), /*#__PURE__*/React.createElement(SwsSheetLink, {
-    ticker: ticker,
-    apiFetch: apiFetch,
-    onGo: () => setTabSheetOpen(false)
-  })))));
+  }, t.label))))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)));
 })();

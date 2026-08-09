@@ -101,5 +101,40 @@
         "sub_frame"
       ]
     }
+  },
+  {
+    "id": 4,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "header": "x-frame-options",
+          "operation": "remove"
+        },
+        {
+          "header": "content-security-policy",
+          "operation": "remove"
+        },
+        {
+          "header": "content-security-policy-report-only",
+          "operation": "remove"
+        }
+      ]
+    },
+    "condition": {
+      "requestDomains": [
+        "simplywall.st"
+      ],
+      "initiatorDomains": [
+        "dashboard.jerrytrade.com",
+        "localhost",
+        "127.0.0.1",
+        "simplywall.st"
+      ],
+      "resourceTypes": [
+        "sub_frame"
+      ]
+    }
   }
 ]

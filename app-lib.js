@@ -149,6 +149,9 @@ const TABS = [{
   id: "whales",
   label: "Unusual Whales"
 }, {
+  id: "swst",
+  label: "Simply Wall St"
+}, {
   id: "flow",
   label: "Flow"
 }, {
@@ -524,6 +527,28 @@ const UWHALES = {
   }
 };
 
+// Simply Wall St (v3.73). Unlike the other three, its per-ticker URL is not
+// derivable from the symbol alone — the path carries Simply Wall St's own
+// sector and company slugs — so the frame src comes from /api/site_link.
+// Everything else (frame, follow toggle, two-way sync) matches UWHALES.
+const SWST = {
+  url(path) {
+    return `https://simplywall.st${path}`;
+  },
+  home() {
+    return "https://simplywall.st/stocks";
+  },
+  follow() {
+    return localStorage.getItem("jerry_sws_follow") !== "0";
+  },
+  // default ON
+  setFollow(v) {
+    try {
+      localStorage.setItem("jerry_sws_follow", v ? "1" : "0");
+    } catch (e) {}
+  }
+};
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -553,6 +578,7 @@ Object.assign(window, {
   useBoundedList,
   FINVIZ,
   TVIEW,
-  UWHALES
+  UWHALES,
+  SWST
 });
 })();
