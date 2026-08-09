@@ -4388,6 +4388,7 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
             <React.Fragment>
               <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways. All four need the Site Helper extension to lift their frame-blocking headers.">Sites -</span>
               {extTabs.map(renderBtn)}
+              <HelperDownloadChip />
             </React.Fragment>
           )}
           {/* Earnings chip rides the Sites row (right-aligned) instead of
@@ -13651,6 +13652,34 @@ function UWPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
   );
 }
 
+// ── Site Helper download chip (v3.73b) ──────────────────────────────────────
+// Rides the Sites row and is ALWAYS present. Every other link to the zip in
+// this app is conditional — the Finviz setup card only renders when no helper
+// is detected, and the per-panel "update" chips only fire below 2.1/1.4/2.3 —
+// so anyone already running a helper saw no download link anywhere. This is
+// the one link that is never gated; it just reports the installed version.
+function HelperDownloadChip() {
+  const [ver, setVer] = useState(() => SWST.helperVersion());
+  useEffect(() => {
+    const on = () => setVer(SWST.helperVersion());
+    window.addEventListener("finviz-helper-ready", on);
+    const t = setInterval(on, 3000);
+    return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
+  }, []);
+  const LATEST = 2.8;
+  const stale = ver < LATEST;
+  return (
+    <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
+       href="/finviz-helper.zip" download
+       title={(ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ")
+              + `Latest is v${LATEST} (adds Simply Wall St). Download the zip, unzip it OVER your existing `
+              + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at `
+              + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."}>
+      ⤓ Helper {ver > 0 ? `v${ver}` : "—"}{stale ? " → 2.8" : ""}
+    </a>
+  );
+}
+
 // ── Simply Wall St embedded view (v3.73) ────────────────────────────────────
 // Same architecture as the Finviz / TradingView / Unusual Whales panels: the
 // Site Helper extension (v2.8+) removes simplywall.st's X-Frame-Options on
@@ -14279,7 +14308,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   PlaybookCard: _memo(PlaybookCard),
   RangeEdgeScanCard: _memo(RangeEdgeScanCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard), TabBar, TabPanel, WeatherBadge,
-  SWSTPanel: _memo(SWSTPanel),
+  SWSTPanel: _memo(SWSTPanel), HelperDownloadChip,
   LevelRepriceCard: _memo(LevelRepriceCard), WinRateCard: _memo(WinRateCard),
   EarningsCrushCard: _memo(EarningsCrushCard),
   PushSettingsCard: _memo(PushSettingsCard), BrokerImportCard: _memo(BrokerImportCard),

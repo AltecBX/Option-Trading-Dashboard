@@ -879,3 +879,25 @@ Simply Wall St to TradingView's config, SWST got its own `helperVersion()`.
 Verified desktop 1500px + mobile 390px: no crash, link present and
 downloadable, notice clears on v2.8, zero JS errors. Also corrected the
 stale "Site Helper v2.7" chip tooltip to v2.8.
+
+## v3.73b — the helper download was unreachable for anyone already set up
+Reported: "I don't see Download helper anywhere on this app." Not a deploy
+lag — a real pre-existing gap. Every link to /finviz-helper.zip was gated:
+- the Finviz setup card renders ONLY in the `else` branch of `if (helper)`,
+  i.e. only when no helper is detected at all;
+- the TradingView block is inside its helper-missing/outdated branch;
+- the per-panel "update helper" chips fire only below 2.1 / 1.4 / 2.3.
+So a user already running v2.7 passed every gate and saw NO download link
+anywhere in the UI — there was no way to obtain a newer helper from the app.
+
+Added `HelperDownloadChip`: always present in the Sites row (and the mobile
+tab sheet), never version-gated. Shows the installed version, turns warning-
+coloured with "→ 2.8" when behind, and carries the unzip + ↻-reload
+instructions in its tooltip. Verified desktop 1500px and mobile 390px at
+three states — no helper ("⤓ Helper — → 2.8", stale), v2.7 ("⤓ Helper v2.7
+→ 2.8", stale) and v2.8 ("⤓ Helper v2.8", not stale) — exactly one visible
+chip per viewport, zero JS errors.
+
+(A first test run reported the version always as "—" and a JS error; that
+was the harness setting `document.documentElement.dataset` in an init script
+before the document element existed, not the app.)

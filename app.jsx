@@ -8031,6 +8031,7 @@ function App() {
                   {t.label}
                 </button>
               ))}
+              <HelperDownloadChip />
             </div>
           </div>
         </div>

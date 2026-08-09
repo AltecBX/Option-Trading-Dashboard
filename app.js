@@ -10051,7 +10051,7 @@ function App() {
       changeTab(t.id);
       setTabSheetOpen(false);
     }
-  }, t.label))))));
+  }, t.label)), /*#__PURE__*/React.createElement(HelperDownloadChip, null)))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)));
 })();
