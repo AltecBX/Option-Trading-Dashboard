@@ -127,6 +127,12 @@ def slugify(name: str) -> str:
     # becomes the single token "sa" (a known legal suffix) instead of the two
     # stray letters "s" and "a" that would survive into the slug.
     s = re.sub(r"(?:\b[a-z]\.){2,}", lambda m: m.group(0).replace(".", ""), s)
+    # A dot INSIDE a word is part of the name, not a separator: Simply Wall St
+    # writes "Amazon.com, Inc." as "amazoncom", not "amazon-com". Collapse
+    # letter.letter before punctuation becomes whitespace. (Derived, not
+    # verified — their pages cannot be fetched server-side to confirm, which
+    # is why the panel also LEARNS the real path from the frame.)
+    s = re.sub(r"(?<=[a-z0-9])\.(?=[a-z])", "", s)
     s = re.sub(r"[^a-z0-9]+", " ", s).strip()
     words = [w for w in s.split() if w]
     # Strip trailing legal-form words, plus any dangling connector left

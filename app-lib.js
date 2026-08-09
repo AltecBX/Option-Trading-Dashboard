@@ -503,6 +503,41 @@ const TVIEW = {
     } catch (e) {
       return 0;
     }
+  },
+  // Learned paths (v3.73c). The server can only DERIVE a Simply Wall St URL —
+  // their sector/company slugs are their own and their pages can't be fetched
+  // server-side to verify a guess (Cloudflare). When the frame reports the
+  // real path for a symbol, remember it and prefer it forever after, so a bad
+  // guess self-corrects the first time you land on the right page.
+  LEARN_KEY: "jerry_sws_paths_v1",
+  learned() {
+    try {
+      return JSON.parse(localStorage.getItem(this.LEARN_KEY) || "{}") || {};
+    } catch (e) {
+      return {};
+    }
+  },
+  learnedUrl(sym) {
+    const p = this.learned()[(sym || "").toUpperCase()];
+    return p ? "https://simplywall.st" + p : null;
+  },
+  learn(sym, path) {
+    if (!sym || typeof path !== "string" || !path.startsWith("/stocks/")) return false;
+    try {
+      const all = this.learned();
+      const key = sym.toUpperCase();
+      // Store the company root, dropping tab suffixes like /health or /past.
+      const m = /^(\/stocks\/[a-z]{2}\/[^/]+\/[a-z]+-[a-z.\-]+\/[^/]+)/.exec(path);
+      const clean = m ? m[1] : path;
+      if (all[key] === clean) return false;
+      all[key] = clean;
+      const keys = Object.keys(all);
+      if (keys.length > 400) delete all[keys[0]]; // bound the store
+      localStorage.setItem(this.LEARN_KEY, JSON.stringify(all));
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 };
 
@@ -554,6 +589,41 @@ const SWST = {
       return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0");
     } catch (e) {
       return 0;
+    }
+  },
+  // Learned paths (v3.73c). The server can only DERIVE a Simply Wall St URL —
+  // their sector/company slugs are their own and their pages can't be fetched
+  // server-side to verify a guess (Cloudflare). When the frame reports the
+  // real path for a symbol, remember it and prefer it forever after, so a bad
+  // guess self-corrects the first time you land on the right page.
+  LEARN_KEY: "jerry_sws_paths_v1",
+  learned() {
+    try {
+      return JSON.parse(localStorage.getItem(this.LEARN_KEY) || "{}") || {};
+    } catch (e) {
+      return {};
+    }
+  },
+  learnedUrl(sym) {
+    const p = this.learned()[(sym || "").toUpperCase()];
+    return p ? "https://simplywall.st" + p : null;
+  },
+  learn(sym, path) {
+    if (!sym || typeof path !== "string" || !path.startsWith("/stocks/")) return false;
+    try {
+      const all = this.learned();
+      const key = sym.toUpperCase();
+      // Store the company root, dropping tab suffixes like /health or /past.
+      const m = /^(\/stocks\/[a-z]{2}\/[^/]+\/[a-z]+-[a-z.\-]+\/[^/]+)/.exec(path);
+      const clean = m ? m[1] : path;
+      if (all[key] === clean) return false;
+      all[key] = clean;
+      const keys = Object.keys(all);
+      if (keys.length > 400) delete all[keys[0]]; // bound the store
+      localStorage.setItem(this.LEARN_KEY, JSON.stringify(all));
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 };

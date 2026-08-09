@@ -18201,13 +18201,13 @@ function HelperDownloadChip() {
       clearInterval(t);
     };
   }, []);
-  const LATEST = 2.8;
+  const LATEST = 2.9;
   const stale = ver < LATEST;
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
     href: "/finviz-helper.zip",
     download: true,
-    title: (ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ") + `Latest is v${LATEST} (adds Simply Wall St). Download the zip, unzip it OVER your existing ` + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at ` + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."
+    title: (ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ") + `Latest is v${LATEST} (Simply Wall St + exact-URL learning). Download the zip, unzip it OVER your existing ` + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at ` + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."
   }, "\u2913 Helper ", ver > 0 ? `v${ver}` : "—", stale ? " → 2.8" : "");
 }
 
@@ -18241,6 +18241,7 @@ function SWSTPanel({
   // dashboard header said a different ticker — the worst possible outcome
   // for a panel whose whole job is to follow the ticker.
   const [srcSym, setSrcSym] = useState(null);
+  const [learned, setLearned] = useState(() => SWST.learned());
   const [resolveErr, setResolveErr] = useState(null);
   const [resolving, setResolving] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -18279,6 +18280,10 @@ function SWSTPanel({
       const sym = d.symbol.toUpperCase();
       if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(sym)) return;
       frameSym.current = sym;
+      // Learn the REAL path (helper v2.9+). This is the only channel that can
+      // see the truth — the server can merely derive a URL — so whatever page
+      // you actually land on becomes the remembered one for that symbol.
+      if (d.path && SWST.learn(sym, d.path)) setLearned(SWST.learned());
       if (followRef.current && onSwitchTicker && sym !== tickerRef.current) onSwitchTicker(sym);
     };
     window.addEventListener("message", onMsg);
@@ -18287,7 +18292,16 @@ function SWSTPanel({
 
   // Resolve the per-ticker URL whenever the global ticker changes.
   const resolve = React.useCallback((sym, bust) => {
-    if (!sym || !apiFetch) return Promise.resolve(null);
+    if (!sym) return Promise.resolve(null);
+    // A path learned from the frame beats anything the server can derive.
+    const known = !bust && SWST.learnedUrl(sym);
+    if (known) {
+      setSrc(known);
+      setSrcSym(sym);
+      setResolveErr(null);
+      return Promise.resolve(known);
+    }
+    if (!apiFetch) return Promise.resolve(null);
     setResolving(true);
     setResolveErr(null);
     return sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(sym)}${bust ? `&_r=${bust}` : ""}`, 12 * 3600 * 1000).then(d => {
@@ -18366,6 +18380,24 @@ function SWSTPanel({
     onClick: () => setNonce(n => n + 1),
     title: "Hard-reload the embedded view."
   }, "Reload"), /*#__PURE__*/React.createElement("span", {
+    className: "fv-sep"
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "fv-chip",
+    onClick: () => setSrc(SWST.url("/stocks")),
+    title: "Wrong page for this ticker? Simply Wall St's sector and company slugs are their own and can't be verified from the server, so the link is derived. Browse to the right company here — the panel LEARNS the real address from the frame and uses it for this symbol from then on."
+  }, "Find ", ticker), learned[ticker] && /*#__PURE__*/React.createElement("button", {
+    className: "fv-chip",
+    onClick: () => {
+      const a = SWST.learned();
+      delete a[ticker];
+      try {
+        localStorage.setItem(SWST.LEARN_KEY, JSON.stringify(a));
+      } catch (e) {}
+      setLearned(a);
+      resolve(ticker, Date.now());
+    },
+    title: `This panel learned ${ticker}'s real Simply Wall St address from the frame (${learned[ticker]}). Click to forget it and go back to the derived link.`
+  }, "\u2713 learned"), /*#__PURE__*/React.createElement("span", {
     className: "fv-sep"
   }), [["Stocks", "/stocks", "Simply Wall St's stock screener and browse pages."], ["Markets", "/markets/us", "US market overview — sector performance and valuation."], ["Watchlist", "/user/watchlist", "Your Simply Wall St watchlist (requires login inside the frame)."], ["Portfolio", "/user/portfolio", "Your Simply Wall St portfolio (requires login inside the frame)."]].map(([l, p, tip]) => /*#__PURE__*/React.createElement("button", {
     key: l,

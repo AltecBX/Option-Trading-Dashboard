@@ -901,3 +901,39 @@ chip per viewport, zero JS errors.
 (A first test run reported the version always as "—" and a JS error; that
 was the harness setting `document.documentElement.dataset` in an init script
 before the document element existed, not the app.)
+
+## v3.73c — AMZN 404: stop guessing, start learning
+Reported: AMZN showed Simply Wall St's "Something went wrong / page was not
+found". The embed itself was fine — the derived URL was wrong.
+
+Only the `{exchange}-{ticker}` segment of a Simply Wall St URL is derivable
+from a symbol. The country, sector and company-name segments are THEIR
+slugs, and `simplywallst_url()` has always returned `verified: False`
+because their pages cannot be fetched server-side to check a guess
+(Cloudflare). AMZN is where the guess broke.
+
+Two changes:
+1. `slugify()` now collapses a dot INSIDE a word instead of treating it as a
+   separator: "Amazon.com, Inc." → `amazoncom` (was `amazon-com`). Also
+   fixes Booking.com, Salesforce.com. Still a derivation, not a verification.
+2. The real fix — the panel LEARNS. `sws-sync.js` (helper v2.9) now reports
+   `location.pathname` alongside the symbol, so whatever page you actually
+   land on becomes the remembered address for that ticker
+   (`jerry_sws_paths_v1` in localStorage, bounded to 400 entries, company
+   root only — tab suffixes like /health are stripped). A learned path beats
+   the derived one and needs no server call at all. This is the only channel
+   that can see the truth: the frame runs in the user's browser, which
+   Cloudflare lets through.
+   - "Find {TICKER}" chip opens Simply Wall St's browse page so a wrong guess
+     is one click from recovery — and the frame then teaches the app.
+   - "✓ learned" chip shows when a path was learned, with the stored path in
+     its tooltip; clicking forgets it and reverts to the derived link.
+
+Verified: frame reports real path → stored + "✓ learned" appears; on reload
+the learned path is used with ZERO /api/site_link calls; clicking "✓ learned"
+clears the store and falls back to the derived URL. Zero JS errors.
+23 site-link tests + 64 unittest + 27 JS + both verify layers.
+
+NOTE: I cannot confirm AMZN's true slug from here — Cloudflare blocks every
+server-side fetch of their stock pages. `amazoncom` is a better derivation,
+not a verified fact. The learning mechanism is what makes it not matter.
