@@ -329,6 +329,11 @@ const SWST = {
   home() { return "https://simplywall.st/stocks"; },
   follow() { return localStorage.getItem("jerry_sws_follow") !== "0"; }, // default ON
   setFollow(v) { try { localStorage.setItem("jerry_sws_follow", v ? "1" : "0"); } catch (e) {} },
+  // Simply Wall St BLOCKS framing, so the panel is unusable without the
+  // helper — it reads the version the extension stamps on <html>.
+  helperVersion() {
+    try { return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0"); } catch (e) { return 0; }
+  },
 };
 
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.

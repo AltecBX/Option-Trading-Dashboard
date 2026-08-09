@@ -11188,3 +11188,4 @@ a.tabsheet-btn.site { text-decoration: none; }
 /* A frame still showing the previous company is dimmed so it can never be
    mistaken for the active ticker (v3.73). */
 .fv-frame.sws-stale { opacity: 0.45; filter: saturate(0.6); }
+.sws-err .sws-dim { color: var(--muted); font-size: 12px; }

@@ -18032,7 +18032,7 @@ function CookieSetupChip() {
   if (st.ver > 0 && st.ver < 2.7) {
     return /*#__PURE__*/React.createElement("span", {
       className: "emx-chip warn",
-      title: "Site Helper v2.7 is an important update for every browser:\n• Chrome: fixes embedded TradingView sometimes reloading on a click and losing unsaved changes.\n• Comet / Brave: logins inside the embedded sites finally stick — the helper now detects the browser dropping cookies and compensates automatically. No settings, no prompts.\n\nUpdate: download finviz-helper.zip again (link on the Finviz tab), unzip it over the old folder, then click the ↻ reload icon on 'JerryTrade Site Helper' in the browser's extensions page."
+      title: "Site Helper v2.8 is an important update for every browser:\n• Chrome: fixes embedded TradingView sometimes reloading on a click and losing unsaved changes.\n• Comet / Brave: logins inside the embedded sites finally stick — the helper now detects the browser dropping cookies and compensates automatically. No settings, no prompts.\n\nUpdate: download finviz-helper.zip again (link on the Finviz tab), unzip it over the old folder, then click the ↻ reload icon on 'JerryTrade Site Helper' in the browser's extensions page."
     }, "\u26A0 update helper to v2.7 (hover)");
   }
   if (!st.compat) return null;
@@ -18205,6 +18205,8 @@ function SWSTPanel({
   onResearch1m,
   apiFetch
 }) {
+  const SWS_NEED_VER = 2.8;
+  const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
   // Which symbol the CURRENT src belongs to. Without this a failed
@@ -18220,6 +18222,26 @@ function SWSTPanel({
   tickerRef.current = ticker;
   const followRef = useRef(follow);
   followRef.current = follow;
+
+  // Watch for the helper appearing/updating without a page reload.
+  useEffect(() => {
+    if (helperVer >= SWS_NEED_VER) return undefined;
+    const on = () => setHelperVer(SWST.helperVersion());
+    window.addEventListener("finviz-helper-ready", on);
+    let n = 0;
+    const t = setInterval(() => {
+      const v = SWST.helperVersion();
+      if (v >= SWS_NEED_VER) {
+        setHelperVer(v);
+        clearInterval(t);
+      }
+      if (++n > 20) clearInterval(t);
+    }, 1500);
+    return () => {
+      window.removeEventListener("finviz-helper-ready", on);
+      clearInterval(t);
+    };
+  }, [helperVer]);
 
   // Two-way sync: sws-sync.js posts the symbol it is showing.
   useEffect(() => {
@@ -18323,7 +18345,17 @@ function SWSTPanel({
     className: "fv-chip",
     onClick: () => setSrc(SWST.url(p)),
     title: tip
-  }, l))), resolving && (!src || stale) && /*#__PURE__*/React.createElement("div", {
+  }, l))), helperVer < SWS_NEED_VER && /*#__PURE__*/React.createElement("div", {
+    className: "sws-err",
+    role: "status"
+  }, "Simply Wall St sends ", /*#__PURE__*/React.createElement("code", null, "X-Frame-Options"), ", so it needs ", /*#__PURE__*/React.createElement("b", null, "Site Helper v2.8+"), helperVer > 0 ? ` (you have v${helperVer})` : " (not detected)", " to render here.", /*#__PURE__*/React.createElement("a", {
+    className: "fv-dl",
+    href: "/finviz-helper.zip",
+    download: true,
+    title: "Download the zip, unzip it over your existing helper folder, then click the \u21BB reload icon on 'JerryTrade Site Helper' at chrome://extensions. Same extension that already powers the Finviz, TradingView and Unusual Whales tabs."
+  }, "Download helper v2.8"), /*#__PURE__*/React.createElement("span", {
+    className: "sws-dim"
+  }, "then unzip over the old folder and hit \u21BB reload at chrome://extensions")), resolving && (!src || stale) && /*#__PURE__*/React.createElement("div", {
     className: "fv-hint",
     role: "status"
   }, "Resolving the Simply Wall St page for ", ticker, "\u2026"), resolveErr && (!src || stale) && /*#__PURE__*/React.createElement("div", {

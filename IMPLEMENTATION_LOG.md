@@ -862,3 +862,20 @@ Install/refresh the Site Helper (v2.8) — the same one-time step Finviz,
 TradingView and Unusual Whales already require. Without it the frame is
 blocked by simplywall.st's X-Frame-Options, exactly as it would be for the
 other three.
+
+## v3.73a — helper download link on the Simply Wall St panel
+The panel told users it needed Site Helper v2.8 but offered no way to get
+it (Finviz/TV/UW panels all carry the link). Added a gate on the panel:
+when the stamped helper version is < 2.8 it explains why the frame is
+blocked, shows the detected version, and links `/finviz-helper.zip`
+(served by the dashboard, 200 / 17,645 bytes / application/zip) with the
+unzip-and-reload instruction. It clears itself the moment the extension
+announces v2.8 — no page reload.
+
+First attempt called `FINVIZ.helperVersion()`, which does not exist
+(`helperVersion` lives on TVIEW) — the CardErrorBoundary caught it and the
+tab rendered "FINVIZ.helperVersion is not a function". Rather than couple
+Simply Wall St to TradingView's config, SWST got its own `helperVersion()`.
+Verified desktop 1500px + mobile 390px: no crash, link present and
+downloadable, notice clears on v2.8, zero JS errors. Also corrected the
+stale "Site Helper v2.7" chip tooltip to v2.8.
