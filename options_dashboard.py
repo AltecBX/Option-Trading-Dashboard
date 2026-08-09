@@ -5093,13 +5093,22 @@ def _symbol_profile(symbol: str) -> dict:
 
 
 @_ttl_memoize(15 * 60)
+@_ttl_memoize(30 * 60)
 def _bulk_earnings_map(days: int) -> dict:
     """symbol -> {date, timing(BMO/AMC), eps_estimate, eps_actual,
     eps_surprise, company, market_cap} for every company reporting in the
     next `days`, from yfinance's bulk (Reuters-sourced) earnings calendar.
     This is the AUTHORITATIVE earnings-date source — independent of the
     watchlist board scan, whose per-symbol earnings field can come back
-    empty. Paginated (YF caps each page at 100); cached 15 min."""
+    empty.
+
+    Paginated (YF caps each page at 100), so a cold call costs up to 40
+    sequential upstream requests — which is what made the Earnings Calendar
+    take seconds to populate. The docstring claimed a 15-minute cache but
+    NO decorator was ever applied (v3.70 fix), so every miss re-paginated
+    the whole feed. Scheduled earnings dates barely move intraday, so the
+    expensive bulk fetch is now cached 30 min while the calling builder
+    keeps its own 10-minute cache for the fresher enrichment layer."""
     out = {}
     try:
         cals = yf.Calendars()
@@ -8294,6 +8303,39 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json(_perfection_data.build(symbol, assumptions), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/perfection", exc)
+                self._send_json({"error": str(exc), "symbol": symbol}, status=500)
+            return
+        if parsed.path == "/api/site_link":
+            # Ticker-synced deep link to an external research site (v3.70).
+            # Currently Simply Wall St; the URL is built from the cached
+            # profile (exchange + company + sector), never guessed blind.
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            site = (qs.get("site", ["simplywallst"])[0] or "simplywallst").lower().strip()
+            if not symbol:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            if site != "simplywallst":
+                self._send_json({"error": f"unknown site '{site}'"}, status=400)
+                return
+            try:
+                import site_links as _site_links
+                prof = _symbol_profile(symbol)
+                # _symbol_profile has no exchange field; add it from the same
+                # cached .info call path used elsewhere.
+                if not prof.get("exchange"):
+                    try:
+                        info = yf.Ticker(symbol).info or {}
+                        prof = dict(prof)
+                        prof["exchange"] = info.get("fullExchangeName") or info.get("exchange")
+                        if not prof.get("company"):
+                            prof["company"] = info.get("longName") or info.get("shortName")
+                    except Exception:
+                        pass
+                out = _site_links.simplywallst_url(symbol, prof)
+                self._send_json({"symbol": symbol, "site": site, **out})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/site_link", exc)
                 self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/whisper":

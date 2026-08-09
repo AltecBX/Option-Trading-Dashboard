@@ -4326,7 +4326,67 @@ function WatchlistAlertsCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
-function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder }) {
+// Simply Wall St link (v3.70) — rides the Sites row and follows the globally
+// selected ticker. External rather than embedded: simplywall.st refuses
+// third-party framing and non-browser traffic, so an iframe panel would show
+// a blank box. The URL is resolved server-side from the cached profile
+// (exchange + company + sector) because only the "{exchange}-{ticker}"
+// segment is derivable from the ticker alone.
+function SwsLink({ ticker, apiFetch }) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    setInfo(null);
+    if (!ticker || !apiFetch) return undefined;
+    sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}`, 12 * 3600 * 1000)
+      .then(d => { if (!stop) setInfo(d); })
+      .catch(() => { if (!stop) setInfo({ url: null, reason: "lookup failed" }); });
+    return () => { stop = true; };
+  }, [ticker, apiFetch]);
+  const url = info && info.url;
+  const tip = url
+    ? `Open ${ticker} on Simply Wall St in a new tab — follows the ticker selected here.\n\n${(info.derived && info.derived.company_slug) ? `Resolved from the listing exchange (${info.derived.exchange}), company name and sector.` : ""}\nOpens externally because Simply Wall St blocks embedding.`
+    : info
+      ? `Simply Wall St link unavailable for ${ticker}${info.reason ? ` — ${info.reason}` : ""}.`
+      : `Resolving the Simply Wall St page for ${ticker}…`;
+  return (
+    <a className={`tab-btn tab-btn-ext${url ? "" : " disabled"}`}
+       href={url || undefined}
+       target="_blank" rel="noopener noreferrer"
+       aria-disabled={url ? undefined : "true"}
+       onClick={(e) => { if (!url) e.preventDefault(); }}
+       title={tip}>
+      Simply Wall St <span className="tab-ext-mark" aria-hidden="true">↗</span>
+    </a>
+  );
+}
+
+// Same resolver, styled for the mobile sections sheet.
+function SwsSheetLink({ ticker, apiFetch, onGo }) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    setInfo(null);
+    if (!ticker || !apiFetch) return undefined;
+    sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}`, 12 * 3600 * 1000)
+      .then(d => { if (!stop) setInfo(d); })
+      .catch(() => { if (!stop) setInfo({ url: null }); });
+    return () => { stop = true; };
+  }, [ticker, apiFetch]);
+  const url = info && info.url;
+  return (
+    <a className={`tabsheet-btn site${url ? "" : " disabled"}`}
+       href={url || undefined} target="_blank" rel="noopener noreferrer"
+       aria-disabled={url ? undefined : "true"}
+       onClick={(e) => { if (!url) { e.preventDefault(); return; } if (onGo) onGo(); }}
+       title={url ? `Open ${ticker} on Simply Wall St in a new tab.`
+                  : `Simply Wall St link unavailable for ${ticker}.`}>
+      Simply Wall St ↗
+    </a>
+  );
+}
+
+function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder, apiFetch }) {
   const hasEarn = earnDate != null;
   const soon = earnDays != null && earnDays >= 0 && earnDays <= 7;
   const list = (tabs && tabs.length) ? tabs : TABS;
@@ -4382,8 +4442,9 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder 
         <div className="tab-row tab-row-ext">
           {extTabs.length > 0 && (
             <React.Fragment>
-              <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways.">Sites -</span>
+              <span className="tab-row-lbl" title="Partner sites that follow the globally selected ticker. Finviz, TradingView and Unusual Whales render inside the dashboard (two-way sync); Simply Wall St opens in a new tab because it blocks embedding.">Sites -</span>
               {extTabs.map(renderBtn)}
+              <SwsLink ticker={ticker} apiFetch={apiFetch} />
             </React.Fragment>
           )}
           {/* Earnings chip rides the Sites row (right-aligned) instead of
@@ -9707,6 +9768,9 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker, onOpenEarnOps }) {
   useEffect(() => { loadEarn(); loadEcon(); }, []);
 
   const entries = (earn && Array.isArray(earn.entries)) ? earn.entries : [];
+  // First fetch only — a manual ↻ refresh keeps the existing rows on screen
+  // rather than blanking the board back to skeletons.
+  const firstLoad = loadingE && !earn;
   const today = mcEtToday();
 
   // Week window — Mon..Fri for the selected offset.
@@ -9873,6 +9937,16 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker, onOpenEarnOps }) {
         </div>
 
         {err ? <div className="mc-error">Couldn't load earnings: {err}</div> : null}
+        {/* First load pulls the full bulk earnings feed (paginated upstream),
+            so it can take a few seconds. Say so plainly instead of rendering
+            empty rails that read as "nothing is happening" (v3.70). */}
+        {firstLoad ? (
+          <div className="mc-loading" role="status" aria-live="polite"
+               title="Fetching the bulk earnings calendar for every reporting company, then matching it against your watchlist. The result is cached for 30 minutes, so later visits are instant.">
+            <span className="mc-spin" aria-hidden="true"></span>
+            Loading the earnings calendar — pulling the full reporting feed and matching it to your watchlist…
+          </div>
+        ) : null}
         {scanning ? <div className="mc-hint">Watchlist board is still scanning — more names will appear as data fills in.</div> : null}
 
         {/* Filters + sort */}
@@ -9900,15 +9974,20 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker, onOpenEarnOps }) {
         <div className="mc-rails">
           <div className="mc-rail">
             <div className="mc-rail-title">📅 Watchlist Earnings Today</div>
-            <div className="mc-rail-body">{todayEntries.length ? todayEntries.map(miniCard) : <span className="mc-empty">No watchlist names report today.</span>}</div>
+            <div className="mc-rail-body">{todayEntries.length ? todayEntries.map(miniCard)
+              : <span className="mc-empty">{firstLoad ? "Loading…" : "No watchlist names report today."}</span>}</div>
           </div>
           <div className="mc-rail">
             <div className="mc-rail-title">⭐ Most Important This Week</div>
-            <div className="mc-rail-body">{importantEntries.length ? importantEntries.map(miniCard) : <span className="mc-empty">No earnings this week.</span>}</div>
+            <div className="mc-rail-body">{importantEntries.length ? importantEntries.map(miniCard)
+              : <span className="mc-empty">{firstLoad ? "Loading…" : "No earnings this week."}</span>}</div>
           </div>
           <div className="mc-rail">
             <div className="mc-rail-title">🚀 Biggest Expected Move</div>
-            <div className="mc-rail-body">{moveEntries.length ? moveEntries.map(miniCard) : <span className="mc-empty">Loading expected moves…</span>}</div>
+            <div className="mc-rail-body">{moveEntries.length ? moveEntries.map(miniCard)
+              : <span className="mc-empty">{firstLoad ? "Loading…"
+                  : weekEntries.length ? "Expected moves still loading — they arrive per name after the calendar."
+                  : "No reporting names to price yet."}</span>}</div>
           </div>
         </div>
 
@@ -9930,7 +10009,9 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker, onOpenEarnOps }) {
                       expanded={!!expanded[e.symbol]} extra={extras[e.symbol]}
                       live={liveQ[e.symbol]} compact={view === "compact"}
                       onToggle={() => toggle(e.symbol)} onSwitchTicker={onSwitchTicker} />
-                  )) : <div className="mc-col-empty">—</div>}
+                  )) : firstLoad
+                    ? <div className="mc-col-skel" aria-hidden="true"><i></i><i></i></div>
+                    : <div className="mc-col-empty">—</div>}
                 </div>
               </div>
             );
@@ -12131,8 +12212,13 @@ function PfWhisperSources({ panel, symbol, apiFetch, reload }) {
       {sources.length > 0 && (
         <div className="pf-wsrc-wrap"><table className="pf-wsrc-table">
           <thead><tr>
-            <th>Source</th><th>Type</th><th>Whisper EPS</th><th>Consensus EPS</th>
-            <th>Consensus rev</th><th>Earnings</th><th>As of</th>
+            <th title="Which provider this row came from. The name links to the exact page the value was read from.">Source</th>
+            <th title="What KIND of number this is. PROVIDER WHISPER = the provider's own published whisper. COMMUNITY EST = an aggregated individual-investor expectation. CONSENSUS ONLY = published sell-side consensus, no whisper. YOU ENTERED = a value you typed in, with your attribution.">Type</th>
+            <th title="The whisper EPS this source publishes — the unofficial bar the market actually trades against. Blank means this source publishes no whisper for this event; nothing is ever inferred to fill it.">Whisper EPS</th>
+            <th title="The published sell-side consensus EPS as THIS source reports it. It can differ from the app's own consensus if the vintage or quarter differs — when it does, a conflict warning appears and the gap math switches to same-source pairs.">Consensus EPS</th>
+            <th title="Consensus revenue for the quarter as this source reports it.">Consensus rev</th>
+            <th title="The earnings date and session this source has on file. ✓ means the source marks the date as confirmed by the company rather than estimated.">Earnings</th>
+            <th title="When this value was collected from the source (UTC). Fresh provider values within 7 days score high confidence; older ones are downgraded.">As of</th>
           </tr></thead>
           <tbody>
             {sources.map((s, i) => (
@@ -12320,7 +12406,15 @@ function PfComponentDetail({ k, c, d, asm, setAsm, applyAsm, apiFetch, reload })
           ]} />
           {(det.events || []).length > 0 && (
             <div className="pf-events-wrap"><table className="pf-events">
-              <thead><tr><th>Date</th><th>Session</th><th>EPS est → act</th><th>Surprise</th><th>1d</th><th>5d</th><th>vs SPY</th></tr></thead>
+              <thead><tr>
+                <th title="The date the company reported this quarter's results.">Date</th>
+                <th title="When the report landed: BMO = before market open (the reaction is that same trading day), AMC = after market close (the reaction is the NEXT trading day). This determines which day's move is measured.">Session</th>
+                <th title="Published consensus EPS going into the report → the EPS the company actually reported.">EPS est → act</th>
+                <th title="Percent by which reported EPS beat (+) or missed (−) published consensus. Positive does NOT guarantee a positive stock reaction — that is exactly what this table shows.">Surprise</th>
+                <th title="ONE-DAY stock reaction: the percent price change from the last close BEFORE the announcement to the close of the first session that could trade on it. Negative after a beat = the market wanted more (a beat-and-fade).">1d</th>
+                <th title="FIVE-DAY stock reaction: percent change from that same pre-announcement close through five trading days later. Shows whether the initial move stuck, faded or reversed.">5d</th>
+                <th title="The 1-day reaction MINUS SPY's move over the same day — the company-specific part of the move with the whole market's move stripped out. +2% here means it outperformed the index by 2 points that day.">vs SPY</th>
+              </tr></thead>
               <tbody>
                 {det.events.slice(0, 10).map((e, i) => (
                   <tr key={i} className={e.beat_consensus === false ? "pf-ev-miss" : (e.reaction_1d_pct != null && e.reaction_1d_pct <= 0 ? "pf-ev-fade" : "")}>
@@ -12569,7 +12663,13 @@ function PerfectionCard({ apiFetch, ticker }) {
         <div className="pf-scen">
           <div className="pf-sec-title">Scenario matrix <span className="pf-sec-sub">(historical analogs from this stock's own events — no manufactured price targets)</span></div>
           <div className="pf-scen-wrap"><table className="pf-scen-table">
-            <thead><tr><th>Scenario</th><th>Bar cleared</th><th>Risk</th><th title="Whether multiple compression stays live even if results are good.">Compression</th><th>Historical analog</th></tr></thead>
+            <thead><tr>
+              <th title="A possible outcome of this earnings report, ordered from worst to best. These are the six ways a print can land relative to the bars that matter.">Scenario</th>
+              <th title="Which expectation bars this outcome actually satisfies: published consensus, the higher bar (whisper or market-implied hurdle), and guidance.">Bar cleared</th>
+              <th title="The likely direction of risk to the share price in this scenario — not a prediction, a read on which way the setup leans if it happens.">Risk</th>
+              <th title="Whether multiple compression stays live even if results are good — i.e. the stock can still fall because the valuation was demanding, independent of the numbers.">Compression</th>
+              <th title="What actually happened to THIS stock in the closest comparable past quarters: which events were used, their median 1-day reaction, and a range when at least 4 similar events exist. Never a manufactured price target.">Historical analog</th>
+            </tr></thead>
             <tbody>
               {d.scenarios.map(s => (
                 <tr key={s.key}>
@@ -14059,6 +14159,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   PlaybookCard: _memo(PlaybookCard),
   RangeEdgeScanCard: _memo(RangeEdgeScanCard),
   WatchlistAlertsCard: _memo(WatchlistAlertsCard), TabBar, TabPanel, WeatherBadge,
+  SwsLink, SwsSheetLink,
   LevelRepriceCard: _memo(LevelRepriceCard), WinRateCard: _memo(WinRateCard),
   EarningsCrushCard: _memo(EarningsCrushCard),
   PushSettingsCard: _memo(PushSettingsCard), BrokerImportCard: _memo(BrokerImportCard),

@@ -11139,3 +11139,38 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
   .pf-card .kicker { font-size: 12px !important; }
   .pf-card .card-title { font-size: 18px !important; }
 }
+
+/* v3.70: external site link in the Sites row (Simply Wall St opens in a new
+   tab — it blocks embedding, so it is deliberately not an iframe panel). */
+.tab-btn-ext { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.tab-btn-ext .tab-ext-mark { font-size: 0.8em; opacity: 0.65; }
+.tab-btn-ext.disabled, .tabsheet-btn.site.disabled {
+  opacity: 0.45; cursor: default; pointer-events: auto;
+}
+a.tabsheet-btn.site { text-decoration: none; }
+
+/* v3.70: Earnings Calendar first-load feedback — the bulk reporting feed is
+   paginated upstream, so say what is happening instead of rendering an
+   empty board that reads as "no earnings". */
+.mc-loading {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 13px; color: var(--fg-2);
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 65%);
+  border-radius: 10px; padding: 9px 12px; margin: 6px 0 10px;
+}
+.mc-spin {
+  width: 14px; height: 14px; flex: 0 0 14px; border-radius: 50%;
+  border: 2px solid color-mix(in oklch, var(--accent), transparent 55%);
+  border-top-color: var(--accent); animation: mc-spin 0.75s linear infinite;
+}
+@keyframes mc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mc-spin { animation: none; } }
+.mc-col-skel { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.mc-col-skel i {
+  display: block; height: 34px; border-radius: 8px;
+  background: linear-gradient(90deg, var(--bg-3), var(--bg-2), var(--bg-3));
+  background-size: 200% 100%; animation: mc-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes mc-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .mc-col-skel i { animation: none; } }
