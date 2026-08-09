@@ -11144,9 +11144,11 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
    tab — it blocks embedding, so it is deliberately not an iframe panel). */
 .tab-btn-ext { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
 .tab-btn-ext .tab-ext-mark { font-size: 0.8em; opacity: 0.65; }
-.tab-btn-ext.disabled, .tabsheet-btn.site.disabled {
-  opacity: 0.45; cursor: default; pointer-events: auto;
+/* Unresolved: still clickable — the click retries the lookup (v3.72). */
+.tab-btn-ext.unresolved, .tabsheet-btn.site.disabled {
+  opacity: 0.6; cursor: pointer;
 }
+.tab-btn-ext.unresolved:hover { opacity: 0.85; }
 a.tabsheet-btn.site { text-decoration: none; }
 
 /* v3.70: Earnings Calendar first-load feedback — the bulk reporting feed is

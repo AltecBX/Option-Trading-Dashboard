@@ -6641,11 +6641,13 @@ function SwsLink({
   apiFetch
 }) {
   const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const fetchUrl = bust => sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}${bust ? `&_r=${bust}` : ""}`, 12 * 3600 * 1000);
   useEffect(() => {
     let stop = false;
     setInfo(null);
     if (!ticker || !apiFetch) return undefined;
-    sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}`, 12 * 3600 * 1000).then(d => {
+    fetchUrl().then(d => {
       if (!stop) setInfo(d);
     }).catch(() => {
       if (!stop) setInfo({
@@ -6658,21 +6660,34 @@ function SwsLink({
     };
   }, [ticker, apiFetch]);
   const url = info && info.url;
-  const tip = url ? `Open ${ticker} on Simply Wall St in a new tab — follows the ticker selected here.\n\n${info.derived && info.derived.company_slug ? `Resolved from the listing exchange (${info.derived.exchange}), company name and sector.` : ""}\nOpens externally because Simply Wall St blocks embedding.` : info ? `Simply Wall St link unavailable for ${ticker}${info.reason ? ` — ${info.reason}` : ""}.` : `Resolving the Simply Wall St page for ${ticker}…`;
+  // Never a dead chip: if the lookup came back empty (an upstream hiccup),
+  // clicking RETRIES the resolution and opens the page on success.
+  const retry = e => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    fetchUrl(Date.now()).then(d => {
+      setInfo(d);
+      if (d && d.url) window.open(d.url, "_blank", "noopener,noreferrer");
+    }).catch(() => setInfo({
+      url: null,
+      reason: "lookup failed"
+    })).finally(() => setBusy(false));
+  };
+  const tip = url ? `Open ${ticker} on Simply Wall St in a new tab — follows the ticker selected here.` + `${info.derived && info.derived.exchange ? `\nResolved from the listing exchange (${info.derived.exchange}), company name and sector.` : ""}` + `\nOpens externally because Simply Wall St blocks embedding.` : info ? `Couldn't resolve the Simply Wall St page for ${ticker}${info.reason ? ` — ${info.reason}` : ""}.\nCLICK TO RETRY.` : `Resolving the Simply Wall St page for ${ticker}…`;
   return /*#__PURE__*/React.createElement("a", {
-    className: `tab-btn tab-btn-ext${url ? "" : " disabled"}`,
+    className: `tab-btn tab-btn-ext${url ? "" : " unresolved"}`,
     href: url || undefined,
     target: "_blank",
     rel: "noopener noreferrer",
-    "aria-disabled": url ? undefined : "true",
     onClick: e => {
-      if (!url) e.preventDefault();
+      if (!url) retry(e);
     },
     title: tip
   }, "Simply Wall St ", /*#__PURE__*/React.createElement("span", {
     className: "tab-ext-mark",
     "aria-hidden": "true"
-  }, "\u2197"));
+  }, busy ? "…" : url ? "↗" : "⟳"));
 }
 
 // Same resolver, styled for the mobile sections sheet.
