@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.69";
+const APP_VERSION = "3.70";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3732,6 +3732,7 @@ function App() {
     ticker: ticker,
     tabs: orderedTabs,
     onReorder: saveTabOrder,
+    apiFetch: apiFetch,
     earnDate: loadError ? null : current.next_earnings,
     earnDays: loadError ? null : current.days_to_earnings
   }), /*#__PURE__*/React.createElement("aside", {
@@ -9980,7 +9981,11 @@ function App() {
       changeTab(t.id);
       setTabSheetOpen(false);
     }
-  }, t.label))))));
+  }, t.label)), /*#__PURE__*/React.createElement(SwsSheetLink, {
+    ticker: ticker,
+    apiFetch: apiFetch,
+    onGo: () => setTabSheetOpen(false)
+  })))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)));
 })();

@@ -6571,6 +6571,91 @@ function WatchlistAlertsCard({
     title: "Dismiss this alert. It will not reappear on subsequent polls."
   }, "\u2715"))))));
 }
+
+// Simply Wall St link (v3.70) — rides the Sites row and follows the globally
+// selected ticker. External rather than embedded: simplywall.st refuses
+// third-party framing and non-browser traffic, so an iframe panel would show
+// a blank box. The URL is resolved server-side from the cached profile
+// (exchange + company + sector) because only the "{exchange}-{ticker}"
+// segment is derivable from the ticker alone.
+function SwsLink({
+  ticker,
+  apiFetch
+}) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    setInfo(null);
+    if (!ticker || !apiFetch) return undefined;
+    sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}`, 12 * 3600 * 1000).then(d => {
+      if (!stop) setInfo(d);
+    }).catch(() => {
+      if (!stop) setInfo({
+        url: null,
+        reason: "lookup failed"
+      });
+    });
+    return () => {
+      stop = true;
+    };
+  }, [ticker, apiFetch]);
+  const url = info && info.url;
+  const tip = url ? `Open ${ticker} on Simply Wall St in a new tab — follows the ticker selected here.\n\n${info.derived && info.derived.company_slug ? `Resolved from the listing exchange (${info.derived.exchange}), company name and sector.` : ""}\nOpens externally because Simply Wall St blocks embedding.` : info ? `Simply Wall St link unavailable for ${ticker}${info.reason ? ` — ${info.reason}` : ""}.` : `Resolving the Simply Wall St page for ${ticker}…`;
+  return /*#__PURE__*/React.createElement("a", {
+    className: `tab-btn tab-btn-ext${url ? "" : " disabled"}`,
+    href: url || undefined,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    "aria-disabled": url ? undefined : "true",
+    onClick: e => {
+      if (!url) e.preventDefault();
+    },
+    title: tip
+  }, "Simply Wall St ", /*#__PURE__*/React.createElement("span", {
+    className: "tab-ext-mark",
+    "aria-hidden": "true"
+  }, "\u2197"));
+}
+
+// Same resolver, styled for the mobile sections sheet.
+function SwsSheetLink({
+  ticker,
+  apiFetch,
+  onGo
+}) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    setInfo(null);
+    if (!ticker || !apiFetch) return undefined;
+    sharedJson(apiFetch, `/api/site_link?site=simplywallst&symbol=${encodeURIComponent(ticker)}`, 12 * 3600 * 1000).then(d => {
+      if (!stop) setInfo(d);
+    }).catch(() => {
+      if (!stop) setInfo({
+        url: null
+      });
+    });
+    return () => {
+      stop = true;
+    };
+  }, [ticker, apiFetch]);
+  const url = info && info.url;
+  return /*#__PURE__*/React.createElement("a", {
+    className: `tabsheet-btn site${url ? "" : " disabled"}`,
+    href: url || undefined,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    "aria-disabled": url ? undefined : "true",
+    onClick: e => {
+      if (!url) {
+        e.preventDefault();
+        return;
+      }
+      if (onGo) onGo();
+    },
+    title: url ? `Open ${ticker} on Simply Wall St in a new tab.` : `Simply Wall St link unavailable for ${ticker}.`
+  }, "Simply Wall St \u2197");
+}
 function TabBar({
   active,
   onChange,
@@ -6578,7 +6663,8 @@ function TabBar({
   earnDate,
   earnDays,
   tabs,
-  onReorder
+  onReorder,
+  apiFetch
 }) {
   const hasEarn = earnDate != null;
   const soon = earnDays != null && earnDays >= 0 && earnDays <= 7;
@@ -6671,8 +6757,11 @@ function TabBar({
     className: "tab-row tab-row-ext"
   }, extTabs.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "tab-row-lbl",
-    title: "Embedded partner sites \u2014 each renders inside the dashboard and follows the globally selected ticker both ways."
-  }, "Sites -"), extTabs.map(renderBtn)), hasEarn && /*#__PURE__*/React.createElement("div", {
+    title: "Partner sites that follow the globally selected ticker. Finviz, TradingView and Unusual Whales render inside the dashboard (two-way sync); Simply Wall St opens in a new tab because it blocks embedding."
+  }, "Sites -"), extTabs.map(renderBtn), /*#__PURE__*/React.createElement(SwsLink, {
+    ticker: ticker,
+    apiFetch: apiFetch
+  })), hasEarn && /*#__PURE__*/React.createElement("div", {
     className: `tab-earn ${soon ? "soon" : ""}`,
     title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
   }, /*#__PURE__*/React.createElement("span", {
@@ -12798,6 +12887,9 @@ function MarketCalendarCard({
     loadEcon();
   }, []);
   const entries = earn && Array.isArray(earn.entries) ? earn.entries : [];
+  // First fetch only — a manual ↻ refresh keeps the existing rows on screen
+  // rather than blanking the board back to skeletons.
+  const firstLoad = loadingE && !earn;
   const today = mcEtToday();
 
   // Week window — Mon..Fri for the selected offset.
@@ -13006,7 +13098,15 @@ function MarketCalendarCard({
     title: "Reload earnings"
   }, loadingE ? "…" : "↻"))), err ? /*#__PURE__*/React.createElement("div", {
     className: "mc-error"
-  }, "Couldn't load earnings: ", err) : null, scanning ? /*#__PURE__*/React.createElement("div", {
+  }, "Couldn't load earnings: ", err) : null, firstLoad ? /*#__PURE__*/React.createElement("div", {
+    className: "mc-loading",
+    role: "status",
+    "aria-live": "polite",
+    title: "Fetching the bulk earnings calendar for every reporting company, then matching it against your watchlist. The result is cached for 30 minutes, so later visits are instant."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mc-spin",
+    "aria-hidden": "true"
+  }), "Loading the earnings calendar \u2014 pulling the full reporting feed and matching it to your watchlist\u2026") : null, scanning ? /*#__PURE__*/React.createElement("div", {
     className: "mc-hint"
   }, "Watchlist board is still scanning \u2014 more names will appear as data fills in.") : null, /*#__PURE__*/React.createElement("div", {
     className: "mc-filters"
@@ -13057,7 +13157,7 @@ function MarketCalendarCard({
     className: "mc-rail-body"
   }, todayEntries.length ? todayEntries.map(miniCard) : /*#__PURE__*/React.createElement("span", {
     className: "mc-empty"
-  }, "No watchlist names report today."))), /*#__PURE__*/React.createElement("div", {
+  }, firstLoad ? "Loading…" : "No watchlist names report today."))), /*#__PURE__*/React.createElement("div", {
     className: "mc-rail"
   }, /*#__PURE__*/React.createElement("div", {
     className: "mc-rail-title"
@@ -13065,7 +13165,7 @@ function MarketCalendarCard({
     className: "mc-rail-body"
   }, importantEntries.length ? importantEntries.map(miniCard) : /*#__PURE__*/React.createElement("span", {
     className: "mc-empty"
-  }, "No earnings this week."))), /*#__PURE__*/React.createElement("div", {
+  }, firstLoad ? "Loading…" : "No earnings this week."))), /*#__PURE__*/React.createElement("div", {
     className: "mc-rail"
   }, /*#__PURE__*/React.createElement("div", {
     className: "mc-rail-title"
@@ -13073,7 +13173,7 @@ function MarketCalendarCard({
     className: "mc-rail-body"
   }, moveEntries.length ? moveEntries.map(miniCard) : /*#__PURE__*/React.createElement("span", {
     className: "mc-empty"
-  }, "Loading expected moves\u2026")))), /*#__PURE__*/React.createElement("div", {
+  }, firstLoad ? "Loading…" : weekEntries.length ? "Expected moves still loading — they arrive per name after the calendar." : "No reporting names to price yet.")))), /*#__PURE__*/React.createElement("div", {
     className: "mc-grid"
   }, weekDays.map(day => {
     const dayEntries = sortEntries(weekEntries.filter(e => e.earnings_date === day));
@@ -13100,7 +13200,10 @@ function MarketCalendarCard({
       compact: view === "compact",
       onToggle: () => toggle(e.symbol),
       onSwitchTicker: onSwitchTicker
-    })) : /*#__PURE__*/React.createElement("div", {
+    })) : firstLoad ? /*#__PURE__*/React.createElement("div", {
+      className: "mc-col-skel",
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement("i", null), /*#__PURE__*/React.createElement("i", null)) : /*#__PURE__*/React.createElement("div", {
       className: "mc-col-empty"
     }, "\u2014")));
   })), !loadingE && entries.length === 0 ? /*#__PURE__*/React.createElement("div", {
@@ -16300,7 +16403,21 @@ function PfWhisperSources({
     className: "pf-wsrc-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "pf-wsrc-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Source"), /*#__PURE__*/React.createElement("th", null, "Type"), /*#__PURE__*/React.createElement("th", null, "Whisper EPS"), /*#__PURE__*/React.createElement("th", null, "Consensus EPS"), /*#__PURE__*/React.createElement("th", null, "Consensus rev"), /*#__PURE__*/React.createElement("th", null, "Earnings"), /*#__PURE__*/React.createElement("th", null, "As of"))), /*#__PURE__*/React.createElement("tbody", null, sources.map((s, i) => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which provider this row came from. The name links to the exact page the value was read from."
+  }, "Source"), /*#__PURE__*/React.createElement("th", {
+    title: "What KIND of number this is. PROVIDER WHISPER = the provider's own published whisper. COMMUNITY EST = an aggregated individual-investor expectation. CONSENSUS ONLY = published sell-side consensus, no whisper. YOU ENTERED = a value you typed in, with your attribution."
+  }, "Type"), /*#__PURE__*/React.createElement("th", {
+    title: "The whisper EPS this source publishes \u2014 the unofficial bar the market actually trades against. Blank means this source publishes no whisper for this event; nothing is ever inferred to fill it."
+  }, "Whisper EPS"), /*#__PURE__*/React.createElement("th", {
+    title: "The published sell-side consensus EPS as THIS source reports it. It can differ from the app's own consensus if the vintage or quarter differs \u2014 when it does, a conflict warning appears and the gap math switches to same-source pairs."
+  }, "Consensus EPS"), /*#__PURE__*/React.createElement("th", {
+    title: "Consensus revenue for the quarter as this source reports it."
+  }, "Consensus rev"), /*#__PURE__*/React.createElement("th", {
+    title: "The earnings date and session this source has on file. \u2713 means the source marks the date as confirmed by the company rather than estimated."
+  }, "Earnings"), /*#__PURE__*/React.createElement("th", {
+    title: "When this value was collected from the source (UTC). Fresh provider values within 7 days score high confidence; older ones are downgraded."
+  }, "As of"))), /*#__PURE__*/React.createElement("tbody", null, sources.map((s, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
   }, /*#__PURE__*/React.createElement("td", {
     className: "pf-wsrc-name"
@@ -16529,7 +16646,21 @@ function PfComponentDetail({
     className: "pf-events-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "pf-events"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Date"), /*#__PURE__*/React.createElement("th", null, "Session"), /*#__PURE__*/React.createElement("th", null, "EPS est \u2192 act"), /*#__PURE__*/React.createElement("th", null, "Surprise"), /*#__PURE__*/React.createElement("th", null, "1d"), /*#__PURE__*/React.createElement("th", null, "5d"), /*#__PURE__*/React.createElement("th", null, "vs SPY"))), /*#__PURE__*/React.createElement("tbody", null, det.events.slice(0, 10).map((e, i) => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The date the company reported this quarter's results."
+  }, "Date"), /*#__PURE__*/React.createElement("th", {
+    title: "When the report landed: BMO = before market open (the reaction is that same trading day), AMC = after market close (the reaction is the NEXT trading day). This determines which day's move is measured."
+  }, "Session"), /*#__PURE__*/React.createElement("th", {
+    title: "Published consensus EPS going into the report \u2192 the EPS the company actually reported."
+  }, "EPS est \u2192 act"), /*#__PURE__*/React.createElement("th", {
+    title: "Percent by which reported EPS beat (+) or missed (\u2212) published consensus. Positive does NOT guarantee a positive stock reaction \u2014 that is exactly what this table shows."
+  }, "Surprise"), /*#__PURE__*/React.createElement("th", {
+    title: "ONE-DAY stock reaction: the percent price change from the last close BEFORE the announcement to the close of the first session that could trade on it. Negative after a beat = the market wanted more (a beat-and-fade)."
+  }, "1d"), /*#__PURE__*/React.createElement("th", {
+    title: "FIVE-DAY stock reaction: percent change from that same pre-announcement close through five trading days later. Shows whether the initial move stuck, faded or reversed."
+  }, "5d"), /*#__PURE__*/React.createElement("th", {
+    title: "The 1-day reaction MINUS SPY's move over the same day \u2014 the company-specific part of the move with the whole market's move stripped out. +2% here means it outperformed the index by 2 points that day."
+  }, "vs SPY"))), /*#__PURE__*/React.createElement("tbody", null, det.events.slice(0, 10).map((e, i) => /*#__PURE__*/React.createElement("tr", {
     key: i,
     className: e.beat_consensus === false ? "pf-ev-miss" : e.reaction_1d_pct != null && e.reaction_1d_pct <= 0 ? "pf-ev-fade" : ""
   }, /*#__PURE__*/React.createElement("td", null, e.date), /*#__PURE__*/React.createElement("td", null, e.session), /*#__PURE__*/React.createElement("td", {
@@ -16786,9 +16917,17 @@ function PerfectionCard({
     className: "pf-scen-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "pf-scen-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Scenario"), /*#__PURE__*/React.createElement("th", null, "Bar cleared"), /*#__PURE__*/React.createElement("th", null, "Risk"), /*#__PURE__*/React.createElement("th", {
-    title: "Whether multiple compression stays live even if results are good."
-  }, "Compression"), /*#__PURE__*/React.createElement("th", null, "Historical analog"))), /*#__PURE__*/React.createElement("tbody", null, d.scenarios.map(s => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "A possible outcome of this earnings report, ordered from worst to best. These are the six ways a print can land relative to the bars that matter."
+  }, "Scenario"), /*#__PURE__*/React.createElement("th", {
+    title: "Which expectation bars this outcome actually satisfies: published consensus, the higher bar (whisper or market-implied hurdle), and guidance."
+  }, "Bar cleared"), /*#__PURE__*/React.createElement("th", {
+    title: "The likely direction of risk to the share price in this scenario \u2014 not a prediction, a read on which way the setup leans if it happens."
+  }, "Risk"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether multiple compression stays live even if results are good \u2014 i.e. the stock can still fall because the valuation was demanding, independent of the numbers."
+  }, "Compression"), /*#__PURE__*/React.createElement("th", {
+    title: "What actually happened to THIS stock in the closest comparable past quarters: which events were used, their median 1-day reaction, and a range when at least 4 similar events exist. Never a manufactured price target."
+  }, "Historical analog"))), /*#__PURE__*/React.createElement("tbody", null, d.scenarios.map(s => /*#__PURE__*/React.createElement("tr", {
     key: s.key
   }, /*#__PURE__*/React.createElement("td", {
     className: "pf-scen-label"
@@ -18591,6 +18730,8 @@ Object.assign(window, {
   TabBar,
   TabPanel,
   WeatherBadge,
+  SwsLink,
+  SwsSheetLink,
   LevelRepriceCard: _memo(LevelRepriceCard),
   WinRateCard: _memo(WinRateCard),
   EarningsCrushCard: _memo(EarningsCrushCard),

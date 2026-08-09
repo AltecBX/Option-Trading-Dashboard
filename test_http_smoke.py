@@ -185,6 +185,7 @@ for p in [
     "/api/playbook",
     f"/api/perfection?symbol={S}",
     f"/api/whisper?symbol={S}",
+    f"/api/site_link?site=simplywallst&symbol={S}",
     "/api/watchlist",
     "/api/watchlist_alerts",
     f"/api/weekly_range?symbol={S}",

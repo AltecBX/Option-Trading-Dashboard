@@ -642,3 +642,68 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   slightly reduced it. Flagged for a separate fix.
 - Battery: 207 unittest + smoke 54/54 + JS 107 + verify both layers — all
   green. APP_VERSION 3.69.
+
+# v3.70 — column tooltips, Earnings Calendar load feedback, Simply Wall St link
+
+## 1. Column tooltips (Priced for Perfection)
+- Every column header in the card's three tables now explains itself:
+  events table (Date, Session, EPS est→act, Surprise, **1d, 5d, vs SPY**),
+  expectation-sources table (Source, Type, Whisper EPS, Consensus EPS,
+  Consensus rev, Earnings, As of), scenario matrix (Scenario, Bar cleared,
+  Risk, Compression, Historical analog). Each says what the number IS and
+  how to read it (e.g. 1d = last close BEFORE the announcement → close of
+  the first session that could trade on it; vs SPY = that move minus the
+  index's same-day move).
+- **App-wide sweep NOT done and deliberately not faked**: 189 bare `<th>`
+  remain across app.jsx (37), app-cards.jsx (48), tab-treasuries (90),
+  tab-backtest (12), tab-earnops (2) — 107 distinct labels. A shared
+  label→text glossary was considered and REJECTED: identical labels mean
+  different things per table ("1D" is a stock reaction here, a yield change
+  in bps in Treasuries), so a global map would ship confidently wrong
+  tooltips. Correct coverage needs per-table context; flagged for a
+  dedicated pass, tab by tab.
+
+## 2. Earnings Calendar populate time
+- **Real bug fixed**: `_bulk_earnings_map` docstring claimed "cached 15
+  min" but NO `@_ttl_memoize` decorator was ever applied — every cache miss
+  re-paginated the whole upstream feed (up to 40 sequential requests, 100
+  names each). Now `@_ttl_memoize(30 * 60)`; scheduled earnings dates
+  barely move intraday, and the caller keeps its own 10-min cache for the
+  fresher enrichment layer.
+- **Honest first-load UI**: while the first fetch is in flight the card
+  showed empty rails reading "No watchlist names report today." / "No
+  earnings this week." and a grid of "—" — i.e. it looked broken. Now a
+  spinner banner explains what is being fetched, the rails say "Loading…",
+  and the day columns show shimmer skeletons. A manual ↻ refresh keeps the
+  existing rows on screen instead of blanking back to skeletons
+  (`firstLoad = loadingE && !earn`). Reduced-motion safe.
+
+## 3. Simply Wall St in the Sites row
+- **`site_links.py`** (new) builds the deep link. Their URLs are
+  `/stocks/{country}/{sector}/{exchange}-{ticker}/{name}` and only the
+  `{exchange}-{ticker}` segment is derivable from a ticker, so: country +
+  exchange from an EXCHANGE_MAP over the yfinance exchange code; sector
+  from SWS_SECTOR keyed on **industry first** (NVDA's segment is
+  "semiconductors" = its industry, while SNDK's is "tech" = closer to its
+  sector), then sector, then "tech"; company slug from the name with legal
+  suffixes and dangling connectors stripped ("JPMorgan Chase & Co." →
+  jpmorgan-chase, "Nestlé S.A." → nestle via dotted-initialism collapsing).
+- `GET /api/site_link?site=simplywallst&symbol=` — resolves from the 12h
+  cached profile. When the exchange or company name is missing it returns
+  NO url plus the reason, rather than guessing a company slug.
+- UI: a "Simply Wall St ↗" entry on the Sites row (desktop) and in the
+  mobile sections sheet, following the global ticker. **External, not
+  embedded** — simplywall.st refuses third-party framing and non-browser
+  traffic, so an iframe panel would render a blank box; the tooltip says so.
+- **Limitation stated in-module**: simplywall.st blocks this deployment
+  entirely (403 to requests, connection reset even from real Chromium), so
+  the slug scheme could not be verified end-to-end — only reproduced from
+  the two known-good URLs. `verified: false` ships in the payload.
+- **Live validation**: driving the resolver with REAL yfinance profiles
+  reproduces both reference URLs EXACTLY (NVDA → /us/semiconductors/
+  nasdaq-nvda/nvidia, SNDK → /us/tech/nasdaq-sndk/sandisk).
+- Tests: `test_site_links` (19) pins both reference URLs as exact matches,
+  plus slugify/sector/exchange/missing-data/URL-shape cases.
+
+- Battery: 226 unittest + smoke 55/55 + JS 107 + verify both layers — all
+  green. Browser-verified in dark theme. APP_VERSION 3.70.
