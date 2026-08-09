@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.72";
+const APP_VERSION = "3.73";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -5036,6 +5036,18 @@ function App() {
           </CardErrorBoundary>
         </TabPanel>
 
+        <TabPanel tab="swst" active={activeTab}>
+          <CardErrorBoundary label="Simply Wall St">
+            <SWSTPanel ticker={ticker} onSwitchTicker={switchTicker} apiFetch={apiFetch}
+              inWatchlist={watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)}
+              onAddWatchlist={() => {
+                if (!watchlistData.symbols.some(x => (x.symbol || "").toUpperCase() === ticker)) wlAddSymbol(ticker, {});
+              }}
+              onResearch={(sym) => { switchTicker(sym); changeTab("trade"); }}
+              onResearch1m={openIntraday} />
+          </CardErrorBoundary>
+        </TabPanel>
+
         <TabPanel tab="juice" active={activeTab}>
           <CardErrorBoundary label="Premium Juice">
             <PremiumJuiceCard apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenFinviz={openFinviz} />
@@ -8004,7 +8016,7 @@ function App() {
               <button className="tabsheet-x" aria-label="Close" onClick={() => setTabSheetOpen(false)}>✕</button>
             </div>
             <div className="tabsheet-grid">
-              {orderedTabs.filter(t => !["finviz", "tview", "whales"].includes(t.id)).map(t => (
+              {orderedTabs.filter(t => !["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => (
                 <button key={t.id} className={`tabsheet-btn ${activeTab === t.id ? "on" : ""}`}
                         onClick={() => { changeTab(t.id); setTabSheetOpen(false); }}>
                   {t.label}
@@ -8013,14 +8025,12 @@ function App() {
             </div>
             <div className="tabsheet-sites">
               <span className="tabsheet-siteslbl">Sites -</span>
-              {orderedTabs.filter(t => ["finviz", "tview", "whales"].includes(t.id)).map(t => (
+              {orderedTabs.filter(t => ["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => (
                 <button key={t.id} className={`tabsheet-btn site ${activeTab === t.id ? "on" : ""}`}
                         onClick={() => { changeTab(t.id); setTabSheetOpen(false); }}>
                   {t.label}
                 </button>
               ))}
-              <SwsSheetLink ticker={ticker} apiFetch={apiFetch}
-                            onGo={() => setTabSheetOpen(false)} />
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 # JerryTrade Site Helper
 
-Lets **dashboard.jerrytrade.com** display Finviz, TradingView and Unusual Whales inside their dashboard tabs.
+Lets **dashboard.jerrytrade.com** display Finviz, TradingView, Unusual Whales and Simply Wall St inside their dashboard tabs.
 
 Finviz sends an `X-Frame-Options: SAMEORIGIN` header, which makes every
 browser refuse to render it inside another website. This helper — installed
@@ -87,6 +87,17 @@ card at `chrome://extensions` (or remove + Load unpacked again).
   a Repair-session command the dashboard's TV tab can invoke, and hardens
   the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
   left alone, delete-before-set so duplicates can't form).
+- v2.8 — Simply Wall St support: their pages send
+  `X-Frame-Options: SAMEORIGIN`, so the same sub-frame header rule that
+  already covers Finviz/TradingView/Unusual Whales now covers
+  simplywall.st, plus a third-party-cookie exception (so the site's own
+  session and Cloudflare clearance cookie survive inside the frame) and
+  in-frame ticker sync read from the `/stocks/{country}/{sector}/{exchange}-{ticker}/{name}`
+  URL. Simply Wall St is deliberately NOT added to the SameSite cookie
+  rewrite — that path is the one that once broke TradingView logins.
+  NOTE: Simply Wall St also puts a Cloudflare bot challenge in front of its
+  stock pages. That only blocks servers; the frame is fetched by YOUR
+  browser with your normal cookies, so it passes exactly as a normal tab does.
 - v2.1 — Unusual Whales support: login cookie handling (SameSite upgrade +
   third-party-cookie exception + install sweep) now covers
   unusualwhales.com, plus in-frame ticker sync from the /stock/SYMBOL URL.

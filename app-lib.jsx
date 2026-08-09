@@ -105,6 +105,7 @@ const TABS = [
   { id: "finviz", label: "Finviz" },
   { id: "tview", label: "TradingView" },
   { id: "whales", label: "Unusual Whales" },
+  { id: "swst", label: "Simply Wall St" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
   { id: "juice", label: "0DTE Juice" },
@@ -319,6 +320,17 @@ const UWHALES = {
   setFollow(v) { try { localStorage.setItem("jerry_uw_follow", v ? "1" : "0"); } catch (e) {} },
 };
 
+// Simply Wall St (v3.73). Unlike the other three, its per-ticker URL is not
+// derivable from the symbol alone — the path carries Simply Wall St's own
+// sector and company slugs — so the frame src comes from /api/site_link.
+// Everything else (frame, follow toggle, two-way sync) matches UWHALES.
+const SWST = {
+  url(path) { return `https://simplywall.st${path}`; },
+  home() { return "https://simplywall.st/stocks"; },
+  follow() { return localStorage.getItem("jerry_sws_follow") !== "0"; }, // default ON
+  setFollow(v) { try { localStorage.setItem("jerry_sws_follow", v ? "1" : "0"); } catch (e) {} },
+};
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -327,4 +339,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST });
