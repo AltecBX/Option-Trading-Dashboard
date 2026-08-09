@@ -135,5 +135,44 @@ class TestUrlShape(unittest.TestCase):
         self.assertEqual(d["from_industry"], "Banks—Diversified")
 
 
+
+class TestMergeProfile(unittest.TestCase):
+    """Field-level fallback across data sources — the fix for the greyed-out
+    link, where one flaky upstream (.info / quoteSummary) blanked everything."""
+
+    def test_first_non_empty_wins_per_field(self):
+        light = {"_source": "chart", "company": "NVIDIA Corporation",
+                 "exchange": "NasdaqGS", "sector": None, "industry": None}
+        info = {"_source": "info", "company": None, "sector": "Technology",
+                "industry": "Semiconductors"}
+        m = sl.merge_profile(light, info)
+        self.assertEqual(m["company"], "NVIDIA Corporation")
+        self.assertEqual(m["exchange"], "NasdaqGS")
+        self.assertEqual(m["industry"], "Semiconductors")
+        self.assertEqual(m["_field_sources"]["company"], "chart")
+        self.assertEqual(m["_field_sources"]["industry"], "info")
+
+    def test_empty_sources_do_not_blank_later_ones(self):
+        # The regression: an all-None first source must not win any field.
+        dead = {"_source": "info", "company": None, "exchange": None,
+                "sector": None, "industry": None}
+        board = {"_source": "board", "company": "Cisco Systems, Inc.",
+                 "sector": "Technology", "industry": "Communication Equipment"}
+        m = sl.merge_profile(dead, board)
+        self.assertEqual(m["company"], "Cisco Systems, Inc.")
+        self.assertEqual(m["_field_sources"]["company"], "board")
+
+    def test_url_builds_from_merged_sources(self):
+        m = sl.merge_profile(
+            {"_source": "chart", "company": "NVIDIA Corporation", "exchange": "NasdaqGS"},
+            {"_source": "search", "sector": "Technology", "industry": "Semiconductors"})
+        r = sl.simplywallst_url("NVDA", m)
+        self.assertEqual(r["url"], "https://simplywall.st/stocks/us/semiconductors/nasdaq-nvda/nvidia")
+        self.assertEqual(r["derived"]["field_sources"]["exchange"], "chart")
+
+    def test_handles_none_and_junk_sources(self):
+        m = sl.merge_profile(None, "junk", {"_source": "x", "company": "A Inc."})
+        self.assertEqual(m["company"], "A Inc.")
+        self.assertIsNone(m["exchange"])
 if __name__ == "__main__":
     unittest.main()

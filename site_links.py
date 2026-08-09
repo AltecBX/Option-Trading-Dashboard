@@ -169,6 +169,29 @@ def exchange_slug(exchange: str | None) -> tuple[str, str] | None:
     return None
 
 
+def merge_profile(*sources) -> dict:
+    """Combine profile dicts in priority order, taking the first non-empty
+    value for each field. Used to fall back across data sources (light chart
+    metadata → cached .info profile → watchlist board row) so one flaky
+    upstream endpoint cannot blank the link. Also records which source
+    supplied each field, for the payload's `field_sources`."""
+    out = {"company": None, "exchange": None, "sector": None, "industry": None}
+    origin: dict[str, str | None] = {k: None for k in out}
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        name = src.get("_source") or "?"
+        for k in out:
+            if out[k]:
+                continue
+            v = src.get(k) or (src.get("name") if k == "company" else None)
+            if v not in (None, "", "None"):
+                out[k] = v
+                origin[k] = name
+    out["_field_sources"] = origin
+    return out
+
+
 def simplywallst_url(symbol: str, profile: dict | None) -> dict:
     """Build the Simply Wall St deep link. Returns
     {url, verified, derived:{...}, note} — or {url: None, reason} when the
@@ -200,7 +223,8 @@ def simplywallst_url(symbol: str, profile: dict | None) -> dict:
         "derived": {"country": country, "sector_segment": sec, "exchange": ex,
                     "ticker": sym.lower(), "company_slug": name,
                     "from_industry": p.get("industry"), "from_sector": p.get("sector"),
-                    "from_company": company},
+                    "from_company": company,
+                    "field_sources": p.get("_field_sources")},
         "note": ("Built from the listing exchange, company name and sector. Only the "
                  f"'{ex}-{sym.lower()}' segment identifies the company; the sector and name "
                  "segments are Simply Wall St's own slugs and are derived here."),

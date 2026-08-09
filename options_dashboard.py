@@ -5092,6 +5092,66 @@ def _symbol_profile(symbol: str) -> dict:
     return out
 
 
+@_ttl_memoize(12 * 3600)
+def _symbol_listing(symbol: str) -> dict:
+    """company + listing exchange from Yahoo's LIGHT chart endpoint.
+
+    yfinance's `.info` (Yahoo quoteSummary) is rate-limited far more
+    aggressively than the chart endpoint and frequently returns nothing —
+    which is exactly what left the Simply Wall St link permanently greyed
+    out (v3.72). The chart `meta` block carries fullExchangeName, shortName
+    and longName for a fraction of the cost, so it is tried FIRST and
+    `.info` is only used to fill gaps."""
+    out = {"company": None, "exchange": None, "sector": None, "industry": None,
+           "_source": "yahoo light endpoints"}
+    hdr = {"User-Agent": "Mozilla/5.0"}
+    try:
+        import requests as _rq
+    except Exception:  # pragma: no cover
+        return out
+    # (a) chart meta — company + listing exchange.
+    try:
+        r = _rq.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                    params={"range": "1d", "interval": "1d"}, headers=hdr, timeout=12)
+        if r.ok:
+            meta = ((r.json().get("chart") or {}).get("result") or [{}])[0].get("meta") or {}
+            out["company"] = meta.get("longName") or meta.get("shortName")
+            out["exchange"] = meta.get("fullExchangeName") or meta.get("exchangeName")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[site_link] chart meta failed for {symbol}: {exc}", file=sys.stderr)
+    # (b) search — the only LIGHT Yahoo endpoint that carries sector +
+    # industry. quoteSummary (what .info uses) answers 401 "Invalid Crumb"
+    # without a session crumb, which is why .info keeps coming back empty.
+    try:
+        r = _rq.get("https://query1.finance.yahoo.com/v1/finance/search",
+                    params={"q": symbol, "quotesCount": 6, "newsCount": 0},
+                    headers=hdr, timeout=12)
+        if r.ok:
+            for q in (r.json().get("quotes") or []):
+                if str(q.get("symbol") or "").upper() != symbol.upper():
+                    continue
+                if q.get("quoteType") and q["quoteType"] != "EQUITY":
+                    continue
+                out["sector"] = out["sector"] or q.get("sector")
+                out["industry"] = out["industry"] or q.get("industry")
+                out["company"] = out["company"] or q.get("longname") or q.get("shortname")
+                out["exchange"] = out["exchange"] or q.get("exchDisp")
+                break
+    except Exception as exc:  # noqa: BLE001
+        print(f"[site_link] search lookup failed for {symbol}: {exc}", file=sys.stderr)
+    # (c) .info last — richest but the most rate-limited.
+    if not out["company"] or not out["exchange"]:
+        try:
+            info = yf.Ticker(symbol).info or {}
+            out["company"] = out["company"] or info.get("longName") or info.get("shortName")
+            out["exchange"] = out["exchange"] or info.get("fullExchangeName") or info.get("exchange")
+            out["sector"] = out["sector"] or info.get("sector")
+            out["industry"] = out["industry"] or info.get("industry")
+        except Exception:
+            pass
+    return out
+
+
 @_ttl_memoize(15 * 60)
 @_ttl_memoize(30 * 60)
 def _bulk_earnings_map(days: int) -> dict:
@@ -8320,19 +8380,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 import site_links as _site_links
-                prof = _symbol_profile(symbol)
-                # _symbol_profile has no exchange field; add it from the same
-                # cached .info call path used elsewhere.
-                if not prof.get("exchange"):
+                # Layered sources so one flaky upstream cannot blank the link:
+                #   1. light Yahoo chart meta — company + exchange (reliable)
+                #   2. cached .info profile   — sector + industry (flaky)
+                #   3. watchlist board row    — sector + industry, no network
+                listing = _symbol_listing(symbol)
+                prof = dict(_symbol_profile(symbol) or {})
+                prof["_source"] = "yfinance .info"
+                board_row = {"_source": "watchlist board"}
+                if _WLTABLE_AVAILABLE and _wltable is not None:
                     try:
-                        info = yf.Ticker(symbol).info or {}
-                        prof = dict(prof)
-                        prof["exchange"] = info.get("fullExchangeName") or info.get("exchange")
-                        if not prof.get("company"):
-                            prof["company"] = info.get("longName") or info.get("shortName")
+                        for r in ((_wltable.get_board() or {}).get("rows") or []):
+                            if str(r.get("symbol") or "").upper() == symbol:
+                                board_row.update({"company": r.get("company"),
+                                                  "sector": r.get("sector"),
+                                                  "industry": r.get("industry")})
+                                break
                     except Exception:
                         pass
-                out = _site_links.simplywallst_url(symbol, prof)
+                merged = _site_links.merge_profile(listing, prof, board_row)
+                out = _site_links.simplywallst_url(symbol, merged)
                 self._send_json({"symbol": symbol, "site": site, **out})
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/site_link", exc)

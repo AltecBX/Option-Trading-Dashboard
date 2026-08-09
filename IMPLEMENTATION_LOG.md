@@ -748,3 +748,40 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   artifact check.
 - Battery: 226 unittest + 8 runner suites + smoke 55/55 + JS 107 + verify
   both layers — all green. APP_VERSION 3.71.
+
+# v3.72 — fix: Simply Wall St link permanently greyed out
+
+- **Root cause**: the resolver depended on yfinance `.info`, which calls
+  Yahoo's `quoteSummary` endpoint. That endpoint now answers **401
+  "Invalid Crumb"** without a session crumb, so `.info` returned nothing,
+  the company name and listing exchange were both missing, and the
+  endpoint correctly refused to guess a URL — leaving the chip disabled
+  forever. Reproduced exactly against the real server:
+  `{"url": null, "reason": "missing listing exchange and company name"}`.
+- **Fix — layered light sources**, `_symbol_listing()` (12h cached):
+  1. Yahoo **chart** `meta` → company + fullExchangeName (cheap, reliable)
+  2. Yahoo **search** → sector + industry + company + exchange — the only
+     light endpoint that carries sector/industry; verified 200 while
+     quoteSummary 401s
+  3. `.info` last, to fill any remaining gap
+  4. the watchlist board row (no network) for sector/industry
+- **`site_links.merge_profile()`** (new, pure + tested) combines those
+  sources FIELD BY FIELD, taking the first non-empty value for each, so a
+  single dead upstream can never blank the whole link. It records which
+  source supplied each field and ships that as `derived.field_sources`.
+- **UI: never a dead chip.** The disabled state is gone; when a lookup
+  comes back empty the chip stays clickable, shows a ⟳ mark, and CLICKING
+  RETRIES the resolution (cache-busted) and opens the page on success.
+  Tooltip states the reason and says "click to retry".
+- **Verified live**: NVDA → /us/semiconductors/nasdaq-nvda/nvidia (exact
+  reference match restored), SNDK → /us/tech/nasdaq-sndk/sandisk (exact),
+  plus JPM → banks, XOM → energy, AMD → semiconductors, CSCO → tech.
+  Rendered check: chip at full opacity, correct href, ↗ mark, no
+  "unresolved" class, zero JS errors.
+- Tests: +4 in test_site_links (23 total) covering field-level fallback,
+  the exact regression (an all-None source must not win any field), URL
+  build from merged sources, and junk/None source handling. Also moved the
+  `__main__` guard to the end of the file so a direct
+  `python3 test_site_links.py` run executes every class.
+- Battery: 230 unittest + smoke 55/55 + JS 107 + verify both layers — all
+  green. APP_VERSION 3.72.
