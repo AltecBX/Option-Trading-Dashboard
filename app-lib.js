@@ -546,6 +546,15 @@ const SWST = {
     try {
       localStorage.setItem("jerry_sws_follow", v ? "1" : "0");
     } catch (e) {}
+  },
+  // Simply Wall St BLOCKS framing, so the panel is unusable without the
+  // helper — it reads the version the extension stamps on <html>.
+  helperVersion() {
+    try {
+      return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0");
+    } catch (e) {
+      return 0;
+    }
   }
 };
 
