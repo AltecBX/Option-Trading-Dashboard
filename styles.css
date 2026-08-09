@@ -11189,3 +11189,11 @@ a.tabsheet-btn.site { text-decoration: none; }
    mistaken for the active ticker (v3.73). */
 .fv-frame.sws-stale { opacity: 0.45; filter: saturate(0.6); }
 .sws-err .sws-dim { color: var(--muted); font-size: 12px; }
+/* Always-present Site Helper download in the Sites row (v3.73b). */
+.fv-chip.helper-dl { margin-left: auto; text-decoration: none; opacity: .75; }
+.fv-chip.helper-dl:hover { opacity: 1; }
+.fv-chip.helper-dl-stale {
+  opacity: 1;
+  border-color: color-mix(in oklch, var(--warn), transparent 45%);
+  color: var(--warn);
+}
