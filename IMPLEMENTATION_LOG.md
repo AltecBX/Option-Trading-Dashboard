@@ -613,3 +613,32 @@ Working baseline: `main` @ 989b51d (classic v3.63 + HANDOFF_AUDIT.md).
   three quick links, working manual form, zero JS errors, zero overflow.
 - **Battery: 207 unittest + 8 runner suites + smoke 54/54 + JS 107 +
   verify both layers — all green.** APP_VERSION 3.68.
+
+# v3.69 — Priced for Perfection: larger, more readable type
+
+- **Why**: the card was hard to read on the dark theme — most of its type
+  sat at 9-12.5px, well below the app's body size.
+- **Every one of the 56 `font-size` declarations** in the card's CSS
+  (v3.67 model card + v3.68 whisper panel) raised by exactly 2px. Score
+  badge 30→32, summary 13.5→15.5, component rows 12.5→14.5, KV grids
+  12→14, whisper/source table 11.5→13.5, kind badges 8.5→10.5, status
+  chips 10→12, scenario table 12→14, sources/disclaimer 10.5→12.5, mobile
+  score 24→26.
+- **Layout adjusted to fit the larger type** (no clipping): component-row
+  fixed columns widened at all three breakpoints (42/56/52/20 → 50/64/62/24
+  desktop, and proportionally on tablet/phone), assumption inputs 58→66px,
+  KV grid min column 230→260px.
+- **Card header**: `.kicker` 13px, `.card-title` 20px (18px on phones).
+  These required `!important` ONLY to clear the app-wide mobile clamps
+  (`.kicker`/`.card-title` at 10px/16px !important) — scoped to `.pf-card`
+  so no other card in the app changed. Documented inline.
+- **Verified in DARK theme** (the reported context), desktop 1700px and
+  phone 390px: every computed size confirmed at its new value, no element
+  spills the card, no page-level horizontal overflow, zero JS errors.
+- **Pre-existing issue observed, NOT introduced and NOT fixed here**: at
+  ~1500px viewport widths the profit-calculator drawer (`.pcalc-panel`,
+  outside this card) sits off-canvas and creates page horizontal overflow —
+  measured 460px on the v3.68 build vs 443px on this one, so this change
+  slightly reduced it. Flagged for a separate fix.
+- Battery: 207 unittest + smoke 54/54 + JS 107 + verify both layers — all
+  green. APP_VERSION 3.69.
