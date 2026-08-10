@@ -3,6 +3,32 @@
 //   1. report the ticker (and its real path) up to the dashboard
 //   2. ask for Storage Access so a login survives inside the frame  (v3.1)
 //   3. answer the dashboard's "diagnose login" request               (v3.1)
+// ── Top-level snapshot (v3.2) ──────────────────────────────────────────────
+// In a NORMAL simplywall.st tab (not framed) record the NAMES of the keys and
+// cookies that tab can see. The framed copy has no way to know what it is
+// missing without this: comparing the two is what distinguishes "the frame's
+// cookies are blocked" (fixable) from "the auth token lives in localStorage,
+// which Chrome partitions per top-level site" (not fixable by an extension).
+// Names only — never values, never page content — kept in extension storage
+// on this machine and never sent anywhere.
+(function swsTopSnapshot() {
+  if (window.top !== window) return;              // only real tabs
+  const snap = () => {
+    try {
+      const keys = (st) => { try { return Object.keys(st).slice(0, 80); } catch (e) { return []; } };
+      chrome.storage.local.set({ swsTopSnapshot: {
+        at: new Date().toISOString(),
+        href: location.origin + location.pathname,
+        cookies: document.cookie.split(";").map((s) => s.trim().split("=")[0]).filter(Boolean).slice(0, 80),
+        localStorage: keys(localStorage),
+        sessionStorage: keys(sessionStorage),
+      } });
+    } catch (e) { /* no-op */ }
+  };
+  window.addEventListener("load", () => setTimeout(snap, 2500));
+  setTimeout(snap, 6000);                          // catch post-login writes
+})();
+
 (function swsSync() {
   if (window.top === window) return;   // normal simplywall.st tabs: do nothing
   let last = null;
@@ -85,16 +111,34 @@
         } catch (err) { return ["<blocked: " + err.name + ">"]; }
       };
       const send = (storageAccess) => {
-        window.parent.postMessage({
-          type: "jth-sws-diag",
-          href: location.origin + location.pathname,
-          framed: window.top !== window,
-          cookieEnabled: navigator.cookieEnabled,
-          storageAccess,                       // true / false / "unsupported"
+        const mine = {
           cookies: cookieNames(),              // NAMES only (httpOnly ones are invisible here)
           localStorage: names(localStorage),   // NAMES only
           sessionStorage: names(sessionStorage),
-        }, e.origin);
+        };
+        const post = (top) => {
+          const missing = (a, b) => (a || []).filter((k) => !(b || []).includes(k));
+          window.parent.postMessage({
+            type: "jth-sws-diag",
+            href: location.origin + location.pathname,
+            framed: window.top !== window,
+            cookieEnabled: navigator.cookieEnabled,
+            storageAccess,                     // true / false / "unsupported"
+            ...mine,
+            topTab: top || null,               // what a NORMAL tab sees, if seen
+            missingVsTopTab: top ? {
+              cookies: missing(top.cookies, mine.cookies),
+              localStorage: missing(top.localStorage, mine.localStorage),
+              sessionStorage: missing(top.sessionStorage, mine.sessionStorage),
+            } : null,
+          }, e.origin);
+        };
+        try {
+          chrome.storage.local.get("swsTopSnapshot", (st) => {
+            void chrome.runtime.lastError;
+            post(st && st.swsTopSnapshot);
+          });
+        } catch (err) { post(null); }
       };
       if (document.hasStorageAccess) {
         document.hasStorageAccess().then(send, () => send("error"));

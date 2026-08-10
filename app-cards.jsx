@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.1";
+  const LATEST = "3.2";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13699,7 +13699,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
   const SWS_LOGIN_VER = 3.1;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.1";      // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.2";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13920,12 +13920,41 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
           ) : (
             <React.Fragment>
               <div className="sws-diag-verdict">
-                {diag.localStorage && diag.localStorage.length === 0 && diag.cookies && diag.cookies.length === 0
-                  ? "The frame can see NO cookies and NO stored keys — its storage is being partitioned or blocked. "
-                  : (diag.storageAccess === true
-                     ? "The frame HAS storage access. If the login still drops, the token is likely kept somewhere this grant doesn't cover. "
-                     : "The frame does NOT have storage access, so a login can't persist here. ")}
-                <span className="sws-dim">storage access: {String(diag.storageAccess)} · cookies enabled: {String(diag.cookieEnabled)}</span>
+                {(() => {
+                  const m = diag.missingVsTopTab;
+                  if (!diag.topTab) {
+                    return <React.Fragment>
+                      Open <b>simplywall.st in a normal tab</b> (signed in), wait a few seconds,
+                      then come back and press Diagnose again — the comparison against a real tab
+                      is what identifies the cause.
+                    </React.Fragment>;
+                  }
+                  const lsMissing = (m && m.localStorage) || [];
+                  const ckMissing = (m && m.cookies) || [];
+                  if (lsMissing.length && !ckMissing.length) {
+                    return <React.Fragment>
+                      <b>Partitioned storage.</b> A normal tab has {lsMissing.length} localStorage
+                      key{lsMissing.length === 1 ? "" : "s"} this frame cannot see
+                      ({lsMissing.slice(0, 4).join(", ")}{lsMissing.length > 4 ? "…" : ""}).
+                      Chrome isolates localStorage per top-level site and no extension can cross
+                      that boundary — if the login lives there, it cannot be carried into the panel.
+                    </React.Fragment>;
+                  }
+                  if (ckMissing.length) {
+                    return <React.Fragment>
+                      <b>Cookies are missing in the frame.</b> A normal tab has
+                      {" "}{ckMissing.slice(0, 5).join(", ")}{ckMissing.length > 5 ? "…" : ""} and this
+                      frame does not — that is a cookie-delivery problem, which the helper can act on.
+                    </React.Fragment>;
+                  }
+                  return <React.Fragment>
+                    The frame sees <b>everything a normal tab sees</b>. If the login still drops, it is
+                    not storage isolation — most likely the session cookie is <code>httpOnly</code>
+                    {" "}(invisible to this check) and is being refused on the request itself.
+                  </React.Fragment>;
+                })()}
+                <div className="sws-dim">storage access: {String(diag.storageAccess)} · cookies enabled: {String(diag.cookieEnabled)}
+                  {diag.topTab ? ` · compared against a normal tab seen ${diag.topTab.at}` : " · no normal-tab snapshot yet"}</div>
               </div>
               <pre className="sws-diag-pre">{JSON.stringify(diag, null, 1)}</pre>
               <button className="rr-btn"

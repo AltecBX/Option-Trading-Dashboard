@@ -18204,7 +18204,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.1";
+  const LATEST = "3.2";
   const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
@@ -18237,7 +18237,7 @@ function SWSTPanel({
 }) {
   const SWS_NEED_VER = 2.8; // renders the frame at all
   const SWS_LOGIN_VER = 3.1; // login actually PERSISTS from here on
-  const SWS_LATEST = "3.1"; // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.2"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18482,9 +18482,23 @@ function SWSTPanel({
     className: "sws-diag"
   }, diag.noReply ? /*#__PURE__*/React.createElement("div", null, "No reply from the embedded page \u2014 that means ", /*#__PURE__*/React.createElement("b", null, "Site Helper v3.1+"), " isn't installed yet (older versions can't answer). Update from the \u2913 Helper chip and try again.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "sws-diag-verdict"
-  }, diag.localStorage && diag.localStorage.length === 0 && diag.cookies && diag.cookies.length === 0 ? "The frame can see NO cookies and NO stored keys — its storage is being partitioned or blocked. " : diag.storageAccess === true ? "The frame HAS storage access. If the login still drops, the token is likely kept somewhere this grant doesn't cover. " : "The frame does NOT have storage access, so a login can't persist here. ", /*#__PURE__*/React.createElement("span", {
+  }, (() => {
+    const m = diag.missingVsTopTab;
+    if (!diag.topTab) {
+      return /*#__PURE__*/React.createElement(React.Fragment, null, "Open ", /*#__PURE__*/React.createElement("b", null, "simplywall.st in a normal tab"), " (signed in), wait a few seconds, then come back and press Diagnose again \u2014 the comparison against a real tab is what identifies the cause.");
+    }
+    const lsMissing = m && m.localStorage || [];
+    const ckMissing = m && m.cookies || [];
+    if (lsMissing.length && !ckMissing.length) {
+      return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Partitioned storage."), " A normal tab has ", lsMissing.length, " localStorage key", lsMissing.length === 1 ? "" : "s", " this frame cannot see (", lsMissing.slice(0, 4).join(", "), lsMissing.length > 4 ? "…" : "", "). Chrome isolates localStorage per top-level site and no extension can cross that boundary \u2014 if the login lives there, it cannot be carried into the panel.");
+    }
+    if (ckMissing.length) {
+      return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Cookies are missing in the frame."), " A normal tab has", " ", ckMissing.slice(0, 5).join(", "), ckMissing.length > 5 ? "…" : "", " and this frame does not \u2014 that is a cookie-delivery problem, which the helper can act on.");
+    }
+    return /*#__PURE__*/React.createElement(React.Fragment, null, "The frame sees ", /*#__PURE__*/React.createElement("b", null, "everything a normal tab sees"), ". If the login still drops, it is not storage isolation \u2014 most likely the session cookie is ", /*#__PURE__*/React.createElement("code", null, "httpOnly"), " ", "(invisible to this check) and is being refused on the request itself.");
+  })(), /*#__PURE__*/React.createElement("div", {
     className: "sws-dim"
-  }, "storage access: ", String(diag.storageAccess), " \xB7 cookies enabled: ", String(diag.cookieEnabled))), /*#__PURE__*/React.createElement("pre", {
+  }, "storage access: ", String(diag.storageAccess), " \xB7 cookies enabled: ", String(diag.cookieEnabled), diag.topTab ? ` · compared against a normal tab seen ${diag.topTab.at}` : " · no normal-tab snapshot yet")), /*#__PURE__*/React.createElement("pre", {
     className: "sws-diag-pre"
   }, JSON.stringify(diag, null, 1)), /*#__PURE__*/React.createElement("button", {
     className: "rr-btn",
