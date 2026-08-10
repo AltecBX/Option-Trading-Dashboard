@@ -25,8 +25,17 @@
       } });
     } catch (e) { /* no-op */ }
   };
+  // Fire on several triggers, not just load: the tab may already have been
+  // open before this version was installed, the user may sign in minutes
+  // later, and an auth token can be written well after load. Re-snapshotting
+  // is cheap (a few key names) and always overwrites with the latest view.
   window.addEventListener("load", () => setTimeout(snap, 2500));
-  setTimeout(snap, 6000);                          // catch post-login writes
+  setTimeout(snap, 3000);
+  setTimeout(snap, 8000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) snap(); });
+  window.addEventListener("focus", snap);
+  window.addEventListener("pagehide", snap);       // capture the final state
+  setInterval(() => { if (!document.hidden) snap(); }, 30000);
 })();
 
 (function swsSync() {

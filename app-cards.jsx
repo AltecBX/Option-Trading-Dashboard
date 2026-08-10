@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.2";
+  const LATEST = "3.3";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13699,7 +13699,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
   const SWS_LOGIN_VER = 3.1;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.2";      // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.3";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13924,9 +13924,15 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                   const m = diag.missingVsTopTab;
                   if (!diag.topTab) {
                     return <React.Fragment>
-                      Open <b>simplywall.st in a normal tab</b> (signed in), wait a few seconds,
-                      then come back and press Diagnose again — the comparison against a real tab
-                      is what identifies the cause.
+                      <b>No normal-tab snapshot yet</b> — without one there is nothing to compare
+                      against, so the cause can't be identified. Open Simply Wall St in a normal
+                      tab, sign in there, give it ~10 seconds, then press Diagnose again.
+                      {" "}
+                      <button className="rr-btn"
+                              onClick={() => { try { window.open("https://simplywall.st/user/portfolio", "_blank", "noopener"); } catch (e) {} }}
+                              title="Opens Simply Wall St in a normal browser tab purely for this diagnostic. Sign in there, wait ~10 seconds so the helper can record which keys a normal tab sees (names only, stored on this machine), then come back and press Diagnose again.">
+                        Open a normal tab to compare
+                      </button>
                     </React.Fragment>;
                   }
                   const lsMissing = (m && m.localStorage) || [];
