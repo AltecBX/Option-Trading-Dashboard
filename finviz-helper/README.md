@@ -87,6 +87,20 @@ card at `chrome://extensions` (or remove + Load unpacked again).
   a Repair-session command the dashboard's TV tab can invoke, and hardens
   the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
   left alone, delete-before-set so duplicates can't form).
+- v3.1 — Simply Wall St: Storage Access + a "Diagnose login" answer.
+  v3.0's cookie rewrite was necessary but not sufficient — Chrome blocks
+  third-party cookies by default, so the frame gets a partitioned jar and
+  SameSite=None alone changes nothing. The in-frame script now asks for
+  storage access the standards-blessed way (requestStorageAccess) on your
+  first click in the frame. This is NOT a return of v2.5's app-wide handler:
+  it is simplywall.st only, at most one request per tab, at most one reload
+  ever (guarded in sessionStorage), and no reload at all when access was
+  already granted — so it cannot repeat the v2.5 click-reload problem that
+  cost unsaved TradingView work.
+  It also answers the dashboard's "Diagnose login" button with the SHAPE of
+  the frame's storage — cookie and key NAMES only, never values, never page
+  content — so a login that won't stick can be diagnosed from a button
+  instead of hand-run console snippets.
 - v3.0 — Simply Wall St LOGIN persistence. v2.8/2.9 could render the site
   but a Google/email login evaporated on the next request: their session
   cookie is SameSite-restricted, so the browser refused to send it from

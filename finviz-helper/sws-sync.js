@@ -1,11 +1,8 @@
 // Runs inside simplywall.st pages ONLY when embedded in the JerryTrade
-// dashboard. Simply Wall St stock URLs carry the listing in the third path
-// segment as "{exchange}-{ticker}", e.g.
-//   /stocks/us/semiconductors/nasdaq-nvda/nvidia
-//   /stocks/us/tech/nasdaq-sndk/sandisk
-// Poll the pathname and report the TICKER (and nothing else) up to the
-// dashboard so the app's global ticker follows what you're viewing — the
-// same two-way sync Finviz, TradingView and Unusual Whales already have.
+// dashboard. Three jobs, all confined to this frame:
+//   1. report the ticker (and its real path) up to the dashboard
+//   2. ask for Storage Access so a login survives inside the frame  (v3.1)
+//   3. answer the dashboard's "diagnose login" request               (v3.1)
 (function swsSync() {
   if (window.top === window) return;   // normal simplywall.st tabs: do nothing
   let last = null;
@@ -31,11 +28,86 @@
   };
   setInterval(report, 1500);
   window.addEventListener("load", report);
+
+  // ── Storage Access (v3.1) ────────────────────────────────────────────────
+  // Chrome blocks third-party cookies by default, so SameSite=None alone is
+  // not enough: the frame is handed a partitioned jar and a login vanishes on
+  // the next request. requestStorageAccess() is the standards-blessed way for
+  // embedded content to ask for its OWN first-party cookies.
+  //
+  // v2.5 shipped this app-wide and it was removed in v2.7 because it reloaded
+  // the frame on EVERY click, losing unsaved TradingView work. This version
+  // avoids that failure mode completely:
+  //   - simplywall.st only (TradingView is untouched)
+  //   - at most ONE request per tab, recorded before the async call resolves
+  //   - at most ONE reload, ever, guarded in sessionStorage
+  //   - no reload at all if access was already granted
+  let asked = false;
+  const askForStorage = () => {
+    if (asked) return;
+    asked = true;                       // set FIRST: no double-fire on rapid clicks
+    try {
+      if (!document.hasStorageAccess || !document.requestStorageAccess) return;
+      document.hasStorageAccess().then((has) => {
+        if (has) return;                // already usable — never reload
+        return document.requestStorageAccess().then(() => {
+          // Granted. Reload once so the session applies to this document.
+          let already = null;
+          try { already = sessionStorage.getItem("jth-sa-reloaded"); } catch (e) {}
+          if (already) return;
+          try { sessionStorage.setItem("jth-sa-reloaded", "1"); } catch (e) {}
+          location.reload();
+        }, () => { /* denied or dismissed: leave the frame exactly as it was */ });
+      }).catch(() => {});
+    } catch (e) { /* no-op */ }
+  };
+  // A user gesture is required, so hang it off the first interaction.
+  window.addEventListener("click", askForStorage, { once: true, capture: true });
+  window.addEventListener("keydown", askForStorage, { once: true, capture: true });
+
+  // ── Diagnose-login channel (v3.1) ────────────────────────────────────────
+  // The dashboard cannot read anything from this cross-origin frame, which
+  // left the user hand-running console snippets to work out why a login was
+  // not sticking. This answers a single explicit request with the SHAPE of
+  // storage — key and cookie NAMES only, never values, never page content.
+  window.addEventListener("message", (e) => {
+    try {
+      if (!e.data || e.data.type !== "jth-sws-diag-req") return;
+      if (!/^https?:\/\/(dashboard\.jerrytrade\.com|localhost(:\d+)?|127\.0\.0\.1(:\d+)?)$/
+            .test(e.origin)) return;
+      const names = (store) => {
+        try { return Object.keys(store).slice(0, 60); } catch (err) { return ["<blocked: " + err.name + ">"]; }
+      };
+      const cookieNames = () => {
+        try {
+          return document.cookie.split(";").map((s) => s.trim().split("=")[0])
+            .filter(Boolean).slice(0, 60);
+        } catch (err) { return ["<blocked: " + err.name + ">"]; }
+      };
+      const send = (storageAccess) => {
+        window.parent.postMessage({
+          type: "jth-sws-diag",
+          href: location.origin + location.pathname,
+          framed: window.top !== window,
+          cookieEnabled: navigator.cookieEnabled,
+          storageAccess,                       // true / false / "unsupported"
+          cookies: cookieNames(),              // NAMES only (httpOnly ones are invisible here)
+          localStorage: names(localStorage),   // NAMES only
+          sessionStorage: names(sessionStorage),
+        }, e.origin);
+      };
+      if (document.hasStorageAccess) {
+        document.hasStorageAccess().then(send, () => send("error"));
+      } else {
+        send("unsupported");
+      }
+    } catch (err) { /* no-op */ }
+  });
 })();
 
 // Frame reload channel — same contract as the other site scripts: the
 // background worker asks affected frames to reload once after it installs
-// the cookie-header fallback, so the session applies.
+// the cookie-header fallback, so the login applies.
 try {
   chrome.runtime.onMessage.addListener((msg) => {
     if (window.top === window) return;
