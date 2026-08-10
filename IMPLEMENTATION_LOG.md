@@ -1065,3 +1065,35 @@ STILL UNVERIFIED BY ME: whether the login now persists. That needs a real
 browser, the extension loaded, and a Simply Wall St account — Cloudflare
 blocks server-side access. The diagnostic exists so the next round is driven
 by data from the user's browser instead of another guess.
+
+## v3.76 / helper v3.2 — compare the frame against a real tab
+The v3.1 diagnostic came back with real data from the user's browser:
+  storageAccess: true
+  cookies:  _hjSessionUser_44113, _hjSession_44113, IR_PI, IR_40071
+  localStorage: unleash:repository:sessionId, REACT_QUERY_OFFLINE_CACHE,
+                snowplowOutQueue_..., portfolios, unleash:repository:repo,
+                _gcl_ls, portfolio
+Readings: the Storage Access grant WORKED, so that is no longer the blocker.
+Every visible cookie is a third-party tracker (Hotjar, Impact Radius) — no
+Simply Wall St session cookie, though an httpOnly one would be invisible here
+so that is not conclusive. localStorage holds Simply Wall St's own app state
+but no auth key, which is consistent with a partitioned, anonymous session.
+
+Consistent with — not proof of. The frame cannot know what it is MISSING
+without something to compare against, so v3.2 supplies it: a normal
+simplywall.st tab records the NAMES of its keys and cookies into extension
+storage (names only, local, never transmitted), and the diagnostic reply now
+carries that snapshot plus a computed diff. The panel turns the diff into one
+of four plain-English verdicts:
+  - no snapshot yet      -> tells the user to open a normal signed-in tab first
+  - localStorage missing -> partitioned storage; NO extension can fix it
+  - cookies missing      -> cookie delivery; the helper CAN act on it
+  - nothing missing      -> not isolation; likely an httpOnly cookie refused
+                            on the request itself
+Verified all four in a browser using the user's real key names: each renders
+its own distinct verdict, zero JS errors. 27 JS + 25 helper-cookie + 64
+unittest + both verify layers.
+
+This is deliberately a diagnostic release, not a seventh blind fix. Six
+attempts have each been a plausible theory that turned out incomplete; the
+next change should be driven by which of the four verdicts comes back.

@@ -87,6 +87,13 @@ card at `chrome://extensions` (or remove + Load unpacked again).
   a Repair-session command the dashboard's TV tab can invoke, and hardens
   the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
   left alone, delete-before-set so duplicates can't form).
+- v3.2 — Simply Wall St: compares the frame against a NORMAL tab. A normal
+  simplywall.st tab now records the NAMES of the keys and cookies it can see
+  (names only, kept on this machine, never sent anywhere), so "Diagnose
+  login" can report exactly what the frame is missing. That comparison is
+  what separates a cookie-delivery problem the helper can act on from
+  localStorage partitioning, which Chrome enforces per top-level site and no
+  extension can cross.
 - v3.1 — Simply Wall St: Storage Access + a "Diagnose login" answer.
   v3.0's cookie rewrite was necessary but not sufficient — Chrome blocks
   third-party cookies by default, so the frame gets a partitioned jar and
