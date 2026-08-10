@@ -973,3 +973,33 @@ HONEST LIMIT: I cannot verify the end-to-end Google login myself — it needs a
 Simply Wall St account in a real browser with the extension loaded, and
 Cloudflare blocks server-side access. The cookie rules are unit-tested; the
 login flow needs your confirmation.
+
+## v3.74 — the real reason none of v3.73a/b/c/d ever reached the browser
+Reported three times: "I don't see the Helper chip." It was merged, CI-green
+and deployed each time. The cause was cache busting, not deployment.
+
+`build_frontend.js` stamped every asset URL with APP_VERSION:
+`dist/app-cards.min.js?v=3.73`. v3.73, v3.73a, v3.73b, v3.73c and v3.73d ALL
+carried APP_VERSION "3.73", so the URL never changed and every browser kept
+serving the bundle it cached on the FIRST v3.73 deploy. The user got the
+Simply Wall St tab (shipped in v3.73) and none of the follow-ups — and no
+amount of merging or redeploying could ever have reached them.
+
+Fixed at the root: the `?v=` marker is now an 8-char sha1 of each built
+file's own bytes. Change a file → only that file's URL changes; change
+nothing → URLs are stable, so the build stays idempotent and warm caches are
+not needlessly thrown away. A release no longer depends on remembering to
+bump a version string. Verified: hashes differ per file, a real source edit
+busts only that file, a comment-only edit correctly busts nothing (identical
+minified bytes), and two consecutive builds produce byte-identical HTML.
+
+Also fixed, found while testing: the helper chip's LABEL hard-coded "→ 2.8"
+while `LATEST` was a separate constant, so every version bump changed the
+tooltip and left the visible text stale — the exact same class of bug as the
+cache-buster (two sources of truth for one value). LATEST is now a single
+string used by both, and a string rather than a number because `3.0` as a
+Number renders as "3".
+
+Verified the chip renders alongside the earnings chip — both use
+`margin-left: auto` in the same flex row, which I had never tested together:
+no overlap at 1980px or 1180px, correct order, same row. APP_VERSION -> 3.74.

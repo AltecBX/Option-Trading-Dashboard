@@ -18201,14 +18201,17 @@ function HelperDownloadChip() {
       clearInterval(t);
     };
   }, []);
-  const LATEST = 3.0;
-  const stale = ver < LATEST;
+  // String, not a number: `3.0` as a Number renders as "3". And it is used in
+  // BOTH the label and the tooltip — the label used to hard-code its own
+  // version, so bumping the constant silently left the visible text stale.
+  const LATEST = "3.0";
+  const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
     href: "/finviz-helper.zip",
     download: true,
     title: (ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ") + `Latest is v${LATEST} (Simply Wall St login persistence + exact-URL learning). Download the zip, unzip it OVER your existing ` + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at ` + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."
-  }, "\u2913 Helper ", ver > 0 ? `v${ver}` : "—", stale ? " → 2.8" : "");
+  }, "\u2913 Helper ", ver > 0 ? `v${ver}` : "—", stale ? ` → ${LATEST}` : "");
 }
 
 // ── Simply Wall St embedded view (v3.73) ────────────────────────────────────
