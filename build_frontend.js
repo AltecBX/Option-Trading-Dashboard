@@ -93,24 +93,58 @@ try {
 }
 console.log(`dist totals: raw ${(rawTotal / 1024).toFixed(0)}K -> min ${(minTotal / 1024).toFixed(0)}K -> gz ${(gzTotal / 1024).toFixed(0)}K`);
 
-/* ── Stage 3: stamp APP_VERSION into index.html + point at dist ──────── */
+/* ── Stage 3: stamp CONTENT HASHES into index.html + point at dist ─────
+ *
+ * These `?v=` markers used to carry APP_VERSION. That silently served stale
+ * code: v3.73, v3.73a, v3.73b, v3.73c and v3.73d all stamped "3.73", so the
+ * URL never changed, so every browser kept the bundle it had cached from the
+ * FIRST v3.73 deploy — users saw none of the follow-up fixes and no amount of
+ * merging or deploying could reach them.
+ *
+ * The marker is now an 8-char hash of each file's own built bytes. Change a
+ * file and only that file's URL changes; change nothing and the URL is
+ * stable (so the build stays idempotent and caches stay warm). A release no
+ * longer depends on remembering to bump a version string.
+ */
+const crypto = require("crypto");
 const appSrc = fs.readFileSync(path.join(HERE, "app.jsx"), "utf8");
 const vm = appSrc.match(/const APP_VERSION = "([^"]+)"/);
 if (!vm) { console.error("APP_VERSION not found in app.jsx"); process.exit(1); }
-const VER = vm[1];
+const VER = vm[1];                       // still the human-facing badge
+
+const hashOf = (absPath) => {
+  try {
+    return crypto.createHash("sha1")
+      .update(fs.readFileSync(absPath)).digest("hex").slice(0, 8);
+  } catch (e) {
+    return null;                         // missing file: fall back to VER
+  }
+};
+
 let html = fs.readFileSync(path.join(HERE, "index.html"), "utf8");
-// Point local assets at their minified dist builds (idempotent).
+// Point local assets at their minified dist builds (idempotent), each tagged
+// with the hash of the built file it actually points at.
 for (const f of SERVED_JS) {
   const base = f.replace(/\.js$/, "");
+  const h = hashOf(path.join(DIST, `${base}.min.js`)) || VER;
   html = html.replace(
     new RegExp(`(src=")(?:dist/)?${base}(?:\\.min)?\\.js(\\?v=[^"]*)?(")`, "g"),
-    `$1dist/${base}.min.js?v=${VER}$3`);
+    `$1dist/${base}.min.js?v=${h}$3`);
 }
+const cssHash = hashOf(path.join(DIST, "styles.min.css")) || VER;
 html = html.replace(
   /(href=")(?:dist\/)?styles(?:\.min)?\.css(\?v=[^"]*)?(")/g,
-  `$1dist/styles.min.css?v=${VER}$3`);
-// Stamp every remaining ?v= marker (config.js, favicons, manifest).
-html = html.replace(/\?v=\d+\.\d+(\.\d+)?(-[a-z]+)?/g, `?v=${VER}`);
+  `$1dist/styles.min.css?v=${cssHash}$3`);
+
+// Remaining ?v= markers are non-dist assets (config.js, favicons, manifest).
+// Hash them from their own source file where we can find one, so they bust
+// independently too; anything unresolvable keeps the app version.
+html = html.replace(/(?:src|href)="([^"?]+)\?v=[^"]*"/g, (m, asset) => {
+  if (asset.startsWith("dist/")) return m;      // already handled above
+  const h = hashOf(path.join(HERE, asset)) || VER;
+  return m.replace(/\?v=[^"]*"/, `?v=${h}"`);
+});
+
 fs.writeFileSync(path.join(HERE, "index.html"), html);
-console.log(`index.html stamped to v${VER}, local assets -> dist/*.min.*`);
+console.log(`index.html stamped with content hashes (app v${VER}), local assets -> dist/*.min.*`);
 process.exit(0);
