@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.0";
+  const LATEST = "3.1";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13698,8 +13698,8 @@ function HelperDownloadChip() {
 function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
-  const SWS_LOGIN_VER = 3.0;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.0";      // string: 3.0 as a Number renders as "3"
+  const SWS_LOGIN_VER = 3.1;     // login actually PERSISTS from here on
+  const SWS_LATEST = "3.1";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13709,12 +13709,39 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
   // for a panel whose whole job is to follow the ticker.
   const [srcSym, setSrcSym] = useState(null);
   const [learned, setLearned] = useState(() => SWST.learned());
+  const [diag, setDiag] = useState(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const frameRef = useRef(null);
   const [resolveErr, setResolveErr] = useState(null);
   const [resolving, setResolving] = useState(false);
   const [nonce, setNonce] = useState(0);
   const frameSym = useRef(null);
   const tickerRef = useRef(ticker); tickerRef.current = ticker;
   const followRef = useRef(follow); followRef.current = follow;
+
+  // Diagnostic reply from inside the frame (helper v3.1+).
+  useEffect(() => {
+    const onDiag = (e) => {
+      if (!/^https:\/\/(www\.)?simplywall\.st$/.test(e.origin)) return;
+      if (!e.data || e.data.type !== "jth-sws-diag") return;
+      setDiag(e.data); setDiagBusy(false);
+    };
+    window.addEventListener("message", onDiag);
+    return () => window.removeEventListener("message", onDiag);
+  }, []);
+
+  const runDiag = () => {
+    setDiag(null); setDiagBusy(true);
+    try {
+      frameRef.current.contentWindow.postMessage(
+        { type: "jth-sws-diag-req" }, "https://simplywall.st");
+    } catch (err) { setDiagBusy(false); }
+    // No reply means the helper is too old to answer.
+    setTimeout(() => setDiagBusy(b => {
+      if (b) setDiag({ noReply: true });
+      return false;
+    }), 2500);
+  };
 
   // Watch for the helper appearing/updating without a page reload.
   useEffect(() => {
@@ -13834,6 +13861,10 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
             ✓ learned
           </button>
         )}
+        <button className="fv-chip" onClick={runDiag} disabled={diagBusy}
+                title="Ask the embedded page what it can actually see — cookie and storage KEY NAMES only, never values or page content. This is what decides whether a login that won't stick is a cookie problem (fixable) or a partitioned-localStorage one (not fixable from here).">
+          {diagBusy ? "Checking…" : "Diagnose login"}
+        </button>
         <span className="fv-sep" />
         {[["Stocks", "/stocks", "Simply Wall St's stock screener and browse pages."],
           ["Markets", "/markets/us", "US market overview — sector performance and valuation."],
@@ -13879,8 +13910,35 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
           <button className="rr-btn" onClick={() => resolve(ticker, Date.now())}>Load {ticker}</button>
         </div>
       )}
+      {diag && (
+        <div className="sws-diag">
+          {diag.noReply ? (
+            <div>
+              No reply from the embedded page — that means <b>Site Helper v3.1+</b> isn't
+              installed yet (older versions can't answer). Update from the ⤓ Helper chip and try again.
+            </div>
+          ) : (
+            <React.Fragment>
+              <div className="sws-diag-verdict">
+                {diag.localStorage && diag.localStorage.length === 0 && diag.cookies && diag.cookies.length === 0
+                  ? "The frame can see NO cookies and NO stored keys — its storage is being partitioned or blocked. "
+                  : (diag.storageAccess === true
+                     ? "The frame HAS storage access. If the login still drops, the token is likely kept somewhere this grant doesn't cover. "
+                     : "The frame does NOT have storage access, so a login can't persist here. ")}
+                <span className="sws-dim">storage access: {String(diag.storageAccess)} · cookies enabled: {String(diag.cookieEnabled)}</span>
+              </div>
+              <pre className="sws-diag-pre">{JSON.stringify(diag, null, 1)}</pre>
+              <button className="rr-btn"
+                      onClick={() => { try { navigator.clipboard.writeText(JSON.stringify(diag, null, 2)); } catch (e) {} }}>
+                Copy result
+              </button>
+              <button className="rr-btn" onClick={() => setDiag(null)}>Close</button>
+            </React.Fragment>
+          )}
+        </div>
+      )}
       {src && (
-        <iframe key={`${src}#${nonce}`} className={`fv-frame${stale ? " sws-stale" : ""}`} src={src}
+        <iframe ref={frameRef} key={`${src}#${nonce}`} className={`fv-frame${stale ? " sws-stale" : ""}`} src={src}
                 title="Simply Wall St"
                 referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write; fullscreen" />
       )}

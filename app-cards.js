@@ -18204,7 +18204,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.0";
+  const LATEST = "3.1";
   const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
@@ -18236,8 +18236,8 @@ function SWSTPanel({
   apiFetch
 }) {
   const SWS_NEED_VER = 2.8; // renders the frame at all
-  const SWS_LOGIN_VER = 3.0; // login actually PERSISTS from here on
-  const SWS_LATEST = "3.0"; // string: 3.0 as a Number renders as "3"
+  const SWS_LOGIN_VER = 3.1; // login actually PERSISTS from here on
+  const SWS_LATEST = "3.1"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18247,6 +18247,9 @@ function SWSTPanel({
   // for a panel whose whole job is to follow the ticker.
   const [srcSym, setSrcSym] = useState(null);
   const [learned, setLearned] = useState(() => SWST.learned());
+  const [diag, setDiag] = useState(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const frameRef = useRef(null);
   const [resolveErr, setResolveErr] = useState(null);
   const [resolving, setResolving] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -18255,6 +18258,36 @@ function SWSTPanel({
   tickerRef.current = ticker;
   const followRef = useRef(follow);
   followRef.current = follow;
+
+  // Diagnostic reply from inside the frame (helper v3.1+).
+  useEffect(() => {
+    const onDiag = e => {
+      if (!/^https:\/\/(www\.)?simplywall\.st$/.test(e.origin)) return;
+      if (!e.data || e.data.type !== "jth-sws-diag") return;
+      setDiag(e.data);
+      setDiagBusy(false);
+    };
+    window.addEventListener("message", onDiag);
+    return () => window.removeEventListener("message", onDiag);
+  }, []);
+  const runDiag = () => {
+    setDiag(null);
+    setDiagBusy(true);
+    try {
+      frameRef.current.contentWindow.postMessage({
+        type: "jth-sws-diag-req"
+      }, "https://simplywall.st");
+    } catch (err) {
+      setDiagBusy(false);
+    }
+    // No reply means the helper is too old to answer.
+    setTimeout(() => setDiagBusy(b => {
+      if (b) setDiag({
+        noReply: true
+      });
+      return false;
+    }), 2500);
+  };
 
   // Watch for the helper appearing/updating without a page reload.
   useEffect(() => {
@@ -18402,7 +18435,12 @@ function SWSTPanel({
       resolve(ticker, Date.now());
     },
     title: `This panel learned ${ticker}'s real Simply Wall St address from the frame (${learned[ticker]}). Click to forget it and go back to the derived link.`
-  }, "\u2713 learned"), /*#__PURE__*/React.createElement("span", {
+  }, "\u2713 learned"), /*#__PURE__*/React.createElement("button", {
+    className: "fv-chip",
+    onClick: runDiag,
+    disabled: diagBusy,
+    title: "Ask the embedded page what it can actually see \u2014 cookie and storage KEY NAMES only, never values or page content. This is what decides whether a login that won't stick is a cookie problem (fixable) or a partitioned-localStorage one (not fixable from here)."
+  }, diagBusy ? "Checking…" : "Diagnose login"), /*#__PURE__*/React.createElement("span", {
     className: "fv-sep"
   }), [["Stocks", "/stocks", "Simply Wall St's stock screener and browse pages."], ["Markets", "/markets/us", "US market overview — sector performance and valuation."], ["Watchlist", "/user/watchlist", "Your Simply Wall St watchlist (requires login inside the frame)."], ["Portfolio", "/user/portfolio", "Your Simply Wall St portfolio (requires login inside the frame)."]].map(([l, p, tip]) => /*#__PURE__*/React.createElement("button", {
     key: l,
@@ -18440,7 +18478,26 @@ function SWSTPanel({
   }, "Showing ", /*#__PURE__*/React.createElement("b", null, srcSym), " \u2014 still switching to ", /*#__PURE__*/React.createElement("b", null, ticker), ".", /*#__PURE__*/React.createElement("button", {
     className: "rr-btn",
     onClick: () => resolve(ticker, Date.now())
-  }, "Load ", ticker)), src && /*#__PURE__*/React.createElement("iframe", {
+  }, "Load ", ticker)), diag && /*#__PURE__*/React.createElement("div", {
+    className: "sws-diag"
+  }, diag.noReply ? /*#__PURE__*/React.createElement("div", null, "No reply from the embedded page \u2014 that means ", /*#__PURE__*/React.createElement("b", null, "Site Helper v3.1+"), " isn't installed yet (older versions can't answer). Update from the \u2913 Helper chip and try again.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "sws-diag-verdict"
+  }, diag.localStorage && diag.localStorage.length === 0 && diag.cookies && diag.cookies.length === 0 ? "The frame can see NO cookies and NO stored keys — its storage is being partitioned or blocked. " : diag.storageAccess === true ? "The frame HAS storage access. If the login still drops, the token is likely kept somewhere this grant doesn't cover. " : "The frame does NOT have storage access, so a login can't persist here. ", /*#__PURE__*/React.createElement("span", {
+    className: "sws-dim"
+  }, "storage access: ", String(diag.storageAccess), " \xB7 cookies enabled: ", String(diag.cookieEnabled))), /*#__PURE__*/React.createElement("pre", {
+    className: "sws-diag-pre"
+  }, JSON.stringify(diag, null, 1)), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => {
+      try {
+        navigator.clipboard.writeText(JSON.stringify(diag, null, 2));
+      } catch (e) {}
+    }
+  }, "Copy result"), /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn",
+    onClick: () => setDiag(null)
+  }, "Close"))), src && /*#__PURE__*/React.createElement("iframe", {
+    ref: frameRef,
     key: `${src}#${nonce}`,
     className: `fv-frame${stale ? " sws-stale" : ""}`,
     src: src,

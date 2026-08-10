@@ -1025,3 +1025,43 @@ actually trying to do.
 Verified at v2.7 / v2.9 / v3.0: correct notice for each, link reads
 "Download helper v3.0", chip reads "⤓ Helper v2.7 → 3.0" and "⤓ Helper v3.0",
 notice absent at 3.0, zero JS errors.
+
+## v3.75 / helper v3.1 — Storage Access, and a diagnosis you can click
+v3.0 shipped and the login still did not stick. Then I asked the user to
+hand-run a console snippet in a specific DevTools frame context, which was an
+unreasonable thing to ask — diagnosing my own feature is not their job.
+
+Why v3.0 was not enough: SameSite=None makes a cookie ELIGIBLE to be sent
+cross-site, but Chrome blocks third-party cookies by default, so the frame is
+handed a partitioned jar and the cookie is dropped anyway. The helper tries to
+grant an exception via chrome.contentSettings.cookies, which is deprecated in
+current Chrome — it then logs "relying on SameSite upgrade only" and does
+nothing. That is the exact state a modern Chrome user lands in.
+
+1. STORAGE ACCESS (the fix candidate). sws-sync.js now calls
+   document.requestStorageAccess() on the first click/keydown in the frame —
+   the standards-blessed way for embedded content to get its own first-party
+   cookies. v2.5 shipped this app-wide and v2.7 removed it because it reloaded
+   the frame on EVERY click, losing unsaved TradingView work. This cannot
+   repeat that: simplywall.st only, `asked` set BEFORE the async call so rapid
+   clicks can't double-fire, at most one reload ever (sessionStorage guard),
+   and no reload at all when access was already granted.
+2. DIAGNOSE LOGIN (the data). A button in the panel asks the frame what it can
+   actually see and renders the answer with a Copy button. Key and cookie
+   NAMES only — never values, never page content — and the frame only answers
+   a request from a dashboard origin. It distinguishes the two candidate
+   causes: no cookies + no keys = partitioned/blocked storage; storage access
+   granted but login still dropping = the token lives somewhere the grant
+   doesn't cover (partitioned localStorage), which no extension can fix.
+   A helper older than 3.1 cannot answer, and the panel says exactly that
+   rather than showing an empty result.
+
+Verified end-to-end in a browser against the REAL sws-sync.js served into the
+frame: the diagnostic round-trips and renders a verdict + JSON + Copy; with no
+script in the frame the panel shows the "helper too old" guidance. Zero JS
+errors on both paths. 27 JS + 25 helper-cookie + 64 unittest + verify layers.
+
+STILL UNVERIFIED BY ME: whether the login now persists. That needs a real
+browser, the extension loaded, and a Simply Wall St account — Cloudflare
+blocks server-side access. The diagnostic exists so the next round is driven
+by data from the user's browser instead of another guess.
