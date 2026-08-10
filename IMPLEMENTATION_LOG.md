@@ -937,3 +937,39 @@ clears the store and falls back to the derived URL. Zero JS errors.
 NOTE: I cannot confirm AMZN's true slug from here — Cloudflare blocks every
 server-side fetch of their stock pages. `amazoncom` is a better derivation,
 not a verified fact. The learning mechanism is what makes it not matter.
+
+## v3.73d / helper v3.0 — the framed Simply Wall St login didn't stick
+Reported: AMZN now resolves correctly, but signing in with Google inside the
+frame works and then the page asks to log in again on scroll.
+
+Cause, and it was my omission. The helper has THREE cookie mechanisms and I
+only gave Simply Wall St the first:
+  1. third-party cookie exception (contentSettings)  — SWS had it
+  2. SameSite=None rewrite                            — SWS did NOT
+  3. cookie-header fallback for browsers that strip
+     frame cookies entirely (Comet/Brave)             — SWS did NOT
+Their session cookie is SameSite-restricted, so the browser refused to send
+it from inside the frame: the login succeeded, and every subsequent request
+arrived anonymous. I had left SWS out of (2) out of caution after the
+TradingView incident, but TV is the special case (surgical allow-list); the
+blanket rewrite is exactly what makes finviz and unusualwhales logins work.
+
+helper v3.0: simplywall.st joins REWRITE_DOMAINS, gets cookie rule id 9004,
+and is added to the webRequest watch + reload channel. Its Cloudflare cookies
+are explicitly NOT rewritten — SKIP_COOKIE already excludes cf_clearance /
+__cf* / _cfuvid, which are what let the page load at all.
+
+VERSION TRAP: helper versions are compared with parseFloat, so "2.10" reads
+as 2.1 — BELOW 2.9. 2.9 is therefore followed by 3.0, not 2.10.
+
+New permanent test `test_helper_cookies.js` (wired into npm test) runs the
+REAL background.js in a vm against a stub extension API and asserts both
+directions for every embedded site: session cookies ARE rewritten, anti-abuse
+and Cloudflare cookies are NOT, partitioned and already-cross-site copies are
+skipped, TradingView keeps its allow-list and stays out of REWRITE_DOMAINS,
+every site has both mechanisms, and rule ids are unique. 25 assertions.
+
+HONEST LIMIT: I cannot verify the end-to-end Google login myself — it needs a
+Simply Wall St account in a real browser with the extension loaded, and
+Cloudflare blocks server-side access. The cookie rules are unit-tested; the
+login flow needs your confirmation.

@@ -18201,13 +18201,13 @@ function HelperDownloadChip() {
       clearInterval(t);
     };
   }, []);
-  const LATEST = 2.9;
+  const LATEST = 3.0;
   const stale = ver < LATEST;
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
     href: "/finviz-helper.zip",
     download: true,
-    title: (ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ") + `Latest is v${LATEST} (Simply Wall St + exact-URL learning). Download the zip, unzip it OVER your existing ` + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at ` + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."
+    title: (ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ") + `Latest is v${LATEST} (Simply Wall St login persistence + exact-URL learning). Download the zip, unzip it OVER your existing ` + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at ` + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."
   }, "\u2913 Helper ", ver > 0 ? `v${ver}` : "—", stale ? " → 2.8" : "");
 }
 
@@ -18445,7 +18445,7 @@ function SWSTPanel({
   }), /*#__PURE__*/React.createElement("div", {
     className: "fv-hint",
     title: "Simply Wall St sends X-Frame-Options: SAMEORIGIN, so the Site Helper extension must remove it on frame responses \u2014 the same mechanism that lets TradingView and Unusual Whales render here. The page itself is fetched by your own browser with your own session."
-  }, "Real simplywall.st inside the dashboard \u2014 needs Site Helper v2.8+. Log in inside the frame once and your account, watchlist and portfolio are all yours."));
+  }, "Real simplywall.st inside the dashboard \u2014 needs Site Helper v2.8+ to render, and v3.0+ for the Google/email login to STICK (v3.0 lets the frame send their session cookie). Log in inside the frame once and your account, watchlist and portfolio are all yours."));
 }
 
 // ── TradingView embedded view (v3.33) ───────────────────────────────────────
