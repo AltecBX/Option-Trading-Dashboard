@@ -13678,7 +13678,7 @@ function HelperDownloadChip() {
               + `Latest is v${LATEST} (Simply Wall St login persistence + exact-URL learning). Download the zip, unzip it OVER your existing `
               + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at `
               + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."}>
-      ⤓ Helper {ver > 0 ? `v${ver}` : "—"}{stale ? ` → ${LATEST}` : ""}
+      ⤓ Helper {ver > 0 ? `v${SWST.helperVersionLabel() || ver}` : "—"}{stale ? ` → ${LATEST}` : ""}
     </a>
   );
 }
@@ -13697,7 +13697,9 @@ function HelperDownloadChip() {
 // exactly as if you had typed the address.
 function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
-  const SWS_NEED_VER = 2.8;
+  const SWS_NEED_VER = 2.8;      // renders the frame at all
+  const SWS_LOGIN_VER = 3.0;     // login actually PERSISTS from here on
+  const SWS_LATEST = "3.0";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13840,15 +13842,25 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
           <button key={l} className="fv-chip" onClick={() => setSrc(SWST.url(p))} title={tip}>{l}</button>
         ))}
       </div>
-      {helperVer < SWS_NEED_VER && (
+      {helperVer < SWS_LOGIN_VER && (
         <div className="sws-err" role="status">
-          Simply Wall St sends <code>X-Frame-Options</code>, so it needs <b>Site Helper v2.8+</b>
-          {helperVer > 0 ? ` (you have v${helperVer})` : " (not detected)"} to render here.
+          {helperVer < SWS_NEED_VER ? (
+            <React.Fragment>
+              Simply Wall St sends <code>X-Frame-Options</code>, so it needs <b>Site Helper v{SWS_LATEST}</b>
+              {helperVer > 0 ? ` (you have v${SWST.helperVersionLabel() || helperVer})` : " (not detected)"} to render here and to keep you logged in.
+            </React.Fragment>
+          ) : (
+            <React.Fragment>
+              You're on <b>Site Helper v{SWST.helperVersionLabel() || helperVer}</b>, so the page renders — but a Google/email login
+              here will <b>not stick</b>: Simply Wall St's session cookie is SameSite-restricted and the
+              browser won't send it from inside a frame until <b>v{SWS_LATEST}</b> allows it.
+            </React.Fragment>
+          )}
           <a className="fv-dl" href="/finviz-helper.zip" download
-             title="Download the zip, unzip it over your existing helper folder, then click the ↻ reload icon on 'JerryTrade Site Helper' at chrome://extensions. Same extension that already powers the Finviz, TradingView and Unusual Whales tabs.">
-            Download helper v2.8
+             title={`Downloads Site Helper v${SWS_LATEST}. Unzip it OVER your existing finviz-helper folder (replace the files), then click the ↻ reload icon on 'JerryTrade Site Helper' at chrome://extensions, then sign in inside the frame once. Same extension that already powers the Finviz, TradingView and Unusual Whales tabs.`}>
+            Download helper v{SWS_LATEST}
           </a>
-          <span className="sws-dim">then unzip over the old folder and hit ↻ reload at chrome://extensions</span>
+          <span className="sws-dim">unzip over the old folder → ↻ reload at chrome://extensions → sign in again</span>
         </div>
       )}
       {resolving && (!src || stale) && (

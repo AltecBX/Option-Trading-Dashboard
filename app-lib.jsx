@@ -308,6 +308,11 @@ const TVIEW = {
   helperVersion() {
     try { return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0"); } catch (e) { return 0; }
   },
+  // The RAW string for display: helperVersion() parses to a Number for
+  // comparison, and "3.0" as a Number renders as "3".
+  helperVersionLabel() {
+    try { return document.documentElement.dataset.finvizHelperVersion || ""; } catch (e) { return ""; }
+  },
   // Learned paths (v3.73c). The server can only DERIVE a Simply Wall St URL —
   // their sector/company slugs are their own and their pages can't be fetched
   // server-side to verify a guess (Cloudflare). When the frame reports the
@@ -363,6 +368,11 @@ const SWST = {
   // helper — it reads the version the extension stamps on <html>.
   helperVersion() {
     try { return parseFloat(document.documentElement.dataset.finvizHelperVersion || "0"); } catch (e) { return 0; }
+  },
+  // The RAW string for display: helperVersion() parses to a Number for
+  // comparison, and "3.0" as a Number renders as "3".
+  helperVersionLabel() {
+    try { return document.documentElement.dataset.finvizHelperVersion || ""; } catch (e) { return ""; }
   },
   // Learned paths (v3.73c). The server can only DERIVE a Simply Wall St URL —
   // their sector/company slugs are their own and their pages can't be fetched

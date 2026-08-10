@@ -1003,3 +1003,25 @@ Number renders as "3".
 Verified the chip renders alongside the earnings chip — both use
 `margin-left: auto` in the same flex row, which I had never tested together:
 no overlap at 1980px or 1180px, correct order, same row. APP_VERSION -> 3.74.
+
+## v3.74a — the panel advertised the wrong helper version
+With v3.74 deployed the chip finally appeared, and it exposed that the
+panel's banner still read "needs Site Helper v2.8+ ... Download helper v2.8"
+while the zip it links to is v3.0. A user on v2.7 was told to install 2.8 —
+which renders the frame but does NOT fix the login, the thing they were
+actually trying to do.
+
+- Two named thresholds instead of one: SWS_NEED_VER (2.8, renders at all) and
+  SWS_LOGIN_VER (3.0, login persists). The banner now shows the honest state
+  for each: below 2.8 "needed to render here AND to keep you logged in";
+  between 2.8 and 3.0 an explicit "the page renders, but a login here will
+  NOT stick — their session cookie is SameSite-restricted and the browser
+  won't send it from inside a frame until v3.0". It clears at 3.0.
+- The download link and label read from one SWS_LATEST string.
+- Version LABELS now use SWST.helperVersionLabel() — the raw dataset string —
+  because helperVersion() parses to a Number for comparison and "3.0" as a
+  Number renders as "3" (the chip read "⤓ Helper v3").
+
+Verified at v2.7 / v2.9 / v3.0: correct notice for each, link reads
+"Download helper v3.0", chip reads "⤓ Helper v2.7 → 3.0" and "⤓ Helper v3.0",
+notice absent at 3.0, zero JS errors.
