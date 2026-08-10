@@ -18211,7 +18211,7 @@ function HelperDownloadChip() {
     href: "/finviz-helper.zip",
     download: true,
     title: (ver > 0 ? `Site Helper v${ver} is installed. ` : "No Site Helper detected. ") + `Latest is v${LATEST} (Simply Wall St login persistence + exact-URL learning). Download the zip, unzip it OVER your existing ` + `finviz-helper folder, then click the \u21bb reload icon on "JerryTrade Site Helper" at ` + "chrome://extensions. The extension is what lets these four sites render inside the dashboard."
-  }, "\u2913 Helper ", ver > 0 ? `v${ver}` : "—", stale ? ` → ${LATEST}` : "");
+  }, "\u2913 Helper ", ver > 0 ? `v${SWST.helperVersionLabel() || ver}` : "—", stale ? ` → ${LATEST}` : "");
 }
 
 // ── Simply Wall St embedded view (v3.73) ────────────────────────────────────
@@ -18235,7 +18235,9 @@ function SWSTPanel({
   onResearch1m,
   apiFetch
 }) {
-  const SWS_NEED_VER = 2.8;
+  const SWS_NEED_VER = 2.8; // renders the frame at all
+  const SWS_LOGIN_VER = 3.0; // login actually PERSISTS from here on
+  const SWS_LATEST = "3.0"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18407,17 +18409,17 @@ function SWSTPanel({
     className: "fv-chip",
     onClick: () => setSrc(SWST.url(p)),
     title: tip
-  }, l))), helperVer < SWS_NEED_VER && /*#__PURE__*/React.createElement("div", {
+  }, l))), helperVer < SWS_LOGIN_VER && /*#__PURE__*/React.createElement("div", {
     className: "sws-err",
     role: "status"
-  }, "Simply Wall St sends ", /*#__PURE__*/React.createElement("code", null, "X-Frame-Options"), ", so it needs ", /*#__PURE__*/React.createElement("b", null, "Site Helper v2.8+"), helperVer > 0 ? ` (you have v${helperVer})` : " (not detected)", " to render here.", /*#__PURE__*/React.createElement("a", {
+  }, helperVer < SWS_NEED_VER ? /*#__PURE__*/React.createElement(React.Fragment, null, "Simply Wall St sends ", /*#__PURE__*/React.createElement("code", null, "X-Frame-Options"), ", so it needs ", /*#__PURE__*/React.createElement("b", null, "Site Helper v", SWS_LATEST), helperVer > 0 ? ` (you have v${SWST.helperVersionLabel() || helperVer})` : " (not detected)", " to render here and to keep you logged in.") : /*#__PURE__*/React.createElement(React.Fragment, null, "You're on ", /*#__PURE__*/React.createElement("b", null, "Site Helper v", SWST.helperVersionLabel() || helperVer), ", so the page renders \u2014 but a Google/email login here will ", /*#__PURE__*/React.createElement("b", null, "not stick"), ": Simply Wall St's session cookie is SameSite-restricted and the browser won't send it from inside a frame until ", /*#__PURE__*/React.createElement("b", null, "v", SWS_LATEST), " allows it."), /*#__PURE__*/React.createElement("a", {
     className: "fv-dl",
     href: "/finviz-helper.zip",
     download: true,
-    title: "Download the zip, unzip it over your existing helper folder, then click the \u21BB reload icon on 'JerryTrade Site Helper' at chrome://extensions. Same extension that already powers the Finviz, TradingView and Unusual Whales tabs."
-  }, "Download helper v2.8"), /*#__PURE__*/React.createElement("span", {
+    title: `Downloads Site Helper v${SWS_LATEST}. Unzip it OVER your existing finviz-helper folder (replace the files), then click the ↻ reload icon on 'JerryTrade Site Helper' at chrome://extensions, then sign in inside the frame once. Same extension that already powers the Finviz, TradingView and Unusual Whales tabs.`
+  }, "Download helper v", SWS_LATEST), /*#__PURE__*/React.createElement("span", {
     className: "sws-dim"
-  }, "then unzip over the old folder and hit \u21BB reload at chrome://extensions")), resolving && (!src || stale) && /*#__PURE__*/React.createElement("div", {
+  }, "unzip over the old folder \u2192 \u21BB reload at chrome://extensions \u2192 sign in again")), resolving && (!src || stale) && /*#__PURE__*/React.createElement("div", {
     className: "fv-hint",
     role: "status"
   }, "Resolving the Simply Wall St page for ", ticker, "\u2026"), resolveErr && (!src || stale) && /*#__PURE__*/React.createElement("div", {
