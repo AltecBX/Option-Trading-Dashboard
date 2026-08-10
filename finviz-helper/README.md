@@ -87,6 +87,18 @@ card at `chrome://extensions` (or remove + Load unpacked again).
   a Repair-session command the dashboard's TV tab can invoke, and hardens
   the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
   left alone, delete-before-set so duplicates can't form).
+- v3.0 — Simply Wall St LOGIN persistence. v2.8/2.9 could render the site
+  but a Google/email login evaporated on the next request: their session
+  cookie is SameSite-restricted, so the browser refused to send it from
+  inside the frame. simplywall.st now gets the same SameSite=None rewrite and
+  cookie-header fallback that finviz and unusualwhales already had. Its
+  Cloudflare cookies (cf_clearance, __cf*, _cfuvid) are explicitly NOT
+  rewritten — those are what let the page load at all.
+  (Numbering note: 2.10 would compare as 2.1 under parseFloat, so 2.9 is
+  followed by 3.0.)
+- v2.9 — Simply Wall St exact-URL learning: sws-sync.js reports the page
+  path with the ticker so the dashboard can remember a company's real
+  address instead of deriving one. Path only; no page content is read.
 - v2.8 — Simply Wall St support: their pages send
   `X-Frame-Options: SAMEORIGIN`, so the same sub-frame header rule that
   already covers Finviz/TradingView/Unusual Whales now covers

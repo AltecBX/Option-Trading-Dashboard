@@ -66,7 +66,7 @@ function applyCookieException() {
 chrome.runtime.onInstalled.addListener(applyCookieException);
 chrome.runtime.onStartup.addListener(applyCookieException);
 
-// ── 2) SameSite upgrade — finviz + unusualwhales ONLY ───────────────────────
+// ── 2) SameSite upgrade — finviz + unusualwhales + simplywall.st ───────────
 // v2.2: tradingview.com is deliberately EXCLUDED. Rewriting TV's cookies
 // (v2.0/2.1) corrupted their anti-abuse/CSRF cookie state and produced
 // duplicate partitioned/unpartitioned copies — TV's backend then errored on
@@ -74,7 +74,14 @@ chrome.runtime.onStartup.addListener(applyCookieException);
 // rewriting. Additional safety everywhere: never touch known anti-abuse
 // cookies, never touch partitioned cookies, and delete-before-set so a
 // rewrite can never create a duplicate.
-const REWRITE_DOMAINS = ["finviz.com", "unusualwhales.com"];
+// v3.0: simplywall.st JOINS the rewrite. Without it a framed login appears to
+// succeed and then evaporates on the next request — their session cookie is
+// SameSite-restricted, so the browser refuses to send it from inside the
+// frame. This is the same treatment finviz and unusualwhales already get.
+// Their Cloudflare cookies are NOT touched: SKIP_COOKIE already excludes
+// cf_clearance / __cf* / _cfuvid, so the clearance that lets the page load at
+// all is left exactly as issued.
+const REWRITE_DOMAINS = ["finviz.com", "unusualwhales.com", "simplywall.st"];
 const SKIP_COOKIE = /^(cf_clearance|__cf|_cfuvid|datadome|__ddg|_px|_dd_s|__stripe)/i;
 // TradingView (v2.3): SURGICAL allow-list. Blanket rewriting corrupted TV's
 // anti-abuse cookie state (the 'Back before you know it' incident), but with
@@ -169,7 +176,7 @@ chrome.runtime.onInstalled.addListener(sweepExistingCookies);
 // in extension storage), the header rule is installed, and the logged-out
 // frame is reloaded once. In Chrome the browser attaches cookies natively,
 // the observer sees them, and none of this ever activates.
-const COOKIE_RULE_IDS = { "finviz.com": 9001, "tradingview.com": 9002, "unusualwhales.com": 9003 };
+const COOKIE_RULE_IDS = { "finviz.com": 9001, "tradingview.com": 9002, "unusualwhales.com": 9003, "simplywall.st": 9004 };
 const DASH_ORIGINS = ["https://dashboard.jerrytrade.com", "http://localhost", "http://127.0.0.1"];
 const INJECT = {};   // domain -> true once the browser was SEEN dropping cookies
 
@@ -280,7 +287,7 @@ if (chrome.webRequest && chrome.webRequest.onSendHeaders) {
       });
     } catch (e) { /* no-op */ }
   },
-  { urls: ["*://*.finviz.com/*", "*://*.tradingview.com/*", "*://*.unusualwhales.com/*"],
+  { urls: ["*://*.finviz.com/*", "*://*.tradingview.com/*", "*://*.unusualwhales.com/*", "*://*.simplywall.st/*"],
     types: ["sub_frame"] },
   ["requestHeaders", "extraHeaders"]);
 }
@@ -336,7 +343,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
   if (msg && msg.type === "jth-clear-cookies"
-      && ["tradingview.com", "finviz.com", "unusualwhales.com"].includes(msg.domain)) {
+      && ["tradingview.com", "finviz.com", "unusualwhales.com", "simplywall.st"].includes(msg.domain)) {
     clearDomainCookies(msg.domain, (n) => {
       diag("clear-cookies", { domain: msg.domain, cleared: n });
       scheduleCookieRuleRefresh("cleared");
