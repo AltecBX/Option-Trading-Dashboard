@@ -1097,3 +1097,32 @@ unittest + both verify layers.
 This is deliberately a diagnostic release, not a seventh blind fix. Six
 attempts have each been a plausible theory that turned out incomplete; the
 next change should be driven by which of the four verdicts comes back.
+
+## v3.77 / helper v3.3 — the comparison never got a baseline
+Second diagnostic came back with `topTab: null` and `missingVsTopTab: null`,
+so no verdict could be computed. The reply DID carry those two fields, which
+only exist in v3.2's script — so the helper was current and the snapshot
+simply never got written.
+
+v3.2 snapshotted only on `load` + a 6s timer. That misses the common cases: a
+simplywall.st tab already open before the update, or a sign-in minutes after
+load. It could report "no snapshot yet" indefinitely.
+
+- The snapshot now also fires on focus, visibilitychange, pagehide and every
+  30s while visible. Re-snapshotting costs a few key names and always
+  overwrites with the latest view.
+- When there is still no snapshot, the panel now says so plainly AND offers
+  an "Open a normal tab to compare" button, instead of only instructing.
+
+New permanent test `test_helper_swssync.js` (in npm test), running the REAL
+content script under a fake DOM — 13 assertions covering the parts with the
+widest blast radius, since this script also runs in the user's ordinary
+simplywall.st tabs:
+  - top-level tabs write a snapshot of cookie/localStorage/sessionStorage
+    NAMES, and re-snapshot on focus and on visibilitychange
+  - NO cookie value and NO localStorage value ever reaches storage (the
+    privacy claim this feature rests on, asserted directly)
+  - a top-level tab never posts to a parent
+  - a framed tab answers a dashboard request with the snapshot AND a correct
+    diff (the verdict is only as good as this diff)
+  - a request from a foreign origin is ignored

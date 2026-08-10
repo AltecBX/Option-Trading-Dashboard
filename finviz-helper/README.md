@@ -87,6 +87,10 @@ card at `chrome://extensions` (or remove + Load unpacked again).
   a Repair-session command the dashboard's TV tab can invoke, and hardens
   the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
   left alone, delete-before-set so duplicates can't form).
+- v3.3 — Simply Wall St: the normal-tab snapshot now also fires on focus,
+  on becoming visible, on page-hide and every 30s, not just at load — a tab
+  that was already open before the update, or a sign-in that happens minutes
+  later, is captured too. (v3.2 could report "no snapshot yet" forever.)
 - v3.2 — Simply Wall St: compares the frame against a NORMAL tab. A normal
   simplywall.st tab now records the NAMES of the keys and cookies it can see
   (names only, kept on this machine, never sent anywhere), so "Diagnose
