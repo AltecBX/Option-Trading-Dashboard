@@ -18204,7 +18204,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.5";
+  const LATEST = "3.6";
   const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
@@ -18237,7 +18237,7 @@ function SWSTPanel({
 }) {
   const SWS_NEED_VER = 2.8; // renders the frame at all
   const SWS_LOGIN_VER = 3.1; // login actually PERSISTS from here on
-  const SWS_LATEST = "3.5"; // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.6"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18490,7 +18490,8 @@ function SWSTPanel({
     // comparison that this makes unnecessary.
     if (a && a.ok) {
       if (!a.authish || a.authish.length === 0) {
-        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Simply Wall St doesn't use cookies for login."), " The browser holds", " ", a.total, " cookie", a.total === 1 ? "" : "s", " for their domain \u2014 analytics and Cloudflare only \u2014 even while you're signed in in a normal tab. Their session lives in ", /*#__PURE__*/React.createElement("b", null, "localStorage"), ", and Chrome partitions localStorage per top-level site, so the copy inside this frame is a different, empty one.", /*#__PURE__*/React.createElement("div", {
+        const mk = diag.mirror && diag.mirror.keys || [];
+        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Simply Wall St doesn't use cookies for login"), " \u2014 so the helper", /*#__PURE__*/React.createElement("b", null, " mirrors the session instead"), " (v3.6+). The browser holds", " ", a.total, " cookie", a.total === 1 ? "" : "s", " for their domain \u2014 analytics and Cloudflare only \u2014 even while you're signed in in a normal tab. Their session lives in ", /*#__PURE__*/React.createElement("b", null, "localStorage"), ", and Chrome partitions localStorage per top-level site, so the copy inside this frame is a different, empty one.", /*#__PURE__*/React.createElement("div", {
           style: {
             marginTop: 6
           }
@@ -18498,7 +18499,12 @@ function SWSTPanel({
           style: {
             marginTop: 6
           }
-        }, "The one lever that exists is a Chrome setting you control:", " ", /*#__PURE__*/React.createElement("code", null, "chrome://flags/#third-party-storage-partitioning"), " \u2192 ", /*#__PURE__*/React.createElement("b", null, "Disabled"), " ", "\u2192 relaunch. That turns off third-party storage partitioning browser-wide, so the frame shares storage with your normal tab. It's a global privacy trade-off, and newer Chrome builds may have removed the flag \u2014 in which case the managed-policy equivalent is", " ", /*#__PURE__*/React.createElement("code", null, "ThirdPartyStoragePartitioningBlockedForOrigins"), "."));
+        }, mk.length ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Mirror is active \u2014 ", mk.length, " key", mk.length === 1 ? "" : "s", " available."), " ", "The extension reads your session in a normal simplywall.st tab and writes it into this frame's isolated store (same site, same machine, never transmitted). If the frame still shows signed out, press Reload \u2014 and make sure a normal tab is signed in, since that tab is the source.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Nothing mirrored yet."), " Open Simply Wall St in a normal tab, sign in there and click that tab \u2014 the helper copies the session from it into this frame within a few seconds. That tab is the source, so it has to be signed in.")), /*#__PURE__*/React.createElement("div", {
+          style: {
+            marginTop: 6
+          },
+          className: "sws-dim"
+        }, "If mirroring can't work on your setup, the browser-level alternative is", " ", /*#__PURE__*/React.createElement("code", null, "chrome://flags/#third-party-storage-partitioning"), " \u2192 Disabled \u2192 relaunch \u2014 a global privacy trade-off, and newer Chrome builds may have removed it."));
       }
       if (a.crossSiteReady === 0) {
         return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "A login cookie exists but can't be sent from a frame."), " ", a.authish.map(c => c.name).slice(0, 4).join(", "), " \u2014 none is", " ", /*#__PURE__*/React.createElement("code", null, "SameSite=None"), ", so the browser withholds it here. The helper rewrites these on sign-in; sign in again inside the frame and re-check.");

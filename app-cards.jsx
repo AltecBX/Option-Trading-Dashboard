@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.5";
+  const LATEST = "3.6";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13699,7 +13699,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
   const SWS_LOGIN_VER = 3.1;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.5";      // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.6";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13928,8 +13928,10 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                   // comparison that this makes unnecessary.
                   if (a && a.ok) {
                     if (!a.authish || a.authish.length === 0) {
+                      const mk = (diag.mirror && diag.mirror.keys) || [];
                       return <React.Fragment>
-                        <b>Simply Wall St doesn't use cookies for login.</b> The browser holds
+                        <b>Simply Wall St doesn't use cookies for login</b> — so the helper
+                        <b> mirrors the session instead</b> (v3.6+). The browser holds
                         {" "}{a.total} cookie{a.total === 1 ? "" : "s"} for their domain — analytics and
                         Cloudflare only — even while you're signed in in a normal tab. Their session
                         lives in <b>localStorage</b>, and Chrome partitions localStorage per top-level
@@ -13941,13 +13943,26 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                           cannot un-partition localStorage.
                         </div>
                         <div style={{ marginTop: 6 }}>
-                          The one lever that exists is a Chrome setting you control:
-                          {" "}<code>chrome://flags/#third-party-storage-partitioning</code> → <b>Disabled</b>
-                          {" "}→ relaunch. That turns off third-party storage partitioning browser-wide,
-                          so the frame shares storage with your normal tab. It's a global privacy
-                          trade-off, and newer Chrome builds may have removed the flag — in which case
-                          the managed-policy equivalent is
-                          {" "}<code>ThirdPartyStoragePartitioningBlockedForOrigins</code>.
+                          {mk.length ? (
+                            <React.Fragment>
+                              <b>Mirror is active — {mk.length} key{mk.length === 1 ? "" : "s"} available.</b>
+                              {" "}The extension reads your session in a normal simplywall.st tab and
+                              writes it into this frame's isolated store (same site, same machine, never
+                              transmitted). If the frame still shows signed out, press Reload — and make
+                              sure a normal tab is signed in, since that tab is the source.
+                            </React.Fragment>
+                          ) : (
+                            <React.Fragment>
+                              <b>Nothing mirrored yet.</b> Open Simply Wall St in a normal tab, sign in
+                              there and click that tab — the helper copies the session from it into this
+                              frame within a few seconds. That tab is the source, so it has to be signed in.
+                            </React.Fragment>
+                          )}
+                        </div>
+                        <div style={{ marginTop: 6 }} className="sws-dim">
+                          If mirroring can't work on your setup, the browser-level alternative is
+                          {" "}<code>chrome://flags/#third-party-storage-partitioning</code> → Disabled →
+                          relaunch — a global privacy trade-off, and newer Chrome builds may have removed it.
                         </div>
                       </React.Fragment>;
                     }
