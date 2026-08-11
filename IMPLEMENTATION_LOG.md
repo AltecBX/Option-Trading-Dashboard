@@ -1269,3 +1269,31 @@ session is neither a cookie nor a localStorage key, that is where it is, and
 the mirror would need extending to reach it.
 
 33 sws-sync + 40 helper-cookie + 27 JS + 64 unittest + verify layers.
+
+## v3.82 — the panel now names the remaining gap itself
+User confirmed helper 3.7 installed (chrome://extensions shows 3.7) while the
+dashboard still read "you have v2.7". That is expected and I should have said
+it upfront: announce.js is a content script that runs at PAGE LOAD. Reloading
+the extension orphans the running copy; the corrected one does not execute
+until the dashboard tab is refreshed. The banner now says so explicitly.
+
+Substantively: one fact is still missing after all these rounds — whether the
+user's NORMAL tab holds a session key in localStorage at all. Every diagnostic
+so far read the FRAME (signed out, so of course no auth key) and topTab was
+always null. v3.7's on-demand pull finally reads the normal tab, so the panel
+can now answer it without another guess from me:
+  - pulled keys include an auth-looking name -> mirrored; if still signed out
+    the app read storage before the key landed, so Reload
+  - pulled keys exist but NONE is auth-looking -> the session is in IndexedDB,
+    not localStorage, and mirroring localStorage cannot reach it. That is a
+    different mechanism, and the panel says so rather than implying a tweak
+    would do it.
+The auth-name test deliberately excludes the app's own non-auth keys
+(unleash, portfolios, react-query, analytics) so `portfolios` cannot be
+mistaken for a session.
+
+Deliberately NOT building IndexedDB mirroring speculatively: it is a large
+piece of work (enumerate DBs, read stores, write into the frame's partition
+via scripting frameIds) and would be wasted if the session is a localStorage
+key the pull now reaches. One Diagnose click decides it. Building on an
+unverified assumption is exactly what cost the previous rounds.
