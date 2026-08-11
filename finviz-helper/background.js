@@ -370,6 +370,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     return true;                          // async sendResponse
   }
+  // Pull the live session straight out of a normal simplywall.st tab (v3.7).
+  // The v3.6 mirror relied on that tab's content script having run, which
+  // silently fails for tabs opened before an extension update — the snapshot
+  // stayed null for three rounds because of exactly that. This reads the tab
+  // directly, on demand, so there is no injection-timing dependency at all.
+  if (msg && msg.type === "jth-sws-pull-session") {
+    try {
+      chrome.tabs.query({ url: ["https://simplywall.st/*", "https://*.simplywall.st/*"] }, (tabs) => {
+        void chrome.runtime.lastError;
+        const tab = (tabs || []).find((t) => t && t.id != null);
+        if (!tab) { sendResponse({ ok: false, reason: "no normal simplywall.st tab is open" }); return; }
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const SKIP = /^(REACT_QUERY_OFFLINE_CACHE|snowplowOutQueue|_hj|_ga|_gid|_gcl|_fbp|_uet|IR_|sentry|__darkreader|_cltk|amplitude|mp_|_pk_|optimizely|intercom|_rdt|_tt|_pin|__jth_)/i;
+            const out = { entries: {}, idb: [], href: location.href };
+            try {
+              let total = 0;
+              for (const k of Object.keys(localStorage)) {
+                if (SKIP.test(k)) continue;
+                const v = localStorage.getItem(k);
+                if (typeof v !== "string" || v.length > 256 * 1024) continue;
+                if (total + v.length > 2 * 1024 * 1024) break;
+                total += v.length;
+                out.entries[k] = v;
+              }
+            } catch (e) { out.error = String(e); }
+            return out;
+          },
+        }, (res) => {
+          void chrome.runtime.lastError;
+          const data = res && res[0] && res[0].result;
+          if (!data) { sendResponse({ ok: false, reason: "could not read the tab" }); return; }
+          chrome.storage.local.set({ swsSession: { at: Date.now(), entries: data.entries } });
+          sendResponse({ ok: true, keys: Object.keys(data.entries), href: data.href });
+        });
+      });
+    } catch (e) {
+      sendResponse({ ok: false, reason: String(e) });
+    }
+    return true;
+  }
   if (msg && msg.type === "jth-get-caps") {
     // Capability report: Chromium forks (Comet, Brave, ...) often lack the
     // contentSettings API, so the third-party-cookie exception can't be

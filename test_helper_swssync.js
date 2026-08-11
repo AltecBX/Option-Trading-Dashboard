@@ -165,6 +165,26 @@ function run({ framed, cookie = "", ls = {}, ss = {}, stored = null, session = n
   check("no mirror -> frame untouched", Object.keys(ls), ["portfolios"]);
 }
 
+// ── Version reporting (v3.7) ──────────────────────────────────────────────
+// announce.js hard-coded "2.7" from v2.7 through v3.6, so the dashboard chip
+// and the Simply Wall St banner reported v2.7 no matter what was installed.
+// Both of us then reasoned from a number that was never true. A literal here
+// is always a bug: the manifest is the only source of truth.
+{
+  const ann = fs.readFileSync(path.join(__dirname, "finviz-helper", "announce.js"), "utf8");
+  const mf = JSON.parse(fs.readFileSync(path.join(__dirname, "finviz-helper", "manifest.json"), "utf8"));
+  check("announce.js reads the manifest version",
+        /getManifest\(\)\.version/.test(ann), true);
+  check("announce.js hard-codes no version literal",
+        /const VERSION = ["'][0-9]/.test(ann), false);
+  // The panel compares against these, so they must not drift either.
+  const cards = fs.readFileSync(path.join(__dirname, "app-cards.jsx"), "utf8");
+  const latest = (cards.match(/const LATEST = "([\d.]+)"/) || [])[1];
+  const swsLatest = (cards.match(/const SWS_LATEST = "([\d.]+)"/) || [])[1];
+  check("chip's LATEST matches the shipped manifest", latest, mf.version);
+  check("panel's SWS_LATEST matches the shipped manifest", swsLatest, mf.version);
+}
+
 // ── Framed: answers a diagnostic request, with the diff ────────────────────
 {
   const stored = { at: "2026-08-10T00:00:00Z", cookies: ["sws_session", "_hjSession_44113"],
