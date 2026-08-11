@@ -1156,3 +1156,40 @@ verdict:
                                       rejecting the session for another reason
 Verified all four render distinctly in a browser, zero JS errors. The
 normal-tab comparison is kept as a fallback but is no longer the primary path.
+
+## v3.79 / helper v3.5 — root cause found: Simply Wall St has no login cookie
+The v3.4 cookie audit answered it. The user's browser holds exactly THREE
+cookies for .simplywall.st while they are demonstrably signed in in a normal
+Chrome tab (screenshot: account menu, "Jerry Pena"):
+  _hjSessionUser_44113   Hotjar analytics
+  _hjSession_44113       Hotjar analytics
+  __cf_bm                Cloudflare bot management (httpOnly)
+There is NO Simply Wall St session cookie anywhere in the jar. Their session
+is kept in localStorage, and Chrome partitions localStorage per top-level
+site, so the copy inside the frame is a different, empty one.
+
+THAT is why Finviz, TradingView and Unusual Whales stay signed in and this
+does not: all three authenticate with COOKIES, which the helper rewrites to
+SameSite=None. Simply Wall St has no cookie to rewrite, and an extension
+cannot un-partition localStorage. Every fix from v3.0 onward was aimed at a
+cookie that does not exist.
+
+BUG FOUND IN MY OWN VERDICT LOGIC: the authish heuristic matched
+"_hjSessionUser_44113" on sess/user, so crossSiteReady was 2 and the panel
+would have reported "the login cookie looks correctly set for framing" — the
+exact opposite of the truth, for the one user whose data proved otherwise.
+Added a NOT_AUTH deny-list (_hj, _ga, _gcl, IR_, __cf, datadome, snowplow,
+sentry, ...) that runs before the auth match, and locked BOTH patterns down
+with 13 cases in test_helper_cookies.js using the user's real cookie names.
+Under the fixed rule their jar yields zero auth cookies and the correct
+verdict renders.
+
+The panel now states the cause plainly, says explicitly why the other three
+sites behave differently, and gives the only lever that exists — it is a
+BROWSER setting, not an app one:
+  chrome://flags/#third-party-storage-partitioning -> Disabled -> relaunch
+  (or the ThirdPartyStoragePartitioningBlockedForOrigins managed policy)
+with the honest caveats that it is a global privacy trade-off and that newer
+Chrome builds may have removed the flag.
+
+40 helper-cookie + 13 sws-sync + 27 JS + 64 unittest + both verify layers.

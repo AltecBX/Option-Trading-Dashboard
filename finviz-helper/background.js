@@ -340,7 +340,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       chrome.cookies.getAll({ domain: "simplywall.st" }, (cookies) => {
         void chrome.runtime.lastError;
-        const AUTHISH = /(sess|sid|auth|token|login|user|jwt|remember|_swst|csrf)/i;
+        // Analytics and infrastructure cookies must NEVER count as auth. The
+        // first cut matched _hjSessionUser_44113 on "sess"/"user", which would
+        // have reported a healthy login cookie when the site has none at all.
+        const NOT_AUTH = /^(_hj|_ga|_gid|_gcl|_fbp|_uet|IR_|__cf|_cfuvid|datadome|ajs_|amplitude|mp_|_pk_|_cltk|sentry|snowplow|optimizely|intercom|_rdt|_tt|_pin)/i;
+        const AUTHISH = /(sess|sid|auth|token|login|user|jwt|remember|_swst|csrf|identity|account)/i;
+        const isAuth = (n) => !NOT_AUTH.test(n || "") && AUTHISH.test(n || "");
         const rows = (cookies || []).map((c) => ({
           name: c.name,
           domain: c.domain,
@@ -349,7 +354,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           httpOnly: !!c.httpOnly,         // invisible to the in-frame check
           session: !!c.session,
           partitioned: !!c.partitionKey,  // a partitioned copy is frame-local
-          authish: AUTHISH.test(c.name || ""),
+          authish: isAuth(c.name),
         }));
         sendResponse({
           ok: true,

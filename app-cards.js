@@ -18204,7 +18204,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.4";
+  const LATEST = "3.5";
   const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
@@ -18237,7 +18237,7 @@ function SWSTPanel({
 }) {
   const SWS_NEED_VER = 2.8; // renders the frame at all
   const SWS_LOGIN_VER = 3.1; // login actually PERSISTS from here on
-  const SWS_LATEST = "3.4"; // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.5"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18490,7 +18490,15 @@ function SWSTPanel({
     // comparison that this makes unnecessary.
     if (a && a.ok) {
       if (!a.authish || a.authish.length === 0) {
-        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Simply Wall St sets no session cookie at all"), " \u2014 the browser holds", " ", a.total, " cookie", a.total === 1 ? "" : "s", " for their domain and none is a login cookie. Your sign-in is being kept in ", /*#__PURE__*/React.createElement("b", null, "localStorage"), " instead, which Chrome isolates per top-level site. No extension can carry that into a frame, so the login cannot be made to stick here.");
+        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Simply Wall St doesn't use cookies for login."), " The browser holds", " ", a.total, " cookie", a.total === 1 ? "" : "s", " for their domain \u2014 analytics and Cloudflare only \u2014 even while you're signed in in a normal tab. Their session lives in ", /*#__PURE__*/React.createElement("b", null, "localStorage"), ", and Chrome partitions localStorage per top-level site, so the copy inside this frame is a different, empty one.", /*#__PURE__*/React.createElement("div", {
+          style: {
+            marginTop: 6
+          }
+        }, "This is exactly why Finviz, TradingView and Unusual Whales stay signed in and this doesn't: those three authenticate with ", /*#__PURE__*/React.createElement("b", null, "cookies"), ", which the Site Helper can rewrite. There is no cookie here to rewrite, and an extension cannot un-partition localStorage."), /*#__PURE__*/React.createElement("div", {
+          style: {
+            marginTop: 6
+          }
+        }, "The one lever that exists is a Chrome setting you control:", " ", /*#__PURE__*/React.createElement("code", null, "chrome://flags/#third-party-storage-partitioning"), " \u2192 ", /*#__PURE__*/React.createElement("b", null, "Disabled"), " ", "\u2192 relaunch. That turns off third-party storage partitioning browser-wide, so the frame shares storage with your normal tab. It's a global privacy trade-off, and newer Chrome builds may have removed the flag \u2014 in which case the managed-policy equivalent is", " ", /*#__PURE__*/React.createElement("code", null, "ThirdPartyStoragePartitioningBlockedForOrigins"), "."));
       }
       if (a.crossSiteReady === 0) {
         return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "A login cookie exists but can't be sent from a frame."), " ", a.authish.map(c => c.name).slice(0, 4).join(", "), " \u2014 none is", " ", /*#__PURE__*/React.createElement("code", null, "SameSite=None"), ", so the browser withholds it here. The helper rewrites these on sign-in; sign in again inside the frame and re-check.");

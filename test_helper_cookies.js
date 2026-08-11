@@ -99,6 +99,28 @@ check("cookie rule ids unique", new Set(ids).size === ids.length, true);
 check("tradingview excluded from REWRITE_DOMAINS",
       t.REWRITE_DOMAINS.includes("tradingview.com"), false);
 
+// ── Auth-cookie heuristic (v3.5) ──────────────────────────────────────────
+// This decides which verdict the panel shows. The first cut matched
+// "_hjSessionUser_44113" on sess/user and would have reported a healthy login
+// cookie for a site that has none — the opposite of the truth.
+{
+  const bg = fs.readFileSync(SRC, "utf8");
+  const notAuth = bg.match(/const NOT_AUTH = (\/.*?\/i);/);
+  const authish = bg.match(/const AUTHISH = (\/.*?\/i);/);
+  check("NOT_AUTH pattern present", !!notAuth, true);
+  check("AUTHISH pattern present", !!authish, true);
+  if (notAuth && authish) {
+    const NA = eval(notAuth[1]), AI = eval(authish[1]);
+    const isAuth = (n) => !NA.test(n) && AI.test(n);
+    // Real cookie names from the user's own jar while signed in.
+    [["_hjSessionUser_44113", false], ["_hjSession_44113", false], ["__cf_bm", false],
+     ["IR_PI", false], ["_gcl_ls", false], ["_cltk", false], ["snowplowOutQueue", false],
+     ["sws_session", true], ["sessionid", true], ["auth_token", true],
+     ["csrftoken", true], ["jwt", true], ["user_identity", true]]
+      .forEach(([n, want]) => check(`authish(${n})`, isAuth(n), want));
+  }
+}
+
 if (fail) {
   console.error(`\ntest_helper_cookies: ${pass} passed, ${fail} FAILED`);
   process.exit(1);
