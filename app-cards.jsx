@@ -13891,7 +13891,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
              title={`Downloads Site Helper v${SWS_LATEST}. Unzip it OVER your existing finviz-helper folder (replace the files), then click the ↻ reload icon on 'JerryTrade Site Helper' at chrome://extensions, then sign in inside the frame once. Same extension that already powers the Finviz, TradingView and Unusual Whales tabs.`}>
             Download helper v{SWS_LATEST}
           </a>
-          <span className="sws-dim">unzip over the old folder → ↻ reload at chrome://extensions → sign in again</span>
+          <span className="sws-dim">unzip over the old folder → ↻ reload at chrome://extensions → <b>then hard-refresh THIS page</b> (the version above is set by a script that only runs on page load, so it keeps showing the old number until you do)</span>
         </div>
       )}
       {resolving && (!src || stale) && (
@@ -13941,6 +13941,33 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                           this doesn't: those three authenticate with <b>cookies</b>, which the Site
                           Helper can rewrite. There is no cookie here to rewrite, and an extension
                           cannot un-partition localStorage.
+                        </div>
+                        <div style={{ marginTop: 6 }}>
+                          {(() => {
+                            // Decide the remaining question automatically: did the
+                            // normal tab actually contain a session-looking key?
+                            const NOT = /^(REACT_QUERY|snowplow|_hj|_ga|_gid|_gcl|_fbp|IR_|sentry|__darkreader|_cltk|unleash|portfolios?$|miniValuator)/i;
+                            const AUTH = /(auth|token|jwt|session|sid|login|user|identity|account|cognito|amplify|supabase|clerk|okta|auth0)/i;
+                            const hits = mk.filter((k) => !NOT.test(k) && AUTH.test(k));
+                            if (mk.length && hits.length === 0) {
+                              return <React.Fragment>
+                                <b>Your normal tab holds no session key in localStorage either</b>
+                                {" "}({mk.length} key{mk.length === 1 ? "" : "s"} pulled:
+                                {" "}{mk.slice(0, 6).join(", ")}{mk.length > 6 ? "…" : ""}).
+                                So the login is stored in <b>IndexedDB</b>, not localStorage — mirroring
+                                localStorage cannot reach it. That is the remaining gap, and it is a
+                                different mechanism, not a tweak to this one.
+                              </React.Fragment>;
+                            }
+                            if (hits.length) {
+                              return <React.Fragment>
+                                <b>Session key found and mirrored:</b> {hits.slice(0, 4).join(", ")}.
+                                {" "}If the frame still shows signed out, press Reload — the app may have
+                                read storage before the key landed.
+                              </React.Fragment>;
+                            }
+                            return null;
+                          })()}
                         </div>
                         <div style={{ marginTop: 6 }}>
                           {mk.length ? (
