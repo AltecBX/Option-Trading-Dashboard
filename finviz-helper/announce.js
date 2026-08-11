@@ -3,7 +3,13 @@
 // as "[finviz-helper] …" debug lines (metadata only — never cookie values,
 // passwords, or tokens). Runs ONLY on the dashboard's own pages.
 (function announce() {
-  const VERSION = "2.7";
+  // Read from the manifest — NEVER a literal. This was hard-coded "2.7" from
+  // v2.7 through v3.6, so the dashboard's helper chip and the Simply Wall St
+  // banner both reported v2.7 no matter what was installed. That made every
+  // "you have vX" message wrong and sent the user chasing updates they had
+  // already applied.
+  let VERSION = "0";
+  try { VERSION = chrome.runtime.getManifest().version; } catch (e) {}
   const mark = () => {
     try {
       document.documentElement.dataset.finvizHelper = "1";

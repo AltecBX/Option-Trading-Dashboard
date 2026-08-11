@@ -108,6 +108,18 @@ var JTH_MAX_TOTAL = 2 * 1024 * 1024;    // all keys
 
   // If the app had already booted before the keys landed, it read an empty
   // store — reload ONCE so it re-reads. Guarded so this can never loop.
+  // Ask the background worker to read a normal tab RIGHT NOW, then adopt.
+  // This removes the dependence on that tab's content script having run.
+  const pullThenApply = (then) => {
+    try {
+      chrome.runtime.sendMessage({ type: "jth-sws-pull-session" }, () => {
+        void chrome.runtime.lastError;
+        applySession(then || null);
+      });
+    } catch (e) { applySession(then || null); }
+  };
+  pullThenApply();
+
   applySession((changed) => {
     if (!changed) return;
     if (document.readyState === "loading") return;      // app hasn't read it yet
@@ -118,8 +130,8 @@ var JTH_MAX_TOTAL = 2 * 1024 * 1024;    // all keys
     location.reload();
   });
   // Keep it fresh (token refresh / later sign-in) without ever reloading again.
-  setInterval(() => applySession(null), 20000);
-  window.addEventListener("focus", () => applySession(null));
+  setInterval(() => pullThenApply(null), 20000);
+  window.addEventListener("focus", () => pullThenApply(null));
 
   let last = null;
   const report = () => {
@@ -184,11 +196,12 @@ var JTH_MAX_TOTAL = 2 * 1024 * 1024;    // all keys
             .filter(Boolean).slice(0, 60);
         } catch (err) { return ["<blocked: " + err.name + ">"]; }
       };
-      const send = (storageAccess) => {
+      const send = (storageAccess, idb) => {
         const mine = {
           cookies: cookieNames(),
           localStorage: names(localStorage),
           sessionStorage: names(sessionStorage),
+          indexedDB: idb || [],
         };
         const post = (top, audit, sess) => {
           const missing = (a, b) => (a || []).filter((k) => !(b || []).includes(k));
@@ -228,10 +241,21 @@ var JTH_MAX_TOTAL = 2 * 1024 * 1024;    // all keys
           });
         } catch (err) { post(null, null, null); }
       };
+      const withIdb = (sa) => {
+        try {
+          if (indexedDB && indexedDB.databases) {
+            indexedDB.databases().then(
+              (dbs) => send(sa, (dbs || []).map((d) => d && d.name).filter(Boolean).slice(0, 30)),
+              () => send(sa, []));
+            return;
+          }
+        } catch (e) {}
+        send(sa, []);
+      };
       if (document.hasStorageAccess) {
-        document.hasStorageAccess().then(send, () => send("error"));
+        document.hasStorageAccess().then(withIdb, () => withIdb("error"));
       } else {
-        send("unsupported");
+        withIdb("unsupported");
       }
     } catch (err) { /* no-op */ }
   });

@@ -1232,3 +1232,40 @@ assertions above. 40 helper-cookie + 27 JS + 64 unittest + verify layers.
 
 The user's normal tab is the SOURCE and must be signed in — stated in the
 panel and the README.
+
+## v3.81 / helper v3.7 — the version number was a lie for nine releases
+User reported the login still failing, and the screenshot showed the banner
+saying "(you have v2.7)" while their own earlier diagnostic had returned
+helperVersion 3.4 straight from the manifest. Both cannot be true.
+
+announce.js hard-coded `const VERSION = "2.7"` and was never updated when the
+manifest went 2.8 -> 3.6. That value is what sets
+document.documentElement.dataset.finvizHelperVersion, which drives the helper
+chip AND the Simply Wall St banner. So from v2.8 onward BOTH always claimed
+v2.7, regardless of what was installed. Every "you have vX, update to vY"
+message I sent was reasoning from a number that was never read from the
+extension — and I told the user their helper was current based on it.
+
+This is the FIFTH instance of the same defect class in this one feature:
+APP_VERSION not bumped (cache-buster), the chip label hard-coding "2.8", the
+banner text hard-coding "v2.8", the authish heuristic hard-coding assumptions
+about names, and now this. Every one was a literal drifting from its source of
+truth. announce.js now reads chrome.runtime.getManifest().version, and
+test_helper_swssync.js fails if a version literal reappears there or if the
+panel's LATEST / SWS_LATEST drift from the shipped manifest.
+
+Also fixed, and likely why the v3.6 mirror did nothing: it sourced the session
+from the normal tab's CONTENT SCRIPT, and Chrome does not inject content
+scripts into tabs that were already open when an extension updates. A user who
+updates the helper with their simplywall.st tab already open gets an empty
+mirror and no indication why — which also explains three rounds of
+`topTab: null`. v3.7 pulls the session on demand via chrome.scripting from any
+open simplywall.st tab, so injection timing is irrelevant. Adds "scripting"
+and "tabs" permissions, used only to read localStorage from the user's own
+simplywall.st tab.
+
+The diagnostic now also lists IndexedDB database names in the frame — if the
+session is neither a cookie nor a localStorage key, that is where it is, and
+the mirror would need extending to reach it.
+
+33 sws-sync + 40 helper-cookie + 27 JS + 64 unittest + verify layers.

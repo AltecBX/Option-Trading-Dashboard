@@ -18204,7 +18204,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.6";
+  const LATEST = "3.7";
   const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
@@ -18236,8 +18236,8 @@ function SWSTPanel({
   apiFetch
 }) {
   const SWS_NEED_VER = 2.8; // renders the frame at all
-  const SWS_LOGIN_VER = 3.1; // login actually PERSISTS from here on
-  const SWS_LATEST = "3.6"; // string: 3.0 as a Number renders as "3"
+  const SWS_LOGIN_VER = 3.7; // login actually PERSISTS from here on
+  const SWS_LATEST = "3.7"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18536,7 +18536,7 @@ function SWSTPanel({
     return /*#__PURE__*/React.createElement(React.Fragment, null, "The frame sees ", /*#__PURE__*/React.createElement("b", null, "everything a normal tab sees"), ". If the login still drops, it is not storage isolation \u2014 most likely the session cookie is ", /*#__PURE__*/React.createElement("code", null, "httpOnly"), " ", "(invisible to this check) and is being refused on the request itself.");
   })(), /*#__PURE__*/React.createElement("div", {
     className: "sws-dim"
-  }, "helper: v", diag.helperVersion || "unknown (older than 3.4)", " \xB7 storage access: ", String(diag.storageAccess), " \xB7 cookies enabled: ", String(diag.cookieEnabled), diag.topTab ? ` · compared against a normal tab seen ${diag.topTab.at}` : " · no normal-tab snapshot yet")), /*#__PURE__*/React.createElement("pre", {
+  }, "helper: v", diag.helperVersion || "unknown (older than 3.4)", " \xB7 storage access: ", String(diag.storageAccess), " \xB7 cookies enabled: ", String(diag.cookieEnabled), diag.indexedDB && diag.indexedDB.length ? ` · IndexedDB in frame: ${diag.indexedDB.join(", ")}` : "", diag.topTab ? ` · compared against a normal tab seen ${diag.topTab.at}` : " · no normal-tab snapshot yet")), /*#__PURE__*/React.createElement("pre", {
     className: "sws-diag-pre"
   }, JSON.stringify(diag, null, 1)), /*#__PURE__*/React.createElement("button", {
     className: "rr-btn",
