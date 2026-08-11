@@ -1193,3 +1193,42 @@ with the honest caveats that it is a global privacy trade-off and that newer
 Chrome builds may have removed the flag.
 
 40 helper-cookie + 13 sws-sync + 27 JS + 64 unittest + both verify layers.
+
+## v3.80 / helper v3.6 — mirror the session; the login works
+I had called this unfixable. That was wrong, and the user was right to push.
+
+The reasoning I skipped: Chrome partitions localStorage between the top-level
+simplywall.st tab and the framed one — but the EXTENSION has content scripts in
+both, and both are the SAME ORIGIN. Partitioning stops the page from reaching
+across; it does not stop an extension that is already inside both. The session
+can be read in the normal tab and written into the frame. The precedent was
+already in this codebase: v2.6 mirrors cookies for Comet/Brave.
+
+Implementation:
+  - Normal tabs export localStorage entries to chrome.storage.local.swsSession
+    (values), alongside the existing names-only swsTopSnapshot (diagnostics).
+  - The framed script applies them at document_start, so on a normal load the
+    app boots already signed in — no reload, no logged-out flash. If the keys
+    land after the app read storage, it reloads ONCE (sessionStorage-guarded,
+    cannot loop).
+  - Refreshed every 20s and on focus, so a token refresh or a later sign-in
+    propagates without another reload.
+  - Sign-out propagates: keys the mirror wrote that the source no longer has
+    are removed; keys the frame created itself are never touched.
+  - Never mirrored: analytics/telemetry/caches (REACT_QUERY_OFFLINE_CACHE,
+    snowplow*, _hj*, _ga*, IR_*, sentry, ...), any value >256 KB, >2 MB total.
+
+PRIVACY BOUNDARY, now explicit and tested. Two stores with different
+contracts: swsTopSnapshot is names-only and is what gets reported to the page;
+swsSession holds values and must never leave extension storage. The diagnostic
+reply carries the mirror's SHAPE (key names + timestamp) and never a value —
+asserted directly with a token named SUPERSECRET that must not appear in the
+postMessage payload.
+
+test_helper_swssync.js now 29 assertions: what is and is not mirrored, size
+caps, adoption into the frame, logout propagation, frame-owned keys left
+alone, no-mirror-means-no-writes, foreign origins ignored, and the two privacy
+assertions above. 40 helper-cookie + 27 JS + 64 unittest + verify layers.
+
+The user's normal tab is the SOURCE and must be signed in — stated in the
+panel and the README.
