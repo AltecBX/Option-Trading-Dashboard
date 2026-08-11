@@ -330,6 +330,41 @@ chrome.runtime.onInstalled.addListener(() => {
 // the toggle and asks us to write the same preference cookie through the
 // cookies API instead — no page content involved, just one named cookie.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Cookie audit (v3.4) — the decisive read for "why won't the login stick".
+  // document.cookie inside the frame can only see NON-httpOnly cookies, and a
+  // session cookie is almost always httpOnly, so the in-frame diagnostic was
+  // structurally blind to the one cookie that matters. The background worker
+  // holds the "cookies" permission and can enumerate the real jar.
+  // Returns metadata ONLY — name, sameSite, flags — never a single value.
+  if (msg && msg.type === "jth-sws-cookie-audit") {
+    try {
+      chrome.cookies.getAll({ domain: "simplywall.st" }, (cookies) => {
+        void chrome.runtime.lastError;
+        const AUTHISH = /(sess|sid|auth|token|login|user|jwt|remember|_swst|csrf)/i;
+        const rows = (cookies || []).map((c) => ({
+          name: c.name,
+          domain: c.domain,
+          sameSite: c.sameSite,           // no_restriction = usable in a frame
+          secure: !!c.secure,
+          httpOnly: !!c.httpOnly,         // invisible to the in-frame check
+          session: !!c.session,
+          partitioned: !!c.partitionKey,  // a partitioned copy is frame-local
+          authish: AUTHISH.test(c.name || ""),
+        }));
+        sendResponse({
+          ok: true,
+          helperVersion: chrome.runtime.getManifest().version,
+          total: rows.length,
+          authish: rows.filter((r) => r.authish),
+          crossSiteReady: rows.filter((r) => r.authish && r.sameSite === "no_restriction").length,
+          cookies: rows.slice(0, 60),
+        });
+      });
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e) });
+    }
+    return true;                          // async sendResponse
+  }
   if (msg && msg.type === "jth-get-caps") {
     // Capability report: Chromium forks (Comet, Brave, ...) often lack the
     // contentSettings API, so the third-party-cookie exception can't be
