@@ -147,10 +147,48 @@ chrome.cookies.onChanged.addListener(({ cookie, removed, cause }) => {
 function sweepExistingCookies() {
   for (const dom of [...REWRITE_DOMAINS, "tradingview.com"]) sweepDomain(dom);
 }
+// Cookie lookup that does not silently under-report (v3.8).
+// chrome.cookies.getAll({domain}) returned 8 cookies for a site that had ~30:
+// the API only surfaces cookies the extension holds host permission for, and
+// a cookie without the Secure flag belongs to the http:// origin. With
+// https-only permissions the session cookie ("auth", "PHPSESSID") was
+// invisible — so it was never rewritten, never sent to the frame, and the
+// audit reported "this site has no login cookie" when it plainly did.
+// Query both schemes AND the domain filter, then merge.
+function getAllCookiesFor(dom, cb) {
+  const seen = new Set();
+  const out = [];
+  const take = (list) => {
+    (list || []).forEach((c) => {
+      const k = c.name + "|" + c.domain + "|" + c.path;
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(c);
+    });
+  };
+  const queries = [
+    { url: "https://" + dom + "/" },
+    { url: "http://" + dom + "/" },
+    { url: "https://www." + dom + "/" },
+    { domain: dom },
+  ];
+  let left = queries.length;
+  queries.forEach((q) => {
+    try {
+      chrome.cookies.getAll(q, (list) => {
+        void chrome.runtime.lastError;
+        take(list);
+        if (--left === 0) cb(out);
+      });
+    } catch (e) {
+      if (--left === 0) cb(out);
+    }
+  });
+}
+
 function sweepDomain(dom) {
   try {
-    chrome.cookies.getAll({ domain: dom }, (cookies) => {
-      void chrome.runtime.lastError;
+    getAllCookiesFor(dom, (cookies) => {
       (cookies || []).forEach((cookie) => { if (eligible(cookie)) upgradeCookie(cookie, "sweep"); });
       diag("cookie-sweep", { domain: dom, count: (cookies || []).length });
     });
@@ -338,8 +376,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Returns metadata ONLY — name, sameSite, flags — never a single value.
   if (msg && msg.type === "jth-sws-cookie-audit") {
     try {
-      chrome.cookies.getAll({ domain: "simplywall.st" }, (cookies) => {
-        void chrome.runtime.lastError;
+      getAllCookiesFor("simplywall.st", (cookies) => {
         // Analytics and infrastructure cookies must NEVER count as auth. The
         // first cut matched _hjSessionUser_44113 on "sess"/"user", which would
         // have reported a healthy login cookie when the site has none at all.

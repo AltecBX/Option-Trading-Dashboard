@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.7";
+  const LATEST = "3.8";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13698,8 +13698,8 @@ function HelperDownloadChip() {
 function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
-  const SWS_LOGIN_VER = 3.7;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.7";      // string: 3.0 as a Number renders as "3"
+  const SWS_LOGIN_VER = 3.8;     // login actually PERSISTS from here on
+  const SWS_LATEST = "3.8";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
