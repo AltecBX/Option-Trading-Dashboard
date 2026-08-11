@@ -87,6 +87,13 @@ card at `chrome://extensions` (or remove + Load unpacked again).
   a Repair-session command the dashboard's TV tab can invoke, and hardens
   the remaining rewrites (anti-abuse cookie skip-list, partitioned cookies
   left alone, delete-before-set so duplicates can't form).
+- v3.4 — Simply Wall St: the background worker now audits the REAL cookie
+  jar for their domain and the diagnostic reports the helper's own version.
+  document.cookie inside a frame can only see NON-httpOnly cookies, and a
+  session cookie is almost always httpOnly — so every in-frame check so far
+  was structurally blind to the one cookie that decides this. The audit
+  returns metadata only (name, SameSite, secure/httpOnly/session/partitioned
+  flags) — never a value — and needs no tab choreography from you.
 - v3.3 — Simply Wall St: the normal-tab snapshot now also fires on focus,
   on becoming visible, on page-hide and every 30s, not just at load — a tab
   that was already open before the update, or a sign-in that happens minutes

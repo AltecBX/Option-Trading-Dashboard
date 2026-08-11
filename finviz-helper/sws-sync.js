@@ -125,10 +125,14 @@
           localStorage: names(localStorage),   // NAMES only
           sessionStorage: names(sessionStorage),
         };
-        const post = (top) => {
+        const post = (top, audit) => {
           const missing = (a, b) => (a || []).filter((k) => !(b || []).includes(k));
+          let hv = "";
+          try { hv = chrome.runtime.getManifest().version; } catch (e) {}
           window.parent.postMessage({
             type: "jth-sws-diag",
+            helperVersion: hv,             // so a reply is never version-ambiguous
+            cookieAudit: audit,            // the real jar, httpOnly included
             href: location.origin + location.pathname,
             framed: window.top !== window,
             cookieEnabled: navigator.cookieEnabled,
@@ -145,9 +149,18 @@
         try {
           chrome.storage.local.get("swsTopSnapshot", (st) => {
             void chrome.runtime.lastError;
-            post(st && st.swsTopSnapshot);
+            const top = st && st.swsTopSnapshot;
+            // Ask the background worker for the REAL cookie jar — it can see
+            // httpOnly cookies this frame cannot, which is where a session
+            // cookie almost always lives.
+            try {
+              chrome.runtime.sendMessage({ type: "jth-sws-cookie-audit" }, (audit) => {
+                void chrome.runtime.lastError;
+                post(top, audit || null);
+              });
+            } catch (e2) { post(top, null); }
           });
-        } catch (err) { post(null); }
+        } catch (err) { post(null, null); }
       };
       if (document.hasStorageAccess) {
         document.hasStorageAccess().then(send, () => send("error"));

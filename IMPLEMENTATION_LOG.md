@@ -1126,3 +1126,33 @@ simplywall.st tabs:
   - a framed tab answers a dashboard request with the snapshot AND a correct
     diff (the verdict is only as good as this diff)
   - a request from a foreign origin is ignored
+
+## v3.78 / helper v3.4 — audit the real cookie jar; stop staging comparisons
+Third diagnostic again returned topTab: null. Two lessons:
+
+1. I could not tell WHICH helper version produced any of these replies — the
+   payload never carried it. Every conclusion about "you must be on vX" was
+   therefore unfounded. The reply now includes `helperVersion` from
+   chrome.runtime.getManifest().
+2. The whole comparison approach was the hard way round. document.cookie
+   inside the frame can only see NON-httpOnly cookies, and a session cookie is
+   almost always httpOnly — so every in-frame check so far was structurally
+   blind to the one cookie that decides this, and asking the user to stage a
+   normal-tab comparison was working around my own blind spot.
+
+The background worker holds the "cookies" permission and can enumerate the
+real jar for simplywall.st, httpOnly included, with no tab choreography at
+all. v3.4 adds a `jth-sws-cookie-audit` message returning METADATA ONLY —
+name, sameSite, secure/httpOnly/session/partitioned flags, and an authish
+heuristic — never a single value. The panel reads it first and gives a direct
+verdict:
+  - no auth-ish cookie exists      -> the session lives in localStorage;
+                                      partitioned per top-level site; NOT
+                                      fixable by any extension
+  - auth cookie, none SameSite=None-> withheld from the frame; sign in again
+                                      so the helper's rewrite applies
+  - auth cookie partitioned        -> the frame holds an isolated copy
+  - auth cookie cross-site-ready   -> not storage isolation; the app is
+                                      rejecting the session for another reason
+Verified all four render distinctly in a browser, zero JS errors. The
+normal-tab comparison is kept as a fallback but is no longer the primary path.

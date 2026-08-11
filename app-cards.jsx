@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.3";
+  const LATEST = "3.4";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13699,7 +13699,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
   const SWS_LOGIN_VER = 3.1;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.3";      // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.4";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13922,6 +13922,40 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
               <div className="sws-diag-verdict">
                 {(() => {
                   const m = diag.missingVsTopTab;
+                  const a = diag.cookieAudit;
+                  // The cookie jar is decisive and needs no normal tab, so it
+                  // is read FIRST — the earlier flow asked the user to stage a
+                  // comparison that this makes unnecessary.
+                  if (a && a.ok) {
+                    if (!a.authish || a.authish.length === 0) {
+                      return <React.Fragment>
+                        <b>Simply Wall St sets no session cookie at all</b> — the browser holds
+                        {" "}{a.total} cookie{a.total === 1 ? "" : "s"} for their domain and none is a
+                        login cookie. Your sign-in is being kept in <b>localStorage</b> instead, which
+                        Chrome isolates per top-level site. No extension can carry that into a frame,
+                        so the login cannot be made to stick here.
+                      </React.Fragment>;
+                    }
+                    if (a.crossSiteReady === 0) {
+                      return <React.Fragment>
+                        <b>A login cookie exists but can't be sent from a frame.</b>
+                        {" "}{a.authish.map(c => c.name).slice(0, 4).join(", ")} — none is
+                        {" "}<code>SameSite=None</code>, so the browser withholds it here. The helper
+                        rewrites these on sign-in; sign in again inside the frame and re-check.
+                      </React.Fragment>;
+                    }
+                    if (a.authish.some(c => c.partitioned)) {
+                      return <React.Fragment>
+                        <b>The login cookie is partitioned.</b> The frame holds its own isolated copy
+                        rather than your real session, so it reads as signed out.
+                      </React.Fragment>;
+                    }
+                    return <React.Fragment>
+                      <b>The login cookie looks correctly set for framing</b>
+                      {" "}({a.crossSiteReady} cross-site-ready). If it still drops, the app is
+                      rejecting the session for another reason.
+                    </React.Fragment>;
+                  }
                   if (!diag.topTab) {
                     return <React.Fragment>
                       <b>No normal-tab snapshot yet</b> — without one there is nothing to compare
@@ -13959,7 +13993,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                     {" "}(invisible to this check) and is being refused on the request itself.
                   </React.Fragment>;
                 })()}
-                <div className="sws-dim">storage access: {String(diag.storageAccess)} · cookies enabled: {String(diag.cookieEnabled)}
+                <div className="sws-dim">helper: v{diag.helperVersion || "unknown (older than 3.4)"} · storage access: {String(diag.storageAccess)} · cookies enabled: {String(diag.cookieEnabled)}
                   {diag.topTab ? ` · compared against a normal tab seen ${diag.topTab.at}` : " · no normal-tab snapshot yet"}</div>
               </div>
               <pre className="sws-diag-pre">{JSON.stringify(diag, null, 1)}</pre>
