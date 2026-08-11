@@ -1297,3 +1297,38 @@ piece of work (enumerate DBs, read stores, write into the frame's partition
 via scripting frameIds) and would be wasted if the session is a localStorage
 key the pull now reaches. One Diagnose click decides it. Building on an
 unverified assumption is exactly what cost the previous rounds.
+
+## v3.83 / helper v3.8 — the session cookie was INVISIBLE, not absent
+The v3.7 diagnostic finally compared the frame against the normal tab, and
+`missingVsTopTab` settled it:
+  cookies missing in the frame: auth, PHPSESSID, _sws_uid, _sws_suid,
+    _sws_ses.1740, _sws_id.1740, _sws_imsessid, _sws_flagsessid, ...
+  localStorage missing: []   <- the v3.6/3.7 mirror worked perfectly
+So Simply Wall St DOES use cookie auth, the localStorage mirror was solving a
+problem that did not exist, and my "no session cookie exists" conclusion was
+wrong.
+
+WHY THE AUDIT LIED. chrome.cookies only surfaces cookies the extension holds
+host permission for, and a cookie WITHOUT the Secure flag belongs to the
+http:// origin. host_permissions listed only https://simplywall.st/*, so
+cookies.getAll returned 8 of ~30 cookies — and every one of those 8 had
+secure:true, which was the tell sitting in the data the whole time. The
+session cookies are not Secure, so they were invisible to:
+  - the SameSite=None rewrite (never applied -> browser never sent them to
+    the frame -> frame permanently signed out), and
+  - the cookie audit built on the same call, which then reported "this site
+    has no login cookie" and sent me down the localStorage/IndexedDB path for
+    four releases.
+
+FIX: host_permissions += http://simplywall.st/* (+ subdomains), and a new
+getAllCookiesFor() that queries by URL over BOTH schemes as well as by domain
+and merges, used by the sweep and the audit. The existing rewrite then covers
+auth/PHPSESSID/_sws_* and upgrades them to Secure, which SameSite=None
+requires anyway.
+
+Tests: manifest must cover both schemes for embedded sites; the lookup must
+exist, query http, and be used by both the sweep and the audit. 46
+helper-cookie + 33 sws-sync + 27 JS + 64 unittest + verify layers.
+
+The localStorage mirror is kept — it is harmless, it demonstrably works, and
+it covers any future non-cookie state — but it was never the fix.

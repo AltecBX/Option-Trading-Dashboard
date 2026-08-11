@@ -99,6 +99,32 @@ check("cookie rule ids unique", new Set(ids).size === ids.length, true);
 check("tradingview excluded from REWRITE_DOMAINS",
       t.REWRITE_DOMAINS.includes("tradingview.com"), false);
 
+// ── Host permissions must cover BOTH schemes (v3.8) ───────────────────────
+// chrome.cookies only surfaces cookies the extension holds host permission
+// for, and a cookie without the Secure flag belongs to the http:// origin.
+// With https-only permissions, getAll returned 8 of a site's ~30 cookies and
+// the session cookie ("auth", "PHPSESSID") was invisible — so it was never
+// rewritten, never reached the frame, and the audit reported that the site
+// had no login cookie at all. Every embedded site needs both schemes.
+{
+  const mf = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "finviz-helper", "manifest.json"), "utf8"));
+  const covers = (host, scheme) => mf.host_permissions.some(
+    (h) => h.startsWith(scheme + "://") && h.includes(host));
+  check("simplywall.st covered over https", covers("simplywall.st", "https"), true);
+  check("simplywall.st covered over http (non-Secure cookies)",
+        covers("simplywall.st", "http"), true);
+
+  // And the lookup itself must not rely on the domain filter alone.
+  const bg = fs.readFileSync(SRC, "utf8");
+  check("a scheme-agnostic cookie lookup exists",
+        /function getAllCookiesFor/.test(bg), true);
+  check("the sweep uses it", /getAllCookiesFor\(dom,/.test(bg), true);
+  check("the audit uses it", /getAllCookiesFor\("simplywall\.st"/.test(bg), true);
+  check("the lookup queries the http scheme too",
+        /url: "http:\/\/" \+ dom/.test(bg), true);
+}
+
 // ── Auth-cookie heuristic (v3.5) ──────────────────────────────────────────
 // This decides which verdict the panel shows. The first cut matched
 // "_hjSessionUser_44113" on sess/user and would have reported a healthy login
