@@ -2142,6 +2142,9 @@ def load_option_chain(
                             if f != f or f < lo or f > hi:
                                 return None
                             return f
+                        # Live rate + this symbol's dividend yield, so the
+                        # BS backfill below matches the greeks Schwab sends.
+                        _gr, _gq = _greek_inputs(symbol)
                         def _normalize_rows(rows, side):
                             out = []
                             for r in rows:
@@ -2160,13 +2163,13 @@ def load_option_chain(
                                 delta_est = delta is None
                                 theta_est = theta is None
                                 if delta is None:
-                                    delta = _bs_delta(spot, strike, T, iv, side)
+                                    delta = _bs_delta(spot, strike, T, iv, side, r=_gr, q=_gq)
                                 if theta is None:
-                                    theta = _bs_theta(spot, strike, T, iv, side)
+                                    theta = _bs_theta(spot, strike, T, iv, side, r=_gr, q=_gq)
                                 if gamma is None:
-                                    gamma = _bs_gamma(spot, strike, T, iv)
+                                    gamma = _bs_gamma(spot, strike, T, iv, r=_gr, q=_gq)
                                 if vega is None:
-                                    vega = _bs_vega(spot, strike, T, iv)
+                                    vega = _bs_vega(spot, strike, T, iv, r=_gr, q=_gq)
                                 mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
                                 out.append({
                                     "strike": strike,
@@ -2239,6 +2242,9 @@ def load_option_chain(
     days_to_exp = max((exp - date.today()).days, 1)
     T = days_to_exp / 365.0
 
+    # yfinance publishes no greeks, so every one below is ours: give them the
+    # live rate and dividend yield rather than the library defaults.
+    _gr, _gq = _greek_inputs(symbol)
     def to_rows(df, side):
         out = []
         for r in df.itertuples():
@@ -2256,10 +2262,10 @@ def load_option_chain(
                 "volume": safe_int(getattr(r, "volume", 0)),
                 "openInterest": safe_int(getattr(r, "openInterest", 0)),
                 "iv": iv,
-                "delta": _bs_delta(spot, strike, T, iv, side),
-                "theta": _bs_theta(spot, strike, T, iv, side),
-                "gamma": _bs_gamma(spot, strike, T, iv),
-                "vega": _bs_vega(spot, strike, T, iv),
+                "delta": _bs_delta(spot, strike, T, iv, side, r=_gr, q=_gq),
+                "theta": _bs_theta(spot, strike, T, iv, side, r=_gr, q=_gq),
+                "gamma": _bs_gamma(spot, strike, T, iv, r=_gr, q=_gq),
+                "vega": _bs_vega(spot, strike, T, iv, r=_gr, q=_gq),
                 # yfinance chains carry no greeks — everything above is BS.
                 "delta_est": True,
                 "theta_est": True,
@@ -2293,7 +2299,7 @@ def _hv_realized(closes: list[float], window: int = 20) -> float | None:
 
 
 def _strike_for_delta(spot: float, target_delta: float, T: float, sigma: float,
-                       side: str, r: float = 0.045) -> float:
+                       side: str, r: float = 0.045, q: float = 0.0) -> float:
     """Find the strike that yields the target delta via binary search.
     side='call' → target_delta should be 0..1 (e.g. 0.20).
     side='put'  → target_delta should be -1..0 (e.g. -0.20).
@@ -2308,7 +2314,7 @@ def _strike_for_delta(spot: float, target_delta: float, T: float, sigma: float,
     hi = spot * 1.8
     for _ in range(40):
         mid = (lo + hi) / 2
-        d = _bs_delta(spot, mid, T, sigma, side, r)
+        d = _bs_delta(spot, mid, T, sigma, side, r, q)
         if side == "call":
             # higher strike = lower delta
             if d > target_delta:
@@ -2506,6 +2512,9 @@ def backtest_strategy(symbol: str, strategy: str, weeks: int = 52,
     Returns weekly P/L series + summary stats. All P/L in $/share unless
     flagged otherwise. Conservative bias: spread/slippage ignored.
     """
+    # Same rate + dividend inputs the live chain uses, so a backtested
+    # "0.20 delta" strike is the same strike the app would actually pick.
+    _bt_r, _bt_q = _greek_inputs(symbol)
     import math
     out = {
         "ticker": symbol,
@@ -2563,7 +2572,8 @@ def backtest_strategy(symbol: str, strategy: str, weeks: int = 52,
             # Build the strategy's legs at entry, compute entry credit/debit
             # via _bs_price, then compute expiration P/L from intrinsic
             # value at spot_exp.
-            legs = _build_legs_for_backtest(strategy, spot, T, iv, target_delta)
+            legs = _build_legs_for_backtest(strategy, spot, T, iv, target_delta,
+                                            _bt_r, _bt_q)
             if not legs:
                 i += 1
                 continue
@@ -2635,7 +2645,8 @@ def backtest_strategy(symbol: str, strategy: str, weeks: int = 52,
 
 
 def _build_legs_for_backtest(strategy: str, spot: float, T: float,
-                              iv: float, target_delta: float) -> list:
+                              iv: float, target_delta: float,
+                              r: float = 0.045, q: float = 0.0) -> list:
     """Returns list of {type, strike, sign} legs for the strategy.
     sign=+1 for long, -1 for short. The strikes use _strike_for_delta
     for premium-selling strategies; defined-risk strategies use natural
@@ -2643,8 +2654,8 @@ def _build_legs_for_backtest(strategy: str, spot: float, T: float,
     """
     legs = []
     # 0.20 delta short call, 0.20 delta short put — the foundation
-    sc_strike = _strike_for_delta(spot, target_delta, T, iv, "call")
-    sp_strike = _strike_for_delta(spot, -target_delta, T, iv, "put")
+    sc_strike = _strike_for_delta(spot, target_delta, T, iv, "call", r, q)
+    sp_strike = _strike_for_delta(spot, -target_delta, T, iv, "put", r, q)
     if strategy == "covered_call":
         # Long stock + short OTM call. Stock leg approximated by holding
         # shares; for backtest purposes use put-call parity: long stock
@@ -3250,6 +3261,9 @@ def build_weekly_range(symbol: str) -> dict:
       • 0.20 delta strikes located via interpolation across the chain.
       • Falls back gracefully on missing data — partial output is OK.
     """
+    # Live rate + dividend yield for any delta we have to compute ourselves;
+    # this ladder is what the delta-target strike picker reads.
+    _gr, _gq = _greek_inputs(symbol)
     out: dict = {"symbol": symbol}
     try:
         # Try Schwab first via the same wrapper layer used elsewhere.
@@ -3422,7 +3436,7 @@ def build_weekly_range(symbol: str) -> dict:
                 if d is None or d != d:  # NaN check
                     iv = float(r.get("iv") or 0)
                     if iv <= 0: continue
-                    d = _bs_delta(spot, strike, T, iv, side)
+                    d = _bs_delta(spot, strike, T, iv, side, r=_gr, q=_gq)
                 out_rows.append((strike, abs(float(d)), r))
             return out_rows
 
@@ -3483,22 +3497,113 @@ _INFO_LOCK = threading.Lock()
 _INFO_TTL = 12 * 3600
 
 
-def _ticker_info(symbol: str) -> dict:
+# One in-flight .info fetch per symbol, and a bound on how long a request will
+# wait for it (v3.86).
+#
+# WHY: the old version released _INFO_LOCK before the network call, so N
+# concurrent cold requests for the same symbol each made their OWN .info call —
+# and .info is the slowest yfinance call there is. That matters more than it
+# looks: the server speaks HTTP/1.1 keep-alive and a browser opens only ~6
+# connections per host, so a handful of slow requests stalls everything queued
+# behind them. That is the mechanism behind panels that sit there doing
+# nothing while an unrelated card loads.
+#
+# Now: the first caller starts one background fetch, everyone else waits on the
+# same result, and nobody waits longer than _INFO_DEADLINE. On timeout the
+# caller gets {} (every caller already tolerates that — the function has always
+# returned {} on failure) while the fetch keeps running and fills the cache, so
+# the next request is instant instead of repeating the stall.
+_INFO_INFLIGHT: dict = {}
+_INFO_DEADLINE = 4.0
+
+
+def _ticker_info(symbol: str, max_wait: float | None = None) -> dict:
     now = time.time()
     with _INFO_LOCK:
         hit = _INFO_CACHE.get(symbol)
         if hit is not None and (now - hit[0]) < _INFO_TTL:
             return hit[1]
+        waiter = _INFO_INFLIGHT.get(symbol)
+        mine = waiter is None
+        if mine:
+            waiter = threading.Event()
+            _INFO_INFLIGHT[symbol] = waiter
+
+    if mine:
+        def _fetch() -> None:
+            try:
+                info = yf.Ticker(symbol).info or {}
+            except Exception:
+                info = {}
+            # Only cache a real answer; a throttled empty must not be pinned
+            # for 12 hours.
+            if info.get("shortName") or info.get("longName") or info.get("marketCap"):
+                with _INFO_LOCK:
+                    _INFO_CACHE[symbol] = (time.time(), info)
+                    if len(_INFO_CACHE) > 2000:
+                        _INFO_CACHE.pop(next(iter(_INFO_CACHE)))
+            with _INFO_LOCK:
+                _INFO_INFLIGHT.pop(symbol, None)
+            waiter.set()
+
+        threading.Thread(target=_fetch, daemon=True,
+                         name=f"ticker-info:{symbol}").start()
+
+    waiter.wait(_INFO_DEADLINE if max_wait is None else max_wait)
+    with _INFO_LOCK:
+        hit = _INFO_CACHE.get(symbol)
+    return hit[1] if hit else {}
+
+
+def _dividend_yield_cached(symbol: str) -> float:
+    """This symbol's continuous dividend yield as a DECIMAL, for Black-Scholes.
+
+    NON-BLOCKING BY DESIGN: reads only the already-warm .info cache and
+    returns 0.0 on a miss, never fetching. .info is the slowest yfinance call
+    (see _ticker_info), and the greeks that use this run inside the option
+    chain hot path — paying for a cold fetch here is exactly what makes a
+    panel feel stalled. /api/ticker warms this cache on every dashboard load,
+    so by the time a chain renders it is normally populated.
+
+    Computed from dollar dividend rate / price rather than info["dividendYield"],
+    whose format has flipped between yfinance versions and once turned AAPL's
+    0.35 percent into 35 percent (see build_payload). The upper bound below is
+    the backstop for exactly that failure.
+    """
     try:
-        info = yf.Ticker(symbol).info or {}
-    except Exception:
-        info = {}
-    if info.get("shortName") or info.get("longName") or info.get("marketCap"):
         with _INFO_LOCK:
-            _INFO_CACHE[symbol] = (now, info)
-            if len(_INFO_CACHE) > 2000:
-                _INFO_CACHE.pop(next(iter(_INFO_CACHE)))
-    return info
+            hit = _INFO_CACHE.get(symbol)
+        info = hit[1] if hit else None
+        if not info:
+            return 0.0
+        drate = info.get("dividendRate") or info.get("trailingAnnualDividendRate")
+        price = (info.get("currentPrice") or info.get("regularMarketPrice")
+                 or info.get("previousClose"))
+        if drate and price and float(price) > 0:
+            q = float(drate) / float(price)
+            # A yield over 50% is a data error, not a stock. Never feed it in.
+            return q if 0.0 <= q < 0.50 else 0.0
+    except Exception:
+        pass
+    return 0.0
+
+
+def _greek_inputs(symbol: str) -> tuple[float, float]:
+    """(r, q) for the Black-Scholes greek fallbacks.
+
+    Every fallback greek call site used to take the library defaults —
+    r=0.045 and q=0.0 — even though the app already knows the live 3-month
+    Treasury rate AND each symbol's dividend yield. On income names that is
+    not a rounding error: at 90 DTE / 30% IV the strike this app labels
+    "0.20 delta" is really 0.187 for JPM, 0.171 for O and 0.168 for VZ,
+    a 16% relative miss on precisely the tickers a covered-call or
+    cash-secured-put book is built from.
+    """
+    try:
+        r, _src = risk_free_rate()
+    except Exception:
+        r = 0.045
+    return r, _dividend_yield_cached(symbol)
 
 
 def build_profile(symbol: str) -> dict:
@@ -4747,6 +4852,8 @@ def _reprice_week_chains(symbol: str, max_days: int = 8):
     like AAPL and the index ETFs. Mirrors the leg shape load_option_chain
     produces. Schwab primary, yfinance fallback. Returns
     {expirations: [{date, dte}], chains: {date: {calls, puts}}, source}."""
+    # Same inputs as the live chain path, so repriced greeks agree with it.
+    _gr, _gq = _greek_inputs(symbol)
     today = date.today()
     horizon = today + timedelta(days=max_days)
     out = {"expirations": [], "chains": {}, "source": None}
@@ -4784,7 +4891,7 @@ def _reprice_week_chains(symbol: str, max_days: int = 8):
                             iv = float(r.get("iv") or 0)
                             delta = r.get("delta")
                             if delta is None or delta != delta:
-                                delta = _bs_delta(spot, strike, T, iv, side)
+                                delta = _bs_delta(spot, strike, T, iv, side, r=_gr, q=_gq)
                             mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
                             res.append({
                                 "strike": strike,
@@ -4844,7 +4951,7 @@ def _reprice_week_chains(symbol: str, max_days: int = 8):
                         "ask": ask or (mid * 1.03 if mid else 0),
                         "last": last or mid,
                         "iv": iv,
-                        "delta": _bs_delta(spot, strike, T, iv, side),
+                        "delta": _bs_delta(spot, strike, T, iv, side, r=_gr, q=_gq),
                     })
                 return sorted(res, key=lambda x: x["strike"])
             _add(e, _norm(opt.calls, "call"), _norm(opt.puts, "put"))
