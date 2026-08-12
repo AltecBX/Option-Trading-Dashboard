@@ -70,7 +70,11 @@ jobs:
           JERRY_NO_NET: "1"
         run: |
           set -e
-          python3 -m unittest -v test_math_contract test_security test_schedules test_bt_options test_bt_iv test_chain_store test_bt_validate test_bt_plans test_credit_risk test_playbook test_perfection test_whisper_sources test_site_links
+          # DISCOVERY, not a hand-maintained list. The list this replaced had
+          # to be edited every time a test file was added, and nothing enforced
+          # that — so a new suite could sit in the repo for months, green and
+          # never actually executed. Discovery cannot silently skip a file.
+          python3 -m unittest discover -v -p 'test_*.py' -t . -s .
           python3 test_earnings_scan.py
           python3 test_strategy_math.py
           python3 test_reprice.py

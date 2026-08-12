@@ -36,7 +36,14 @@ DEFAULT_DAYS = 400
 # the test. The normal suite enforces it against the real date; running it here
 # too would just cry wolf on every time-travel run and train people to ignore
 # the output.
-SKIP_MODULES = {"test_schedules"}
+# test_provider_latency measures elapsed time and exercises a 12-hour cache
+# TTL. Under a faked clock the cached-at stamp and "now" can land on opposite
+# sides of the shift, so an entry written moments ago reads as 12 hours stale
+# and the test fails on the harness rather than on the app. Durations are
+# already measured with time.monotonic() there; the TTL arithmetic is the part
+# that cannot be made clock-agnostic, and a shifted clock tells us nothing
+# about it. The normal suite runs it against the real clock.
+SKIP_MODULES = {"test_schedules", "test_provider_latency"}
 
 
 def main() -> int:
