@@ -40,6 +40,7 @@ class Base(unittest.TestCase):
         self._today, ew._today = ew._today, lambda: TODAY
         ew._LAST_ATTEMPT_MONO = 0.0
         ew._REFRESHING = False
+        ew._REHYDRATING = False
         for k in ("X_BEARER_TOKEN", "TWITTER_BEARER_TOKEN",
                   "EWHISPERS_MANUAL_URL", "JERRY_NO_NET"):
             os.environ.pop(k, None)
@@ -72,9 +73,10 @@ class Base(unittest.TestCase):
         """Wait out any background refresh so tests never race each other."""
         import time as _t
         end = _t.monotonic() + timeout
-        while ew._REFRESHING and _t.monotonic() < end:
+        while (ew._REFRESHING or ew._REHYDRATING) and _t.monotonic() < end:
             _t.sleep(0.02)
-        self.assertFalse(ew._REFRESHING, "background refresh did not finish")
+        self.assertFalse(ew._REFRESHING or ew._REHYDRATING,
+                         "background work did not finish")
 
 
 # ── Week logic ──────────────────────────────────────────────────────────────
@@ -374,20 +376,29 @@ class _FakeResp:
 
 
 class _FakeSession:
-    """Serves the saved oEmbed capture for the example post, 404 otherwise."""
-    def __init__(self):
+    """Serves the saved REAL captures for the example post: the syndication
+    JSON (the official embed widget's own data feed) and the oEmbed body.
+    Either can be turned off to exercise the fallback ladder."""
+    def __init__(self, syndication=True, oembed=True, syn_body=None):
         self.urls = []
+        self.syndication, self.oembed, self.syn_body = syndication, oembed, syn_body
 
     def get(self, url, **kw):
         self.urls.append(url)
-        if url.startswith(ew.OEMBED_URL) and EXAMPLE_ID in url:
+        if url.startswith(ew.SYNDICATION_URL):
+            if self.syn_body is not None:
+                return _FakeResp(200, self.syn_body)
+            if self.syndication and EXAMPLE_ID in url:
+                return _FakeResp(200, (FIX / "x_syndication_2085726194914242793.json").read_text())
+            return _FakeResp(404, "{}")
+        if url.startswith(ew.OEMBED_URL) and self.oembed and EXAMPLE_ID in url:
             return _FakeResp(200, (FIX / "x_oembed_2085726194914242793.json").read_text())
         return _FakeResp(404, "{}")
 
 
 class TestManual(Base):
-    def hydrated(self, url=EXAMPLE_URL):
-        fake = _FakeSession()
+    def hydrated(self, url=EXAMPLE_URL, **session_kw):
+        fake = _FakeSession(**session_kw)
         ew.configure(self._tmp.name, session_factory=lambda: fake)
         return ew.set_manual(url), fake
 
@@ -416,23 +427,85 @@ class TestManual(Base):
         for u in bad:
             self.assertFalse(ew._validate_post_url(u)[0], u)
 
-    def test_manual_post_hydrates_through_oembed(self):
-        res, fake = self.hydrated()
+    def test_manual_post_gets_the_full_size_image_via_syndication(self):
+        # The REAL capture: the manual path yields the direct calendar image
+        # (3840x2160) with no credentials of any kind — the frontend shows a
+        # large native image, not a 550px tweet card.
+        res, _fake = self.hydrated()
         self.assertTrue(res["ok"])
         rec = res["post"]
         self.assertEqual(rec["source"], "manual")
+        self.assertEqual(rec["image_url"],
+                         "https://pbs.twimg.com/media/HPH7loKWIAA7HRP?format=jpg&name=large")
+        self.assertEqual(rec["image_url_full"],
+                         "https://pbs.twimg.com/media/HPH7loKWIAA7HRP?format=jpg&name=4096x4096")
+        self.assertEqual((rec["image_width"], rec["image_height"]), (3840, 2160))
         self.assertEqual(rec["week_start"], "2026-08-10")   # parsed from real text
-        self.assertEqual(rec["published_at"], "2026-08-07") # Friday, from the embed
+        self.assertEqual(rec["published_at"], "2026-08-07T13:54:10")
         self.assertIn("SMCI", rec["tickers"])
-        self.assertNotIn("&mdash;", rec["text"] or "")
-        self.assertNotIn("(@eWhispers)", rec["text"] or "") # attribution tail trimmed
-        # dnt + omit_script are part of every oEmbed call we make.
-        self.assertTrue(all("dnt=true" in u for u in fake.urls))
         # The hydrated manual post is a first-class week entry.
         out = ew.get_weekly()
         self.assertTrue(out["available"])
         self.assertEqual(out["post"]["post_id"], EXAMPLE_ID)
         self.assertEqual(out["showing"], "current")
+
+    def test_syndication_down_falls_back_to_oembed(self):
+        res, fake = self.hydrated(syndication=False)
+        self.assertTrue(res["ok"])
+        rec = res["post"]
+        self.assertIsNone(rec["image_url"])                 # embed path in the UI
+        self.assertEqual(rec["week_start"], "2026-08-10")   # still the right week
+        self.assertEqual(rec["published_at"], "2026-08-07") # date-only from oEmbed
+        self.assertIn("SMCI", rec["tickers"])
+        self.assertNotIn("&mdash;", rec["text"] or "")
+        self.assertNotIn("(@eWhispers)", rec["text"] or "") # attribution tail trimmed
+        oembed_calls = [u for u in fake.urls if u.startswith(ew.OEMBED_URL)]
+        self.assertTrue(oembed_calls and all("dnt=true" in u for u in oembed_calls))
+
+    def test_syndication_rejects_a_foreign_author(self):
+        d = json.loads((FIX / "x_syndication_2085726194914242793.json").read_text())
+        d["user"]["screen_name"] = "TotallyNotEW"
+        res, _ = self.hydrated(syn_body=json.dumps(d))
+        self.assertFalse(res["ok"])
+        self.assertIn("eWhispers", res["error"])
+
+    def test_deleted_post_tombstone_falls_back_cleanly(self):
+        res, _ = self.hydrated(syn_body=json.dumps({"__typename": "TweetTombstone"}))
+        self.assertTrue(res["ok"])                          # oEmbed still answered
+        self.assertIsNone(res["post"]["image_url"])
+        self.assertEqual(res["post"]["week_start"], "2026-08-10")
+
+    def test_syndication_media_off_the_x_cdn_is_dropped(self):
+        d = json.loads((FIX / "x_syndication_2085726194914242793.json").read_text())
+        d["mediaDetails"][0]["media_url_https"] = "https://evil.example/x.jpg"
+        res, _ = self.hydrated(syn_body=json.dumps(d))
+        self.assertTrue(res["ok"])
+        self.assertIsNone(res["post"]["image_url"])
+
+    def test_an_imageless_v387_save_upgrades_itself_once(self):
+        # A manual post stored by v3.87 (oEmbed-only: no image, no
+        # hydrated_at marker) must gain the full-size image on the next
+        # get_weekly, in the background, without the user re-saving.
+        st = ew._load_state()
+        with ew._LOCK:
+            st["manual_url"] = EXAMPLE_URL
+            st["manual"] = {"post_id": EXAMPLE_ID, "post_url": EXAMPLE_URL,
+                            "author": "eWhispers", "source": "manual",
+                            "week_start": "2026-08-10", "week_end": "2026-08-14",
+                            "image_url": None, "tickers": [], "text": "old"}
+        fake = _FakeSession()
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        # configure() drops in-memory state, so re-seed the on-disk file it
+        # will re-load (simulates the server restart between versions).
+        ew._STATE = st
+        ew._save_state()
+        ew.get_weekly()                                     # kicks the upgrade
+        import time as _t
+        end = _t.monotonic() + 5
+        while ew._REHYDRATING and _t.monotonic() < end:
+            _t.sleep(0.02)
+        out = ew.get_weekly()
+        self.assertIn("HPH7loKWIAA7HRP", out["post"]["image_url"] or "")
 
     def test_manual_without_network_still_serves_the_embed(self):
         os.environ["JERRY_NO_NET"] = "1"

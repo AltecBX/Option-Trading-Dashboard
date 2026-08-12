@@ -72,12 +72,12 @@ Set the env vars Railway needs:
 1. Click your project → click the `web` service → click the **Variables** tab
 2. Add:
    - `API_KEY` = `YOUR_API_KEY` (the random string from Step 3)
-   - `X_BEARER_TOKEN` = your X API v2 Bearer Token (optional) — turns on
-     automatic detection of the weekly Earnings Whispers calendar post on
-     the Earnings Ops tab. Get one at developer.x.com (a read-capable plan
-     is required for search). Without it the card still works: paste the
-     weekly post's link via "Set post link manually" on the card (or set
-     `EWHISPERS_MANUAL_URL`).
+   - `X_BEARER_TOKEN` = X API v2 Bearer Token (optional, and NOT worth
+     paying for) — turns on fully automatic detection of the weekly
+     Earnings Whispers calendar post on the Earnings Ops tab. Without it
+     the card works fine: paste the week's post link once via "Set post
+     link manually" on the card (or set `EWHISPERS_MANUAL_URL`) and the
+     full-size calendar image displays — no key needed for that.
    - `ALLOWED_ORIGIN` = leave blank for now, we'll set it after Vercel deploy
 
 Get the public URL:

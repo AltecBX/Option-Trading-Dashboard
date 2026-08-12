@@ -391,7 +391,7 @@ function EarningsWhispersCard({
     "aria-label": "Earnings Whispers weekly calendar, enlarged",
     onClick: () => setZoom(false)
   }, /*#__PURE__*/React.createElement("img", {
-    src: post.image_url,
+    src: post.image_url_full || post.image_url,
     alt: `Earnings Whispers calendar — ${data.week_label || ""}`
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",

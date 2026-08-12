@@ -1562,3 +1562,28 @@ QA (desktop 1440px + mobile 390px): 25/25 — including "a newer unrelated
 post does not replace the weekly calendar" and chip → global ticker. Found
 and fixed in QA: `.card-head > div` forces flex-column, which stacked the
 card's header buttons vertically (scoped row override).
+
+## v3.88 — the full-size calendar image, with NO X API key
+Jerry: "I would never have an X API key… I would like to see the Image take
+up the space, not the post." Both fixed.
+
+The manual-URL path now hydrates through cdn.syndication.twimg.com/
+tweet-result — the public, unauthenticated JSON feed the OFFICIAL X embed
+widget itself renders from (verified live against the real post: it returns
+the full text, the publish time, and the direct pbs.twimg.com media URL at
+3840×2160). So pasting the weekly post link now produces the same large
+native image the credentialed path shows — the 550px tweet card is only the
+last-resort fallback if that feed ever changes shape (tombstones, foreign
+authors and off-CDN media are all rejected; oEmbed remains the text
+fallback). A post saved by v3.87 upgrades itself in the background on the
+next card load — no re-saving.
+
+Also: the card image area widened to 1280px, and the lightbox now loads the
+4096px original variant — the point of enlarging a calendar is reading the
+small print. DEPLOY.md now says out loud that the key is optional and not
+worth paying for.
+
+Tests: 43 in test_ewhispers.py (five new: real syndication capture →
+image/dimensions/week, fallback to oEmbed when the feed is down, foreign
+author rejected, deleted-post tombstone, off-CDN media dropped, and the
+v3.87 self-upgrade). Full suite 323 + JS + time-travel green.
