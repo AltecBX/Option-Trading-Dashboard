@@ -4721,6 +4721,15 @@ except Exception as _exc:  # noqa: BLE001
     print(f"[whisper_sources] wiring failed: {_exc}", file=sys.stderr)
     _WHISPER_SOURCES_AVAILABLE = False
     _whisper_sources = None  # type: ignore
+# ── Earnings Whispers weekly X calendar (v3.87) ────────────────────────────
+try:
+    import ewhispers as _ewhispers
+    _ewhispers.configure(data_dir=_STABLE_DIR)
+    _EWHISPERS_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[ewhispers] wiring failed: {_exc}", file=sys.stderr)
+    _EWHISPERS_AVAILABLE = False
+    _ewhispers = None  # type: ignore
 try:
     import perfection_data as _perfection_data
     _perfection_data.configure(
@@ -6725,6 +6734,24 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        # ── Earnings Whispers: manual weekly-post URL fallback (v3.87) ──
+        if parsed.path == "/api/ewhispers/manual":
+            try:
+                if not _EWHISPERS_AVAILABLE:
+                    raise ValueError("ewhispers module unavailable")
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length < 0 or length > 4_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                if not isinstance(payload, dict):
+                    raise ValueError("expected a JSON object")
+                res = _ewhispers.set_manual(payload.get("url"))
+                if not res.get("ok"):
+                    raise ValueError(res.get("error") or "store failed")
+                self._send_json(res)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         # ── Pick journal: snapshot an early-mover suggestion (v3.02) ──
         if parsed.path == "/api/pick_journal":
             try:
@@ -8394,6 +8421,32 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json(_earnscan.trigger_scan(force=force))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/earnings_scan/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        # ── Earnings Whispers weekly X calendar (v3.87). Cache-only read:
+        # the response is instant and a stale cache kicks ONE background
+        # check — the page never waits on X. ──
+        if parsed.path == "/api/ewhispers/weekly":
+            if not _EWHISPERS_AVAILABLE:
+                self._send_json({"available": False,
+                                 "error": "ewhispers module unavailable"}, status=503)
+                return
+            try:
+                week = parse_qs(parsed.query).get("week", [None])[0]
+                self._send_json(_ewhispers.get_weekly(week=week), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/ewhispers/weekly", exc)
+                self._send_json({"available": False, "error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/ewhispers/refresh":
+            if not _EWHISPERS_AVAILABLE:
+                self._send_json({"error": "ewhispers module unavailable"}, status=503)
+                return
+            try:
+                force = parse_qs(parsed.query).get("force", ["0"])[0] in ("1", "true")
+                self._send_json(_ewhispers.trigger_refresh(force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/ewhispers/refresh", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/range_scan":

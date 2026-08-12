@@ -11205,3 +11205,82 @@ a.tabsheet-btn.site { text-decoration: none; }
 .sws-diag-pre { font-family: var(--font-mono); font-size: 11px; color: var(--fg-2);
   background: var(--bg); border-radius: 8px; padding: 8px; margin: 0 0 8px;
   max-height: 200px; overflow: auto; }
+
+/* ── Earnings Whispers weekly calendar card (v3.87) ─────────────────────────
+   The calendar image is the primary content: full card width, real aspect
+   ratio, click-to-enlarge lightbox. States (skeleton / previous-week /
+   manual / unavailable) reuse the terminal's chip + pill language so the
+   card reads native, not like an embedded social widget. */
+.ew-card { margin-bottom: 14px; }
+/* .card-head > div defaults to column (it's shaped for the kicker+title
+   block); this control cluster is a row of buttons. */
+.card-head > .ew-ctrl { flex-direction: row; align-items: center;
+  justify-content: flex-end; flex-wrap: wrap; }
+.ew-xbtn { text-decoration: none; display: inline-flex; align-items: center; }
+.ew-weekline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 2px 0 10px; }
+.ew-posted { font-size: 11.5px; }
+.ew-body { display: flex; flex-direction: column; gap: 10px; }
+.ew-imgwrap { position: relative; display: block; width: 100%;
+  max-width: 980px; margin: 0 auto; padding: 0; cursor: zoom-in;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  overflow: hidden; }
+.ew-imgwrap:hover .ew-zoom { opacity: 1; }
+.ew-img { display: block; width: 100%; height: auto; max-height: 78vh;
+  object-fit: contain; background: #fff; }
+.ew-zoom { position: absolute; right: 10px; bottom: 10px; opacity: 0;
+  transition: opacity 0.15s ease; background: rgba(0, 0, 0, 0.65);
+  color: #fff; font-size: 11.5px; padding: 4px 9px; border-radius: 6px;
+  pointer-events: none; }
+.ew-imgskel { width: 100%; max-width: 980px; margin: 0 auto;
+  aspect-ratio: 3 / 4; max-height: 420px; border-radius: 12px; }
+.ew-embed { width: 100%; max-width: 560px; margin: 0 auto; min-height: 120px; }
+.ew-note { font-size: 12px; color: var(--fg-3); }
+.ew-xlink { color: var(--accent); text-decoration: none; }
+.ew-xlink:hover { text-decoration: underline; }
+.ew-empty { padding: 22px 8px 26px; text-align: center; }
+.ew-empty-title { font-family: var(--font-display); font-weight: 700;
+  font-size: 15px; color: var(--fg-2); margin-bottom: 6px; }
+.ew-empty .ew-note { max-width: 520px; margin: 0 auto; }
+.ew-ticks { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.ew-ticks-label { font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.4px; margin-right: 2px; }
+.ew-tick { background: var(--bg-2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 2.5px 8px; font-family: var(--font-mono);
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease; }
+.ew-tick:hover { border-color: var(--accent); color: var(--accent); }
+.ew-tick-more { color: var(--fg-3); font-weight: 400; }
+.ew-textwrap { font-size: 12px; }
+.ew-texttoggle { background: transparent; border: none; padding: 0;
+  color: var(--fg-3); font-size: 11.5px; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; }
+.ew-texttoggle:hover { color: var(--fg); }
+.ew-text { margin-top: 6px; color: var(--fg-2); line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-width: 860px; }
+.ew-foot { display: flex; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; align-items: baseline; }
+.ew-foot-right { text-align: right; }
+.ew-manual { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.ew-manual-in { flex: 1 1 320px; min-width: 220px; font-family: var(--font-mono);
+  font-size: 12px; }
+.ew-lightbox { position: fixed; inset: 0; z-index: 9100;
+  background: rgba(0, 0, 0, 0.88); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  cursor: zoom-out; padding: 18px; }
+.ew-lightbox img { max-width: min(96vw, 1400px); max-height: 94vh;
+  width: auto; height: auto; border-radius: 8px; background: #fff;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); }
+.ew-lb-close { position: fixed; top: 14px; right: 14px; z-index: 9101;
+  width: 34px; height: 34px; font-size: 20px; background: rgba(0, 0, 0, 0.5);
+  color: #fff; }
+@media (max-width: 760px) {
+  .ew-card .card-head { flex-wrap: wrap; gap: 8px; }
+  .ew-ctrl { width: 100%; justify-content: flex-start; }
+  .ew-img { max-height: none; }
+  .ew-foot { flex-direction: column; gap: 4px; }
+  .ew-foot-right { text-align: left; }
+  .ew-lightbox { padding: 8px; }
+  .ew-lightbox img { max-width: 98vw; max-height: 92vh; }
+}

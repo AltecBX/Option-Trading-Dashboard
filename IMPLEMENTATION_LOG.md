@@ -1510,3 +1510,55 @@ next test's cache) and durations measured with time.time() instead of
 time.monotonic(). test_provider_latency is exempt from the time-travel run —
 its 12h TTL arithmetic straddles the faked-clock boundary, which tests
 freezegun rather than the app; the reason is recorded in SKIP_MODULES.
+
+## v3.87 — Earnings Whispers weekly calendar, live from @eWhispers on X
+The Earnings Ops tab now opens with the weekly Earnings Whispers calendar —
+the "#earnings for the week of …" image post — detected automatically each
+week, no URL editing ever.
+
+### Detection is multi-signal, and selection is BY WEEK, never by recency
+A broad X API search (`from:eWhispers earnings has:images -is:retweet
+-is:reply`) feeds a scorer: weekly-calendar phrase, a parsed "week of" date,
+match against the current trading week, cashtag count, and a penalty for
+daily-reporters wording. Accepted posts are stored under the week they
+ANNOUNCE, so the daily posts and charts the account also publishes — always
+newer — can never displace the current week's calendar, and next week's
+calendar takes over exactly when the weekend rolls the relevant week
+forward (Sat/Sun → coming Monday). Verified against the REAL example post
+(2085726194914242793), whose text and publish date were captured live
+through X's official oEmbed endpoint into fixtures.
+
+### Every layer has a fallback, so the card never breaks
+current verified post → last verified post from the on-disk cache (labeled
+"previous week") → a manually pasted post URL (validated to @eWhispers only,
+hydrated credential-free via official oEmbed: text, week, tickers) → a clean
+labeled empty state. Display mirrors the same ladder: native <img> from the
+API's media metadata (pbs.twimg.com only — anything else is dropped), else
+the official X embed (created by widgets.js's createTweet — no third-party
+HTML ever injected), else a plain link. Broken-image onError falls through
+automatically.
+
+### The terminal look, not a social-media card
+The calendar image gets the card's full width at its real aspect ratio with
+a click-to-enlarge lightbox (Esc closes). Cashtags from the post text become
+ticker chips wired to the app's existing global ticker (switchTicker →
+Analyze) — structured data only, no OCR. Week navigation appears only when
+history exists (small window, pruned to 8 weeks).
+
+### Server-side cost discipline
+`/api/ewhispers/weekly` is a cache-only read; a stale cache kicks ONE
+coalesced background check (≥4h apart — browsers never fan out to X), and
+credentials stay server-side (`X_BEARER_TOKEN`; responses carry a boolean).
+Without credentials the card says so and the manual path works end to end.
+JERRY_NO_NET=1 disables all network, matching the suite convention.
+
+Tests: test_ewhispers.py (38) — week math incl. weekend rollover and the
+spec's own Wednesday example, wording variants, year inference across
+Dec/Jan, scorer vs the real fixture + decoys, rate-limit/garbage-payload
+survival, URL validation (rejects non-eWhispers, http, lookalike hosts),
+oEmbed hydration from the real capture, persistence across restart, token
+never in a response. Suite: 318 Python + JS + time-travel green; Playwright
+QA (desktop 1440px + mobile 390px): 25/25 — including "a newer unrelated
+post does not replace the weekly calendar" and chip → global ticker. Found
+and fixed in QA: `.card-head > div` forces flex-column, which stacked the
+card's header buttons vertically (scoped row override).

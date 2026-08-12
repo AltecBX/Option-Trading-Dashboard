@@ -1,0 +1,43 @@
+{
+  "_comment": "X API v2 recent-search response shape for from:eWhispers, modeled on the REAL weekly post x.com/eWhispers/status/2085726194914242793 (text and publish date captured live via the official oEmbed endpoint on 2026-08-12 — see x_oembed_2085726194914242793.json). Media URLs are representative; the API returns pbs.twimg.com bases like these. Includes the decoys detection must beat: a daily-reporters post, a non-calendar chart post, and a repost.",
+  "data": [
+    {
+      "id": "2087401110000000001",
+      "text": "The S&P 500 forward P/E is back above 23x heading into the busiest week of #earnings season. https://t.co/chart1234",
+      "created_at": "2026-08-12T01:15:00.000Z",
+      "attachments": { "media_keys": ["3_2087401110000000101"] }
+    },
+    {
+      "id": "2087055500000000002",
+      "text": "$HD, $ONON, and $SE report #earnings before the open tomorrow https://t.co/daily5678",
+      "created_at": "2026-08-11T20:05:00.000Z",
+      "attachments": { "media_keys": ["3_2087055500000000102"] }
+    },
+    {
+      "id": "2086700000000000003",
+      "text": "RT @SomeAccount: #earnings for the week of August 10, 2026 — great summary!",
+      "created_at": "2026-08-10T14:00:00.000Z",
+      "attachments": { "media_keys": ["3_2086700000000000103"] },
+      "referenced_tweets": [ { "type": "retweeted", "id": "2085726194914242793" } ]
+    },
+    {
+      "id": "2085726194914242793",
+      "text": "#earnings for the week of August 10, 2026 https://t.co/hLn2sKQhEY $NBIS $SMCI $RKLB $CRWV $LITE $AMAT $ASTS $FLY $CSCO $PLUG $QUBT $HIMS $INFQ $COHR $GCTS $CBRS $SE $BRK.B (Saturday) $ARCO $CAVA $BETA $MLCO $CEVA $FIGR $LUNR $GPRO $ENVX $EAT $CAH $FRMI $B $AIT $BGS $TRMB $FNV… https://t.co/GN5RVs0i2o",
+      "created_at": "2026-08-07T21:31:00.000Z",
+      "attachments": { "media_keys": ["3_2085726190000000104"] }
+    }
+  ],
+  "includes": {
+    "media": [
+      { "media_key": "3_2087401110000000101", "type": "photo",
+        "url": "https://pbs.twimg.com/media/GvChart00000001.jpg", "width": 1200, "height": 675 },
+      { "media_key": "3_2087055500000000102", "type": "photo",
+        "url": "https://pbs.twimg.com/media/GvDaily00000002.jpg", "width": 1080, "height": 1080 },
+      { "media_key": "3_2086700000000000103", "type": "photo",
+        "url": "https://pbs.twimg.com/media/GvRepost0000003.jpg", "width": 1080, "height": 1350 },
+      { "media_key": "3_2085726190000000104", "type": "photo",
+        "url": "https://pbs.twimg.com/media/GvWeekly0000004.jpg", "width": 1080, "height": 1350 }
+    ]
+  },
+  "meta": { "newest_id": "2087401110000000001", "oldest_id": "2085726194914242793", "result_count": 4 }
+}
