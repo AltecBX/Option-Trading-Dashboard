@@ -40,6 +40,308 @@ function eopPct(v, d = 1) {
   return v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// EARNINGS WHISPERS WEEKLY CALENDAR (v3.87) — the @eWhispers weekly
+// earnings-calendar post from X, shown natively at the top of the Earnings
+// area. Data: /api/ewhispers/weekly (server-cached; the page never waits on
+// X). Display: the calendar image straight from X's media CDN when the
+// server has API credentials, otherwise the official X embed. Tickers come
+// from the post's cashtags and click through to the global ticker.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// The official X embed script, loaded ONCE and only when a card actually
+// needs the embed fallback (an image-less post). Never loaded for the
+// normal image path.
+let _xWidgetsPromise = null;
+function loadXWidgets() {
+  if (_xWidgetsPromise) return _xWidgetsPromise;
+  _xWidgetsPromise = new Promise((resolve, reject) => {
+    if (window.twttr && window.twttr.widgets) { resolve(window.twttr); return; }
+    const s = document.createElement("script");
+    s.src = "https://platform.twitter.com/widgets.js";
+    s.async = true;
+    s.onload = () => (window.twttr && window.twttr.widgets)
+      ? resolve(window.twttr)
+      : reject(new Error("X embed script loaded without widgets"));
+    s.onerror = () => { _xWidgetsPromise = null; reject(new Error("X embed script failed to load")); };
+    document.head.appendChild(s);
+  });
+  return _xWidgetsPromise;
+}
+
+function XPostEmbed({ postId, postUrl }) {
+  // Official createTweet factory — no third-party HTML is ever injected by
+  // us; the widget renders into its own sandboxed iframe.
+  const ref = useRef(null);
+  const [phase, setPhase] = useState("loading");
+  useEffect(() => {
+    let stop = false;
+    setPhase("loading");
+    if (ref.current) ref.current.innerHTML = "";
+    loadXWidgets()
+      .then(tw => tw.widgets.createTweet(String(postId), ref.current,
+        { theme: "dark", dnt: true, align: "center", conversation: "none" }))
+      .then(el => { if (!stop) setPhase(el ? "ready" : "failed"); })
+      .catch(() => { if (!stop) setPhase("failed"); });
+    return () => { stop = true; };
+  }, [postId]);
+  return (
+    <div className="ew-embed">
+      <div ref={ref} />
+      {phase === "loading" && <div className="skel ew-imgskel" aria-hidden="true" />}
+      {phase === "failed" && (
+        <div className="ew-note">The X embed couldn't load here (often an ad-blocker).{" "}
+          <a className="ew-xlink" href={postUrl} target="_blank" rel="noopener noreferrer">Open the post on X ↗</a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EwTickerChips({ tickers, onOpenTicker }) {
+  const [showAll, setShowAll] = useState(false);
+  if (!tickers || !tickers.length) return null;
+  const CAP = 28;
+  const shown = showAll ? tickers : tickers.slice(0, CAP);
+  return (
+    <div className="ew-ticks" aria-label="Companies reporting this week">
+      <span className="ew-ticks-label" title="Cashtags from the @eWhispers post — the week's headline reporters. Click one to load it in Analyze.">Reporting:</span>
+      {shown.map(t => (
+        <button key={t} type="button" className="ew-tick" title={`Open ${t} in Analyze`}
+                onClick={() => onOpenTicker && onOpenTicker(t)}>{t}</button>
+      ))}
+      {tickers.length > CAP && (
+        <button type="button" className="ew-tick ew-tick-more" onClick={() => setShowAll(v => !v)}>
+          {showAll ? "less" : `+${tickers.length - CAP} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [viewWeek, setViewWeek] = useState(null);   // null = relevant week
+  const [zoom, setZoom] = useState(false);
+  const [imgBroken, setImgBroken] = useState(false);
+  const [showText, setShowText] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualUrl, setManualUrl] = useState("");
+  const [manualMsg, setManualMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
+
+  const urlFor = (week) => `/api/ewhispers/weekly${week ? `?week=${encodeURIComponent(week)}` : ""}`;
+
+  const load = (week, { fresh } = {}) => {
+    const p = fresh
+      ? apiFetch(urlFor(week)).then(r => r.json())
+      : sharedJson(apiFetch, urlFor(week), 5 * 60000);
+    return p.then(d => {
+      if (!aliveRef.current) return d;
+      setData(d); setErr(null); setImgBroken(false);
+      return d;
+    }).catch(e => { if (aliveRef.current) setErr(String(e && e.message || e)); return null; });
+  };
+
+  useEffect(() => { load(viewWeek); }, [viewWeek]);
+  useEffect(() => {
+    // Gentle keep-fresh poll; the server serves its cache instantly and
+    // checks X on its own few-hour cadence, so this is cheap.
+    const id = setInterval(skipWhenHidden(() => load(viewWeek)), 15 * 60000);
+    return () => clearInterval(id);
+  }, [viewWeek]);
+
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      await apiFetch("/api/ewhispers/refresh?force=1");
+      // Detection runs in the background — give it a moment, then re-read
+      // (twice, in case the first lands mid-check).
+      for (const ms of [2500, 4000]) {
+        await new Promise(res => setTimeout(res, ms));
+        const d = await load(viewWeek, { fresh: true });
+        if (d && !d.checking) break;
+      }
+    } catch (e) { if (aliveRef.current) setErr(String(e && e.message || e)); }
+    if (aliveRef.current) setBusy(false);
+  };
+
+  const saveManual = async (url) => {
+    setBusy(true); setManualMsg(null);
+    try {
+      const r = await apiFetch("/api/ewhispers/manual", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      setManualMsg(url ? "Saved — showing that post." : "Cleared.");
+      setManualUrl("");
+      setViewWeek(null);
+      await load(null, { fresh: true });
+    } catch (e) { setManualMsg(String(e && e.message || e)); }
+    if (aliveRef.current) setBusy(false);
+  };
+
+  // Esc closes the enlarged view.
+  useEffect(() => {
+    if (!zoom) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setZoom(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom]);
+
+  const post = data && data.post;
+  const hasImage = !!(post && post.image_url) && !imgBroken;
+  const canEmbed = !!(post && post.post_id) && !hasImage;
+  // The post text minus link clutter; cashtags already render as chips.
+  const cleanText = post && post.text
+    ? post.text.replace(/https?:\/\/t\.co\/\w+/g, " ").replace(/pic\.twitter\.com\/\w+/g, " ")
+        .replace(/\s+/g, " ").trim()
+    : null;
+  const aspect = post && post.image_width && post.image_height
+    ? { aspectRatio: `${post.image_width} / ${post.image_height}` } : null;
+
+  const navBtn = (week, label, title) => (
+    <button type="button" className="tsy-serbtn" disabled={!week || busy}
+            title={title} onClick={() => setViewWeek(week)}>{label}</button>
+  );
+
+  return (
+    <div className="card tsy-card ew-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Weekly earnings calendar · @eWhispers on X</div>
+          <div className="card-title">Earnings Whispers</div>
+        </div>
+        <div className="tsy-ctrl ew-ctrl">
+          {data && data.weeks && data.weeks.length > 1 && (
+            <React.Fragment>
+              {navBtn(data.prev_week, "‹", data.prev_week ? `Show ${data.prev_week}` : "No earlier week stored")}
+              {!data.is_current_week &&
+                navBtn(data.current_week, "Current week", "Back to the current trading week")}
+              {navBtn(data.next_week, "›", data.next_week ? `Show ${data.next_week}` : "No later week stored")}
+            </React.Fragment>
+          )}
+          {post && (
+            <a className="scan-run-btn ew-xbtn" href={post.post_url} target="_blank"
+               rel="noopener noreferrer" title="Open the original post on X in a new tab.">View on X ↗</a>
+          )}
+          <button className="scan-run-btn" onClick={refresh}
+                  disabled={busy || !!(data && data.checking)}
+                  title="Ask the server to check @eWhispers for a newer weekly post now.">
+            {busy || (data && data.checking) ? "Checking…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {data && data.week_label && (
+        <div className="ew-weekline">
+          <span className="tsy-datechip num">{data.week_label}</span>
+          {data.showing === "previous" && <span className="tsy-pill mut" title={data.note || ""}>PREVIOUS WEEK</span>}
+          {data.showing === "manual" && <span className="tsy-pill mut" title="This post was supplied manually below.">MANUAL</span>}
+          {data.showing === "history" && <span className="tsy-pill mut">ARCHIVE</span>}
+          {post && post.published_at && (
+            <span className="muted ew-posted">posted {fmtUSDate(post.published_at)}</span>
+          )}
+        </div>
+      )}
+
+      {err && !data && <div className="tsy-err">Couldn't reach the dashboard server: {err}</div>}
+
+      {!data && !err && (
+        <div className="ew-body" aria-busy="true" aria-label="Loading Earnings Whispers calendar…">
+          <div className="skel skel-line" style={{ width: "38%" }} />
+          <div className="skel ew-imgskel" />
+        </div>
+      )}
+
+      {data && !post && (
+        <div className="ew-empty">
+          <div className="ew-empty-title">No weekly calendar to show yet</div>
+          <div className="ew-note">{data.note || "Nothing has been detected for this week so far."}</div>
+        </div>
+      )}
+
+      {post && (
+        <div className="ew-body">
+          {hasImage && (
+            <button type="button" className="ew-imgwrap" onClick={() => setZoom(true)}
+                    title="Click to enlarge the calendar." style={aspect || undefined}>
+              <img className="ew-img" src={post.image_url} loading="lazy" decoding="async"
+                   referrerPolicy="no-referrer"
+                   alt={`Earnings Whispers calendar — ${data.week_label || "weekly earnings"}`}
+                   onError={() => setImgBroken(true)} />
+              <span className="ew-zoom" aria-hidden="true">⤢ enlarge</span>
+            </button>
+          )}
+          {canEmbed && <XPostEmbed postId={post.post_id} postUrl={post.post_url} />}
+          {!hasImage && !canEmbed && (
+            <div className="ew-note">This post has no displayable media —{" "}
+              <a className="ew-xlink" href={post.post_url} target="_blank" rel="noopener noreferrer">view it on X ↗</a>.
+            </div>
+          )}
+          {(post.images || []).length > 0 && hasImage && (
+            <div className="ew-note">+{post.images.length} more image{post.images.length > 1 ? "s" : ""} in the original post.</div>
+          )}
+          <EwTickerChips tickers={post.tickers} onOpenTicker={onOpenTicker} />
+          {cleanText && (
+            <div className="ew-textwrap">
+              <button type="button" className="ew-texttoggle" onClick={() => setShowText(v => !v)}>
+                {showText ? "Hide post text" : "Show post text"}
+              </button>
+              {showText && <div className="ew-text">{cleanText}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="tsy-foot ew-foot">
+        <span>{(data && data.attribution) || "Calendar and post © Earnings Whispers (@eWhispers) on X"}</span>
+        <span className="ew-foot-right">
+          {data && data.last_checked
+            ? `Checked for newer posts ${new Date(data.last_checked).toLocaleString()}`
+            : data && !data.credentials
+              ? "Automatic checks are off (no X API key on the server)"
+              : "Not checked yet"}
+          {" · "}
+          <button type="button" className="ew-texttoggle" onClick={() => setManualOpen(v => !v)}>
+            {manualOpen ? "Hide manual link" : "Set post link manually"}
+          </button>
+        </span>
+      </div>
+      {manualOpen && (
+        <div className="ew-manual">
+          <input className="sb-select ew-manual-in" type="url" value={manualUrl}
+                 placeholder={data && data.manual_url ? data.manual_url : "https://x.com/eWhispers/status/…"}
+                 onChange={e => setManualUrl(e.target.value)} disabled={busy} />
+          <button className="scan-run-btn" disabled={busy || !manualUrl.trim()}
+                  onClick={() => saveManual(manualUrl.trim())}>Save</button>
+          {data && data.manual_url && (
+            <button className="scan-run-btn" disabled={busy} onClick={() => saveManual("")}
+                    title="Remove the manually supplied post and go back to automatic detection.">Clear</button>
+          )}
+          {manualMsg && <span className="ew-note">{manualMsg}</span>}
+          <span className="ew-note">Paste the weekly calendar post's link from @eWhispers if automatic detection is unavailable.</span>
+        </div>
+      )}
+
+      {zoom && hasImage && (
+        <div className="ew-lightbox" role="dialog" aria-modal="true"
+             aria-label="Earnings Whispers weekly calendar, enlarged"
+             onClick={() => setZoom(false)}>
+          <img src={post.image_url} alt={`Earnings Whispers calendar — ${data.week_label || ""}`} />
+          <button type="button" className="hk-close ew-lb-close" aria-label="Close"
+                  onClick={() => setZoom(false)}>×</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EarnOpsAlerts({ rows }) {
   // Toasts for new row alerts (spec list computed server-side per row).
   const [toasts, setToasts] = useState([]);
@@ -273,6 +575,12 @@ function EarningsOpsTab({ apiFetch, onOpenTicker, onOpenIntraday }) {
   return (
     <div className="eop">
       <EarnOpsAlerts rows={allRows} />
+      {/* Earnings Whispers weekly calendar (v3.87) — loads independently of
+          the scanner below; its own error boundary so a failure here can
+          never take the scanner down. */}
+      <CardErrorBoundary label="Earnings Whispers">
+        <EarningsWhispersCard apiFetch={apiFetch} onOpenTicker={onOpenTicker} />
+      </CardErrorBoundary>
       <div className="card tsy-card">
         <div className="card-head">
           <div>
