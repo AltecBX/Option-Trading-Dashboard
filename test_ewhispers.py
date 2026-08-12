@@ -370,21 +370,30 @@ class TestGetWeekly(Base):
 
 # ── Manual fallback URL ────────────────────────────────────────────────────
 
+FAKE_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"calendar-bytes"
+
+
 class _FakeResp:
-    def __init__(self, status, text):
-        self.status_code, self.text = status, text
+    def __init__(self, status, text=None, content=None):
+        self.status_code = status
+        self.content = content if content is not None else (text or "").encode()
+        self.text = text if text is not None else ""
 
 
 class _FakeSession:
     """Serves the saved REAL captures for the example post: the syndication
-    JSON (the official embed widget's own data feed) and the oEmbed body.
-    Either can be turned off to exercise the fallback ladder."""
-    def __init__(self, syndication=True, oembed=True, syn_body=None):
+    JSON (the official embed widget's own data feed), the oEmbed body, and
+    fake image bytes for the media CDN. Each can be turned off to exercise
+    the fallback ladder."""
+    def __init__(self, syndication=True, oembed=True, syn_body=None, media=True):
         self.urls = []
-        self.syndication, self.oembed, self.syn_body = syndication, oembed, syn_body
+        self.syndication, self.oembed = syndication, oembed
+        self.syn_body, self.media = syn_body, media
 
     def get(self, url, **kw):
         self.urls.append(url)
+        if url.startswith("https://pbs.twimg.com/"):
+            return _FakeResp(200 if self.media else 404, content=FAKE_JPEG)
         if url.startswith(ew.SYNDICATION_URL):
             if self.syn_body is not None:
                 return _FakeResp(200, self.syn_body)
@@ -532,6 +541,83 @@ class TestManual(Base):
 
 
 # ── Persistence ────────────────────────────────────────────────────────────
+
+class TestImageCache(Base):
+    """The card loads the calendar from OUR server: downloaded from X once,
+    then served from disk — ad-blockers on the browser can't touch it."""
+
+    def seed(self, **kw):
+        fake = _FakeSession(**kw)
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        self.assertTrue(ew.set_manual(EXAMPLE_URL)["ok"])
+        return fake
+
+    def test_payload_offers_the_proxy_paths(self):
+        self.seed()
+        post = ew.get_weekly()["post"]
+        self.assertEqual(post["image_proxy"],
+                         f"/api/ewhispers/image?id={EXAMPLE_ID}&size=large")
+        self.assertEqual(post["image_proxy_full"],
+                         f"/api/ewhispers/image?id={EXAMPLE_ID}&size=full")
+
+    def test_downloads_once_then_serves_from_disk(self):
+        fake = self.seed()
+        b1, ct = ew.get_image(EXAMPLE_ID, "large")
+        self.assertEqual(ct, "image/jpeg")
+        self.assertEqual(b1, FAKE_JPEG)
+        n_media = len([u for u in fake.urls if "pbs.twimg.com" in u])
+        b2, _ = ew.get_image(EXAMPLE_ID, "large")
+        self.assertEqual(b2, FAKE_JPEG)
+        self.assertEqual(len([u for u in fake.urls if "pbs.twimg.com" in u]), n_media,
+                         "second read must come from disk, not X")
+        # ...and once cached it survives with the network off entirely.
+        os.environ["JERRY_NO_NET"] = "1"
+        b3, _ = ew.get_image(EXAMPLE_ID, "large")
+        self.assertEqual(b3, FAKE_JPEG)
+
+    def test_full_size_is_cached_separately(self):
+        self.seed()
+        _, ct = ew.get_image(EXAMPLE_ID, "full")
+        self.assertEqual(ct, "image/jpeg")
+
+    def test_bad_requests_and_unknown_posts_are_refused(self):
+        self.seed()
+        self.assertIsNone(ew.get_image("../../etc/passwd", "large")[0])
+        self.assertIsNone(ew.get_image(EXAMPLE_ID, "orig")[0])
+        self.assertIsNone(ew.get_image("99999999999", "large")[0])
+
+    def test_failed_upstream_is_not_cached_and_recovers(self):
+        fake = self.seed()
+        fake.media = False                      # CDN failing
+        b, reason = ew.get_image(EXAMPLE_ID, "large")
+        self.assertIsNone(b)
+        self.assertIn("http_404", reason)
+        fake.media = True                       # recovered → next call works
+        b2, ct = ew.get_image(EXAMPLE_ID, "large")
+        self.assertEqual((b2, ct), (FAKE_JPEG, "image/jpeg"))
+
+
+class TestForcedRefreshWithoutCredentials(Base):
+    def test_refresh_button_rehydrates_the_manual_post(self):
+        # Save while the image feed is down → embed-only record...
+        fake = _FakeSession(syndication=False)
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        ew.set_manual(EXAMPLE_URL)
+        self.assertIsNone(ew._load_state()["manual"]["image_url"])
+        self.assertEqual(ew._load_state()["manual"]["image_status"],
+                         "x_image_feed_unreachable")
+        # ...the feed recovers, the user clicks Refresh: fixed, no API key.
+        fake.syndication = True
+        res = ew.trigger_refresh(force=True)
+        self.assertTrue(res["started"])
+        self.assertEqual(res["mode"], "manual_rehydrate")
+        self.wait_idle()
+        self.assertIn("HPH7loKWIAA7HRP", ew._load_state()["manual"]["image_url"])
+
+    def test_unforced_refresh_without_creds_still_declines(self):
+        res = ew.trigger_refresh()
+        self.assertFalse(res["started"])
+
 
 class TestPersistence(Base):
     def test_state_survives_a_restart(self):

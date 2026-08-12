@@ -198,6 +198,7 @@ for p in [
     "/api/ewhispers/weekly",
     "/api/ewhispers/weekly?week=2026-08-10",
     "/api/ewhispers/refresh",
+    "/api/ewhispers/image?id=12345&size=large",
     f"/api/earnings_iv_crush?symbol={S}",
     f"/api/analyst?symbol={S}",
     "/api/data_source",

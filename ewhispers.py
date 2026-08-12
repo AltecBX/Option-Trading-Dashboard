@@ -604,7 +604,13 @@ def _hydrate_manual(canonical_url: str, post_id: str) -> dict:
             rec["image_height"] = photos[0]["height"]
             rec["images"] = [u for u in (_display_image_url(p["url"])
                                          for p in photos[1:]) if u]
+            rec["image_status"] = "ok"
+        else:
+            rec["image_status"] = "post_has_no_photo"
     else:
+        # The reason lands in the UI when the embed fallback shows, so a
+        # blocked syndication fetch is visible instead of a silent shrug.
+        rec["image_status"] = "x_image_feed_unreachable"
         oe = _fetch_oembed(canonical_url)
         if oe is None:
             return rec
@@ -631,37 +637,39 @@ def _hydrate_manual(canonical_url: str, post_id: str) -> dict:
 _REHYDRATING = False
 
 
-def _maybe_rehydrate_manual() -> None:
-    """One-time upgrade for a manual post saved before the syndication path
-    existed (or while its fetch was down): if the stored record has no image
-    and hydration hasn't been attempted since, re-hydrate once in the
-    background so the embed quietly becomes the full-size calendar image."""
+def _rehydrate_manual_async(force: bool = False) -> bool:
+    """Re-hydrate the stored manual post in the background. Un-forced, it is
+    the self-upgrade for a post saved without an image (attempted at most
+    every 2h); forced (the card's Refresh button), it always re-runs, so a
+    transient fetch failure never strands the card on the embed. Returns
+    whether a re-hydration was started."""
     global _REHYDRATING
     if os.environ.get("JERRY_NO_NET") == "1":
-        return
+        return False
     st = _load_state()
     with _LOCK:
         manual, url = st.get("manual"), st.get("manual_url")
-        if _REHYDRATING or not url or not manual:
-            return
-        if manual.get("image_url"):
-            return
-        ha = manual.get("hydrated_at")
-        if ha:
-            try:
-                age_h = (datetime.now(timezone.utc)
-                         - datetime.fromisoformat(ha)).total_seconds() / 3600.0
-            except Exception:
-                age_h = 0.0
-            if age_h < 24:               # attempted recently — don't hammer
-                return
+        if _REHYDRATING or not url:
+            return False
+        if not force:
+            if not manual or manual.get("image_url"):
+                return False
+            ha = manual.get("hydrated_at")
+            if ha:
+                try:
+                    age_h = (datetime.now(timezone.utc)
+                             - datetime.fromisoformat(ha)).total_seconds() / 3600.0
+                except Exception:
+                    age_h = 0.0
+                if age_h < 2:            # attempted recently — don't hammer
+                    return False
         _REHYDRATING = True
 
     def run():
         global _REHYDRATING
         try:
             res = set_manual(url)
-            if res.get("ok"):
+            if res.get("ok") and (res.get("post") or {}).get("image_url"):
                 _log("manual post re-hydrated with the full-size image")
         except Exception as exc:  # noqa: BLE001
             _log(f"manual re-hydrate failed: {exc}")
@@ -669,6 +677,99 @@ def _maybe_rehydrate_manual() -> None:
             _REHYDRATING = False
 
     threading.Thread(target=run, daemon=True).start()
+    return True
+
+
+# ── Server-held image cache ─────────────────────────────────────────────────
+# The card loads the calendar from THIS server (/api/ewhispers/image), which
+# downloads it from X's media CDN once and keeps it on disk. The browser
+# never talks to X for the image, so ad-blockers that kill twimg.com can't
+# knock the card back to the embed — and the same big image is never
+# fetched from X twice.
+
+_IMG_MAX_BYTES = 12 * 1024 * 1024
+_IMG_SIZES = ("large", "full")
+_IMG_INFLIGHT: set = set()
+
+
+def _image_dir() -> Path | None:
+    return (_DATA_DIR / "images") if _DATA_DIR else None
+
+
+def _find_record(post_id: str) -> dict | None:
+    st = _load_state()
+    with _LOCK:
+        m = st.get("manual")
+        if m and m.get("post_id") == post_id:
+            return dict(m)
+        for rec in st["weeks"].values():
+            if rec.get("post_id") == post_id:
+                return dict(rec)
+    return None
+
+
+def _sniff_image_type(b: bytes) -> str | None:
+    if b[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def get_image(post_id: str, size: str = "large") -> tuple[bytes | None, str]:
+    """(image bytes, content-type) from the disk cache, downloading from X's
+    CDN once on a miss. (None, reason) when it can't be served — the
+    frontend then falls back to the direct URL and finally the embed."""
+    if not re.fullmatch(r"\d{5,25}", post_id or "") or size not in _IMG_SIZES:
+        return None, "bad request"
+    d = _image_dir()
+    if d is None:
+        return None, "storage not configured"
+    path = d / f"{post_id}.{size}.img"
+    try:
+        if path.exists():
+            b = path.read_bytes()
+            ct = _sniff_image_type(b)
+            if ct:
+                return b, ct
+    except Exception as exc:  # noqa: BLE001
+        _log(f"image cache read failed: {exc}")
+    if os.environ.get("JERRY_NO_NET") == "1":
+        return None, "network disabled"
+    rec = _find_record(post_id)
+    if not rec:
+        return None, "unknown post"
+    url = rec.get("image_url_full") if size == "full" else rec.get("image_url")
+    url = _safe_image_url(url or rec.get("image_url"))
+    if not url:
+        return None, "post has no image"
+    key = f"{post_id}.{size}"
+    with _LOCK:
+        if key in _IMG_INFLIGHT:
+            return None, "download in progress"
+        _IMG_INFLIGHT.add(key)
+    try:
+        s = _session()
+        r = s.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            return None, f"upstream http_{r.status_code}"
+        b = r.content
+        ct = _sniff_image_type(b or b"")
+        if not ct or len(b) > _IMG_MAX_BYTES:
+            return None, "upstream returned something that isn't a usable image"
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(b)
+        tmp.replace(path)
+        _log(f"cached calendar image {key} ({len(b) // 1024}KB)")
+        return b, ct
+    except Exception as exc:  # noqa: BLE001
+        return None, f"unreachable: {str(exc)[:80]}"
+    finally:
+        with _LOCK:
+            _IMG_INFLIGHT.discard(key)
 
 
 def set_manual(url: str | None) -> dict:
@@ -710,8 +811,11 @@ def trigger_refresh(force: bool = False) -> dict:
     if os.environ.get("JERRY_NO_NET") == "1":
         return {"started": False, "reason": "network disabled (JERRY_NO_NET)"}
     if not _bearer_token():
-        # Nothing to poll without credentials; the manual/oEmbed path is
-        # hydrated when the URL is set, not on a cadence.
+        # No API key to search with — but a forced refresh (the card's
+        # Refresh button) can still re-hydrate the manual post, so a
+        # transient image-fetch failure is fixable with one click.
+        if force and _rehydrate_manual_async(force=True):
+            return {"started": True, "mode": "manual_rehydrate"}
         return {"started": False, "reason": "no X API credentials (X_BEARER_TOKEN)"}
     with _LOCK:
         if _REFRESHING:
@@ -757,8 +861,8 @@ def get_weekly(week: str | None = None) -> dict:
         except ValueError:
             pass
 
-    trigger_refresh(force=False)   # no-op when fresh/busy/no-creds/no-net
-    _maybe_rehydrate_manual()      # one-time image upgrade for older saves
+    trigger_refresh(force=False)     # no-op when fresh/busy/no-creds/no-net
+    _rehydrate_manual_async()        # self-upgrade for an image-less save
 
     with _LOCK:
         weeks_map = dict(st["weeks"])
@@ -781,6 +885,13 @@ def get_weekly(week: str | None = None) -> dict:
             past = sorted(k for k in weeks_map if k < target)
             if past:
                 post, showing = weeks_map[past[-1]], "previous"
+
+    if post and post.get("image_url"):
+        # The card loads the image from THIS server (cached on disk), so an
+        # ad-blocker eating twimg.com can't reduce it to the embed.
+        post = dict(post)
+        post["image_proxy"] = f"/api/ewhispers/image?id={post['post_id']}&size=large"
+        post["image_proxy_full"] = f"/api/ewhispers/image?id={post['post_id']}&size=full"
 
     week_start = (post or {}).get("week_start") or target
     week_end = (post or {}).get("week_end") \

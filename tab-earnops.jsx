@@ -119,6 +119,32 @@ function EwTickerChips({ tickers, onOpenTicker }) {
   );
 }
 
+// The calendar image is served by OUR backend (downloaded from X once,
+// cached on disk) and fetched here as a blob via apiFetch — same-origin,
+// API key intact, immune to ad-blockers that eat twimg.com. The direct X
+// URL is only the fallback if the proxy can't serve.
+function useEwImageSrc(apiFetch, post, size) {
+  const [src, setSrc] = useState(null);
+  const proxy = post && (size === "full" ? post.image_proxy_full : post.image_proxy);
+  const direct = post && (size === "full"
+    ? (post.image_url_full || post.image_url) : post.image_url);
+  useEffect(() => {
+    let alive = true, obj = null;
+    if (!direct) { setSrc(null); return undefined; }
+    if (!proxy) { setSrc(direct); return undefined; }
+    setSrc(null);
+    // noCache: apiFetch's GET dedupe reads bodies as TEXT, which mangles
+    // binary — this flag routes to a raw fetch (the browser's own HTTP
+    // cache still applies via the endpoint's Cache-Control).
+    apiFetch(proxy, { noCache: true })
+      .then(r => { if (!r.ok) throw new Error(`proxy ${r.status}`); return r.blob(); })
+      .then(b => { if (!alive) return; obj = URL.createObjectURL(b); setSrc(obj); })
+      .catch(() => { if (alive) setSrc(direct); });
+    return () => { alive = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [post && post.post_id, proxy, direct]);
+  return src;
+}
+
 function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
@@ -197,6 +223,8 @@ function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
   const post = data && data.post;
   const hasImage = !!(post && post.image_url) && !imgBroken;
   const canEmbed = !!(post && post.post_id) && !hasImage;
+  const imgSrc = useEwImageSrc(apiFetch, hasImage ? post : null, "card");
+  const fullSrc = useEwImageSrc(apiFetch, zoom && hasImage ? post : null, "full");
   // The post text minus link clutter; cashtags already render as chips.
   const cleanText = post && post.text
     ? post.text.replace(/https?:\/\/t\.co\/\w+/g, " ").replace(/pic\.twitter\.com\/\w+/g, " ")
@@ -268,17 +296,25 @@ function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
 
       {post && (
         <div className="ew-body">
-          {hasImage && (
+          {hasImage && !imgSrc && <div className="skel ew-imgskel" aria-hidden="true" />}
+          {hasImage && imgSrc && (
             <button type="button" className="ew-imgwrap" onClick={() => setZoom(true)}
                     title="Click to enlarge the calendar." style={aspect || undefined}>
-              <img className="ew-img" src={post.image_url} loading="lazy" decoding="async"
+              <img className="ew-img" src={imgSrc} loading="lazy" decoding="async"
                    referrerPolicy="no-referrer"
                    alt={`Earnings Whispers calendar — ${data.week_label || "weekly earnings"}`}
                    onError={() => setImgBroken(true)} />
               <span className="ew-zoom" aria-hidden="true">⤢ enlarge</span>
             </button>
           )}
-          {canEmbed && <XPostEmbed postId={post.post_id} postUrl={post.post_url} />}
+          {canEmbed && (
+            <React.Fragment>
+              {post.image_status && post.image_status !== "ok" && (
+                <div className="ew-note">Calendar image unavailable ({String(post.image_status).replace(/_/g, " ")}) — showing the X post. Refresh retries.</div>
+              )}
+              <XPostEmbed postId={post.post_id} postUrl={post.post_url} />
+            </React.Fragment>
+          )}
           {!hasImage && !canEmbed && (
             <div className="ew-note">This post has no displayable media —{" "}
               <a className="ew-xlink" href={post.post_url} target="_blank" rel="noopener noreferrer">view it on X ↗</a>.
@@ -334,8 +370,9 @@ function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
              aria-label="Earnings Whispers weekly calendar, enlarged"
              onClick={() => setZoom(false)}>
           {/* The enlarged view loads the original-resolution variant — the
-              point of zooming a calendar is reading the small print. */}
-          <img src={post.image_url_full || post.image_url}
+              point of zooming a calendar is reading the small print. The
+              card-size image shows until the big one arrives. */}
+          <img src={fullSrc || imgSrc}
                alt={`Earnings Whispers calendar — ${data.week_label || ""}`} />
           <button type="button" className="hk-close ew-lb-close" aria-label="Close"
                   onClick={() => setZoom(false)}>×</button>

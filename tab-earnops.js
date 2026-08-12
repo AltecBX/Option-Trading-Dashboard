@@ -146,6 +146,49 @@ function EwTickerChips({
     onClick: () => setShowAll(v => !v)
   }, showAll ? "less" : `+${tickers.length - CAP} more`));
 }
+
+// The calendar image is served by OUR backend (downloaded from X once,
+// cached on disk) and fetched here as a blob via apiFetch — same-origin,
+// API key intact, immune to ad-blockers that eat twimg.com. The direct X
+// URL is only the fallback if the proxy can't serve.
+function useEwImageSrc(apiFetch, post, size) {
+  const [src, setSrc] = useState(null);
+  const proxy = post && (size === "full" ? post.image_proxy_full : post.image_proxy);
+  const direct = post && (size === "full" ? post.image_url_full || post.image_url : post.image_url);
+  useEffect(() => {
+    let alive = true,
+      obj = null;
+    if (!direct) {
+      setSrc(null);
+      return undefined;
+    }
+    if (!proxy) {
+      setSrc(direct);
+      return undefined;
+    }
+    setSrc(null);
+    // noCache: apiFetch's GET dedupe reads bodies as TEXT, which mangles
+    // binary — this flag routes to a raw fetch (the browser's own HTTP
+    // cache still applies via the endpoint's Cache-Control).
+    apiFetch(proxy, {
+      noCache: true
+    }).then(r => {
+      if (!r.ok) throw new Error(`proxy ${r.status}`);
+      return r.blob();
+    }).then(b => {
+      if (!alive) return;
+      obj = URL.createObjectURL(b);
+      setSrc(obj);
+    }).catch(() => {
+      if (alive) setSrc(direct);
+    });
+    return () => {
+      alive = false;
+      if (obj) URL.revokeObjectURL(obj);
+    };
+  }, [post && post.post_id, proxy, direct]);
+  return src;
+}
 function EarningsWhispersCard({
   apiFetch,
   onOpenTicker
@@ -246,6 +289,8 @@ function EarningsWhispersCard({
   const post = data && data.post;
   const hasImage = !!(post && post.image_url) && !imgBroken;
   const canEmbed = !!(post && post.post_id) && !hasImage;
+  const imgSrc = useEwImageSrc(apiFetch, hasImage ? post : null, "card");
+  const fullSrc = useEwImageSrc(apiFetch, zoom && hasImage ? post : null, "full");
   // The post text minus link clutter; cashtags already render as chips.
   const cleanText = post && post.text ? post.text.replace(/https?:\/\/t\.co\/\w+/g, " ").replace(/pic\.twitter\.com\/\w+/g, " ").replace(/\s+/g, " ").trim() : null;
   const aspect = post && post.image_width && post.image_height ? {
@@ -314,7 +359,10 @@ function EarningsWhispersCard({
     className: "ew-note"
   }, data.note || "Nothing has been detected for this week so far.")), post && /*#__PURE__*/React.createElement("div", {
     className: "ew-body"
-  }, hasImage && /*#__PURE__*/React.createElement("button", {
+  }, hasImage && !imgSrc && /*#__PURE__*/React.createElement("div", {
+    className: "skel ew-imgskel",
+    "aria-hidden": "true"
+  }), hasImage && imgSrc && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "ew-imgwrap",
     onClick: () => setZoom(true),
@@ -322,7 +370,7 @@ function EarningsWhispersCard({
     style: aspect || undefined
   }, /*#__PURE__*/React.createElement("img", {
     className: "ew-img",
-    src: post.image_url,
+    src: imgSrc,
     loading: "lazy",
     decoding: "async",
     referrerPolicy: "no-referrer",
@@ -331,10 +379,12 @@ function EarningsWhispersCard({
   }), /*#__PURE__*/React.createElement("span", {
     className: "ew-zoom",
     "aria-hidden": "true"
-  }, "\u2922 enlarge")), canEmbed && /*#__PURE__*/React.createElement(XPostEmbed, {
+  }, "\u2922 enlarge")), canEmbed && /*#__PURE__*/React.createElement(React.Fragment, null, post.image_status && post.image_status !== "ok" && /*#__PURE__*/React.createElement("div", {
+    className: "ew-note"
+  }, "Calendar image unavailable (", String(post.image_status).replace(/_/g, " "), ") \u2014 showing the X post. Refresh retries."), /*#__PURE__*/React.createElement(XPostEmbed, {
     postId: post.post_id,
     postUrl: post.post_url
-  }), !hasImage && !canEmbed && /*#__PURE__*/React.createElement("div", {
+  })), !hasImage && !canEmbed && /*#__PURE__*/React.createElement("div", {
     className: "ew-note"
   }, "This post has no displayable media \u2014", " ", /*#__PURE__*/React.createElement("a", {
     className: "ew-xlink",
@@ -391,7 +441,7 @@ function EarningsWhispersCard({
     "aria-label": "Earnings Whispers weekly calendar, enlarged",
     onClick: () => setZoom(false)
   }, /*#__PURE__*/React.createElement("img", {
-    src: post.image_url_full || post.image_url,
+    src: fullSrc || imgSrc,
     alt: `Earnings Whispers calendar — ${data.week_label || ""}`
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",

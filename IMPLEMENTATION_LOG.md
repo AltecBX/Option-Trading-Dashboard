@@ -1587,3 +1587,38 @@ Tests: 43 in test_ewhispers.py (five new: real syndication capture →
 image/dimensions/week, fallback to oEmbed when the feed is down, foreign
 author rejected, deleted-post tombstone, off-CDN media dropped, and the
 v3.87 self-upgrade). Full suite 323 + JS + time-travel green.
+
+## v3.89 — the calendar image is served by the app itself
+Jerry still saw the tweet card after v3.88. Two ways that can happen, both
+now closed:
+
+1. The v3.87→v3.88 self-upgrade runs in the background, and if the image
+   feed hiccups it used to wait 24h to retry — with no way to force it,
+   because Refresh needed an API key to do anything. Now: Refresh without
+   credentials force-re-hydrates the manual post (one click fixes a stuck
+   embed), the automatic retry window is 2h, and when the embed fallback IS
+   shown the card says WHY ("calendar image unavailable (x image feed
+   unreachable)") instead of failing silently.
+2. Ad-blockers commonly kill pbs.twimg.com in the browser, which tripped
+   the img onError → embed fallback even when the server had the image.
+   The card now loads the image from THIS app: /api/ewhispers/image
+   downloads it from X's CDN once, keeps it on disk, and serves it from
+   then on (magic-byte sniffed, 12MB cap, atomic write, single-flight; the
+   frontend fetches it as a blob through apiFetch so the API-key gate
+   holds). The browser never talks to X at all — nothing to block, and the
+   same big image is never pulled from X twice. Direct URL and embed remain
+   as fallbacks two and three.
+
+Tests: 50 in test_ewhispers.py (+7: proxy paths in the payload, download-
+once-then-disk incl. offline reads, separate full-size cache, path-traversal
+and bad-size refusals, failed-upstream-not-cached-then-recovers, forced
+credential-free re-hydrate, unforced still declines). Full suite green.
+
+### v3.89 addendum — the bug the browser QA caught
+apiFetch's GET dedupe reads every response body as TEXT and rebuilds a
+Response from the string — fine for the JSON it was built for, fatal for
+binary: the proxied JPEG came out mangled, the <img> failed to decode, and
+the card fell back to the embed. The image fetch now passes noCache (raw
+fetch path; the endpoint's Cache-Control keeps repeat loads cached). The
+final QA run served the REAL calendar (288KB, fetched once through the
+app's cache) end to end: 25/25 desktop + mobile.
