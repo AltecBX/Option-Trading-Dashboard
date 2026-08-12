@@ -311,17 +311,28 @@ def _safe_image_url(url: str | None) -> str | None:
     return None
 
 
-def _display_image_url(url: str | None) -> str | None:
-    """pbs media URLs accept a size variant; ask for 'large' so the calendar
-    is legible. '…/abc.jpg' → '…/abc?format=jpg&name=large'."""
+def _sized_image_url(url: str | None, name: str) -> str | None:
+    """pbs media URLs accept a size variant: '…/abc.jpg' →
+    '…/abc?format=jpg&name=<size>'."""
     url = _safe_image_url(url)
     if not url:
         return None
     m = re.match(r"^(https://pbs\.twimg\.com/media/[\w\-]+)\.(jpg|jpeg|png|webp)$", url)
     if m:
         fmt = "jpg" if m.group(2) == "jpeg" else m.group(2)
-        return f"{m.group(1)}?format={fmt}&name=large"
+        return f"{m.group(1)}?format={fmt}&name={name}"
     return url
+
+
+def _display_image_url(url: str | None) -> str | None:
+    """The in-card size: 'large' (≤2048px) loads fast and reads well."""
+    return _sized_image_url(url, "large")
+
+
+def _full_image_url(url: str | None) -> str | None:
+    """The click-to-enlarge size: the calendar originals run up to 3840px
+    wide, and the whole point of the lightbox is reading the small print."""
+    return _sized_image_url(url, "4096x4096")
 
 
 # ── X API v2 (credentialed path) ────────────────────────────────────────────
@@ -396,6 +407,7 @@ def _record_from_candidate(c: dict, confidence: float, wk: str) -> dict:
         "week_start": wk,
         "week_end": (date.fromisoformat(wk) + timedelta(days=4)).isoformat(),
         "image_url": _display_image_url(primary.get("url")),
+        "image_url_full": _full_image_url(primary.get("url")),
         "image_width": primary.get("width"),
         "image_height": primary.get("height"),
         "images": [u for u in (_display_image_url(p.get("url")) for p in photos[1:])
@@ -453,9 +465,72 @@ def _refresh_from_x() -> None:
          f"weeks held: {sorted(st['weeks'])}")
 
 
-# ── oEmbed (credential-free hydration for the manual URL) ───────────────────
+# ── Credential-free hydration for the manual URL ────────────────────────────
+# Two public, unauthenticated X endpoints, tried in order:
+#   1. cdn.syndication.twimg.com/tweet-result — the JSON feed the OFFICIAL
+#      embed widget itself renders from. Gives the full text, publish time
+#      and the direct pbs.twimg.com media URLs with dimensions, so the card
+#      can show the calendar as a large native image instead of a cramped
+#      550px tweet card. No key of any kind (Jerry is never paying X's API
+#      prices for one image a week). If X ever changes this endpoint the
+#      code degrades to (2), never breaks.
+#   2. publish.x.com/oembed — official oEmbed: text + author + date only
+#      (no image); the frontend then falls back to the official embed.
+
+SYNDICATION_URL = "https://cdn.syndication.twimg.com/tweet-result"
 
 _TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _syn_token(post_id: str) -> str:
+    """The request token the official widget computes for its own fetch:
+    (id / 1e15) * pi in base 36, zeros and dots stripped."""
+    n = (int(post_id) / 1e15) * 3.141592653589793
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    whole, frac = int(n), n - int(n)
+    head = ""
+    while whole:
+        head = digits[whole % 36] + head
+        whole //= 36
+    tail = ""
+    for _ in range(12):
+        frac *= 36
+        tail += digits[int(frac)]
+        frac -= int(frac)
+    return (head + tail).replace("0", "").replace(".", "")
+
+
+def _fetch_syndication(post_id: str) -> dict | None:
+    """{text, author_ok, published_at, photos:[{url,width,height}]} or None."""
+    url = f"{SYNDICATION_URL}?id={post_id}&token={_syn_token(post_id)}&lang=en"
+    try:
+        s = _session()
+        r = s.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            _log(f"syndication http_{r.status_code} for post {post_id}")
+            return None
+        d = json.loads(r.text)
+    except Exception as exc:  # noqa: BLE001
+        _log(f"syndication unreachable: {str(exc)[:80]}")
+        return None
+    # A deleted/withheld post comes back as a tombstone, not a Tweet.
+    if not isinstance(d, dict) or d.get("__typename") not in (None, "Tweet") \
+            or not d.get("id_str"):
+        return None
+    screen = str((d.get("user") or {}).get("screen_name") or "")
+    photos = []
+    for m in d.get("mediaDetails") or []:
+        if not isinstance(m, dict) or m.get("type") != "photo":
+            continue
+        u = _safe_image_url(m.get("media_url_https"))
+        if not u:
+            continue
+        info = m.get("original_info") or {}
+        photos.append({"url": u, "width": info.get("width"),
+                       "height": info.get("height")})
+    created = str(d.get("created_at") or "")[:19] or None
+    return {"text": d.get("text") or "", "published_at": created,
+            "author_ok": screen.lower() == ACCOUNT.lower(), "photos": photos}
 
 
 def _fetch_oembed(post_url: str) -> dict | None:
@@ -500,10 +575,9 @@ def _fetch_oembed(post_url: str) -> dict | None:
 
 
 def _hydrate_manual(canonical_url: str, post_id: str) -> dict:
-    """Build the manual post record. With a bearer token the post could be
-    hydrated via the API too, but oEmbed already provides text/author/date
-    without credentials, so one code path serves both cases. The image is
-    displayed through the official X embed."""
+    """Build the manual post record — syndication first (full text, date AND
+    the direct calendar image), official oEmbed as the text-only fallback
+    (the frontend then shows the official embed instead of a native image)."""
     rec = {
         "post_id": post_id, "post_url": canonical_url, "author": ACCOUNT,
         "text": None, "published_at": None, "week_start": None, "week_end": None,
@@ -513,25 +587,88 @@ def _hydrate_manual(canonical_url: str, post_id: str) -> dict:
     }
     if os.environ.get("JERRY_NO_NET") == "1":
         return rec
-    oe = _fetch_oembed(canonical_url)
-    if oe is None:
-        return rec
-    if not oe["author_ok"]:
-        rec["error"] = "post is not from @eWhispers"
-        return rec
+    rec["hydrated_at"] = _now_iso()      # marks that hydration was ATTEMPTED
+    syn = _fetch_syndication(post_id)
+    text = None
+    if syn is not None:
+        if not syn["author_ok"]:
+            rec["error"] = "post is not from @eWhispers"
+            return rec
+        text = syn["text"]
+        rec["published_at"] = syn["published_at"]
+        photos = syn["photos"]
+        if photos:
+            rec["image_url"] = _display_image_url(photos[0]["url"])
+            rec["image_url_full"] = _full_image_url(photos[0]["url"])
+            rec["image_width"] = photos[0]["width"]
+            rec["image_height"] = photos[0]["height"]
+            rec["images"] = [u for u in (_display_image_url(p["url"])
+                                         for p in photos[1:]) if u]
+    else:
+        oe = _fetch_oembed(canonical_url)
+        if oe is None:
+            return rec
+        if not oe["author_ok"]:
+            rec["error"] = "post is not from @eWhispers"
+            return rec
+        text = oe["text"]
+        rec["published_at"] = oe["published_at"]
     pub = None
     try:
-        pub = date.fromisoformat(oe["published_at"]) if oe["published_at"] else None
+        pub = date.fromisoformat((rec["published_at"] or "")[:10]) \
+            if rec["published_at"] else None
     except Exception:
         pub = None
-    rec["text"] = oe["text"]
-    rec["published_at"] = oe["published_at"]
-    rec["tickers"] = extract_tickers(oe["text"])
-    wk = parse_week(oe["text"], pub)
+    rec["text"] = text
+    rec["tickers"] = extract_tickers(text or "")
+    wk = parse_week(text or "", pub)
     if wk:
         rec["week_start"] = wk
         rec["week_end"] = (date.fromisoformat(wk) + timedelta(days=4)).isoformat()
     return rec
+
+
+_REHYDRATING = False
+
+
+def _maybe_rehydrate_manual() -> None:
+    """One-time upgrade for a manual post saved before the syndication path
+    existed (or while its fetch was down): if the stored record has no image
+    and hydration hasn't been attempted since, re-hydrate once in the
+    background so the embed quietly becomes the full-size calendar image."""
+    global _REHYDRATING
+    if os.environ.get("JERRY_NO_NET") == "1":
+        return
+    st = _load_state()
+    with _LOCK:
+        manual, url = st.get("manual"), st.get("manual_url")
+        if _REHYDRATING or not url or not manual:
+            return
+        if manual.get("image_url"):
+            return
+        ha = manual.get("hydrated_at")
+        if ha:
+            try:
+                age_h = (datetime.now(timezone.utc)
+                         - datetime.fromisoformat(ha)).total_seconds() / 3600.0
+            except Exception:
+                age_h = 0.0
+            if age_h < 24:               # attempted recently — don't hammer
+                return
+        _REHYDRATING = True
+
+    def run():
+        global _REHYDRATING
+        try:
+            res = set_manual(url)
+            if res.get("ok"):
+                _log("manual post re-hydrated with the full-size image")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"manual re-hydrate failed: {exc}")
+        finally:
+            _REHYDRATING = False
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def set_manual(url: str | None) -> dict:
@@ -621,6 +758,7 @@ def get_weekly(week: str | None = None) -> dict:
             pass
 
     trigger_refresh(force=False)   # no-op when fresh/busy/no-creds/no-net
+    _maybe_rehydrate_manual()      # one-time image upgrade for older saves
 
     with _LOCK:
         weeks_map = dict(st["weeks"])

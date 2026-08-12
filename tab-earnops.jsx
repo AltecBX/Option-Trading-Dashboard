@@ -333,7 +333,10 @@ function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
         <div className="ew-lightbox" role="dialog" aria-modal="true"
              aria-label="Earnings Whispers weekly calendar, enlarged"
              onClick={() => setZoom(false)}>
-          <img src={post.image_url} alt={`Earnings Whispers calendar — ${data.week_label || ""}`} />
+          {/* The enlarged view loads the original-resolution variant — the
+              point of zooming a calendar is reading the small print. */}
+          <img src={post.image_url_full || post.image_url}
+               alt={`Earnings Whispers calendar — ${data.week_label || ""}`} />
           <button type="button" className="hk-close ew-lb-close" aria-label="Close"
                   onClick={() => setZoom(false)}>×</button>
         </div>
