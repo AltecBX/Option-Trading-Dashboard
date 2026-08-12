@@ -18204,7 +18204,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.8";
+  const LATEST = "3.9";
   const stale = ver < parseFloat(LATEST);
   return /*#__PURE__*/React.createElement("a", {
     className: `fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`,
@@ -18237,7 +18237,7 @@ function SWSTPanel({
 }) {
   const SWS_NEED_VER = 2.8; // renders the frame at all
   const SWS_LOGIN_VER = 3.8; // login actually PERSISTS from here on
-  const SWS_LATEST = "3.8"; // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.9"; // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -18490,38 +18490,16 @@ function SWSTPanel({
     // comparison that this makes unnecessary.
     if (a && a.ok) {
       if (!a.authish || a.authish.length === 0) {
-        const mk = diag.mirror && diag.mirror.keys || [];
-        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Simply Wall St doesn't use cookies for login"), " \u2014 so the helper", /*#__PURE__*/React.createElement("b", null, " mirrors the session instead"), " (v3.6+). The browser holds", " ", a.total, " cookie", a.total === 1 ? "" : "s", " for their domain \u2014 analytics and Cloudflare only \u2014 even while you're signed in in a normal tab. Their session lives in ", /*#__PURE__*/React.createElement("b", null, "localStorage"), ", and Chrome partitions localStorage per top-level site, so the copy inside this frame is a different, empty one.", /*#__PURE__*/React.createElement("div", {
+        const missCk = diag.missingVsTopTab && diag.missingVsTopTab.cookies || [];
+        return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "No session cookie visible for this site"), " \u2014 the jar holds ", a.total, " ", "cookie", a.total === 1 ? "" : "s", " and none looks like a login.", missCk.length ? /*#__PURE__*/React.createElement("div", {
           style: {
             marginTop: 6
           }
-        }, "This is exactly why Finviz, TradingView and Unusual Whales stay signed in and this doesn't: those three authenticate with ", /*#__PURE__*/React.createElement("b", null, "cookies"), ", which the Site Helper can rewrite. There is no cookie here to rewrite, and an extension cannot un-partition localStorage."), /*#__PURE__*/React.createElement("div", {
+        }, "But a normal tab has ", missCk.length, " cookie", missCk.length === 1 ? "" : "s", " ", "this frame does not \u2014 ", /*#__PURE__*/React.createElement("b", null, missCk.slice(0, 6).join(", ")), missCk.length > 6 ? "…" : "", ". A session cookie the audit cannot see is usually a ", /*#__PURE__*/React.createElement("b", null, "host-permission"), " gap: cookies without the Secure flag belong to the ", /*#__PURE__*/React.createElement("code", null, "http://"), " origin, so an https-only permission hides them. That is exactly the bug v3.8 fixed for simplywall.st.") : /*#__PURE__*/React.createElement("div", {
           style: {
             marginTop: 6
           }
-        }, (() => {
-          // Decide the remaining question automatically: did the
-          // normal tab actually contain a session-looking key?
-          const NOT = /^(REACT_QUERY|snowplow|_hj|_ga|_gid|_gcl|_fbp|IR_|sentry|__darkreader|_cltk|unleash|portfolios?$|miniValuator)/i;
-          const AUTH = /(auth|token|jwt|session|sid|login|user|identity|account|cognito|amplify|supabase|clerk|okta|auth0)/i;
-          const hits = mk.filter(k => !NOT.test(k) && AUTH.test(k));
-          if (mk.length && hits.length === 0) {
-            return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Your normal tab holds no session key in localStorage either"), " ", "(", mk.length, " key", mk.length === 1 ? "" : "s", " pulled:", " ", mk.slice(0, 6).join(", "), mk.length > 6 ? "…" : "", "). So the login is stored in ", /*#__PURE__*/React.createElement("b", null, "IndexedDB"), ", not localStorage \u2014 mirroring localStorage cannot reach it. That is the remaining gap, and it is a different mechanism, not a tweak to this one.");
-          }
-          if (hits.length) {
-            return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Session key found and mirrored:"), " ", hits.slice(0, 4).join(", "), ".", " ", "If the frame still shows signed out, press Reload \u2014 the app may have read storage before the key landed.");
-          }
-          return null;
-        })()), /*#__PURE__*/React.createElement("div", {
-          style: {
-            marginTop: 6
-          }
-        }, mk.length ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Mirror is active \u2014 ", mk.length, " key", mk.length === 1 ? "" : "s", " available."), " ", "The extension reads your session in a normal simplywall.st tab and writes it into this frame's isolated store (same site, same machine, never transmitted). If the frame still shows signed out, press Reload \u2014 and make sure a normal tab is signed in, since that tab is the source.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Nothing mirrored yet."), " Open Simply Wall St in a normal tab, sign in there and click that tab \u2014 the helper copies the session from it into this frame within a few seconds. That tab is the source, so it has to be signed in.")), /*#__PURE__*/React.createElement("div", {
-          style: {
-            marginTop: 6
-          },
-          className: "sws-dim"
-        }, "If mirroring can't work on your setup, the browser-level alternative is", " ", /*#__PURE__*/React.createElement("code", null, "chrome://flags/#third-party-storage-partitioning"), " \u2192 Disabled \u2192 relaunch \u2014 a global privacy trade-off, and newer Chrome builds may have removed it."));
+        }, "A normal tab shows no extra cookies either, so the session is genuinely not a cookie \u2014 check the IndexedDB list below."));
       }
       if (a.crossSiteReady === 0) {
         return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "A login cookie exists but can't be sent from a frame."), " ", a.authish.map(c => c.name).slice(0, 4).join(", "), " \u2014 none is", " ", /*#__PURE__*/React.createElement("code", null, "SameSite=None"), ", so the browser withholds it here. The helper rewrites these on sign-in; sign in again inside the frame and re-check.");

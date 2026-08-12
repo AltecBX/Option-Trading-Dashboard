@@ -1332,3 +1332,39 @@ helper-cookie + 33 sws-sync + 27 JS + 64 unittest + verify layers.
 
 The localStorage mirror is kept — it is harmless, it demonstrably works, and
 it covers any future non-cookie state — but it was never the fix.
+
+## v3.84 / helper v3.9 — remove the localStorage mirror
+Confirmed working by the user after v3.8. The v3.6/3.7 localStorage mirror was
+built on the wrong diagnosis and is now dead weight: the login is a cookie, and
+`missingVsTopTab.localStorage` was empty, i.e. the mirror was already copying
+everything correctly and it never mattered.
+
+Removed at the user's request:
+  - normal tabs no longer export localStorage VALUES (swsSession is gone)
+  - the frame no longer adopts anything into the site's storage
+  - the adopt-then-reload path and its sessionStorage guard are gone
+  - the panel's mirror status UI is gone
+Kept: the names-only snapshot, the cookie audit, and the frame-vs-tab
+comparison — that comparison is what identified the missing auth/PHPSESSID/
+_sws_* cookies, so it earns its place.
+
+CLEANUP FOR EXISTING USERS: anyone who ran 3.6/3.7 has mirrored values sitting
+in the embedded frame's storage. On first load the frame now removes exactly
+the keys the mirror recorded writing (leaving keys the frame created itself),
+drops the marker, and the background worker deletes the stored copy from
+extension storage. Removing a feature that wrote data is not finished until
+that data is gone.
+
+Tests inverted rather than deleted — they now assert the opposite invariant:
+no cookie value and no storage value is ever written to disk, no swsSession
+store is created, the frame adopts nothing even if an old store exists, and
+the cleanup removes mirrored keys and the marker while leaving frame-owned
+keys. The diagnostic reply must contain no mirror section and must still carry
+missingVsTopTab.
+
+"scripting"/"tabs" are kept but narrowed to NAMES only. Reading the tab
+directly is what made the comparison reliable — content scripts are not
+injected into tabs already open at update time, which is what produced three
+rounds of topTab: null.
+
+29 sws-sync + 46 helper-cookie + 27 JS + 64 unittest + verify layers.

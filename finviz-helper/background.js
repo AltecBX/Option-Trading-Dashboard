@@ -63,6 +63,9 @@ function applyCookieException() {
     }
   }
 }
+// The v3.6/3.7 mirror stored session VALUES here. It is removed, so clear any
+// copy left on this machine rather than leaving it at rest indefinitely.
+try { chrome.storage.local.remove("swsSession"); } catch (e) { /* no-op */ }
 chrome.runtime.onInstalled.addListener(applyCookieException);
 chrome.runtime.onStartup.addListener(applyCookieException);
 
@@ -412,7 +415,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // silently fails for tabs opened before an extension update — the snapshot
   // stayed null for three rounds because of exactly that. This reads the tab
   // directly, on demand, so there is no injection-timing dependency at all.
-  if (msg && msg.type === "jth-sws-pull-session") {
+  // Refresh the names-only view of a normal simplywall.st tab (v3.9).
+  // v3.7 pulled VALUES here to feed the localStorage mirror; the mirror is
+  // gone, so this reads NAMES only — enough for the frame-vs-tab comparison
+  // that identified the missing session cookies, and nothing more. Reading the
+  // tab directly (rather than relying on its content script) is what made the
+  // comparison work at all: content scripts are not injected into tabs that
+  // were already open when the extension updated.
+  if (msg && msg.type === "jth-sws-pull-snapshot") {
     try {
       chrome.tabs.query({ url: ["https://simplywall.st/*", "https://*.simplywall.st/*"] }, (tabs) => {
         void chrome.runtime.lastError;
@@ -420,28 +430,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!tab) { sendResponse({ ok: false, reason: "no normal simplywall.st tab is open" }); return; }
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          func: () => {
-            const SKIP = /^(REACT_QUERY_OFFLINE_CACHE|snowplowOutQueue|_hj|_ga|_gid|_gcl|_fbp|_uet|IR_|sentry|__darkreader|_cltk|amplitude|mp_|_pk_|optimizely|intercom|_rdt|_tt|_pin|__jth_)/i;
-            const out = { entries: {}, idb: [], href: location.href };
-            try {
-              let total = 0;
-              for (const k of Object.keys(localStorage)) {
-                if (SKIP.test(k)) continue;
-                const v = localStorage.getItem(k);
-                if (typeof v !== "string" || v.length > 256 * 1024) continue;
-                if (total + v.length > 2 * 1024 * 1024) break;
-                total += v.length;
-                out.entries[k] = v;
-              }
-            } catch (e) { out.error = String(e); }
-            return out;
-          },
+          func: () => ({
+            at: new Date().toISOString(),
+            href: location.origin + location.pathname,
+            // NAMES ONLY — no value is read, here or anywhere downstream.
+            cookies: document.cookie.split(";").map((s) => s.trim().split("=")[0]).filter(Boolean).slice(0, 80),
+            localStorage: Object.keys(localStorage).slice(0, 80),
+            sessionStorage: Object.keys(sessionStorage).slice(0, 80),
+          }),
         }, (res) => {
           void chrome.runtime.lastError;
           const data = res && res[0] && res[0].result;
           if (!data) { sendResponse({ ok: false, reason: "could not read the tab" }); return; }
-          chrome.storage.local.set({ swsSession: { at: Date.now(), entries: data.entries } });
-          sendResponse({ ok: true, keys: Object.keys(data.entries), href: data.href });
+          chrome.storage.local.set({ swsTopSnapshot: data });
+          sendResponse({ ok: true, keys: data.localStorage.length });
         });
       });
     } catch (e) {
