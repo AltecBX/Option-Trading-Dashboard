@@ -223,6 +223,10 @@ class TestOtherProviders(Base):
 
 class TestManualAndPIT(Base):
     def test_manual_roundtrip_and_event_binding(self):
+        # Stand before the event: production refuses a manual entry filed after
+        # the earnings date it claims to describe, so an unpinned clock makes
+        # this test expire (found by test_time_travel.py).
+        self.pin_clock("2026-10-01T12:00:00Z")
         r = ws.add_manual("AMD", "Earnings Whispers (read manually)", eps=1.7,
                           url="https://www.earningswhispers.com/stocks/AMD",
                           next_earnings="2026-11-03")

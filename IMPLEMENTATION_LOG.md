@@ -1392,3 +1392,57 @@ Verified date-proof, not just green today: re-ran the module with the clock
 forced to 2027-12-31 — long past every fixture date — and all 29 pass. The
 comment in the test records why, so the next person does not "fix" it by
 relaxing the assertion.
+
+# v3.85 — reliability sweep: kill the bug classes this codebase has proven it has
+
+Instead of speculative "improvements", this release hunts the defect classes
+with a track record here and builds guards so they cannot recur.
+
+## 1. Time bombs (the class that fired on 2026-08-12)
+A grep found ~60 hard-coded future dates across the test suite; any of them
+can become false purely by time passing, failing on an innocent PR months
+later. Rather than audit them by eye, `test_time_travel.py` re-runs the WHOLE
+suite with the clock shifted +400 days (freezegun). First run found:
+  - test_manual_roundtrip_and_event_binding — second whisper time bomb
+    (would have fired 2026-11-03). Pinned like the first.
+  - test_schedules' expiry alarm — correctly excluded: that one is a DATA
+    FRESHNESS DEADLINE whose whole purpose is to fail when the calendar runs
+    out; the normal suite enforces it against the real date.
+CI now runs the time-travel check on every push, so a test that only passes
+because of what today is fails ON THE PR THAT INTRODUCES IT.
+
+## 2. The macro schedule (the alarm the time-travel run surfaced)
+  - Added the eight 2027 FOMC decision days from the Federal Reserve's own
+    calendar. The parser was validated by reproducing the 2026 list already
+    in treasury.py byte-for-byte from the same page before being trusted for
+    2027. BLS blocks automated access (403), so 2027 CPI dates are NOT added
+    — inventing CPI dates in a trading app is worse than the alarm firing.
+  - schedule_status() now reports per-series coverage ("cpi ends 2026-12-10,
+    fomc ends 2027-12-08"), which series need refreshing, and
+    declared_beyond_data — the hand-maintained valid_through literal claiming
+    coverage the real dates don't back (the same literal-drift class again).
+  - test_schedules now: names the exhausted series in its failure message,
+    fails if valid_through outruns the data, and checks every series is
+    chronological, duplicate-free and parseable.
+
+## 3. Version-literal drift (five prior instances)
+The frontend now has exactly ONE helper-version constant, HELPER_LATEST in
+app-lib.jsx. The ⤓ Helper chip, the SWS panel and the cookie-setup chip all
+read it. The cookie-setup chip alone had THREE different versions in one
+block (gate 2.7, tooltip "v2.8", label "v2.7" — telling the user to update to
+a version nine releases old). test_helper_swssync asserts HELPER_LATEST
+equals the shipped manifest AND that no local version literal reappears in
+app-cards.jsx.
+
+## Checked and deliberately left alone
+  - setInterval leaks in useEffect blocks: none found (every effect clears
+    what it starts).
+  - 322 `except Exception` blocks in options_dashboard.py: predominantly
+    deliberate per-card resilience (one provider failing must not take down
+    the dashboard). Mass-rewriting them would be high-risk churn with no
+    per-line test coverage — exactly how bugs get introduced. Not touched.
+
+Honesty note: "bug free" is not a promise anyone can make. What this adds is
+that two entire defect classes with a track record here — expiring tests and
+drifting version literals — are now caught mechanically by CI rather than by
+a user hitting them.

@@ -22,12 +22,42 @@ WARN_DAYS = 21
 class TestScheduleValidity(unittest.TestCase):
     def test_schedule_not_expired_or_expiring(self):
         st = schedule_status()
+        # Name the series that actually needs work. Previously this said only
+        # "the schedule expires", so whoever picked it up had to work out which
+        # of CPI/FOMC had run out — FOMC now runs a year further than CPI.
+        detail = ", ".join(
+            f"{n}: last {v['last']} ({v['days_left']}d)"
+            for n, v in sorted(st["series"].items(),
+                               key=lambda kv: kv[1]["days_left"] or 0))
         self.assertTrue(
             st["ok"] and st["days_left"] > WARN_DAYS,
             f"MACRO_SCHEDULE expires {st['valid_through']} "
-            f"({st['days_left']} days left). Append next year's CPI dates "
-            "(bls.gov) and FOMC dates (federalreserve.gov) to "
-            "treasury.MACRO_SCHEDULE and bump valid_through/updated.")
+            f"({st['days_left']} days left). Refresh: {', '.join(st['needs']) or 'n/a'}. "
+            f"[{detail}] CPI dates: bls.gov schedule; FOMC dates: "
+            "federalreserve.gov FOMC calendar. Append to treasury.MACRO_SCHEDULE "
+            "and bump valid_through/updated.")
+
+    def test_declared_validity_is_backed_by_real_dates(self):
+        """valid_through is hand-maintained; it must not claim coverage the
+        actual date lists do not provide. Bumping the literal without adding
+        dates would silently leave the UI with no events to show."""
+        st = schedule_status()
+        self.assertFalse(
+            st["declared_beyond_data"],
+            f"valid_through={st['valid_through']} claims more coverage than the "
+            f"dates provide (data ends {st['data_through']}). Add the missing "
+            f"dates rather than moving the literal.")
+
+    def test_every_series_is_chronological_and_unique(self):
+        """A duplicated or out-of-order date silently corrupts 'next event'."""
+        for name, v in schedule_status()["series"].items():
+            raw = getattr(treasury, "MACRO_SCHEDULE")[name]
+            dates = (sorted(d for ds in raw.values() for d in ds)
+                     if isinstance(raw, dict) else list(raw))
+            self.assertEqual(dates, sorted(dates), f"{name} is not in order")
+            self.assertEqual(len(dates), len(set(dates)), f"{name} has duplicates")
+            for d in dates:
+                date.fromisoformat(d)          # every entry must parse
 
     def test_schedule_structure(self):
         self.assertIn("valid_through", MACRO_SCHEDULE)

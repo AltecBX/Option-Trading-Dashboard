@@ -355,6 +355,14 @@ const UWHALES = {
   setFollow(v) { try { localStorage.setItem("jerry_uw_follow", v ? "1" : "0"); } catch (e) {} },
 };
 
+// The one place the CURRENT helper version is written in the frontend.
+// Five separate bugs in this feature were a version literal drifting from its
+// source of truth (APP_VERSION cache-buster, chip label, banner text,
+// announce.js, the cookie-setup chip). test_helper_swssync.js asserts this
+// constant equals the shipped manifest's version, and every component reads
+// it from here — never a local literal.
+const HELPER_LATEST = "3.9";
+
 // Simply Wall St (v3.73). Unlike the other three, its per-ticker URL is not
 // derivable from the symbol alone — the path carries Simply Wall St's own
 // sector and company slugs — so the frame src comes from /api/site_link.
@@ -414,4 +422,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST });

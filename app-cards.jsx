@@ -13521,10 +13521,15 @@ function CookieSetupChip() {
   }, []);
   if (!st.present) return null;
   if (st.ver > 0 && st.ver < 2.7) {
+    // Below 2.7 the helper has known regressions (frame reloads that lose
+    // TradingView work; Comet/Brave logins that never stick), so this stays a
+    // WARNING rather than a quiet nudge. The version shown is the shared
+    // HELPER_LATEST — this chip once displayed three different versions in
+    // one block (gate 2.7, tooltip 2.8, label 2.7).
     return (
       <span className="emx-chip warn"
-            title={"Site Helper v2.8 is an important update for every browser:\n• Chrome: fixes embedded TradingView sometimes reloading on a click and losing unsaved changes.\n• Comet / Brave: logins inside the embedded sites finally stick — the helper now detects the browser dropping cookies and compensates automatically. No settings, no prompts.\n\nUpdate: download finviz-helper.zip again (link on the Finviz tab), unzip it over the old folder, then click the ↻ reload icon on 'JerryTrade Site Helper' in the browser's extensions page."}>
-        ⚠ update helper to v2.7 (hover)
+            title={`Site Helper v${HELPER_LATEST} is an important update for every browser:\n• Chrome: fixes embedded TradingView sometimes reloading on a click and losing unsaved changes, and makes the Simply Wall St login stick.\n• Comet / Brave: logins inside the embedded sites finally stick — the helper detects the browser dropping cookies and compensates automatically.\n\nUpdate: click the ⤓ Helper chip on the Sites row (or the link on the Finviz tab), unzip over the old folder, then click the ↻ reload icon on 'JerryTrade Site Helper' at chrome://extensions.`}>
+        ⚠ update helper to v{HELPER_LATEST} (hover)
       </span>
     );
   }
@@ -13666,10 +13671,9 @@ function HelperDownloadChip() {
     const t = setInterval(on, 3000);
     return () => { window.removeEventListener("finviz-helper-ready", on); clearInterval(t); };
   }, []);
-  // String, not a number: `3.0` as a Number renders as "3". And it is used in
-  // BOTH the label and the tooltip — the label used to hard-code its own
-  // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.9";
+  // Single source: app-lib's HELPER_LATEST (a string — `3.0` as a Number
+  // renders as "3"). The label once hard-coded its own version and went stale.
+  const LATEST = HELPER_LATEST;
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13699,7 +13703,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
   const SWS_LOGIN_VER = 3.8;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.9";      // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = HELPER_LATEST;   // single source — see app-lib.jsx
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);

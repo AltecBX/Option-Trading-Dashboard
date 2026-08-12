@@ -161,11 +161,16 @@ function run({ framed, cookie = "", ls = {}, ss = {}, stored = null, session = n
   check("announce.js hard-codes no version literal",
         /const VERSION = ["'][0-9]/.test(ann), false);
   // The panel compares against these, so they must not drift either.
+  // ONE constant in the frontend, and it must equal the shipped manifest.
+  const lib = fs.readFileSync(path.join(__dirname, "app-lib.jsx"), "utf8");
+  const shared = (lib.match(/const HELPER_LATEST = "([\d.]+)"/) || [])[1];
+  check("app-lib's HELPER_LATEST matches the shipped manifest", shared, mf.version);
+  // And nothing else may declare its own helper-version literal.
   const cards = fs.readFileSync(path.join(__dirname, "app-cards.jsx"), "utf8");
-  const latest = (cards.match(/const LATEST = "([\d.]+)"/) || [])[1];
-  const swsLatest = (cards.match(/const SWS_LATEST = "([\d.]+)"/) || [])[1];
-  check("chip's LATEST matches the shipped manifest", latest, mf.version);
-  check("panel's SWS_LATEST matches the shipped manifest", swsLatest, mf.version);
+  check("no local LATEST literal remains in app-cards",
+        /const LATEST = "[\d.]/.test(cards), false);
+  check("no local SWS_LATEST literal remains in app-cards",
+        /const SWS_LATEST = "[\d.]/.test(cards), false);
 }
 
 // ── Framed: answers a diagnostic request, with the diff ────────────────────
