@@ -1332,3 +1332,63 @@ helper-cookie + 33 sws-sync + 27 JS + 64 unittest + verify layers.
 
 The localStorage mirror is kept — it is harmless, it demonstrably works, and
 it covers any future non-cookie state — but it was never the fix.
+
+## v3.84 / helper v3.9 — remove the localStorage mirror
+Confirmed working by the user after v3.8. The v3.6/3.7 localStorage mirror was
+built on the wrong diagnosis and is now dead weight: the login is a cookie, and
+`missingVsTopTab.localStorage` was empty, i.e. the mirror was already copying
+everything correctly and it never mattered.
+
+Removed at the user's request:
+  - normal tabs no longer export localStorage VALUES (swsSession is gone)
+  - the frame no longer adopts anything into the site's storage
+  - the adopt-then-reload path and its sessionStorage guard are gone
+  - the panel's mirror status UI is gone
+Kept: the names-only snapshot, the cookie audit, and the frame-vs-tab
+comparison — that comparison is what identified the missing auth/PHPSESSID/
+_sws_* cookies, so it earns its place.
+
+CLEANUP FOR EXISTING USERS: anyone who ran 3.6/3.7 has mirrored values sitting
+in the embedded frame's storage. On first load the frame now removes exactly
+the keys the mirror recorded writing (leaving keys the frame created itself),
+drops the marker, and the background worker deletes the stored copy from
+extension storage. Removing a feature that wrote data is not finished until
+that data is gone.
+
+Tests inverted rather than deleted — they now assert the opposite invariant:
+no cookie value and no storage value is ever written to disk, no swsSession
+store is created, the frame adopts nothing even if an old store exists, and
+the cleanup removes mirrored keys and the marker while leaving frame-owned
+keys. The diagnostic reply must contain no mirror section and must still carry
+missingVsTopTab.
+
+"scripting"/"tabs" are kept but narrowed to NAMES only. Reading the tab
+directly is what made the comparison reliable — content scripts are not
+injected into tabs already open at update time, which is what produced three
+rounds of topTab: null.
+
+29 sws-sync + 46 helper-cookie + 27 JS + 64 unittest + verify layers.
+
+## Fix: test_whisper_sources expired on 2026-08-12 and blocked CI
+The v3.9 PR went red on a test that has nothing to do with it:
+  test_user_entry_merges_and_dispersion_caps_confidence
+  AssertionError: 1 != 2   (source_count)
+It failed locally too, and had passed on every PR up to #265 — because it only
+became false today.
+
+The provider fixtures are REAL captures, so their event dates are fixed: the
+SE fixture reports on 2026-08-11. The test files a manual whisper entry
+against that date, and whisper_sources.py:425 correctly refuses an entry whose
+`asof` is LATER than the event it claims to describe — a whisper filed after
+the earnings release is not a whisper for that release. Once the wall clock
+passed 2026-08-11, the entry was dropped and source_count fell from 2 to 1.
+
+Production logic is right; the test was standing in the wrong time. Fixed by
+pinning whisper_sources' clock (Base.pin_clock, default 2026-08-01) in the
+tests that file manual entries, rather than by editing an authentic captured
+fixture or loosening the assertion.
+
+Verified date-proof, not just green today: re-ran the module with the clock
+forced to 2027-12-31 — long past every fixture date — and all 29 pass. The
+comment in the test records why, so the next person does not "fix" it by
+relaxing the assertion.

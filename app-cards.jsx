@@ -13669,7 +13669,7 @@ function HelperDownloadChip() {
   // String, not a number: `3.0` as a Number renders as "3". And it is used in
   // BOTH the label and the tooltip — the label used to hard-code its own
   // version, so bumping the constant silently left the visible text stale.
-  const LATEST = "3.8";
+  const LATEST = "3.9";
   const stale = ver < parseFloat(LATEST);
   return (
     <a className={`fv-chip helper-dl${stale ? " helper-dl-stale" : ""}`}
@@ -13699,7 +13699,7 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                      onResearch, onResearch1m, apiFetch }) {
   const SWS_NEED_VER = 2.8;      // renders the frame at all
   const SWS_LOGIN_VER = 3.8;     // login actually PERSISTS from here on
-  const SWS_LATEST = "3.8";      // string: 3.0 as a Number renders as "3"
+  const SWS_LATEST = "3.9";      // string: 3.0 as a Number renders as "3"
   const [helperVer, setHelperVer] = useState(SWST.helperVersion());
   const [follow, setFollow] = useState(SWST.follow());
   const [src, setSrc] = useState(null);
@@ -13928,69 +13928,25 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                   // comparison that this makes unnecessary.
                   if (a && a.ok) {
                     if (!a.authish || a.authish.length === 0) {
-                      const mk = (diag.mirror && diag.mirror.keys) || [];
+                      const missCk = (diag.missingVsTopTab && diag.missingVsTopTab.cookies) || [];
                       return <React.Fragment>
-                        <b>Simply Wall St doesn't use cookies for login</b> — so the helper
-                        <b> mirrors the session instead</b> (v3.6+). The browser holds
-                        {" "}{a.total} cookie{a.total === 1 ? "" : "s"} for their domain — analytics and
-                        Cloudflare only — even while you're signed in in a normal tab. Their session
-                        lives in <b>localStorage</b>, and Chrome partitions localStorage per top-level
-                        site, so the copy inside this frame is a different, empty one.
-                        <div style={{ marginTop: 6 }}>
-                          This is exactly why Finviz, TradingView and Unusual Whales stay signed in and
-                          this doesn't: those three authenticate with <b>cookies</b>, which the Site
-                          Helper can rewrite. There is no cookie here to rewrite, and an extension
-                          cannot un-partition localStorage.
-                        </div>
-                        <div style={{ marginTop: 6 }}>
-                          {(() => {
-                            // Decide the remaining question automatically: did the
-                            // normal tab actually contain a session-looking key?
-                            const NOT = /^(REACT_QUERY|snowplow|_hj|_ga|_gid|_gcl|_fbp|IR_|sentry|__darkreader|_cltk|unleash|portfolios?$|miniValuator)/i;
-                            const AUTH = /(auth|token|jwt|session|sid|login|user|identity|account|cognito|amplify|supabase|clerk|okta|auth0)/i;
-                            const hits = mk.filter((k) => !NOT.test(k) && AUTH.test(k));
-                            if (mk.length && hits.length === 0) {
-                              return <React.Fragment>
-                                <b>Your normal tab holds no session key in localStorage either</b>
-                                {" "}({mk.length} key{mk.length === 1 ? "" : "s"} pulled:
-                                {" "}{mk.slice(0, 6).join(", ")}{mk.length > 6 ? "…" : ""}).
-                                So the login is stored in <b>IndexedDB</b>, not localStorage — mirroring
-                                localStorage cannot reach it. That is the remaining gap, and it is a
-                                different mechanism, not a tweak to this one.
-                              </React.Fragment>;
-                            }
-                            if (hits.length) {
-                              return <React.Fragment>
-                                <b>Session key found and mirrored:</b> {hits.slice(0, 4).join(", ")}.
-                                {" "}If the frame still shows signed out, press Reload — the app may have
-                                read storage before the key landed.
-                              </React.Fragment>;
-                            }
-                            return null;
-                          })()}
-                        </div>
-                        <div style={{ marginTop: 6 }}>
-                          {mk.length ? (
-                            <React.Fragment>
-                              <b>Mirror is active — {mk.length} key{mk.length === 1 ? "" : "s"} available.</b>
-                              {" "}The extension reads your session in a normal simplywall.st tab and
-                              writes it into this frame's isolated store (same site, same machine, never
-                              transmitted). If the frame still shows signed out, press Reload — and make
-                              sure a normal tab is signed in, since that tab is the source.
-                            </React.Fragment>
-                          ) : (
-                            <React.Fragment>
-                              <b>Nothing mirrored yet.</b> Open Simply Wall St in a normal tab, sign in
-                              there and click that tab — the helper copies the session from it into this
-                              frame within a few seconds. That tab is the source, so it has to be signed in.
-                            </React.Fragment>
-                          )}
-                        </div>
-                        <div style={{ marginTop: 6 }} className="sws-dim">
-                          If mirroring can't work on your setup, the browser-level alternative is
-                          {" "}<code>chrome://flags/#third-party-storage-partitioning</code> → Disabled →
-                          relaunch — a global privacy trade-off, and newer Chrome builds may have removed it.
-                        </div>
+                        <b>No session cookie visible for this site</b> — the jar holds {a.total}
+                        {" "}cookie{a.total === 1 ? "" : "s"} and none looks like a login.
+                        {missCk.length ? (
+                          <div style={{ marginTop: 6 }}>
+                            But a normal tab has {missCk.length} cookie{missCk.length === 1 ? "" : "s"}
+                            {" "}this frame does not — <b>{missCk.slice(0, 6).join(", ")}</b>
+                            {missCk.length > 6 ? "…" : ""}. A session cookie the audit cannot see is
+                            usually a <b>host-permission</b> gap: cookies without the Secure flag
+                            belong to the <code>http://</code> origin, so an https-only permission
+                            hides them. That is exactly the bug v3.8 fixed for simplywall.st.
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: 6 }}>
+                            A normal tab shows no extra cookies either, so the session is genuinely
+                            not a cookie — check the IndexedDB list below.
+                          </div>
+                        )}
                       </React.Fragment>;
                     }
                     if (a.crossSiteReady === 0) {

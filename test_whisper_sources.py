@@ -31,6 +31,21 @@ def _stub_get(responses):
 
 
 class Base(unittest.TestCase):
+    # The provider fixtures are REAL captures, so their event dates are fixed
+    # in the past now (SE reports 2026-08-11). Production correctly refuses a
+    # manual whisper entered AFTER the event it claims to describe
+    # (whisper_sources.py:425), so any test that files one has to be standing
+    # before that date. Pinning the clock keeps these tests about the merge
+    # logic they are actually testing, instead of quietly expiring — this suite
+    # went red on 2026-08-12 for exactly that reason, blocking an unrelated PR.
+    CLOCK = "2026-08-01T12:00:00Z"
+
+    def pin_clock(self, iso=None):
+        """Freeze whisper_sources' notion of now for this test."""
+        orig = ws._now_iso
+        ws._now_iso = lambda: (iso or self.CLOCK)
+        self.addCleanup(lambda: setattr(ws, "_now_iso", orig))
+
     def setUp(self):
         self._orig_get = ws._get
         self._tmp = tempfile.TemporaryDirectory()
@@ -300,6 +315,7 @@ class TestCollect(Base):
         # naive mixing would have said (1.04-2.00)/2.00 = -48% — never shown.
 
     def test_user_entry_merges_and_dispersion_caps_confidence(self):
+        self.pin_clock()
         ws.add_manual("SE", "MyNewsletter", eps=1.30,
                       url="https://example.com/note", next_earnings="2026-08-11")
         out = ws.collect("SE", consensus_eps=1.0, next_earnings="2026-08-11",
@@ -313,6 +329,7 @@ class TestCollect(Base):
         self.assertEqual(kinds, {"provider_whisper", "user_supplied"})
 
     def test_user_only_with_url_medium_without_low(self):
+        self.pin_clock()
         ws.add_manual("QQ", "SomeSite", eps=1.5, url="https://x.y/z",
                       next_earnings="2026-09-01")
         out = ws.collect("QQ", consensus_eps=1.4, next_earnings="2026-09-01",

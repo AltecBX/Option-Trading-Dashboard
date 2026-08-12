@@ -93,19 +93,14 @@ function run({ framed, cookie = "", ls = {}, ss = {}, stored = null, session = n
   const snap = r.saved.map((o) => o.swsTopSnapshot).filter(Boolean).pop() || null;
   check("snapshot records cookie NAMES", snap && snap.cookies, ["sws_session", "_hjSession_44113"]);
   check("snapshot records localStorage NAMES", snap && snap.localStorage, ["sws:auth:token", "portfolios"]);
-  // Two stores with deliberately DIFFERENT contracts, and the difference is
-  // the privacy boundary:
-  //   swsTopSnapshot -> names only. It is what gets reported to the page.
-  //   swsSession     -> values. It is the session being mirrored, and it must
-  //                     never leave extension storage.
+  // One store, one contract: swsTopSnapshot holds NAMES only. Nothing this
+  // extension writes to disk contains a cookie value or a storage value.
   check("the reported snapshot holds no cookie value", JSON.stringify(snap).includes("abc"), false);
   check("the reported snapshot holds no storage value", JSON.stringify(snap).includes("SECRET"), false);
-  const sess = r.saved.map((o) => o.swsSession).filter(Boolean).pop() || null;
-  check("the mirror DOES carry the value (that is the fix)",
-        sess && sess.entries["sws:auth:token"], "SECRET");
-  // Cookies are handled by the cookie machinery; the mirror must not duplicate
-  // them into storage.
-  check("the mirror carries no cookie value", JSON.stringify(sess).includes("abc"), false);
+  // v3.9: there is no value store at all any more — see the "No value
+  // mirroring" block below, which asserts that directly.
+  check("no value store is written alongside the snapshot",
+        r.saved.some((o) => "swsSession" in o), false);
   // An already-open tab must still get captured.
   check("re-snapshots when the tab regains focus", (() => {
     const before = r.saved.length; r.fire("focus"); return r.saved.length > before;
@@ -117,52 +112,40 @@ function run({ framed, cookie = "", ls = {}, ss = {}, stored = null, session = n
   check("top-level posts nothing to a parent", r.posted.length, 0);
 }
 
-// ── Session mirror (v3.6): the actual fix ─────────────────────────────────
-// Simply Wall St keeps its login in localStorage, which Chrome partitions per
-// top-level site. The extension reads it in a normal tab and writes it into
-// the frame's store. These assertions cover the ways that can go wrong:
-// mirroring junk, blowing the quota, leaving a stale session after logout, or
-// reload-looping.
+// ── No value mirroring (v3.9) ─────────────────────────────────────────────
+// v3.6/3.7 copied localStorage VALUES between contexts, believing the login
+// lived there. It did not — the session is a cookie (auth / PHPSESSID /
+// _sws_*) that the extension simply could not see, fixed in v3.8. The mirror
+// is removed, and these assertions keep it removed: storing session values at
+// rest was the only part of this extension that ever held anything sensitive.
 {
-  // SOURCE: a normal tab exports session values but not analytics/caches.
-  const big = "x".repeat(300 * 1024);
-  const r = run({ framed: false,
-    ls: { "sws:auth": "TOKEN", portfolios: "[1]", "unleash:repository:repo": "{}",
-          REACT_QUERY_OFFLINE_CACHE: "huge", snowplowOutQueue_x: "junk",
-          _hjSessionUser_44113: "hj", bloated: big } });
+  const r = run({ framed: false, cookie: "auth=SECRETCOOKIE",
+    ls: { "sws:auth": "SECRETTOKEN", portfolios: "[1]" } });
   r.flush();
-  const sess = (r.saved.map(o => o.swsSession).filter(Boolean).pop()) || { entries: {} };
-  check("mirrors the auth key", sess.entries["sws:auth"], "TOKEN");
-  check("mirrors app state", sess.entries.portfolios, "[1]");
-  check("skips the react-query cache", "REACT_QUERY_OFFLINE_CACHE" in sess.entries, false);
-  check("skips snowplow telemetry", "snowplowOutQueue_x" in sess.entries, false);
-  check("skips analytics cookies-in-storage", "_hjSessionUser_44113" in sess.entries, false);
-  check("skips an oversized value", "bloated" in sess.entries, false);
+  const blob = JSON.stringify(r.saved);
+  check("a normal tab never stores a storage VALUE", blob.includes("SECRETTOKEN"), false);
+  check("a normal tab never stores a cookie VALUE", blob.includes("SECRETCOOKIE"), false);
+  check("no swsSession store is written",
+        r.saved.some((o) => "swsSession" in o), false);
+  const snap = r.saved.map((o) => o.swsTopSnapshot).filter(Boolean).pop() || null;
+  check("the names-only snapshot still works", snap && snap.localStorage,
+        ["sws:auth", "portfolios"]);
 }
 {
-  // TARGET: the frame adopts the session into its partitioned store.
+  // The frame must not write anything into the site's storage any more...
   const ls = { portfolios: "[]" };
-  const r = run({ framed: true, ls,
-    stored: null, session: { at: 1, entries: { "sws:auth": "TOKEN", portfolios: "[1]" } } });
-  check("frame adopts the auth key", ls["sws:auth"], "TOKEN");
-  check("frame refreshes a stale value", ls.portfolios, "[1]");
-  check("frame records what it wrote", JSON.parse(ls.__jth_mirrored_keys).sort(),
-        ["portfolios", "sws:auth"]);
+  run({ framed: true, ls, session: { at: 1, entries: { "sws:auth": "TOKEN" } } });
+  check("frame adopts nothing, even if an old store exists",
+        Object.keys(ls), ["portfolios"]);
 }
 {
-  // LOGOUT must propagate: keys we wrote and the source dropped are removed,
-  // and keys the frame owns itself are left alone.
+  // ...and it cleans up what the old mirror left behind, once.
   const ls = { "sws:auth": "TOKEN", portfolios: "[1]", ownKey: "keep",
                __jth_mirrored_keys: JSON.stringify(["sws:auth", "portfolios"]) };
-  const r = run({ framed: true, ls, session: { at: 2, entries: { portfolios: "[]" } } });
-  check("logout removes the mirrored auth key", "sws:auth" in ls, false);
-  check("logout leaves the frame's own keys", ls.ownKey, "keep");
-}
-{
-  // No session recorded yet: touch nothing.
-  const ls = { portfolios: "[]" };
-  run({ framed: true, ls, session: null });
-  check("no mirror -> frame untouched", Object.keys(ls), ["portfolios"]);
+  run({ framed: true, ls });
+  check("cleanup removes a previously mirrored key", "sws:auth" in ls, false);
+  check("cleanup removes the marker", "__jth_mirrored_keys" in ls, false);
+  check("cleanup leaves keys the frame owns", ls.ownKey, "keep");
 }
 
 // ── Version reporting (v3.7) ──────────────────────────────────────────────
@@ -216,8 +199,10 @@ function run({ framed, cookie = "", ls = {}, ss = {}, stored = null, session = n
                          data: { type: "jth-sws-diag-req" } });
     return Promise.resolve().then(() => Promise.resolve()).then(() => {
       const m = r3.posted.map((p) => p.m).find((x) => x && x.type === "jth-sws-diag");
-      check("reply reports mirrored key NAMES", m && m.mirror && m.mirror.keys, ["sws:auth"]);
+      check("reply carries no mirror section at all", m && "mirror" in m, false);
       check("reply leaks NO token value", JSON.stringify(m || {}).includes("SUPERSECRET"), false);
+      check("reply still carries the cookie comparison that found the bug",
+            m && "missingVsTopTab" in m, true);
       if (fail) {
         console.error(`\ntest_helper_swssync: ${pass} passed, ${fail} FAILED`);
         process.exit(1);
