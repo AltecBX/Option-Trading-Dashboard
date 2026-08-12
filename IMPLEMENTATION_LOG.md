@@ -1368,3 +1368,27 @@ injected into tabs already open at update time, which is what produced three
 rounds of topTab: null.
 
 29 sws-sync + 46 helper-cookie + 27 JS + 64 unittest + verify layers.
+
+## Fix: test_whisper_sources expired on 2026-08-12 and blocked CI
+The v3.9 PR went red on a test that has nothing to do with it:
+  test_user_entry_merges_and_dispersion_caps_confidence
+  AssertionError: 1 != 2   (source_count)
+It failed locally too, and had passed on every PR up to #265 — because it only
+became false today.
+
+The provider fixtures are REAL captures, so their event dates are fixed: the
+SE fixture reports on 2026-08-11. The test files a manual whisper entry
+against that date, and whisper_sources.py:425 correctly refuses an entry whose
+`asof` is LATER than the event it claims to describe — a whisper filed after
+the earnings release is not a whisper for that release. Once the wall clock
+passed 2026-08-11, the entry was dropped and source_count fell from 2 to 1.
+
+Production logic is right; the test was standing in the wrong time. Fixed by
+pinning whisper_sources' clock (Base.pin_clock, default 2026-08-01) in the
+tests that file manual entries, rather than by editing an authentic captured
+fixture or loosening the assertion.
+
+Verified date-proof, not just green today: re-ran the module with the clock
+forced to 2027-12-31 — long past every fixture date — and all 29 pass. The
+comment in the test records why, so the next person does not "fix" it by
+relaxing the assertion.
