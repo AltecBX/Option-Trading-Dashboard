@@ -8438,6 +8438,30 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn(None, "api/ewhispers/weekly", exc)
                 self._send_json({"available": False, "error": str(exc)}, status=500)
             return
+        if parsed.path == "/api/ewhispers/image":
+            # Binary: the weekly calendar image, downloaded from X's CDN once
+            # and served from the app's own disk cache from then on. The card
+            # fetches it with apiFetch (headers intact), so the key gate holds.
+            if not _EWHISPERS_AVAILABLE:
+                self._send_json({"error": "ewhispers module unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            data, ct = _ewhispers.get_image(
+                (qs.get("id", [""])[0] or "").strip(),
+                (qs.get("size", ["large"])[0] or "large").strip())
+            if data is None:
+                self._send_json({"error": ct}, status=404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ct)
+            # The image for a given post id never changes — let the browser
+            # keep it for a day so repeat opens don't refetch.
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self._cors_headers()
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if parsed.path == "/api/ewhispers/refresh":
             if not _EWHISPERS_AVAILABLE:
                 self._send_json({"error": "ewhispers module unavailable"}, status=503)
