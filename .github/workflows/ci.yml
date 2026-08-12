@@ -43,7 +43,7 @@ jobs:
           node-version: "22"
 
       - name: Python deps (free sources only — no paid keys anywhere)
-        run: pip install -r requirements.txt pandas numpy
+        run: pip install -r requirements.txt pandas numpy freezegun
 
       - name: Every Python module compiles
         run: python3 -m py_compile *.py
@@ -80,3 +80,15 @@ jobs:
           python3 test_v117_broker.py
           python3 test_failure_modes.py
           python3 test_http_smoke.py
+
+      - name: Tests still hold 400 days from now
+        # On 2026-08-12 the suite went red on a test nobody had touched: a
+        # hard-coded date quietly expired and blocked an unrelated PR. This
+        # step runs the whole suite with the clock shifted forward so a test
+        # that only passes because of what today is fails HERE, on the PR that
+        # introduces it — not months later on someone else's. (test_schedules
+        # is exempt inside the runner: its expiry alarm is a data-freshness
+        # deadline, which the step above enforces against the real date.)
+        env:
+          JERRY_NO_NET: "1"
+        run: python3 test_time_travel.py 400

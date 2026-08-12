@@ -492,7 +492,13 @@ MACRO_SCHEDULE = {
     },
     # FOMC decision days (2 PM ET statement) — Federal Reserve calendar.
     "fomc": ["2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
-             "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"],
+             "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09",
+             # 2027 — federalreserve.gov FOMC calendar, retrieved 2026-08-12.
+             # Decision day = second day of each two-day meeting. The parser
+             # used here reproduced the 2026 row above exactly, which is what
+             # validates both the extraction and the convention.
+             "2027-01-27", "2027-03-17", "2027-04-28", "2027-06-09",
+             "2027-07-28", "2027-09-15", "2027-10-27", "2027-12-08"],
 }
 # Legacy aliases (same objects — consumers below read through these).
 CPI_SCHEDULE = MACRO_SCHEDULE["cpi"]
@@ -500,12 +506,51 @@ FOMC_2026 = MACRO_SCHEDULE["fomc"]
 
 
 def schedule_status(today: date | None = None) -> dict:
-    """Validity of the maintained macro schedule. {"ok", "valid_through",
-    "days_left", "updated"} — ok=False once today passes valid_through."""
+    """Validity of the maintained macro schedule.
+
+    Original keys are unchanged — {"ok", "valid_through", "days_left",
+    "updated"} — with per-series coverage added.
+
+    WHY PER-SERIES: valid_through is hand-maintained, so it can drift from the
+    dates actually present, and one exhausted series looked exactly like
+    another. When this alarm fires, whoever picks it up needs to know that
+    (say) FOMC already runs into 2027 and only CPI needs refreshing. "series"
+    and "needs" say so directly, and "declared_beyond_data" catches the
+    hand-maintained literal claiming coverage the dates do not back up.
+    """
     t = today or _et_now().date()
     vt = date.fromisoformat(MACRO_SCHEDULE["valid_through"])
-    return {"ok": t <= vt, "valid_through": MACRO_SCHEDULE["valid_through"],
-            "days_left": (vt - t).days, "updated": MACRO_SCHEDULE["updated"]}
+
+    series: dict = {}
+    for name in ("cpi", "fomc"):
+        raw = MACRO_SCHEDULE.get(name) or []
+        dates = (sorted(d for ds in raw.values() for d in ds)
+                 if isinstance(raw, dict) else sorted(raw))
+        last = dates[-1] if dates else None
+        series[name] = {
+            "last": last,
+            "count": len(dates),
+            "days_left": (date.fromisoformat(last) - t).days if last else None,
+            "exhausted": (not last) or date.fromisoformat(last) < t,
+        }
+
+    covered = [v["last"] for v in series.values() if v["last"]]
+    data_through = min(covered) if covered else None
+    return {
+        "ok": t <= vt,
+        "valid_through": MACRO_SCHEDULE["valid_through"],
+        "days_left": (vt - t).days,
+        "updated": MACRO_SCHEDULE["updated"],
+        "series": series,
+        # Which series to refresh, soonest first — the actionable part.
+        "needs": [n for n, v in sorted(
+            series.items(),
+            key=lambda kv: (kv[1]["days_left"] if kv[1]["days_left"] is not None else -10**6))
+            if v["days_left"] is None or v["days_left"] <= 45],
+        "data_through": data_through,
+        "declared_beyond_data": bool(
+            data_through and vt > date.fromisoformat(data_through) + timedelta(days=31)),
+    }
 
 
 def _events() -> dict:
