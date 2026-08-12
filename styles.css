@@ -10352,11 +10352,16 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
    v3.53: left (range) zone widened so the position + day-context lines each
    fit on one row; the put/call columns had large dead space, so shift the
    width to the left where it's needed. */
-.wos-card { display: grid; grid-template-columns: 1.9fr 1fr 1fr; gap: 14px; align-items: start; }
+/* minmax(0, …): a bare fr track's min size is min-content, so ONE
+   unshrinkable child (a nowrap line, a long token) silently widens every
+   zone of the card past the viewport. Zero floors make the zones hold
+   their width and let content wrap instead. */
+.wos-card { display: grid; gap: 14px; align-items: start;
+  grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr) minmax(0, 1fr); }
 .wos-card .card-head { grid-column: 1 / -1; margin-bottom: 0; }
 .wos-sides { display: contents; }
 @media (max-width: 1100px) {
-  .wos-card { grid-template-columns: 1fr; }
+  .wos-card { grid-template-columns: minmax(0, 1fr); }
   /* Stacked full width can be narrow — allow the two info lines to wrap
      again so they never overflow the card on phones/tablets. */
   .wos-posline, .wos-dayctx { white-space: normal; }
@@ -10392,12 +10397,20 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 /* v3.51: day-of-week context under the range — how much week is left.
    v3.52: plain left-justified text flow (was flex — the 16px flex gap doubled
    as a row gap when the line wrapped, wasting vertical space). */
-.wos-dayctx { display: block; text-align: left; line-height: 1.5; white-space: nowrap;
+.wos-dayctx { display: block; text-align: left; line-height: 1.5;
   font-size: 12px; color: var(--fg-2); cursor: help;
   border-top: 1px dashed var(--line); padding-top: 6px; }
 .wos-dayctx em { font-style: normal; font-family: var(--font-mono); font-size: 9px;
   font-weight: 800; letter-spacing: 0.12em; color: var(--warn); margin-right: 8px; }
 .wos-dayctx b { font-family: var(--font-mono); font-size: 13px; }
+/* One line only where the wide layout has room. This must stay a min-width
+   rule: an unconditional nowrap here once out-cascaded the phone reset at
+   the 1100px breakpoint (later rule, same specificity) and inflated the
+   whole card's grid to 528px on a 390px phone — clipping the title, the
+   NOW marker and the right-hand numbers. */
+@media (min-width: 1101px) {
+  .wos-dayctx { white-space: nowrap; }
+}
 .wos-dayctx b.cu { color: var(--up); }
 
 /* v3.55: weekly range location scan (Scanners tab) — watchlist-wide version
@@ -11284,3 +11297,19 @@ a.tabsheet-btn.site { text-decoration: none; }
   .ew-lightbox { padding: 8px; }
   .ew-lightbox img { max-width: 98vw; max-height: 92vh; }
 }
+
+/* Lightbox magnify (v3.90): fit-to-screen first, tap the image to magnify
+   and pan — on a phone the fit-width calendar is too small to read. On
+   desktop the magnified size is the image's natural resolution. */
+.ew-lightbox img { cursor: zoom-in; }
+.ew-lightbox.zoomed { display: block; overflow: auto;
+  -webkit-overflow-scrolling: touch; cursor: default; padding: 0; }
+.ew-lightbox.zoomed img { max-width: none; max-height: none; width: 260vw;
+  border-radius: 0; cursor: zoom-out; }
+@media (min-width: 761px) {
+  .ew-lightbox.zoomed img { width: auto; }
+}
+.ew-lb-hint { position: fixed; bottom: 16px; left: 50%;
+  transform: translateX(-50%); background: rgba(0, 0, 0, 0.6); color: #fff;
+  font-size: 11.5px; padding: 5px 12px; border-radius: 999px;
+  pointer-events: none; white-space: nowrap; }

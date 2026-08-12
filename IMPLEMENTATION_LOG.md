@@ -1622,3 +1622,32 @@ the card fell back to the embed. The image fetch now passes noCache (raw
 fetch path; the endpoint's Cache-Control keeps repeat loads cached). The
 final QA run served the REAL calendar (288KB, fetched once through the
 app's cache) end to end: 25/25 desktop + mobile.
+
+## v3.90 — mobile sweep: every tab driven at phone size
+Jerry: "make sure this and everything else is mobile friendly." Method, not
+vibes: Playwright drove all 21 tabs at 390×844 (iPhone UA, touch), measured
+page-level horizontal scroll and per-element clipping at three scroll stops
+per tab, and screenshotted everything for eyeballing.
+
+Result: the shell (bottom bar, tab strip, drawers), the boards, the
+calendars and the new Earnings Whispers card were already clean — zero
+page-level horizontal scroll anywhere, no JS errors. TWO real defects
+found, both fixed:
+
+1. The Weekly Option Selling Setup card was 528px wide on a 390px phone —
+   title, NOW marker and right-hand numbers clipped. Root cause: the phone
+   reset for `.wos-dayctx { white-space: normal }` at the 1100px breakpoint
+   was OUT-CASCADED by an unconditional nowrap declared later in the file
+   (same specificity — media queries add none), and a bare `fr` grid track
+   inflates to min-content, dragging every zone of the card with it. Fixed
+   by making nowrap a min-width rule and flooring the card's grid tracks
+   with minmax(0, …) so no future child can widen the card again.
+2. The calendar lightbox fit the image to screen width — unreadable on a
+   phone. Tap now magnifies (260vw, pan both axes; desktop: natural pixel
+   size), tap again fits, × / Esc / backdrop close. A failed full-res load
+   falls back to the already-shown image (onError guard) instead of
+   blanking — caught in QA when the full variant wasn't cached yet.
+
+Verified: magnify/pan/restore/close on the phone viewport with the REAL
+calendar; the fixed setup card re-probed (zero elements wider than the
+viewport, was 12); full EW card QA still 25/25; suite 330 green.
