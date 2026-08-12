@@ -197,6 +197,8 @@ function EarningsWhispersCard({
   const [err, setErr] = useState(null);
   const [viewWeek, setViewWeek] = useState(null); // null = relevant week
   const [zoom, setZoom] = useState(false);
+  const [lbZoom, setLbZoom] = useState(false); // magnified inside the lightbox
+  const [fullBroken, setFullBroken] = useState(false); // full-res variant failed to load
   const [imgBroken, setImgBroken] = useState(false);
   const [showText, setShowText] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -277,9 +279,13 @@ function EarningsWhispersCard({
     if (aliveRef.current) setBusy(false);
   };
 
-  // Esc closes the enlarged view.
+  // Esc closes the enlarged view; the magnify state resets with it.
   useEffect(() => {
-    if (!zoom) return undefined;
+    if (!zoom) {
+      setLbZoom(false);
+      setFullBroken(false);
+      return undefined;
+    }
     const onKey = e => {
       if (e.key === "Escape") setZoom(false);
     };
@@ -435,15 +441,24 @@ function EarningsWhispersCard({
   }, manualMsg), /*#__PURE__*/React.createElement("span", {
     className: "ew-note"
   }, "Paste the weekly calendar post's link from @eWhispers if automatic detection is unavailable.")), zoom && hasImage && /*#__PURE__*/React.createElement("div", {
-    className: "ew-lightbox",
+    className: `ew-lightbox${lbZoom ? " zoomed" : ""}`,
     role: "dialog",
     "aria-modal": "true",
     "aria-label": "Earnings Whispers weekly calendar, enlarged",
     onClick: () => setZoom(false)
   }, /*#__PURE__*/React.createElement("img", {
-    src: fullSrc || imgSrc,
-    alt: `Earnings Whispers calendar — ${data.week_label || ""}`
-  }), /*#__PURE__*/React.createElement("button", {
+    src: !fullBroken && fullSrc || imgSrc,
+    alt: `Earnings Whispers calendar — ${data.week_label || ""}`,
+    title: lbZoom ? "Tap to fit the screen" : "Tap to magnify",
+    onClick: e => {
+      e.stopPropagation();
+      setLbZoom(v => !v);
+    },
+    onError: () => setFullBroken(true)
+  }), !lbZoom && /*#__PURE__*/React.createElement("span", {
+    className: "ew-lb-hint",
+    "aria-hidden": "true"
+  }, "tap image to magnify \xB7 tap outside to close"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "hk-close ew-lb-close",
     "aria-label": "Close",
