@@ -11313,3 +11313,78 @@ a.tabsheet-btn.site { text-decoration: none; }
   transform: translateX(-50%); background: rgba(0, 0, 0, 0.6); color: #fff;
   font-size: 11.5px; padding: 5px 12px; border-radius: 999px;
   pointer-events: none; white-space: nowrap; }
+
+/* ── Prior High Recovery scanner (v3.91) ──────────────────────────────────
+   Scanner table + expansion detail + research view. Reuses .scan-table,
+   .eop-sections, .tsy-serbtn, .preset-pill machinery; everything new is
+   prefixed .rcv-. */
+.rcv-card { margin-bottom: var(--row-gap); }
+.card-head > .rcv-ctrl { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rcv-regime-uptrend { color: var(--up); }
+.rcv-regime-downtrend { color: var(--down); }
+.rcv-regime-chop { color: var(--warn); }
+.rcv-nomodel { margin: 8px 0; padding: 7px 11px; border: 1px solid color-mix(in oklch, var(--warn) 45%, transparent);
+  border-radius: var(--radius-sm); background: color-mix(in oklch, var(--warn) 9%, transparent);
+  color: var(--fg-2); font-size: 12px; }
+.rcv-presets { margin: 10px 0 2px; flex-wrap: wrap; }
+.rcv-filters { margin: 8px 0 12px; flex-wrap: wrap; align-items: center; }
+.rcv-wrap { overflow-x: auto; }
+.rcv-table { min-width: 980px; }
+.rcv-table th { cursor: pointer; white-space: nowrap; }
+.rcv-table th.on { color: var(--fg); }
+.rcv-tk { font-family: var(--font-mono); }
+.rcv-row { cursor: pointer; }
+.rcv-row.rcv-open { background: color-mix(in oklch, var(--accent) 7%, transparent); }
+.rcv-stage { font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line-2);
+  white-space: nowrap; }
+.rcv-stage-up { color: var(--up); border-color: color-mix(in oklch, var(--up) 45%, transparent);
+  background: color-mix(in oklch, var(--up) 9%, transparent); }
+.rcv-stage-warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 45%, transparent);
+  background: color-mix(in oklch, var(--warn) 9%, transparent); }
+.rcv-stage-down { color: var(--down); border-color: color-mix(in oklch, var(--down) 45%, transparent);
+  background: color-mix(in oklch, var(--down) 9%, transparent); }
+.rcv-stage-mut { color: var(--fg-3); }
+.rcv-struct { white-space: nowrap; }
+.rcv-struct span { font-size: 10px; font-weight: 700; margin-right: 5px;
+  letter-spacing: 0.04em; }
+.rcv-struct span.mut { opacity: 0.35; }
+.rcv-detail-row td { padding: 0; }
+.rcv-detail { padding: 12px 14px 14px; background: var(--bg-2);
+  border-top: 1px solid var(--line); white-space: normal; }
+.rcv-explain { font-size: 12.5px; line-height: 1.55; color: var(--fg-2);
+  max-width: 860px; margin-bottom: 10px; }
+.rcv-qgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px; margin-bottom: 10px; }
+.rcv-q { background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 7px 10px; }
+.rcv-q-k { font-size: 10.5px; color: var(--fg-3); text-transform: uppercase;
+  letter-spacing: 0.05em; }
+.rcv-q-v { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.rcv-q-d { font-size: 10.5px; color: var(--fg-4); margin-top: 1px; }
+.rcv-ladder { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px;
+  color: var(--fg-3); margin-bottom: 10px; }
+.rcv-ladder b { color: var(--fg); font-weight: 600; }
+.rcv-lad-head { color: var(--fg-2); font-weight: 600; }
+.rcv-ladder-none { color: var(--fg-3); font-style: italic; }
+.rcv-cta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rcv-sec { font-size: 11px; }
+/* research view */
+.rcv-research { padding-top: 4px; }
+.rcv-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px;
+  color: var(--fg-2); margin-bottom: 8px; }
+.rcv-limit { font-size: 11.5px; color: var(--fg-3); line-height: 1.5;
+  border-left: 2px solid var(--line-2); padding-left: 10px; margin: 8px 0 14px; }
+.rcv-note { font-size: 11px; color: var(--fg-4); margin-top: 6px; }
+.rcv-cohort { margin-bottom: 16px; }
+.rcv-cohort-t { font-size: 12.5px; font-weight: 600; color: var(--fg-2);
+  margin-bottom: 6px; }
+.rcv-rtable { min-width: 640px; }
+
+@media (max-width: 760px) {
+  .rcv-table { font-size: 11.5px; min-width: 900px; }
+  .rcv-qgrid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+  .rcv-ladder { gap: 5px 10px; font-size: 11px; }
+  .rcv-presets .preset-pill { font-size: 11px; }
+  .rcv-rtable { min-width: 560px; font-size: 11px; }
+}

@@ -4744,6 +4744,20 @@ except Exception as _exc:  # noqa: BLE001
     _PERFECTION_AVAILABLE = False
     _perfection_data = None  # type: ignore
 
+# ── Prior High Recovery scanner (v3.91) ─────────────────────────────────────
+try:
+    import recovery as _recovery
+    _recovery.configure(
+        schwab_getter=lambda: _schwab(),
+        board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        data_dir=_STABLE_DIR,
+    )
+    _RECOVERY_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[recovery] wiring failed: {_exc}", file=sys.stderr)
+    _RECOVERY_AVAILABLE = False
+    _recovery = None  # type: ignore
+
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
 import patterns as _patterns
 
@@ -8509,6 +8523,61 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/range_scan/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/recovery":
+            if not _RECOVERY_AVAILABLE:
+                self._send_json({"error": "recovery unavailable", "rows": []}, status=503)
+                return
+            try:
+                board = _recovery.get_board()
+                st = board.get("status") or {}
+                tag = f'W/"rcv-{st.get("last_scan")}-{st.get("scanned")}-{board.get("count")}"'
+                self._send_json(board, etag=tag)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/recovery", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/recovery/scan":
+            if not _RECOVERY_AVAILABLE:
+                self._send_json({"error": "recovery unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:  # noqa: BLE001
+                syms = []
+            try:
+                self._send_json(_recovery.trigger_scan(syms, force=force))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/recovery/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/recovery/research":
+            if not _RECOVERY_AVAILABLE:
+                self._send_json({"error": "recovery unavailable"}, status=503)
+                return
+            try:
+                self._send_json(_recovery.research())
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/recovery/research", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/recovery/detail":
+            if not _RECOVERY_AVAILABLE:
+                self._send_json({"error": "recovery unavailable"}, status=503)
+                return
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+            if not symbol or len(symbol) > 8:
+                self._send_json({"error": "symbol required"}, status=400)
+                return
+            try:
+                self._send_json(_recovery.detail(symbol), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/recovery/detail", exc)
+                self._send_json({"error": str(exc), "symbol": symbol}, status=500)
             return
         if parsed.path == "/api/credit_risk":
             qs = parse_qs(parsed.query)

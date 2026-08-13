@@ -52,7 +52,8 @@ function TVPriceChart({
   earnings,
   showMA50 = false,
   showMA200 = false,
-  showEMA21 = false
+  showEMA21 = false,
+  levels = null
 }) {
   const LC = window.LightweightCharts;
   const wrapRef = React.useRef(null);
@@ -271,6 +272,19 @@ function TVPriceChart({
     // lines so it never blends with the historical weekly band above.
     pl(emHigh, "rgba(56,189,248,0.9)", LC.LineStyle.Dashed, "EM hi");
     pl(emLow, "rgba(56,189,248,0.9)", LC.LineStyle.Dashed, "EM lo");
+    // Prior High Recovery levels (v3.91) — named horizontal lines lifted up
+    // from the Recovery tab. Kind→color mirrors the tab's own legend.
+    const RCV_COLOR = {
+      prior_high: "rgba(34,197,94,0.9)",
+      correction_low: "rgba(234,179,8,0.9)",
+      invalidation: "rgba(239,68,68,0.95)",
+      bounce_high: "rgba(56,189,248,0.85)",
+      higher_low: "rgba(168,85,247,0.85)"
+    };
+    (levels || []).forEach(lv => {
+      if (!lv || lv.price == null) return;
+      pl(lv.price, RCV_COLOR[lv.kind] || "rgba(148,163,184,0.7)", lv.kind === "invalidation" ? LC.LineStyle.Dashed : LC.LineStyle.Dotted, lv.label);
+    });
     if (earnings) {
       const m = [];
       (earnings.past || []).forEach(d => {
@@ -295,7 +309,7 @@ function TVPriceChart({
         main.setMarkers(m);
       } catch (e) {}
     }
-  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle]);
+  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle, levels]);
   if (!LC) return null;
   return /*#__PURE__*/React.createElement("div", {
     className: "tv-price-chart",

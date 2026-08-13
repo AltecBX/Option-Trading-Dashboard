@@ -33,14 +33,16 @@ const JSX_FILES = ["strategies.jsx", "tweaks-panel.jsx", "tooltips.jsx", "charts
   "app-lib.jsx", "app-cards.jsx", "app.jsx",
   // Lazy tab chunks (v3.64) — compiled + minified like everything else but
   // NOT referenced by index.html; LazyTab injects them on first tab open.
-  "tab-patterns.jsx", "tab-backtest.jsx", "tab-treasuries.jsx", "tab-earnops.jsx"];
+  "tab-patterns.jsx", "tab-backtest.jsx", "tab-treasuries.jsx", "tab-earnops.jsx",
+  "tab-recovery.jsx"];
 // Everything index.html loads locally, in load order. config.js excluded on purpose.
 const SERVED_JS = ["data.js", "recommendation.js", "weather.js", "journal.js",
   "strategies.js", "tweaks-panel.js", "tooltips.js", "charts.js",
   "app-lib.js", "app-cards.js", "app.js"];
 // On-demand chunks: emitted to dist/ (immutable, ?v= comes from the app tag)
 // but never stamped into index.html.
-const CHUNK_JS = ["tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js"];
+const CHUNK_JS = ["tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js",
+  "tab-recovery.js"];
 const SERVED_CSS = ["styles.css"];
 
 let failed = false;

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.90";
+const APP_VERSION = "3.91";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2166,6 +2166,11 @@ function App() {
   // price chart can draw the options-implied EM levels. Keyed by symbol so a
   // stale band never draws on the next ticker while its data loads.
   const [emBand, setEmBand] = useState(null); // {symbol, high, low, expiry}
+  // Prior High Recovery levels (v3.91) — reported up by the Recovery tab so
+  // the price chart can draw Prior High / Correction Low / Higher Low /
+  // Invalidation. Keyed by symbol so a stale set never draws on the next
+  // ticker.
+  const [rcvLevels, setRcvLevels] = useState(null); // {symbol, levels:[{price,label,kind}]}
   // Intraday chart mode (v3.19): Daily candles vs today's 1-minute bars with
   // VWAP bands + the day-level map. Polled every 30s while active.
   const [chartTF, setChartTF] = useState("daily");
@@ -3348,6 +3353,14 @@ function App() {
                      onOpenIntraday={openIntraday} />
           </CardErrorBoundary>
         </TabPanel>
+        <TabPanel tab="recovery" active={activeTab}>
+          <CardErrorBoundary label="Prior High Recovery">
+            <LazyTab chunk="tab-recovery" component="RecoveryTab" label="Prior High Recovery"
+                     apiFetch={apiFetch}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }}
+                     onMarkLevels={setRcvLevels} />
+          </CardErrorBoundary>
+        </TabPanel>
         <TabPanel tab="breadth" active={activeTab}>
           <CardErrorBoundary label="Breadth">
             <MarketBreadthCard apiFetch={apiFetch} onLoadTicker={switchTicker} />
@@ -3732,6 +3745,7 @@ function App() {
                                 emLow={emBand && emBand.symbol === ticker ? emBand.low : null}
                                 callStrike={sugCall} putStrike={sugPut} currentPrice={currentPrice}
                                 chartStyle={chartStyle} earnings={liveEarnings}
+                                levels={rcvLevels && rcvLevels.symbol === ticker ? rcvLevels.levels : null}
                                 showMA50={showMA50} showMA200={showMA200} showEMA21={showEMA21} />
                 ) : (
                 <PriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
@@ -3769,6 +3783,13 @@ function App() {
               {emBand && emBand.symbol === ticker && (
                 <span className="item" title={`Options-implied expected move band for ${fmtUSDate(emBand.expiry)} — from the Expected Move card below. Price closing outside these lines by expiration is a ~32% tail event.`}>
                   <span className="swatch dashed" style={{borderColor: "#38bdf8"}}></span>EM range · {fmtUSDate(emBand.expiry)}
+                </span>
+              )}
+              {rcvLevels && rcvLevels.symbol === ticker && (
+                <span className="item" role="button" style={{cursor: "pointer"}}
+                      title="Prior High Recovery levels from the Recovery tab — prior high (green), correction low (yellow), higher low (purple), bounce high (blue), invalidation (red dashed). Click to clear."
+                      onClick={() => setRcvLevels(null)}>
+                  <span className="swatch dashed" style={{borderColor: "#22c55e"}}></span>Recovery levels ✕
                 </span>
               )}
               <span className="item"><span className="swatch" style={{background: chartColors.up, height: 3}}></span>Current price</span>
