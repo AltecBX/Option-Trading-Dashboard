@@ -522,7 +522,9 @@ function RecoveryTab({
     return [...filtered].sort((a, b) => {
       const ka = key(a),
         kb = key(b);
-      return (ka < kb ? -1 : ka > kb ? 1 : 0) * -sortD;
+      // sortD −1 = descending (big first), +1 = ascending — matches the ↓/↑
+      // arrows. (ka<kb → −1 puts a first, so multiply by sortD directly.)
+      return (ka < kb ? -1 : ka > kb ? 1 : 0) * sortD;
     });
   }, [filtered, sortK, sortD]);
   const th = (label, k, tip) => /*#__PURE__*/React.createElement("th", {
@@ -531,7 +533,7 @@ function RecoveryTab({
     onClick: () => {
       if (sortK === k) setSortD(d => -d);else {
         setSortK(k);
-        setSortD(-1);
+        setSortD(k === "ticker" ? 1 : -1);
       }
     }
   }, label, sortK === k ? sortD === -1 ? " ↓" : " ↑" : "");
@@ -582,7 +584,7 @@ function RecoveryTab({
     className: "rcv-nomodel"
   }, model.reason || "No historical model — structure shows, probabilities don't."), status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-status"
-  }, "Last scan ", new Date(status.last_scan).toLocaleString(), " \xB7 ", allRows.length, " setups from ", status.universe_size || "—", " stocks", model.available && ` · model: ${model.n_signals} historical signals, out-of-sample AUC ${model.test_auc}`, status.error ? ` · ${status.error}` : ""), /*#__PURE__*/React.createElement("div", {
+  }, "Last scan ", new Date(status.last_scan).toLocaleString(), " \xB7 ", allRows.length, " setups", status.universe_size ? ` from ${status.universe_size} stocks` : "", model.available && ` · model: ${model.n_signals} historical signals, out-of-sample AUC ${model.test_auc}`, status.error ? ` · ${status.error}` : ""), /*#__PURE__*/React.createElement("div", {
     className: "eop-sections"
   }, RCV_STAGES.map(([k, label]) => /*#__PURE__*/React.createElement("button", {
     key: k,

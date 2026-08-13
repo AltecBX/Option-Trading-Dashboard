@@ -349,13 +349,15 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
     };
     return [...filtered].sort((a, b) => {
       const ka = key(a), kb = key(b);
-      return (ka < kb ? -1 : ka > kb ? 1 : 0) * -sortD;
+      // sortD −1 = descending (big first), +1 = ascending — matches the ↓/↑
+      // arrows. (ka<kb → −1 puts a first, so multiply by sortD directly.)
+      return (ka < kb ? -1 : ka > kb ? 1 : 0) * sortD;
     });
   }, [filtered, sortK, sortD]);
 
   const th = (label, k, tip) => (
     <th className={`${sortK === k ? "on" : ""} ${k !== "ticker" ? "scan-th-num" : ""}`} title={tip}
-        onClick={() => { if (sortK === k) setSortD(d => -d); else { setSortK(k); setSortD(-1); } }}>
+        onClick={() => { if (sortK === k) setSortD(d => -d); else { setSortK(k); setSortD(k === "ticker" ? 1 : -1); } }}>
       {label}{sortK === k ? (sortD === -1 ? " ↓" : " ↑") : ""}
     </th>
   );
@@ -399,7 +401,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
         {!model.available && <div className="rcv-nomodel">{model.reason || "No historical model — structure shows, probabilities don't."}</div>}
         {status.last_scan && (
           <div className="ab-status">
-            Last scan {new Date(status.last_scan).toLocaleString()} · {allRows.length} setups from {status.universe_size || "—"} stocks
+            Last scan {new Date(status.last_scan).toLocaleString()} · {allRows.length} setups{status.universe_size ? ` from ${status.universe_size} stocks` : ""}
             {model.available && ` · model: ${model.n_signals} historical signals, out-of-sample AUC ${model.test_auc}`}
             {status.error ? ` · ${status.error}` : ""}
           </div>
