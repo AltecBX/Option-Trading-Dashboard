@@ -1651,3 +1651,37 @@ found, both fixed:
 Verified: magnify/pan/restore/close on the phone viewport with the REAL
 calendar; the fixed setup card re-probed (zero elements wider than the
 viewport, was 12); full EW card QA still 25/25; suite 330 green.
+
+## v3.91 — Prior High Recovery scanner (backtested on 10y × 1,283 stocks)
+Jerry's spec: find stocks that made a significant high, corrected, and are
+now turning back up — BEFORE they reach the prior high — modeled, scored,
+ranked and backtested; "let the historical evidence determine the final
+rules instead of hardcoding my initial assumptions."
+
+New: `recovery.py` (detector + scan board + probability serving),
+`recovery_fit.py` (the offline historical study), `recovery_model.json`
+(the fitted artifact, versioned in the repo), `tab-recovery.jsx` (Recovery
+tab: scanner table with presets/filters, expansion detail, research view),
+chart levels in `TVPriceChart` (prior high / correction low / higher low /
+bounce high / invalidation lifted onto the Trade chart), `test_recovery.py`
+(38 tests incl. the lookahead-invariance proof).
+
+Design decisions worth remembering:
+- ONE detection implementation (`_eval_at` against causal precomputed
+  series). `detect_setup(bars)` describes the last bar; the backtest replays
+  history through `iter_days`, and a test asserts both paths are
+  byte-identical on every bar — that IS the no-lookahead guarantee.
+- The probability model is fit OFFLINE on real data (Yahoo v8 chart API,
+  10y daily, 1,283 watchlist symbols → 41,923 spaced signals) and shipped
+  as a static artifact. The app never re-crunches years of history; it
+  looks up empirical decile tables with sample sizes attached. No model /
+  small bucket / out-of-population stage → "insufficient historical data",
+  never an invented number.
+- Chronological protocol: train ≤2021, validation 2022–23 (hyperparams +
+  feature pruning), test 2024+ touched once: AUC 0.775, Brier 0.161 vs
+  0.194 base rate. Deciles 1→10 monotone 1%→59%. Top-3-decile hit rate
+  beats each year's base rate in all 10 years including 2022.
+- Feature pruning DROPPED break10, raw RSI, MACD-improving, relative
+  volume, SPY-regime and pre-high trend — no out-of-sample value once
+  structure (distance, recovery ratio, ATR, bounce-break) is accounted for.
+- Survivorship disclosed everywhere: universe = today's watchlist.

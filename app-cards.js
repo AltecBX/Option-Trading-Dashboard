@@ -15907,6 +15907,7 @@ const TAB_BLURBS = {
   news: "Headlines for the loaded symbol and your watchlist",
   flow: "Options-flow intelligence from Unusual Whales",
   scanners: "Open-reclaim reversals + market-wide unusual-flow scans",
+  recovery: "Stocks recovering toward a prior high — measured levels, historically backtested odds",
   juice: "0-3 DTE premium-selling scanner — fattest same-week straddles, ranked by Juice Score with ready-made strangle/condor/spread structures",
   finviz: "Finviz rendered inside the dashboard (via the one-time helper extension) — follows the global ticker, real Elite login and account",
   tview: "TradingView Supercharts inside the dashboard (helper v2.0) — your real layouts, indicators and alerts, following the global ticker",

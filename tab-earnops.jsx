@@ -599,7 +599,9 @@ function EarningsOpsTab({ apiFetch, onOpenTicker, onOpenIntraday }) {
     };
     return [...filtered].sort((a, b) => {
       const ka = key(a), kb = key(b);
-      return (ka < kb ? -1 : ka > kb ? 1 : 0) * -sortD;
+      // sortD −1 = descending (big first) — was inverted (* -sortD) since
+      // v3.63, so "Score ↓" actually showed the LOWEST scores first.
+      return (ka < kb ? -1 : ka > kb ? 1 : 0) * sortD;
     });
   }, [filtered, sortK, sortD]);
 
