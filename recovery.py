@@ -405,14 +405,16 @@ def _eval_at(bars: list[dict], i: int, pre: dict,
     piv = _zigzag(highs[t:i + 1], lows[t:i + 1], rev) if i - t >= 2 else []
     bounce_high = higher_low = None
     bounce_i = higher_low_i = None
+    hl_count = 0                                  # confirmed higher lows (base quality)
     for k in range(1, len(piv)):
         idx, price, kind = piv[k]
         confirmed = k < len(piv) - 1              # trailing pivot in-progress
         if kind == "high" and bounce_high is None and confirmed:
             bounce_high, bounce_i = price, t + idx
-        elif (kind == "low" and bounce_high is not None and higher_low is None
-              and confirmed and price > L * (1 + c["hl_eps"])):
-            higher_low, higher_low_i = price, t + idx
+        elif kind == "low" and confirmed and price > L * (1 + c["hl_eps"]):
+            hl_count += 1
+            if bounce_high is not None and higher_low is None:
+                higher_low, higher_low_i = price, t + idx
     broke_bounce = bool(bounce_high is not None and C > bounce_high)
     has_higher_low = higher_low is not None
 
@@ -460,6 +462,18 @@ def _eval_at(bars: list[dict], i: int, pre: dict,
     av = pre["vavg"][i]
     relvol = (vols[i] / av) if av else None
     dollar_vol = av * C if av else None
+    # accumulation read: up-day volume ÷ down-day volume over the last 10
+    # sessions (>1 = buyers carried the heavier tape into the turn)
+    updown_vol = None
+    if i >= 10:
+        u = d = 0
+        for k in range(i - 9, i + 1):
+            if closes[k] > closes[k - 1]:
+                u += vols[k]
+            elif closes[k] < closes[k - 1]:
+                d += vols[k]
+        if u + d > 0:
+            updown_vol = min(u / d, 8.0) if d > 0 else 8.0
     atr_now = atr[i]
     atr_then = atr[i - 20] if i >= 20 else None
     atr_pct = (atr_now / C) if (atr_now and C) else None
@@ -537,6 +551,8 @@ def _eval_at(bars: list[dict], i: int, pre: dict,
         "higher_low_date": bars[higher_low_i]["date"][:10] if higher_low_i is not None else None,
         "broke_bounce": broke_bounce,
         "has_higher_low": has_higher_low,
+        "hl_count": hl_count,
+        "updown_vol": round(updown_vol, 2) if updown_vol is not None else None,
         "break3": break3, "break5": break5, "break10": break10,
         "close_above_prev_high": close_above_prev_high,
         "above_ema9": above9, "above_ema20": above20, "above_ema50": above50,
@@ -684,10 +700,16 @@ def model_features(setup: dict) -> dict[str, float]:
     def _b(x):
         return 1.0 if x else 0.0
     rv = setup.get("relvol")
+    ap = setup.get("atr_pct") or 0.03
     return {
         "recovery_ratio": setup["recovery_ratio"],
         "depth": setup["depth"],
         "dist_to_high": setup["dist_to_high"],
+        # distance to the target in daily ATRs — "how many normal trading
+        # days of range away is the prior high" (v3.94; the one candidate of
+        # 11 that improved out-of-sample accuracy)
+        "dist_in_atrs": min(setup["dist_to_high"] / ap if ap > 1e-6 else 30.0,
+                            30.0),
         "has_higher_low": _b(setup.get("has_higher_low")),
         "broke_bounce": _b(setup.get("broke_bounce")),
         "break10": _b(setup.get("break10")),
@@ -1018,6 +1040,7 @@ def _build_row(symbol: str, bars: list[dict] | None, spy_close: dict,
             "corr_low_date", "depth", "recovery_ratio", "dist_to_high",
             "days_since_high", "days_since_low", "stage", "has_higher_low",
             "broke_bounce", "bounce_high", "higher_low", "relvol", "rs_spy",
+            "updown_vol", "hl_count",
             "invalidation", "inval_basis", "risk_pct", "upside_pct",
             "reward_risk", "significance", "evidence")},
         "prob": scored if scored.get("available") else
