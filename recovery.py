@@ -877,7 +877,8 @@ def get_bars(symbol: str, days: int = 500) -> list[dict] | None:
 _LOCK = threading.RLock()
 _STATE: dict[str, Any] = {"scanning": False, "scanned": 0, "total": 0,
                           "last_scan": None, "rows": [], "error": None,
-                          "universe_size": 0, "spy_regime": None}
+                          "universe_size": 0, "spy_regime": None,
+                          "sector_trend": {}}
 _THREAD: threading.Thread | None = None
 
 _DETAIL_CACHE: dict[str, tuple[float, dict]] = {}
@@ -902,6 +903,36 @@ def _sector_map() -> dict[str, str]:
 
 def _close_map(bars: list[dict] | None) -> dict[str, float]:
     return {b["date"][:10]: b["close"] for b in (bars or [])}
+
+
+def _etf_trend(closes: dict[str, float] | None) -> dict | None:
+    """5- and 20-session % change of a sector ETF — the 'is this group
+    moving up' signal shown on sector tags."""
+    if not closes or len(closes) < 21:
+        return None
+    ds = sorted(closes)
+    cl = [closes[d] for d in ds]
+    if not cl[-6] or not cl[-21]:
+        return None
+    return {"chg5": round(cl[-1] / cl[-6] - 1, 4),
+            "chg20": round(cl[-1] / cl[-21] - 1, 4)}
+
+
+def _sector_summary(rows: list[dict], sector_trend: dict) -> list[dict]:
+    """Group board rows by sector + attach each sector ETF's momentum,
+    biggest cluster first."""
+    counts: dict[str, int] = {}
+    for r in rows:
+        sec = r.get("sector") or "Other"
+        counts[sec] = counts.get(sec, 0) + 1
+    out = []
+    for sec, cnt in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        etf = _SECTOR_ETF.get(sec)
+        tr = (sector_trend or {}).get(etf) if etf else None
+        out.append({"sector": sec, "etf": etf, "count": cnt,
+                    "chg5": tr.get("chg5") if tr else None,
+                    "chg20": tr.get("chg20") if tr else None})
+    return out
 
 
 def _build_row(symbol: str, bars: list[dict] | None, spy_close: dict,
@@ -956,6 +987,8 @@ def _scan_worker(symbols: list[str]) -> None:
             m = _close_map(_bars_from_yf(etf, "2y"))
             if m:
                 sector_closes[etf] = m
+        sector_trend = {etf: tr for etf, m in sector_closes.items()
+                        if (tr := _etf_trend(m))}
         rows: list[dict] = []
         for i in range(0, len(symbols), _SCAN_CHUNK):
             part = symbols[i:i + _SCAN_CHUNK]
@@ -995,7 +1028,8 @@ def _scan_worker(symbols: list[str]) -> None:
                                   if r.get("opportunity") is not None else -1))
         with _LOCK:
             _STATE.update({"rows": rows, "last_scan": _now_iso(),
-                           "error": None, "spy_regime": regime})
+                           "error": None, "spy_regime": regime,
+                           "sector_trend": sector_trend})
         _persist_board()
         import gc
         gc.collect()
@@ -1035,11 +1069,13 @@ def get_board() -> dict:
         status = {k: _STATE[k] for k in ("scanning", "scanned", "total",
                                          "last_scan", "universe_size", "error")}
         regime = _STATE.get("spy_regime")
+        sector_trend = dict(_STATE.get("sector_trend") or {})
     return {
         "as_of": _now_iso(),
         "status": status,
         "count": len(rows),
         "rows": rows,
+        "sectors": _sector_summary(rows, sector_trend),
         "spy_regime": regime,
         "model": _model_meta(_load_model()),
         "note": ("Universe = your watchlist. Levels and structure are measured "
@@ -1161,7 +1197,8 @@ def _persist_board() -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         with _LOCK:
             payload = {"rows": _STATE["rows"], "last_scan": _STATE["last_scan"],
-                       "spy_regime": _STATE.get("spy_regime")}
+                       "spy_regime": _STATE.get("spy_regime"),
+                       "sector_trend": _STATE.get("sector_trend") or {}}
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload))
         tmp.replace(p)
@@ -1181,5 +1218,6 @@ def _restore_board() -> None:
                     _STATE["rows"] = payload.get("rows") or []
                     _STATE["last_scan"] = payload.get("last_scan")
                     _STATE["spy_regime"] = payload.get("spy_regime")
+                    _STATE["sector_trend"] = payload.get("sector_trend") or {}
     except Exception as exc:  # noqa: BLE001
         print(f"[recovery] restore failed: {exc}", file=sys.stderr)

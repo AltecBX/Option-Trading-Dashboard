@@ -1685,3 +1685,14 @@ Design decisions worth remembering:
   volume, SPY-regime and pre-high trend — no out-of-sample value once
   structure (distance, recovery ratio, ATR, bounce-break) is accounted for.
 - Survivorship disclosed everywhere: universe = today's watchlist.
+
+## v3.92 — sector tags on the Recovery board
+Jerry: "put the symbol tag so I can quickly see if it's a group in a
+sector that's moving to the upside." Each row now carries a compact sector
+tag (Tech ▲ / Energy ▼ — arrow = that sector's ETF ±1%+ over 20 sessions),
+and a sector strip above the table shows every sector's setup count + ETF
+momentum (e.g. "Tech 146 +4.0%"), biggest cluster first; clicking a chip
+filters the board to that sector. ETF trends are computed during the scan
+from the sector ETF closes the worker already fetched (no new downloads)
+and persist with the board. Sector column is sortable so clusters group
+visually. 370 tests green (3 new); browser QA 30/30 desktop + mobile.
