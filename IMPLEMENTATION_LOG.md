@@ -1751,3 +1751,18 @@ he wants Down swings visible on open. Three changes:
 Verified at 390×844 with real BE swing data (fixture from cached bars):
 Down on, labels off, overlay static, 360px chart, no page h-scroll, no JS
 errors.
+
+## v3.97 — native-feeling pinch zoom on the charts
+Jerry: LWC's built-in pinch "automatically zooms in all the way, and then
+it's hard to zoom back out". Root cause: the library's pinch is coarse —
+not proportional to finger spread. Replaced it: built-in pinch disabled,
+new attachTouchZoom (charts.jsx, exported on window) drives the visible
+logical range directly — zoom tracks finger spread exactly 1:1 (span ×
+d0/d), anchored at the pinch midpoint, span clamped to [7 bars, 1.5×
+data] so it can never slam shut. Double-tap returns to the home view
+(6-month view on the swing chart, fit-content on the price chart).
+Wired into SwingChart + TVPriceChart. One-finger: horizontal drag pans,
+vertical swipe scrolls the PAGE (untouched by the handler — verified via
+defaultPrevented probe). Proved with synthesized TouchEvents in Chromium:
+span 100 → 66.7 → 50 → 125 exactly proportional, floor holds at 7 after
+repeated extreme pinches, double-tap fires, page scroll free.

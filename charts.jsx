@@ -26,6 +26,75 @@ function niceTicks(min, max, target = 6) {
 // Real TradingView charting engine. Honors chartStyle (candles/area/ohlc),
 // MA50/MA200/EMA21 toggles, and overlays the trade-relevant levels (current
 // price, suggested call/put strikes, expected range) + earnings markers.
+// Native-feeling touch zoom for Lightweight-Charts (v3.97). The library's
+// built-in pinch is coarse on phones — a small finger move slams the zoom to
+// its limit and it's hard to recover. We disable it (handleScale.pinch:false)
+// and drive the visible logical range ourselves: zoom tracks finger spread
+// 1:1, anchored at the pinch midpoint, span clamped to [7 bars, 1.5× data].
+// Double-tap = back to the chart's home view. Returns a detach function.
+function attachTouchZoom(el, chart, { getBarCount, onDoubleTap } = {}) {
+  let pinch = null;         // {d0, from, to, anchor} while two fingers down
+  let hadPinch = false;     // suppress the tap logic after a pinch ends
+  let tap = null;           // {x, y, moved} for double-tap detection
+  let lastTap = 0;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const onStart = (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault(); e.stopPropagation();
+      hadPinch = true;
+      const ts = chart.timeScale();
+      const lr = ts.getVisibleLogicalRange();
+      if (!lr) return;
+      const rect = el.getBoundingClientRect();
+      const x = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      let anchor = null;
+      try { anchor = ts.coordinateToLogical(x); } catch (err) {}
+      if (anchor == null || !isFinite(anchor)) anchor = (lr.from + lr.to) / 2;
+      pinch = { d0: dist(e.touches), from: lr.from, to: lr.to, anchor };
+    } else if (e.touches.length === 1) {
+      tap = { x: e.touches[0].clientX, y: e.touches[0].clientY, moved: false };
+    }
+  };
+  const onMove = (e) => {
+    if (e.touches.length === 2 && pinch) {
+      e.preventDefault(); e.stopPropagation();
+      const k = pinch.d0 / Math.max(dist(e.touches), 1);   // spread fingers → k<1 → zoom in
+      const span0 = pinch.to - pinch.from;
+      const maxSpan = Math.max((getBarCount ? getBarCount() : 500) * 1.5, 60);
+      const span = Math.min(Math.max(span0 * k, 7), maxSpan);
+      const frac = (pinch.anchor - pinch.from) / span0;
+      const from = pinch.anchor - frac * span;
+      try { chart.timeScale().setVisibleLogicalRange({ from, to: from + span }); } catch (err) {}
+    } else if (e.touches.length === 1 && tap && !tap.moved) {
+      if (Math.hypot(e.touches[0].clientX - tap.x, e.touches[0].clientY - tap.y) > 12) tap.moved = true;
+    }
+  };
+  const onEnd = (e) => {
+    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length === 0) {
+      if (hadPinch) { hadPinch = false; lastTap = 0; tap = null; return; }
+      if (tap && !tap.moved) {
+        const now = Date.now();
+        if (now - lastTap < 300) { lastTap = 0; if (onDoubleTap) onDoubleTap(); }
+        else lastTap = now;
+      }
+      tap = null;
+    }
+  };
+  const optsA = { passive: false, capture: true };
+  const optsE = { capture: true };
+  el.addEventListener("touchstart", onStart, optsA);
+  el.addEventListener("touchmove", onMove, optsA);
+  el.addEventListener("touchend", onEnd, optsE);
+  el.addEventListener("touchcancel", onEnd, optsE);
+  return () => {
+    el.removeEventListener("touchstart", onStart, optsA);
+    el.removeEventListener("touchmove", onMove, optsA);
+    el.removeEventListener("touchend", onEnd, optsE);
+    el.removeEventListener("touchcancel", onEnd, optsE);
+  };
+}
+
 function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null }) {
   const LC = window.LightweightCharts;
   const wrapRef = React.useRef(null);
@@ -33,6 +102,8 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
   const mainRef = React.useRef(null);
   const volRef = React.useRef(null);
   const extraRef = React.useRef({ lines: [], series: [] });
+  const dailyRef = React.useRef(daily);
+  dailyRef.current = daily;              // touch-zoom reads the live length
   const norm = (s) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(s)); return m ? m[1] : new Date(s).toISOString().slice(0, 10); };
 
   // Create the chart + volume series ONCE (not on every style toggle). Keeping
@@ -48,17 +119,22 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
       rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
       timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14 },
       crosshair: { mode: LC.CrosshairMode.Normal },
-      // Same mobile touch rules as the swing chart (v3.96): pinch/horizontal
-      // drag work the chart, vertical swipes scroll the page.
-      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
+      // Mobile touch (v3.97): built-in pinch OFF — attachTouchZoom drives a
+      // smooth, anchored pinch instead. Horizontal drag pans the chart,
+      // vertical swipes stay with the page.
+      handleScale: { mouseWheel: true, pinch: false, axisPressedMouseMove: true },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     chartRef.current = chart; volRef.current = vol;
+    const detachTouch = attachTouchZoom(el, chart, {
+      getBarCount: () => (dailyRef.current || []).length,
+      onDoubleTap: () => { try { chart.timeScale().fitContent(); } catch (e) {} },
+    });
     const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
     ro.observe(el);
-    return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
+    return () => { ro.disconnect(); detachTouch(); try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
   }, [LC]);
 
   // Add/swap ONLY the main price series when the style changes. The chart
@@ -1876,4 +1952,4 @@ function IntradayChart({ data }) {
   return <div className="tv-price-chart" ref={wrapRef} />;
 }
 
-Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, DayBarChart, PLChart, ThetaPanel, fmt$, fmtPct, fmtDate, niceTicks });
+Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, DayBarChart, PLChart, ThetaPanel, attachTouchZoom, fmt$, fmtPct, fmtDate, niceTicks });
