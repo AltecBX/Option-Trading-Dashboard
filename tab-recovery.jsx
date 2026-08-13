@@ -53,20 +53,30 @@ function rcvChg(v, d = 1) {
   return v == null ? "" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(d)}%`;
 }
 
-// The row-level sector tag: ▲ when the sector's ETF is up 1%+ over 20
-// sessions, ▼ when down 1%+ — the quick "is this group moving up" read.
-function RcvSectorTag({ sector, trend }) {
-  if (!sector) return <span className="mut">—</span>;
-  const chg = trend && trend.chg20;
-  const dir = chg == null ? "" : chg >= 0.01 ? "up" : chg <= -0.01 ? "down" : "";
-  const arrow = dir === "up" ? " ▲" : dir === "down" ? " ▼" : "";
-  const tip = `${sector}${trend && trend.etf ? ` · ${trend.etf}` : ""}` +
-    (chg != null ? ` sector ETF ${rcvChg(chg)} over 20 sessions, ${rcvChg(trend.chg5)} over 5` :
-     " · no sector ETF trend available") +
-    ". Several rows sharing a rising sector tag = a group recovering together.";
-  return <span className={`rcv-sectag ${dir}`} title={tip}>
-    {RCV_SECTOR_SHORT[sector] || sector.slice(0, 7)}{arrow}
-  </span>;
+// The row-level group tag. Preferred: the user's own watchlist tag (from
+// the Manage tab's CSV import) with ▲/▼ when the tag's members are up/down
+// 1%+ (median) over 20 sessions — the quick "is this group moving up"
+// read. Untagged stocks fall back to a muted sector abbreviation.
+function RcvGroupTag({ r, groups }) {
+  if (r.tag) {
+    const g = groups && groups[r.tag];
+    const chg = g && g.chg20;
+    const dir = chg == null ? "" : chg >= 0.01 ? "up" : chg <= -0.01 ? "down" : "";
+    const arrow = dir === "up" ? " ▲" : dir === "down" ? " ▼" : "";
+    const tip = `Your tag: ${r.tag}` +
+      (chg != null ? ` · group median ${rcvChg(chg)} over 20 sessions (${rcvChg(g.chg5)} over 5) across ${g.members} watchlist members` : "") +
+      `${r.sector ? ` · sector ${r.sector}` : ""}. Several rows sharing a rising tag = your group recovering together.`;
+    return <span className={`rcv-sectag ${dir}`} title={tip}>
+      {r.tag.length > 11 ? r.tag.slice(0, 10) + "…" : r.tag}{arrow}
+    </span>;
+  }
+  if (r.sector) {
+    return <span className="rcv-sectag rcv-notag"
+      title={`${r.sector} (sector shown — this stock has no tag in your watchlist; tags come from the CSV you import in Manage).`}>
+      {RCV_SECTOR_SHORT[r.sector] || r.sector.slice(0, 7)}
+    </span>;
+  }
+  return <span className="mut">—</span>;
 }
 function rcvNum(v, d = 2) {
   return v == null ? "—" : Number(v).toFixed(d);
@@ -144,7 +154,7 @@ function RcvDetail({ r, onOpenTicker, onMarkLevels }) {
   );
 }
 
-function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels, secTrend }) {
+function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels, groups }) {
   const p = r.prob && r.prob.available ? r.prob : null;
   return (
     <React.Fragment>
@@ -152,7 +162,7 @@ function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels, secTrend }) {
           title="Click to expand the full setup breakdown.">
         <td className="rcv-tk"><b>{r.ticker}</b></td>
         <td><RcvStagePill stage={r.stage} /></td>
-        <td><RcvSectorTag sector={r.sector} trend={secTrend && secTrend[r.sector || "Other"]} /></td>
+        <td><RcvGroupTag r={r} groups={groups} /></td>
         <td className="scan-num">{r.opportunity != null
           ? <b className={r.opportunity >= 45 ? "up" : ""}>{r.opportunity.toFixed(0)}</b>
           : <span className="mut" title={(r.prob && r.prob.reason) || ""}>—</span>}</td>
@@ -306,6 +316,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
   const [openTk, setOpenTk] = useState(null);
   const [showResearch, setShowResearch] = useState(false);
   const [fltSector, setFltSector] = useState(null);
+  const [fltTag, setFltTag] = useState(null);
   const [flt, setFlt] = useState({ hlOnly: false, bbOnly: false, rsPos: false,
     upside8: false, rr15: false, p40: false, fresh: false });
   const pollRef = useRef(null);
@@ -340,12 +351,15 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
   const allRows = (board && board.rows) || [];
   const model = (board && board.model) || {};
   const sectors = (board && board.sectors) || [];
-  // sector → {etf, chg20, chg5} for the row tags
-  const secTrend = useMemo(() => {
-    const m = {};
-    for (const s of sectors) m[s.sector] = s;
+  const groups = (board && board.groups) || [];      // user-tag clusters
+  const hasTags = groups.length > 0;
+  // tag → {chg20, chg5, members} for the row tags (covers tags whose
+  // stocks have setups AND the full tag_trend so fallbacks resolve too)
+  const tagTrend = useMemo(() => {
+    const m = { ...((board && board.tag_trend) || {}) };
+    for (const g of groups) m[g.tag] = { ...(m[g.tag] || {}), ...g };
     return m;
-  }, [sectors]);
+  }, [board, groups]);
 
   const applyPreset = (k) => {
     setPreset(k); setOpenTk(null);
@@ -358,6 +372,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
 
   const filtered = useMemo(() => allRows.filter(r => {
     if (section !== "all" && r.stage !== section) return false;
+    if (fltTag && r.tag !== fltTag) return false;
     if (fltSector && (r.sector || "Other") !== fltSector) return false;
     if (preset === "trigger" && (r.broke_bounce || r.bounce_high == null)) return false;
     if (flt.hlOnly && !r.has_higher_low) return false;
@@ -368,13 +383,13 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
     if (flt.p40 && !(r.prob && r.prob.available && r.prob.p_win >= 0.4)) return false;
     if (flt.fresh && !(r.days_since_low != null && r.days_since_low <= 15)) return false;
     return true;
-  }), [allRows, section, preset, flt, fltSector]);
+  }), [allRows, section, preset, flt, fltSector, fltTag]);
 
   const sorted = useMemo(() => {
     const key = r => {
       switch (sortK) {
         case "ticker": return r.ticker || "";
-        case "sector": return r.sector || "zzz";
+        case "tag": return r.tag || `zz ${r.sector || "zz"}`;
         case "score": return (r.prob && r.prob.available && r.prob.recovery_score) ?? -1;
         case "p": return (r.prob && r.prob.available && r.prob.p_win) ?? -1;
         case "h20": return (r.prob && r.prob.available && r.prob.hit20) ?? -1;
@@ -400,7 +415,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
 
   const th = (label, k, tip) => (
     <th className={`${sortK === k ? "on" : ""} ${k !== "ticker" ? "scan-th-num" : ""}`} title={tip}
-        onClick={() => { if (sortK === k) setSortD(d => -d); else { setSortK(k); setSortD(k === "ticker" || k === "sector" ? 1 : -1); } }}>
+        onClick={() => { if (sortK === k) setSortD(d => -d); else { setSortK(k); setSortD(k === "ticker" || k === "tag" ? 1 : -1); } }}>
       {label}{sortK === k ? (sortD === -1 ? " ↓" : " ↑") : ""}
     </th>
   );
@@ -458,8 +473,30 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
             </button>
           ))}
         </div>
-        {sectors.length > 0 && (
+        {hasTags ? (
           <div className="rcv-secstrip">
+            {groups.slice(0, 28).map(g => {
+              const dir = g.chg20 == null ? "" : g.chg20 >= 0.01 ? "up" : g.chg20 <= -0.01 ? "down" : "";
+              return (
+                <button key={g.tag} type="button"
+                        className={`rcv-secchip ${dir} ${fltTag === g.tag ? "on" : ""}`}
+                        title={`${g.count} setup${g.count === 1 ? "" : "s"} in your "${g.tag}" tag` +
+                          (g.chg20 != null ? ` · group median ${rcvChg(g.chg20)} over 20 sessions (${rcvChg(g.chg5)} over 5) across ${g.members} members` : "") +
+                          ". A big count on a rising group = your group recovering together. Click to show only this tag."}
+                        onClick={() => { setFltTag(fltTag === g.tag ? null : g.tag); setFltSector(null); }}>
+                  {g.tag} <b>{g.count}</b>
+                  {g.chg20 != null && <span className="rcv-secchg">{rcvChg(g.chg20)}</span>}
+                </button>
+              );
+            })}
+            {fltTag && <button type="button" className="rcv-secchip rcv-secclear"
+                               onClick={() => setFltTag(null)}>✕ clear</button>}
+          </div>
+        ) : sectors.length > 0 && (
+          <div className="rcv-secstrip">
+            <span className="rcv-secnote" title="Tags come from the CSV you import in the Manage tab. Once your stocks carry tags, this strip shows YOUR groups instead of broad sectors.">
+              no watchlist tags yet — showing sectors
+            </span>
             {sectors.map(s => {
               const dir = s.chg20 == null ? "" : s.chg20 >= 0.01 ? "up" : s.chg20 <= -0.01 ? "down" : "";
               return (
@@ -467,7 +504,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
                         className={`rcv-secchip ${dir} ${fltSector === s.sector ? "on" : ""}`}
                         title={`${s.count} setup${s.count === 1 ? "" : "s"} in ${s.sector}` +
                           (s.etf && s.chg20 != null ? ` · ${s.etf} ${rcvChg(s.chg20)} over 20 sessions (${rcvChg(s.chg5)} over 5)` : "") +
-                          ". A big count on a rising sector = a group recovering together. Click to show only this sector."}
+                          ". Click to show only this sector."}
                         onClick={() => setFltSector(fltSector === s.sector ? null : s.sector)}>
                   {RCV_SECTOR_SHORT[s.sector] || s.sector} <b>{s.count}</b>
                   {s.chg20 != null && <span className="rcv-secchg">{rcvChg(s.chg20)}</span>}
@@ -500,7 +537,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
             <thead><tr>
               {th("Ticker", "ticker", "Click a row to expand the full breakdown with levels and history.")}
               <th title="Where this stock sits in the recovery: Bottoming → Early → Confirmed → Approaching → Testing the prior high. The scanner's focus is Early and Confirmed — before the move is obvious.">Stage</th>
-              {th("Sector", "sector", "The stock's sector, with ▲/▼ when the sector's ETF is up/down 1%+ over 20 sessions. Several rows sharing a rising tag = a group recovering together — click to sort, or use the sector chips above to filter.")}
+              {th("Tag", "tag", "Your watchlist tag for this stock (from the CSV imported in Manage), with ▲/▼ when the tag's members are up/down 1%+ (median) over 20 sessions. Several rows sharing a rising tag = your group recovering together — click to sort, or use the group chips above to filter. Untagged stocks show their sector, muted.")}
               {th("Opp", "opp", "Opportunity Score 0–100 — the headline rank: 45% historical probability + 25% remaining upside + 20% reward-to-risk + 10% structure quality. Requires a probability; rows outside the model show —.")}
               {th("Score", "score", "Recovery Score 0–100 — technical quality of the recovery alone (calibrated to the historical study; top decile ≈ 100). Probability and upside are scored separately.")}
               {th("P(high)", "p", "Measured share of similar historical setups that touched the prior high BEFORE the invalidation level within 60 trading days. From the shipped study — sample size in the n column.")}
@@ -519,7 +556,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
                 <RcvRow key={r.ticker} r={r} open={openTk === r.ticker}
                         onToggle={() => setOpenTk(openTk === r.ticker ? null : r.ticker)}
                         onOpenTicker={onOpenTicker} onMarkLevels={onMarkLevels}
-                        secTrend={secTrend} />
+                        groups={tagTrend} />
               ))}
             </tbody>
           </table>

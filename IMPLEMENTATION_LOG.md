@@ -1696,3 +1696,15 @@ filters the board to that sector. ETF trends are computed during the scan
 from the sector ETF closes the worker already fetched (no new downloads)
 and persist with the board. Sector column is sortable so clusters group
 visually. 370 tests green (3 new); browser QA 30/30 desktop + mobile.
+
+## v3.93 — YOUR tags, not sectors, on the Recovery board
+Jerry: "I wanted the Tag. Sector is too broad." The group column and the
+chip strip now use the watchlist tag each stock carries (from the Manage
+tab's CSV import — Jerry's own narrow groups). A tag group's momentum has
+no ETF, so it's measured from the group itself: median 5/20-session move
+across ALL scanned members of the tag (≥2 members required so one stock
+can't be a "group"), computed from bars the scan already downloads.
+Untagged stocks show a muted sector abbreviation as fallback; a watchlist
+with no tags at all falls back to the v3.92 sector strip with a hint that
+tags come from the CSV. Persisted with the board. 372 tests green
+(2 new); QA 30/30 with a simulated-tag board (chip filter → exact rows).

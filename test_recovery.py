@@ -73,7 +73,7 @@ class Base(unittest.TestCase):
             rec._STATE.update({"scanning": False, "scanned": 0, "total": 0,
                                "last_scan": None, "rows": [], "error": None,
                                "universe_size": 0, "spy_regime": None,
-                               "sector_trend": {}})
+                               "sector_trend": {}, "tag_trend": {}})
         rec._DETAIL_CACHE.clear()
         # tests control the model explicitly — never the repo artifact
         rec._MODEL = None
@@ -400,9 +400,34 @@ class TestScanJob(Base):
 
     def test_board_envelope(self):
         b = rec.get_board()
-        for k in ("as_of", "status", "count", "rows", "note", "model", "sectors"):
+        for k in ("as_of", "status", "count", "rows", "note", "model",
+                  "sectors", "groups", "tag_trend"):
             self.assertIn(k, b)
         self.assertFalse(b["model"]["available"])
+
+    def test_tag_trend_median_and_min_members(self):
+        sym_chg = {"A": {"chg5": 0.01, "chg20": 0.10},
+                   "B": {"chg5": 0.02, "chg20": 0.20},
+                   "C": {"chg5": 0.03, "chg20": 0.30},
+                   "D": {"chg5": -0.01, "chg20": -0.05}}
+        tags = {"A": "Semis", "B": "Semis", "C": "Semis", "D": "Solo"}
+        tt = rec._tag_trend_from(sym_chg, tags)
+        self.assertAlmostEqual(tt["Semis"]["chg20"], 0.20)   # median of 3
+        self.assertEqual(tt["Semis"]["members"], 3)
+        self.assertNotIn("Solo", tt)          # one stock is not a "group"
+
+    def test_group_summary_orders_by_setup_count(self):
+        rows = [{"ticker": "A", "tag": "Semis"}, {"ticker": "B", "tag": "Semis"},
+                {"ticker": "C", "tag": "Gold"}, {"ticker": "D", "tag": None}]
+        tt = {"Semis": {"chg5": 0.01, "chg20": 0.06, "members": 9}}
+        g = rec._group_summary(rows, tt)
+        self.assertEqual(g[0]["tag"], "Semis")
+        self.assertEqual(g[0]["count"], 2)
+        self.assertEqual(g[0]["members"], 9)
+        self.assertAlmostEqual(g[0]["chg20"], 0.06)
+        self.assertEqual(g[1]["tag"], "Gold")
+        self.assertIsNone(g[1]["chg20"])       # no trend data → no number
+        self.assertEqual(len(g), 2)            # untagged rows form no group
 
     def test_sector_summary_counts_and_trend(self):
         rows = [{"ticker": "A", "sector": "Technology"},
