@@ -1727,3 +1727,11 @@ target). Refit: test AUC 0.7753 → 0.7794; pruning now also drops
 days-since-low + significance (absorbed). Engine additionally computes
 updown_vol + hl_count — shown in the expansion for context, deliberately
 NOT in the model (no measurable lift). 373 tests green; QA 30/30.
+
+## v3.95 — Recovery table headers centered on their columns
+Jerry (from the live app): TAG's header sat all the way right, STAGE's all
+the way left — headers were inheriting the numeric right-align. Every
+column (header + cells) is now centered except Ticker, which stays
+left-aligned as the row anchor; the expansion detail row is pinned back to
+left so the explanation text doesn't center. Verified with computed-style
+probes (th/td both "center", detail td "left") + screenshot.

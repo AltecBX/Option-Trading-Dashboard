@@ -11418,3 +11418,11 @@ a.tabsheet-btn.site { text-decoration: none; }
 .rcv-sectag.rcv-notag { opacity: 0.45; }
 .rcv-secnote { font-size: 10.5px; color: var(--fg-4); align-self: center;
   margin-right: 4px; }
+
+/* v3.95: center every Recovery column (header + cells) except Ticker,
+   which stays left as the row anchor — headers were inheriting the
+   numeric right-align and floated off their columns. */
+.rcv-table th, .rcv-table td { text-align: center; }
+.rcv-table th.scan-th-num, .rcv-table td.scan-num { text-align: center; }
+.rcv-table th:first-child, .rcv-table td.rcv-tk { text-align: left; }
+.rcv-detail-row td { text-align: left; }
