@@ -1735,3 +1735,19 @@ column (header + cells) is now centered except Ticker, which stays
 left-aligned as the row anchor; the expansion detail row is pinned back to
 left so the explanation text doesn't center. Verified with computed-style
 probes (th/td both "center", detail td "left") + screenshot.
+
+## v3.96 — swing chart mobile cleanup + Down on by default
+Jerry (from his phone): the Patterns swing chart was messy on mobile and
+he wants Down swings visible on open. Three changes:
+1. The OHLC readout + now/median/aggr/inval legend floated OVER the
+   candles and covered a third of a phone plot — on ≤760px they now sit in
+   normal flow above the chart, full-width, smaller; chart height 360px.
+2. Down toggle defaults ON everywhere; % labels default OFF on phones
+   (they collide at that width once both directions draw — the Labels
+   toggle re-enables).
+3. Explicit touch config on the swing chart AND the main TVPriceChart:
+   pinch zooms, horizontal drag pans, but vertTouchDrag:false leaves
+   vertical swipes to the PAGE — previously the chart trapped the scroll.
+Verified at 390×844 with real BE swing data (fixture from cached bars):
+Down on, labels off, overlay static, 360px chart, no page h-scroll, no JS
+errors.
