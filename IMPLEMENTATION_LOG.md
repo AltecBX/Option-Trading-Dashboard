@@ -1708,3 +1708,22 @@ Untagged stocks show a muted sector abbreviation as fallback; a watchlist
 with no tags at all falls back to the v3.92 sector strip with a hint that
 tags come from the CSV. Persisted with the board. 372 tests green
 (2 new); QA 30/30 with a simulated-tag board (chip filter → exact rows).
+
+## v3.94 — Jerry's examples validated + an evidence-tested new signal
+Jerry restated the goal and named live examples (DELL, TEVA, NVDA, STLD,
+LITE, AAOI, COHR). Engine read on real bars: DELL = breakout (trip done,
+correctly dropped), TEVA/NVDA = approaching with 1.6%/5.3% left (recovery
+real, upside gone — the discriminator working), STLD/LITE/COHR = confirmed
+in the sweet spot. AAOI excluded by the 60% max-depth gate — and the data
+backs the gate: 3,211 historical 60-80% collapses reclaimed their high
+only 9.5% of the time in 60 days (median best bounce +22% though — that's
+a bounce trade, not this trade).
+
+Signal audit: 11 candidates tested one at a time on validation AUC
+(up/down volume, higher-low count, sector RS, VIX, MACD/RSI crosses, gap,
+recovery speed, correction velocity, ATR expansion, distance-in-ATRs).
+ONE adopted: distance-in-ATRs (how many normal days of range to the
+target). Refit: test AUC 0.7753 → 0.7794; pruning now also drops
+days-since-low + significance (absorbed). Engine additionally computes
+updown_vol + hl_count — shown in the expansion for context, deliberately
+NOT in the model (no measurable lift). 373 tests green; QA 30/30.

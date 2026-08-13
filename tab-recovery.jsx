@@ -149,6 +149,11 @@ function RcvDetail({ r, onOpenTicker, onMarkLevels }) {
         </button>
         {r.sector && <span className="mut rcv-sec">{r.sector}</span>}
         <span className="mut rcv-sec">high stood {r.significance}d · {r.days_since_high}d since high · {r.days_since_low}d since low</span>
+        {r.updown_vol != null && (
+          <span className="mut rcv-sec" title="Up-day volume ÷ down-day volume over the last 10 sessions. Above 1× = buyers carried the heavier tape into this turn (accumulation). Shown for context — the historical study found it adds no predictive power beyond structure, so it does not move the score.">
+            accum 10d {r.updown_vol}×{r.hl_count > 1 ? ` · ${r.hl_count} higher lows` : ""}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -360,6 +360,14 @@ class TestScoring(Base):
         scored = rec.score_setup(self._setup())
         self.assertFalse(scored["available"])
 
+    def test_dist_in_atrs_feature(self):
+        s = {"recovery_ratio": 0.5, "depth": 0.2, "dist_to_high": 0.10,
+             "atr_pct": 0.02}
+        f = rec.model_features(s)
+        self.assertAlmostEqual(f["dist_in_atrs"], 5.0)     # 10% ÷ 2%/day
+        s["atr_pct"] = None
+        self.assertLessEqual(rec.model_features(s)["dist_in_atrs"], 30.0)
+
     def test_recovery_score_scales_with_bucket(self):
         rec._MODEL = dict(FAKE_MODEL)
         s = self._setup()

@@ -179,7 +179,10 @@ function RcvDetail({
     className: "mut rcv-sec"
   }, r.sector), /*#__PURE__*/React.createElement("span", {
     className: "mut rcv-sec"
-  }, "high stood ", r.significance, "d \xB7 ", r.days_since_high, "d since high \xB7 ", r.days_since_low, "d since low")));
+  }, "high stood ", r.significance, "d \xB7 ", r.days_since_high, "d since high \xB7 ", r.days_since_low, "d since low"), r.updown_vol != null && /*#__PURE__*/React.createElement("span", {
+    className: "mut rcv-sec",
+    title: "Up-day volume \xF7 down-day volume over the last 10 sessions. Above 1\xD7 = buyers carried the heavier tape into this turn (accumulation). Shown for context \u2014 the historical study found it adds no predictive power beyond structure, so it does not move the score."
+  }, "accum 10d ", r.updown_vol, "\xD7", r.hl_count > 1 ? ` · ${r.hl_count} higher lows` : "")));
 }
 function RcvRow({
   r,
