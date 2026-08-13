@@ -33,8 +33,40 @@ const RCV_PRESETS = [
   ["trigger", "Closest to Trigger", "Not yet broken out — sorted by how close price sits to the bounce high it needs to clear."],
 ];
 
+// Short sector tags so the column stays narrow; full name in the tooltip.
+const RCV_SECTOR_SHORT = {
+  Technology: "Tech", "Information Technology": "Tech",
+  "Financial Services": "Fin", Financials: "Fin",
+  Healthcare: "Health", "Health Care": "Health",
+  Energy: "Energy", "Consumer Cyclical": "Cyclical",
+  "Consumer Discretionary": "Cyclical", "Consumer Defensive": "Staples",
+  "Consumer Staples": "Staples", Industrials: "Indust",
+  "Basic Materials": "Materls", Materials: "Materls",
+  Utilities: "Utils", "Real Estate": "REIT",
+  "Communication Services": "Comms",
+};
+
 function rcvPct(v, d = 1) {
   return v == null ? "—" : `${(v * 100).toFixed(d)}%`;
+}
+function rcvChg(v, d = 1) {
+  return v == null ? "" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(d)}%`;
+}
+
+// The row-level sector tag: ▲ when the sector's ETF is up 1%+ over 20
+// sessions, ▼ when down 1%+ — the quick "is this group moving up" read.
+function RcvSectorTag({ sector, trend }) {
+  if (!sector) return <span className="mut">—</span>;
+  const chg = trend && trend.chg20;
+  const dir = chg == null ? "" : chg >= 0.01 ? "up" : chg <= -0.01 ? "down" : "";
+  const arrow = dir === "up" ? " ▲" : dir === "down" ? " ▼" : "";
+  const tip = `${sector}${trend && trend.etf ? ` · ${trend.etf}` : ""}` +
+    (chg != null ? ` sector ETF ${rcvChg(chg)} over 20 sessions, ${rcvChg(trend.chg5)} over 5` :
+     " · no sector ETF trend available") +
+    ". Several rows sharing a rising sector tag = a group recovering together.";
+  return <span className={`rcv-sectag ${dir}`} title={tip}>
+    {RCV_SECTOR_SHORT[sector] || sector.slice(0, 7)}{arrow}
+  </span>;
 }
 function rcvNum(v, d = 2) {
   return v == null ? "—" : Number(v).toFixed(d);
@@ -112,7 +144,7 @@ function RcvDetail({ r, onOpenTicker, onMarkLevels }) {
   );
 }
 
-function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels }) {
+function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels, secTrend }) {
   const p = r.prob && r.prob.available ? r.prob : null;
   return (
     <React.Fragment>
@@ -120,6 +152,7 @@ function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels }) {
           title="Click to expand the full setup breakdown.">
         <td className="rcv-tk"><b>{r.ticker}</b></td>
         <td><RcvStagePill stage={r.stage} /></td>
+        <td><RcvSectorTag sector={r.sector} trend={secTrend && secTrend[r.sector || "Other"]} /></td>
         <td className="scan-num">{r.opportunity != null
           ? <b className={r.opportunity >= 45 ? "up" : ""}>{r.opportunity.toFixed(0)}</b>
           : <span className="mut" title={(r.prob && r.prob.reason) || ""}>—</span>}</td>
@@ -139,7 +172,7 @@ function RcvRow({ r, open, onToggle, onOpenTicker, onMarkLevels }) {
         <td className="scan-num">{p ? p.n : "—"}</td>
       </tr>
       {open && (
-        <tr className="rcv-detail-row"><td colSpan={14}>
+        <tr className="rcv-detail-row"><td colSpan={15}>
           <RcvDetail r={r} onOpenTicker={onOpenTicker} onMarkLevels={onMarkLevels} />
         </td></tr>
       )}
@@ -272,6 +305,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
   const [sortD, setSortD] = useState(-1);
   const [openTk, setOpenTk] = useState(null);
   const [showResearch, setShowResearch] = useState(false);
+  const [fltSector, setFltSector] = useState(null);
   const [flt, setFlt] = useState({ hlOnly: false, bbOnly: false, rsPos: false,
     upside8: false, rr15: false, p40: false, fresh: false });
   const pollRef = useRef(null);
@@ -305,6 +339,13 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
   const status = (board && board.status) || {};
   const allRows = (board && board.rows) || [];
   const model = (board && board.model) || {};
+  const sectors = (board && board.sectors) || [];
+  // sector → {etf, chg20, chg5} for the row tags
+  const secTrend = useMemo(() => {
+    const m = {};
+    for (const s of sectors) m[s.sector] = s;
+    return m;
+  }, [sectors]);
 
   const applyPreset = (k) => {
     setPreset(k); setOpenTk(null);
@@ -317,6 +358,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
 
   const filtered = useMemo(() => allRows.filter(r => {
     if (section !== "all" && r.stage !== section) return false;
+    if (fltSector && (r.sector || "Other") !== fltSector) return false;
     if (preset === "trigger" && (r.broke_bounce || r.bounce_high == null)) return false;
     if (flt.hlOnly && !r.has_higher_low) return false;
     if (flt.bbOnly && !r.broke_bounce) return false;
@@ -326,12 +368,13 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
     if (flt.p40 && !(r.prob && r.prob.available && r.prob.p_win >= 0.4)) return false;
     if (flt.fresh && !(r.days_since_low != null && r.days_since_low <= 15)) return false;
     return true;
-  }), [allRows, section, preset, flt]);
+  }), [allRows, section, preset, flt, fltSector]);
 
   const sorted = useMemo(() => {
     const key = r => {
       switch (sortK) {
         case "ticker": return r.ticker || "";
+        case "sector": return r.sector || "zzz";
         case "score": return (r.prob && r.prob.available && r.prob.recovery_score) ?? -1;
         case "p": return (r.prob && r.prob.available && r.prob.p_win) ?? -1;
         case "h20": return (r.prob && r.prob.available && r.prob.hit20) ?? -1;
@@ -357,7 +400,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
 
   const th = (label, k, tip) => (
     <th className={`${sortK === k ? "on" : ""} ${k !== "ticker" ? "scan-th-num" : ""}`} title={tip}
-        onClick={() => { if (sortK === k) setSortD(d => -d); else { setSortK(k); setSortD(k === "ticker" ? 1 : -1); } }}>
+        onClick={() => { if (sortK === k) setSortD(d => -d); else { setSortK(k); setSortD(k === "ticker" || k === "sector" ? 1 : -1); } }}>
       {label}{sortK === k ? (sortD === -1 ? " ↓" : " ↑") : ""}
     </th>
   );
@@ -415,6 +458,26 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
             </button>
           ))}
         </div>
+        {sectors.length > 0 && (
+          <div className="rcv-secstrip">
+            {sectors.map(s => {
+              const dir = s.chg20 == null ? "" : s.chg20 >= 0.01 ? "up" : s.chg20 <= -0.01 ? "down" : "";
+              return (
+                <button key={s.sector} type="button"
+                        className={`rcv-secchip ${dir} ${fltSector === s.sector ? "on" : ""}`}
+                        title={`${s.count} setup${s.count === 1 ? "" : "s"} in ${s.sector}` +
+                          (s.etf && s.chg20 != null ? ` · ${s.etf} ${rcvChg(s.chg20)} over 20 sessions (${rcvChg(s.chg5)} over 5)` : "") +
+                          ". A big count on a rising sector = a group recovering together. Click to show only this sector."}
+                        onClick={() => setFltSector(fltSector === s.sector ? null : s.sector)}>
+                  {RCV_SECTOR_SHORT[s.sector] || s.sector} <b>{s.count}</b>
+                  {s.chg20 != null && <span className="rcv-secchg">{rcvChg(s.chg20)}</span>}
+                </button>
+              );
+            })}
+            {fltSector && <button type="button" className="rcv-secchip rcv-secclear"
+                                  onClick={() => setFltSector(null)}>✕ clear</button>}
+          </div>
+        )}
         <div className="tsy-ctrl rcv-presets">
           {RCV_PRESETS.map(([k, label, tip]) => (
             <button key={k} type="button" className={`preset-pill ${preset === k ? "active" : ""}`}
@@ -437,6 +500,7 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
             <thead><tr>
               {th("Ticker", "ticker", "Click a row to expand the full breakdown with levels and history.")}
               <th title="Where this stock sits in the recovery: Bottoming → Early → Confirmed → Approaching → Testing the prior high. The scanner's focus is Early and Confirmed — before the move is obvious.">Stage</th>
+              {th("Sector", "sector", "The stock's sector, with ▲/▼ when the sector's ETF is up/down 1%+ over 20 sessions. Several rows sharing a rising tag = a group recovering together — click to sort, or use the sector chips above to filter.")}
               {th("Opp", "opp", "Opportunity Score 0–100 — the headline rank: 45% historical probability + 25% remaining upside + 20% reward-to-risk + 10% structure quality. Requires a probability; rows outside the model show —.")}
               {th("Score", "score", "Recovery Score 0–100 — technical quality of the recovery alone (calibrated to the historical study; top decile ≈ 100). Probability and upside are scored separately.")}
               {th("P(high)", "p", "Measured share of similar historical setups that touched the prior high BEFORE the invalidation level within 60 trading days. From the shipped study — sample size in the n column.")}
@@ -454,7 +518,8 @@ function RecoveryTab({ apiFetch, onOpenTicker, onMarkLevels }) {
               {sorted.map(r => (
                 <RcvRow key={r.ticker} r={r} open={openTk === r.ticker}
                         onToggle={() => setOpenTk(openTk === r.ticker ? null : r.ticker)}
-                        onOpenTicker={onOpenTicker} onMarkLevels={onMarkLevels} />
+                        onOpenTicker={onOpenTicker} onMarkLevels={onMarkLevels}
+                        secTrend={secTrend} />
               ))}
             </tbody>
           </table>

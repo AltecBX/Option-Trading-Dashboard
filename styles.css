@@ -11329,7 +11329,7 @@ a.tabsheet-btn.site { text-decoration: none; }
 .rcv-presets { margin: 10px 0 2px; flex-wrap: wrap; }
 .rcv-filters { margin: 8px 0 12px; flex-wrap: wrap; align-items: center; }
 .rcv-wrap { overflow-x: auto; }
-.rcv-table { min-width: 980px; }
+.rcv-table { min-width: 1040px; }
 .rcv-table th { cursor: pointer; white-space: nowrap; }
 .rcv-table th.on { color: var(--fg); }
 .rcv-tk { font-family: var(--font-mono); }
@@ -11387,4 +11387,29 @@ a.tabsheet-btn.site { text-decoration: none; }
   .rcv-ladder { gap: 5px 10px; font-size: 11px; }
   .rcv-presets .preset-pill { font-size: 11px; }
   .rcv-rtable { min-width: 560px; font-size: 11px; }
+}
+
+/* Sector tags on the Recovery board (v3.92) — spot sector clusters fast. */
+.rcv-secstrip { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 2px; }
+.rcv-secchip { font-size: 11px; font-family: var(--font-mono); padding: 3px 9px;
+  border-radius: 999px; border: 1px solid var(--line-2); background: var(--bg-2);
+  color: var(--fg-2); cursor: pointer; display: inline-flex; gap: 5px;
+  align-items: center; }
+.rcv-secchip b { color: var(--fg); }
+.rcv-secchip .rcv-secchg { font-size: 10px; }
+.rcv-secchip.up .rcv-secchg { color: var(--up); }
+.rcv-secchip.down .rcv-secchg { color: var(--down); }
+.rcv-secchip.up { border-color: color-mix(in oklch, var(--up) 40%, transparent); }
+.rcv-secchip.down { border-color: color-mix(in oklch, var(--down) 40%, transparent); }
+.rcv-secchip.on { background: color-mix(in oklch, var(--accent) 16%, transparent);
+  border-color: var(--accent); color: var(--fg); }
+.rcv-secclear { color: var(--fg-3); }
+.rcv-sectag { font-size: 10.5px; font-family: var(--font-mono);
+  white-space: nowrap; color: var(--fg-3); }
+.rcv-sectag.up { color: var(--up); }
+.rcv-sectag.down { color: var(--down); }
+
+@media (max-width: 760px) {
+  .rcv-secstrip { gap: 5px; }
+  .rcv-secchip { font-size: 10.5px; padding: 2px 7px; }
 }

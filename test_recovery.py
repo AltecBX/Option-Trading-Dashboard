@@ -72,7 +72,8 @@ class Base(unittest.TestCase):
         with rec._LOCK:
             rec._STATE.update({"scanning": False, "scanned": 0, "total": 0,
                                "last_scan": None, "rows": [], "error": None,
-                               "universe_size": 0, "spy_regime": None})
+                               "universe_size": 0, "spy_regime": None,
+                               "sector_trend": {}})
         rec._DETAIL_CACHE.clear()
         # tests control the model explicitly — never the repo artifact
         rec._MODEL = None
@@ -399,9 +400,32 @@ class TestScanJob(Base):
 
     def test_board_envelope(self):
         b = rec.get_board()
-        for k in ("as_of", "status", "count", "rows", "note", "model"):
+        for k in ("as_of", "status", "count", "rows", "note", "model", "sectors"):
             self.assertIn(k, b)
         self.assertFalse(b["model"]["available"])
+
+    def test_sector_summary_counts_and_trend(self):
+        rows = [{"ticker": "A", "sector": "Technology"},
+                {"ticker": "B", "sector": "Technology"},
+                {"ticker": "C", "sector": "Energy"},
+                {"ticker": "D", "sector": None}]
+        trend = {"XLK": {"chg5": 0.01, "chg20": 0.05}}
+        s = rec._sector_summary(rows, trend)
+        self.assertEqual(s[0]["sector"], "Technology")
+        self.assertEqual(s[0]["count"], 2)
+        self.assertEqual(s[0]["etf"], "XLK")
+        self.assertAlmostEqual(s[0]["chg20"], 0.05)
+        by = {r["sector"]: r for r in s}
+        self.assertIn("Other", by)          # null sector grouped, never dropped
+        self.assertIsNone(by["Energy"]["chg20"])   # no trend data → no number
+
+    def test_etf_trend_math(self):
+        closes = {f"2026-01-{i:02d}": 100.0 + i for i in range(1, 26)}
+        tr = rec._etf_trend(closes)
+        self.assertAlmostEqual(tr["chg5"], 125 / 120 - 1, places=4)
+        self.assertAlmostEqual(tr["chg20"], 125 / 105 - 1, places=4)
+        self.assertIsNone(rec._etf_trend({"2026-01-01": 100.0}))
+        self.assertIsNone(rec._etf_trend(None))
 
     def test_detail_no_net(self):
         d = rec.detail("AAPL")
@@ -418,14 +442,17 @@ class TestPersistence(Base):
         with rec._LOCK:
             rec._STATE["rows"] = [{"ticker": "TEST", "stage": "early"}]
             rec._STATE["last_scan"] = "2026-08-13T00:00:00+00:00"
+            rec._STATE["sector_trend"] = {"XLK": {"chg5": 0.01, "chg20": 0.04}}
         rec._persist_board()
         with rec._LOCK:
             rec._STATE["rows"] = []
             rec._STATE["last_scan"] = None
+            rec._STATE["sector_trend"] = {}
         rec._restore_board()
         with rec._LOCK:
             self.assertEqual(rec._STATE["rows"][0]["ticker"], "TEST")
             self.assertEqual(rec._STATE["last_scan"], "2026-08-13T00:00:00+00:00")
+            self.assertAlmostEqual(rec._STATE["sector_trend"]["XLK"]["chg20"], 0.04)
 
     def test_corrupt_board_survived(self):
         p = rec._board_path()
