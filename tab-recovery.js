@@ -51,23 +51,34 @@ function rcvChg(v, d = 1) {
   return v == null ? "" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(d)}%`;
 }
 
-// The row-level sector tag: ▲ when the sector's ETF is up 1%+ over 20
-// sessions, ▼ when down 1%+ — the quick "is this group moving up" read.
-function RcvSectorTag({
-  sector,
-  trend
+// The row-level group tag. Preferred: the user's own watchlist tag (from
+// the Manage tab's CSV import) with ▲/▼ when the tag's members are up/down
+// 1%+ (median) over 20 sessions — the quick "is this group moving up"
+// read. Untagged stocks fall back to a muted sector abbreviation.
+function RcvGroupTag({
+  r,
+  groups
 }) {
-  if (!sector) return /*#__PURE__*/React.createElement("span", {
+  if (r.tag) {
+    const g = groups && groups[r.tag];
+    const chg = g && g.chg20;
+    const dir = chg == null ? "" : chg >= 0.01 ? "up" : chg <= -0.01 ? "down" : "";
+    const arrow = dir === "up" ? " ▲" : dir === "down" ? " ▼" : "";
+    const tip = `Your tag: ${r.tag}` + (chg != null ? ` · group median ${rcvChg(chg)} over 20 sessions (${rcvChg(g.chg5)} over 5) across ${g.members} watchlist members` : "") + `${r.sector ? ` · sector ${r.sector}` : ""}. Several rows sharing a rising tag = your group recovering together.`;
+    return /*#__PURE__*/React.createElement("span", {
+      className: `rcv-sectag ${dir}`,
+      title: tip
+    }, r.tag.length > 11 ? r.tag.slice(0, 10) + "…" : r.tag, arrow);
+  }
+  if (r.sector) {
+    return /*#__PURE__*/React.createElement("span", {
+      className: "rcv-sectag rcv-notag",
+      title: `${r.sector} (sector shown — this stock has no tag in your watchlist; tags come from the CSV you import in Manage).`
+    }, RCV_SECTOR_SHORT[r.sector] || r.sector.slice(0, 7));
+  }
+  return /*#__PURE__*/React.createElement("span", {
     className: "mut"
   }, "\u2014");
-  const chg = trend && trend.chg20;
-  const dir = chg == null ? "" : chg >= 0.01 ? "up" : chg <= -0.01 ? "down" : "";
-  const arrow = dir === "up" ? " ▲" : dir === "down" ? " ▼" : "";
-  const tip = `${sector}${trend && trend.etf ? ` · ${trend.etf}` : ""}` + (chg != null ? ` sector ETF ${rcvChg(chg)} over 20 sessions, ${rcvChg(trend.chg5)} over 5` : " · no sector ETF trend available") + ". Several rows sharing a rising sector tag = a group recovering together.";
-  return /*#__PURE__*/React.createElement("span", {
-    className: `rcv-sectag ${dir}`,
-    title: tip
-  }, RCV_SECTOR_SHORT[sector] || sector.slice(0, 7), arrow);
 }
 function rcvNum(v, d = 2) {
   return v == null ? "—" : Number(v).toFixed(d);
@@ -176,7 +187,7 @@ function RcvRow({
   onToggle,
   onOpenTicker,
   onMarkLevels,
-  secTrend
+  groups
 }) {
   const p = r.prob && r.prob.available ? r.prob : null;
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("tr", {
@@ -187,9 +198,9 @@ function RcvRow({
     className: "rcv-tk"
   }, /*#__PURE__*/React.createElement("b", null, r.ticker)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(RcvStagePill, {
     stage: r.stage
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(RcvSectorTag, {
-    sector: r.sector,
-    trend: secTrend && secTrend[r.sector || "Other"]
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(RcvGroupTag, {
+    r: r,
+    groups: groups
   })), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.opportunity != null ? /*#__PURE__*/React.createElement("b", {
@@ -434,6 +445,7 @@ function RecoveryTab({
   const [openTk, setOpenTk] = useState(null);
   const [showResearch, setShowResearch] = useState(false);
   const [fltSector, setFltSector] = useState(null);
+  const [fltTag, setFltTag] = useState(null);
   const [flt, setFlt] = useState({
     hlOnly: false,
     bbOnly: false,
@@ -495,12 +507,20 @@ function RecoveryTab({
   const allRows = board && board.rows || [];
   const model = board && board.model || {};
   const sectors = board && board.sectors || [];
-  // sector → {etf, chg20, chg5} for the row tags
-  const secTrend = useMemo(() => {
-    const m = {};
-    for (const s of sectors) m[s.sector] = s;
+  const groups = board && board.groups || []; // user-tag clusters
+  const hasTags = groups.length > 0;
+  // tag → {chg20, chg5, members} for the row tags (covers tags whose
+  // stocks have setups AND the full tag_trend so fallbacks resolve too)
+  const tagTrend = useMemo(() => {
+    const m = {
+      ...(board && board.tag_trend || {})
+    };
+    for (const g of groups) m[g.tag] = {
+      ...(m[g.tag] || {}),
+      ...g
+    };
     return m;
-  }, [sectors]);
+  }, [board, groups]);
   const applyPreset = k => {
     setPreset(k);
     setOpenTk(null);
@@ -533,6 +553,7 @@ function RecoveryTab({
   };
   const filtered = useMemo(() => allRows.filter(r => {
     if (section !== "all" && r.stage !== section) return false;
+    if (fltTag && r.tag !== fltTag) return false;
     if (fltSector && (r.sector || "Other") !== fltSector) return false;
     if (preset === "trigger" && (r.broke_bounce || r.bounce_high == null)) return false;
     if (flt.hlOnly && !r.has_higher_low) return false;
@@ -543,14 +564,14 @@ function RecoveryTab({
     if (flt.p40 && !(r.prob && r.prob.available && r.prob.p_win >= 0.4)) return false;
     if (flt.fresh && !(r.days_since_low != null && r.days_since_low <= 15)) return false;
     return true;
-  }), [allRows, section, preset, flt, fltSector]);
+  }), [allRows, section, preset, flt, fltSector, fltTag]);
   const sorted = useMemo(() => {
     const key = r => {
       switch (sortK) {
         case "ticker":
           return r.ticker || "";
-        case "sector":
-          return r.sector || "zzz";
+        case "tag":
+          return r.tag || `zz ${r.sector || "zz"}`;
         case "score":
           return (r.prob && r.prob.available && r.prob.recovery_score) ?? -1;
         case "p":
@@ -591,7 +612,7 @@ function RecoveryTab({
     onClick: () => {
       if (sortK === k) setSortD(d => -d);else {
         setSortK(k);
-        setSortD(k === "ticker" || k === "sector" ? 1 : -1);
+        setSortD(k === "ticker" || k === "tag" ? 1 : -1);
       }
     }
   }, label, sortK === k ? sortD === -1 ? " ↓" : " ↑" : "");
@@ -652,15 +673,38 @@ function RecoveryTab({
       setSection(k);
       setPreset(null);
     }
-  }, label, " ", /*#__PURE__*/React.createElement("b", null, counts[k] || 0)))), sectors.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, label, " ", /*#__PURE__*/React.createElement("b", null, counts[k] || 0)))), hasTags ? /*#__PURE__*/React.createElement("div", {
     className: "rcv-secstrip"
-  }, sectors.map(s => {
+  }, groups.slice(0, 28).map(g => {
+    const dir = g.chg20 == null ? "" : g.chg20 >= 0.01 ? "up" : g.chg20 <= -0.01 ? "down" : "";
+    return /*#__PURE__*/React.createElement("button", {
+      key: g.tag,
+      type: "button",
+      className: `rcv-secchip ${dir} ${fltTag === g.tag ? "on" : ""}`,
+      title: `${g.count} setup${g.count === 1 ? "" : "s"} in your "${g.tag}" tag` + (g.chg20 != null ? ` · group median ${rcvChg(g.chg20)} over 20 sessions (${rcvChg(g.chg5)} over 5) across ${g.members} members` : "") + ". A big count on a rising group = your group recovering together. Click to show only this tag.",
+      onClick: () => {
+        setFltTag(fltTag === g.tag ? null : g.tag);
+        setFltSector(null);
+      }
+    }, g.tag, " ", /*#__PURE__*/React.createElement("b", null, g.count), g.chg20 != null && /*#__PURE__*/React.createElement("span", {
+      className: "rcv-secchg"
+    }, rcvChg(g.chg20)));
+  }), fltTag && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "rcv-secchip rcv-secclear",
+    onClick: () => setFltTag(null)
+  }, "\u2715 clear")) : sectors.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "rcv-secstrip"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "rcv-secnote",
+    title: "Tags come from the CSV you import in the Manage tab. Once your stocks carry tags, this strip shows YOUR groups instead of broad sectors."
+  }, "no watchlist tags yet \u2014 showing sectors"), sectors.map(s => {
     const dir = s.chg20 == null ? "" : s.chg20 >= 0.01 ? "up" : s.chg20 <= -0.01 ? "down" : "";
     return /*#__PURE__*/React.createElement("button", {
       key: s.sector,
       type: "button",
       className: `rcv-secchip ${dir} ${fltSector === s.sector ? "on" : ""}`,
-      title: `${s.count} setup${s.count === 1 ? "" : "s"} in ${s.sector}` + (s.etf && s.chg20 != null ? ` · ${s.etf} ${rcvChg(s.chg20)} over 20 sessions (${rcvChg(s.chg5)} over 5)` : "") + ". A big count on a rising sector = a group recovering together. Click to show only this sector.",
+      title: `${s.count} setup${s.count === 1 ? "" : "s"} in ${s.sector}` + (s.etf && s.chg20 != null ? ` · ${s.etf} ${rcvChg(s.chg20)} over 20 sessions (${rcvChg(s.chg5)} over 5)` : "") + ". Click to show only this sector.",
       onClick: () => setFltSector(fltSector === s.sector ? null : s.sector)
     }, RCV_SECTOR_SHORT[s.sector] || s.sector, " ", /*#__PURE__*/React.createElement("b", null, s.count), s.chg20 != null && /*#__PURE__*/React.createElement("span", {
       className: "rcv-secchg"
@@ -690,7 +734,7 @@ function RecoveryTab({
     className: "scan-table rcv-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, th("Ticker", "ticker", "Click a row to expand the full breakdown with levels and history."), /*#__PURE__*/React.createElement("th", {
     title: "Where this stock sits in the recovery: Bottoming \u2192 Early \u2192 Confirmed \u2192 Approaching \u2192 Testing the prior high. The scanner's focus is Early and Confirmed \u2014 before the move is obvious."
-  }, "Stage"), th("Sector", "sector", "The stock's sector, with ▲/▼ when the sector's ETF is up/down 1%+ over 20 sessions. Several rows sharing a rising tag = a group recovering together — click to sort, or use the sector chips above to filter."), th("Opp", "opp", "Opportunity Score 0–100 — the headline rank: 45% historical probability + 25% remaining upside + 20% reward-to-risk + 10% structure quality. Requires a probability; rows outside the model show —."), th("Score", "score", "Recovery Score 0–100 — technical quality of the recovery alone (calibrated to the historical study; top decile ≈ 100). Probability and upside are scored separately."), th("P(high)", "p", "Measured share of similar historical setups that touched the prior high BEFORE the invalidation level within 60 trading days. From the shipped study — sample size in the n column."), th("≤20d", "h20", "Share of those historical setups that reached the prior high within 20 trading days."), th("Upside", "upside", "Distance from here up to the prior high."), th("R:R", "rr", "Upside to the prior high ÷ downside to the invalidation level."), th("To high", "dist", "How far below the prior high price sits now."), th("Recov", "recov", "Recovery Ratio — share of the correction already recovered. 0% = at the low, 100% = back at the high."), th("Depth", "depth", "How deep the correction cut from the prior high to the correction low."), /*#__PURE__*/React.createElement("th", {
+  }, "Stage"), th("Tag", "tag", "Your watchlist tag for this stock (from the CSV imported in Manage), with ▲/▼ when the tag's members are up/down 1%+ (median) over 20 sessions. Several rows sharing a rising tag = your group recovering together — click to sort, or use the group chips above to filter. Untagged stocks show their sector, muted."), th("Opp", "opp", "Opportunity Score 0–100 — the headline rank: 45% historical probability + 25% remaining upside + 20% reward-to-risk + 10% structure quality. Requires a probability; rows outside the model show —."), th("Score", "score", "Recovery Score 0–100 — technical quality of the recovery alone (calibrated to the historical study; top decile ≈ 100). Probability and upside are scored separately."), th("P(high)", "p", "Measured share of similar historical setups that touched the prior high BEFORE the invalidation level within 60 trading days. From the shipped study — sample size in the n column."), th("≤20d", "h20", "Share of those historical setups that reached the prior high within 20 trading days."), th("Upside", "upside", "Distance from here up to the prior high."), th("R:R", "rr", "Upside to the prior high ÷ downside to the invalidation level."), th("To high", "dist", "How far below the prior high price sits now."), th("Recov", "recov", "Recovery Ratio — share of the correction already recovered. 0% = at the low, 100% = back at the high."), th("Depth", "depth", "How deep the correction cut from the prior high to the correction low."), /*#__PURE__*/React.createElement("th", {
     title: "Structure flags: HL = higher low formed above the correction low \xB7 BB = broke above the first bounce high. Lit green when true."
   }, "Struct"), th("RelVol", "relvol", "Latest day's volume ÷ 20-day average."), th("n", "n", "Historical sample size behind this row's probabilities. A 90% on 7 examples is not a 90% on 2,000 — the study never quotes buckets under 30."))), /*#__PURE__*/React.createElement("tbody", null, sorted.map(r => /*#__PURE__*/React.createElement(RcvRow, {
     key: r.ticker,
@@ -699,7 +743,7 @@ function RecoveryTab({
     onToggle: () => setOpenTk(openTk === r.ticker ? null : r.ticker),
     onOpenTicker: onOpenTicker,
     onMarkLevels: onMarkLevels,
-    secTrend: secTrend
+    groups: tagTrend
   })))), !sorted.length && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
   }, allRows.length ? "Nothing matches the filters." : status.scanning ? "Scanning your watchlist for prior-high recovery setups…" : "No qualifying setups on the board yet. Rescan to sweep the watchlist.")), /*#__PURE__*/React.createElement("div", {

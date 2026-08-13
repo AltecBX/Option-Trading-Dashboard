@@ -11413,3 +11413,8 @@ a.tabsheet-btn.site { text-decoration: none; }
   .rcv-secstrip { gap: 5px; }
   .rcv-secchip { font-size: 10.5px; padding: 2px 7px; }
 }
+
+/* v3.93 amendments: user-tag groups on the Recovery board. */
+.rcv-sectag.rcv-notag { opacity: 0.45; }
+.rcv-secnote { font-size: 10.5px; color: var(--fg-4); align-self: center;
+  margin-right: 4px; }

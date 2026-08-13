@@ -878,7 +878,7 @@ _LOCK = threading.RLock()
 _STATE: dict[str, Any] = {"scanning": False, "scanned": 0, "total": 0,
                           "last_scan": None, "rows": [], "error": None,
                           "universe_size": 0, "spy_regime": None,
-                          "sector_trend": {}}
+                          "sector_trend": {}, "tag_trend": {}}
 _THREAD: threading.Thread | None = None
 
 _DETAIL_CACHE: dict[str, tuple[float, dict]] = {}
@@ -899,6 +899,59 @@ def _sector_map() -> dict[str, str]:
         return out
     except Exception:  # noqa: BLE001
         return {}
+
+
+def _tag_map() -> dict[str, str]:
+    """symbol → the user's watchlist tag (their own grouping, imported via
+    the Manage tab's CSV — much narrower than sector)."""
+    try:
+        board = _BOARD_GETTER() if _BOARD_GETTER else None
+        out = {}
+        for r in (board or {}).get("rows") or []:
+            sym, tag = r.get("symbol"), r.get("tag")
+            if sym and tag:
+                out[sym.upper()] = str(tag)
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _tag_trend_from(sym_chg: dict[str, dict], tags: dict[str, str]) -> dict:
+    """Per-tag group momentum: MEDIAN 5/20-session move across every scanned
+    member of the tag (all members, not just the ones with setups) — the
+    'is this group moving up' signal for user-defined groups that have no
+    ETF. Requires ≥2 members with data so one stock can't be a 'group'."""
+    members: dict[str, list] = {}
+    for sym, tag in tags.items():
+        if sym in sym_chg:
+            members.setdefault(tag, []).append(sym)
+    out = {}
+    for tag, syms in members.items():
+        if len(syms) < 2:
+            continue
+        m20 = _median([sym_chg[s]["chg20"] for s in syms])
+        m5 = _median([sym_chg[s]["chg5"] for s in syms])
+        out[tag] = {"chg20": round(m20, 4), "chg5": round(m5, 4),
+                    "members": len(syms)}
+    return out
+
+
+def _group_summary(rows: list[dict], tag_trend: dict) -> list[dict]:
+    """Board rows grouped by watchlist tag + the tag's member momentum,
+    biggest cluster of setups first."""
+    counts: dict[str, int] = {}
+    for r in rows:
+        tag = r.get("tag")
+        if tag:
+            counts[tag] = counts.get(tag, 0) + 1
+    out = []
+    for tag, cnt in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        tr = (tag_trend or {}).get(tag)
+        out.append({"tag": tag, "count": cnt,
+                    "members": tr.get("members") if tr else None,
+                    "chg5": tr.get("chg5") if tr else None,
+                    "chg20": tr.get("chg20") if tr else None})
+    return out
 
 
 def _close_map(bars: list[dict] | None) -> dict[str, float]:
@@ -936,7 +989,8 @@ def _sector_summary(rows: list[dict], sector_trend: dict) -> list[dict]:
 
 
 def _build_row(symbol: str, bars: list[dict] | None, spy_close: dict,
-               sector_closes: dict, sectors: dict, cfg: dict) -> dict | None:
+               sector_closes: dict, sectors: dict, cfg: dict,
+               tags: dict | None = None) -> dict | None:
     if not bars or len(bars) < cfg["min_history"]:
         return None
     sec = sectors.get(symbol)
@@ -958,6 +1012,7 @@ def _build_row(symbol: str, bars: list[dict] | None, spy_close: dict,
     return {
         "ticker": symbol,
         "sector": sec,
+        "tag": (tags or {}).get(symbol) or None,
         **{k: setup[k] for k in (
             "close", "prior_high", "prior_high_date", "corr_low",
             "corr_low_date", "depth", "recovery_ratio", "dist_to_high",
@@ -978,6 +1033,7 @@ def _scan_worker(symbols: list[str]) -> None:
     try:
         cfg = _cfg()
         sectors = _sector_map()
+        tags = _tag_map()
         spy_close = _close_map(_bars_from_yf("SPY", "2y")
                                or _bars_from_schwab("SPY", 500))
         etfs = sorted({_SECTOR_ETF[s] for s in sectors.values()
@@ -989,6 +1045,7 @@ def _scan_worker(symbols: list[str]) -> None:
                 sector_closes[etf] = m
         sector_trend = {etf: tr for etf, m in sector_closes.items()
                         if (tr := _etf_trend(m))}
+        sym_chg: dict[str, dict] = {}      # every scanned symbol's 5/20d move
         rows: list[dict] = []
         for i in range(0, len(symbols), _SCAN_CHUNK):
             part = symbols[i:i + _SCAN_CHUNK]
@@ -1001,8 +1058,13 @@ def _scan_worker(symbols: list[str]) -> None:
                 for sym in part:
                     try:
                         bars = _df_to_bars(df[sym] if multi else df)
+                        if bars and len(bars) >= 21:
+                            cl = [b["close"] for b in bars]
+                            if cl[-6] and cl[-21]:
+                                sym_chg[sym] = {"chg5": cl[-1] / cl[-6] - 1,
+                                                "chg20": cl[-1] / cl[-21] - 1}
                         r = _build_row(sym, bars, spy_close, sector_closes,
-                                       sectors, cfg)
+                                       sectors, cfg, tags)
                         if r:
                             rows.append(r)
                     except Exception:  # noqa: BLE001
@@ -1029,7 +1091,8 @@ def _scan_worker(symbols: list[str]) -> None:
         with _LOCK:
             _STATE.update({"rows": rows, "last_scan": _now_iso(),
                            "error": None, "spy_regime": regime,
-                           "sector_trend": sector_trend})
+                           "sector_trend": sector_trend,
+                           "tag_trend": _tag_trend_from(sym_chg, tags)})
         _persist_board()
         import gc
         gc.collect()
@@ -1070,11 +1133,14 @@ def get_board() -> dict:
                                          "last_scan", "universe_size", "error")}
         regime = _STATE.get("spy_regime")
         sector_trend = dict(_STATE.get("sector_trend") or {})
+        tag_trend = dict(_STATE.get("tag_trend") or {})
     return {
         "as_of": _now_iso(),
         "status": status,
         "count": len(rows),
         "rows": rows,
+        "groups": _group_summary(rows, tag_trend),
+        "tag_trend": tag_trend,
         "sectors": _sector_summary(rows, sector_trend),
         "spy_regime": regime,
         "model": _model_meta(_load_model()),
@@ -1198,7 +1264,8 @@ def _persist_board() -> None:
         with _LOCK:
             payload = {"rows": _STATE["rows"], "last_scan": _STATE["last_scan"],
                        "spy_regime": _STATE.get("spy_regime"),
-                       "sector_trend": _STATE.get("sector_trend") or {}}
+                       "sector_trend": _STATE.get("sector_trend") or {},
+                       "tag_trend": _STATE.get("tag_trend") or {}}
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload))
         tmp.replace(p)
@@ -1219,5 +1286,6 @@ def _restore_board() -> None:
                     _STATE["last_scan"] = payload.get("last_scan")
                     _STATE["spy_regime"] = payload.get("spy_regime")
                     _STATE["sector_trend"] = payload.get("sector_trend") or {}
+                    _STATE["tag_trend"] = payload.get("tag_trend") or {}
     except Exception as exc:  # noqa: BLE001
         print(f"[recovery] restore failed: {exc}", file=sys.stderr)
