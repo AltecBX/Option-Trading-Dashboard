@@ -103,6 +103,19 @@ function TVPriceChart({
       },
       crosshair: {
         mode: LC.CrosshairMode.Normal
+      },
+      // Same mobile touch rules as the swing chart (v3.96): pinch/horizontal
+      // drag work the chart, vertical swipes scroll the page.
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: true
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false
       }
     });
     const vol = chart.addHistogramSeries({

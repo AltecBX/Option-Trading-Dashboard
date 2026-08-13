@@ -11426,3 +11426,16 @@ a.tabsheet-btn.site { text-decoration: none; }
 .rcv-table th.scan-th-num, .rcv-table td.scan-num { text-align: center; }
 .rcv-table th:first-child, .rcv-table td.rcv-tk { text-align: left; }
 .rcv-detail-row td { text-align: left; }
+
+/* ── Swing chart mobile cleanup (v3.96) ───────────────────────────────────
+   On phones the OHLC readout + level legend floated OVER the candles and
+   covered a third of the plot; they now sit in normal flow above the chart
+   and shrink. Chart gets the freed height back. */
+@media (max-width: 760px) {
+  .swing-chart-overlay { position: static; max-width: 100%; margin-bottom: 6px; }
+  .swing-chart-ohlc, .swing-chart-legend {
+    width: 100%; font-size: 10.5px; padding: 4px 8px; gap: 3px 9px;
+    backdrop-filter: none; background: var(--bg-2);
+  }
+  .swing-chart { height: 360px; }
+}

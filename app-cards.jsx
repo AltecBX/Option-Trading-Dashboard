@@ -1452,7 +1452,13 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
   const candleRef = useRef(null);
   const volRef = useRef(null);
   const overlayRef = useRef({ lines: [], priceLines: [] });
-  const [show, setShow] = useState({ markers: true, lines: true, up: true, down: false, current: true, targets: true, labels: true });
+  // Down defaults ON (v3.96 — Jerry wants both directions visible on open).
+  // Labels default OFF on phones: the % tags collide at phone width once
+  // both directions draw; the Labels toggle re-enables them.
+  const [show, setShow] = useState(() => {
+    const phone = typeof window !== "undefined" && window.innerWidth <= 760;
+    return { markers: true, lines: true, up: true, down: true, current: true, targets: true, labels: !phone };
+  });
   const [ohlc, setOhlc] = useState(null);  // crosshair hover readout (O/H/L/C/Chg/Vol)
   const [collapsed, setCollapsed] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 900));
 
@@ -1482,6 +1488,12 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
       timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14, fixLeftEdge: true },
       crosshair: { mode: LC.CrosshairMode.Normal },
+      // Mobile-friendly touch (v3.96): pinch zooms and horizontal drag pans
+      // the chart, but vertical swipes stay with the PAGE — without
+      // vertTouchDrag:false the chart traps the scroll and the tab feels
+      // stuck on a phone.
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     const candle = chart.addCandlestickSeries({
       upColor: UPC, downColor: DNC, borderUpColor: UPC, borderDownColor: DNC,
