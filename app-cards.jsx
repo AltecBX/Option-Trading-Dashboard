@@ -1476,6 +1476,10 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     try { chartRef.current.timeScale().setVisibleRange({ from: bars[Math.max(0, n - 126)].t, to: bars[n - 1].t }); }
     catch (e) { try { chartRef.current.timeScale().fitContent(); } catch (e2) {} }
   };
+  // Live refs for the touch-zoom handler (created once with the chart, but
+  // bars/home change with every symbol).
+  const barsRef = useRef(bars); barsRef.current = bars;
+  const homeRef = useRef(applyHome); homeRef.current = applyHome;
 
   // Create the chart once (re-create when uncollapsed so the container exists).
   useEffect(() => {
@@ -1488,11 +1492,11 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
       timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14, fixLeftEdge: true },
       crosshair: { mode: LC.CrosshairMode.Normal },
-      // Mobile-friendly touch (v3.96): pinch zooms and horizontal drag pans
-      // the chart, but vertical swipes stay with the PAGE — without
-      // vertTouchDrag:false the chart traps the scroll and the tab feels
-      // stuck on a phone.
-      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
+      // Mobile touch (v3.97): built-in pinch OFF — attachTouchZoom (from
+      // charts.jsx) drives a smooth, anchored pinch instead. Horizontal drag
+      // pans the chart; vertical swipes stay with the PAGE so the tab never
+      // feels stuck on a phone.
+      handleScale: { mouseWheel: true, pinch: false, axisPressedMouseMove: true },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
     });
     const candle = chart.addCandlestickSeries({
@@ -1515,9 +1519,13 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       const vd = p.seriesData.get(vol);
       setOhlc({ time: p.time, o: c.open, h: c.high, l: c.low, c: c.close, v: vd ? vd.value : null });
     });
+    const detachTouch = attachTouchZoom(el, chart, {
+      getBarCount: () => (barsRef.current || []).length,
+      onDoubleTap: () => { if (onClearFocus) onClearFocus(); if (homeRef.current) homeRef.current(); },
+    });
     const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
     ro.observe(el);
-    return () => { ro.disconnect(); try { chart.remove(); } catch (e) {} chartRef.current = null; candleRef.current = null; volRef.current = null; };
+    return () => { ro.disconnect(); detachTouch(); try { chart.remove(); } catch (e) {} chartRef.current = null; candleRef.current = null; volRef.current = null; };
     /* eslint-disable-next-line */
   }, [LC, collapsed]);
 

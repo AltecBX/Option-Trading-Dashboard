@@ -2025,6 +2025,12 @@ function SwingChart({
       } catch (e2) {}
     }
   };
+  // Live refs for the touch-zoom handler (created once with the chart, but
+  // bars/home change with every symbol).
+  const barsRef = useRef(bars);
+  barsRef.current = bars;
+  const homeRef = useRef(applyHome);
+  homeRef.current = applyHome;
 
   // Create the chart once (re-create when uncollapsed so the container exists).
   useEffect(() => {
@@ -2060,13 +2066,13 @@ function SwingChart({
       crosshair: {
         mode: LC.CrosshairMode.Normal
       },
-      // Mobile-friendly touch (v3.96): pinch zooms and horizontal drag pans
-      // the chart, but vertical swipes stay with the PAGE — without
-      // vertTouchDrag:false the chart traps the scroll and the tab feels
-      // stuck on a phone.
+      // Mobile touch (v3.97): built-in pinch OFF — attachTouchZoom (from
+      // charts.jsx) drives a smooth, anchored pinch instead. Horizontal drag
+      // pans the chart; vertical swipes stay with the PAGE so the tab never
+      // feels stuck on a phone.
       handleScale: {
         mouseWheel: true,
-        pinch: true,
+        pinch: false,
         axisPressedMouseMove: true
       },
       handleScroll: {
@@ -2130,6 +2136,13 @@ function SwingChart({
         v: vd ? vd.value : null
       });
     });
+    const detachTouch = attachTouchZoom(el, chart, {
+      getBarCount: () => (barsRef.current || []).length,
+      onDoubleTap: () => {
+        if (onClearFocus) onClearFocus();
+        if (homeRef.current) homeRef.current();
+      }
+    });
     const ro = new window.ResizeObserver(() => {
       if (wrapRef.current) chart.applyOptions({
         width: wrapRef.current.clientWidth
@@ -2138,6 +2151,7 @@ function SwingChart({
     ro.observe(el);
     return () => {
       ro.disconnect();
+      detachTouch();
       try {
         chart.remove();
       } catch (e) {}
