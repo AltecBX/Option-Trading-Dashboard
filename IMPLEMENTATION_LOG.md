@@ -1766,3 +1766,35 @@ vertical swipe scrolls the PAGE (untouched by the handler — verified via
 defaultPrevented probe). Proved with synthesized TouchEvents in Chromium:
 span 100 → 66.7 → 50 → 125 exactly proportional, floor holds at 7 after
 repeated extreme pinches, double-tap fires, page scroll free.
+
+## v3.98 — five workflow asks in one release
+1. SWING CHART: 2 years of data (520 bars) instead of 1 — zoom out for more
+   patterns. Same Schwab-first cached path (the 2y gate was hard-coded to
+   1y; without extending it, period=2y would have fallen into a fresh
+   yfinance download — slower, not deeper). Bonus fix found on the way:
+   load_daily rows never carried volume, so the swing chart's volume
+   histogram and rel-vol chips were silently zero on the fast path.
+2. MARKET CALENDAR: server-side stale-while-revalidate with a disk mirror
+   (<data>/market_calendar.json). The tab now renders instantly from the
+   last built calendar — even right after a redeploy — and a background
+   thread rebuilds when it's older than 15 min (earnings) / 30 min
+   (economic). A day-old calendar is fine; it looks 4-5 weeks out.
+3. FLOW: Market flow dashboard expanded by default. localStorage key bumped
+   .v1→.v2 because the old key auto-wrote "0" on first mount — every
+   existing device would have stayed collapsed forever.
+4+5. SCAN ALL: /api/scan_all — server-side sequential orchestrator over the
+   board scanners (movers → weekly range → trend → HV rank → analyst),
+   one at a time, each waiting for the previous, with per-scan freshness
+   TTLs (movers 10m, price scans 6h, analyst 20h) so fresh boards are
+   SKIPPED — strictly fewer provider calls than clicking each button.
+   Discover gets a "Scan all" button in the screener subnav; Scanners gets
+   a "Scan everything" strip that also chains the per-symbol scanners
+   (EMA pullback → open-to-low → momentum → richness → best-setup →
+   implied-move; UW ones skipped when disconnected) one at a time — never
+   more than one request in flight. Single-ticker tools (earnings ladder,
+   walk-forward) stay manual. Board cards now resume polling on mount when
+   a scan is in flight, so Scan-all progress shows live.
+   Bugs caught by the new tests: a self-deadlock in the busy guard
+   (scanall_status() under the non-reentrant lock) and a response key
+   collision ("started" boolean vs timestamp — now started_at).
+   382 tests green (9 new in test_scanall.py).

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.97";
+const APP_VERSION = "3.98";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -411,11 +411,17 @@ function App() {
     return () => { cancelled = true; clearInterval(id); };
   }, [uwHealth?.connected]);
   // Persisted expand/collapse for the market dashboard card.
+  // v3.98: default OPEN (Jerry always wants the dashboard visible when he
+  // opens Flow). Key bumped to .v2 — the old key auto-wrote "0" on first
+  // mount, so every existing device would have stayed collapsed forever.
   const [marketDashOpen, setMarketDashOpen] = useState(() => {
-    try { return localStorage.getItem("weeklyOptionsTimer.marketDash.open.v1") === "1"; } catch { return false; }
+    try {
+      const v = localStorage.getItem("weeklyOptionsTimer.marketDash.open.v2");
+      return v === null ? true : v === "1";
+    } catch { return true; }
   });
   useEffect(() => {
-    try { localStorage.setItem("weeklyOptionsTimer.marketDash.open.v1", marketDashOpen ? "1" : "0"); } catch {}
+    try { localStorage.setItem("weeklyOptionsTimer.marketDash.open.v2", marketDashOpen ? "1" : "0"); } catch {}
   }, [marketDashOpen]);
   // Metric toggle for the by-strike options activity chart (v1.19).
   // "volume" = today's traded contracts, "oi" = total open interest.
@@ -970,6 +976,34 @@ function App() {
     } finally {
       setEmaScanRunning(false);
     }
+  };
+  // "Run all scanners" (v3.98) — one button for the whole Scanners tab.
+  // Kicks the server-side board orchestrator (/api/scan_all: weekly range,
+  // trend, HV rank, movers, analyst — sequential, skips fresh boards), then
+  // runs the per-symbol scanners below ONE AT A TIME, in the same order a
+  // careful human would: never more than one request in flight, so provider
+  // rate limits are never burst. UW-dependent scanners are skipped when UW
+  // is disconnected. Per-symbol tools (earnings ladder, walk-forward) stay
+  // manual — they analyze one ticker, not the market.
+  const [runAllStep, setRunAllStep] = useState(null);
+  const runAllScanners = async () => {
+    if (runAllStep) return;
+    try { await apiFetch("/api/scan_all", { noCache: true }); } catch (e) {}
+    const steps = [
+      ["EMA pullback", runEmaScan],
+      ["Open-to-low pullback", runPullbackScan],
+      ...(uwHealth?.connected ? [["Momentum × UW flow", runMomentumScan],
+                                 ["Premium richness", runRichnessScan]] : []),
+      ["Best setup per symbol", runScan],
+      ["Implied move + strikes", runWeeklyRange],
+      ...(uwHealth?.connected ? [["Market scanner", runMarketScan]] : []),
+    ];
+    try {
+      for (const [name, fn] of steps) {
+        setRunAllStep(name);
+        try { await fn(); } catch (e) { console.warn(`run-all ${name} failed:`, e); }
+      }
+    } finally { setRunAllStep(null); }
   };
   // Schema: {version, symbols: [{symbol, tags, notes, preferred_strategy, starred, added_at}], tag_order}
   // Loaded once on mount from /api/watchlist; saves are debounced PUTs.
@@ -5083,6 +5117,30 @@ function App() {
         </TabPanel>
 
         <TabPanel tab="scanners" active={activeTab}>
+        {/* Run-everything strip (v3.98): one tap replaces clicking each
+            scanner's own button. Server boards run sequentially with
+            skip-if-fresh; the per-symbol scanners chain one at a time. */}
+        <div className="card scanall-card">
+          <div className="card-head">
+            <div>
+              <div className="kicker" title="Board scans (weekly range, trend, HV rank, movers, analyst) run on the server one at a time and are SKIPPED when their last scan is still fresh. The per-symbol scanners below then run one after another — never more than one request in flight, so rate limits are never burst. The single-ticker tools (earnings ladder, walk-forward) stay manual.">
+                every scanner below · sequential · skips fresh boards · rate-limit safe
+              </div>
+              <div className="card-title">Scan everything</div>
+            </div>
+            <div className="tsy-ctrl rcv-ctrl">
+              <button className="scan-run-btn" onClick={runAllScanners} disabled={!!runAllStep}
+                      title="Run every scanner on this tab (and the Discover boards) in one sequential pass.">
+                {runAllStep ? `Running: ${runAllStep}…` : "Run all scanners"}
+              </button>
+            </div>
+          </div>
+          {runAllStep && (
+            <div className="ab-status">
+              Working through the scanners one at a time — each card below fills in as its turn completes. Leave the tab open; nothing runs in parallel, so this is deliberately unhurried.
+            </div>
+          )}
+        </div>
         {/* Weekly range location scan — the selling-setup panel's range math
             across the whole watchlist: names near their N-week worst low
             (sell puts) or best high (sell calls). Click a row → Analyze. */}

@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 import urllib.request
 import webbrowser
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 try:
     from zoneinfo import ZoneInfo
@@ -1035,6 +1035,15 @@ def load_daily(symbol: str, days: int = 90) -> list[dict]:
             "open": float(r.Open), "high": float(r.High),
             "low": float(r.Low), "close": float(r.Close),
         }
+        # Volume (v3.98) — swings.analyze reads it for rel-vol chips and the
+        # chart's volume histogram; omitting it made every bar volume 0 on
+        # the fast (bars=) path.
+        try:
+            v = getattr(r, "Volume", None)
+            if v is not None and v == v:
+                row["volume"] = int(v)
+        except Exception:  # noqa: BLE001
+            pass
         if macd_line[i] is not None:
             row["macd"] = macd_line[i]
         if signal[i] is not None:
@@ -5767,6 +5776,249 @@ def _watchlist_alerts_snapshot(lookback_days: int) -> dict:
 _EM_HIST_PATH = _STABLE_DIR / "em_history.json"
 _EM_HIST_LOCK = threading.Lock()
 
+# ── Market Calendar server cache (v3.98) ────────────────────────────────────
+# Stale-while-revalidate with a disk mirror: the tab always renders the last
+# built calendar instantly (even right after a redeploy), and a background
+# thread rebuilds when the copy is older than the freshness window. A
+# yesterday-old calendar is perfectly useful — it looks 4-5 weeks out.
+
+_MC_PATH = _STABLE_DIR / "market_calendar.json"
+_MC_LOCK = threading.Lock()
+_MC_FRESH = {"earnings": 15 * 60, "economic": 30 * 60}
+_MC_STATE: dict = {
+    "earnings": {"ts": 0.0, "days": None, "payload": None, "refreshing": False},
+    "economic": {"ts": 0.0, "days": None, "payload": None, "refreshing": False},
+}
+
+
+def _mc_load_disk() -> None:
+    try:
+        if _MC_PATH.exists():
+            saved = json.loads(_MC_PATH.read_text())
+            with _MC_LOCK:
+                for kind in ("earnings", "economic"):
+                    s = saved.get(kind)
+                    if s and s.get("payload"):
+                        _MC_STATE[kind].update(
+                            {"ts": s.get("ts") or 0.0, "days": s.get("days"),
+                             "payload": s["payload"]})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market_calendar] cache restore failed: {exc}", file=sys.stderr)
+
+
+def _mc_save_disk() -> None:
+    try:
+        with _MC_LOCK:
+            payload = {k: {"ts": _MC_STATE[k]["ts"], "days": _MC_STATE[k]["days"],
+                           "payload": _MC_STATE[k]["payload"]}
+                       for k in ("earnings", "economic")}
+        tmp = _MC_PATH.with_suffix(".tmp")
+        tmp.write_text(_dumps(payload))
+        tmp.replace(_MC_PATH)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[market_calendar] cache persist failed: {exc}", file=sys.stderr)
+
+
+def _mc_build(kind: str, days: int) -> dict | None:
+    fn = build_watchlist_earnings if kind == "earnings" else build_economic_calendar
+    res = fn(days)
+    ok = isinstance(res, dict) and not res.get("error") and (
+        res.get("entries") if kind == "earnings" else res.get("events"))
+    if not ok:
+        return None
+    return res
+
+
+def _mc_refresh_async(kind: str, days: int) -> None:
+    with _MC_LOCK:
+        if _MC_STATE[kind]["refreshing"]:
+            return
+        _MC_STATE[kind]["refreshing"] = True
+
+    def work():
+        try:
+            res = _mc_build(kind, days)
+            if res is not None:
+                with _MC_LOCK:
+                    _MC_STATE[kind].update({"ts": time.time(), "days": days,
+                                            "payload": res})
+                _mc_save_disk()
+        except Exception as exc:  # noqa: BLE001
+            _log_warn(None, f"market_calendar/{kind}.refresh", exc)
+        finally:
+            with _MC_LOCK:
+                _MC_STATE[kind]["refreshing"] = False
+
+    threading.Thread(target=work, daemon=True, name=f"mc-{kind}").start()
+
+
+def _mc_snapshot(kind: str, days: int) -> dict:
+    """Serve the cached calendar instantly; refresh in the background when
+    stale (or the requested window grew). Only the very first request ever
+    (no cache on disk either) builds synchronously."""
+    with _MC_LOCK:
+        st = dict(_MC_STATE[kind])
+    fresh = _MC_FRESH[kind]
+    age = time.time() - (st["ts"] or 0)
+    if st["payload"] is not None:
+        if age > fresh or (st["days"] or 0) < days:
+            _mc_refresh_async(kind, days)
+        out = dict(st["payload"])
+        out["cache_age_sec"] = int(age)
+        out["refreshing"] = bool(_MC_STATE[kind]["refreshing"])
+        return out
+    res = _mc_build(kind, days)
+    if res is not None:
+        with _MC_LOCK:
+            _MC_STATE[kind].update({"ts": time.time(), "days": days,
+                                    "payload": res})
+        _mc_save_disk()
+        out = dict(res)
+        out["cache_age_sec"] = 0
+        return out
+    # build produced nothing usable — fall through to the raw builder result
+    # so the handler's existing error envelope applies
+    fn = build_watchlist_earnings if kind == "earnings" else build_economic_calendar
+    return fn(days)
+
+
+_mc_load_disk()
+
+# ── "Scan all" orchestrator (v3.98) ─────────────────────────────────────────
+# One button instead of five: runs the board scanners SEQUENTIALLY (one
+# trigger at a time, waiting for each to finish) so there is never a burst
+# of provider calls, and SKIPS any board whose last scan is still fresh —
+# fewer API calls than clicking the buttons by hand, never more. Per-scan
+# freshness windows: intraday movers go stale in minutes; daily-bar scans
+# are good for hours; the ~15-minute analyst sweep already reruns itself
+# every morning at 8 ET, so it only rescans here when a day has passed.
+
+_SCANALL_LOCK = threading.Lock()
+_SCANALL_STATE: dict = {"running": False, "queue": [], "started": None,
+                        "finished": None}
+_SCANALL_TTL = {"movers": 10 * 60, "range_scan": 6 * 3600,
+                "trend": 6 * 3600, "ivrank": 6 * 3600,
+                "analyst": 20 * 3600}
+
+
+def _scanall_specs() -> list[dict]:
+    """The board scanners this orchestrator drives, in run order (cheap and
+    intraday-sensitive first, the long analyst sweep last)."""
+    specs = []
+    if _MOVERS_AVAILABLE and _movers is not None:
+        specs.append({"key": "movers", "label": "Movers",
+                      "trigger": lambda syms: _movers.trigger_scan(syms),
+                      "status": lambda: (_movers.get_board() or {}).get("status") or {}})
+    if _RANGESCAN_AVAILABLE and _rangescan is not None:
+        specs.append({"key": "range_scan", "label": "Weekly range",
+                      "trigger": lambda syms: _rangescan.trigger_scan(syms),
+                      "status": lambda: (_rangescan.get_board() or {}).get("status") or {}})
+    if _TREND_AVAILABLE and _trend is not None:
+        specs.append({"key": "trend", "label": "Trend",
+                      "trigger": lambda syms: _trend.trigger_scan(syms),
+                      "status": lambda: (_trend.get_board() or {}).get("status") or {}})
+    if _IVRANK_AVAILABLE and _ivrank is not None:
+        specs.append({"key": "ivrank", "label": "HV Rank",
+                      "trigger": lambda syms: _ivrank.trigger_scan(syms),
+                      "status": lambda: (_ivrank.get_board() or {}).get("status") or {}})
+    if _ANALYST_BOARD_AVAILABLE and _analyst_board is not None:
+        specs.append({"key": "analyst", "label": "Analyst calls",
+                      "trigger": lambda syms: _analyst_board.trigger_scan(syms, 2),
+                      "status": lambda: (_analyst_board.get_board() or {}).get("status") or {}})
+    return specs
+
+
+def _scanall_age(status: dict) -> float | None:
+    ls = status.get("last_scan")
+    if not ls:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ls).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _scanall_worker(syms: list[str], force: bool) -> None:
+    try:
+        for spec in _scanall_specs():
+            key = spec["key"]
+
+            def set_state(state, extra=None):
+                with _SCANALL_LOCK:
+                    for q in _SCANALL_STATE["queue"]:
+                        if q["key"] == key:
+                            q["state"] = state
+                            if extra:
+                                q.update(extra)
+
+            try:
+                status = spec["status"]()
+                age = _scanall_age(status)
+                if status.get("scanning"):
+                    set_state("running", {"note": "already scanning — waiting"})
+                elif not force and age is not None and age < _SCANALL_TTL[key]:
+                    set_state("skipped",
+                              {"note": f"fresh ({int(age // 60)}m old)"})
+                    continue
+                else:
+                    set_state("running")
+                    res = spec["trigger"](syms)
+                    if not (res or {}).get("started") and not spec["status"]().get("scanning"):
+                        set_state("error", {"note": (res or {}).get("reason") or "did not start"})
+                        continue
+                # wait for this board to finish before the next one starts —
+                # sequential by design, so provider budgets are never burst
+                deadline = time.time() + 30 * 60
+                while time.time() < deadline:
+                    if not spec["status"]().get("scanning"):
+                        break
+                    time.sleep(2.0)
+                set_state("done" if time.time() < deadline else "error",
+                          None if time.time() < deadline else {"note": "timed out"})
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, f"scan_all/{key}", exc)
+                set_state("error", {"note": str(exc)})
+    finally:
+        with _SCANALL_LOCK:
+            _SCANALL_STATE["running"] = False
+            _SCANALL_STATE["finished"] = datetime.now(timezone.utc).isoformat()
+
+
+def scanall_start(syms: list[str], force: bool = False) -> dict:
+    if os.environ.get("JERRY_NO_NET") == "1":
+        return {"started": False, "reason": "network disabled (JERRY_NO_NET)"}
+    claimed = False
+    with _SCANALL_LOCK:
+        if not _SCANALL_STATE["running"]:
+            claimed = True
+            _SCANALL_STATE.update({
+                "running": True, "finished": None,
+                "started": datetime.now(timezone.utc).isoformat(),
+                "queue": [{"key": s["key"], "label": s["label"], "state": "pending"}
+                          for s in _scanall_specs()],
+            })
+    # scanall_status() re-acquires the (non-reentrant) lock — call it only
+    # after the with-block above has released it.
+    if not claimed:
+        return {"started": False, "reason": "already running",
+                **scanall_status()}
+    threading.Thread(target=_scanall_worker, args=(syms, force),
+                     daemon=True, name="scan-all").start()
+    return {"started": True, **scanall_status()}
+
+
+def scanall_status() -> dict:
+    # timestamps are *_at so they never collide with the boolean "started"
+    # flag in scanall_start's response envelope
+    with _SCANALL_LOCK:
+        return {"running": _SCANALL_STATE["running"],
+                "started_at": _SCANALL_STATE["started"],
+                "finished_at": _SCANALL_STATE["finished"],
+                "queue": [dict(q) for q in _SCANALL_STATE["queue"]]}
+
 
 def _em_history_prev_and_save(symbol: str, expiry: str, snap: dict) -> dict | None:
     """Return the most recent stored EM snapshot for (symbol, expiry) and then
@@ -7995,7 +8247,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 days = 14
             days = max(1, min(45, days))
             try:
-                self._send_json(build_watchlist_earnings(days))
+                self._send_json(_mc_snapshot("earnings", days))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/market_calendar/earnings", exc)
                 self._send_json({"error": str(exc), "entries": []}, status=500)
@@ -8020,7 +8272,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 days = 21
             days = max(1, min(45, days))
             try:
-                self._send_json(build_economic_calendar(days))
+                self._send_json(_mc_snapshot("economic", days))
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/market_calendar/economic", exc)
                 self._send_json({"error": str(exc), "events": []}, status=500)
@@ -8288,12 +8540,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             try:
                 # Reuse the app's Schwab-first, cached daily history (already
                 # warm from loading the symbol on Trade) instead of letting
-                # swings do a fresh yfinance 1y download — the slow part of
-                # opening Patterns. Only for the default 1y window.
+                # swings do a fresh yfinance download — the slow part of
+                # opening Patterns. 2y = 520 bars (v3.98: deeper pattern
+                # history when zooming out).
                 bars = None
-                if period == "1y":
+                if period in ("1y", "2y"):
                     try:
-                        bars = load_daily(symbol, 260)
+                        bars = load_daily(symbol, 520 if period == "2y" else 260)
                     except Exception:
                         bars = None
                 res = _swings.analyze(symbol, period=period, pct=pctc,
@@ -8799,6 +9052,27 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 })
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/playbook/scan", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/scan_all":
+            qs = parse_qs(parsed.query)
+            force = qs.get("force", ["0"])[0] in ("1", "true", "yes")
+            try:
+                wl = _load_watchlist()
+                syms = [s.get("symbol") for s in (wl.get("symbols") or []) if s.get("symbol")]
+            except Exception:  # noqa: BLE001
+                syms = []
+            try:
+                self._send_json(scanall_start(syms, force=force), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/scan_all", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/scan_all/status":
+            try:
+                self._send_json(scanall_status(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/scan_all/status", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/movers":

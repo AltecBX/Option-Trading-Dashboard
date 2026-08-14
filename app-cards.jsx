@@ -843,7 +843,15 @@ function AnalystBoardCard({ apiFetch, onSwitchTicker }) {
   };
 
   useEffect(() => {
-    load();
+    // v3.98: resume polling when a scan is already in flight (Scan-all).
+    load().then(d => {
+      if (d && d.status && d.status.scanning && !pollRef.current) {
+        pollRef.current = setInterval(async () => {
+          const dd = await load();
+          if (!dd || !dd.status || !dd.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+        }, 4000);
+      }
+    });
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
@@ -1338,7 +1346,7 @@ function makeSwingDatafeed(apiFetch) {
       supported_resolutions: ["1D"], volume_precision: 0, data_status: "streaming",
     }), 0),
     getBars: (symbolInfo, _res, periodParams, onResult, onError) => {
-      apiFetch(`/api/swings?symbol=${encodeURIComponent(symbolInfo.name)}`)
+      apiFetch(`/api/swings?symbol=${encodeURIComponent(symbolInfo.name)}&period=2y`)
         .then(r => r.json())
         .then(d => {
           const bars = (d.bars || [])
@@ -1981,7 +1989,7 @@ function SwingPatternCard({ apiFetch, ticker }) {
     if (!sym) return;
     setLoading(true); setErr(null);
     try {
-      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(sym)}&pct=${pct}`);
+      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(sym)}&pct=${pct}&period=2y`);
       const d = await r.json();
       if (d.error) setErr(d.error); else setData(d);
     } catch (e) { setErr(String(e)); }
@@ -3560,6 +3568,50 @@ function PlaybookCard({ apiFetch, onSwitchTicker }) {
   );
 }
 
+// Shared "Scan all" widget (v3.98): one button that drives the server-side
+// sequential orchestrator (/api/scan_all). The server runs the board
+// scanners ONE AT A TIME and skips any board whose last scan is still
+// fresh — fewer provider calls than clicking each button, never a burst.
+function ScanAllButton({ apiFetch, label = "Scan all" }) {
+  const [st, setSt] = useState(null);
+  const pollRef = useRef(null);
+  const poll = async () => {
+    try {
+      const r = await apiFetch("/api/scan_all/status", { noCache: true });
+      const d = await r.json();
+      setSt(d);
+      if (!d.running && pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return d;
+    } catch (e) { return null; }
+  };
+  useEffect(() => {
+    poll().then(d => { if (d && d.running && !pollRef.current) pollRef.current = setInterval(poll, 4000); });
+    return () => pollRef.current && clearInterval(pollRef.current);
+  }, []);
+  const start = async () => {
+    try { await apiFetch("/api/scan_all", { noCache: true }); } catch (e) { return; }
+    await poll();
+    if (!pollRef.current) pollRef.current = setInterval(poll, 4000);
+  };
+  const running = !!(st && st.running);
+  const q = (st && st.queue) || [];
+  const cur = q.find(x => x.state === "running");
+  const doneN = q.filter(x => x.state === "done" || x.state === "skipped").length;
+  return (
+    <span className="scanall">
+      <button className="scan-run-btn" onClick={start} disabled={running}
+              title="Runs every board scanner in sequence — one at a time so provider limits are never burst — and SKIPS any board scanned recently (movers 10 min, price scans 6 h, analyst sweep 20 h). Cheaper than clicking each button.">
+        {running ? (cur ? `Scanning ${cur.label}… ${doneN}/${q.length}` : `Scanning… ${doneN}/${q.length}`) : label}
+      </button>
+      {st && !running && q.length > 0 && st.finished_at && (
+        <span className="scanall-note" title={q.map(x => `${x.label}: ${x.state}${x.note ? ` (${x.note})` : ""}`).join(" · ")}>
+          last run: {q.filter(x => x.state === "done").length} scanned · {q.filter(x => x.state === "skipped").length} still fresh
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ScreenersHub({ apiFetch, onSwitchTicker }) {
   const KEY = "jerry_screener_sub_v1";
   const [sub, setSub] = useState(() => {
@@ -3582,6 +3634,7 @@ function ScreenersHub({ apiFetch, onSwitchTicker }) {
             {s.label}
           </button>
         ))}
+        <ScanAllButton apiFetch={apiFetch} />
       </div>
       {sub === "playbook" && <PlaybookCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
       {sub === "analyst" && <AnalystBoardCard apiFetch={apiFetch} onSwitchTicker={onSwitchTicker} />}
@@ -3591,6 +3644,7 @@ function ScreenersHub({ apiFetch, onSwitchTicker }) {
     </div>
   );
 }
+Object.assign(window, { ScanAllButton });
 
 // ── Weekly range location scan (v3.55) ─────────────────────────────────────
 // The Weekly Option Selling Setup panel's range math, run across the whole
@@ -3773,7 +3827,19 @@ function IVRankCard({ apiFetch, onSwitchTicker }) {
     try { const r = await apiFetch("/api/ivrank"); const d = await r.json(); setBoard(d); return d; }
     catch (e) { setErr(String(e)); return null; }
   };
-  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  // v3.98: if a scan is already in flight (e.g. the Scan-all button started
+  // it), resume polling so this board fills in live instead of sitting stale.
+  useEffect(() => {
+    load().then(d => {
+      if (d && d.status && d.status.scanning && !pollRef.current) {
+        pollRef.current = setInterval(async () => {
+          const dd = await load();
+          if (!dd || !dd.status || !dd.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+        }, 4000);
+      }
+    });
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
   const startScan = async () => {
     setErr(null);
     try { await apiFetch("/api/ivrank/scan?force=1"); } catch (e) { setErr(String(e)); return; }
@@ -3917,7 +3983,19 @@ function TrendCard({ apiFetch, onSwitchTicker }) {
     try { const r = await apiFetch("/api/trend"); const d = await r.json(); setBoard(d); return d; }
     catch (e) { setErr(String(e)); return null; }
   };
-  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  // v3.98: if a scan is already in flight (e.g. the Scan-all button started
+  // it), resume polling so this board fills in live instead of sitting stale.
+  useEffect(() => {
+    load().then(d => {
+      if (d && d.status && d.status.scanning && !pollRef.current) {
+        pollRef.current = setInterval(async () => {
+          const dd = await load();
+          if (!dd || !dd.status || !dd.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+        }, 4000);
+      }
+    });
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
   const startScan = async () => {
     setErr(null);
     try { await apiFetch("/api/trend/scan?force=1"); } catch (e) { setErr(String(e)); return; }
@@ -4072,7 +4150,19 @@ function MoversCard({ apiFetch, onSwitchTicker }) {
     try { const r = await apiFetch("/api/movers"); const d = await r.json(); setBoard(d); return d; }
     catch (e) { setErr(String(e)); return null; }
   };
-  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  // v3.98: if a scan is already in flight (e.g. the Scan-all button started
+  // it), resume polling so this board fills in live instead of sitting stale.
+  useEffect(() => {
+    load().then(d => {
+      if (d && d.status && d.status.scanning && !pollRef.current) {
+        pollRef.current = setInterval(async () => {
+          const dd = await load();
+          if (!dd || !dd.status || !dd.status.scanning) { clearInterval(pollRef.current); pollRef.current = null; }
+        }, 4000);
+      }
+    });
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   const startScan = async () => {
     setErr(null);
