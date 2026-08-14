@@ -11448,3 +11448,113 @@ a.tabsheet-btn.site { text-decoration: none; }
 @media (max-width: 760px) {
   .scanall-note { display: none; }
 }
+/* ── Ask AI tab (v4.00) ───────────────────────────────────────────────────
+   Theme-variable based (light + dark + accent presets), mirroring the
+   Backtest Lab's input/warning styling so both NL surfaces feel like one. */
+.ask-tab { display: flex; flex-direction: column; gap: 14px; }
+.ask-card .card-head { margin-bottom: 8px; }
+.ask-inputrow { display: flex; gap: 8px; align-items: stretch; }
+.ask-input { flex: 1; resize: vertical; min-height: 56px;
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; font-size: 15px; line-height: 1.4;
+  font-family: var(--font-body, inherit); }
+.ask-input:focus { outline: none; border-color: var(--accent); }
+.ask-go { border-color: var(--accent) !important; color: var(--accent) !important;
+  font-weight: 700; min-width: 74px; }
+.ask-exrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ask-ex { border: 1px solid var(--line); background: transparent; color: var(--fg-2);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-ex:hover { color: var(--fg); border-color: var(--accent); }
+.ask-ex.hist { border-style: dashed; }
+.ask-tags { margin-top: 8px; font-size: 12px; color: var(--fg-2);
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ask-tag { border: 1px solid color-mix(in oklch, var(--accent) 45%, transparent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  color: var(--fg); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+
+.ask-result { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.ask-interp { display: flex; flex-direction: column; gap: 6px; }
+.ask-restate { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  font-size: 14px; line-height: 1.4; }
+.ask-src { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700;
+  letter-spacing: 0.02em; }
+.ask-src.ai { background: color-mix(in oklch, #22c55e 14%, transparent);
+  color: #16a34a; border: 1px solid color-mix(in oklch, #22c55e 45%, transparent); }
+.ask-src.gr { background: color-mix(in oklch, #eab308 12%, transparent);
+  color: #a16207; border: 1px solid color-mix(in oklch, #eab308 45%, transparent); }
+.ask-intent { font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 45%, transparent);
+  text-transform: uppercase; font-weight: 700; }
+.ask-assume { font-size: 12.5px; color: #a16207; }
+.ask-warns { font-size: 12.5px; margin-top: 4px; color: #b45309; }
+.ask-unsup { font-size: 12.5px; margin-top: 4px; color: #dc2626; }
+.ask-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ask-primary { background: color-mix(in oklch, var(--accent) 16%, transparent) !important;
+  border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 700; }
+.ask-savemsg { margin-top: 8px; font-size: 12.5px; color: #16a34a; }
+.ask-refinerow { display: flex; gap: 8px; margin-top: 12px; }
+.ask-refine { flex: 1; padding: 8px 12px; background: var(--bg-3); color: var(--fg);
+  border: 1px dashed var(--line); border-radius: 8px; font-size: 13.5px;
+  font-family: var(--font-body, inherit); }
+.ask-refine:focus { outline: none; border-color: var(--accent); border-style: solid; }
+.ask-scanprog { margin-top: 12px; font-size: 13px; color: var(--fg-2); }
+
+.ask-board { margin-top: 12px; }
+.ask-board-head { font-size: 14px; margin-bottom: 6px; }
+.ask-asof { color: var(--fg-2); font-size: 12px; }
+.ask-empty { font-size: 13px; color: var(--fg-2); padding: 8px 0; }
+.ask-tbl-wrap { overflow-x: auto; }
+.ask-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ask-tbl th { text-align: left; color: var(--fg-2); font-weight: 600;
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.ask-tbl td { padding: 7px 8px; vertical-align: top;
+  border-bottom: 1px solid color-mix(in oklch, var(--line) 55%, transparent); }
+.ask-tbl td.up { color: #16a34a; } .ask-tbl td.down { color: #dc2626; }
+.ask-sym { background: none; border: none; color: var(--accent); font-weight: 700;
+  font-size: 13.5px; cursor: pointer; padding: 0; }
+.ask-sym:hover { text-decoration: underline; }
+.ask-checks { display: flex; flex-wrap: wrap; gap: 4px; }
+.ask-chk { font-size: 11.5px; padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+.ask-chk.ok { background: color-mix(in oklch, #22c55e 13%, transparent); color: #15803d; }
+.ask-chk.no { background: color-mix(in oklch, #ef4444 12%, transparent); color: #b91c1c; }
+.ask-chk.na { background: color-mix(in oklch, var(--fg-2) 14%, transparent); color: var(--fg-2); }
+.ask-missed { font-size: 12px; color: #b45309; }
+.ask-nm-title { margin: 12px 0 4px; font-size: 12px; color: var(--fg-2);
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.ask-help { margin-top: 10px; font-size: 13.5px; display: flex; flex-direction: column; gap: 5px; }
+.ask-help-note { color: var(--fg-2); font-size: 12.5px; margin-top: 4px; }
+.ask-foot { margin-top: 14px; font-size: 12px; color: var(--fg-2);
+  border-top: 1px solid var(--line); padding-top: 8px; }
+
+.ask-saved .card-head { margin-bottom: 6px; }
+.ask-saved-row { display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--line) 55%, transparent); }
+.ask-saved-row:last-child { border-bottom: none; }
+.ask-bell { background: none; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 15px; padding: 4px 7px; cursor: pointer; opacity: 0.55; }
+.ask-bell.on { opacity: 1; border-color: var(--accent); }
+.ask-saved-main { flex: 1; min-width: 0; }
+.ask-saved-name { font-size: 13.5px; font-weight: 700; }
+.ask-saved-sub { font-size: 12px; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; }
+.ask-del { color: #dc2626; }
+
+/* phones: full-width tap targets, results stay scannable one-handed */
+@media (max-width: 760px) {
+  .ask-inputrow { flex-direction: column; }
+  .ask-go { min-height: 44px; }
+  .ask-input { font-size: 16px; }   /* stops iOS focus-zoom */
+  .ask-refine { font-size: 16px; }
+  .ask-actions .rr-btn { min-height: 40px; flex: 1 1 45%; }
+  .ask-saved-sub { white-space: nowrap; }
+}
+
+/* Lab integration (v4.00): AI read-back line above the rule editors */
+.bt-restate { margin: 4px 0 8px; }
+.bt-assume { color: #a16207; }
+
+/* Mobile header: Ask AI shortcut */
+.mh-ask { font-size: 15px; color: var(--accent); }

@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "3.98";
+const APP_VERSION = "4.00";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3756,6 +3756,11 @@ function App() {
   }, _mhChg >= 0 ? "▲" : "▼", " ", Math.abs(_mhChg).toFixed(2), "%"))), /*#__PURE__*/React.createElement("span", {
     className: "mh-section"
   }, loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel), /*#__PURE__*/React.createElement("button", {
+    className: "mh-btn mh-ask",
+    "aria-label": "Ask AI",
+    title: "Ask AI \u2014 describe a scan, backtest, or alert in plain English.",
+    onClick: () => changeTab("ask")
+  }, "\u2726"), /*#__PURE__*/React.createElement("button", {
     className: `mh-btn mh-refresh${_isStale ? " stale" : ""}`,
     "aria-label": "Refresh",
     title: lastFetched ? `Updated ${_staleMin || 0}m ago` : "Refresh",
@@ -4402,6 +4407,31 @@ function App() {
       changeTab("trade");
     },
     onMarkLevels: setRcvLevels
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "ask",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Ask AI"
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-ask",
+    component: "AskTab",
+    label: "Ask AI",
+    apiFetch: apiFetch,
+    onOpenTicker: sym => {
+      switchTicker(sym);
+      changeTab("trade");
+    },
+    onOpenBacktest: rules => {
+      // Same handoff channel Pattern Discovery uses: the Lab
+      // reads the event when mounted, localStorage when not.
+      try {
+        localStorage.setItem("jerry_bt_prefill", JSON.stringify(rules));
+      } catch (e) {}
+      window.dispatchEvent(new CustomEvent("jerry-bt-load", {
+        detail: rules
+      }));
+      changeTab("backtest");
+    }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "breadth",
     active: activeTab

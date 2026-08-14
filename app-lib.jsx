@@ -98,6 +98,7 @@ class CardErrorBoundary extends React.Component {
 
 const TABS = [
   { id: "trade", label: "Trade" },
+  { id: "ask", label: "Ask AI" },
   { id: "discover", label: "Discover" },
   { id: "analyze", label: "Analyze" },
   { id: "patterns", label: "Patterns" },

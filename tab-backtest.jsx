@@ -541,6 +541,7 @@ function BacktestCard({ apiFetch }) {
   const [pinned, setPinned] = useState(null);         // B4: A/B comparison
   const [jsonDraft, setJsonDraft] = useState("");
   const [showTrades, setShowTrades] = useState(false);
+  const [nlMeta, setNlMeta] = useState(null);   // v4.00: AI-translate read-back
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -567,12 +568,18 @@ function BacktestCard({ apiFetch }) {
   const interpret = () => {
     setErr(null); setBusy(true); setResult(result); setProgress(null);
     try { localStorage.setItem("jerry_bt_text", text); } catch (e) {}
-    apiFetch("/api/backtest/parse", { method: "POST", body: JSON.stringify({ text }) })
+    // v4.00: the NL endpoint — OpenAI translation when a key is set, the
+    // same deterministic grammar otherwise. Response is a superset of the
+    // old /api/backtest/parse shape.
+    apiFetch("/api/nl/translate", { method: "POST", body: JSON.stringify({ text }) })
       .then(r => r.json())
       .then(d => {
         setBusy(false);
         if (d.error) { setErr(d.error); return; }
-        setRulesAnd(d.rules); setParseWarns(d.warnings || []); setUnparsed(d.unparsed || []);
+        setRulesAnd(d.rules); setParseWarns(d.warnings || []);
+        setUnparsed(d.unparsed || (d.unsupported || []).map(u => u.reason ? `${u.text} — ${u.reason}` : u.text));
+        setNlMeta({ source: d.source, model: d.model, restate: d.restate,
+                    assumptions: d.assumptions || [] });
       })
       .catch(e => { setBusy(false); setErr(String(e)); });
   };
@@ -633,8 +640,20 @@ function BacktestCard({ apiFetch }) {
       {rules && (
         <div className="bt-rules">
           <div className="bt-sec-title" title="These are the EXACT rules the engine will run — edit any number, remove any rule, or add one. If a clause of your text was not understood it is listed below in amber, not silently guessed.">Rules (review & edit)</div>
-          {(parseWarns.length > 0 || unparsed.length > 0) && (
+          {nlMeta && nlMeta.restate && (
+            <div className="ask-restate bt-restate">
+              <span className={`ask-src ${nlMeta.source === "ai" || nlMeta.source === "cache" ? "ai" : "gr"}`}
+                    title={nlMeta.source === "ai" || nlMeta.source === "cache"
+                      ? "Translated by your OpenAI key, then validated and clamped by the app. Only your words and tag names were sent."
+                      : "Translated by the app's built-in deterministic grammar."}>
+                {nlMeta.source === "ai" ? `AI · ${nlMeta.model || "OpenAI"}` : nlMeta.source === "cache" ? "AI (cached)" : "strict parser"}
+              </span>
+              <b title="The app's read-back of the validated rules — built from what will actually run.">{nlMeta.restate}</b>
+            </div>
+          )}
+          {(parseWarns.length > 0 || unparsed.length > 0 || (nlMeta && nlMeta.assumptions.length > 0)) && (
             <div className="bt-warn">
+              {nlMeta && nlMeta.assumptions.map((a, i) => <div key={"a" + i} className="bt-assume" title="A default the translator chose for fuzzy wording — edit the rule below if it's wrong.">• assumed: {a}</div>)}
               {parseWarns.map((w, i) => <div key={i} title="A limitation or assumption you should know about before trusting results.">⚠ {w}</div>)}
               {unparsed.map((u, i) => <div key={"u" + i} title="This part of your text matched no known rule pattern. Add it manually below or rephrase.">✎ not understood: “{u}”</div>)}
             </div>
