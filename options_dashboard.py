@@ -4767,6 +4767,58 @@ except Exception as _exc:  # noqa: BLE001
     _RECOVERY_AVAILABLE = False
     _recovery = None  # type: ignore
 
+
+# ── "Ask AI" natural-language layer (v4.00) ─────────────────────────────────
+# Plain English → the Backtest Lab's rule JSON (OpenAI key optional; strict
+# grammar fallback) + a universal latest-bar scanner over the same rules.
+def _nl_tags() -> dict:
+    """{tag: [SYMBOLS]} from the user's imported CSV tags (watchlist table
+    board rows — the same source the Recovery tab's TAG column uses), merged
+    with any per-symbol tag lists on the watchlist itself."""
+    out: dict[str, list] = {}
+
+    def add(tag, sym):
+        tag = str(tag).strip()
+        sym = str(sym).upper().strip()
+        if not tag or not sym:
+            return
+        out.setdefault(tag, [])
+        if sym not in out[tag]:
+            out[tag].append(sym)
+
+    try:
+        board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
+        for r in board.get("rows") or []:
+            if r.get("tag"):
+                add(r["tag"], r.get("symbol"))
+    except Exception:
+        pass
+    try:
+        for s in (_load_watchlist().get("symbols") or []):
+            for t in (s.get("tags") or []):
+                add(t, s.get("symbol"))
+    except Exception:
+        pass
+    return out
+
+
+try:
+    import nl_engine as _nl
+    _nl.configure(
+        data_dir=_STABLE_DIR,
+        universe_fn=_backtest_universe,
+        tags_fn=_nl_tags,
+        bars_fn=lambda sym, days: load_daily(sym, days),
+        push_fn=lambda title, msg: (_push_notify(title, msg, priority=0)
+                                    if _push_configured() else None),
+        et_tz=_ET,
+    )
+    _NL_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[nl_engine] wiring failed: {_exc}", file=sys.stderr)
+    _NL_AVAILABLE = False
+    _nl = None  # type: ignore
+
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
 import patterns as _patterns
 
@@ -6883,6 +6935,93 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        if parsed.path == "/api/nl/translate":
+            # Ask AI (v4.00): plain English → validated rule JSON. Never
+            # raises; degrades to the strict grammar without a key.
+            try:
+                if not _NL_AVAILABLE:
+                    self._send_json({"error": "NL engine unavailable"}, status=503)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 100_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                base = payload.get("base_rules")
+                self._send_json(_nl.translate(payload.get("text") or "",
+                                              base_rules=base if isinstance(base, dict) else None),
+                                no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/nl/scan":
+            try:
+                if not _NL_AVAILABLE:
+                    self._send_json({"error": "NL engine unavailable"}, status=503)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 200_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                sid = payload.get("strategy_id")
+                rules = payload.get("rules")
+                if sid and not isinstance(rules, dict):
+                    item = _nl.get_strategy(str(sid))
+                    if not item:
+                        raise ValueError("strategy not found")
+                    rules = item.get("rules")
+                if not isinstance(rules, dict):
+                    raise ValueError("rules object (or strategy_id) required")
+                self._send_json(_nl.start_scan(rules, strategy_id=str(sid) if sid else None),
+                                no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/nl/strategies":
+            try:
+                if not _NL_AVAILABLE:
+                    self._send_json({"error": "NL engine unavailable"}, status=503)
+                    return
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 200_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                op = payload.get("op")
+                if op == "save":
+                    rules = payload.get("rules")
+                    if not isinstance(rules, dict):
+                        raise ValueError("rules object required")
+                    self._send_json(_nl.save_strategy(
+                        str(payload.get("name") or ""), str(payload.get("text") or ""),
+                        rules, str(payload.get("intent") or "scan"),
+                        restated=str(payload.get("restate") or ""),
+                        alert=bool(payload.get("alert"))), no_store=True)
+                elif op == "delete":
+                    self._send_json(_nl.delete_strategy(str(payload.get("id") or "")),
+                                    no_store=True)
+                elif op == "update":
+                    self._send_json(_nl.update_strategy(
+                        str(payload.get("id") or ""),
+                        name=payload.get("name"),
+                        alert_enabled=payload.get("alert_enabled")), no_store=True)
+                else:
+                    raise ValueError("op must be save|delete|update")
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
+        if parsed.path == "/api/nl/alerts/check":
+            # Manual "check alerts now" — runs on a thread (a full-universe
+            # scan can outlive a proxy timeout); the strategies list shows
+            # last_checked when it lands.
+            try:
+                if not _NL_AVAILABLE:
+                    self._send_json({"error": "NL engine unavailable"}, status=503)
+                    return
+                threading.Thread(target=lambda: _nl.check_alerts(force=True),
+                                 name="nl-alerts-manual", daemon=True).start()
+                self._send_json({"started": True}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, status=400)
+            return
         if parsed.path == "/api/plans":
             # Backtest v2 (B5): create a live trading plan from a completed,
             # validated result. A plan is a checklist — never automation.
@@ -8776,6 +8915,38 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/range_scan/scan", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/nl/status":
+            if not _NL_AVAILABLE:
+                self._send_json({"error": "NL engine unavailable", "ai": False}, status=503)
+                return
+            try:
+                self._send_json(_nl.status(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/nl/status", exc)
+                self._send_json({"error": str(exc), "ai": False}, status=500)
+            return
+        if parsed.path == "/api/nl/board":
+            if not _NL_AVAILABLE:
+                self._send_json({"error": "NL engine unavailable"}, status=503)
+                return
+            try:
+                qs = parse_qs(parsed.query)
+                sid = (qs.get("strategy_id", [""])[0] or "").strip() or None
+                self._send_json(_nl.get_board(sid), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/nl/board", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/nl/strategies":
+            if not _NL_AVAILABLE:
+                self._send_json({"error": "NL engine unavailable", "items": []}, status=503)
+                return
+            try:
+                self._send_json(_nl.list_strategies(), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/nl/strategies", exc)
+                self._send_json({"error": str(exc), "items": []}, status=500)
             return
         if parsed.path == "/api/recovery":
             if not _RECOVERY_AVAILABLE:
@@ -11075,6 +11246,14 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _wltable.start_scheduler(_wlt_syms)
         except Exception as exc:  # noqa: BLE001
             print(f"[watchlist_table] scheduler start failed: {exc}", file=sys.stderr)
+    # Ask-AI saved-strategy alerts: one pass after the close each weekday.
+    # Costs nothing while no alerts are enabled (the loop checks and skips
+    # without fetching any data).
+    if _NL_AVAILABLE:
+        try:
+            _nl.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[nl_engine] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;

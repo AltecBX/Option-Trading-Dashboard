@@ -893,6 +893,7 @@ function BacktestCard({
   const [pinned, setPinned] = useState(null); // B4: A/B comparison
   const [jsonDraft, setJsonDraft] = useState("");
   const [showTrades, setShowTrades] = useState(false);
+  const [nlMeta, setNlMeta] = useState(null); // v4.00: AI-translate read-back
   const pollRef = useRef(null);
   useEffect(() => {
     // Restore the last completed backtest so results survive reloads.
@@ -929,7 +930,10 @@ function BacktestCard({
     try {
       localStorage.setItem("jerry_bt_text", text);
     } catch (e) {}
-    apiFetch("/api/backtest/parse", {
+    // v4.00: the NL endpoint — OpenAI translation when a key is set, the
+    // same deterministic grammar otherwise. Response is a superset of the
+    // old /api/backtest/parse shape.
+    apiFetch("/api/nl/translate", {
       method: "POST",
       body: JSON.stringify({
         text
@@ -942,7 +946,13 @@ function BacktestCard({
       }
       setRulesAnd(d.rules);
       setParseWarns(d.warnings || []);
-      setUnparsed(d.unparsed || []);
+      setUnparsed(d.unparsed || (d.unsupported || []).map(u => u.reason ? `${u.text} — ${u.reason}` : u.text));
+      setNlMeta({
+        source: d.source,
+        model: d.model,
+        restate: d.restate,
+        assumptions: d.assumptions || []
+      });
     }).catch(e => {
       setBusy(false);
       setErr(String(e));
@@ -1034,9 +1044,20 @@ function BacktestCard({
   }, /*#__PURE__*/React.createElement("div", {
     className: "bt-sec-title",
     title: "These are the EXACT rules the engine will run \u2014 edit any number, remove any rule, or add one. If a clause of your text was not understood it is listed below in amber, not silently guessed."
-  }, "Rules (review & edit)"), (parseWarns.length > 0 || unparsed.length > 0) && /*#__PURE__*/React.createElement("div", {
+  }, "Rules (review & edit)"), nlMeta && nlMeta.restate && /*#__PURE__*/React.createElement("div", {
+    className: "ask-restate bt-restate"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `ask-src ${nlMeta.source === "ai" || nlMeta.source === "cache" ? "ai" : "gr"}`,
+    title: nlMeta.source === "ai" || nlMeta.source === "cache" ? "Translated by your OpenAI key, then validated and clamped by the app. Only your words and tag names were sent." : "Translated by the app's built-in deterministic grammar."
+  }, nlMeta.source === "ai" ? `AI · ${nlMeta.model || "OpenAI"}` : nlMeta.source === "cache" ? "AI (cached)" : "strict parser"), /*#__PURE__*/React.createElement("b", {
+    title: "The app's read-back of the validated rules \u2014 built from what will actually run."
+  }, nlMeta.restate)), (parseWarns.length > 0 || unparsed.length > 0 || nlMeta && nlMeta.assumptions.length > 0) && /*#__PURE__*/React.createElement("div", {
     className: "bt-warn"
-  }, parseWarns.map((w, i) => /*#__PURE__*/React.createElement("div", {
+  }, nlMeta && nlMeta.assumptions.map((a, i) => /*#__PURE__*/React.createElement("div", {
+    key: "a" + i,
+    className: "bt-assume",
+    title: "A default the translator chose for fuzzy wording \u2014 edit the rule below if it's wrong."
+  }, "\u2022 assumed: ", a)), parseWarns.map((w, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
     title: "A limitation or assumption you should know about before trusting results."
   }, "\u26A0 ", w)), unparsed.map((u, i) => /*#__PURE__*/React.createElement("div", {

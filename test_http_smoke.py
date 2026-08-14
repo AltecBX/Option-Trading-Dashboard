@@ -203,6 +203,9 @@ for p in [
     "/api/recovery/scan",
     "/api/scan_all",
     "/api/scan_all/status",
+    "/api/nl/status",
+    "/api/nl/board",
+    "/api/nl/strategies",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",
@@ -256,6 +259,14 @@ hit("POST", "/api/watchlist_alerts/dismiss", {"id": "smoke-test-id"})
 hit("POST", "/api/whisper/manual", {"symbol": S, "source": "smoke-test", "eps": 1.23,
                                     "url": "https://example.com/note"})
 hit("POST", "/api/push/test", {})
+hit("POST", "/api/nl/translate", {"text": "stocks down 3% today on double volume"})
+hit("POST", "/api/nl/scan", {"rules": {"universe": {"source": "symbols", "symbols": [S]},
+                                       "entry": [{"type": "day_change_pct", "op": "<=",
+                                                  "value": -3}]}})
+hit("POST", "/api/nl/strategies", {"op": "save", "name": "smoke", "rules":
+                                   {"entry": [{"type": "rsi", "op": "<=", "value": 30,
+                                               "period": 14}]}})
+hit("POST", "/api/nl/alerts/check", {})
 hit("POST", "/api/push/roll_flag", {"symbol": S, "strike": 105, "kind": "call"})
 
 # PUT watchlist — force=1 to bypass the destructive-shrink guard (this test
