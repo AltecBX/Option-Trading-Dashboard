@@ -11439,3 +11439,12 @@ a.tabsheet-btn.site { text-decoration: none; }
   }
   .swing-chart { height: 360px; }
 }
+
+/* ── Scan-everything strip + Scan-all button (v3.98) ─────────────────────── */
+.scanall-card { margin-bottom: var(--row-gap); }
+.scanall { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.screener-subnav .scanall { margin-left: auto; }
+.scanall-note { font-size: 10.5px; color: var(--fg-3); white-space: nowrap; }
+@media (max-width: 760px) {
+  .scanall-note { display: none; }
+}

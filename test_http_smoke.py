@@ -201,6 +201,8 @@ for p in [
     "/api/ewhispers/image?id=12345&size=large",
     "/api/recovery",
     "/api/recovery/scan",
+    "/api/scan_all",
+    "/api/scan_all/status",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",
