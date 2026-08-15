@@ -17,10 +17,16 @@ from datetime import date, datetime, time as _dtime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import intraday
 import timing_engine as te
 import intraday_option_store as tape
 
 ET = ZoneInfo("America/New_York")
+
+# evaluate() hard-blocks whenever the market is closed (§15). The suite
+# must be deterministic at any run time, so the harness holds the market
+# open for the whole process.
+intraday.market_open = lambda now=None: True
 
 
 def _future_friday(days_min: int = 3) -> str:
@@ -293,6 +299,23 @@ class TestEvaluate(unittest.TestCase):
         self.assertLessEqual(st["score"], 40)
         self.assertNotIn(st["state"], ("SELL ZONE", "STRONG SELL ZONE"))
         self.assertIn("hazardous", st["reason"])
+
+    def test_market_closed_blocks_before_stale_quote(self):
+        """Weekend/after-hours: the block reason is market_closed (calm,
+        expected), never stale_quote (alarming) — frozen quotes outside
+        the session are the definition of a closed market, not a fault."""
+        h = Harness(chain=make_chain(quote_age=94608))   # Friday's close, seen Saturday
+        exp = h.chain["expirations"][0]
+        was = intraday.market_open
+        intraday.market_open = lambda now=None: False
+        try:
+            st = te.evaluate("TST", 945.0, "call", exp, force=True)
+        finally:
+            intraday.market_open = was
+        self.assertEqual(st["state"], "BLOCKED")
+        self.assertEqual(st["blocked"]["code"], "market_closed")
+        self.assertIn("stays watched", st["blocked"]["detail"])
+        self.assertIn(exp, st["blocked"]["detail"])
 
     def test_clock_drift_blocks(self):
         """Acceptance 22: drift beyond the bound blocks and says why."""
