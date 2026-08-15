@@ -1194,8 +1194,17 @@ def _evaluate_uncached(symbol, strike, kind, expiry, contracts, cfg, cfg_hash) -
         is_open = _intra.market_open(now if _ET else None)
     except Exception:
         is_open = now.weekday() < 5 and _dtime(9, 30) <= now.time() < _dtime(16, 0)
-    if not is_open and exp_d == now.date():
-        return blocked("market_closed", "market closed")
+    if not is_open:
+        # Hard block whenever the market is closed (§15) — and say THAT,
+        # not "stale quote": outside the session every quote is frozen at
+        # the last close by definition, and timing a frozen market is
+        # meaningless. Watching resumes automatically at the next open.
+        detail = ("market closed — quotes are frozen at the last session's "
+                  "close, so there is nothing live to time. This contract "
+                  "stays watched; evaluation and alerts resume at the open")
+        if exp_d != now.date():
+            detail += f" (decision day: {exp_d.isoformat()})"
+        return blocked("market_closed", detail)
     ev = _event_context(now, cfg)
     if ev["block"]:
         return blocked("event_window", f"blocked by configured event window: {ev['block']}")
