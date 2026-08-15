@@ -206,6 +206,15 @@ for p in [
     "/api/nl/status",
     "/api/nl/board",
     "/api/nl/strategies",
+    "/api/timing/status",
+    "/api/timing/contracts",
+    "/api/timing/config",
+    "/api/timing/tape/status",
+    f"/api/timing/state?symbol={S}&strike=100&kind=call&expiry=2030-01-18",
+    "/api/timing/fills",
+    "/api/timing/post_trade",
+    "/api/timing/replay?id=nonexistent",
+    "/api/timing/replay_day?day=2026-08-14",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",
@@ -267,6 +276,21 @@ hit("POST", "/api/nl/strategies", {"op": "save", "name": "smoke", "rules":
                                    {"entry": [{"type": "rsi", "op": "<=", "value": 30,
                                                "period": 14}]}})
 hit("POST", "/api/nl/alerts/check", {})
+hit("POST", "/api/timing/candidates", {"symbol": S, "expiry": "2030-01-18",
+                                       "kind": "put", "strike": 95.0, "contracts": 2})
+hit("POST", "/api/timing/fill", {"symbol": S, "expiry": "2030-01-18", "kind": "put",
+                                 "strike": 95.0, "credit": 1.25, "contracts": 2,
+                                 "mode": "resting"})
+hit("POST", "/api/timing/intent", {"symbol": S, "kind": "put",
+                                   "intent": "wheel_acceptable"})
+hit("POST", "/api/timing/portfolio", {"legs": [{"symbol": S, "strike": 95.0,
+                                                "kind": "put", "expiry": "2030-01-18",
+                                                "credit": 1.25, "contracts": 2}]})
+hit("POST", "/api/timing/manage", {"positions": [{"symbol": S, "strike": 95.0,
+                                                  "kind": "put", "expiry": "2030-01-18",
+                                                  "credit": 1.25, "contracts": 2}]})
+hit("POST", "/api/timing/replay_day", {"day": "2020-01-03", "trades": [
+    {"symbol": S, "strike": 100.0, "kind": "call", "credit": 1.0}]})
 hit("POST", "/api/push/roll_flag", {"symbol": S, "strike": 105, "kind": "call"})
 
 # PUT watchlist — force=1 to bypass the destructive-shrink guard (this test

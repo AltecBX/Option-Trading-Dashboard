@@ -414,6 +414,14 @@ class SchwabClient:
             self._req_log.append(now)
         return True
 
+    def rate_usage(self) -> int:
+        """Requests issued in the sliding 60s window (the same accounting
+        _rate_check enforces the 110/min self-cap with). Read-only; the
+        0DTE tape's degradation ladder keys off this."""
+        now = time.time()
+        with self._lock:
+            return sum(1 for t in self._req_log if now - t < 60)
+
     # ── Cache helpers ───────────────────────────────────────────────────
     def _cache_get(self, key: str) -> Any | None:
         with self._lock:
@@ -733,11 +741,17 @@ class SchwabClient:
                         strike = float(strike_str)
                     except (TypeError, ValueError):
                         continue
+                    # Quote age from Schwab's per-contract quote timestamp
+                    # (ms epoch) — the 0DTE engine treats stale quotes as a
+                    # hard block, so the age must ride along with the row.
+                    qt_ms = c.get("quoteTimeInLong") or c.get("tradeTimeInLong")
                     result["chains"][exp_date][kind].append({
                         "strike": strike,
                         "bid": c.get("bid"),
                         "ask": c.get("ask"),
                         "last": c.get("last"),
+                        "bid_size": c.get("bidSize"),
+                        "ask_size": c.get("askSize"),
                         "volume": c.get("totalVolume", 0),
                         "openInterest": c.get("openInterest", 0),
                         "iv": (c.get("volatility") or 0) / 100.0 if c.get("volatility") else None,
@@ -745,6 +759,8 @@ class SchwabClient:
                         "theta": c.get("theta"),
                         "gamma": c.get("gamma"),
                         "vega": c.get("vega"),
+                        "occ": c.get("symbol"),
+                        "quote_age_s": _stale_seconds_from_ms(qt_ms),
                     })
         result["expirations"] = sorted(set(result["expirations"]))
         for exp in result["chains"]:

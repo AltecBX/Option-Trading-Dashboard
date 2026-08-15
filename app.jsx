@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.00";
+const APP_VERSION = "4.10";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3613,6 +3613,14 @@ function App() {
           apiFetch={apiFetch}
           uwHealth={uwHealth}
         />
+        <CardErrorBoundary label="0DTE timing">
+          <TimingCard
+            apiFetch={apiFetch}
+            ticker={ticker}
+            currentPrice={getLivePrice(ticker) ?? currentPrice}
+            positions={positions}
+          />
+        </CardErrorBoundary>
 
         {/* Hero: chart + strikes */}
         <div id="jump-chart" className="jump-anchor" aria-hidden="true"></div>
@@ -8074,6 +8082,7 @@ function App() {
               <TweakRadio label="Returns row" value={tweaks.values.layout} onChange={v => tweaks.setValue("layout", v)}
                 options={[{value:"default",label:"Default"},{value:"swapped",label:"Swapped"}]} />
             </TweakSection>
+            <TimingThresholds apiFetch={apiFetch} />
           </Tweaks>
         )}
       </main>
