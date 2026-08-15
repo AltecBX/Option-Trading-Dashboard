@@ -4819,6 +4819,55 @@ except Exception as _exc:  # noqa: BLE001
     _NL_AVAILABLE = False
     _nl = None  # type: ignore
 
+# ── Friday 0DTE timing engine (v4.10, spec v3.0+v3.1) ───────────────────────
+# Optimal-stopping premium timing: intraday option tape + Monte Carlo
+# simulation core + intent-aware risk + portfolio rollup. All dependencies
+# injected lazily so definition order in this module doesn't matter.
+try:
+    import intraday_option_store as _otape
+    import timing_engine as _timing
+    _otape.configure(
+        data_dir=_STABLE_DIR,
+        chain_fn=lambda sym, exp: (lambda c: c.get_option_chain(sym, expiration=exp)
+                                   if c is not None else None)(_schwab()),
+        schwab_getter=lambda: _schwab(),
+        candidates_fn=lambda: _timing.list_candidates(),
+        juice_fn=lambda: list((_juice_rows_passive() or [])),
+        cfg_fn=lambda: _timing.config(),
+        et_tz=_ET,
+    )
+    _timing.configure(
+        data_dir=_STABLE_DIR,
+        schwab_getter=lambda: _schwab(),
+        chain_fn=lambda sym, exp: (lambda c: c.get_option_chain(sym, expiration=exp)
+                                   if c is not None else None)(_schwab()),
+        quote_fn=lambda sym: (lambda c: c.get_quote(sym) if c is not None else None)(_schwab()),
+        intraday_fn=lambda sym: (lambda c: c.get_intraday(sym) if c is not None else None)(_schwab()),
+        minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
+        juice_fn=lambda: list((_juice_rows_passive() or [])),
+        push_fn=lambda title, msg: (_push_notify(title, msg, priority=1)
+                                    if _push_configured() else None),
+        tape=_otape,
+        et_tz=_ET,
+    )
+    _TIMING_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[timing_engine] wiring failed: {_exc}", file=sys.stderr)
+    _TIMING_AVAILABLE = False
+    _timing = None  # type: ignore
+    _otape = None  # type: ignore
+
+
+def _juice_rows_passive() -> list:
+    """0DTE juice board rows WITHOUT triggering a scan (snapshot() lazily
+    starts the worker; the tape's discovery tier must not)."""
+    try:
+        import juice as _jc
+        return list(_jc._STATE.get("rows") or [])
+    except Exception:
+        return []
+
+
 # ── Per-stock pattern discovery engine (v3.44) ──────────────────────────────
 import patterns as _patterns
 
@@ -7408,6 +7457,56 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
+        if parsed.path.startswith("/api/timing/"):
+            if not _TIMING_AVAILABLE:
+                self._send_json({"error": "timing engine unavailable"}, status=503)
+                return
+            section = parsed.path[len("/api/timing/"):]
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+            except Exception:
+                payload = {}
+            try:
+                if section == "candidates":
+                    op = (payload.get("op") or "add").lower()
+                    if op == "remove":
+                        self._send_json(_timing.remove_candidate(payload.get("key") or ""))
+                    else:
+                        self._send_json(_timing.add_candidate(
+                            payload.get("symbol") or "", payload.get("expiry") or "",
+                            payload.get("kind") or "call",
+                            float(payload.get("strike") or 0),
+                            contracts=payload.get("contracts"),
+                            intent=payload.get("intent")))
+                elif section == "fill":
+                    self._send_json(_timing.log_fill(payload))
+                elif section == "intent":
+                    self._send_json(_timing.set_intent(
+                        payload.get("symbol") or "", payload.get("kind"),
+                        payload.get("intent") or ""))
+                elif section == "portfolio":
+                    self._send_json(_timing.portfolio_rollup(payload.get("legs") or []),
+                                    no_store=True)
+                elif section == "manage":
+                    out = [_timing.manage_position(p)
+                           for p in (payload.get("positions") or [])[:20]]
+                    self._send_json({"positions": out}, no_store=True)
+                elif section == "replay_day":
+                    day = (payload.get("day") or "").strip()
+                    if not day:
+                        self._send_json({"error": "day required (YYYY-MM-DD)"}, status=400)
+                        return
+                    self._send_json(_timing.replay_day(day, payload.get("trades")))
+                elif section == "clock_check":
+                    self._send_json(_timing.check_clock(force=True))
+                else:
+                    self._send_json({"error": f"unknown timing section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/timing", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
         self.send_response(404); self.end_headers()
 
     def do_GET(self):  # noqa: N802
@@ -7452,6 +7551,61 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def _dispatch_get(self, parsed) -> None:
         """Route the request. All endpoint handlers below; unmatched
         /api/* paths return JSON 404 (not HTML)."""
+        if parsed.path.startswith("/api/timing/"):
+            if not _TIMING_AVAILABLE:
+                self._send_json({"error": "timing engine unavailable"}, status=503)
+                return
+            section = parsed.path[len("/api/timing/"):]
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "status":
+                    self._send_json(_timing.status(), no_store=True)
+                elif section == "state":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    strike = float(qs.get("strike", ["0"])[0] or 0)
+                    kind = (qs.get("kind", ["call"])[0] or "call").lower()
+                    expiry = (qs.get("expiry", [""])[0] or "").strip()
+                    n_ct = qs.get("contracts", [None])[0]
+                    if not symbol or not strike or not expiry:
+                        self._send_json({"error": "symbol, strike, expiry required"}, status=400)
+                        return
+                    if _otape is not None:
+                        _otape.register_interest(symbol)   # §3 P1: on screen
+                    st = _timing.evaluate(symbol, strike, kind, expiry,
+                                          contracts=int(n_ct) if n_ct else None)
+                    self._send_json(st, no_store=True)
+                elif section == "contracts":
+                    today = (datetime.now(_ET) if _ET else datetime.now()).date().isoformat()
+                    self._send_json({"candidates": _timing.list_candidates(),
+                                     "today": today,
+                                     "juice": _juice_rows_passive()[:12]}, no_store=True)
+                elif section == "config":
+                    cfg, h = _timing.config()
+                    self._send_json({"config": cfg, "hash": h}, no_store=True)
+                elif section == "replay":
+                    did = (qs.get("id", [""])[0] or "").strip()
+                    self._send_json(_timing.replay(did), no_store=True)
+                elif section == "post_trade":
+                    day = (qs.get("day", [None])[0] or None)
+                    self._send_json(_timing.post_trade_report(day), no_store=True)
+                elif section == "replay_day":
+                    day = (qs.get("day", [""])[0] or "").strip()
+                    cached = _timing.cached_replay(day) if day else None
+                    self._send_json(cached or {"day": day, "cached": False},
+                                    no_store=True)
+                elif section == "tape/status":
+                    self._send_json(_otape.status() if _otape else
+                                    {"error": "tape unavailable"}, no_store=True)
+                elif section == "fills":
+                    day = (qs.get("day", [None])[0] or None)
+                    self._send_json({"fills": _timing.list_fills(day)}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown timing section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/timing", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
         if parsed.path == "/api/reprice/chain":
             # This week's expirations with normalized legs, NOT filtered
             # to Fridays, so the Level Reprice expiry picker can offer
@@ -11254,6 +11408,17 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _nl.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[nl_engine] scheduler start failed: {exc}", file=sys.stderr)
+    # Friday 0DTE timing engine: tape collector (the asset — a missed
+    # Friday of tape can never be recovered) + headless candidate
+    # evaluation/alerts + a boot clock-drift measurement (Step 0.5).
+    if _TIMING_AVAILABLE:
+        try:
+            _otape.start_scheduler()
+            _timing.start_engine_scheduler()
+            threading.Thread(target=lambda: _timing.check_clock(force=True),
+                             daemon=True).start()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[timing_engine] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;

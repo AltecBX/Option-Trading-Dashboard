@@ -1,0 +1,120 @@
+{
+  "$comment": "engine_state.schema.json — versioned output contract for the Friday 0DTE timing engine (spec v3 §35). Producers (simulation core, learned layer, heuristic) may change; this contract may only EXTEND (add optional keys), never break. Consumed by the UI card, the decision journal, and backtests. Validated by timing_engine.validate_state() — a stdlib mini-validator that enforces required/type/enum below (no external jsonschema dependency by house rule).",
+  "schema_version": "1.0",
+  "type": "object",
+  "required": [
+    "schema_version", "decision_id", "ts_et", "symbol", "contract", "intent",
+    "state", "state_raw", "reason", "score", "confidence", "layer", "blocked",
+    "credit", "probabilities", "wait", "risk", "model"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "decision_id": {"type": "string"},
+    "ts_et": {"type": "string", "$comment": "ISO-8601 America/New_York"},
+    "symbol": {"type": "string"},
+    "contract": {
+      "type": "object",
+      "required": ["strike", "expiry", "kind"],
+      "properties": {
+        "occ": {"type": ["string", "null"]},
+        "strike": {"type": "number"},
+        "expiry": {"type": "string"},
+        "kind": {"type": "string", "enum": ["call", "put"]},
+        "contracts": {"type": ["number", "null"], "$comment": "intended size for my-dollars display (§17)"}
+      }
+    },
+    "intent": {"type": "string", "enum": ["income_only", "wheel_acceptable"]},
+    "state": {"type": "string", "enum": ["WAIT", "GETTING CLOSE", "SELL ZONE", "STRONG SELL ZONE", "TOO LATE", "BLOCKED"],
+              "$comment": "displayed state AFTER §34 hysteresis"},
+    "state_raw": {"type": "string", "$comment": "pre-hysteresis state — journaled so the cost of hysteresis is measurable"},
+    "reason": {"type": "string", "$comment": "the one-line reason (§18)"},
+    "score": {"type": ["number", "null"], "$comment": "0-100 summary (§17); null when BLOCKED"},
+    "confidence": {"type": ["number", "null"], "$comment": "0-1"},
+    "layer": {"type": "string", "enum": ["SIMULATION PRIOR", "TRAINED", "HEURISTIC", "MEASURED"],
+              "$comment": "which layer produced the primary state (§21 badge)"},
+    "blocked": {"type": ["object", "null"], "properties": {"code": {"type": "string"}, "detail": {"type": "string"}},
+                "$comment": "non-null only when state == BLOCKED: stale_quote, bad_spread, invalid_quote, market_closed, expired, clock_drift, event_window, no_data"},
+    "credit": {
+      "type": "object",
+      "required": ["bid", "mid", "spread_pct", "quote_age_s"],
+      "properties": {
+        "bid": {"type": ["number", "null"]}, "ask": {"type": ["number", "null"]},
+        "mid": {"type": ["number", "null"]}, "last": {"type": ["number", "null"]},
+        "bid_size": {"type": ["number", "null"]}, "ask_size": {"type": ["number", "null"]},
+        "spread_pct": {"type": ["number", "null"]},
+        "quote_age_s": {"type": ["number", "null"]},
+        "session": {"type": ["object", "null"],
+          "properties": {"raw_high": {}, "mid_high": {}, "exec_high": {}, "durable_high": {}, "admissible_high": {},
+                         "premium_percentile": {}},
+          "$comment": "§2 benchmarks from the tape; null before the tape has today's data"}
+      }
+    },
+    "probabilities": {
+      "type": "object",
+      "required": ["p_itm", "p_touch", "p_itm_analytic", "p_touch_analytic", "p_better"],
+      "properties": {
+        "p_itm": {"type": ["number", "null"], "$comment": "primary (simulation once shading active; §12)"},
+        "p_touch": {"type": ["number", "null"]},
+        "p_itm_analytic": {"type": ["number", "null"], "$comment": "unshaded closed-form prior — stays visible; a large gap vs primary is information"},
+        "p_touch_analytic": {"type": ["number", "null"]},
+        "p_better": {"type": "object", "$comment": "keys h5,h15,h30,h60,close,next_look → 0-1"},
+        "mc_se": {"type": ["number", "null"], "$comment": "Monte Carlo standard error of the probability estimates (Amendment B)"}
+      }
+    },
+    "wait": {
+      "type": "object",
+      "required": ["expected_extra_credit", "wait_edge"],
+      "properties": {
+        "expected_extra_credit": {"type": ["number", "null"], "$comment": "per contract, to close, admissible"},
+        "expected_extra_dollars": {"type": ["number", "null"], "$comment": "× intended contracts × 100 (§17 my dollars)"},
+        "expected_extra_next_look": {"type": ["number", "null"]},
+        "expected_time_to_better_min": {"type": ["number", "null"]},
+        "wait_edge": {"type": ["number", "null"], "$comment": "§9: E[best admissible capturable sale] − CreditNow, intent-aware"},
+        "timing_regret_now": {"type": ["number", "null"]},
+        "decomposition": {"type": ["object", "null"],
+          "properties": {"spot": {}, "gamma": {}, "theta": {}, "iv": {}, "execution": {}},
+          "$comment": "§10 display-only dV ≈ Δ·dS + ½Γ·dS² + Θ·dt + V·dIV"},
+        "scenarios": {"type": ["array", "null"], "$comment": "§10 modeled premium rows: unchanged 15m, tags extreme 15/30m, reverses now, IV contracts"}
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": ["admissible"],
+      "properties": {
+        "admissible": {"type": "boolean", "$comment": "selling NOW satisfies the intent profile's limits"},
+        "delta": {"type": ["number", "null"]}, "gamma": {"type": ["number", "null"]},
+        "theta_per_min": {"type": ["number", "null"]}, "vega": {"type": ["number", "null"]},
+        "iv": {"type": ["number", "null"]},
+        "iv_source": {"type": ["string", "null"], "enum": ["backed_out", "chain", "chain_interp", "unusable", null]},
+        "headroom_dollars": {"type": ["number", "null"], "$comment": "adverse spot move that fits before a limit breaks"},
+        "distance": {"type": ["object", "null"], "properties": {"dollars": {}, "pct": {}, "sigma": {}}},
+        "minutes_remaining": {"type": ["number", "null"]}
+      }
+    },
+    "limits": {"type": ["object", "null"],
+      "$comment": "§14 three resting limits; each: {price, fill_prob, expected_minutes_to_fill, spot_required, delta_if_filled, p_touch_if_filled, p_itm_if_filled, basis}"},
+    "tranche": {"type": ["object", "null"],
+      "$comment": "§13: {suggest_frac, plan, sold_frac, avg_credit_so_far, basis: dynamic|cold_start}"},
+    "attention": {"type": ["object", "null"],
+      "$comment": "§31: {next_look_min, p_better_next_look, alert: null|{rank_dollars, action, reason}}"},
+    "final_hour": {"type": ["object", "null"],
+      "$comment": "§33, active only inside the window: {active, cost_to_close, remaining_credit, risk_per_penny, recommend, exercise_watch}"},
+    "heuristic": {"type": ["object", "null"],
+      "$comment": "v2 cross-check: {score, momentum_gate_m, state, agrees, disagree_hard} — hard disagreement drops confidence and the UI says so"},
+    "what_changed": {"type": ["array", "null"], "$comment": "§19 deltas since this card was last opened/alerted"},
+    "data_quality": {"type": ["object", "null"],
+      "$comment": "§21: {source, stock_quote_age_s, option_quote_age_s, snapshot_age_s, spread_quality, real_vs_modeled, sample_size, calibration}"},
+    "model": {
+      "type": "object",
+      "required": ["version", "config_hash", "seed", "paths"],
+      "properties": {
+        "version": {"type": "string"},
+        "config_hash": {"type": "string"},
+        "seed": {"type": "number", "$comment": "RNG seed — replay is byte-identical (Amendment B)"},
+        "paths": {"type": "number"},
+        "snapshot_ids": {"type": ["array", "null"]},
+        "inputs": {"type": ["object", "null"], "$comment": "full input snapshot for §35 replay"}
+      }
+    }
+  }
+}
