@@ -335,6 +335,11 @@ def _rhythm(swings):
         "pct_p75": round(float(np.percentile(p, 75)), 1),
         "pct_median": round(float(np.median(p)), 1),
         "pct_avg": round(float(p.mean()), 1),
+        # Duration of the single largest move itself — the extreme target's
+        # honest clock. days_max is the longest duration across ALL swings,
+        # which may belong to a different (smaller) move; pairing pct_max
+        # with an unrelated duration can imply a speed no swing ever had.
+        "days_of_max": int(d[int(np.argmax(p))]),
     }
     for s in swings:
         s["matches_rhythm"] = (
@@ -1045,7 +1050,7 @@ def _analyze_active(pivots, dates, opens, highs, lows, closes, vols,
         target(r["pct_p25"], "conservative", r["days_p25"]),
         target(r["pct_median"], "median", r["days_median"]),
         target(r["pct_p75"], "aggressive", r["days_p75"]),
-        target(r["pct_max"], "extreme", r["days_max"]),
+        target(r["pct_max"], "extreme", r.get("days_of_max") or r["days_max"]),
     ]
     median_t = targets[1]
     p75_t = targets[2]
