@@ -2570,12 +2570,32 @@ function computeSwingPrediction(data) {
   const zone = z => z ? `$${z[0]}–$${z[1]}` : "—";
   const w = (lo, hi) => `${lo || "?"}–${hi || "?"} days`;
   const md = vh.median_days || 6;
+  // Continuation target + clock: the aggressive (p75) tier while it is still
+  // ahead — the extreme tier is the single largest move in the lookback, an
+  // outlier that only becomes the stated target once aggressive is already
+  // reached. The time window is distance-to-target ÷ this stock's own
+  // historical speed (%/trading day across its past swings, p75 fast / p25
+  // slow), so the target and the clock come from the same distribution and
+  // can never pair a +140% target with a 2-day window.
+  const speeds = completed.map(s => s.trading_days > 0 ? Math.abs(s.pct_change) / s.trading_days : null).filter(x => x > 0).sort((x, y) => x - y);
+  const contT = agg.price != null && !agg.reached ? agg : ext.price != null ? ext : agg;
+  const contTier = contT === ext ? "extreme" : "aggressive";
+  let contDays = w(vh.p25_days, vh.p75_days);
+  const remPct = contT.fromPct != null ? Math.abs(contT.fromPct) : null;
+  if (speeds.length >= 3 && remPct > 0) {
+    const fast = pctile(speeds, 0.75),
+      slow = pctile(speeds, 0.25);
+    const lo = Math.max(1, Math.round(remPct / fast));
+    const hi = Math.max(lo + 1, Math.round(remPct / slow));
+    contDays = `${lo}–${hi} days`;
+  }
+  const contTarget = contT.price != null ? `$${contT.price} (${contTier})` : "—";
   const paths = up ? [{
     name: "Bullish continuation",
     prob: contProb,
     trigger: next ? `Holds support, breaks $${next.price}` : `Breaks aggressive $${agg.price || "—"}`,
-    target: ext.price ? `$${ext.price}` : agg.price ? `$${agg.price}` : "—",
-    days: w(vh.p25_days, vh.p75_days),
+    target: contTarget,
+    days: contDays,
     inval: pullback ? `loses $${pullback.normal[1]}` : inval ? `loses $${inval}` : "—"
   }, {
     name: "Normal pullback",
@@ -2595,8 +2615,8 @@ function computeSwingPrediction(data) {
     name: "Bearish continuation",
     prob: contProb,
     trigger: next ? `Stays weak, breaks $${next.price}` : `Breaks aggressive $${agg.price || "—"}`,
-    target: ext.price ? `$${ext.price}` : agg.price ? `$${agg.price}` : "—",
-    days: w(vh.p25_days, vh.p75_days),
+    target: contTarget,
+    days: contDays,
     inval: pullback ? `reclaims $${pullback.normal[0]}` : inval ? `reclaims $${inval}` : "—"
   }, {
     name: "Normal bounce",
