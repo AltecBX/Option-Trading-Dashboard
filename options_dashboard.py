@@ -4858,6 +4858,118 @@ except Exception as _exc:  # noqa: BLE001
     _otape = None  # type: ignore
 
 
+# ── Premium Edge engine (v4.20) ─────────────────────────────────────────────
+# IV30 (variance-interpolated) vs walk-forward ExpectedRV30 → VRP scanner +
+# intent-aware contract selection. Pure math in premium_edge.py /
+# vol_forecast.py; the funnel/scheduler in edge_scan.py. Docs: PREMIUM_EDGE.md.
+
+_EDGE_EARN_CACHE: dict = {}
+
+
+def _edge_earn_moves(symbol: str):
+    """Historical earnings-day reaction sizes (MEASURED close-to-close
+    across past earnings dates) for the edge engine's event-variance
+    adjustment. Cached 6h; None (never a guess) when history is thin."""
+    key = symbol.upper()
+    hit = _EDGE_EARN_CACHE.get(key)
+    if hit and time.time() - hit[0] < 6 * 3600:
+        return hit[1]
+    out = None
+    try:
+        eh = load_earnings_history(symbol, weeks=110) or {}
+        past = [str(d)[:10] for d in (eh.get("past") or [])]
+        bars = load_daily(symbol, 780) or []
+        closes = {(b.get("date") or "")[:10]: float(b.get("close") or 0)
+                  for b in bars if b.get("close")}
+        days = sorted(closes)
+        moves = []
+        for ed in past:
+            after = [d for d in days if d >= ed]
+            before = [d for d in days if d < ed]
+            if not after or not before:
+                continue
+            c1, c0 = closes[after[0]], closes[before[-1]]
+            if c0 > 0 and c1 > 0:
+                m = abs(c1 / c0 - 1.0) * 100.0
+                if m < 80:                      # drop split/data glitches
+                    moves.append(m)
+        if len(moves) >= 3:
+            out = {"avg_abs": round(sum(moves) / len(moves), 2), "n": len(moves)}
+    except Exception:
+        out = None
+    _EDGE_EARN_CACHE[key] = (time.time(), out)
+    return out
+
+
+def _edge_next_earnings(symbol: str) -> dict:
+    """Next earnings date — from the watchlist board (free) first, then the
+    yfinance-backed history loader."""
+    try:
+        if _WLTABLE_AVAILABLE and _wltable is not None:
+            for r in ((_wltable.get_board() or {}).get("rows") or []):
+                if (r.get("ticker") or "").upper() == symbol.upper():
+                    if r.get("next_earnings"):
+                        return {"next": r["next_earnings"]}
+                    break
+    except Exception:
+        pass
+    try:
+        eh = load_earnings_history(symbol, weeks=8) or {}
+        return {"next": eh.get("next") or None}
+    except Exception:
+        return {"next": None}
+
+
+def _edge_macro_events() -> list:
+    """Upcoming macro events: CPI + FOMC from treasury's hand-maintained
+    schedule, jobs report = first Friday of the month."""
+    from datetime import date as _d, timedelta as _td
+    out = []
+    try:
+        import treasury as _tsy
+        today = _d.today().isoformat()
+        for _yr, dates in (_tsy.MACRO_SCHEDULE.get("cpi") or {}).items():
+            out.extend({"kind": "CPI", "date": dd} for dd in dates if dd >= today)
+        out.extend({"kind": "FOMC", "date": dd}
+                   for dd in (_tsy.MACRO_SCHEDULE.get("fomc") or []) if dd >= today)
+        t = _d.today()
+        for add in range(3):
+            y = t.year + (t.month - 1 + add) // 12
+            m = (t.month - 1 + add) % 12 + 1
+            dd = _d(y, m, 1)
+            while dd.weekday() != 4:
+                dd += _td(days=1)
+            if dd.isoformat() >= today:
+                out.append({"kind": "JOBS", "date": dd.isoformat()})
+    except Exception:
+        pass
+    out.sort(key=lambda e: e["date"])
+    return out[:12]
+
+
+try:
+    import edge_scan as _edge
+    import premium_edge as _pedge
+    _edge.configure(
+        schwab_getter=lambda: _schwab(),
+        board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        earnings_fn=_edge_next_earnings,
+        earn_moves_fn=_edge_earn_moves,
+        macro_fn=_edge_macro_events,
+        vix_fn=_backtest_vix_closes,
+        iv_append_fn=_iv_history_append,
+        market_open_fn=lambda now=None: _intraday.market_open(),
+        data_dir=_STABLE_DIR,
+        et_tz=_ET,
+    )
+    _EDGE_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[premium_edge] wiring failed: {_exc}", file=sys.stderr)
+    _EDGE_AVAILABLE = False
+    _edge = None  # type: ignore
+    _pedge = None  # type: ignore
+
+
 def _juice_rows_passive() -> list:
     """0DTE juice board rows WITHOUT triggering a scan (snapshot() lazily
     starts the worker; the tape's discovery tier must not)."""
@@ -7507,6 +7619,39 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn(None, "api/timing", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
+        if parsed.path.startswith("/api/edge/"):
+            if not _EDGE_AVAILABLE:
+                self._send_json({"error": "premium edge unavailable"}, status=503)
+                return
+            section = parsed.path[len("/api/edge/"):]
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+            except Exception:
+                payload = {}
+            try:
+                if section == "backtest":
+                    syms = [str(s).upper() for s in (payload.get("symbols") or [])][:8]
+                    if not syms:
+                        self._send_json({"error": "symbols required"}, status=400)
+                        return
+                    self._send_json(_edge.start_backtest_job(
+                        syms,
+                        iv_history_fn=_iv_history_load,
+                        earnings_fn=_backtest_earnings_dates,
+                        vix_fn=_backtest_vix_closes,
+                        thresholds=payload.get("thresholds")))
+                elif section == "kelly":
+                    self._send_json(_edge.kelly_guidance(
+                        payload.get("pnls") or [],
+                        float(payload.get("collateral") or 0)), no_store=True)
+                else:
+                    self._send_json({"error": f"unknown edge section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/edge", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
         self.send_response(404); self.end_headers()
 
     def do_GET(self):  # noqa: N802
@@ -7604,6 +7749,68 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                     status=404)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/timing", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/edge" or parsed.path.startswith("/api/edge/"):
+            if not _EDGE_AVAILABLE:
+                self._send_json({"error": "premium edge unavailable", "rows": []},
+                                status=503)
+                return
+            section = parsed.path[len("/api/edge"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "":
+                    self._send_json(_edge.snapshot(), no_store=True)
+                elif section == "scan":
+                    self._send_json(_edge.trigger_scan(
+                        force=(qs.get("force", ["0"])[0] or "0") in ("1", "true")),
+                        no_store=True)
+                elif section == "detail":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    intent = (qs.get("intent", ["premium_only"])[0] or "premium_only")
+                    if not symbol:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    if intent not in _pedge.INTENTS:
+                        intent = "premium_only"
+                    out = _edge.detail(symbol, intent=intent)
+                    self._send_json(out or {"error": "no data"}, no_store=True)
+                elif section == "history":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not symbol:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    obs = _pedge.load_observations(symbol)
+                    cfg_e, _h = _pedge.config()
+                    cur = obs[-1].get("vrp_points") if obs else None
+                    self._send_json({
+                        "symbol": symbol, "observations": obs,
+                        "stats": (_pedge.vrp_stats(obs, cur, cfg_e)
+                                  if cur is not None else None),
+                        "forecast": _edge._load_fcast(symbol),
+                    }, no_store=True)
+                elif section == "breach":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not symbol:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    out = _edge.breach_for(symbol)
+                    self._send_json(out, status=503 if out.get("error") else 200)
+                elif section == "backtest":
+                    job = (qs.get("job", [""])[0] or "").strip()
+                    if not job:
+                        self._send_json({"error": "job required"}, status=400)
+                        return
+                    self._send_json(_edge.backtest_job(job), no_store=True)
+                elif section == "config":
+                    cfg_e, h = _pedge.config()
+                    self._send_json({"config": cfg_e, "hash": h,
+                                     "engine": _pedge.ENGINE_VERSION}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown edge section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/edge", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/reprice/chain":
@@ -11419,6 +11626,11 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                              daemon=True).start()
         except Exception as exc:  # noqa: BLE001
             print(f"[timing_engine] scheduler start failed: {exc}", file=sys.stderr)
+    if _EDGE_AVAILABLE:
+        try:
+            _edge.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[premium_edge] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;

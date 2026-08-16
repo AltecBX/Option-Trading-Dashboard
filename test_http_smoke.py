@@ -215,6 +215,13 @@ for p in [
     "/api/timing/post_trade",
     "/api/timing/replay?id=nonexistent",
     "/api/timing/replay_day?day=2026-08-14",
+    "/api/edge",
+    "/api/edge/config",
+    f"/api/edge/detail?symbol={S}",
+    f"/api/edge/history?symbol={S}",
+    f"/api/edge/breach?symbol={S}",
+    "/api/edge/backtest?job=nonexistent",
+    "/api/edge/scan",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",
@@ -289,6 +296,8 @@ hit("POST", "/api/timing/portfolio", {"legs": [{"symbol": S, "strike": 95.0,
 hit("POST", "/api/timing/manage", {"positions": [{"symbol": S, "strike": 95.0,
                                                   "kind": "put", "expiry": "2030-01-18",
                                                   "credit": 1.25, "contracts": 2}]})
+hit("POST", "/api/edge/kelly", {"pnls": [10, -5, 20], "collateral": 1000})
+hit("POST", "/api/edge/backtest", {"symbols": []})
 hit("POST", "/api/timing/replay_day", {"day": "2020-01-03", "trades": [
     {"symbol": S, "strike": 100.0, "kind": "call", "credit": 1.0}]})
 hit("POST", "/api/push/roll_flag", {"symbol": S, "strike": 105, "kind": "call"})

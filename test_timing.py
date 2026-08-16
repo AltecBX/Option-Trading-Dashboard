@@ -550,3 +550,53 @@ class TestFillsEventsTape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestSessionVarianceEdge(unittest.TestCase):
+    """Premium Edge §19 integration: remaining-session variance edge."""
+
+    @staticmethod
+    def _minute_bars(n, per_min_vol=0.0008, s0=100.0):
+        import math as _m
+        import random as _r
+        rnd = _r.Random(11)
+        bars, c = [], s0
+        for _ in range(n):
+            c *= _m.exp(rnd.gauss(0.0, per_min_vol))
+            bars.append({"open": c, "high": c * 1.0002, "low": c * 0.9998,
+                         "close": c})
+        return bars
+
+    def test_none_when_early_or_disabled(self):
+        cfg, _ = te.config(refresh=True)
+        self.assertIsNone(te.session_variance_edge(self._minute_bars(20), 0.5, 200, cfg))
+        off = json.loads(json.dumps(cfg))
+        off.setdefault("premium_edge", {}).setdefault("session_vrp", {})["enabled"] = False
+        self.assertIsNone(te.session_variance_edge(self._minute_bars(120), 0.5, 200, off))
+
+    def test_rich_iv_vs_calm_tape_is_positive(self):
+        cfg, _ = te.config(refresh=True)
+        # calm tape ~0.0008/min; IV 0.90 implies far more remaining variance
+        out = te.session_variance_edge(self._minute_bars(180, 0.0008), 0.90, 180, cfg)
+        self.assertIsNotNone(out)
+        self.assertGreater(out["session_vrp_pct"], 20)
+        self.assertGreater(out["score_nudge"], 0)
+        nudge_max = (cfg.get("premium_edge", {}).get("session_vrp", {})
+                     .get("score_nudge_max", 6.0))
+        self.assertLessEqual(out["score_nudge"], nudge_max + 1e-9)
+        self.assertIn("MEASURED", out["basis"])
+
+    def test_wild_tape_vs_cheap_iv_is_negative(self):
+        cfg, _ = te.config(refresh=True)
+        out = te.session_variance_edge(self._minute_bars(180, 0.004), 0.30, 180, cfg)
+        self.assertIsNotNone(out)
+        self.assertLess(out["session_vrp_pct"], 0)
+        self.assertLess(out["score_nudge"], 0)
+
+    def test_state_carries_volatility_edge_and_validates(self):
+        h = Harness(chain=make_chain())
+        exp = h.chain["expirations"][0]
+        st = te.evaluate("TST", 945.0, "call", exp)
+        self.assertIsNone(st.get("blocked"), st.get("reason"))
+        self.assertIn("volatility_edge", st)
+        self.assertEqual(te.validate_state(st), [])

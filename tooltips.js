@@ -19,6 +19,11 @@ const GLOSSARY = {
   delta: "Approximate probability the option finishes in the money, and also the dollar change in option price per $1 move in the stock. Selling at 0.20 delta means roughly an 80% probability the option expires worthless.",
   iv: "Implied volatility. The market's forward-looking estimate of how much the stock will move, annualized. Higher IV means richer premium.",
   iv_rank: "Where current IV sits within its 52-week range. High IV rank favors selling premium, low IV rank favors buying it.",
+  iv30: "True 30-calendar-day implied volatility: interpolated on total variance (IV² × time) between the two expirations bracketing 30 days, from liquid near-ATM call and put quotes. Not the front expiration's ATM IV.",
+  expected_rv: "A forecast of the realized volatility the stock is LIKELY to deliver over the next ~30 days, blended from several estimators (trailing, fast-decay, range-based) and validated walk-forward with no lookahead. This is what implied volatility is judged against — not last month's realized vol.",
+  vrp: "Volatility risk premium: IV30 minus Expected RV30, in vol points. Positive VRP means option buyers are paying for more movement than the stock is expected to produce — the raw material of premium selling. High VRP alone is not a signal: events, liquidity and tail risk still gate it.",
+  vrp_z: "How unusual today's VRP is versus this ticker's OWN historical VRP distribution, in standard deviations. Needs ~60 daily observations before it is scored — until then the store is accruing and the cross-sectional ratio carries the weight.",
+  term_structure: "ATM implied volatility across expirations. Contango (front cheaper than back) is the calm norm; backwardation (front bid over back) means the market pays up for near-term protection — usually a reason for caution, not opportunity. A single-expiry hump typically marks the earnings expiration.",
   oi: "Open interest. The total number of contracts currently held open at this strike. Higher OI generally means better liquidity.",
   volume: "Number of contracts traded today. A spike in volume vs OI can signal directional interest.",
   // Returns and history
