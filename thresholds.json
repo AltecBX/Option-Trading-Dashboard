@@ -1,85 +1,106 @@
 {
-  "_doc": "Friday 0DTE timing engine — the single config (spec v3 §35). Every tunable lives here; no magic numbers in code. Repo file = defaults; a copy at <data_dir>/thresholds.json overrides key-by-key (deep merge). The effective config's sha256 hash is stamped on every decision. Surfaced read-only in the tweaks panel.",
+  "_doc": "Friday 0DTE timing engine \u2014 the single config (spec v3 \u00a735). Every tunable lives here; no magic numbers in code. Repo file = defaults; a copy at <data_dir>/thresholds.json overrides key-by-key (deep merge). The effective config's sha256 hash is stamped on every decision. Surfaced read-only in the tweaks panel.",
   "version": 1,
   "risk": {
-    "_doc": "Admissibility limits per position intent (§29). A future/current sale is admissible only while every limit holds. Amendment C: intent changes limits and costs, never the market model.",
+    "_doc": "Admissibility limits per position intent (\u00a729). A future/current sale is admissible only while every limit holds. Amendment C: intent changes limits and costs, never the market model.",
     "income_only": {
       "max_p_itm": 0.15,
       "max_p_touch": 0.35,
-      "max_delta": 0.30,
+      "max_delta": 0.3,
       "breach_cost_mult": 2.0
     },
     "wheel_acceptable": {
-      "max_p_itm": 0.40,
-      "max_p_touch": 0.70,
-      "max_delta": 0.50,
+      "max_p_itm": 0.4,
+      "max_p_touch": 0.7,
+      "max_delta": 0.5,
       "breach_cost_mult": 0.15
     },
-    "_breach_cost_doc": "breach_cost_mult scales the terminal-intrinsic penalty charged to WAIT paths that die inadmissible (breached before any admissible capturable sale). Income-only: assignment is a failure, waiting near danger is expensive (2.0x intrinsic). Wheel-acceptable: assignment is tolerable economics — covered call = capped upside you already accepted, CSP = buying a stock you wanted at effective basis (0.15x).",
+    "_breach_cost_doc": "breach_cost_mult scales the terminal-intrinsic penalty charged to WAIT paths that die inadmissible (breached before any admissible capturable sale). Income-only: assignment is a failure, waiting near danger is expensive (2.0x intrinsic). Wheel-acceptable: assignment is tolerable economics \u2014 covered call = capped upside you already accepted, CSP = buying a stock you wanted at effective basis (0.15x).",
     "max_quote_age_s": 120,
     "max_spread_pct_of_mid": 30.0,
     "min_bid": 0.05,
-    "iv_unusable_bid_under": 0.10,
+    "iv_unusable_bid_under": 0.1,
     "iv_unusable_spread_pct": 60.0,
     "min_improvement_frac": 0.08
   },
   "simulation": {
-    "_doc": "Monte Carlo core (§9). Seed derives deterministically from the decision id (Amendment B) so replay is byte-identical.",
+    "_doc": "Monte Carlo core (\u00a79). Seed derives deterministically from the decision id (Amendment B) so replay is byte-identical.",
     "paths": 2000,
     "step_minutes": 1,
-    "horizons_min": [5, 10, 15, 30, 60],
+    "horizons_min": [
+      5,
+      10,
+      15,
+      30,
+      60
+    ],
     "trend_drift_shade_sigma_frac": 0.35,
-    "trend_range_widen_frac": 0.20,
+    "trend_range_widen_frac": 0.2,
     "event_range_widen_frac": 0.25
   },
   "bands": {
-    "_doc": "Score bands (§17): 0-20 strong wait, 21-40 wait, 41-59 getting close, 60-79 sell zone, 80-100 strong sell. Calibrated later from results.",
+    "_doc": "Score bands (\u00a717): 0-20 strong wait, 21-40 wait, 41-59 getting close, 60-79 sell zone, 80-100 strong sell. Calibrated later from results.",
     "wait_max": 40,
     "strong_wait_max": 20,
     "getting_close_max": 59,
     "sell_zone_max": 79
   },
   "score_weights": {
-    "_doc": "§17: the score SUMMARIZES the stopping quantities, never replaces them.",
+    "_doc": "\u00a717: the score SUMMARIZES the stopping quantities, never replaces them.",
     "p_no_better_next_look": 0.45,
     "extra_credit_exhausted": 0.35,
-    "risk_pressure": 0.20
+    "risk_pressure": 0.2
   },
   "hysteresis": {
-    "_doc": "§34 + Amendment B: displayed state changes only past margin or persistence; margin must clear k× the Monte Carlo standard error so MC noise alone can never rattle the UI. Risk escalations are exempt and fire immediately.",
+    "_doc": "\u00a734 + Amendment B: displayed state changes only past margin or persistence; margin must clear k\u00d7 the Monte Carlo standard error so MC noise alone can never rattle the UI. Risk escalations are exempt and fire immediately.",
     "margin_points": 6,
     "persist_evals": 2,
     "min_margin_mc_se_mult": 2.0,
-    "exempt_states": ["BLOCKED", "TOO LATE", "STRIKE THREATENED", "BREACHED", "TRIPWIRE"]
+    "exempt_states": [
+      "BLOCKED",
+      "TOO LATE",
+      "STRIKE THREATENED",
+      "BREACHED",
+      "TRIPWIRE"
+    ]
   },
   "attention": {
-    "_doc": "§31: decisions are evaluated against the next realistic look, not the next minute.",
+    "_doc": "\u00a731: decisions are evaluated against the next realistic look, not the next minute.",
     "look_interval_min": 30,
     "alert_latency_min": 3,
     "alert_budget_per_day": 10,
     "alert_min_dollar_impact": 25.0
   },
   "tape": {
-    "_doc": "§3 intraday option tape. Cadences in seconds; durable benchmark defined in SECONDS (Amendment E), converted to snapshots at the live cadence. Budget shares the app-wide Schwab 110 req/min self-cap.",
+    "_doc": "\u00a73 intraday option tape. Cadences in seconds; durable benchmark defined in SECONDS (Amendment E), converted to snapshots at the live cadence. Budget shares the app-wide Schwab 110 req/min self-cap.",
     "p1_seconds": 30,
     "p2_seconds": 60,
     "discovery_seconds": 300,
     "durable_seconds": 60,
     "budget_req_per_min": 30,
-    "headroom_frac": 0.30,
+    "headroom_frac": 0.3,
     "degrade_ladder": [
-      {"when_req_per_min_over": 21, "action": "discovery_paused"},
-      {"when_req_per_min_over": 25, "action": "p2_seconds=120"},
-      {"when_req_per_min_over": 28, "action": "p1_seconds=60"}
+      {
+        "when_req_per_min_over": 21,
+        "action": "discovery_paused"
+      },
+      {
+        "when_req_per_min_over": 25,
+        "action": "p2_seconds=120"
+      },
+      {
+        "when_req_per_min_over": 28,
+        "action": "p1_seconds=60"
+      }
     ],
-    "target_delta_lo": 0.10,
-    "target_delta_hi": 0.50,
+    "target_delta_lo": 0.1,
+    "target_delta_hi": 0.5,
     "retention_full_sessions": 8,
     "compact_keep_minutes_around_events": 10,
     "interest_decay_min": 10
   },
   "final_hour": {
-    "_doc": "§33: inside the window the question flips to close vs carry.",
+    "_doc": "\u00a733: inside the window the question flips to close vs carry.",
     "window_min": 45,
     "pennies_max_cost": 0.05,
     "risk_per_penny_threshold": 1.5,
@@ -88,38 +109,51 @@
     "settlement_watch_until_et": "17:30"
   },
   "portfolio": {
-    "_doc": "§30 + Amendment D: shared-shock scenarios; each position valued under the view matching its intent, then summed. weekly_max_loss_usd is the risk budget under the ±2% shared shock.",
+    "_doc": "\u00a730 + Amendment D: shared-shock scenarios; each position valued under the view matching its intent, then summed. weekly_max_loss_usd is the risk budget under the \u00b12% shared shock.",
     "sector_proxy": "SMH",
-    "shocks_pct": [-2.0, -1.0, 1.0, 2.0],
+    "shocks_pct": [
+      -2.0,
+      -1.0,
+      1.0,
+      2.0
+    ],
     "weekly_max_loss_usd": 5000.0,
     "strike_cluster_pct": 1.0,
     "default_beta": 1.0,
     "beta_overrides": {}
   },
   "management": {
-    "_doc": "§20. The 2x credit tripwire is model-free and stays armed by default.",
+    "_doc": "\u00a720. The 2x credit tripwire is model-free and stays armed by default.",
     "tripwire_credit_mult": 2.0,
     "risk_rising_p_touch": 0.45,
     "strike_threatened_pct": 1.0,
-    "buyback_attractive_capture_frac": 0.80
+    "buyback_attractive_capture_frac": 0.8
   },
   "tranche": {
-    "_doc": "§13 dynamic tranching; cold-start fixed plan badged heuristic while confidence is low.",
+    "_doc": "\u00a713 dynamic tranching; cold-start fixed plan badged heuristic while confidence is low.",
     "max_count": 4,
-    "min_frac": 0.10,
-    "cold_start_plan": [0.40, 0.30, 0.30],
-    "confidence_floor": 0.60
+    "min_frac": 0.1,
+    "cold_start_plan": [
+      0.4,
+      0.3,
+      0.3
+    ],
+    "confidence_floor": 0.6
   },
   "limits": {
-    "_doc": "§14 seed rules until the fill distribution exists: Likely = credit at 70% of projected extension, Balanced = credit at projected extreme × 0.85, Stretch = credit at the 2.5σ VWAP band.",
-    "likely_extension_frac": 0.70,
+    "_doc": "\u00a714 seed rules until the fill distribution exists: Likely = credit at 70% of projected extension, Balanced = credit at projected extreme \u00d7 0.85, Stretch = credit at the 2.5\u03c3 VWAP band.",
+    "likely_extension_frac": 0.7,
     "balanced_extreme_mult": 0.85,
     "stretch_sigma": 2.5
   },
   "events": {
-    "_doc": "§15: scheduled events are FEATURES that widen simulated ranges near their timestamps; optional per-class hard block windows (minutes before/after) in which decision states show BLOCKED.",
+    "_doc": "\u00a715: scheduled events are FEATURES that widen simulated ranges near their timestamps; optional per-class hard block windows (minutes before/after) in which decision states show BLOCKED.",
     "range_widen_window_min": 20,
-    "block_windows_min": {"fomc": 15, "cpi": 0, "jobs": 0}
+    "block_windows_min": {
+      "fomc": 15,
+      "cpi": 0,
+      "jobs": 0
+    }
   },
   "clock": {
     "_doc": "Step 0.5 discipline: measured drift beyond the bound blocks decision states and says why.",
@@ -130,11 +164,15 @@
     "_doc": "Hand-maintained early-close calendar (13:00 ET), treasury.py MACRO_SCHEDULE pattern: refresh before valid_through and extend the list.",
     "regular_close_et": "16:00",
     "early_close_et": "13:00",
-    "early_close_dates": ["2026-11-27", "2026-12-24", "2027-11-26"],
+    "early_close_dates": [
+      "2026-11-27",
+      "2026-12-24",
+      "2027-11-26"
+    ],
     "valid_through": "2027-12-31"
   },
   "intents": {
-    "_doc": "§29: per-position intent set from the UI; key = 'SYM|kind' (e.g. 'MU|put') or 'SYM' for both sides. Unlisted positions use default.",
+    "_doc": "\u00a729: per-position intent set from the UI; key = 'SYM|kind' (e.g. 'MU|put') or 'SYM' for both sides. Unlisted positions use default.",
     "default": "income_only",
     "per_position": {}
   },
@@ -143,5 +181,187 @@
     "collector_idle_stop_min": 20,
     "eval_seconds": 60,
     "state_cache_seconds": 20
+  },
+  "premium_edge": {
+    "_doc": "Premium Edge engine (PREMIUM_EDGE.md). Every tunable for the IV-vs-ExpectedRV edge scanner lives here. Repo file = defaults; <data>/thresholds.json overrides key-by-key (deep merge). Weights are hypotheses to be validated by the edge backtest harness, never presented as truth.",
+    "forecast": {
+      "_doc": "ExpectedRV30 (vol_forecast.py). Horizon 21 trading days ~ 30 calendar. Global blend + long-run anchor shrink; a per-ticker model must beat the blend out-of-sample by min_improvement_frac on both halves to be adopted.",
+      "horizon_td": 21,
+      "ewma_lambda": 0.94,
+      "global_weights": {
+        "RV20": 0.3,
+        "EWMA94": 0.35,
+        "PARK20": 0.35
+      },
+      "anchor_window": 252,
+      "anchor_shrink": 0.25,
+      "min_history_bars": 120,
+      "eval_step_td": 5,
+      "min_evals": 40,
+      "min_improvement_frac": 0.05,
+      "history_days_fetch": 900
+    },
+    "iv_quote": {
+      "_doc": "Quote-quality gates for using a contract as a vol observation. Age gate applies only while the market is open (frozen closed-market quotes are legitimate, the 0DTE lesson).",
+      "min_bid": 0.05,
+      "max_spread_frac": 0.35,
+      "max_quote_age_s": 900
+    },
+    "iv30": {
+      "_doc": "Constant-maturity 30d IV: total-variance interpolation between bracketing expirations; falls back to nearest expiry, labeled.",
+      "target_calendar_days": 30,
+      "min_dte": 5,
+      "max_dte": 75
+    },
+    "term": {
+      "max_dte": 120,
+      "backwardation_ratio": 1.08,
+      "contango_ratio": 0.97,
+      "hump_volpts": 3.0
+    },
+    "skew": {
+      "_doc": "Convention: risk reversal = put IV - call IV in vol points; positive = downside puts richer (credit_risk.skew_gauge convention).",
+      "delta_tolerance": 0.1
+    },
+    "history": {
+      "_doc": "Own-history VRP distribution. Below min_observations the Z-score is display-only and its score weight shifts to the cross-sectional ratio (the breakdown says so). Threshold is a starting point for backtests, not doctrine.",
+      "min_observations": 60
+    },
+    "event": {
+      "_doc": "PURE / EVENT / MIXED via event_share = fraction of the IV^2-ERV^2 gap explained by the ticker's own historical earnings move.",
+      "event_share_event": 0.6,
+      "event_share_mixed": 0.2,
+      "macro_window_days": 30
+    },
+    "economics": {
+      "commission_per_contract": 0.65,
+      "reg_fees_per_contract": 0.05,
+      "tail_q": 0.05
+    },
+    "liquidity": {
+      "min_oi": 100,
+      "min_volume": 1,
+      "min_oi_if_no_volume": 500,
+      "max_spread_pct": 12.0
+    },
+    "select": {
+      "_doc": "Structure selection. short_delta_band is the strike hunt range; spread_width_frac sizes defined-risk wings as a fraction of spot.",
+      "min_dte": 7,
+      "max_dte": 60,
+      "short_delta_band": [
+        0.15,
+        0.35
+      ],
+      "spread_width_frac": 0.05
+    },
+    "danger": {
+      "_doc": "JUICY vs DANGEROUS. Points per measured trigger; DANGEROUS at >= dangerous_at forces AVOID regardless of score.",
+      "earnings_pts": 25,
+      "rv_accel_ratio": 1.6,
+      "rv_accel_pts": 18,
+      "gap_freq": 0.1,
+      "gap_pts": 12,
+      "backwardation_pts": 15,
+      "trend_pct": 15.0,
+      "trend_pts": 10,
+      "spread_pct": 10.0,
+      "spread_pts": 10,
+      "liquidity_pts": 10,
+      "rr_volpts": 8.0,
+      "rr_pts": 8,
+      "vix_pctile": 85.0,
+      "vix_pts": 12,
+      "mixed_at": 20,
+      "dangerous_at": 40
+    },
+    "score_weights": {
+      "_doc": "Premium Edge Score components (max points each; penalties negative). Explainable starting weights - the backtest endpoint sweeps signal thresholds against these to check they earn their keep.",
+      "vrp_z": 22,
+      "vrp_ratio": 18,
+      "vrp_percentile": 8,
+      "ev_per_tail": 14,
+      "liquidity": 10,
+      "skew": 8,
+      "term": 6,
+      "distance": 8,
+      "danger_penalty": 30,
+      "event_penalty": 18
+    },
+    "signal": {
+      "strong_at": 80,
+      "strong_min_ratio": 1.2,
+      "sell_at": 65,
+      "watch_at": 45,
+      "cheap_ratio": 0.85
+    },
+    "scan": {
+      "_doc": "Discovery funnel. Stage 1 free board screen -> stage2_n chains+history; Stage 3 deep contract work on deep_n. Chain calls pause when app-wide rate usage exceeds budget_req_per_min (shared 110/min cap).",
+      "stage2_n": 24,
+      "deep_n": 12,
+      "min_price": 20.0,
+      "min_market_cap": 5000000000.0,
+      "min_avg_volume": 1000000,
+      "cadence_minutes": 25,
+      "budget_req_per_min": 70,
+      "chain_strike_count": 50,
+      "chain_days_out": 95
+    },
+    "breach": {
+      "_doc": "MEASURED strike-breach history from daily bars: vol-adjusted strike distances per horizon, touch + finish-ITM frequencies vs the model.",
+      "horizons_td": [
+        5,
+        10,
+        21
+      ],
+      "k_sigmas": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        2.0
+      ],
+      "min_windows": 60
+    },
+    "backtest": {
+      "_doc": "VRP threshold sweep (ratio thresholds; z thresholds once history accrues). Runs bt_options with its real cost/assignment model.",
+      "ratio_thresholds": [
+        1.0,
+        1.1,
+        1.2,
+        1.3,
+        1.5,
+        1.75
+      ],
+      "z_thresholds": [
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.5
+      ],
+      "structure": "put_credit_spread",
+      "mgmt": {
+        "profit_take_pct": 50,
+        "stop_x_credit": 2.0,
+        "exit_dte": 21
+      }
+    },
+    "sizing": {
+      "_doc": "Fractional Kelly gated on real outcome counts, ALWAYS capped by the drawdown rule (bt_plans) and hard exposure limits. Full Kelly is never the default.",
+      "kelly_fraction": 0.25,
+      "min_outcomes": 40,
+      "max_single_position_frac": 0.1,
+      "max_sector_frac": 0.25,
+      "max_earnings_week_frac": 0.15
+    },
+    "session_vrp": {
+      "_doc": "0DTE remaining-session variance edge (timing_engine integration). score_nudge_max is the most points the edge may move the timing score.",
+      "enabled": true,
+      "score_nudge_max": 6.0,
+      "min_elapsed_minutes": 45
+    }
   }
 }

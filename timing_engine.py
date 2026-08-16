@@ -737,6 +737,55 @@ def seed_limits(spot, strike, kind, iv, minutes_remaining, spread_frac,
 
 # ── v2 heuristic cross-check (kept per spec Phase A) ────────────────────────
 
+def session_variance_edge(minute_bars: list, iv: float, minutes_remaining: float,
+                          cfg: dict) -> dict | None:
+    """Remaining-session volatility edge (Premium Edge §19 integration).
+
+    Compares what the option's IV implies for the REST of today against
+    what today's own tape projects: implied remaining variance =
+    iv²·T_rem (the engine's one 365-calendar clock — iv was backed out on
+    it, so the product is clock-consistent total variance), forecast
+    remaining variance = realized per-minute variance so far × minutes
+    left (flat projection; the U-shape refinement waits on tape history).
+    Positive session VRP = the premium prices more movement than the tape
+    is producing — a nudge TOWARD selling now, capped at score_nudge_max
+    points so it can shade but never drive the decision. Returns None
+    (silently, no penalty) when disabled, early (< min_elapsed_minutes of
+    tape), or the data is unusable — absence of the edge is never a block."""
+    pcfg = ((cfg.get("premium_edge") or {}).get("session_vrp") or {})
+    if not pcfg.get("enabled", True):
+        return None
+    rets, prev = [], None
+    for b in (minute_bars or []):
+        c = b.get("close")
+        if c and prev and c > 0 and prev > 0:
+            rets.append(math.log(c / prev))
+        if c and c > 0:
+            prev = c
+    if len(rets) < float(pcfg.get("min_elapsed_minutes", 45)):
+        return None
+    mean = sum(rets) / len(rets)
+    var_pm = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    if var_pm <= 0 or not iv or iv <= 0 or minutes_remaining <= 1:
+        return None
+    forecast_rem_var = var_pm * minutes_remaining
+    implied_rem_var = iv * iv * _t_years(minutes_remaining)
+    if implied_rem_var <= 0:
+        return None
+    edge = (implied_rem_var - forecast_rem_var) / implied_rem_var
+    nudge = max(-1.0, min(1.0, edge / 0.5)) * float(pcfg.get("score_nudge_max", 6.0))
+    return {
+        "session_vrp_pct": round(edge * 100.0, 1),
+        "implied_rem_move_pct": round(math.sqrt(implied_rem_var) * 100.0, 2),
+        "forecast_rem_move_pct": round(math.sqrt(forecast_rem_var) * 100.0, 2),
+        "realized_vol_ann": round(math.sqrt(var_pm * _YEAR_SECONDS / 60.0), 4),
+        "elapsed_minutes": len(rets),
+        "score_nudge": round(nudge, 1),
+        "basis": ("MEASURED session tape vs implied (365-calendar clock); flat "
+                  "remaining-minute projection"),
+    }
+
+
 def heuristic_check(bars: list, kind: str, credit_now: float,
                     expected_extra: float, vw: dict | None) -> dict | None:
     """The transparent v2 heuristic retained as a cross-check display:
@@ -1294,6 +1343,12 @@ def _evaluate_uncached(symbol, strike, kind, expiry, contracts, cfg, cfg_hash) -
                      + float(w.get("extra_credit_exhausted", 0.35)) * exhaustion
                      + float(w.get("risk_pressure", 0.20)) * risk_pressure)
     score = max(0.0, min(100.0, score))
+    # Premium Edge integration: the remaining-session variance edge may
+    # shade the score by a few points (never drive it) — and the
+    # inadmissibility cap below still binds after the nudge.
+    sess_edge = session_variance_edge((vwctx or {}).get("bars"), float(iv), mins, cfg)
+    if sess_edge and sess_edge.get("score_nudge"):
+        score = max(0.0, min(100.0, score + sess_edge["score_nudge"]))
     # Acceptance test 13: a huge premium with spot on/through the strike is
     # hazardous, not opportunity — while selling NOW violates the intent's
     # limits, the score can never read as a sell zone.
@@ -1330,6 +1385,11 @@ def _evaluate_uncached(symbol, strike, kind, expiry, contracts, cfg, cfg_hash) -
                   "not opportunity. Stand aside or change the position's intent.")
     else:
         reason = _one_line_reason(displayed, sim, lim, float(bid), extra_d, contracts)
+        if sess_edge and abs(sess_edge["session_vrp_pct"]) >= 20:
+            more = sess_edge["session_vrp_pct"] > 0
+            reason += (f" Session vol edge {sess_edge['session_vrp_pct']:+.0f}% — the "
+                       f"premium prices {'more' if more else 'less'} movement than "
+                       f"today's tape projects.")
 
     dec = decomposition(float(spot), float(strike), kind, float(iv), mins,
                         float(bid), snap["spread_frac"], vwctx, cfg)
@@ -1393,6 +1453,7 @@ def _evaluate_uncached(symbol, strike, kind, expiry, contracts, cfg, cfg_hash) -
         "final_hour": fh,
         "heuristic": (dict(heur, agrees=not disagree_hard,
                            disagree_hard=disagree_hard) if heur else None),
+        "volatility_edge": sess_edge,
         "what_changed": what_changed,
         "data_quality": {"source": (under or {}).get("source") or "schwab",
                          "option_quote_age_s": qage,

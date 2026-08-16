@@ -161,6 +161,9 @@ const TABS = [{
   id: "scanners",
   label: "Scanners"
 }, {
+  id: "edge",
+  label: "Premium Edge"
+}, {
   id: "recovery",
   label: "Recovery"
 }, {
