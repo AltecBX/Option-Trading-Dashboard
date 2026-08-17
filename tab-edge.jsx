@@ -595,6 +595,7 @@ function EdgeTab({ apiFetch, onOpenTicker }) {
         </div>
       </div>
       {err && <div className="card-error">{err}</div>}
+      {board && board.error && <div className="card-error">last scan failed: {board.error}</div>}
       {!board && !err && <div className="card-loading">Loading board…</div>}
       {board && (
         <div>
@@ -669,8 +670,9 @@ function EdgeTab({ apiFetch, onOpenTicker }) {
           </div>
           {moreControls}
           {!rows.length && !scanning && (
-            <div className="research-empty">No scan yet — hit “Scan now”. The board fills from the
-              watchlist universe: free screen first, then budgeted chain calls for the top names.</div>
+            <div className="research-empty">{board.as_of
+              ? "The last scan returned no rows — “Scan now” retries with the watchlist fallback. If this keeps happening, the reason is shown above."
+              : "No scan yet — hit “Scan now”. The board fills from the watchlist universe: free screen first, then budgeted chain calls for the top names."}</div>
           )}
         </div>
       )}

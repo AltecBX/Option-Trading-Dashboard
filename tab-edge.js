@@ -873,7 +873,9 @@ function EdgeTab({
     }
   }, scanning ? `Scanning ${board.scanned}/${board.universe}…` : "Scan now"))), err && /*#__PURE__*/React.createElement("div", {
     className: "card-error"
-  }, err), !board && !err && /*#__PURE__*/React.createElement("div", {
+  }, err), board && board.error && /*#__PURE__*/React.createElement("div", {
+    className: "card-error"
+  }, "last scan failed: ", board.error), !board && !err && /*#__PURE__*/React.createElement("div", {
     className: "card-loading"
   }, "Loading board\u2026"), board && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "ab-summary"
@@ -959,7 +961,7 @@ function EdgeTab({
     className: `scan-num ${r.danger === "DANGEROUS" ? "down" : r.danger === "JUICY" ? "up" : ""}`
   }, r.danger || "—")))))), moreControls, !rows.length && !scanning && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
-  }, "No scan yet \u2014 hit \u201CScan now\u201D. The board fills from the watchlist universe: free screen first, then budgeted chain calls for the top names.")));
+  }, board.as_of ? "The last scan returned no rows — “Scan now” retries with the watchlist fallback. If this keeps happening, the reason is shown above." : "No scan yet — hit “Scan now”. The board fills from the watchlist universe: free screen first, then budgeted chain calls for the top names.")));
 }
 
 // Chunk registration (house pattern — verify_frontend checks this).

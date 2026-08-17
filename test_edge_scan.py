@@ -121,6 +121,25 @@ class TestAnalyzeSymbol(unittest.TestCase):
 
 
 class TestStage1(unittest.TestCase):
+    def test_cold_board_falls_back_to_watchlist(self):
+        # a fresh deploy on a weekend has an EMPTY watchlist board (it only
+        # rebuilds on weekday schedules) — the funnel must fall back to the
+        # user's own watchlist, starred first, instead of scanning nothing
+        # (user-reported, 8-16-2026: "Scan now" produced an empty board)
+        with tempfile.TemporaryDirectory() as tmp:
+            wire(tmp, board_rows=[])
+            es._WATCHLIST_FN = lambda: {"starred": ["MU", "SNDK"],
+                                        "all": ["AAPL", "MU", "GOOGL", "SNDK"]}
+            cands = es._stage1_candidates(es._cfg())
+            self.assertEqual(cands[:2], ["MU", "SNDK"])
+            self.assertIn("AAPL", cands)
+            es._WATCHLIST_FN = None
+
+    def test_no_board_no_watchlist_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wire(tmp, board_rows=[])
+            self.assertEqual(es._stage1_candidates(es._cfg()), [])
+
     def test_gates_and_ranking(self):
         with tempfile.TemporaryDirectory() as tmp:
             rows = [

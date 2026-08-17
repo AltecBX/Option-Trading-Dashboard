@@ -53,6 +53,7 @@ _VIX_FN = None                 # callable -> {date_iso: close}
 _IV_APPEND_FN = None           # callable(sym, iv_decimal) -> None (legacy iv_history)
 _MARKET_OPEN_FN = None         # callable(now=None) -> bool
 _ET_TZ = None
+_WATCHLIST_FN = None           # callable -> {"starred": [...], "all": [...]}
 
 _LOCK = threading.Lock()
 _STATE = {"rows": [], "as_of": None, "scanning": False, "error": None,
@@ -65,13 +66,15 @@ _BT_JOBS: dict = {}            # job_id -> {"status", "result", ...}
 
 def configure(schwab_getter, board_getter, earnings_fn=None, earn_moves_fn=None,
               macro_fn=None, vix_fn=None, iv_append_fn=None,
-              market_open_fn=None, data_dir=None, et_tz=None) -> None:
+              market_open_fn=None, data_dir=None, et_tz=None,
+              watchlist_fn=None) -> None:
     global _SCHWAB, _BOARD_FN, _EARNINGS_FN, _EARN_MOVES_FN, _MACRO_FN
-    global _VIX_FN, _IV_APPEND_FN, _MARKET_OPEN_FN, _DATA_DIR, _ET_TZ
+    global _VIX_FN, _IV_APPEND_FN, _MARKET_OPEN_FN, _DATA_DIR, _ET_TZ, _WATCHLIST_FN
     _SCHWAB, _BOARD_FN = schwab_getter, board_getter
     _EARNINGS_FN, _EARN_MOVES_FN = earnings_fn, earn_moves_fn
     _MACRO_FN, _VIX_FN, _IV_APPEND_FN = macro_fn, vix_fn, iv_append_fn
     _MARKET_OPEN_FN, _ET_TZ = market_open_fn, et_tz
+    _WATCHLIST_FN = watchlist_fn
     _DATA_DIR = Path(data_dir) if data_dir else None
     if _DATA_DIR is not None:
         try:
@@ -411,7 +414,24 @@ def _stage1_candidates(cfg: dict) -> list:
             pass
         out.append((score, r.get("ticker")))
     out.sort(reverse=True)
-    return [t for _s, t in out if t][: int(cfg.get("scan", {}).get("stage2_n", 24))]
+    cap = int(sn.get("stage2_n", 24))
+    cands = [t for _s, t in out if t][:cap]
+    if cands:
+        return cands
+    # Cold start: the watchlist board rebuilds on weekday schedules, so a
+    # fresh deploy (or a weekend restart) has an empty board. Fall back to
+    # the user's own watchlist — starred names first — instead of silently
+    # scanning nothing. Stage 2's per-symbol gates still apply downstream.
+    try:
+        wl = (_WATCHLIST_FN() or {}) if _WATCHLIST_FN else {}
+        starred = [s for s in (wl.get("starred") or []) if s]
+        rest = [s for s in (wl.get("all") or []) if s and s not in starred]
+        fallback = (starred + rest)[:cap]
+        if fallback:
+            return fallback
+    except Exception:
+        pass
+    return []
 
 
 def _budget_ok(cfg: dict) -> bool:
@@ -434,9 +454,12 @@ def _scan_worker(force: bool = False) -> None:
         with _LOCK:
             _STATE["universe"] = len(syms)
             _STATE["scanned"] = 0
-        # after the close, record the day's observations exactly once
+        # after the close, record the day's observations exactly once —
+        # trading days only (a weekend scan would write frozen Friday
+        # quotes under Saturday's date and pollute the daily history)
         now_et = _now_et()
         record = (not _market_open()) and now_et.hour >= 16 \
+            and now_et.weekday() < 5 \
             and _STATE.get("eod_recorded_for") != now_et.date().isoformat()
         rows = []
         for sym in syms:
