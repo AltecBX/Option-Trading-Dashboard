@@ -145,6 +145,105 @@ class TestAnalystActionMapping(CatalystBase):
         self.assertIsNone(od._gap_analyst_action("MU", days_now()))
 
 
+class FakeSec:
+    """Stands in for sec_filings with whatever EDGAR would have returned."""
+
+    def __init__(self, event=None, dates=None):
+        self._event, self._dates = event, dates or {}
+
+    def latest_event(self, symbol, days):
+        if self._event and str(self._event.get("date")) in days:
+            return self._event
+        return None
+
+    def event_dates(self, symbol):
+        return self._dates
+
+
+class SecBase(CatalystBase):
+    def setUp(self):
+        super().setUp()
+        self._sec = (od._SEC_AVAILABLE, od._sec_filings)
+
+    def tearDown(self):
+        od._SEC_AVAILABLE, od._sec_filings = self._sec
+        super().tearDown()
+
+    def sec(self, event=None, dates=None):
+        od._SEC_AVAILABLE = True
+        od._sec_filings = FakeSec(event, dates)
+
+
+class TestOfferingTag(SecBase):
+    def _filing(self, kind="OFFERING", **kw):
+        base = {"kind": kind, "label": "Stock offering priced — 6.8M shares",
+                "form": "424B5", "date": days_now()[0],
+                "accepted": days_now()[0] + "T03:00:20-04:00",
+                "url": "https://www.sec.gov/Archives/edgar/data/65770/x/form424b5.htm"}
+        base.update(kw)
+        return base
+
+    def test_offering_is_tagged_with_its_filing_link(self):
+        self.wire(board_actions=[])
+        self.sec(event=self._filing())
+        out = od._gap_offering("MU", days_now())
+        self.assertEqual(out["kind"], "OFFERING")
+        self.assertIn("6.8M shares", out["label"])
+        self.assertIn("sec.gov", out["url"])
+        self.assertEqual(out["filed"], days_now()[0] + "T03:00:20-04:00")
+
+    def test_dilution_is_its_own_kind(self):
+        self.sec(event=self._filing(kind="DILUTION",
+                                    label="Shelf registration filed (S-3)"))
+        self.assertEqual(od._gap_offering("MU", days_now())["kind"], "DILUTION")
+
+    def test_no_sec_module_is_silent(self):
+        od._SEC_AVAILABLE, od._sec_filings = False, None
+        self.assertIsNone(od._gap_offering("MU", days_now()))
+        self.assertEqual(od._gap_offering_dates("MU"), {})
+
+    def test_a_failing_lookup_never_breaks_the_scan(self):
+        class Boom:
+            def latest_event(self, *a, **k):
+                raise RuntimeError("EDGAR down")
+
+            def event_dates(self, *a, **k):
+                raise RuntimeError("EDGAR down")
+
+        od._SEC_AVAILABLE, od._sec_filings = True, Boom()
+        self.assertIsNone(od._gap_offering("MU", days_now()))
+        self.assertEqual(od._gap_offering_dates("MU"), {})
+
+
+class TestOfferingPriority(SecBase):
+    def _no_earnings(self):
+        real = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set()
+        self.addCleanup(lambda: setattr(od, "_gap_earn_hist", real))
+
+    def test_an_offering_outranks_a_rating_change(self):
+        # both are real and both are today; the share sale is why it gapped
+        self._no_earnings()
+        self.wire(board_actions=[{"ticker": "MU", "date": days_now()[0],
+                                  "action_class": "downgrade", "firm": "Citi"}])
+        self.sec(event={"kind": "OFFERING", "label": "Stock offering priced",
+                        "form": "424B5", "date": days_now()[0], "url": "u"})
+        self.assertEqual(od._gap_catalyst("MU")["kind"], "OFFERING")
+
+    def test_earnings_still_outranks_an_offering(self):
+        # earnings is the only catalyst that splits the statistics, so it has
+        # to win even when the company also filed to sell stock
+        self.wire(board_actions=[])
+        self.sec(event={"kind": "OFFERING", "label": "Stock offering priced",
+                        "form": "424B5", "date": days_now()[0], "url": "u"})
+        real = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set(days_now())
+        try:
+            self.assertEqual(od._gap_catalyst("MU")["kind"], "EARNINGS")
+        finally:
+            od._gap_earn_hist = real
+
+
 class TestCatalystPriority(CatalystBase):
     def test_earnings_outranks_a_rating_change(self):
         # a stock that reported AND was upgraded is an EARNINGS gap: that is

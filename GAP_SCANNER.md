@@ -59,6 +59,7 @@ why, with a sample size and a conservative range on every probability.
 | Board/scan/persist/restore contract | `recovery.py` skeleton, `movers.py` front end |
 | Earnings calendar + history | `_bulk_earnings_map` (BMO/AMC), `load_earnings_history` |
 | Analyst actions / macro days | `analyst_board`, `treasury.MACRO_SCHEDULE` |
+| Ticker → SEC CIK | `load_ticker_index` (the SEC file the app already downloads for autocomplete) |
 | Sector mapping + context ETFs | `recovery._SECTOR_ETF`, SPY/QQQ/sector quotes in the same sweep |
 | Hysteresis discipline | timing-engine pattern (raw vs displayed, escalation bypass) |
 | Journal/replay | timing-engine JSONL discipline (`<data>/gap/decisions/`) |
@@ -89,10 +90,49 @@ why, with a sample size and a conservative range on every probability.
 - **Survivorship bias**: the universe is today's watchlist + analyst
   universe; delisted gappers are absent, so fade rates run hot. Stated on
   the board itself.
-- **Catalyst tags**: EARNINGS (real, with BMO/AMC), ANALYST ACTION (real),
-  MACRO (real), sector context (real). Offerings/FDA/M&A/short interest
-  have NO data source in this app and are never fabricated — such days are
-  UNTAGGED. Historical catalyst tagging is earnings vs non-earnings only.
+- **Catalyst tags**: EARNINGS (real, with BMO/AMC), OFFERING / DILUTION
+  (real, SEC EDGAR — see below), UPGRADE / DOWNGRADE / ANALYST ACTION
+  (real), MACRO (real), sector context (real). FDA decisions, M&A and short
+  interest still have NO data source in this app and are never fabricated —
+  such days are UNTAGGED. Priority is earnings → offering → rating change →
+  macro; only earnings splits the statistical population, everything else is
+  context shown alongside it.
+
+## Offering & dilution filings (`sec_filings.py`)
+
+The most common reason a small cap gaps down premarket is that it is
+selling stock. EDGAR is the source of record — free, authoritative, live
+within minutes of acceptance — so this is read, not guessed.
+
+| Form | Tag | Why |
+| --- | --- | --- |
+| 424B1 / 424B4 / 424B5 | OFFERING | a deal being priced off an effective registration |
+| 8-K item 3.02 | OFFERING | unregistered equity sale (PIPE / private placement) |
+| S-1 / S-3 / S-3ASR / F-1 / F-3 | DILUTION | shares registered for future sale — permission, not a sale |
+| 424B2 / 424B3 / 424B7 / FWP | only with proof | debt takedowns and merger prospectuses use these too |
+
+**Today's tag** reads the winning filing's own cover page once, so the
+label says what was actually sold (`Stock offering priced — 6.8M shares`,
+`At-the-market stock program — $1.0B`, `Convertible notes offering`) and a
+bond deal is dropped rather than mislabeled as dilution — a utility pricing
+notes dilutes nobody. Deal size is quoted only when the sentence binds the
+number to the offering; a stray figure from a fee table is left out. Every
+tag carries a link straight to the filing.
+
+**Historical tags** are form-derived only — no document read — so the
+ambiguous forms above are excluded from history entirely. Better a missing
+tag on a 2024 gap than a wrong one.
+
+`acceptanceDateTime` from EDGAR is **UTC**, verified rather than assumed:
+Apple's 4:30pm ET earnings 8-K lands at 20:30Z, JPMorgan's 6:30am one at
+10:30Z, and across ~2,700 non-Section-16 filings the next-business-day roll
+begins exactly at 21:30Z (the SEC's 5:30pm ET cutoff). Reading it as
+Eastern would move a 3am premarket offering into the afternoon.
+
+Limits worth knowing: EDGAR's `recent` block covers the last ~1,000
+filings, which for a busy filer can be shorter than the 900-day daily
+history — older gap days then stay UNTAGGED. Foreign private issuers file
+6-K/F-forms with less structure. Neither is faked.
 
 ## Walk-forward discipline
 
