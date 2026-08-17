@@ -4971,6 +4971,139 @@ except Exception as _exc:  # noqa: BLE001
     _pedge = None  # type: ignore
 
 
+# ── Premarket Gap Fade & Rebound scanner wiring (GAP_SCANNER.md) ─────────────
+
+_GAP_ACT_CACHE: dict = {}      # symbol -> (ts, {"splits", "dividends"})
+_GAP_EARN_CACHE: dict = {}     # symbol -> (ts, set of past report dates)
+
+
+def _gap_daily(symbol: str, days: int) -> dict:
+    """Daily bars + which source produced them, so the event store can label
+    adjusted (schwab) vs raw (yfinance fallback) history."""
+    bars = load_daily(symbol, days=days) or []
+    return {"bars": bars, "source": _LAST_SOURCE.get("source")}
+
+
+def _gap_actions(symbol: str) -> dict:
+    """Declared corporate actions (split dates + dividend amounts by date)
+    via yfinance, cached 24h. Empty offline — the engine's heuristic
+    detector still guards the store."""
+    hit = _GAP_ACT_CACHE.get(symbol)
+    if hit and time.time() - hit[0] < 24 * 3600:
+        return hit[1]
+    out = {"splits": set(), "dividends": {}}
+    if not os.environ.get("JERRY_NO_NET") and yf is not None:
+        try:
+            t = yf.Ticker(symbol)
+            sp = t.splits
+            if sp is not None and len(sp):
+                out["splits"] = {str(ix)[:10] for ix in sp.index}
+            dv = t.dividends
+            if dv is not None and len(dv):
+                out["dividends"] = {str(ix)[:10]: float(v)
+                                    for ix, v in dv.items()}
+        except Exception:
+            pass
+    _GAP_ACT_CACHE[symbol] = (time.time(), out)
+    return out
+
+
+def _gap_earn_hist(symbol: str) -> set:
+    """Past earnings report dates (~3y), cached 12h. Powers the hard rule
+    that earnings gaps never contaminate non-earnings statistics."""
+    hit = _GAP_EARN_CACHE.get(symbol)
+    if hit and time.time() - hit[0] < 12 * 3600:
+        return hit[1]
+    dates: set = set()
+    try:
+        eh = load_earnings_history(symbol, weeks=160) or {}
+        dates = {str(d)[:10] for d in (eh.get("past") or [])}
+    except Exception:
+        dates = set()
+    _GAP_EARN_CACHE[symbol] = (time.time(), dates)
+    return dates
+
+
+def _gap_catalyst(symbol: str) -> dict:
+    """Today's catalyst tag from the four REAL sources only: earnings
+    (bulk calendar with BMO/AMC timing), analyst action, macro event day.
+    Offerings/FDA/M&A have no data source in this app and are never
+    fabricated — everything else is UNTAGGED."""
+    from datetime import date as _d, timedelta as _td
+    today = _d.today().isoformat()
+    yesterday = (_d.today() - _td(days=1)).isoformat()
+    try:
+        em = _bulk_earnings_map(7) or {}
+        e = em.get(symbol.upper())
+        if e:
+            ed, timing = str(e.get("date"))[:10], (e.get("timing") or "").upper()
+            if ed == today and timing != "AMC":
+                return {"kind": "EARNINGS", "label": f"reports today {timing or ''}".strip()}
+            if ed == today and timing == "AMC":
+                return {"kind": "EARNINGS", "label": "reports today AMC"}
+            if ed == yesterday and timing == "AMC":
+                return {"kind": "EARNINGS", "label": "reported last night (AMC)"}
+    except Exception:
+        pass
+    try:
+        if _gap_earn_hist(symbol) & {today, yesterday}:
+            return {"kind": "EARNINGS", "label": "just reported"}
+    except Exception:
+        pass
+    try:
+        if _ANALYST_BOARD_AVAILABLE and _analyst_board is not None:
+            for a in (_analyst_board.get_board() or {}).get("actions", [])[:120]:
+                if (a.get("ticker") or "").upper() == symbol.upper() \
+                        and str(a.get("date", ""))[:10] in (today, yesterday):
+                    return {"kind": "ANALYST ACTION",
+                            "label": (a.get("action") or "analyst action")}
+    except Exception:
+        pass
+    try:
+        for m in _edge_macro_events():
+            if m.get("date") == today:
+                return {"kind": "MACRO", "label": f"{m.get('kind')} today"}
+    except Exception:
+        pass
+    return {"kind": "UNTAGGED", "label": None}
+
+
+def _gap_sector_etf(symbol: str) -> str | None:
+    try:
+        if _WLTABLE_AVAILABLE and _wltable is not None:
+            for r in (_wltable.get_board() or {}).get("rows", []):
+                if (r.get("ticker") or "").upper() == symbol.upper():
+                    sec = r.get("sector")
+                    if sec and _recovery is not None:
+                        return _recovery._SECTOR_ETF.get(sec)
+    except Exception:
+        pass
+    return None
+
+
+try:
+    import gap_scan as _gap
+    _gap.configure(
+        schwab_getter=lambda: _schwab(),
+        watchlist_fn=_backtest_universe,
+        universe_fn=lambda: (_analyst_board._load_universe()
+                             if (_ANALYST_BOARD_AVAILABLE and _analyst_board is not None) else []),
+        board_fn=lambda: ((_wltable.get_board()
+                           if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        daily_fn=_gap_daily,
+        actions_fn=_gap_actions,
+        earn_hist_fn=_gap_earn_hist,
+        catalyst_fn=_gap_catalyst,
+        sector_etf_fn=_gap_sector_etf,
+        data_dir=_STABLE_DIR,
+    )
+    _GAP_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[gap_scan] wiring failed: {_exc}", file=sys.stderr)
+    _GAP_AVAILABLE = False
+    _gap = None  # type: ignore
+
+
 def _juice_rows_passive() -> list:
     """0DTE juice board rows WITHOUT triggering a scan (snapshot() lazily
     starts the worker; the tape's discovery tier must not)."""
@@ -7812,6 +7945,50 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                     status=404)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/edge", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/gap" or parsed.path.startswith("/api/gap/"):
+            if not _GAP_AVAILABLE:
+                self._send_json({"error": "gap scanner unavailable", "rows": []},
+                                status=503)
+                return
+            section = parsed.path[len("/api/gap"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "":
+                    self._send_json(_gap.get_board(), no_store=True)
+                elif section == "scan":
+                    self._send_json(_gap.trigger_scan(
+                        force=(qs.get("force", ["0"])[0] or "0") in ("1", "true")),
+                        no_store=True)
+                elif section == "detail":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    self._send_json(_gap.detail(symbol), no_store=True)
+                elif section == "events":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    self._send_json(_gap.events_payload(symbol), no_store=True)
+                elif section == "backtest":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    self._send_json(_gap.backtest_grid(symbol), no_store=True)
+                elif section == "config":
+                    import gap_engine as _geng
+                    cfg_g, h = _geng.config()
+                    self._send_json({"config": cfg_g, "hash": h,
+                                     "engine": _geng.ENGINE_VERSION}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown gap section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/gap", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/reprice/chain":
@@ -11632,6 +11809,11 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _edge.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[premium_edge] scheduler start failed: {exc}", file=sys.stderr)
+    if _GAP_AVAILABLE:
+        try:
+            _gap.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[gap_scan] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;

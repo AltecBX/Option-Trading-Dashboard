@@ -24,6 +24,11 @@ const GLOSSARY = {
   vrp: "Volatility risk premium: IV30 minus Expected RV30, in vol points. Positive VRP means option buyers are paying for more movement than the stock is expected to produce — the raw material of premium selling. High VRP alone is not a signal: events, liquidity and tail risk still gate it.",
   vrp_z: "How unusual today's VRP is versus this ticker's OWN historical VRP distribution, in standard deviations. Needs ~60 daily observations before it is scored — until then the store is accruing and the cross-sectional ratio carries the weight.",
   term_structure: "ATM implied volatility across expirations. Contango (front cheaper than back) is the calm norm; backwardation (front bid over back) means the market pays up for near-term protection — usually a reason for caution, not opportunity. A single-expiry hump typically marks the earnings expiration.",
+  // Gap Scan (premarket fade & rebound)
+  pm_gap: "The live premarket gap: current premarket price versus yesterday's regular close. It keeps moving until 9:30 — the official open gap, stored separately, is what the history is measured from.",
+  gap_fade: "A gap up that later trades back down. The scanner never assumes gaps fill — it measures how often THIS stock's similar gaps actually faded 1/2/3/5%, and shows the sample size with every rate.",
+  target_before_stop: "Of the historical events, how often the profit target printed BEFORE the stop would have been hit — measured on real minute-by-minute paths. When target and stop landed in the same minute, the tie goes AGAINST the trade. Daily bars can't order events, so daily-only history shows UNKNOWN instead of a guess.",
+  mae: "Maximum Adverse Excursion — how far the trade moved against you before it worked (or didn't). A fade with a great win rate that typically squeezes 4% first is a very different trade from one that fades immediately.",
   oi: "Open interest. The total number of contracts currently held open at this strike. Higher OI generally means better liquidity.",
   volume: "Number of contracts traded today. A spike in volume vs OI can signal directional interest.",
   // Returns and history

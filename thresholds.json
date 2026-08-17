@@ -363,5 +363,102 @@
       "score_nudge_max": 6.0,
       "min_elapsed_minutes": 45
     }
+  },
+  "gap_fade": {
+    "_doc": "Premarket Gap Fade & Rebound scanner (GAP_SCANNER.md). Answers: when this stock previously moved like this before the open, what happened next? Repo file = defaults; <data>/thresholds.json overrides key-by-key (deep merge). Every threshold here is a configurable starting rule validated by the walk-forward grid in /api/gap/backtest, never a hardcoded truth. Probabilities are shown with sample sizes and Wilson intervals; signal gates use the CONSERVATIVE lower bound so 7-of-8 can never masquerade as a reliable 87%.",
+    "event": {
+      "_doc": "What qualifies a historical day for the event store. A day qualifies if the OFFICIAL open gap exceeded official_gap_min_pct OR the premarket price reached pm_gap_min_pct at any time (discoverable only where premarket minute data exists \u2014 hinted days historically, every scanned day from launch forward). Time-matched queries only count an event at time t if it had already crossed the threshold by t.",
+      "official_gap_min_pct": 4.0,
+      "pm_gap_min_pct": 5.0,
+      "min_price": 3.0,
+      "max_events_per_symbol": 500,
+      "daily_history_days": 900,
+      "minute_hint_gap_pct": 2.0,
+      "split_ratio_tol": 0.04,
+      "special_div_pct": 2.0,
+      "max_credible_gap_pct": 150.0
+    },
+    "outcomes": {
+      "_doc": "Historical outcome measurement. Entry reference is the first valid regular-session opening print (per spec: the only price the backtest may assume executable, execution model applied on top). Targets/stops in % from entry; primary pair is what the scanner column shows. Same-minute target+stop resolves AGAINST the trade (stop first, INTRABAR MODELED). Daily-only events never claim ordering.",
+      "targets_pct": [
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        4.0,
+        5.0
+      ],
+      "stops_pct": [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0
+      ],
+      "primary_target_pct": 2.0,
+      "primary_stop_pct": 3.0,
+      "prob_levels_pct": [
+        1.0,
+        2.0,
+        3.0,
+        5.0
+      ],
+      "horizon_minutes": 390,
+      "delayed_open_after_min": 5
+    },
+    "slippage": {
+      "_doc": "MODELED execution costs, applied per side. Per-side slip = max(base_bps, spread_frac x observed spread) x (pm_mult premarket / 1 regular). Stops assume fill THROUGH the stop by stop_through_frac of the stop distance \u2014 stops do not fill at the stop price.",
+      "base_bps": 5.0,
+      "spread_frac": 0.5,
+      "pm_mult": 2.0,
+      "stop_through_frac": 0.15
+    },
+    "history": {
+      "_doc": "Sample-size honesty. Below min_events the scanner says NO DATA. Signals gate on the Wilson LOWER bound; strong signals additionally need strong_min_events. Analog quality: HIGH = >= good_events tightly matched, MODERATE = widened same-ticker, LOW = pooled or poorly matched.",
+      "min_events": 8,
+      "good_events": 20,
+      "strong_min_events": 20,
+      "gap_match_band": [
+        0.5,
+        2.5
+      ]
+    },
+    "signal": {
+      "_doc": "Signal gates on CONSERVATIVE (Wilson lower) probabilities. strong needs favorable probability AND target-before-stop AND tail control AND no earnings catalyst. Continuation risk fires when history says these gaps keep going.",
+      "strong_p_fav_lo": 0.62,
+      "strong_p_tbs_lo": 0.58,
+      "strong_max_adv_p90_pct": 6.0,
+      "lean_p_fav_lo": 0.52,
+      "continuation_rate": 0.58,
+      "max_quote_age_s": 120,
+      "max_spread_pct": 5.0
+    },
+    "hysteresis": {
+      "_doc": "Displayed signal changes only after persist_evals consecutive evaluations agree (timing-engine discipline). Risk escalations \u2014 NO DATA, stale quotes, new earnings catalyst, HOLD/CONTINUATION risk \u2014 bypass and fire immediately. Raw and displayed are both recorded.",
+      "persist_evals": 2,
+      "escalate_signals": [
+        "NO DATA",
+        "HOLD / CONTINUATION RISK",
+        "CONTINUATION LOWER RISK"
+      ]
+    },
+    "scan": {
+      "_doc": "Premarket funnel. Stage 1 = one quote batch over the universe (watchlist + analyst universe + index/sector ETFs), gap >= min_gap_pct and fresh quotes only. Stage 2 = top max_candidates get premarket minute bars + event-store stats. Chain-free: budget is quotes + 1 minute-history call per candidate + backfill. Defer when Schwab budget is above budget_req_per_min.",
+      "min_gap_pct": 3.0,
+      "max_candidates": 20,
+      "cadence_minutes": 5,
+      "start_et": "07:00",
+      "end_et": "09:40",
+      "record_et": "16:10",
+      "budget_req_per_min": 70,
+      "minute_backfill_per_scan": 6,
+      "min_avg_volume": 300000
+    },
+    "context": {
+      "_doc": "Market/sector context. SECTOR DRIVEN when the sector ETF moved sector_min_pct in the same direction and the stock's gap is under isolated_ratio x the sector move; ISOLATED otherwise.",
+      "sector_min_pct": 1.5,
+      "isolated_ratio": 3.0
+    }
   }
 }
