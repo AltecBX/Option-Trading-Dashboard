@@ -45,7 +45,7 @@ function EdgeScoreBar({ score }) {
   const s = Math.max(0, Math.min(100, score || 0));
   const cls = s >= 70 ? "hi" : s >= 45 ? "mid" : "lo";
   return (
-    <span className="edge-scorebar" title={`Premium Edge Score ${s}/100`}>
+    <span className="edge-scorebar" title={`Premium Edge Score ${Math.round(s)}/100 — how attractive selling premium here is once richness, evidence quality, tail risk, liquidity and event risk are all accounted for. Open the ticker to see exactly which factors earned or lost points.`}>
       <i className={cls} style={{ width: `${s}%` }} /><b>{Math.round(s)}</b>
     </span>
   );
@@ -222,7 +222,7 @@ function EdgeBacktestPanel({ apiFetch, sym }) {
   };
   return (
     <div className="edge-bt">
-      <div className="edge-sechead">VRP threshold backtest
+      <div className="edge-sechead" title="Tests whether selling premium at different richness thresholds actually made money on this ticker's own history — run through the app's options backtester with real costs, slippage and assignment. The point is to challenge the default threshold, not confirm it.">VRP threshold backtest
         <button className="scan-run-btn" onClick={run} disabled={!!job}
           title="Sweeps IV/ExpectedRV entry-ratio thresholds through the app's options backtester (real cost, slippage and assignment model) on ~2 years of this ticker's bars. Judge by expectancy and worst-tail outcomes, never win rate.">
           {job ? "Running…" : "Run backtest"}</button>
@@ -329,22 +329,28 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
               <span className="edge-class" title={`Premium classification. Event share of the IV-vs-forecast gap: ${r.event_share != null ? Math.round(r.event_share * 100) + "%" : "n/a"}`}>{r.premium_class}</span>
             </div>
             <div className="edge-hero-nums">
-              <div><span><Term k="iv30">IV30</Term></span><b>{edgeIvPct(r.iv30)}</b><small className="muted">{r.iv30_method === "variance_interpolation" ? "interpolated" : "nearest exp"}</small></div>
-              <div><span><Term k="expected_rv">Expected RV30</Term></span><b>{edgeIvPct(r.erv30)}</b><small className="muted">{d.erv.method}</small></div>
-              <div><span><Term k="vrp">VRP</Term></span><b className={r.vrp_points > 0 ? "up" : "down"}>{edgeSgn(r.vrp_points)} pts</b><small className="muted">{edgeNum(r.vrp_ratio, 2)}× ratio</small></div>
-              <div><span><Term k="vrp_z">VRP Z</Term></span>
+              <div title={`What option buyers are paying for volatility over the next 30 days. ${r.iv30_method === "variance_interpolation" ? "Interpolated between the two expirations that straddle 30 days, so it is a true 30-day number rather than whichever expiry happened to be closest." : "Taken from the nearest expiration because the surrounding quotes did not pass the quality gates — treat it as approximate."}`}>
+                <span><Term k="iv30">IV30</Term></span><b>{edgeIvPct(r.iv30)}</b><small className="muted">{r.iv30_method === "variance_interpolation" ? "interpolated" : "nearest exp"}</small></div>
+              <div title="What this stock is forecast to ACTUALLY move over the next 30 days, from a model picked by walk-forward testing on data it had not seen. This is the number that decides whether the premium above is generous or fair — it is not trailing historical volatility.">
+                <span><Term k="expected_rv">Expected RV30</Term></span><b>{edgeIvPct(r.erv30)}</b><small className="muted">{d.erv.method}</small></div>
+              <div title="The gap between what buyers pay and what the stock is expected to deliver, in volatility points. Positive means sellers are being overpaid. The ratio underneath says it as a multiple — 1.30x means options price 30% more movement than forecast.">
+                <span><Term k="vrp">VRP</Term></span><b className={r.vrp_points > 0 ? "up" : "down"}>{edgeSgn(r.vrp_points)} pts</b><small className="muted">{edgeNum(r.vrp_ratio, 2)}× ratio</small></div>
+              <div title={r.hist_status === "ok"
+                ? "How unusual today's premium is for THIS stock, in standard deviations from its own average. Above +1.5 means genuinely rich for this name, not just rich-looking versus other tickers."
+                : `How unusual today's premium is for this stock — needs about ${(d.hist && d.hist.min_required) || 60} daily observations before it can be scored honestly. The store fills one observation per scan day; until then the cross-sectional ratio carries the weight and this stays blank.`}>
+                <span><Term k="vrp_z">VRP Z</Term></span>
                 <b>{r.vrp_z != null ? edgeSgn(r.vrp_z, 2) : "—"}</b>
                 <small className="muted">{r.hist_status === "ok" ? `${r.vrp_percentile}th pctl, n=${r.hist_n}` : `accruing ${r.hist_n}/${(d.hist && d.hist.min_required) || 60} days`}</small></div>
             </div>
             {d.erv.event_adj && (
-              <div className="edge-note">Earnings adjustment: +{d.erv.event_adj.added_volpts} vol pts from
+              <div className="edge-note" title="An earnings report falls inside this horizon, so the forecast was raised by the size of THIS stock's own measured historical earnings moves. The last line strips the event out: that is the premium you would be collecting for ordinary day-to-day movement, and it is the honest number to judge a non-event trade on.">Earnings adjustment: +{d.erv.event_adj.added_volpts} vol pts from
                 {" "}{d.erv.event_adj.basis} → event-adjusted RV {edgeIvPct(r.erv30_event)}.
                 Premium net of the event: {edgeSgn(d.vrp.vrp_points_ex_event)} pts.</div>
             )}
-            {r.main_risk && <div className="edge-mainrisk">Main risk: {r.main_risk}</div>}
+            {r.main_risk && <div className="edge-mainrisk" title="The single biggest reason this trade could go wrong, picked from the danger checks the engine ran.">Main risk: {r.main_risk}</div>}
           </div>
 
-          <div className="edge-sechead">Why this score</div>
+          <div className="edge-sechead" title="The 0-100 score broken into its parts, each with the points it added or subtracted and why. Nothing here is a black box — if the score is high, this list says exactly which factors carried it.">Why this score</div>
           <ul className="edge-why">
             {(d.score_breakdown || []).map((b, i) => (
               <li key={i}><b className={b.pts >= 0 ? "up" : "down"}>{edgeSgn(b.pts)}</b>
@@ -352,7 +358,7 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
             ))}
           </ul>
 
-          <div className="edge-sechead">Structures for your intent</div>
+          <div className="edge-sechead" title="The specific trades to consider, chosen for what YOU want out of the position. Pick an intent below: defined-risk spreads if you just want the premium, cash-secured puts if you would happily own the shares, covered calls if you already do.">Structures for your intent</div>
           <div className="edge-intents">
             {EDGE_INTENTS.map(([k, lbl, tip]) => (
               <button key={k} className={`tsy-serbtn ${intent === k ? "on" : ""}`}
@@ -388,23 +394,25 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
 
           <div className="edge-grid2">
             <div>
-              <div className="edge-sechead"><Term k="vrp">VRP</Term> history
+              <div className="edge-sechead" title="How rich or cheap this stock's options are TODAY versus its own past. The line is the daily premium gap; the shaded bands are one and two standard deviations from this ticker's own average, so you can see whether today is genuinely unusual for this name.">
+                <Term k="vrp">VRP</Term> history
                 {d.hist && d.hist.status === "ok" && <span className="muted"> · mean {d.hist.mean} · σ {d.hist.std} · p95 {d.hist.p95}</span>}
               </div>
               <EdgeVrpChart obs={hist && hist.observations} stats={d.hist} />
             </div>
             <div>
-              <div className="edge-sechead">IV30 vs Expected RV30</div>
+              <div className="edge-sechead" title="The two lines behind every number on this page: what option buyers are paying for volatility (IV30) versus what this stock is forecast to actually deliver (Expected RV30). When the paid line sits above the forecast line, sellers are being overpaid.">IV30 vs Expected RV30</div>
               <EdgeIvErvChart obs={hist && hist.observations} />
             </div>
             <div>
-              <div className="edge-sechead"><Term k="term_structure">Term structure</Term>
+              <div className="edge-sechead" title="Implied volatility across expiration dates. Normally further-out options price more volatility than near ones; when that flips, the market is paying up for near-term protection — usually a reason for caution rather than an opportunity. A single bulge marks the earnings expiration.">
+                <Term k="term_structure">Term structure</Term>
                 {d.term && <span className="muted"> · {d.term.shape}{d.term.humps && d.term.humps.length ? " · hump (earnings)" : ""}</span>}
               </div>
               <EdgeTermChart term={d.term} />
             </div>
             <div>
-              <div className="edge-sechead">Skew
+              <div className="edge-sechead" title="How much more expensive downside puts are than upside calls. Positive means puts are richer — the market is paying up for crash protection, which is where cash-secured puts get paid best. Negative means calls are richer, which favors covered calls.">Skew
                 {d.skew && d.skew.rr25_volpts != null && <span className="muted"> · RR25 {edgeSgn(d.skew.rr25_volpts)} vol pts ({d.skew.rr25_volpts > 0 ? "puts richer" : "calls richer"})</span>}
               </div>
               <EdgeSkewChart skew={d.skew} />
@@ -413,7 +421,7 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
 
           {breach && breach.em_calibration && (
             <div>
-              <div className="edge-sechead">Expected-move calibration <span className="muted">· {breach.em_calibration.em_basis}</span></div>
+              <div className="edge-sechead" title="Does this stock actually stay inside the move the options imply? Each bar is how often it finished within 1x, 1.25x and 1.5x the expected move over its own history. The tick on the first bar is the 68.3% a textbook lognormal would predict — a stock landing well below that has fatter tails than the model, and its options are less safe to sell than they look.">Expected-move calibration <span className="muted">· {breach.em_calibration.em_basis}</span></div>
               <div className="edge-emcal">
                 {[["inside 1×EM", breach.em_calibration.inside_1x_pct, 68.3],
                   ["inside 1.25×", breach.em_calibration.inside_125x_pct, null],
@@ -433,7 +441,7 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
 
           {breach && breach.breach && (
             <div>
-              <div className="edge-sechead">Strike breach history <span className="muted">· MEASURED from this ticker's own bars</span></div>
+              <div className="edge-sechead" title="How often this stock ACTUALLY reached strikes at a given distance, measured from its own bars, next to what the textbook model predicts for that distance. The gap between measured and model is this ticker's fat-tail correction — if measured runs hotter, the model is understating your assignment risk.">Strike breach history <span className="muted">· MEASURED from this ticker's own bars</span></div>
               <div className="scan-table-wrap">
                 <table className="scan-table edge-breach-table">
                   <thead><tr>
@@ -467,7 +475,7 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
             </div>
           )}
 
-          <div className="edge-sechead">Forecast model <span className="muted">· {d.erv.method}</span></div>
+          <div className="edge-sechead" title="Which volatility estimator won for this ticker and what it is built from. The model is chosen by walk-forward testing — scored on data it had not seen — and a per-ticker model is only adopted when it beats the general-purpose blend out of sample.">Forecast model <span className="muted">· {d.erv.method}</span></div>
           <div className="edge-note">
             components: {Object.entries(d.erv.components || {}).map(([k, v]) => `${k} ${edgeIvPct(v)}`).join(" · ")}
             {d.erv.anchor != null && <> · long-run anchor {edgeIvPct(d.erv.anchor)}</>}
@@ -574,8 +582,8 @@ function EdgeTab({ apiFetch, onOpenTicker }) {
       {label}{sortK === k ? (sortD < 0 ? " ↓" : " ↑") : ""}
     </th>
   );
-  const SumBox = ({ title, tone, r, note }) => (
-    <div className={`ab-sumbox ${tone || ""}`}>
+  const SumBox = ({ title, tone, r, note, tip }) => (
+    <div className={`ab-sumbox ${tone || ""}`} title={tip}>
       <div className="ab-sumbox-title">{title}</div>
       {r ? (
         <div className="edge-sum-body">
@@ -615,25 +623,32 @@ function EdgeTab({ apiFetch, onOpenTicker }) {
         <div>
           <div className="ab-summary">
             <SumBox title="Best opportunity now" tone="up" r={summary.best}
+              tip="The highest-scoring name on the board right now — the score already accounts for how rich the premium is, how reliable the evidence is, tail risk and liquidity. Click the ticker for the full breakdown."
               note={(r) => `${r.signal} · VRP ${edgeSgn(r.vrp_points)} pts`} />
             <SumBox title="Richest VRP" r={summary.richest}
+              tip="The biggest raw gap between what buyers are paying and what the stock is forecast to deliver. Deliberately separate from Best opportunity — the richest premium is often the most dangerous one, which is exactly why it is not the headline."
               note={(r) => `IV ${edgeIvPct(r.iv30)} vs RV ${edgeIvPct(r.erv30)}`} />
             <SumBox title="Best cash-secured put" r={summary.csp}
+              tip="Where downside puts are richest relative to calls — the market is paying up for crash protection, so if you would be happy owning the shares anyway, this is where selling puts is best compensated."
               note={(r) => `puts richer ${edgeSgn(r.rr25_volpts)} pts`} />
             <SumBox title="Best covered call" r={summary.cc}
+              tip="Where UPSIDE calls are unusually expensive versus puts — the best paid place to sell calls against shares you already own."
               note={(r) => `calls richer ${edgeSgn(-(r.rr25_volpts ?? 0))} pts`} />
             <SumBox title="Best defined risk" r={summary.defined}
+              tip="The best spread or condor — structures where the worst case is capped and known before you enter. RoC is the credit as a percentage of the cash tied up."
               note={(r) => `${(r.best_kind || "").replace(/_/g, " ")} · RoC ${edgeNum(r.best_roc_pct, 1)}%`} />
             <SumBox title="Most dangerous premium" tone="down" r={summary.danger}
+              tip="The fattest premium the engine wants you to AVOID — usually an earnings date, a violent recent tape or a liquidity problem. Shown deliberately: maximum premium is not maximum edge, and knowing which name to skip is worth as much as knowing which to sell."
               note={(r) => r.main_risk || "danger flags"} />
           </div>
           <div className="edge-filters">
             {["", "STRONG SELL VOL", "SELL VOL", "WATCH", "CHEAP VOL", "AVOID"].map((s) => (
               <button key={s || "all"} className={`tsy-serbtn ${sigFilter === s ? "on" : ""}`}
+                title={s ? `Show only names the engine calls ${s}.` : "Show every scanned name, whatever the call."}
                 onClick={() => setSigFilter(s)}>{s || "All"}{" "}
                 <b>{s ? rows.filter((r) => r.signal === s).length : rows.length}</b></button>
             ))}
-            <span className="muted edge-asof">as of {edgeWhen(board.as_of)}{board.market_open === false ? " · market closed (quotes = last session)" : ""}</span>
+            <span className="muted edge-asof" title="When the last full scan finished. The board refreshes every 25 minutes during market hours and once after the close; outside market hours every quote is frozen at the last session.">as of {edgeWhen(board.as_of)}{board.market_open === false ? " · market closed (quotes = last session)" : ""}</span>
           </div>
           <div className="scan-table-wrap">
             <table className="scan-table edge-table">

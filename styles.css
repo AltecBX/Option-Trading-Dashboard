@@ -11908,3 +11908,7 @@ a.tabsheet-btn.site { text-decoration: none; }
   .gap-news li { flex-wrap: wrap; gap: 4px 8px; }
   .gap-news-src { margin-left: 0; }
 }
+/* Direction cells need their own color rule — the generic .up/.down classes
+   are only styled inside specific components, so a bare <td> stayed grey. */
+.gap-dir-up { color: var(--up, #22c55e); font-weight: 600; }
+.gap-dir-down { color: var(--down, #ef4444); font-weight: 600; }

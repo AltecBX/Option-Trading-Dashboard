@@ -65,7 +65,7 @@ def wire(tmpdir, sc=None, board_rows=None, earn_next=None):
 
 class TestAnalyzeSymbol(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.sc, self.calls = wire(self.tmp.name)
 
     def tearDown(self):
@@ -126,7 +126,7 @@ class TestStage1(unittest.TestCase):
         # rebuilds on weekday schedules) — the funnel must fall back to the
         # user's own watchlist, starred first, instead of scanning nothing
         # (user-reported, 8-16-2026: "Scan now" produced an empty board)
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, board_rows=[])
             es._WATCHLIST_FN = lambda: {"starred": ["MU", "SNDK"],
                                         "all": ["AAPL", "MU", "GOOGL", "SNDK"]}
@@ -136,12 +136,12 @@ class TestStage1(unittest.TestCase):
             es._WATCHLIST_FN = None
 
     def test_no_board_no_watchlist_is_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, board_rows=[])
             self.assertEqual(es._stage1_candidates(es._cfg()), [])
 
     def test_gates_and_ranking(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             rows = [
                 {"ticker": "GOOD", "last": 120.0, "market_cap": 5e10,
                  "avg_volume": 5e6, "rvol_rank": 80, "days_to_earnings": 5, "change": 2.0},
@@ -224,7 +224,7 @@ class TestErvSeries(unittest.TestCase):
 
 class TestBacktestAndSizing(unittest.TestCase):
     def test_vrp_backtest_runs_offline(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, sc=FakeSchwab(sigma=0.30, seed=17))
             out = es.run_vrp_backtest(["FAKE"], thresholds=[1.0, 1.2])
             self.assertNotIn("error", out)

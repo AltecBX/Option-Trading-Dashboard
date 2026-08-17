@@ -154,7 +154,7 @@ def fady_history():
 class TestStoreBuild(unittest.TestCase):
     def test_daily_events_extracted_and_persisted(self):
         gap_days, _ = fady_history()
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, FakeSchwab(gap_days))
             store = gs.load_store("FAKE")
             store = gs.refresh_daily_events("FAKE", store)
@@ -168,7 +168,7 @@ class TestStoreBuild(unittest.TestCase):
 
     def test_minute_enrichment_marks_and_merges(self):
         gap_days, minute_days = fady_history()
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days)
             wire(tmp, sc)
             store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
@@ -204,7 +204,7 @@ class TestStoreBuild(unittest.TestCase):
         minute_days = {d: minute_day(date.fromisoformat(d), pc,
                                      pm_peak_pct=9.0, open_gap_pct=1.0,
                                      fade_to_pct=-0.5)}
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days)
             wire(tmp, sc)
             store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
@@ -233,7 +233,7 @@ class TestStoreBuild(unittest.TestCase):
         minute_days = {d: minute_day(date.fromisoformat(d), pc,
                                      pm_peak_pct=2.0, open_gap_pct=1.0,
                                      fade_to_pct=3.0)}
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days)
             wire(tmp, sc)
             store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
@@ -256,7 +256,7 @@ class TestAnalyze(unittest.TestCase):
         return sc
 
     def test_full_row(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp)
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
             d = gs.analyze_symbol("FAKE", quote(106.2, 100.0), {"XLK": 0.2},
@@ -278,7 +278,7 @@ class TestAnalyze(unittest.TestCase):
             self.assertIn("worst_adv_date", d["stats"])
 
     def test_stale_quote_forces_no_data(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp)
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
             d = gs.analyze_symbol("FAKE", quote(106.2, 100.0, age=900.0),
@@ -288,7 +288,7 @@ class TestAnalyze(unittest.TestCase):
             self.assertIn("old", d["row"]["live_why"])
 
     def test_wide_spread_forces_no_data(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp)
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
             q = quote(106.2, 100.0, bid=100.0, ask=112.0)
@@ -296,7 +296,7 @@ class TestAnalyze(unittest.TestCase):
             self.assertEqual(d["row"]["signal"], "NO DATA")
 
     def test_earnings_catalyst_separates_population(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp, catalyst=lambda s: {"kind": "EARNINGS",
                                                  "label": "reports BMO"})
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
@@ -309,7 +309,7 @@ class TestAnalyze(unittest.TestCase):
             self.assertEqual(r["n"], 0)
 
     def test_hysteresis_across_evals(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp)
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
             d1 = gs.analyze_symbol("FAKE", quote(106.2, 100.0), now=now)
@@ -322,7 +322,7 @@ class TestAnalyze(unittest.TestCase):
                 self.assertTrue(d2["row"]["signal_held"])
 
     def test_what_changed_emitted(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp)
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
             gs.analyze_symbol("FAKE", quote(106.2, 100.0), now=now)
@@ -330,7 +330,7 @@ class TestAnalyze(unittest.TestCase):
             self.assertIn("6.2% → +8", d2["row"]["what_changed"] or "")
 
     def test_journal_written_and_replayable_fields(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._setup(tmp)
             now = datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
             gs.analyze_symbol("FAKE", quote(106.2, 100.0), now=now)
@@ -354,7 +354,7 @@ class TestFunnel(unittest.TestCase):
             "SPY": quote(500.0, 499.0),
             "QQQ": quote(400.0, 398.0),
         }
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, {}, quotes)
             wire(tmp, sc, watchlist=["BIG", "MID", "SMALL", "CHEAP", "STALE"])
             cands, etf_gaps = gs._stage1(gs._cfg())
@@ -371,7 +371,7 @@ class TestFunnel(unittest.TestCase):
         gap_days, minute_days = fady_history()
         minute_days[TODAY.isoformat()] = minute_day(
             TODAY, 100.0, 6.6, 6.2, 6.2)[:150]
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days,
                             {"FAKE": quote(106.2, 100.0),
                              "SPY": quote(500.0, 499.5)})
@@ -391,7 +391,7 @@ class TestFunnel(unittest.TestCase):
 
     def test_no_net_guard(self):
         import os
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, FakeSchwab())
             os.environ["JERRY_NO_NET"] = "1"
             try:
@@ -423,7 +423,7 @@ class TestLiveQuoteRefresh(unittest.TestCase):
         return sc
 
     def test_price_and_gap_update_without_rescan(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = self._board(tmp)
             before = gs.get_board()["rows"][0]
             self.assertAlmostEqual(before["price"], 106.2, places=2)
@@ -441,7 +441,7 @@ class TestLiveQuoteRefresh(unittest.TestCase):
             self.assertEqual(out["quotes"]["FAKE"]["price"], 103.4)
 
     def test_pm_high_extends_monotonically(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = self._board(tmp)
             hi0 = gs.get_board()["rows"][0]["pm_high"]
             self.assertIsNotNone(hi0, "scan must record the known PM high")
@@ -460,7 +460,7 @@ class TestLiveQuoteRefresh(unittest.TestCase):
             self.assertLess(r2["from_pm_high_pct"], -2.0)
 
     def test_stale_quote_escalates_immediately(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = self._board(tmp)
             self.assertNotEqual(gs.get_board()["rows"][0]["signal"], "NO DATA")
             sc.quotes["FAKE"] = quote(106.2, 100.0, age=1200.0)
@@ -471,7 +471,7 @@ class TestLiveQuoteRefresh(unittest.TestCase):
             self.assertIn("freshness", r["signal_why"])
 
     def test_direction_flip_escalates(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = self._board(tmp)
             self.assertEqual(gs.get_board()["rows"][0]["direction"], "up")
             sc.quotes["FAKE"] = quote(96.0, 100.0)     # gap flipped negative
@@ -482,14 +482,14 @@ class TestLiveQuoteRefresh(unittest.TestCase):
 
     def test_offline_and_empty_board_are_safe(self):
         import os
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             self._board(tmp)
             os.environ["JERRY_NO_NET"] = "1"
             try:
                 self.assertFalse(gs.refresh_quotes()["ok"])
             finally:
                 os.environ.pop("JERRY_NO_NET", None)
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, FakeSchwab())
             out = gs.refresh_quotes()
             self.assertTrue(out["ok"])
@@ -499,7 +499,7 @@ class TestLiveQuoteRefresh(unittest.TestCase):
 class TestBacktestGrid(unittest.TestCase):
     def test_walk_forward_grid(self):
         gap_days, minute_days = fady_history()
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days)
             wire(tmp, sc)
             store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
@@ -519,7 +519,7 @@ class TestBacktestGrid(unittest.TestCase):
             self.assertIn("win rate", out["note"])
 
     def test_thin_store_returns_empty_grid(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             wire(tmp, FakeSchwab())
             out = gs.backtest_grid("EMPTY")
             self.assertEqual(out["grid"], [])
@@ -531,7 +531,7 @@ class TestRecordToday(unittest.TestCase):
         gap_days, minute_days = fady_history()
         minute_days[TODAY.isoformat()] = minute_day(
             TODAY, 100.0, pm_peak_pct=7.0, open_gap_pct=6.0, fade_to_pct=3.5)
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days,
                             {"FAKE": quote(106.0, 100.0),
                              "SPY": quote(500.0, 499.5)})
@@ -556,7 +556,7 @@ class TestRecordToday(unittest.TestCase):
 class TestEventsPayload(unittest.TestCase):
     def test_analog_inspection(self):
         gap_days, minute_days = fady_history()
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             sc = FakeSchwab(gap_days, minute_days)
             wire(tmp, sc)
             store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
