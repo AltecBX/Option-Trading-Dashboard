@@ -160,7 +160,7 @@ def _bar_date(b: dict) -> str:
 
 def extract_daily_events(daily_bars: list, cfg: dict,
                          split_dates=None, div_by_date=None,
-                         earnings_dates=None) -> list[dict]:
+                         earnings_dates=None, offering_dates=None) -> list[dict]:
     """Find official-gap qualifiers in daily history. One event per day:
 
     {date, direction, official_gap_pct, prev_close, open, high, low, close,
@@ -177,6 +177,7 @@ def extract_daily_events(daily_bars: list, cfg: dict,
     gate = float(ev.get("official_gap_min_pct", 4.0))
     min_price = float(ev.get("min_price", 3.0))
     earnings = set(earnings_dates or [])
+    offerings = dict(offering_dates or {})
     out = []
     vols = [b.get("volume") or 0 for b in daily_bars]
     for i in range(1, len(daily_bars)):
@@ -203,7 +204,7 @@ def extract_daily_events(daily_bars: list, cfg: dict,
             "close": b.get("close"),
             "rel_vol": round((b.get("volume") or 0) / avg20, 2) if avg20 else None,
             "gap_vs_atr": round(abs(gap) / atr, 2) if atr else None,
-            "catalyst_kind": "EARNINGS" if _near_earnings(d, earnings) else "UNTAGGED",
+            "catalyst_kind": catalyst_kind(d, earnings, offerings),
             "exclusion": exclusion,
             "qualified_by": ["OFFICIAL"],
             "outcomes": {},
@@ -212,6 +213,40 @@ def extract_daily_events(daily_bars: list, cfg: dict,
             rec["outcomes"]["daily"] = daily_outcomes(rec)
         out.append(rec)
     return out
+
+
+def catalyst_kind(d: str, earnings: set, offerings: dict | None = None) -> str:
+    """What a PAST gap day was about, from dated evidence only.
+
+    Earnings wins because it is the one catalyst that gets its own
+    statistical population. An offering or dilution filing is tagged for
+    context — it is real, it is dated, and seeing that this ticker's last
+    four gap downs were all stock sales tells you more than any average —
+    but it does not split the sample.
+    """
+    if _near_earnings(d, earnings):
+        return "EARNINGS"
+    kind = _filing_on(d, offerings or {})
+    return kind or "UNTAGGED"
+
+
+def _filing_on(d: str, offerings: dict, days: int = 1) -> str | None:
+    """A filing accepted at 3am moves that morning; one accepted after the
+    4pm close moves the NEXT morning. Same one-day reach as earnings."""
+    if not offerings:
+        return None
+    hit = offerings.get(d)
+    if hit:
+        return hit
+    try:
+        dd = date.fromisoformat(d)
+    except ValueError:
+        return None
+    for k in range(1, days + 1):
+        hit = offerings.get((dd - timedelta(days=k)).isoformat())
+        if hit:
+            return hit
+    return None
 
 
 def _near_earnings(d: str, earnings: set, days: int = 1) -> bool:

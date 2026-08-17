@@ -35,11 +35,15 @@ const gapDateDow = (s) => {
 const GAP_CATALYST_LABEL = {
   EARNINGS: "Earnings", UPGRADE: "Upgrade", DOWNGRADE: "Downgrade",
   "ANALYST ACTION": "Analyst action", MACRO: "Macro event",
+  OFFERING: "Offering", DILUTION: "Dilution",
   UNTAGGED: "None tagged",
 };
 // An upgrade behind a gap up confirms the move; a downgrade behind one is a
-// very different animal. Color says which way the analyst leaned.
-const GAP_CATALYST_TONE = { UPGRADE: "up", DOWNGRADE: "down" };
+// very different animal. Color says which way the analyst leaned. Selling
+// stock is red on either side of the tape — new shares are new supply.
+const GAP_CATALYST_TONE = {
+  UPGRADE: "up", DOWNGRADE: "down", OFFERING: "down", DILUTION: "down",
+};
 const gapCatalyst = (k) => GAP_CATALYST_LABEL[k] || k || "None tagged";
 const GAP_CATALYST_TIP = {
   EARNINGS: "The company reported earnings today or last night. Earnings gaps are kept in their OWN statistical population and never mixed with ordinary gaps — the probabilities you see are measured only against this stock's other earnings gaps.",
@@ -47,7 +51,17 @@ const GAP_CATALYST_TIP = {
   DOWNGRADE: "An analyst cut their rating on this stock today or yesterday. A downgrade behind a gap UP is worth a hard look — the move is fighting the news. Context only: only earnings days are separated in the statistics.",
   "ANALYST ACTION": "An initiation or price-target change today or yesterday. Context only — it is not separated in the statistics the way earnings are.",
   MACRO: "A scheduled market-wide event (CPI, FOMC or the jobs report) lands today, so much of this move may be the whole market rather than the stock. Context only.",
-  UNTAGGED: "No earnings, rating change or macro event was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, analyst feeds, macro schedule) show one. Check the news feed in the detail view.",
+  OFFERING: "This company filed with the SEC to SELL STOCK — today or last night. That is the most common reason a small stock gaps down hard premarket: new shares are new supply, and the deal usually prices below the market. The label says what was sold and how much, read out of the filing itself; click through to read it on EDGAR. Bond deals are not counted here — only stock, convertibles and private placements, because only those dilute you. Context only: it is not separated in the statistics the way earnings are.",
+  DILUTION: "This company REGISTERED shares that it can sell later — a shelf registration, or a resale prospectus for shares somebody else already holds. It is not a sale today, it is permission to sell, which is why it is a softer signal than an Offering. Click through to read the filing on EDGAR. Context only, not separated in the statistics.",
+  UNTAGGED: "No earnings, offering filing, rating change or macro event was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view.",
+};
+// Past gap days carry the same tags, but the wording has to be past tense —
+// and honest that history is tagged from the filing TYPE, without opening
+// each document the way this morning's tag does.
+const GAP_EVENT_CAT_TIP = {
+  EARNINGS: "Earnings day — counted only against other earnings gaps, never mixed with ordinary ones.",
+  OFFERING: "The company filed with the SEC to sell stock on this date or the session before (a priced offering, a private placement, or an at-the-market program). Read from the filing type on EDGAR.",
+  DILUTION: "The company registered shares for possible future sale on this date or the session before — a shelf or resale registration on EDGAR. Permission to sell, not a sale.",
 };
 const gapTime = (s) => {
   if (!s) return "—";
@@ -145,7 +159,7 @@ function GapAnalogTable({ events, direction }) {
           {th("Open gap", "gap", "How far the official 9:30 opening price was from the prior day's close. Click to sort by the biggest gaps.", "scan-th-num")}
           {th("Premarket peak", "pmmax", "The largest gap reached during that day's premarket session, where minute data exists. A dash means we have the daily bars but not that morning's premarket tape.", "scan-th-num")}
           {th("Qualified by", "via", "Why this day is in the database. OFFICIAL = the opening gap alone cleared the threshold. PREMARKET = the stock reached the threshold before the open (even if it opened small — those faded-before-the-open days are exactly what this scanner studies). OFFICIAL+PREMARKET = both.")}
-          {th("Catalyst", "cat", "Earnings = the company reported that day or the night before. Those days are kept in a separate statistical population and never mixed with ordinary gaps. Click to group all earnings days together.")}
+          {th("Catalyst", "cat", "What is known to have been behind that day's gap, from dated records only. Earnings = the company reported that day or the night before — those days are kept in a separate statistical population and never mixed with ordinary gaps. Offering / Dilution = the company filed with the SEC to sell or register stock on that date (SEC EDGAR). A dash means no record was found, not that nothing happened. Click to group the same catalyst together.")}
           {th(L.fav, "fav", direction === "down"
             ? "How far the stock rallied off the open — the rebound you were trying to catch. Rows marked ▲ Up are gap-up days, where this column is the fade instead; the arrow on each value tells you which."
             : "How far the stock dropped from the open — the fade you were trying to catch. Rows marked ▼ Down are gap-down days, where this column is the rebound instead; the arrow on each value tells you which.",
@@ -171,10 +185,13 @@ function GapAnalogTable({ events, direction }) {
               <td title={(e.qualified_by || []).includes("PM")
                 ? "Reached the threshold during premarket" : "Qualified on the official opening gap"}>
                 {(e.qualified_by || []).map((q) => q === "PM" ? "Premarket" : "Official").join(" + ") || "—"}</td>
-              <td title={e.catalyst_kind === "EARNINGS"
-                ? "Earnings day — counted only against other earnings gaps"
-                : "No earnings on or before this session"}>
-                {e.catalyst_kind === "EARNINGS" ? <b>Earnings</b> : <span className="muted">—</span>}</td>
+              <td className={GAP_CATALYST_TONE[e.catalyst_kind]
+                ? "gap-cat-" + GAP_CATALYST_TONE[e.catalyst_kind] : ""}
+                title={GAP_EVENT_CAT_TIP[e.catalyst_kind]
+                  || "No earnings and no SEC offering filing found on or just before this session"}>
+                {e.catalyst_kind && e.catalyst_kind !== "UNTAGGED"
+                  ? <b>{gapCatalyst(e.catalyst_kind)}</b>
+                  : <span className="muted">—</span>}</td>
               <td className="scan-num up"
                 title={`This day ${e.direction === "up" ? "faded" : "rebounded"} ${gapPct(e.fav_pct)} from the open at its best`}>
                 {gapPct(e.fav_pct)} <span className="gap-arrow">{e.direction === "up" ? "↓" : "↑"}</span></td>
@@ -315,8 +332,16 @@ function GapDetail({ apiFetch, sym, onClose, onOpenTicker, liveQ }) {
               <div title={GAP_CATALYST_TIP[r.catalyst_kind]
                 || "What is known to be driving this move, from real data sources only."}>
                 <span>Catalyst</span>
-                <b className={GAP_CATALYST_TONE[r.catalyst_kind] || ""}>
-                  {gapCatalyst(r.catalyst_kind)}{r.catalyst_label ? ` · ${r.catalyst_label}` : ""}</b></div>
+                {/* dedicated classes, not bare .up/.down — those are only
+                    styled inside specific components and render grey here */}
+                <b className={GAP_CATALYST_TONE[r.catalyst_kind]
+                  ? "gap-cat-" + GAP_CATALYST_TONE[r.catalyst_kind] : ""}>
+                  {gapCatalyst(r.catalyst_kind)}{r.catalyst_label ? ` · ${r.catalyst_label}` : ""}
+                  {r.catalyst_url && (
+                    <a className="gap-cat-link" href={r.catalyst_url} target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open the filing on the SEC's EDGAR site — the source this tag was read from.">
+                      read the filing</a>)}</b></div>
               <div title={r.days_to_earnings == null
                 ? "No scheduled earnings date found for this ticker."
                 : `Next scheduled report: ${gapDateDow(r.next_earnings)}. A fade that has to survive an earnings report is a different trade from one with a clear runway.`}>
@@ -614,7 +639,7 @@ function GapTab({ apiFetch, onOpenTicker }) {
                     {th("Price", "rank", "Current premarket price. Refreshes every 15 seconds.", true)}
                     {th("Premarket gap", "gap", "How far the current price is from yesterday's closing price. This is the LIVE gap and it keeps moving until 9:30 — it is not the official opening gap the history is measured from.")}
                     {th("Off high/low", "rank", "For a gap up: how far the price has already pulled back from the highest premarket price so far. For a gap down: how far it has bounced off the low. Note 'so far' — the final premarket high doesn't exist until 9:30.", true)}
-                    {th("Catalyst", "cat", "What is known to be driving the move, from real data only: Earnings, an analyst Upgrade or Downgrade (green/red — hover a cell for the firm and grade change), another Analyst action such as an initiation or target change, or a Macro event day. 'None tagged' means none of those were found, NOT that nothing happened. Only earnings gaps are separated into their own statistical population; the rest is context. Click to group by catalyst.", true)}
+                    {th("Catalyst", "cat", "What is known to be driving the move, from real data only: Earnings, an Offering or Dilution filing straight from SEC EDGAR (red — the company is selling or registering stock), an analyst Upgrade or Downgrade (green/red — hover a cell for the firm and grade change), another Analyst action such as an initiation or target change, or a Macro event day. 'None tagged' means none of those were found, NOT that nothing happened. Only earnings gaps are separated into their own statistical population; the rest is context. Click to group by catalyst.", true)}
                     {th("Fades 2%", "p2", "How often this stock's comparable past gaps moved at least 2% in the profitable direction from the opening price — down for a gap up, up for a gap down. The small number after the dot is how many historical examples that rate is based on. Hover the value for the conservative range.")}
                     {th("Hits target first", "tbs", "How often the 2% profit target printed BEFORE a 3% stop would have been hit, measured minute by minute on real historical paths. A dash means only daily bars exist for those days — daily bars show how far a stock moved but not in what order, so no honest claim is made.")}
                     {th("Squeeze / flush", "adv", "The typical move AGAINST the trade before it resolved: for a gap up that means the squeeze higher, for a gap down the flush lower. A gap that eventually fades but squeezes 4% higher first is not a comfortable short. Each row's arrow shows which way.", true)}

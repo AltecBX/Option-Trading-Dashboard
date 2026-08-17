@@ -128,6 +128,17 @@ except Exception as _exc:  # noqa: BLE001
     _ANALYST_BOARD_AVAILABLE = False
     _analyst_board = None  # type: ignore
 
+# SEC EDGAR offering/dilution filings — the source of record for "is this
+# stock selling shares this morning". Optional; catalysts fall back to
+# earnings/analyst/macro when it fails to load.
+try:
+    import sec_filings as _sec_filings
+    _SEC_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[sec_filings] module load failed: {_exc}", file=sys.stderr)
+    _SEC_AVAILABLE = False
+    _sec_filings = None  # type: ignore
+
 # Top-of-app news ticker — the user's Finviz Elite news feed (needs
 # FINVIZ_AUTH_TOKEN). Optional; the ticker simply hides when unconfigured.
 try:
@@ -4438,6 +4449,15 @@ _ETF_LIST = [
 ]
 
 _TICKER_INDEX: list[dict] | None = None
+_CIK_BY_SYMBOL: dict[str, int] = {}     # filled by load_ticker_index()
+
+
+def cik_for_symbol(symbol: str) -> int | None:
+    """Ticker -> SEC CIK, off the index the app already downloads for
+    autocomplete. Saves sec_filings a second 777KB fetch of the same file."""
+    if not _CIK_BY_SYMBOL:
+        load_ticker_index()
+    return _CIK_BY_SYMBOL.get((symbol or "").upper().strip())
 
 
 def load_ticker_index() -> list[dict]:
@@ -4474,7 +4494,17 @@ def load_ticker_index() -> list[dict]:
         for v in data.values():
             sym = (v.get("ticker") or "").upper().strip()
             name = (v.get("title") or "").strip()
-            if sym and sym not in seen:
+            if not sym:
+                continue
+            # Keep the CIK even for symbols already in the hand list — it is
+            # the key to that company's EDGAR filings (sec_filings.py).
+            try:
+                cik = int(v.get("cik_str") or 0) or None
+            except (TypeError, ValueError):
+                cik = None
+            if cik:
+                _CIK_BY_SYMBOL[sym] = cik
+            if sym not in seen:
                 items.append({"symbol": sym, "name": name, "type": "EQUITY"})
                 seen.add(sym)
                 added += 1
@@ -5081,11 +5111,43 @@ def _gap_analyst_action(symbol: str, days: tuple) -> dict | None:
     return None
 
 
+def _gap_offering(symbol: str, days: tuple) -> dict | None:
+    """An offering or dilution filing inside `days`, from SEC EDGAR.
+
+    This is the single most common reason a small cap gaps down hard
+    premarket, and until now it landed in the app as UNTAGGED. The label is
+    read out of the filing itself — what was sold and how much — so a
+    utility pricing bonds is dropped rather than called dilution."""
+    if not (_SEC_AVAILABLE and _sec_filings is not None):
+        return None
+    try:
+        hit = _sec_filings.latest_event(symbol, days)
+    except Exception:
+        return None
+    if not hit:
+        return None
+    return {"kind": hit["kind"], "label": hit.get("label"),
+            "form": hit.get("form"), "filed": hit.get("accepted") or hit.get("date"),
+            "url": hit.get("url")}
+
+
+def _gap_offering_dates(symbol: str) -> dict:
+    """{date -> OFFERING|DILUTION} across the symbol's filing history, so a
+    past gap day can carry the same tag as this morning's."""
+    if not (_SEC_AVAILABLE and _sec_filings is not None):
+        return {}
+    try:
+        return _sec_filings.event_dates(symbol) or {}
+    except Exception:
+        return {}
+
+
 def _gap_catalyst(symbol: str) -> dict:
     """Today's catalyst tag from REAL sources only: earnings (bulk calendar
-    with BMO/AMC timing), analyst upgrades/downgrades and other rating
-    actions, macro event day. Offerings/FDA/M&A have no data source in this
-    app and are never fabricated — everything else is UNTAGGED."""
+    with BMO/AMC timing), offering/dilution filings from SEC EDGAR, analyst
+    upgrades/downgrades and other rating actions, macro event day. FDA and
+    M&A still have no data source in this app and are never fabricated —
+    everything else is UNTAGGED."""
     from datetime import date as _d, timedelta as _td
     today = _d.today().isoformat()
     yesterday = (_d.today() - _td(days=1)).isoformat()
@@ -5107,6 +5169,11 @@ def _gap_catalyst(symbol: str) -> dict:
             return {"kind": "EARNINGS", "label": "just reported"}
     except Exception:
         pass
+    # An offering outranks a rating change: when a company is selling stock
+    # into the gap, that is why the gap is there.
+    off = _gap_offering(symbol, (today, yesterday))
+    if off:
+        return off
     act = _gap_analyst_action(symbol, (today, yesterday))
     if act:
         return act
@@ -5132,6 +5199,9 @@ def _gap_sector_etf(symbol: str) -> str | None:
     return None
 
 
+if _SEC_AVAILABLE and _sec_filings is not None:
+    _sec_filings.configure(cik_fn=cik_for_symbol)
+
 try:
     import gap_scan as _gap
     _gap.configure(
@@ -5145,6 +5215,7 @@ try:
         actions_fn=_gap_actions,
         earn_hist_fn=_gap_earn_hist,
         catalyst_fn=_gap_catalyst,
+        offering_fn=_gap_offering_dates,
         sector_etf_fn=_gap_sector_etf,
         earn_next_fn=_edge_next_earnings,
         data_dir=_STABLE_DIR,

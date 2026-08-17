@@ -50,6 +50,7 @@ _EARN_HIST_FN = None         # (sym) -> set[date_iso] of past report dates
 _CATALYST_FN = None          # (sym) -> {"kind": str, "label": str} | None
 _SECTOR_ETF_FN = None        # (sym) -> "XLK" | None
 _EARN_NEXT_FN = None         # (sym) -> {"next": ISO} | None
+_OFFERING_FN = None          # (sym) -> {date_iso: "OFFERING" | "DILUTION"}
 _DATA_DIR: Path | None = None
 
 _LOCK = threading.Lock()
@@ -83,11 +84,12 @@ def _daily(sym: str, days: int) -> dict:
 def configure(schwab_getter=None, watchlist_fn=None, universe_fn=None,
               board_fn=None, daily_fn=None, actions_fn=None,
               earn_hist_fn=None, catalyst_fn=None, sector_etf_fn=None,
-              data_dir=None, earn_next_fn=None) -> None:
+              data_dir=None, earn_next_fn=None, offering_fn=None) -> None:
     global _SCHWAB_FN, _WATCHLIST_FN, _UNIVERSE_FN, _BOARD_FN, _DAILY_FN
     global _ACTIONS_FN, _EARN_HIST_FN, _CATALYST_FN, _SECTOR_ETF_FN, _DATA_DIR
-    global _EARN_NEXT_FN
+    global _EARN_NEXT_FN, _OFFERING_FN
     _EARN_NEXT_FN = earn_next_fn
+    _OFFERING_FN = offering_fn
     _SCHWAB_FN = schwab_getter
     _WATCHLIST_FN = watchlist_fn
     _UNIVERSE_FN = universe_fn
@@ -174,9 +176,11 @@ def refresh_daily_events(sym: str, store: dict, now_d: date | None = None) -> di
         return store
     acts = (_ACTIONS_FN(sym) if _ACTIONS_FN else None) or {}
     earn = (_EARN_HIST_FN(sym) if _EARN_HIST_FN else None) or set()
+    offers = (_OFFERING_FN(sym) if _OFFERING_FN else None) or {}
     evs = ge.extract_daily_events(
         bars, cfg, split_dates=set(acts.get("splits") or []),
-        div_by_date=acts.get("dividends") or {}, earnings_dates=earn)
+        div_by_date=acts.get("dividends") or {}, earnings_dates=earn,
+        offering_dates=offers)
     by_date = {e["date"]: e for e in store["events"]}
     for e in evs:
         old = by_date.get(e["date"])
@@ -308,9 +312,9 @@ def _apply_minute_day(sym: str, store: dict, d: str, bars: list, cfg: dict) -> N
              "low": min((b.get("low") or 1e18) for b in reg) if reg else None,
              "close": reg[-1].get("close") if reg else None,
              "rel_vol": None, "gap_vs_atr": None,
-             "catalyst_kind": "EARNINGS" if ge._near_earnings(
-                 d, (_EARN_HIST_FN(sym) if _EARN_HIST_FN else None) or set())
-             else "UNTAGGED",
+             "catalyst_kind": ge.catalyst_kind(
+                 d, (_EARN_HIST_FN(sym) if _EARN_HIST_FN else None) or set(),
+                 (_OFFERING_FN(sym) if _OFFERING_FN else None) or {}),
              "exclusion": None, "qualified_by": ["PM"], "outcomes": {}}
         if reg and e["open"]:
             e["outcomes"]["daily"] = ge.daily_outcomes(e)
@@ -466,6 +470,9 @@ def analyze_symbol(sym: str, q: dict, etf_gaps: dict | None = None,
         "pm_volume": pmf.get("pm_volume") if pmf else None,
         "catalyst_kind": cat.get("kind", "UNTAGGED"),
         "catalyst_label": cat.get("label"),
+        # only offering/dilution tags carry one: a link straight to the
+        # filing on EDGAR, so the claim can be checked at the source
+        "catalyst_url": cat.get("url"),
         "next_earnings": next_earn, "days_to_earnings": days_to_earn,
         "sector": sctx,
         "p_fav": pf, "p_fav_target_pct": pt,

@@ -138,6 +138,36 @@ class TestEventExtraction(unittest.TestCase):
         evs2 = ge.extract_daily_events(bars, cfg(), earnings_dates={prev})
         self.assertEqual(evs2[0]["catalyst_kind"], "EARNINGS")
 
+    def test_offering_tagging(self):
+        bars = mk_daily(flat_days(30) + [(-9.0, (-2.0, 1.0, -1.0))])
+        d = ge._bar_date(bars[-1])
+        evs = ge.extract_daily_events(bars, cfg(), offering_dates={d: "OFFERING"})
+        self.assertEqual(evs[0]["catalyst_kind"], "OFFERING")
+        # filed after yesterday's close -> it is this morning's gap
+        prev = (date.fromisoformat(d) - timedelta(days=1)).isoformat()
+        evs2 = ge.extract_daily_events(bars, cfg(),
+                                       offering_dates={prev: "DILUTION"})
+        self.assertEqual(evs2[0]["catalyst_kind"], "DILUTION")
+        # two days back is too far to claim it caused this gap
+        old = (date.fromisoformat(d) - timedelta(days=2)).isoformat()
+        evs3 = ge.extract_daily_events(bars, cfg(),
+                                       offering_dates={old: "OFFERING"})
+        self.assertEqual(evs3[0]["catalyst_kind"], "UNTAGGED")
+
+    def test_earnings_outranks_an_offering_on_the_same_day(self):
+        # earnings is the population split; an offering is context. A day
+        # that is both must stay in the earnings population.
+        bars = mk_daily(flat_days(30) + [(8.0, (-2.0, 1.0, -1.0))])
+        d = ge._bar_date(bars[-1])
+        evs = ge.extract_daily_events(bars, cfg(), earnings_dates={d},
+                                      offering_dates={d: "OFFERING"})
+        self.assertEqual(evs[0]["catalyst_kind"], "EARNINGS")
+
+    def test_no_offering_map_leaves_history_untagged(self):
+        bars = mk_daily(flat_days(30) + [(7.0, (-2.0, 1.0, -1.0))])
+        self.assertEqual(
+            ge.extract_daily_events(bars, cfg())[0]["catalyst_kind"], "UNTAGGED")
+
 
 class TestCorporateActions(unittest.TestCase):
     def test_declared_split_excluded(self):

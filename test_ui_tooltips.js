@@ -131,15 +131,31 @@ check("gap news is limited to a few days", /GAP_NEWS_MAX_DAYS = 3/.test(src)
 // Catalyst vocabulary: upgrades and downgrades are named and colored.
 check("catalyst kinds include upgrade/downgrade",
   /UPGRADE: "Upgrade"/.test(src) && /DOWNGRADE: "Downgrade"/.test(src));
-check("upgrade/downgrade are color-toned",
-  /GAP_CATALYST_TONE = \{ UPGRADE: "up", DOWNGRADE: "down" \}/.test(src));
-check("every catalyst kind has an explanatory tooltip", (() => {
-  const kinds = (src.match(/const GAP_CATALYST_LABEL = \{[\s\S]*?\};/) || [""])[0]
-    .match(/(?:^|[{,\s])([A-Z][A-Z ]*?|"[A-Z ]+")\s*:/g) || [];
-  const tips = (src.match(/const GAP_CATALYST_TIP = \{[\s\S]*?\n\};/) || [""])[0];
-  return ["EARNINGS", "UPGRADE", "DOWNGRADE", "ANALYST ACTION", "MACRO", "UNTAGGED"]
-    .every((k) => tips.includes(k));
+check("catalyst kinds include offering/dilution",
+  /OFFERING: "Offering"/.test(src) && /DILUTION: "Dilution"/.test(src));
+// Read the kinds out of the label map instead of listing them here, so a
+// new catalyst cannot ship without a tooltip — the recurring complaint.
+const catalystKinds = (() => {
+  const block = (src.match(/const GAP_CATALYST_LABEL = \{[\s\S]*?\n\};/) || [""])[0];
+  return [...block.matchAll(/(?:[{,]\s*)(?:"([A-Z][A-Z ]*)"|([A-Z][A-Z_]*))\s*:/g)]
+    .map((m) => m[1] || m[2]);
+})();
+check(`catalyst kinds parsed (${catalystKinds.length})`, catalystKinds.length >= 8,
+  catalystKinds.join("|"));
+check("every catalyst kind is color-toned or deliberately neutral", (() => {
+  const tone = (src.match(/const GAP_CATALYST_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  return ["UPGRADE", "DOWNGRADE", "OFFERING", "DILUTION"]
+    .every((k) => new RegExp(`${k}: "(up|down)"`).test(tone));
 })());
+check("every catalyst kind has an explanatory tooltip", (() => {
+  const tips = (src.match(/const GAP_CATALYST_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  const missing = catalystKinds.filter((k) => !tips.includes(k));
+  return missing.length === 0 || missing.join(",");
+})());
+check("historical catalyst cells have their own past-tense tooltips",
+  /GAP_EVENT_CAT_TIP/.test(src) && /GAP_EVENT_CAT_TIP\[e\.catalyst_kind\]/.test(src));
+check("offering tags link out to the filing they were read from",
+  /catalyst_url/.test(src) && /gap-cat-link/.test(src));
 check("catalyst column is sortable", /th\("Catalyst", "cat"/.test(src)
   && /case "cat":/.test(src));
 
@@ -157,6 +173,11 @@ check("sort marker cannot be confused with meaning arrows",
 
 check("gap direction cells use dedicated color classes",
   /gap-dir-up/.test(src) && /gap-dir-down/.test(src));
+// Bare .up/.down only paint inside specific components, so every catalyst
+// tone must go through the dedicated class — board, detail and analogs alike.
+check("catalyst tone never relies on bare .up/.down classes",
+  !/className=\{GAP_CATALYST_TONE\[[^\]]+\] \|\| ""\}/.test(src)
+  && (src.match(/"gap-cat-" \+ GAP_CATALYST_TONE/g) || []).length >= 3);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

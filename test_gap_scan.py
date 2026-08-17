@@ -106,7 +106,7 @@ def quote(last, prev_close, age=5.0, bid=None, ask=None):
             "volume": 100000, "extended_volume": 400000}
 
 
-def wire(tmp, sc, watchlist=None, catalyst=None):
+def wire(tmp, sc, watchlist=None, catalyst=None, offerings=None):
     gs._STATE.update(rows=[], as_of=None, error=None, scanning=False)
     gs._HYST.clear()
     gs._PREV_ROWS.clear()
@@ -120,6 +120,7 @@ def wire(tmp, sc, watchlist=None, catalyst=None):
         actions_fn=lambda s: {"splits": set(), "dividends": {}},
         earn_hist_fn=lambda s: set(),
         catalyst_fn=(catalyst or (lambda s: {"kind": "UNTAGGED"})),
+        offering_fn=(lambda s: offerings or {}),
         sector_etf_fn=lambda s: "XLK",
         data_dir=tmp,
     )
@@ -165,6 +166,23 @@ class TestStoreBuild(unittest.TestCase):
             again = gs.load_store("FAKE")
             self.assertEqual(len(again["events"]), len(store["events"]))
             self.assertEqual(again["daily_source"], "schwab")
+
+    def test_past_gap_days_carry_their_offering_filing(self):
+        # the EDGAR filing map reaches the stored history, so a past gap day
+        # shows WHY it gapped instead of a dash
+        gap_days, _ = fady_history()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, FakeSchwab(gap_days))
+            dates = [e["date"] for e in
+                     gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))["events"]]
+            self.assertTrue(dates)
+            wire(tmp, FakeSchwab(gap_days),
+                 offerings={dates[0]: "OFFERING", dates[1]: "DILUTION"})
+            evs = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))["events"]
+            by_date = {e["date"]: e["catalyst_kind"] for e in evs}
+            self.assertEqual(by_date[dates[0]], "OFFERING")
+            self.assertEqual(by_date[dates[1]], "DILUTION")
+            self.assertEqual(by_date[dates[2]], "UNTAGGED")
 
     def test_minute_enrichment_marks_and_merges(self):
         gap_days, minute_days = fady_history()
