@@ -81,7 +81,18 @@ function GapQualityDot({ q }) {
 
 // Every historical event, sortable — one click to see the biggest gaps, the
 // worst squeezes, or every earnings day grouped together.
-function GapAnalogTable({ events }) {
+// Column names follow TODAY's setup, in the words a trader uses: on a fade
+// you care about the max fade down and the max squeeze up; on a rebound,
+// the max rebound up and the max flush down. A ticker's history can contain
+// gaps in BOTH directions, so each row's arrow follows that row's own
+// direction — an opposite-direction row is visibly different rather than
+// silently mislabeled by the header.
+const GAP_MOVE_LABELS = {
+  up: { fav: "Max fade ↓", adv: "Max squeeze ↑", favWord: "faded", advWord: "squeezed" },
+  down: { fav: "Max rebound ↑", adv: "Max flush ↓", favWord: "rebounded", advWord: "flushed" },
+};
+function GapAnalogTable({ events, direction }) {
+  const L = GAP_MOVE_LABELS[direction === "down" ? "down" : "up"];
   const [k, setK] = useState("date");
   const [dir, setDir] = useState(1);
   const sorted = useMemo(() => {
@@ -105,10 +116,12 @@ function GapAnalogTable({ events }) {
     });
     return s;
   }, [events, k, dir]);
+  // sort marker is ▾/▴ so it can't be mistaken for the ↓/↑ that carry
+  // meaning in the Max fade / Max squeeze column names
   const th = (label, key_, tip, cls) => (
     <th className={cls} title={tip}
       onClick={() => { if (k === key_) setDir(-dir); else { setK(key_); setDir(1); } }}>
-      {label}{k === key_ ? (dir === 1 ? " ↓" : " ↑") : ""}
+      {label}{k === key_ ? (dir === 1 ? " ▾" : " ▴") : ""}
     </th>
   );
   return (
@@ -121,8 +134,14 @@ function GapAnalogTable({ events }) {
           {th("Premarket peak", "pmmax", "The largest gap reached during that day's premarket session, where minute data exists. A dash means we have the daily bars but not that morning's premarket tape.", "scan-th-num")}
           {th("Qualified by", "via", "Why this day is in the database. OFFICIAL = the opening gap alone cleared the threshold. PREMARKET = the stock reached the threshold before the open (even if it opened small — those faded-before-the-open days are exactly what this scanner studies). OFFICIAL+PREMARKET = both.")}
           {th("Catalyst", "cat", "Earnings = the company reported that day or the night before. Those days are kept in a separate statistical population and never mixed with ordinary gaps. Click to group all earnings days together.")}
-          {th("Favorable", "fav", "How far the stock moved in the profitable direction from the open — down for a gap up (the fade), up for a gap down (the rebound).", "scan-th-num")}
-          {th("Adverse", "adv", "How far it moved AGAINST the trade from the open before doing anything good. Click to sort by the worst squeezes.", "scan-th-num")}
+          {th(L.fav, "fav", direction === "down"
+            ? "How far the stock rallied off the open — the rebound you were trying to catch. Rows marked ▲ Up are gap-up days, where this column is the fade instead; the arrow on each value tells you which."
+            : "How far the stock dropped from the open — the fade you were trying to catch. Rows marked ▼ Down are gap-down days, where this column is the rebound instead; the arrow on each value tells you which.",
+            "scan-th-num")}
+          {th(L.adv, "adv", direction === "down"
+            ? "How far it flushed BELOW the open first — the pain you had to sit through before any bounce. Click to sort by the worst flushes."
+            : "How far it squeezed ABOVE the open first — the pain you had to sit through before any fade. Click to sort by the worst squeezes.",
+            "scan-th-num")}
           {th("Data basis", "basis", "MINUTE PATH = we have that day minute by minute, so target-vs-stop ordering is measured. DAILY ONLY = we know how far it moved but not in what order. An EXCLUDE_ label means the day was thrown out (split, dividend or unreliable data) and contributes to nothing.")}
         </tr></thead>
         <tbody>
@@ -144,8 +163,12 @@ function GapAnalogTable({ events }) {
                 ? "Earnings day — counted only against other earnings gaps"
                 : "No earnings on or before this session"}>
                 {e.catalyst_kind === "EARNINGS" ? <b>Earnings</b> : <span className="muted">—</span>}</td>
-              <td className="scan-num up" title="Best move in the trade's favor">{gapPct(e.fav_pct)}</td>
-              <td className="scan-num down" title="Worst move against the trade">{gapPct(e.adv_pct)}</td>
+              <td className="scan-num up"
+                title={`This day ${e.direction === "up" ? "faded" : "rebounded"} ${gapPct(e.fav_pct)} from the open at its best`}>
+                {gapPct(e.fav_pct)} <span className="gap-arrow">{e.direction === "up" ? "↓" : "↑"}</span></td>
+              <td className="scan-num down"
+                title={`This day ${e.direction === "up" ? "squeezed" : "flushed"} ${gapPct(e.adv_pct)} against the trade first`}>
+                {gapPct(e.adv_pct)} <span className="gap-arrow">{e.direction === "up" ? "↑" : "↓"}</span></td>
               <td className="muted gap-basis-cell"
                 title={e.exclusion ? "This day is excluded from every statistic"
                   : (e.basis === "MINUTE PATH" ? "Measured minute by minute" : "Daily bars only — no ordering claims")}>
@@ -336,13 +359,13 @@ function GapDetail({ apiFetch, sym, onClose, onOpenTicker, liveQ }) {
                     <span>2% target before 3% stop</span>
                     <b>{st.tbs ? <GapProb r={st.tbs} /> :
                       <span className="muted" title="Only daily bars exist for these events. Daily bars show how far the stock moved but not in what order, so no honest before/after claim can be made.">Unknown · daily bars only</span>}</b></div>
-                  <div className="gap-kv" title="The typical (middle) move against the trade before it resolved. Half the historical events were worse than this, half better.">
-                    <span>Typical move against you</span>
+                  <div className="gap-kv" title={`The typical (middle) ${r.direction === "up" ? "squeeze" : "flush"} before the trade resolved. Half the historical events were worse than this, half better.`}>
+                    <span>Typical {r.direction === "up" ? "squeeze ↑" : "flush ↓"}</span>
                     <b>{gapPct(st.mae_med_pct != null ? st.mae_med_pct : st.med_adv_pct)}</b></div>
-                  <div className="gap-kv" title="The bad day: 9 out of 10 historical events moved against you LESS than this. Roughly where a stop needs to sit to survive normal noise.">
+                  <div className="gap-kv" title={`The bad day: 9 out of 10 historical events ${r.direction === "up" ? "squeezed" : "flushed"} LESS than this. Roughly where a stop needs to sit to survive normal noise.`}>
                     <span>Bad day (90th percentile)</span>
                     <b>{gapPct(st.mae_p90_pct != null ? st.mae_p90_pct : st.adv_p90_pct)}</b></div>
-                  <div className="gap-kv" title="The very bad day: only 1 in 20 historical events went against you further than this.">
+                  <div className="gap-kv" title={`The very bad day: only 1 in 20 historical events went against you further than this.`}>
                     <span>Very bad day (95th percentile)</span>
                     <b>{gapPct(st.mae_p95_pct != null ? st.mae_p95_pct : st.adv_p95_pct)}</b></div>
                   <div className="gap-kv gap-worst" title="The single worst comparable day in this stock's history. Tail risk is never hidden here — if one day ran 18% against the trade, you see it.">
@@ -430,7 +453,7 @@ function GapDetail({ apiFetch, sym, onClose, onOpenTicker, liveQ }) {
                 title="Every historical day behind the percentages above. Click any column header to sort — biggest gaps, worst squeezes, or all the earnings days together.">
                 The analogs <span className="muted">· every event behind the numbers · click a header to sort</span>
               </div>
-              <GapAnalogTable events={evs.events} />
+              <GapAnalogTable events={evs.events} direction={r.direction} />
             </div>
           )}
         </div>
@@ -579,7 +602,7 @@ function GapTab({ apiFetch, onOpenTicker }) {
                     {th("Catalyst", "rank", "What is known to be driving the move, from real data only: Earnings (the company reported), Analyst action, or a Macro event day. 'None tagged' means none of those were found — it does not mean nothing is happening. Earnings gaps are only ever compared against this stock's other earnings gaps.", true)}
                     {th("Fades 2%", "p2", "How often this stock's comparable past gaps moved at least 2% in the profitable direction from the opening price — down for a gap up, up for a gap down. The small number after the dot is how many historical examples that rate is based on. Hover the value for the conservative range.")}
                     {th("Hits target first", "tbs", "How often the 2% profit target printed BEFORE a 3% stop would have been hit, measured minute by minute on real historical paths. A dash means only daily bars exist for those days — daily bars show how far a stock moved but not in what order, so no honest claim is made.")}
-                    {th("Moves against", "adv", "The typical move AGAINST the trade before it resolved. A gap that eventually fades but squeezes 4% higher first is not a comfortable short.", true)}
+                    {th("Squeeze / flush", "adv", "The typical move AGAINST the trade before it resolved: for a gap up that means the squeeze higher, for a gap down the flush lower. A gap that eventually fades but squeezes 4% higher first is not a comfortable short. Each row's arrow shows which way.", true)}
                     {th("Examples", "n", "How many comparable historical events back these numbers. No sample size, no probability — a rate from 3 events is not a rate.", true)}
                     {th("Signal", "rank", "The call. STRONG requires the favorable rate AND the target-before-stop rate AND controlled tail risk AND enough examples — all judged on the conservative end of each range, never on one flattering number. NO DATA means the evidence or the live quote isn't good enough to say anything.")}
                   </tr></thead>
@@ -599,7 +622,11 @@ function GapTab({ apiFetch, onOpenTicker }) {
                         <td className="scan-num"><GapProb r={r.p_fav} /></td>
                         <td className="scan-num">{r.tbs_p != null ? `${Math.round(r.tbs_p)}%` :
                           <span className="muted" title="UNKNOWN / DAILY ONLY — no minute paths yet for this cohort">—</span>}</td>
-                        <td className="scan-num gap-hidemobile">{gapPct(r.med_adverse_pct)}</td>
+                        <td className="scan-num gap-hidemobile"
+                          title={r.med_adverse_pct == null ? "" : `Typically ${r.direction === "up" ? "squeezes" : "flushes"} ${gapPct(r.med_adverse_pct)} against the trade first`}>
+                          {gapPct(r.med_adverse_pct)}
+                          {r.med_adverse_pct != null &&
+                            <span className="gap-arrow"> {r.direction === "up" ? "↑" : "↓"}</span>}</td>
                         <td className="scan-num gap-hidemobile muted">{r.n ?? 0}</td>
                         <td><GapSigPill signal={r.signal} held={r.signal_held} /></td>
                       </tr>
