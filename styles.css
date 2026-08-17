@@ -11811,3 +11811,69 @@ a.tabsheet-btn.site { text-decoration: none; }
   .edge-asof { width: 100%; margin-left: 0; }
   .edge-hero-nums b { font-size: 15px; }
 }
+
+/* ── Gap Scan tab (premarket fade & rebound) ──────────────────────────────
+   Prefix: .gap-  ·  compact board, evidence-dense detail. */
+.gap-card .card-sub { max-width: 640px; }
+.gap-ctxline { font-size: 12px; margin: 4px 0 8px; }
+.gap-sig { display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
+  border: 1px solid transparent; }
+.gap-sig-up { color: var(--up-strong, #22c55e); border-color: color-mix(in srgb, currentColor 45%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent); }
+.gap-sig-warn { color: var(--warn, #eab308); border-color: color-mix(in srgb, currentColor 45%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent); }
+.gap-sig-down { color: var(--down-strong, #ef4444); border-color: color-mix(in srgb, currentColor 45%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent); }
+.gap-sig-mut { color: var(--text-dim, #8b93a7); border-color: color-mix(in srgb, currentColor 40%, transparent); }
+.gap-qdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-left: 4px; vertical-align: middle; }
+.gap-qdot-hi { background: var(--up-strong, #22c55e); }
+.gap-qdot-mid { background: var(--warn, #eab308); }
+.gap-qdot-lo { background: var(--text-dim, #8b93a7); }
+.gap-table { min-width: 900px; }
+.gap-table .gap-row { cursor: pointer; }
+.gap-note { font-size: 11.5px; color: var(--text-dim, #8b93a7); margin: 8px 2px; }
+.gap-sechead { font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-dim, #8b93a7); margin: 16px 0 8px; }
+.gap-hero { border: 1px solid var(--border, #2a3040); border-radius: 10px;
+  padding: 12px; margin-bottom: 6px; }
+.gap-hero-nums { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 10px; }
+.gap-hero-nums > div { display: flex; flex-direction: column; gap: 2px; }
+.gap-hero-nums span { font-size: 11px; color: var(--text-dim, #8b93a7); }
+.gap-hero-nums b { font-size: 15px; }
+.gap-why { margin-top: 10px; font-size: 12.5px; }
+.gap-changed { margin-top: 6px; font-size: 12px; color: var(--warn, #eab308); }
+.gap-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px; }
+.gap-block { border: 1px solid var(--border, #2a3040); border-radius: 10px; padding: 10px 12px; }
+.gap-bt { font-size: 11.5px; font-weight: 700; margin-bottom: 8px;
+  color: var(--text-dim, #8b93a7); text-transform: uppercase; letter-spacing: .04em; }
+.gap-prow { display: grid; grid-template-columns: 34px 1fr 84px; align-items: center;
+  gap: 8px; margin: 5px 0; font-size: 12.5px; }
+.gap-ptrack { position: relative; height: 8px; border-radius: 4px;
+  background: color-mix(in srgb, var(--text-dim, #8b93a7) 18%, transparent); overflow: hidden; }
+.gap-ptrack i { position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--accent, #4f8ef7); border-radius: 4px; }
+.gap-ptrack em { position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--text, #dfe4ee); opacity: .8; }
+.gap-prow b { text-align: right; }
+.gap-kv { display: flex; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; margin: 5px 0; }
+.gap-kv span { color: var(--text-dim, #8b93a7); }
+.gap-worst b { color: var(--down-strong, #ef4444); }
+.gap-row-robust td { background: color-mix(in srgb, var(--up-strong, #22c55e) 8%, transparent); }
+.gap-row-excl { opacity: .45; }
+.gap-back { margin-left: 10px; }
+.gap-detail .card-head { align-items: flex-start; }
+@media (max-width: 900px) {
+  .gap-table { min-width: 640px; font-size: 11.5px; }
+  .gap-hero-nums { gap: 10px 16px; }
+  .gap-hero-nums b { font-size: 14px; }
+}
+@media (max-width: 760px) {
+  /* mobile priority (spec §3): Ticker, PM Gap, P 2%, Tgt<Stop, Signal */
+  .gap-hidemobile { display: none; }
+  .gap-table { min-width: 430px; }
+  .gap-grid2 { grid-template-columns: 1fr; }
+}

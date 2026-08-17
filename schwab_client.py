@@ -917,14 +917,18 @@ class SchwabClient:
             self._cache_set(cache_key, out, 30)
         return out
 
-    def get_intraday_day(self, symbol: str, date_iso: str) -> list[dict] | None:
-        """1-minute bars for one specific PAST date (regular session).
-        Used by the Reversal Radar's hit-rate report to resolve signals that
-        fired while nobody was watching — exact first-touch instead of a
-        close-price approximation. Cached 6h (history never changes).
+    def get_intraday_day(self, symbol: str, date_iso: str,
+                         extended: bool = False) -> list[dict] | None:
+        """1-minute bars for one specific PAST date. Default is the regular
+        session (Reversal Radar hit-rate reports). extended=True widens the
+        window to 04:00–16:15 ET with extended-hours data — the premarket
+        tape the gap scanner's historical event store is built from. Source
+        retention for minute bars is ~6 months, so callers that need longer
+        history must archive what they fetch. Cached 6h (history never
+        changes).
         """
         symbol = symbol.upper().strip()
-        cache_key = f"intradayday:{symbol}:{date_iso}"
+        cache_key = f"intradayday:{symbol}:{date_iso}:{'ext' if extended else 'reg'}"
         hit = self._cache_get(cache_key)
         if hit is not None:
             return hit
@@ -938,11 +942,12 @@ class SchwabClient:
             d = _date.fromisoformat(str(date_iso)[:10])
         except (TypeError, ValueError):
             return None
+        open_t = _time(4, 0) if extended else _time(9, 30)
         if ET is not None:
-            start = datetime.combine(d, _time(9, 30), tzinfo=ET)
+            start = datetime.combine(d, open_t, tzinfo=ET)
             end = datetime.combine(d, _time(16, 15), tzinfo=ET)
         else:
-            start = datetime.combine(d, _time(9, 30))
+            start = datetime.combine(d, open_t)
             end = datetime.combine(d, _time(16, 15))
         params = {
             "symbol": symbol,
@@ -951,7 +956,7 @@ class SchwabClient:
             "frequency": 1,
             "startDate": int(start.timestamp() * 1000),
             "endDate": int(end.timestamp() * 1000),
-            "needExtendedHoursData": "false",
+            "needExtendedHoursData": "true" if extended else "false",
         }
         data = self._get(f"{HISTORY_URL_TPL}", params)
         if not data:

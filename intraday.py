@@ -97,10 +97,17 @@ def _session_open_ts_ms(now: datetime | None = None) -> int:
 
 # ── VWAP engine ──────────────────────────────────────────────────────────────
 
-def split_premarket(bars: list) -> tuple[list, list]:
-    """Split extended-hours bars into (premarket, regular session)."""
-    cut = _session_open_ts_ms()
-    pm = [b for b in bars if (b.get("ts") or 0) < cut]
+def split_premarket(bars: list, session_open_ts_ms: int | None = None) -> tuple[list, list]:
+    """Split extended-hours bars into (premarket, regular session).
+
+    Default cut is TODAY's 09:30 ET — correct for live bars only. Replays
+    of a historical day must pass that day's 09:30 as session_open_ts_ms,
+    otherwise every past bar lands in "premarket". The premarket side is
+    floored at 04:00 ET of the session date so a multi-day bar array can't
+    sweep prior sessions into today's premarket."""
+    cut = session_open_ts_ms if session_open_ts_ms is not None else _session_open_ts_ms()
+    floor = cut - int(5.5 * 3600 * 1000)  # 04:00 ET, 5.5h before the open
+    pm = [b for b in bars if floor <= (b.get("ts") or 0) < cut]
     reg = [b for b in bars if (b.get("ts") or 0) >= cut]
     return pm, reg
 

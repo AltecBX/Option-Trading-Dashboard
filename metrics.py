@@ -175,6 +175,37 @@ def _norm_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+def wilson_interval(k: int, n: int, z: float = 1.96) -> dict | None:
+    """Wilson score interval for a binomial proportion. The house CI for
+    every 'k of n historical events did X' probability: unlike the normal
+    approximation it stays inside [0,1] and behaves at small n, which is
+    exactly the regime gap/event statistics live in. Returns
+    {p, lo, hi, n} as decimals, or None when n == 0 (no n, no probability)."""
+    if not n or n <= 0 or k < 0 or k > n:
+        return None
+    p = k / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = (p + z2 / (2.0 * n)) / denom
+    half = (z * math.sqrt(p * (1.0 - p) / n + z2 / (4.0 * n * n))) / denom
+    return {"p": p, "lo": max(0.0, center - half),
+            "hi": min(1.0, center + half), "n": n}
+
+
+def percentile(vals: list, q: float) -> float | None:
+    """Linear-interpolated percentile of a list (q in [0,1]). The shared
+    stdlib implementation — premium_edge's pct_at generalized so new engines
+    stop growing private copies. Returns None on empty input."""
+    xs = sorted(v for v in (vals or []) if v is not None)
+    if not xs:
+        return None
+    if len(xs) == 1:
+        return float(xs[0])
+    i = (len(xs) - 1) * max(0.0, min(1.0, q))
+    lo, hi = int(math.floor(i)), int(math.ceil(i))
+    return float(xs[lo] + (xs[hi] - xs[lo]) * (i - lo))
+
+
 def _bs_delta(spot: float, strike: float, T: float, sigma: float, side: str,
               r: float = 0.045, q: float = 0.0) -> float:
     """Black-Scholes delta (continuous dividend yield q). Falls back to
