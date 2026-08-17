@@ -143,6 +143,20 @@ check("an approval reads green and a rejection red", (() => {
 check("the sentence a filing-derived tag was read from reaches the tooltip",
   /catalyst_quote/.test(src)
   && (src.match(/r\.catalyst_quote/g) || []).length >= 2);
+check("deal and distress catalysts are named",
+  ["BUYOUT: \"Buyout\"", "\"MERGER DEAL\"", "BANKRUPTCY: \"Bankruptcy\"",
+   "\"DELISTING NOTICE\"", "RESTATEMENT: \"Restatement\"",
+   "\"TRIAL FAILURE\""].every((k) => src.includes(k)));
+check("ambiguous catalysts read amber, not green or red", (() => {
+  const tone = (src.match(/const GAP_CATALYST_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  return ['"MERGER DEAL": "warn"', '"LEADERSHIP CHANGE": "warn"',
+          'BANKRUPTCY: "down"', 'BUYOUT: "up"'].every((k) => tone.includes(k));
+})());
+// A stock pinned to a takeover price still renders a full set of fade
+// statistics — the warning is the only thing standing between Jerry and
+// trading them as if they still described the stock.
+check("a pinned-price warning is rendered, not just tucked in a tooltip",
+  /gap-cat-warning/.test(src) && /r\.catalyst_warning/.test(src));
 // Read the kinds out of the label map instead of listing them here, so a
 // new catalyst cannot ship without a tooltip — the recurring complaint.
 const catalystKinds = (() => {

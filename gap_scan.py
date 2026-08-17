@@ -51,7 +51,7 @@ _CATALYST_FN = None          # (sym) -> {"kind": str, "label": str} | None
 _SECTOR_ETF_FN = None        # (sym) -> "XLK" | None
 _EARN_NEXT_FN = None         # (sym) -> {"next": ISO} | None
 _OFFERING_FN = None          # (sym) -> {date_iso: "OFFERING" | "DILUTION"}
-_FDA_FN = None               # (sym, dates) -> {date_iso: "FDA APPROVAL" | ...}
+_EVENT_FN = None             # (sym, dates) -> {date_iso: filing-event kind}
 _DATA_DIR: Path | None = None
 
 _LOCK = threading.Lock()
@@ -86,13 +86,13 @@ def configure(schwab_getter=None, watchlist_fn=None, universe_fn=None,
               board_fn=None, daily_fn=None, actions_fn=None,
               earn_hist_fn=None, catalyst_fn=None, sector_etf_fn=None,
               data_dir=None, earn_next_fn=None, offering_fn=None,
-              fda_fn=None) -> None:
+              filing_event_fn=None) -> None:
     global _SCHWAB_FN, _WATCHLIST_FN, _UNIVERSE_FN, _BOARD_FN, _DAILY_FN
     global _ACTIONS_FN, _EARN_HIST_FN, _CATALYST_FN, _SECTOR_ETF_FN, _DATA_DIR
-    global _EARN_NEXT_FN, _OFFERING_FN, _FDA_FN
+    global _EARN_NEXT_FN, _OFFERING_FN, _EVENT_FN
     _EARN_NEXT_FN = earn_next_fn
     _OFFERING_FN = offering_fn
-    _FDA_FN = fda_fn
+    _EVENT_FN = filing_event_fn
     _SCHWAB_FN = schwab_getter
     _WATCHLIST_FN = watchlist_fn
     _UNIVERSE_FN = universe_fn
@@ -184,18 +184,18 @@ def refresh_daily_events(sym: str, store: dict, now_d: date | None = None) -> di
         bars, cfg, split_dates=set(acts.get("splits") or []),
         div_by_date=acts.get("dividends") or {}, earnings_dates=earn,
         offering_dates=offers)
-    # FDA decisions cost a document read each, so they are asked for only
-    # on days nothing cheaper explained, and only for as many as the budget
-    # allows — verdicts are cached, so history fills in across scans.
-    if _FDA_FN:
+    # Filing events can cost a document read each, so they are asked for
+    # only on days nothing cheaper explained, and only for as many as the
+    # budget allows — verdicts are cached, so history fills in across scans.
+    if _EVENT_FN:
         blank = [e["date"] for e in evs if e.get("catalyst_kind") == "UNTAGGED"]
         try:
-            for d, kind in (_FDA_FN(sym, blank) or {}).items():
+            for d, kind in (_EVENT_FN(sym, blank) or {}).items():
                 for e in evs:
                     if e["date"] == d:
                         e["catalyst_kind"] = kind
         except Exception as exc:      # pragma: no cover - never break a scan
-            print(f"[gap] fda tag failed {sym}: {exc}")
+            print(f"[gap] filing-event tag failed {sym}: {exc}")
     by_date = {e["date"]: e for e in store["events"]}
     for e in evs:
         old = by_date.get(e["date"])
@@ -490,6 +490,9 @@ def analyze_symbol(sym: str, q: dict, etf_gaps: dict | None = None,
         # be checked at the source
         "catalyst_url": cat.get("url"),
         "catalyst_quote": cat.get("quote"),
+        # set when the catalyst itself makes this stock's own history stop
+        # describing it — a pending takeover pins the price to the deal
+        "catalyst_warning": cat.get("warning"),
         "next_earnings": next_earn, "days_to_earnings": days_to_earn,
         "sector": sctx,
         "p_fav": pf, "p_fav_target_pct": pt,

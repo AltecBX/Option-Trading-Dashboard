@@ -339,13 +339,13 @@ BOARD_APPROVAL = (
     "dividend of $0.36 per share, payable September 1, 2026.")
 
 
-class TestFdaClassifier(unittest.TestCase):
+class TestFilingClassifier(unittest.TestCase):
     """The rule that matters: the tag fires on a decision the company is
     announcing NOW, and stays silent on everything that merely mentions the
     FDA — risk factors, trial permissions, board votes, old news retold."""
 
     def test_approval_is_recognized_and_quoted(self):
-        kind, quote = sf.classify_fda(FDA_APPROVAL, "8.01,9.01", "2026-05-04")
+        kind, quote = sf.classify_filing(FDA_APPROVAL, "8.01,9.01", "2026-05-04")
         self.assertEqual(kind, "FDA APPROVAL")
         self.assertIn("has approved", quote)
         self.assertIn("Food and Drug Administration", quote)
@@ -354,35 +354,142 @@ class TestFdaClassifier(unittest.TestCase):
         self.assertIn("ASCENIV", quote)
 
     def test_complete_response_letter_is_a_rejection(self):
-        kind, quote = sf.classify_fda(FDA_CRL, "8.01", "2026-06-02")
+        kind, quote = sf.classify_filing(FDA_CRL, "8.01", "2026-06-02")
         self.assertEqual(kind, "FDA REJECTION")
         self.assertIn("Complete Response Letter", quote)
 
     def test_risk_factor_boilerplate_is_not_an_event(self):
         # every biotech filing warns about exactly these two outcomes
-        self.assertEqual(sf.classify_fda(FDA_RISK, "8.01", "2026-06-02")[0], None)
+        self.assertEqual(sf.classify_filing(FDA_RISK, "8.01", "2026-06-02")[0], None)
 
     def test_recap_of_an_older_decision_does_not_tag_todays_gap(self):
-        self.assertEqual(sf.classify_fda(FDA_RECAP, "8.01", "2026-07-28")[0], None)
+        self.assertEqual(sf.classify_filing(FDA_RECAP, "8.01", "2026-07-28")[0], None)
 
     def test_permission_to_run_a_trial_is_not_a_product_approval(self):
-        self.assertEqual(sf.classify_fda(FDA_TRIAL, "8.01", "2026-05-04")[0], None)
+        self.assertEqual(sf.classify_filing(FDA_TRIAL, "8.01", "2026-05-04")[0], None)
 
     def test_a_board_approving_a_dividend_is_not_the_fda(self):
-        self.assertEqual(sf.classify_fda(BOARD_APPROVAL, "8.01", "2026-07-15")[0], None)
+        self.assertEqual(sf.classify_filing(BOARD_APPROVAL, "8.01", "2026-07-15")[0], None)
 
     def test_earnings_filings_are_skipped_entirely(self):
         # a quarterly release recaps the year's approvals; that day's gap is
         # the earnings gap, and earnings already outranks this tag
         self.assertEqual(
-            sf.classify_fda(FDA_APPROVAL, "2.02,9.01", "2026-05-04")[0], None)
+            sf.classify_filing(FDA_APPROVAL, "2.02,9.01", "2026-05-04")[0], None)
 
     def test_a_dateless_announcement_still_counts(self):
         text = ("Celcuity Inc. today announced that the U.S. Food and Drug "
                 "Administration has approved GEDATOLISIB for HR+/HER2- "
                 "advanced breast cancer.")
-        self.assertEqual(sf.classify_fda(text, "8.01", "2026-07-15")[0],
+        self.assertEqual(sf.classify_filing(text, "8.01", "2026-07-15")[0],
                          "FDA APPROVAL")
+
+
+# Deal and trial wording, quoted from the real filings this was built against.
+BUYOUT_8K = (
+    "Item 1.01 Entry into a Material Definitive Agreement. Agreement and Plan "
+    "of Merger On July 26, 2026, Forte Biosciences, Inc. entered into an "
+    "Agreement and Plan of Merger with argenx BV and Avena Merger Sub Inc. The "
+    "Merger Agreement provides for the acquisition of the Company by Parent in "
+    "a two-step transaction. Pursuant to the Merger Agreement, Purchaser will "
+    "commence a tender offer to acquire all of the Company's issued and "
+    "outstanding shares of common stock for $77.00 per share, net to the "
+    "seller in cash.")
+ACQUIRER_8K = (
+    "Item 8.01 Other Events. On June 3, 2026, the Company entered into a "
+    "definitive agreement to acquire Northwind Systems LLC for $40 million in "
+    "cash, expanding its manufacturing footprint.")
+MERGER_VAGUE_8K = (
+    "Item 1.01. On June 28, 2026, Theravance Biopharma, Inc. entered into an "
+    "Agreement and Plan of Merger by and among the Company, Neon Maple Parent "
+    "Inc. and Neon Maple Merger Sub.")
+TRIAL_WIN_8K = (
+    "In the Phase 3 pivotal trial, ALXN1840 met the primary endpoint by "
+    "demonstrating rapid and sustained copper mobilization significantly "
+    "greater than standard of care over 48 weeks.")
+TRIAL_FAIL_8K = (
+    "The study did not meet the primary endpoint of mean change in a patient's "
+    "Urticaria Activity Score over seven days at 12 weeks at any dose.")
+DEAL_RISK_8K = (
+    "Forward-looking statements include the risk that the Company may be "
+    "acquired on terms unfavorable to stockholders, or that a trial could fail "
+    "to meet the primary endpoint.")
+
+
+class TestMetadataTags(unittest.TestCase):
+    """Item codes and deal forms are already in the submissions feed, so
+    these tags cost nothing at all — no document is opened."""
+
+    def test_item_codes_that_mean_exactly_one_thing(self):
+        for items, kind in (("1.03,9.01", "BANKRUPTCY"),
+                            ("3.01", "DELISTING NOTICE"),
+                            ("4.02,9.01", "RESTATEMENT"),
+                            ("5.02", "LEADERSHIP CHANGE"),
+                            ("2.06", "IMPAIRMENT"),
+                            ("2.01,9.01", "DEAL CLOSED")):
+            got = sf.tag_from_metadata({"form": "8-K", "items": items})
+            self.assertEqual(got["kind"], kind, items)
+            self.assertIn("8-K item", got["label"])
+
+    def test_the_most_consequential_item_wins(self):
+        # a single 8-K routinely carries several items
+        got = sf.tag_from_metadata({"form": "8-K", "items": "5.02,1.03,9.01"})
+        self.assertEqual(got["kind"], "BANKRUPTCY")
+
+    def test_deal_forms_only_a_company_in_a_deal_ever_files(self):
+        for form, kind in (("SC 14D9", "BUYOUT"), ("SC TO-T/A", "BUYOUT"),
+                           ("SC TO-C", "BUYOUT"), ("DEFM14A", "MERGER VOTE"),
+                           ("PREM14A", "MERGER VOTE")):
+            self.assertEqual(sf.tag_from_metadata({"form": form})["kind"], kind, form)
+
+    def test_ordinary_filings_get_nothing(self):
+        self.assertIsNone(sf.tag_from_metadata({"form": "8-K", "items": "7.01,9.01"}))
+        self.assertIsNone(sf.tag_from_metadata({"form": "10-Q", "items": ""}))
+        self.assertIsNone(sf.tag_from_metadata({"form": "4", "items": ""}))
+
+
+class TestDealAndTrialText(unittest.TestCase):
+    def test_being_acquired_is_a_buyout_and_names_the_price(self):
+        kind, quote = sf.classify_filing(BUYOUT_8K, "1.01,9.01", "2026-07-27")
+        self.assertEqual(kind, "BUYOUT")
+        self.assertTrue(quote.startswith("$77.00 per share"), quote[:60])
+
+    def test_buying_something_is_not_being_bought(self):
+        kind, _ = sf.classify_filing(ACQUIRER_8K, "8.01", "2026-06-03")
+        self.assertEqual(kind, "DEAL CLOSED")
+
+    def test_a_deal_with_no_provable_side_stays_generic(self):
+        # tagging this BUYOUT would be a guess about which company is which
+        kind, _ = sf.classify_filing(MERGER_VAGUE_8K, "1.01", "2026-06-29")
+        self.assertEqual(kind, "MERGER DEAL")
+
+    def test_trial_readouts_both_ways(self):
+        self.assertEqual(
+            sf.classify_filing(TRIAL_WIN_8K, "7.01", "2026-06-30")[0], "TRIAL SUCCESS")
+        self.assertEqual(
+            sf.classify_filing(TRIAL_FAIL_8K, "8.01", "2026-06-29")[0], "TRIAL FAILURE")
+
+    def test_deal_and_trial_risk_language_is_not_an_event(self):
+        self.assertIsNone(sf.classify_filing(DEAL_RISK_8K, "8.01", "2026-06-29")[0])
+
+    def test_ranking_puts_the_consequential_first(self):
+        self.assertTrue(sf._rank("BANKRUPTCY") > sf._rank("BUYOUT")
+                        > sf._rank("FDA APPROVAL") > sf._rank("MERGER VOTE")
+                        > sf._rank("LEADERSHIP CHANGE") > sf._rank(None))
+
+    def test_what_outranks_a_share_sale(self):
+        for kind in ("BANKRUPTCY", "BUYOUT", "FDA REJECTION", "TRIAL FAILURE",
+                     "RESTATEMENT", "DELISTING NOTICE"):
+            self.assertTrue(sf.outranks_offering(kind), kind)
+        for kind in ("LEADERSHIP CHANGE", "RESTRUCTURING", "IMPAIRMENT",
+                     "AUDITOR CHANGE", "DEAL CLOSED", None):
+            self.assertFalse(sf.outranks_offering(kind), kind)
+
+    def test_a_live_deal_pins_the_price(self):
+        for kind in ("BUYOUT", "MERGER DEAL", "MERGER VOTE"):
+            self.assertTrue(sf.pins_the_price(kind), kind)
+        for kind in ("FDA APPROVAL", "DEAL CLOSED", "EARNINGS", None):
+            self.assertFalse(sf.pins_the_price(kind), kind)
 
 
 class TestMovesSession(unittest.TestCase):
@@ -410,7 +517,7 @@ class TestMovesSession(unittest.TestCase):
                          "2026-08-17")
 
 
-class TestFdaLookups(unittest.TestCase):
+class TestFilingEventLookups(unittest.TestCase):
     def wire(self, rows, texts=None):
         net = Net(json_by_url={SUB_URL: submissions(rows)}, text_by_url=texts or {})
         net.__enter__()
@@ -427,7 +534,7 @@ class TestFdaLookups(unittest.TestCase):
         self.wire([{"date": "2026-05-04", "form": "8-K", "items": "8.01,9.01",
                     "acc": "0001-26-1", "accepted": "2026-05-04T07:05:47.000Z"}],
                   {self._txt("0001-26-1"): FDA_APPROVAL})
-        out = sf.latest_fda("ZZZZ", ("2026-05-04", "2026-05-03"))
+        out = sf.latest_event_tag("ZZZZ", ("2026-05-04", "2026-05-03"))
         self.assertEqual(out["kind"], "FDA APPROVAL")
         self.assertIn("ASCENIV", out["quote"])
 
@@ -435,9 +542,9 @@ class TestFdaLookups(unittest.TestCase):
         net = self.wire([{"date": "2026-05-04", "form": "8-K", "items": "8.01",
                           "acc": "0001-26-1"}],
                         {self._txt("0001-26-1"): FDA_RISK})
-        self.assertIsNone(sf.latest_fda("ZZZZ", ("2026-05-04",)))
+        self.assertIsNone(sf.latest_event_tag("ZZZZ", ("2026-05-04",)))
         before = len(net.calls)
-        self.assertIsNone(sf.latest_fda("ZZZZ", ("2026-05-04",)))
+        self.assertIsNone(sf.latest_event_tag("ZZZZ", ("2026-05-04",)))
         self.assertEqual(len(net.calls), before, "re-read a document it had already judged")
 
     def test_history_maps_each_decision_to_the_session_it_moved(self):
@@ -447,9 +554,35 @@ class TestFdaLookups(unittest.TestCase):
                     "acc": "0001-26-2", "accepted": "2026-06-02T21:00:00.000Z"}],
                   {self._txt("0001-26-1"): FDA_APPROVAL,
                    self._txt("0001-26-2"): FDA_CRL})
-        got = sf.fda_dates("ZZZZ", ["2026-05-04", "2026-06-03", "2026-01-02"])
+        got = sf.event_tag_dates("ZZZZ", ["2026-05-04", "2026-06-03", "2026-01-02"])
         self.assertEqual(got, {"2026-05-04": "FDA APPROVAL",
                                "2026-06-03": "FDA REJECTION"})
+
+    def test_the_free_tag_still_lands_when_the_budget_is_spent(self):
+        # item codes cost nothing, so a bankruptcy is never missed for the
+        # want of a document read
+        self.wire([{"date": "2026-05-04", "form": "8-K", "items": "1.03,9.01",
+                    "acc": "0001-26-1"}])
+        out = sf.latest_event_tag("ZZZZ", ("2026-05-04",), budget=0)
+        self.assertEqual(out["kind"], "BANKRUPTCY")
+        self.assertIsNone(out["quote"])
+
+    def test_the_most_consequential_filing_of_the_day_wins(self):
+        self.wire([{"date": "2026-05-04", "form": "8-K", "items": "5.02",
+                    "acc": "0001-26-1"},
+                   {"date": "2026-05-04", "form": "SC 14D9", "acc": "0001-26-2"}],
+                  {self._txt("0001-26-1"): "An officer resigned."})
+        self.assertEqual(sf.latest_event_tag("ZZZZ", ("2026-05-04",))["kind"],
+                         "BUYOUT")
+
+    def test_a_read_that_finds_more_than_the_item_code_wins(self):
+        # item 8.01 says nothing; the document says the FDA approved a drug
+        self.wire([{"date": "2026-05-04", "form": "8-K", "items": "8.01,9.01",
+                    "acc": "0001-26-1"}],
+                  {self._txt("0001-26-1"): FDA_APPROVAL})
+        out = sf.latest_event_tag("ZZZZ", ("2026-05-04",))
+        self.assertEqual(out["kind"], "FDA APPROVAL")
+        self.assertIn("ASCENIV", out["quote"])
 
     def test_the_budget_caps_how_many_documents_one_pass_opens(self):
         rows, texts = [], {}
@@ -461,19 +594,19 @@ class TestFdaLookups(unittest.TestCase):
             texts[self._txt(acc)] = FDA_APPROVAL
         net = self.wire(rows, texts)
         dates = [r["date"] for r in rows]
-        first = sf.fda_dates("ZZZZ", dates, budget=2)
+        first = sf.event_tag_dates("ZZZZ", dates, budget=2)
         self.assertEqual(len(first), 2, "budget ignored")
         docs = [c for c in net.calls if c.endswith(".txt")]
         self.assertEqual(len(docs), 2)
         # the rest arrive on later passes, and nothing is read twice
-        second = sf.fda_dates("ZZZZ", dates, budget=2)
+        second = sf.event_tag_dates("ZZZZ", dates, budget=2)
         self.assertEqual(len(second), 4)
 
     def test_offline_is_silent(self):
         clear()
         os.environ["JERRY_NO_NET"] = "1"
-        self.assertIsNone(sf.latest_fda("ZZZZ", ("2026-05-04",)))
-        self.assertEqual(sf.fda_dates("ZZZZ", ["2026-05-04"]), {})
+        self.assertIsNone(sf.latest_event_tag("ZZZZ", ("2026-05-04",)))
+        self.assertEqual(sf.event_tag_dates("ZZZZ", ["2026-05-04"]), {})
 
 
 class TestEventDates(unittest.TestCase):

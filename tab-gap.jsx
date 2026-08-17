@@ -37,6 +37,12 @@ const GAP_CATALYST_LABEL = {
   "ANALYST ACTION": "Analyst action", MACRO: "Macro event",
   OFFERING: "Offering", DILUTION: "Dilution",
   "FDA APPROVAL": "FDA approval", "FDA REJECTION": "FDA rejection",
+  "TRIAL SUCCESS": "Trial hit", "TRIAL FAILURE": "Trial missed",
+  BUYOUT: "Buyout", "MERGER DEAL": "Merger deal", "MERGER VOTE": "Merger vote",
+  "DEAL CLOSED": "Deal closed", BANKRUPTCY: "Bankruptcy",
+  "DELISTING NOTICE": "Delisting notice", RESTATEMENT: "Restatement",
+  "AUDITOR CHANGE": "Auditor change", RESTRUCTURING: "Restructuring",
+  IMPAIRMENT: "Write-down", "LEADERSHIP CHANGE": "Leadership change",
   UNTAGGED: "None tagged",
 };
 // An upgrade behind a gap up confirms the move; a downgrade behind one is a
@@ -45,6 +51,12 @@ const GAP_CATALYST_LABEL = {
 const GAP_CATALYST_TONE = {
   UPGRADE: "up", DOWNGRADE: "down", OFFERING: "down", DILUTION: "down",
   "FDA APPROVAL": "up", "FDA REJECTION": "down",
+  "TRIAL SUCCESS": "up", "TRIAL FAILURE": "down", BUYOUT: "up",
+  BANKRUPTCY: "down", "DELISTING NOTICE": "down", RESTATEMENT: "down",
+  // amber: real, dated, and genuinely ambiguous for direction
+  "MERGER DEAL": "warn", "MERGER VOTE": "warn", "DEAL CLOSED": "warn",
+  "AUDITOR CHANGE": "warn", RESTRUCTURING: "warn", IMPAIRMENT: "warn",
+  "LEADERSHIP CHANGE": "warn",
 };
 const gapCatalyst = (k) => GAP_CATALYST_LABEL[k] || k || "None tagged";
 const GAP_CATALYST_TIP = {
@@ -57,7 +69,20 @@ const GAP_CATALYST_TIP = {
   DILUTION: "This company REGISTERED shares that it can sell later — a shelf registration, or a resale prospectus for shares somebody else already holds. It is not a sale today, it is permission to sell, which is why it is a softer signal than an Offering. Click through to read the filing on EDGAR. Context only, not separated in the statistics.",
   "FDA APPROVAL": "The company told the SEC — in an 8-K filed today or last night — that the FDA APPROVED something. The label quotes the filing's own sentence, so you can read exactly what was approved; click through for the filing itself. Note this is what the company disclosed, not an FDA feed: the FDA publishes approvals on a delay and never publishes rejections at all. Context only — it is not separated in the statistics the way earnings are.",
   "FDA REJECTION": "The company disclosed that the FDA did NOT approve — usually a Complete Response Letter, which means the FDA is asking for more before it will approve. It is not always fatal to the drug, but it is the reason the stock is gapping. The label quotes the filing's own sentence; click through to read it. Context only, not separated in the statistics.",
-  UNTAGGED: "No earnings, FDA decision, offering filing, rating change or macro event was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view.",
+  "TRIAL SUCCESS": "The company reported that a clinical trial MET its main goal — the primary endpoint. For a small biotech this moves the stock harder than most approvals do, because it is the moment the drug stops being a maybe. Read from the company's own 8-K; the label quotes the sentence. Context only, not separated in the statistics.",
+  "TRIAL FAILURE": "The company reported that a clinical trial DID NOT meet its primary endpoint. This is the single most brutal gap down in biotech — a failed readout can take out most of the company's value in one morning, and the stock often keeps going rather than bouncing. Read from the company's own 8-K. Context only, not separated in the statistics.",
+  BUYOUT: "Somebody is buying this company. Either a tender offer is outstanding for the shares or the company signed a deal to be acquired. IMPORTANT: once a takeover price is fixed, the stock trades to that price — it stops moving on its own, so its gap history no longer describes it. Where the filing names the price, the label shows it.",
+  "MERGER DEAL": "The company signed a merger agreement. Which side it is on could NOT be proven from the filing's own words, so it is not labeled a buyout — read the filing to see. A pending deal usually pins the price, which makes this stock's gap history much less comparable.",
+  "MERGER VOTE": "Shareholders are being asked to vote on a merger (a DEFM14A/PREM14A proxy). The deal was announced earlier; this is a step toward closing, so it moves the stock less than the announcement did.",
+  "DEAL CLOSED": "The company completed an acquisition or a disposition (8-K item 2.01). Note this can mean it BOUGHT something as easily as it was bought.",
+  BANKRUPTCY: "The company filed for bankruptcy or went into receivership (8-K item 1.03). This is the most consequential tag in the list and it outranks everything else. Ordinary gap statistics have very little to say about a stock in bankruptcy.",
+  "DELISTING NOTICE": "The exchange told the company it is not meeting a continued-listing rule (8-K item 3.01) — often the minimum price or market value. It usually starts a cure period rather than an immediate delisting, but it is a real gap-down catalyst for small caps.",
+  RESTATEMENT: "The company said its previously issued financial statements can NO LONGER BE RELIED ON (8-K item 4.02). The numbers everyone was valuing the stock on were wrong. Rare and severe.",
+  "AUDITOR CHANGE": "The company changed accountants (8-K item 4.01). Routine at times, a warning sign at others — the filing says whether the auditor resigned or was dismissed.",
+  RESTRUCTURING: "The company recorded costs for an exit or disposal plan (8-K item 2.05) — layoffs, closing a site, discontinuing a product line.",
+  IMPAIRMENT: "The company wrote down the value of an asset (8-K item 2.06). An accounting recognition that something it owns is worth less than the books said.",
+  "LEADERSHIP CHANGE": "An officer or director change was filed (8-K item 5.02). This covers a CEO leaving AND a routine board appointment, so it is the weakest tag here — it only shows when nothing stronger explains the move.",
+  UNTAGGED: "No earnings, FDA decision, deal, offering filing, rating change or macro event was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view.",
 };
 // Past gap days carry the same tags, but the wording has to be past tense —
 // and honest that history is tagged from the filing TYPE, without opening
@@ -68,6 +93,19 @@ const GAP_EVENT_CAT_TIP = {
   DILUTION: "The company registered shares for possible future sale on this date or the session before — a shelf or resale registration on EDGAR. Permission to sell, not a sale.",
   "FDA APPROVAL": "On this session the company filed an 8-K announcing an FDA approval. Read from the filing's own words; filings that merely recap an older decision are not counted.",
   "FDA REJECTION": "On this session the company filed an 8-K disclosing that the FDA did not approve — typically a Complete Response Letter. Read from the filing's own words.",
+  "TRIAL SUCCESS": "A clinical trial met its primary endpoint on this session, per the company's own filing.",
+  "TRIAL FAILURE": "A clinical trial missed its primary endpoint on this session, per the company's own filing.",
+  BUYOUT: "A takeover of this company was announced or a tender offer was outstanding on this session. Prices around a live deal are pinned to the deal, so this day is a poor analog for an ordinary gap.",
+  "MERGER DEAL": "A merger agreement was filed on this session; which side the company was on was not provable from the filing's own words.",
+  "MERGER VOTE": "A merger proxy was filed on this session — a step toward closing a deal announced earlier.",
+  "DEAL CLOSED": "The company completed an acquisition or disposition on this session (8-K item 2.01).",
+  BANKRUPTCY: "The company filed for bankruptcy or receivership on this session (8-K item 1.03).",
+  "DELISTING NOTICE": "The exchange flagged a continued-listing failure on this session (8-K item 3.01).",
+  RESTATEMENT: "The company said prior financial statements could no longer be relied on (8-K item 4.02).",
+  "AUDITOR CHANGE": "The company changed accountants on this session (8-K item 4.01).",
+  RESTRUCTURING: "Exit or disposal costs were recorded on this session (8-K item 2.05).",
+  IMPAIRMENT: "A material asset write-down was recorded on this session (8-K item 2.06).",
+  "LEADERSHIP CHANGE": "An officer or director change was filed on this session (8-K item 5.02) — routine appointments included.",
 };
 const gapTime = (s) => {
   if (!s) return "—";
@@ -349,6 +387,10 @@ function GapDetail({ apiFetch, sym, onClose, onOpenTicker, liveQ }) {
                       rel="noopener noreferrer"
                       title="Open the filing on the SEC's EDGAR site — the source this tag was read from.">
                       read the filing</a>)}</b></div>
+              {r.catalyst_warning && (
+                <div className="gap-cat-warning"
+                  title="The statistics below are still this stock's measured history — but they were measured on a stock that was free to move. Read them with that in mind.">
+                  ⚠ {r.catalyst_warning}</div>)}
               <div title={r.days_to_earnings == null
                 ? "No scheduled earnings date found for this ticker."
                 : `Next scheduled report: ${gapDateDow(r.next_earnings)}. A fade that has to survive an earnings report is a different trade from one with a clear runway.`}>
@@ -665,6 +707,7 @@ function GapTab({ apiFetch, onOpenTicker }) {
                         <td className={`gap-hidemobile ${GAP_CATALYST_TONE[r.catalyst_kind] ? "gap-cat-" + GAP_CATALYST_TONE[r.catalyst_kind] : ""}`}
                           title={(r.catalyst_label || r.catalyst_quote
                             ? `${gapCatalyst(r.catalyst_kind)} — ${r.catalyst_quote || r.catalyst_label}\n\n` : "")
+                            + (r.catalyst_warning ? `⚠ ${r.catalyst_warning}\n\n` : "")
                             + (GAP_CATALYST_TIP[r.catalyst_kind] || "")}>
                           {r.catalyst_kind === "UNTAGGED"
                             ? <span className="muted">—</span> : gapCatalyst(r.catalyst_kind)}</td>

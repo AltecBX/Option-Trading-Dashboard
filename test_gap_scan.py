@@ -121,8 +121,9 @@ def wire(tmp, sc, watchlist=None, catalyst=None, offerings=None, fda=None):
         earn_hist_fn=lambda s: set(),
         catalyst_fn=(catalyst or (lambda s: {"kind": "UNTAGGED"})),
         offering_fn=(lambda s: offerings or {}),
-        fda_fn=(lambda s, dates, budget=8: {d: k for d, k in (fda or {}).items()
-                                            if d in set(dates or [])}),
+        filing_event_fn=(lambda s, dates, budget=8:
+                         {d: k for d, k in (fda or {}).items()
+                          if d in set(dates or [])}),
         sector_etf_fn=lambda s: "XLK",
         data_dir=tmp,
     )
@@ -213,7 +214,7 @@ class TestStoreBuild(unittest.TestCase):
             def boom(sym, dates, budget=8):
                 raise RuntimeError("EDGAR down")
 
-            gs._FDA_FN = boom
+            gs._EVENT_FN = boom
             store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
             self.assertGreaterEqual(len(store["events"]), 12)
 

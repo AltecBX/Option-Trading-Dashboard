@@ -11919,6 +11919,16 @@ a.tabsheet-btn.site { text-decoration: none; }
    supply no matter which way the tape gapped. */
 .gap-cat-up { color: var(--up); }
 .gap-cat-down { color: var(--down); }
+/* Real, dated, and genuinely ambiguous for direction — a merger vote, a
+   write-down, an officer change. Amber says "this happened", not "this is
+   good" or "this is bad". */
+.gap-cat-warn { color: var(--warn); }
 /* Straight to the filing on EDGAR, so the tag can be checked at the source. */
 .gap-cat-link { margin-left: 8px; font-size: 11px; font-weight: 500;
   color: var(--accent, #60a5fa); text-decoration: underline; white-space: nowrap; }
+/* A pending takeover pins the price to the deal, which is exactly when this
+   stock's own gap history stops describing it. Say so where it can't be missed. */
+.gap-cat-warning { margin-top: 8px; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.45; color: var(--warn);
+  background: color-mix(in oklch, var(--warn), transparent 88%);
+  border: 1px solid color-mix(in oklch, var(--warn), transparent 60%); }
