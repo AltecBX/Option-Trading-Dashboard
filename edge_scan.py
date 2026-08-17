@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -524,6 +525,13 @@ def _load_board() -> None:
 
 
 def trigger_scan(force: bool = False) -> dict:
+    # An offline run must never spawn a live scan thread. Without this the
+    # CI smoke pass (which hits /api/edge/scan) left a daemon thread writing
+    # forecast files into test temp dirs long after the test that created
+    # them had moved on — surfacing as a random "Directory not empty"
+    # cleanup error in an unrelated suite. Matches gap_scan/recovery.
+    if os.environ.get("JERRY_NO_NET"):
+        return {"status": "offline", "reason": "JERRY_NO_NET"}
     with _LOCK:
         if _STATE["scanning"]:
             return {"status": "already_scanning"}

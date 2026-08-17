@@ -164,7 +164,7 @@ function GapAnalogTable({
   }, /*#__PURE__*/React.createElement("td", {
     title: e.exclusion ? `Excluded: ${e.exclusion}` : e.delayed_open ? "This session opened late (halt or delayed first print)." : ""
   }, gapDateDow(e.date), e.delayed_open ? " *" : ""), /*#__PURE__*/React.createElement("td", {
-    className: e.direction === "up" ? "up" : "down",
+    className: e.direction === "up" ? "gap-dir-up" : "gap-dir-down",
     title: e.direction === "up" ? "Gapped up — fade candidate" : "Gapped down — rebound candidate"
   }, e.direction === "up" ? "▲ Up" : "▼ Down"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num",
@@ -191,6 +191,11 @@ function GapAnalogTable({
 }
 
 // Recent headlines — the "why is it moving" the statistics can't tell you.
+// A stock gaps because of something that JUST happened, so anything older
+// than a few days is noise here: last week's upgrade is not this morning's
+// reason. Older headlines are dropped, and the count is shown so a quiet
+// tape reads as quiet rather than as missing data.
+const GAP_NEWS_MAX_DAYS = 3;
 function GapNews({
   apiFetch,
   sym
@@ -208,19 +213,25 @@ function GapNews({
       dead = true;
     };
   }, [sym]);
-  const items = news && news.items || [];
+  const all = news && news.items || [];
+  const cutoff = Date.now() - GAP_NEWS_MAX_DAYS * 86400000;
+  const items = all.filter(n => {
+    const t = n.published ? new Date(n.published).getTime() : NaN;
+    return Number.isNaN(t) ? false : t >= cutoff; // undatable ≠ recent
+  });
+  const dropped = all.length - items.length;
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "gap-sechead",
-    title: "Latest headlines for this ticker, newest first. The statistics tell you what usually happens after a gap this size; the news tells you what kind of gap this one is."
+    title: `Headlines from the last ${GAP_NEWS_MAX_DAYS} days only, newest first. A stock gaps because of a catalyst that just happened — older stories are filtered out so they can't be mistaken for this morning's reason. The statistics tell you what usually happens after a gap this size; the news tells you what kind of gap this one is.`
   }, "Latest news ", /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, "\xB7 why it's moving")), err && /*#__PURE__*/React.createElement("div", {
+  }, "\xB7 why it's moving \xB7 last ", GAP_NEWS_MAX_DAYS, " days")), err && /*#__PURE__*/React.createElement("div", {
     className: "gap-note"
   }, "news unavailable: ", err), !news && !err && /*#__PURE__*/React.createElement("div", {
     className: "card-loading"
   }, "Loading headlines\u2026"), news && !items.length && /*#__PURE__*/React.createElement("div", {
     className: "research-empty"
-  }, "No recent headlines found for ", sym, "."), items.length > 0 && /*#__PURE__*/React.createElement("ul", {
+  }, "No headlines in the last ", GAP_NEWS_MAX_DAYS, " days for ", sym, dropped > 0 ? ` (${dropped} older ${dropped === 1 ? "story" : "stories"} filtered out — a gap with no fresh news is worth a second look).` : "."), items.length > 0 && /*#__PURE__*/React.createElement("ul", {
     className: "gap-news"
   }, items.slice(0, 8).map((n, i) => /*#__PURE__*/React.createElement("li", {
     key: i

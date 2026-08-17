@@ -130,7 +130,7 @@ function GapAnalogTable({ events }) {
             <tr key={i} className={e.exclusion ? "gap-row-excl" : ""}>
               <td title={e.exclusion ? `Excluded: ${e.exclusion}` : (e.delayed_open ? "This session opened late (halt or delayed first print)." : "")}>
                 {gapDateDow(e.date)}{e.delayed_open ? " *" : ""}</td>
-              <td className={e.direction === "up" ? "up" : "down"}
+              <td className={e.direction === "up" ? "gap-dir-up" : "gap-dir-down"}
                 title={e.direction === "up" ? "Gapped up — fade candidate" : "Gapped down — rebound candidate"}>
                 {e.direction === "up" ? "▲ Up" : "▼ Down"}</td>
               <td className="scan-num" title="Official open vs prior close">{gapPct(e.official_gap_pct)}</td>
@@ -159,6 +159,11 @@ function GapAnalogTable({ events }) {
 }
 
 // Recent headlines — the "why is it moving" the statistics can't tell you.
+// A stock gaps because of something that JUST happened, so anything older
+// than a few days is noise here: last week's upgrade is not this morning's
+// reason. Older headlines are dropped, and the count is shown so a quiet
+// tape reads as quiet rather than as missing data.
+const GAP_NEWS_MAX_DAYS = 3;
 function GapNews({ apiFetch, sym }) {
   const [news, setNews] = useState(null);
   const [err, setErr] = useState(null);
@@ -170,15 +175,24 @@ function GapNews({ apiFetch, sym }) {
       .catch((e) => !dead && setErr(String(e)));
     return () => { dead = true; };
   }, [sym]);
-  const items = (news && news.items) || [];
+  const all = (news && news.items) || [];
+  const cutoff = Date.now() - GAP_NEWS_MAX_DAYS * 86400000;
+  const items = all.filter((n) => {
+    const t = n.published ? new Date(n.published).getTime() : NaN;
+    return Number.isNaN(t) ? false : t >= cutoff;   // undatable ≠ recent
+  });
+  const dropped = all.length - items.length;
   return (
     <div>
-      <div className="gap-sechead" title="Latest headlines for this ticker, newest first. The statistics tell you what usually happens after a gap this size; the news tells you what kind of gap this one is.">
-        Latest news <span className="muted">· why it's moving</span>
+      <div className="gap-sechead" title={`Headlines from the last ${GAP_NEWS_MAX_DAYS} days only, newest first. A stock gaps because of a catalyst that just happened — older stories are filtered out so they can't be mistaken for this morning's reason. The statistics tell you what usually happens after a gap this size; the news tells you what kind of gap this one is.`}>
+        Latest news <span className="muted">· why it's moving · last {GAP_NEWS_MAX_DAYS} days</span>
       </div>
       {err && <div className="gap-note">news unavailable: {err}</div>}
       {!news && !err && <div className="card-loading">Loading headlines…</div>}
-      {news && !items.length && <div className="research-empty">No recent headlines found for {sym}.</div>}
+      {news && !items.length && (
+        <div className="research-empty">No headlines in the last {GAP_NEWS_MAX_DAYS} days for {sym}
+          {dropped > 0 ? ` (${dropped} older ${dropped === 1 ? "story" : "stories"} filtered out — a gap with no fresh news is worth a second look).` : "."}</div>
+      )}
       {items.length > 0 && (
         <ul className="gap-news">
           {items.slice(0, 8).map((n, i) => (

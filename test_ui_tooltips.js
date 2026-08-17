@@ -1,14 +1,18 @@
-/* test_gap_ui.js — static guards on the Gap Scan tab's readability rules.
+/* test_ui_tooltips.js — static guards on the data-heavy tabs' readability.
  *
- * Jerry reads this tab at 7am and should never have to look up what a column
- * means. These parse tab-gap.jsx directly (no browser needed) and fail the
- * build if a header ships without a tooltip, a date renders without its
- * weekday, or shorthand leaks back into the UI.
+ * Nobody should have to look up what a column means at 7am. These parse the
+ * JSX directly (no browser needed) and fail the build if a header, section
+ * heading or stat row ships without a tooltip, a date renders without its
+ * weekday, or insider shorthand leaks back into a visible label.
+ *
+ * Covers: tab-gap.jsx (Gap Scan) and tab-edge.jsx (Premium Edge).
  */
 const fs = require("fs");
 const path = require("path");
 
-const src = fs.readFileSync(path.join(__dirname, "tab-gap.jsx"), "utf8");
+const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
+const src = read("tab-gap.jsx");
+const edge = read("tab-edge.jsx");
 let pass = 0, fail = 0;
 const check = (name, ok, extra) => {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}${extra ? " — " + extra : ""}`);
@@ -85,7 +89,7 @@ check("weekday formatter emits (Www)", /weekday: "short"/.test(src)
 
 // 6. Direction is color-coded, not a bare glyph.
 check("direction arrows are colored",
-  /className=\{e\.direction === "up" \? "up" : "down"\}/.test(src));
+  /className=\{e\.direction === "up" \? "gap-dir-up" : "gap-dir-down"\}/.test(src));
 check("direction cell is labeled, not just an arrow",
   /▲ Up/.test(src) && /▼ Down/.test(src));
 
@@ -96,6 +100,36 @@ check("news feed present", /function GapNews/.test(src)
   && /\/api\/news\?symbol=/.test(src));
 check("days-to-earnings surfaced in current setup",
   /days_to_earnings/.test(src) && /Next earnings/.test(src));
+
+// ── Premium Edge tab ────────────────────────────────────────────────────
+// <th> matches must not catch <thead>; require a word boundary after "th".
+const eTh = edge.match(/<th(?![a-z])[^>]*>/g) || [];
+const eUntitled = eTh.filter((t) => !/title=/.test(t));
+check(`edge: every <th> has a tooltip (${eTh.length} checked)`,
+  eUntitled.length === 0, eUntitled.slice(0, 3).join(" "));
+
+const eHeads = edge.match(/<div className="edge-sechead"[^>]*>/g) || [];
+const eHeadsUntipped = eHeads.filter((d) => !/title=/.test(d));
+check(`edge: every section heading has a tooltip (${eHeads.length} checked)`,
+  eHeadsUntipped.length === 0, eHeadsUntipped.slice(0, 2).join(" "));
+
+// hero stat blocks: <div title=...><span><Term .../></span>
+const eHero = edge.match(/<div title=[^>]*>\s*\n?\s*<span><Term/g) || [];
+check(`edge: hero stats are tooltipped (${eHero.length} found)`, eHero.length >= 4);
+
+const eSum = edge.match(/<SumBox[^>]*/g) || [];
+const eSumUntipped = eSum.filter((t) => !/tip=/.test(t));
+check(`edge: every summary card has a tooltip (${eSum.length} checked)`,
+  eSumUntipped.length === 0, eSumUntipped.slice(0, 2).join(" "));
+
+check("edge: score bar explains itself", /Premium Edge Score \$\{Math\.round\(s\)\}\/100 —/.test(edge));
+check("edge: signal filter chips tipped", /title=\{s \? `Show only names/.test(edge));
+
+// ── Gap news freshness ──────────────────────────────────────────────────
+check("gap news is limited to a few days", /GAP_NEWS_MAX_DAYS = 3/.test(src)
+  && /published \? new Date\(n\.published\)/.test(src));
+check("gap direction cells use dedicated color classes",
+  /gap-dir-up/.test(src) && /gap-dir-down/.test(src));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
