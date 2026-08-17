@@ -5095,6 +5095,7 @@ try:
         earn_hist_fn=_gap_earn_hist,
         catalyst_fn=_gap_catalyst,
         sector_etf_fn=_gap_sector_etf,
+        earn_next_fn=_edge_next_earnings,
         data_dir=_STABLE_DIR,
     )
     _GAP_AVAILABLE = True
