@@ -22,8 +22,14 @@ import sec_filings as sf
 def clear() -> None:
     sf._SUB_CACHE.clear()
     sf._DOC_CACHE.clear()
+    sf._FDA_CACHE.clear()
+    sf._FDA_LOADED.clear()
     sf._TICKERS[0], sf._TICKERS[1] = 0.0, {}
     sf.configure(cik_fn=None)
+    # importing options_dashboard anywhere in the suite points the FDA cache
+    # at the real data directory; these tests must never read from it or
+    # write into it
+    sf._DATA_DIR = None
 
 
 class Net:
@@ -303,6 +309,171 @@ class TestLatestEvent(unittest.TestCase):
     def test_8k_without_item_302_is_not_a_catalyst(self):
         self.wire([{"date": "2026-08-17", "form": "8-K", "items": "2.02,9.01"}])
         self.assertIsNone(sf.latest_event("ZZZZ", ("2026-08-17",)))
+
+
+# 8-K text, quoted from the real filings this classifier was built against.
+FDA_APPROVAL = (
+    "Item 8.01 Other Events. On May 4, 2026, ADMA Biologics, Inc. (the "
+    "\"Company\") issued a press release announcing that the U.S. Food and Drug "
+    "Administration has approved the Company's label expansion supplemental "
+    "Biologics License Application for ASCENIV.")
+FDA_CRL = (
+    "Item 8.01 Other Events. On June 2, 2026, Cingulate Inc. issued a press "
+    "release announcing that the U.S. Food and Drug Administration (\"FDA\") "
+    "has issued a Complete Response Letter (\"CRL\") for its New Drug "
+    "Application for CTx-1301 for the treatment of ADHD.")
+FDA_RECAP = (
+    "On July 28, 2026, Grace Therapeutics announced receipt of FDA meeting "
+    "minutes from a Type A Meeting held to discuss the Complete Response "
+    "Letter issued on April 23, 2026 for the Company's GTx-104 new drug "
+    "application.")
+FDA_RISK = (
+    "Forward-looking statements include the risk that the FDA may issue a "
+    "Complete Response Letter, and that we could be unable to obtain FDA "
+    "approval of our product candidate on the expected timeline.")
+FDA_TRIAL = (
+    "The Company was pleased to have recently received FDA approval to "
+    "initiate the CGUARDIANS III clinical trial with its SwitchGuard NPS.")
+BOARD_APPROVAL = (
+    "On July 15, 2026, the Board of Directors has approved a quarterly cash "
+    "dividend of $0.36 per share, payable September 1, 2026.")
+
+
+class TestFdaClassifier(unittest.TestCase):
+    """The rule that matters: the tag fires on a decision the company is
+    announcing NOW, and stays silent on everything that merely mentions the
+    FDA — risk factors, trial permissions, board votes, old news retold."""
+
+    def test_approval_is_recognized_and_quoted(self):
+        kind, quote = sf.classify_fda(FDA_APPROVAL, "8.01,9.01", "2026-05-04")
+        self.assertEqual(kind, "FDA APPROVAL")
+        self.assertIn("has approved", quote)
+        self.assertIn("Food and Drug Administration", quote)
+        # the quote must survive "U.S." — a naive sentence split truncates
+        # it there and throws away the half that says what happened
+        self.assertIn("ASCENIV", quote)
+
+    def test_complete_response_letter_is_a_rejection(self):
+        kind, quote = sf.classify_fda(FDA_CRL, "8.01", "2026-06-02")
+        self.assertEqual(kind, "FDA REJECTION")
+        self.assertIn("Complete Response Letter", quote)
+
+    def test_risk_factor_boilerplate_is_not_an_event(self):
+        # every biotech filing warns about exactly these two outcomes
+        self.assertEqual(sf.classify_fda(FDA_RISK, "8.01", "2026-06-02")[0], None)
+
+    def test_recap_of_an_older_decision_does_not_tag_todays_gap(self):
+        self.assertEqual(sf.classify_fda(FDA_RECAP, "8.01", "2026-07-28")[0], None)
+
+    def test_permission_to_run_a_trial_is_not_a_product_approval(self):
+        self.assertEqual(sf.classify_fda(FDA_TRIAL, "8.01", "2026-05-04")[0], None)
+
+    def test_a_board_approving_a_dividend_is_not_the_fda(self):
+        self.assertEqual(sf.classify_fda(BOARD_APPROVAL, "8.01", "2026-07-15")[0], None)
+
+    def test_earnings_filings_are_skipped_entirely(self):
+        # a quarterly release recaps the year's approvals; that day's gap is
+        # the earnings gap, and earnings already outranks this tag
+        self.assertEqual(
+            sf.classify_fda(FDA_APPROVAL, "2.02,9.01", "2026-05-04")[0], None)
+
+    def test_a_dateless_announcement_still_counts(self):
+        text = ("Celcuity Inc. today announced that the U.S. Food and Drug "
+                "Administration has approved GEDATOLISIB for HR+/HER2- "
+                "advanced breast cancer.")
+        self.assertEqual(sf.classify_fda(text, "8.01", "2026-07-15")[0],
+                         "FDA APPROVAL")
+
+
+class TestMovesSession(unittest.TestCase):
+    """Which morning a filing can explain. EDGAR already rolls the FILING
+    date forward for evening submissions, so going by that alone points a
+    day too far."""
+
+    def test_premarket_filing_moves_that_morning(self):
+        self.assertEqual(
+            sf.moves_session({"accepted": "2026-05-04T07:05:47-04:00",
+                              "date": "2026-05-04"}), "2026-05-04")
+
+    def test_after_the_close_moves_the_next_morning(self):
+        self.assertEqual(
+            sf.moves_session({"accepted": "2026-07-14T17:39:43-04:00",
+                              "date": "2026-07-15"}), "2026-07-15")
+
+    def test_friday_evening_lands_on_monday(self):
+        self.assertEqual(
+            sf.moves_session({"accepted": "2026-08-14T18:00:00-04:00",
+                              "date": "2026-08-17"}), "2026-08-17")
+
+    def test_missing_timestamp_falls_back_to_the_filing_date(self):
+        self.assertEqual(sf.moves_session({"accepted": "", "date": "2026-08-17"}),
+                         "2026-08-17")
+
+
+class TestFdaLookups(unittest.TestCase):
+    def wire(self, rows, texts=None):
+        net = Net(json_by_url={SUB_URL: submissions(rows)}, text_by_url=texts or {})
+        net.__enter__()
+        sf.configure(cik_fn=lambda s: 999)
+        sf._FDA_CACHE.clear()
+        sf._FDA_LOADED.clear()
+        self.addCleanup(net.__exit__)
+        return net
+
+    def _txt(self, acc):
+        return sf._FDA_TXT.format(cik=999, acc=acc.replace("-", ""), accdash=acc)
+
+    def test_todays_decision_is_found_and_quoted(self):
+        self.wire([{"date": "2026-05-04", "form": "8-K", "items": "8.01,9.01",
+                    "acc": "0001-26-1", "accepted": "2026-05-04T07:05:47.000Z"}],
+                  {self._txt("0001-26-1"): FDA_APPROVAL})
+        out = sf.latest_fda("ZZZZ", ("2026-05-04", "2026-05-03"))
+        self.assertEqual(out["kind"], "FDA APPROVAL")
+        self.assertIn("ASCENIV", out["quote"])
+
+    def test_verdicts_are_cached_including_the_empty_ones(self):
+        net = self.wire([{"date": "2026-05-04", "form": "8-K", "items": "8.01",
+                          "acc": "0001-26-1"}],
+                        {self._txt("0001-26-1"): FDA_RISK})
+        self.assertIsNone(sf.latest_fda("ZZZZ", ("2026-05-04",)))
+        before = len(net.calls)
+        self.assertIsNone(sf.latest_fda("ZZZZ", ("2026-05-04",)))
+        self.assertEqual(len(net.calls), before, "re-read a document it had already judged")
+
+    def test_history_maps_each_decision_to_the_session_it_moved(self):
+        self.wire([{"date": "2026-05-04", "form": "8-K", "items": "8.01",
+                    "acc": "0001-26-1", "accepted": "2026-05-04T07:05:00.000Z"},
+                   {"date": "2026-06-03", "form": "8-K", "items": "8.01",
+                    "acc": "0001-26-2", "accepted": "2026-06-02T21:00:00.000Z"}],
+                  {self._txt("0001-26-1"): FDA_APPROVAL,
+                   self._txt("0001-26-2"): FDA_CRL})
+        got = sf.fda_dates("ZZZZ", ["2026-05-04", "2026-06-03", "2026-01-02"])
+        self.assertEqual(got, {"2026-05-04": "FDA APPROVAL",
+                               "2026-06-03": "FDA REJECTION"})
+
+    def test_the_budget_caps_how_many_documents_one_pass_opens(self):
+        rows, texts = [], {}
+        for i in range(6):
+            acc = f"0001-26-{i}"
+            rows.append({"date": f"2026-05-0{i + 1}", "form": "8-K",
+                         "items": "8.01", "acc": acc,
+                         "accepted": f"2026-05-0{i + 1}T07:00:00.000Z"})
+            texts[self._txt(acc)] = FDA_APPROVAL
+        net = self.wire(rows, texts)
+        dates = [r["date"] for r in rows]
+        first = sf.fda_dates("ZZZZ", dates, budget=2)
+        self.assertEqual(len(first), 2, "budget ignored")
+        docs = [c for c in net.calls if c.endswith(".txt")]
+        self.assertEqual(len(docs), 2)
+        # the rest arrive on later passes, and nothing is read twice
+        second = sf.fda_dates("ZZZZ", dates, budget=2)
+        self.assertEqual(len(second), 4)
+
+    def test_offline_is_silent(self):
+        clear()
+        os.environ["JERRY_NO_NET"] = "1"
+        self.assertIsNone(sf.latest_fda("ZZZZ", ("2026-05-04",)))
+        self.assertEqual(sf.fda_dates("ZZZZ", ["2026-05-04"]), {})
 
 
 class TestEventDates(unittest.TestCase):

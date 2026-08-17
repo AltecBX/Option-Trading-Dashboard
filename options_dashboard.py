@@ -24,6 +24,7 @@ import gzip as _gzip
 import json
 import math
 import os
+import re
 import sys
 import socket
 import functools
@@ -5142,12 +5143,66 @@ def _gap_offering_dates(symbol: str) -> dict:
         return {}
 
 
+_GAP_PREAMBLE = re.compile(
+    r"^.{0,200}?\b(?:announcing|announced|announces)\s+that\s+", re.I | re.S)
+
+
+def _gap_trim(quote: str, cap: int = 120) -> str:
+    """A quoted sentence cut to fit one line, on a word boundary. The whole
+    sentence still travels to the tooltip — this only shortens the display.
+
+    Filings open with the same preamble every time ("On May 4, 2026, the
+    Company issued a press release announcing that…"), which is exactly long
+    enough to push the part that matters past the cut. Drop it and the line
+    starts at "the FDA has approved…" instead."""
+    q = " ".join((quote or "").split())
+    trimmed = _GAP_PREAMBLE.sub("", q, count=1)
+    if len(trimmed) >= 40:                      # never strip down to nothing
+        q = trimmed[0].upper() + trimmed[1:]
+    if len(q) <= cap:
+        return q
+    cut = q[:cap].rsplit(" ", 1)[0].rstrip(",;:—- ")
+    return cut + "…"
+
+
+def _gap_fda(symbol: str, days: tuple) -> dict | None:
+    """An FDA approval or rejection announced in the company's own 8-K.
+
+    The FDA publishes approvals on a lag and under sponsor names that do not
+    map to tickers, and it does not publish rejections at all — a Complete
+    Response Letter reaches the market only because the company discloses
+    it. The 8-K carries both, on the morning it happens."""
+    if not (_SEC_AVAILABLE and _sec_filings is not None):
+        return None
+    try:
+        hit = _sec_filings.latest_fda(symbol, days)
+    except Exception:
+        return None
+    if not hit:
+        return None
+    return {"kind": hit["kind"], "label": _gap_trim(hit.get("quote")),
+            "quote": hit.get("quote"), "filed": hit.get("accepted") or hit.get("date"),
+            "url": hit.get("url")}
+
+
+def _gap_fda_dates(symbol: str, dates, budget: int = 8) -> dict:
+    """{gap date -> FDA APPROVAL|FDA REJECTION} for past gap days, read from
+    the 8-Ks that landed on them. Budgeted: a symbol's history fills in over
+    a few scans rather than stalling one."""
+    if not (_SEC_AVAILABLE and _sec_filings is not None):
+        return {}
+    try:
+        return _sec_filings.fda_dates(symbol, dates, budget=budget) or {}
+    except Exception:
+        return {}
+
+
 def _gap_catalyst(symbol: str) -> dict:
     """Today's catalyst tag from REAL sources only: earnings (bulk calendar
-    with BMO/AMC timing), offering/dilution filings from SEC EDGAR, analyst
-    upgrades/downgrades and other rating actions, macro event day. FDA and
-    M&A still have no data source in this app and are never fabricated —
-    everything else is UNTAGGED."""
+    with BMO/AMC timing), FDA approvals and rejections plus offering/dilution
+    filings from SEC EDGAR, analyst upgrades/downgrades and other rating
+    actions, macro event day. M&A still has no data source in this app and is
+    never fabricated — everything else is UNTAGGED."""
     from datetime import date as _d, timedelta as _td
     today = _d.today().isoformat()
     yesterday = (_d.today() - _td(days=1)).isoformat()
@@ -5169,9 +5224,18 @@ def _gap_catalyst(symbol: str) -> dict:
             return {"kind": "EARNINGS", "label": "just reported"}
     except Exception:
         pass
-    # An offering outranks a rating change: when a company is selling stock
-    # into the gap, that is why the gap is there.
+    # An FDA decision outranks everything but earnings — for a biotech it IS
+    # the gap. An offering outranks a rating change for the same reason: when
+    # a company is selling stock into the gap, that is why the gap is there.
+    fda = _gap_fda(symbol, (today, yesterday))
     off = _gap_offering(symbol, (today, yesterday))
+    if fda:
+        if off:
+            # approvals are routinely followed by a raise the same morning;
+            # both are real and Jerry needs to see the second one
+            fda["label"] = (f"{fda['label']} · also filed: "
+                            f"{(off.get('label') or 'an offering').lower()}")
+        return fda
     if off:
         return off
     act = _gap_analyst_action(symbol, (today, yesterday))
@@ -5200,7 +5264,7 @@ def _gap_sector_etf(symbol: str) -> str | None:
 
 
 if _SEC_AVAILABLE and _sec_filings is not None:
-    _sec_filings.configure(cik_fn=cik_for_symbol)
+    _sec_filings.configure(cik_fn=cik_for_symbol, data_dir=_STABLE_DIR)
 
 try:
     import gap_scan as _gap
@@ -5216,6 +5280,7 @@ try:
         earn_hist_fn=_gap_earn_hist,
         catalyst_fn=_gap_catalyst,
         offering_fn=_gap_offering_dates,
+        fda_fn=_gap_fda_dates,
         sector_etf_fn=_gap_sector_etf,
         earn_next_fn=_edge_next_earnings,
         data_dir=_STABLE_DIR,

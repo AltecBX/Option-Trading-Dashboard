@@ -133,6 +133,16 @@ check("catalyst kinds include upgrade/downgrade",
   /UPGRADE: "Upgrade"/.test(src) && /DOWNGRADE: "Downgrade"/.test(src));
 check("catalyst kinds include offering/dilution",
   /OFFERING: "Offering"/.test(src) && /DILUTION: "Dilution"/.test(src));
+check("catalyst kinds include FDA decisions",
+  /"FDA APPROVAL": "FDA approval"/.test(src)
+  && /"FDA REJECTION": "FDA rejection"/.test(src));
+check("an approval reads green and a rejection red", (() => {
+  const tone = (src.match(/const GAP_CATALYST_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  return /"FDA APPROVAL": "up"/.test(tone) && /"FDA REJECTION": "down"/.test(tone);
+})());
+check("the sentence a filing-derived tag was read from reaches the tooltip",
+  /catalyst_quote/.test(src)
+  && (src.match(/r\.catalyst_quote/g) || []).length >= 2);
 // Read the kinds out of the label map instead of listing them here, so a
 // new catalyst cannot ship without a tooltip — the recurring complaint.
 const catalystKinds = (() => {
