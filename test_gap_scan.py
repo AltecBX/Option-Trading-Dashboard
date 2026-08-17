@@ -106,7 +106,7 @@ def quote(last, prev_close, age=5.0, bid=None, ask=None):
             "volume": 100000, "extended_volume": 400000}
 
 
-def wire(tmp, sc, watchlist=None, catalyst=None, offerings=None):
+def wire(tmp, sc, watchlist=None, catalyst=None, offerings=None, fda=None):
     gs._STATE.update(rows=[], as_of=None, error=None, scanning=False)
     gs._HYST.clear()
     gs._PREV_ROWS.clear()
@@ -121,6 +121,8 @@ def wire(tmp, sc, watchlist=None, catalyst=None, offerings=None):
         earn_hist_fn=lambda s: set(),
         catalyst_fn=(catalyst or (lambda s: {"kind": "UNTAGGED"})),
         offering_fn=(lambda s: offerings or {}),
+        fda_fn=(lambda s, dates, budget=8: {d: k for d, k in (fda or {}).items()
+                                            if d in set(dates or [])}),
         sector_etf_fn=lambda s: "XLK",
         data_dir=tmp,
     )
@@ -183,6 +185,37 @@ class TestStoreBuild(unittest.TestCase):
             self.assertEqual(by_date[dates[0]], "OFFERING")
             self.assertEqual(by_date[dates[1]], "DILUTION")
             self.assertEqual(by_date[dates[2]], "UNTAGGED")
+
+    def test_fda_decisions_tag_past_gap_days_but_never_outrank_earnings(self):
+        gap_days, _ = fady_history()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, FakeSchwab(gap_days))
+            dates = [e["date"] for e in
+                     gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))["events"]]
+            wire(tmp, FakeSchwab(gap_days),
+                 fda={dates[0]: "FDA APPROVAL", dates[1]: "FDA REJECTION",
+                      dates[2]: "FDA APPROVAL"},
+                 offerings={dates[2]: "OFFERING"})
+            gs._EARN_HIST_FN = lambda s: {dates[3]}
+            evs = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))["events"]
+            by_date = {e["date"]: e["catalyst_kind"] for e in evs}
+            self.assertEqual(by_date[dates[0]], "FDA APPROVAL")
+            self.assertEqual(by_date[dates[1]], "FDA REJECTION")
+            # a day already explained by a filing is never re-read for FDA
+            self.assertEqual(by_date[dates[2]], "OFFERING")
+            self.assertEqual(by_date[dates[3]], "EARNINGS")
+
+    def test_fda_lookup_failure_never_breaks_a_scan(self):
+        gap_days, _ = fady_history()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, FakeSchwab(gap_days))
+
+            def boom(sym, dates, budget=8):
+                raise RuntimeError("EDGAR down")
+
+            gs._FDA_FN = boom
+            store = gs.refresh_daily_events("FAKE", gs.load_store("FAKE"))
+            self.assertGreaterEqual(len(store["events"]), 12)
 
     def test_minute_enrichment_marks_and_merges(self):
         gap_days, minute_days = fady_history()

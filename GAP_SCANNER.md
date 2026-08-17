@@ -90,13 +90,17 @@ why, with a sample size and a conservative range on every probability.
 - **Survivorship bias**: the universe is today's watchlist + analyst
   universe; delisted gappers are absent, so fade rates run hot. Stated on
   the board itself.
-- **Catalyst tags**: EARNINGS (real, with BMO/AMC), OFFERING / DILUTION
-  (real, SEC EDGAR — see below), UPGRADE / DOWNGRADE / ANALYST ACTION
-  (real), MACRO (real), sector context (real). FDA decisions, M&A and short
-  interest still have NO data source in this app and are never fabricated —
-  such days are UNTAGGED. Priority is earnings → offering → rating change →
-  macro; only earnings splits the statistical population, everything else is
-  context shown alongside it.
+- **Catalyst tags**: EARNINGS (real, with BMO/AMC), FDA APPROVAL / FDA
+  REJECTION (real, read from the company's 8-K — see below), OFFERING /
+  DILUTION (real, SEC EDGAR), UPGRADE / DOWNGRADE / ANALYST ACTION (real),
+  MACRO (real), sector context (real). M&A and short interest still have NO
+  data source in this app and are never fabricated — such days are UNTAGGED.
+  Priority is earnings → FDA decision → offering → rating change → macro;
+  only earnings splits the statistical population, everything else is
+  context shown alongside it. When a decision and a raise land the same
+  morning both are named in one label ("… · also filed: stock offering
+  priced"), because the approval explains the gap and the raise explains
+  what happens to it next.
 
 ## Offering & dilution filings (`sec_filings.py`)
 
@@ -133,6 +137,52 @@ Limits worth knowing: EDGAR's `recent` block covers the last ~1,000
 filings, which for a busy filer can be shorter than the 900-day daily
 history — older gap days then stay UNTAGGED. Foreign private issuers file
 6-K/F-forms with less structure. Neither is faked.
+
+## FDA approvals & rejections (`sec_filings.classify_fda`)
+
+Why not openFDA: it publishes approvals on a weekly lag, under sponsor
+names that do not map cleanly to tickers (big pharma files through
+subsidiaries), and it does **not publish rejections at all** — a Complete
+Response Letter reaches the market only because the company discloses it.
+Both halves live in the same place instead: the **8-K the company files
+when it happens**. That is same-morning, authoritative, and needs no name
+matching, because the filing is the company's own.
+
+One fetch of the full submission (`<accession>.txt`) carries the item body
+*and* the press-release exhibit, which is where the plain-English sentence
+lives. The tag quotes that sentence verbatim — the board shows a trimmed
+line, the tooltip the whole thing, and the link opens the filing.
+
+Every biotech filing mentions the FDA constantly, so the classifier is
+built to stay silent unless a decision is genuinely being announced:
+
+| Rejected as not-an-event | Example |
+| --- | --- |
+| Hedged sentences | "the risk that the FDA **may** issue a Complete Response Letter" |
+| Permission to run a study | "received FDA approval **to initiate** the CGUARDIANS III trial" |
+| A board, not the agency | "the Board of Directors **has approved** a quarterly dividend" |
+| Old news retold | "…to discuss the Complete Response Letter **issued on April 23**" |
+| Quarterly releases (item 2.02) | recap the year's approvals; that day is the earnings gap anyway |
+
+Validated against 19 real filings pulled from EDGAR while writing it —
+4 approvals, 1 fresh rejection, 14 negatives including every trap above.
+
+Which session a filing explains comes from the **acceptance clock**, not
+the filing date: a 7:05am filing moves that morning, one accepted after
+16:00 ET moves the next business morning. (EDGAR already rolls the filing
+date forward for evening submissions, so going by that alone points a day
+too far.)
+
+Historical days are read the same way, budgeted — a handful of documents
+per pass, every verdict cached to `<data>/sec_fda/SYM.json` including the
+"nothing here" ones, so a symbol's history fills in across scans instead
+of stalling one.
+
+Coverage limits: US 8-K filers only; a company that discloses in a later
+business update rather than a same-day 8-K is tagged on neither day (the
+recap guard is deliberate — an August filing about a June rejection must
+not tag an August gap); and device 510(k)s or label changes announced only
+by press release never reach EDGAR at all.
 
 ## Walk-forward discipline
 

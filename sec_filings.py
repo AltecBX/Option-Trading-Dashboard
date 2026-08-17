@@ -37,6 +37,7 @@ import threading
 import time
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 try:
     from zoneinfo import ZoneInfo
@@ -78,15 +79,28 @@ _LOCK = threading.Lock()
 _LAST_CALL = [0.0]
 _SUB_CACHE: dict = {}     # SYMBOL -> (fetched_ts, rows)
 _DOC_CACHE: dict = {}     # accession -> parsed cover-page facts
+_FDA_CACHE: dict = {}     # SYMBOL -> {accession: verdict | None}
+_FDA_LOADED: set = set()
 _TICKERS: list = [0.0, {}]
 _CIK_FN = None
+_DATA_DIR = None
 
 
-def configure(cik_fn=None) -> None:
+def configure(cik_fn=None, data_dir=None) -> None:
     """Inject the app's existing ticker->CIK lookup so this module does not
-    re-download the 777KB SEC ticker file the dashboard already holds."""
-    global _CIK_FN
+    re-download the 777KB SEC ticker file the dashboard already holds.
+
+    data_dir gives the FDA reader somewhere to remember what each 8-K said.
+    Filings never change, so a verdict — including "nothing here" — is worth
+    keeping forever rather than re-reading the document every restart."""
+    global _CIK_FN, _DATA_DIR
     _CIK_FN = cik_fn
+    if data_dir:
+        _DATA_DIR = Path(data_dir) / "sec_fda"
+        try:
+            _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:  # pragma: no cover
+            _DATA_DIR = None
 
 
 def available() -> bool:
@@ -401,6 +415,254 @@ def event_dates(symbol: str) -> dict:
             # a priced deal outranks a shelf filed the same day
             if out.get(d) != "OFFERING":
                 out[d] = kind
+    return out
+
+
+# ── FDA decisions, read out of the company's own 8-K ────────────────────────
+#
+# The FDA publishes approvals in openFDA, but on a weekly lag and under
+# sponsor names that do not map cleanly to tickers (big pharma files through
+# subsidiaries). It does not publish rejections at all — a Complete Response
+# Letter reaches the market only because the company discloses it. Both
+# halves of what Jerry asked for live in the same place: the 8-K the company
+# files when it happens. That is same-morning, authoritative, and needs no
+# name matching, because the filing IS the company's.
+#
+# The whole submission (`<accession>.txt`) carries the item body AND the
+# press-release exhibit in one fetch, which is where the plain-English
+# sentence lives.
+
+_FDA_TXT = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{accdash}.txt"
+_ITEM_EARNINGS = "2.02"
+
+_FDA_APPROVE = [
+    r"(?:u\.s\.\s+)?(?:fda|food and drug administration)\s+(?:has |have |had )?approved",
+    r"approved by the (?:u\.s\.\s+)?(?:fda|food and drug administration)",
+    r"(?:received|obtained|granted|announced)[^.;]{0,50}\bfda approval\b",
+    r"\bfda\b[^.;]{0,50}\bapproval of (?:its|our|the)\b",
+    r"approval (?:of|for) (?:its|our|the) (?:new drug application|biologics "
+    r"license application|nda|bla|supplemental|premarket approval)",
+]
+_FDA_REJECT = [
+    r"(?:received|receipt of|issued|delivered)[^.;]{0,60}complete response letter",
+    r"complete response letter\s+(?:from|regarding|for|related)",
+    r"complete response letter\s*(?:was\s+)?received",
+    r"(?:fda|agency)[^.;]{0,40}(?:declined|refused) to approve",
+    r"refus(?:ed|al) to file letter",
+]
+# Every filing warns about what the FDA *might* do. A hedged sentence is a
+# risk factor, not an event.
+_HEDGE = ("may ", "could ", "risk", " if ", "whether", "potential", "expect",
+          "anticipat", "unable to", "failure to", "no assurance", "believe",
+          "intend", "plan to", "seek", "would ", "goal", "hope")
+# Permission to run a study is not permission to sell a product.
+_NOT_MARKETING = ("approval to initiate", "approval to conduct", "ide approval",
+                  "approval of the ind", "investigational new drug",
+                  "clinical trial application", "protocol", "trial with")
+_RECAP = ("previously disclosed", "previously announced", "as announced",
+          "prior to", "last year")
+_MONTHS = ("january|february|march|april|may|june|july|august|september|"
+           "october|november|december")
+_DATE_RE = re.compile(rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})", re.I)
+_MON_N = {m: i + 1 for i, m in enumerate(_MONTHS.split("|"))}
+_PAREN = re.compile(r"\((?:[^()]{0,45})\)")
+# "the U.S. Food and Drug Administration has approved" is ONE sentence — a
+# naive split on "." truncates the quote to "...the U.S" and throws away the
+# part Jerry needs to read.
+_SENT = re.compile(r"(?<![A-Z])(?<!Inc)(?<!Ltd)(?<!Corp)(?<!No)(?<!Dr)"
+                   r"(?<!Mr)(?<!Ms)(?<!Jr)(?<!St)[.;•]\s")
+_STALE_DAYS = 10
+
+
+def _sentence_at(text: str, pos: int) -> str:
+    start = 0
+    for m in _SENT.finditer(text, 0, pos):
+        start = m.end()
+    m = _SENT.search(text, pos)
+    return text[start:(m.start() if m else min(len(text), pos + 400))]
+
+
+def _is_recap(sentence: str, filed: str | None) -> bool:
+    """True when the sentence pins the decision to a date well before the
+    filing. A business update that mentions June's rejection in August is
+    not August's news, and must not tag an August gap."""
+    if not filed:
+        return False
+    try:
+        fd = date.fromisoformat(filed)
+    except ValueError:
+        return False
+    seen = []
+    for m in _DATE_RE.finditer(sentence):
+        try:
+            seen.append(date(int(m.group(3)), _MON_N[m.group(1).lower()],
+                             int(m.group(2))))
+        except (ValueError, KeyError):
+            continue
+    return bool(seen) and all((fd - d).days > _STALE_DAYS for d in seen)
+
+
+def classify_fda(text: str, items: str = "", filed: str | None = None):
+    """(kind, quoted sentence) for an FDA decision announced in this filing,
+    or (None, "") — which is the answer for the overwhelming majority of
+    filings and always the answer when anything is uncertain."""
+    if _ITEM_EARNINGS in (items or ""):
+        # a quarterly release recaps the year's approvals; the gap that day
+        # is the earnings gap, and earnings already outranks this tag
+        return None, ""
+    flat = _PAREN.sub(" ", text)          # drop ("FDA")-style defined terms
+    low = flat.lower()
+    for kind, pats in (("FDA REJECTION", _FDA_REJECT),
+                       ("FDA APPROVAL", _FDA_APPROVE)):
+        for pat in pats:
+            for m in re.finditer(pat, low):
+                s = _sentence_at(low, m.start())
+                if any(h in s for h in _HEDGE) or any(h in s for h in _RECAP):
+                    continue
+                if kind == "FDA APPROVAL" and any(h in s for h in _NOT_MARKETING):
+                    continue
+                if _is_recap(s, filed):
+                    continue
+                return kind, re.sub(r"\s+", " ", _sentence_at(flat, m.start())).strip()
+    return None, ""
+
+
+def _fda_store(symbol: str) -> dict:
+    sym = symbol.upper()
+    if sym in _FDA_LOADED:
+        return _FDA_CACHE.setdefault(sym, {})
+    _FDA_LOADED.add(sym)
+    cache = _FDA_CACHE.setdefault(sym, {})
+    if _DATA_DIR:
+        p = _DATA_DIR / f"{''.join(c for c in sym if c.isalnum() or c in '-_.')}.json"
+        try:
+            if p.exists():
+                loaded = json.loads(p.read_text())
+                if isinstance(loaded, dict):
+                    cache.update(loaded)
+        except Exception:
+            pass
+    return cache
+
+
+def _fda_save(symbol: str) -> None:
+    if not _DATA_DIR:
+        return
+    sym = symbol.upper()
+    p = _DATA_DIR / f"{''.join(c for c in sym if c.isalnum() or c in '-_.')}.json"
+    try:
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(_FDA_CACHE.get(sym, {}), separators=(",", ":")))
+        tmp.replace(p)
+    except Exception:  # pragma: no cover
+        pass
+
+
+def read_fda(symbol: str, row: dict) -> dict | None:
+    """What one 8-K says about an FDA decision. Cached by accession — the
+    document is immutable, so a "nothing here" verdict is worth keeping too."""
+    acc = row.get("accession") or ""
+    cache = _fda_store(symbol)
+    if acc in cache:
+        return cache[acc]
+    if not available():
+        return None          # unknown, not "nothing here" — never cache this
+    verdict = None
+    if row.get("form") == "8-K":
+        cik = cik_for(symbol)
+        if cik:
+            url = _FDA_TXT.format(cik=cik, acc=acc.replace("-", ""), accdash=acc)
+            try:
+                text = _plain(_fetch(url, limit=400_000, timeout=15))
+                kind, quote = classify_fda(text, row.get("items", ""),
+                                           row.get("date"))
+                if kind:
+                    verdict = {"kind": kind, "quote": quote[:400],
+                               "date": row.get("date"),
+                               "accepted": row.get("accepted"),
+                               "url": row.get("url")}
+            except Exception:
+                return None            # unread, not "nothing" — try again later
+    cache[acc] = verdict
+    _fda_save(symbol)
+    return verdict
+
+
+def _is_8k(row: dict) -> bool:
+    return row.get("form") == "8-K" and _ITEM_EARNINGS not in (row.get("items") or "")
+
+
+def _next_business(d: date) -> date:
+    nxt = d + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def moves_session(row: dict) -> str | None:
+    """Which session's gap this filing could explain, from the acceptance
+    clock rather than the filing date.
+
+    A 7am filing moves that morning. One accepted after the close moves the
+    next morning — and EDGAR stamps such filings with the next business day
+    already, so going by filing date alone would point a day too far.
+    """
+    acc = row.get("accepted") or ""
+    if not acc:
+        return str(row.get("date", ""))[:10] or None
+    try:
+        dt = datetime.fromisoformat(acc)
+    except ValueError:
+        return str(row.get("date", ""))[:10] or None
+    if dt.hour >= 16:
+        return _next_business(dt.date()).isoformat()
+    return dt.date().isoformat()
+
+
+def latest_fda(symbol: str, days: tuple, budget: int = 4) -> dict | None:
+    """The FDA decision announced in an 8-K inside `days`, if there is one."""
+    if not available():
+        return None
+    reads = 0
+    for row in filings(symbol):
+        if str(row.get("date", ""))[:10] not in days or not _is_8k(row):
+            continue
+        cached = _fda_store(symbol).get(row.get("accession") or "", "miss")
+        if cached == "miss":
+            if reads >= budget:
+                break
+            reads += 1
+        hit = read_fda(symbol, row)
+        if hit:
+            return hit
+    return None
+
+
+def fda_dates(symbol: str, dates, budget: int = 8) -> dict:
+    """{gap date -> 'FDA APPROVAL' | 'FDA REJECTION'} for the dates given.
+
+    Only days that actually have an 8-K cost a read, the budget caps how
+    many new documents one pass will open, and every verdict is remembered,
+    so a symbol's history fills in over a few scans instead of stalling one.
+    """
+    want = {str(d)[:10] for d in (dates or []) if d}
+    if not want or not available():
+        return {}
+    out: dict = {}
+    reads = 0
+    for row in filings(symbol):
+        if not _is_8k(row):
+            continue
+        session = moves_session(row)
+        if session not in want or session in out:
+            continue
+        if (row.get("accession") or "") not in _fda_store(symbol):
+            if reads >= budget:
+                continue
+            reads += 1
+        verdict = read_fda(symbol, row)
+        if verdict:
+            out[session] = verdict["kind"]
     return out
 
 

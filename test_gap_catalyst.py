@@ -148,8 +148,9 @@ class TestAnalystActionMapping(CatalystBase):
 class FakeSec:
     """Stands in for sec_filings with whatever EDGAR would have returned."""
 
-    def __init__(self, event=None, dates=None):
+    def __init__(self, event=None, dates=None, fda=None, fda_dates_map=None):
         self._event, self._dates = event, dates or {}
+        self._fda, self._fda_dates = fda, fda_dates_map or {}
 
     def latest_event(self, symbol, days):
         if self._event and str(self._event.get("date")) in days:
@@ -158,6 +159,14 @@ class FakeSec:
 
     def event_dates(self, symbol):
         return self._dates
+
+    def latest_fda(self, symbol, days, budget=4):
+        if self._fda and str(self._fda.get("date")) in days:
+            return self._fda
+        return None
+
+    def fda_dates(self, symbol, dates, budget=8):
+        return {d: k for d, k in self._fda_dates.items() if d in set(dates or [])}
 
 
 class SecBase(CatalystBase):
@@ -169,9 +178,9 @@ class SecBase(CatalystBase):
         od._SEC_AVAILABLE, od._sec_filings = self._sec
         super().tearDown()
 
-    def sec(self, event=None, dates=None):
+    def sec(self, event=None, dates=None, fda=None, fda_dates_map=None):
         od._SEC_AVAILABLE = True
-        od._sec_filings = FakeSec(event, dates)
+        od._sec_filings = FakeSec(event, dates, fda, fda_dates_map)
 
 
 class TestOfferingTag(SecBase):
@@ -242,6 +251,97 @@ class TestOfferingPriority(SecBase):
             self.assertEqual(od._gap_catalyst("MU")["kind"], "EARNINGS")
         finally:
             od._gap_earn_hist = real
+
+
+class TestFdaTag(SecBase):
+    QUOTE = ("On May 4, 2026, the Company issued a press release announcing "
+             "that the U.S. Food and Drug Administration has approved the "
+             "Company's supplemental Biologics License Application for "
+             "ASCENIV, a plasma-derived immune globulin, in pediatric "
+             "patients two years of age and older.")
+
+    def _no_earnings(self):
+        real = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set()
+        self.addCleanup(lambda: setattr(od, "_gap_earn_hist", real))
+
+    def _fda(self, kind="FDA APPROVAL"):
+        return {"kind": kind, "quote": self.QUOTE, "date": days_now()[0],
+                "accepted": days_now()[0] + "T07:05:47-04:00",
+                "url": "https://www.sec.gov/Archives/edgar/data/1/x/form8k.htm"}
+
+    def test_decision_is_quoted_and_trimmed_for_display(self):
+        self.sec(fda=self._fda())
+        out = od._gap_fda("ADMA", days_now())
+        self.assertEqual(out["kind"], "FDA APPROVAL")
+        self.assertEqual(out["quote"], self.QUOTE)          # full text for the tooltip
+        self.assertLessEqual(len(out["label"]), 121)        # one line for the cell
+        self.assertTrue(out["label"].endswith("…"))
+        self.assertNotIn(" …", out["label"])                # cut on a word, not mid-word
+
+    def test_short_quotes_are_left_alone(self):
+        self.assertEqual(od._gap_trim("FDA approved it."), "FDA approved it.")
+
+    def test_the_filing_preamble_is_dropped_so_the_verb_survives(self):
+        # without this the visible line ends at "...the U.S. Food and Drug
+        # Administration has…" — everything except what actually happened
+        out = od._gap_trim(self.QUOTE)
+        self.assertTrue(out.startswith("The U.S. Food and Drug Administration"), out)
+        self.assertIn("has approved", out)
+
+    def test_a_quote_that_is_all_preamble_is_left_alone(self):
+        q = "The Company announced that it will host a call."
+        self.assertEqual(od._gap_trim(q), q)
+
+    def test_rejection_is_its_own_kind(self):
+        self.sec(fda=self._fda("FDA REJECTION"))
+        self.assertEqual(od._gap_fda("ADMA", days_now())["kind"], "FDA REJECTION")
+
+    def test_no_module_and_failures_are_silent(self):
+        od._SEC_AVAILABLE, od._sec_filings = False, None
+        self.assertIsNone(od._gap_fda("ADMA", days_now()))
+        self.assertEqual(od._gap_fda_dates("ADMA", [days_now()[0]]), {})
+
+        class Boom:
+            def latest_fda(self, *a, **k):
+                raise RuntimeError("EDGAR down")
+
+            def fda_dates(self, *a, **k):
+                raise RuntimeError("EDGAR down")
+
+        od._SEC_AVAILABLE, od._sec_filings = True, Boom()
+        self.assertIsNone(od._gap_fda("ADMA", days_now()))
+        self.assertEqual(od._gap_fda_dates("ADMA", [days_now()[0]]), {})
+
+    def test_fda_outranks_an_offering_but_names_it_too(self):
+        # approval in the morning, stock sale on the back of it — both are
+        # real, and the second one is why the pop may not hold
+        self._no_earnings()
+        self.wire(board_actions=[])
+        self.sec(event={"kind": "OFFERING", "label": "Stock offering priced",
+                        "form": "424B5", "date": days_now()[0], "url": "u"},
+                 fda=self._fda())
+        out = od._gap_catalyst("ADMA")
+        self.assertEqual(out["kind"], "FDA APPROVAL")
+        self.assertIn("also filed", out["label"])
+        self.assertIn("stock offering priced", out["label"])
+
+    def test_earnings_still_outranks_an_fda_decision(self):
+        self.wire(board_actions=[])
+        self.sec(fda=self._fda())
+        real = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set(days_now())
+        try:
+            self.assertEqual(od._gap_catalyst("ADMA")["kind"], "EARNINGS")
+        finally:
+            od._gap_earn_hist = real
+
+    def test_fda_outranks_a_rating_change(self):
+        self._no_earnings()
+        self.wire(board_actions=[{"ticker": "ADMA", "date": days_now()[0],
+                                  "action_class": "upgrade", "firm": "Citi"}])
+        self.sec(fda=self._fda())
+        self.assertEqual(od._gap_catalyst("ADMA")["kind"], "FDA APPROVAL")
 
 
 class TestCatalystPriority(CatalystBase):
