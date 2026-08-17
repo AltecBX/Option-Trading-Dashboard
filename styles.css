@@ -11877,3 +11877,8 @@ a.tabsheet-btn.site { text-decoration: none; }
   .gap-table { min-width: 430px; }
   .gap-grid2 { grid-template-columns: 1fr; }
 }
+.gap-livedot { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--up-strong, #22c55e); margin-right: 5px; vertical-align: middle;
+  animation: gap-pulse 2.4s ease-in-out infinite; }
+@keyframes gap-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .gap-livedot { animation: none; } }

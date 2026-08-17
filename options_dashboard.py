@@ -7961,6 +7961,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(_gap.trigger_scan(
                         force=(qs.get("force", ["0"])[0] or "0") in ("1", "true")),
                         no_store=True)
+                elif section == "live":
+                    # cheap price-only refresh (one batched quote call) so the
+                    # board never shows a stale price between full scans
+                    self._send_json(_gap.refresh_quotes(), no_store=True)
                 elif section == "detail":
                     symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
                     if not symbol or len(symbol) > 8:

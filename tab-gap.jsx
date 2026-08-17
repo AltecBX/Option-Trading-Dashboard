@@ -23,6 +23,12 @@ const gapDate = (s) => {
   return Number.isNaN(d.getTime()) ? String(s)
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
+const gapTime = (s) => {
+  if (!s) return "—";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? String(s)
+    : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+};
 const gapWhen = (s) => {
   if (!s) return "—";
   const d = new Date(s);
@@ -59,7 +65,7 @@ function GapQualityDot({ q }) {
 
 // ── detail view (§27: enough evidence, no analytics dashboard) ──────────────
 
-function GapDetail({ apiFetch, sym, onClose, onOpenTicker }) {
+function GapDetail({ apiFetch, sym, onClose, onOpenTicker, liveQ }) {
   const [d, setD] = useState(null);
   const [evs, setEvs] = useState(null);
   const [bt, setBt] = useState(null);
@@ -77,9 +83,10 @@ function GapDetail({ apiFetch, sym, onClose, onOpenTicker }) {
       .then((x) => !dead && setBt(x)).catch(() => {});
     return () => { dead = true; };
   }, [sym]);
-  const r = d && d.row;
+  // Price and the gap it implies move every second; the statistics behind
+  // them are history and cannot. Overlay the live quote on the fetched row.
+  const r = d && d.row && (liveQ ? { ...d.row, ...liveQ } : d.row);
   const st = d && d.stats;
-  const pm = d && d.pm;
   return (
     <div className="card gap-detail">
       <div className="card-head">
@@ -269,6 +276,8 @@ function GapTab({ apiFetch, onOpenTicker }) {
   const [gapSym, setGapSym] = useState(null);
   const [sortK, setSortK] = useState("rank");
   const [sortD, setSortD] = useState(1);
+  const [live, setLive] = useState({});
+  const [liveAt, setLiveAt] = useState(null);
   const pollRef = useRef(null);
 
   const load = async () => {
@@ -302,7 +311,27 @@ function GapTab({ apiFetch, onOpenTicker }) {
     return () => { clearInterval(iv); pollRef.current && clearInterval(pollRef.current); };
   }, []);
 
-  const rows = (board && board.rows) || [];
+  // Live price ticker: one batched quote call, prices only. A full scan is
+  // expensive and runs every few minutes, so without this the board would
+  // show the price frozen at the last scan while the stock keeps moving.
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const r = await apiFetch("/api/gap/live", { noCache: true });
+        const d = await r.json();
+        if (d && d.ok && d.quotes) { setLive(d.quotes); setLiveAt(d.as_of); }
+      } catch (e) { /* keep the last known price */ }
+    };
+    tick();
+    const iv = setInterval(skipWhenHidden(tick), 15 * 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const rows = useMemo(() => {
+    const base = (board && board.rows) || [];
+    if (!Object.keys(live).length) return base;
+    return base.map((r) => (live[r.symbol] ? { ...r, ...live[r.symbol] } : r));
+  }, [board, live]);
   const sorted = useMemo(() => {
     const key = (r) => {
       switch (sortK) {
@@ -340,7 +369,7 @@ function GapTab({ apiFetch, onOpenTicker }) {
   return (
     <div className="card gap-card">
       {gapSym ? (
-        <GapDetail apiFetch={apiFetch} sym={gapSym}
+        <GapDetail apiFetch={apiFetch} sym={gapSym} liveQ={live[gapSym]}
           onClose={() => setGapSym(null)} onOpenTicker={onOpenTicker} />
       ) : (
         <div>
@@ -365,7 +394,9 @@ function GapTab({ apiFetch, onOpenTicker }) {
               <div className="gap-ctxline muted">
                 {board.session === "premarket" ? "premarket" : "market hours"} ·
                 SPY {gapPct(ctx.spy_gap_pct)} · QQQ {gapPct(ctx.qqq_gap_pct)} ·
-                as of {gapWhen(board.as_of)}
+                {" "}<span className="gap-livedot" title="Prices refresh every 15 seconds; the statistics update on each full scan." />
+                prices live {gapTime(liveAt || board.price_as_of)} ·
+                statistics as of {gapWhen(board.as_of)}
               </div>
               <div className="scan-table-wrap">
                 <table className="scan-table gap-table">
