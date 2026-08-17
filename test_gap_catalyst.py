@@ -160,13 +160,21 @@ class FakeSec:
     def event_dates(self, symbol):
         return self._dates
 
-    def latest_fda(self, symbol, days, budget=4):
+    def latest_event_tag(self, symbol, days, budget=4):
         if self._fda and str(self._fda.get("date")) in days:
             return self._fda
         return None
 
-    def fda_dates(self, symbol, dates, budget=8):
+    def event_tag_dates(self, symbol, dates, budget=8):
         return {d: k for d, k in self._fda_dates.items() if d in set(dates or [])}
+
+    def outranks_offering(self, kind):
+        import sec_filings as _sf
+        return _sf.outranks_offering(kind)
+
+    def pins_the_price(self, kind):
+        import sec_filings as _sf
+        return _sf.pins_the_price(kind)
 
 
 class SecBase(CatalystBase):
@@ -272,7 +280,7 @@ class TestFdaTag(SecBase):
 
     def test_decision_is_quoted_and_trimmed_for_display(self):
         self.sec(fda=self._fda())
-        out = od._gap_fda("ADMA", days_now())
+        out = od._gap_filing_event("ADMA", days_now())
         self.assertEqual(out["kind"], "FDA APPROVAL")
         self.assertEqual(out["quote"], self.QUOTE)          # full text for the tooltip
         self.assertLessEqual(len(out["label"]), 121)        # one line for the cell
@@ -295,23 +303,23 @@ class TestFdaTag(SecBase):
 
     def test_rejection_is_its_own_kind(self):
         self.sec(fda=self._fda("FDA REJECTION"))
-        self.assertEqual(od._gap_fda("ADMA", days_now())["kind"], "FDA REJECTION")
+        self.assertEqual(od._gap_filing_event("ADMA", days_now())["kind"], "FDA REJECTION")
 
     def test_no_module_and_failures_are_silent(self):
         od._SEC_AVAILABLE, od._sec_filings = False, None
-        self.assertIsNone(od._gap_fda("ADMA", days_now()))
-        self.assertEqual(od._gap_fda_dates("ADMA", [days_now()[0]]), {})
+        self.assertIsNone(od._gap_filing_event("ADMA", days_now()))
+        self.assertEqual(od._gap_filing_event_dates("ADMA", [days_now()[0]]), {})
 
         class Boom:
-            def latest_fda(self, *a, **k):
+            def latest_event_tag(self, *a, **k):
                 raise RuntimeError("EDGAR down")
 
-            def fda_dates(self, *a, **k):
+            def event_tag_dates(self, *a, **k):
                 raise RuntimeError("EDGAR down")
 
         od._SEC_AVAILABLE, od._sec_filings = True, Boom()
-        self.assertIsNone(od._gap_fda("ADMA", days_now()))
-        self.assertEqual(od._gap_fda_dates("ADMA", [days_now()[0]]), {})
+        self.assertIsNone(od._gap_filing_event("ADMA", days_now()))
+        self.assertEqual(od._gap_filing_event_dates("ADMA", [days_now()[0]]), {})
 
     def test_fda_outranks_an_offering_but_names_it_too(self):
         # approval in the morning, stock sale on the back of it — both are
@@ -342,6 +350,77 @@ class TestFdaTag(SecBase):
                                   "action_class": "upgrade", "firm": "Citi"}])
         self.sec(fda=self._fda())
         self.assertEqual(od._gap_catalyst("ADMA")["kind"], "FDA APPROVAL")
+
+
+class TestDealsAndTheRestOfTheTaxonomy(SecBase):
+    def _no_earnings(self):
+        real = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set()
+        self.addCleanup(lambda: setattr(od, "_gap_earn_hist", real))
+
+    def _event(self, kind, quote=None, label=None):
+        return {"kind": kind, "quote": quote, "label": label,
+                "date": days_now()[0],
+                "accepted": days_now()[0] + "T06:06:00-04:00", "url": "u"}
+
+    def _offering(self):
+        return {"kind": "OFFERING", "label": "Stock offering priced",
+                "form": "424B5", "date": days_now()[0], "url": "u"}
+
+    def test_a_buyout_warns_that_the_history_stopped_applying(self):
+        # the thing that would otherwise mislead: a stock pinned to a deal
+        # price still shows a full set of fade statistics
+        self.sec(fda=self._event("BUYOUT", quote="$77.00 per share · the "
+                                 "acquisition of the Company by Parent"))
+        out = od._gap_filing_event("FBRX", days_now())
+        self.assertEqual(out["kind"], "BUYOUT")
+        self.assertIn("$77.00", out["label"])
+        self.assertIn("trades to that price", out["warning"])
+
+    def test_events_that_do_not_pin_the_price_carry_no_warning(self):
+        self.sec(fda=self._event("FDA APPROVAL", quote="The FDA has approved it."))
+        self.assertNotIn("warning", od._gap_filing_event("ADMA", days_now()))
+
+    def test_metadata_only_tags_use_their_label(self):
+        self.sec(fda=self._event("DELISTING NOTICE",
+                                 label="Exchange notice (8-K item 3.01)"))
+        out = od._gap_filing_event("ZZZZ", days_now())
+        self.assertIn("8-K item 3.01", out["label"])
+
+    def test_a_share_sale_beats_a_routine_officer_change(self):
+        # both are real and both are today; the raise explains the gap
+        self._no_earnings()
+        self.wire(board_actions=[])
+        self.sec(event=self._offering(),
+                 fda=self._event("LEADERSHIP CHANGE", label="Officer change"))
+        self.assertEqual(od._gap_catalyst("ZZZZ")["kind"], "OFFERING")
+
+    def test_but_a_delisting_notice_beats_the_share_sale(self):
+        self._no_earnings()
+        self.wire(board_actions=[])
+        self.sec(event=self._offering(),
+                 fda=self._event("DELISTING NOTICE", label="Exchange notice"))
+        out = od._gap_catalyst("ZZZZ")
+        self.assertEqual(out["kind"], "DELISTING NOTICE")
+        self.assertIn("also filed", out["label"])
+
+    def test_a_weak_event_still_shows_when_nothing_else_does(self):
+        self._no_earnings()
+        self.wire(board_actions=[])
+        self.sec(fda=self._event("RESTRUCTURING", label="Exit costs"))
+        self.assertEqual(od._gap_catalyst("ZZZZ")["kind"], "RESTRUCTURING")
+
+    def test_earnings_outranks_even_a_bankruptcy_filing(self):
+        # not because it matters more, but because earnings is the one tag
+        # that decides which statistical population the day belongs to
+        self.wire(board_actions=[])
+        self.sec(fda=self._event("BANKRUPTCY", label="Chapter 11"))
+        real = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set(days_now())
+        try:
+            self.assertEqual(od._gap_catalyst("ZZZZ")["kind"], "EARNINGS")
+        finally:
+            od._gap_earn_hist = real
 
 
 class TestCatalystPriority(CatalystBase):

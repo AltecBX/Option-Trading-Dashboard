@@ -1,23 +1,33 @@
-"""Offering and dilution filings, read from SEC EDGAR.
+"""What a company told the SEC, turned into a reason a stock gapped.
 
-Why this module exists: a stock that gaps down 20% premarket is very often
-selling shares. Until now the app had no source for that, so those gaps
-showed as UNTAGGED. EDGAR is the source of record — free, authoritative,
-and live within minutes of acceptance — so the tag can be real instead of
-guessed from a headline.
+Why this module exists: the biggest premarket movers happen because the
+company filed something — it is selling shares, it is being bought, the FDA
+answered, a trial read out, the auditors are gone. EDGAR is the source of
+record for all of it: free, authoritative, and live within minutes of
+acceptance. Several of these have no other source at all. The FDA never
+publishes a Complete Response Letter; the company does.
 
-What is measured here and what is not:
+Three layers, cheapest first:
 
-  * form type, filing date, acceptance timestamp and 8-K item codes come
-    straight from data.sec.gov. No interpretation, no scraping.
-  * for TODAY's tag the filing's own cover page is read once to separate a
-    stock sale from a bond sale. A utility selling notes is not dilution
-    and is dropped rather than mislabeled.
-  * historical tags are form-derived only — no document read — so the
-    ambiguous forms (424B2/424B3/424B7/FWP, which are debt takedowns,
-    merger prospectuses and resale registrations about as often as they
-    are offerings) are simply left out of history. Better a missing tag
-    than a wrong one.
+  * **metadata** — form type, filing date, acceptance timestamp and 8-K
+    item numbers, straight from data.sec.gov. Some of it is already an
+    answer: item 1.03 is bankruptcy, item 3.01 is a delisting notice, a
+    SC 14D9 means somebody is tendering for the shares. No interpretation,
+    no document, no extra request.
+  * **cover page** — read once for an offering, to separate a stock sale
+    from a bond sale. A utility selling notes is not dilution and is
+    dropped rather than mislabeled.
+  * **the filing's own words** — for what metadata cannot say: which side
+    of a merger the company is on, whether a trial met its endpoint,
+    whether the FDA approved or refused. Every rule here has to clear the
+    same gates, because every filing mentions these things constantly:
+    not hedged, not a recap of something dated weeks ago, not permission
+    to run a study rather than to sell a product.
+
+Historical offering tags stay form-derived — the ambiguous forms
+(424B2/424B3/424B7/FWP, which are debt takedowns, merger prospectuses and
+resale registrations about as often as they are offerings) are left out of
+history entirely. Better a missing tag than a wrong one, everywhere.
 
 Timezone note, verified against the data rather than assumed:
 acceptanceDateTime is UTC despite its "Z"-less-than-obvious meaning.
@@ -342,7 +352,8 @@ def _label_from_cover(kind: str, form: str, cover: dict) -> tuple[str, str] | No
     size = cover.get("size")
     tail = f" — {size}" if size else ""
     if cover.get("merger"):
-        return None                     # share issuance, but this app has no M&A tag
+        return None                     # shares issued in a deal — the M&A
+        #                                 tagger handles that, not this one
     if sec == "debt":
         return None                     # notes, not shares: nobody is diluted
     if kind == "DILUTION":
@@ -435,6 +446,58 @@ def event_dates(symbol: str) -> dict:
 _FDA_TXT = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{accdash}.txt"
 _ITEM_EARNINGS = "2.02"
 
+# ── the taxonomy that costs nothing ─────────────────────────────────────────
+#
+# An 8-K's item numbers and a filing's form type are already in the
+# submissions feed, and several of them mean exactly one thing. Bankruptcy,
+# a delisting notice, a restatement, a tender offer for the company's shares
+# — all of it is free, dated, and needs no document read at all.
+
+_ITEM_TAGS = {
+    "1.03": ("BANKRUPTCY", "Bankruptcy or receivership (8-K item 1.03)"),
+    "5.01": ("BUYOUT", "Control of the company changed hands (8-K item 5.01)"),
+    "2.01": ("DEAL CLOSED", "Completed an acquisition or disposition (8-K item 2.01)"),
+    "3.01": ("DELISTING NOTICE",
+             "Exchange notice: a continued-listing rule is not being met (8-K item 3.01)"),
+    "4.02": ("RESTATEMENT",
+             "Previously issued financial statements can no longer be relied on (8-K item 4.02)"),
+    "4.01": ("AUDITOR CHANGE", "Changed accountants (8-K item 4.01)"),
+    "2.05": ("RESTRUCTURING", "Costs of an exit or disposal plan (8-K item 2.05)"),
+    "2.06": ("IMPAIRMENT", "Material asset impairment (8-K item 2.06)"),
+    "5.02": ("LEADERSHIP CHANGE", "Officer or director change (8-K item 5.02)"),
+}
+# Forms only a company in a deal ever files.
+_FORM_TAGS = (
+    (("SC 14D9", "SC TO-T", "SC TO-C"),
+     ("BUYOUT", "Tender offer outstanding for this company's shares")),
+    (("DEFM14A", "PREM14A"), ("MERGER VOTE", "Shareholder vote on a merger")),
+)
+# When one filing carries several of these, the most consequential wins.
+_RANK = ["LEADERSHIP CHANGE", "AUDITOR CHANGE", "RESTRUCTURING", "IMPAIRMENT",
+         "DEAL CLOSED", "MERGER VOTE", "DELISTING NOTICE", "RESTATEMENT",
+         "MERGER DEAL", "TRIAL SUCCESS", "TRIAL FAILURE", "FDA APPROVAL",
+         "FDA REJECTION", "BUYOUT", "BANKRUPTCY"]
+# Above this, reading the document cannot say anything more important.
+_STRONG = {"BANKRUPTCY", "BUYOUT"}
+# A pending deal fixes the price the stock trades to, which is exactly the
+# situation where its own gap history stops describing it.
+_PENDING_DEAL = {"BUYOUT", "MERGER DEAL", "MERGER VOTE"}
+
+
+def _rank(kind: str | None) -> int:
+    return _RANK.index(kind) if kind in _RANK else -1
+
+
+def outranks_offering(kind: str | None) -> bool:
+    """Whether this event explains a gap better than a share sale does. An
+    officer change or a restructuring charge does not; a delisting notice,
+    a restatement or a deal does."""
+    return _rank(kind) >= _RANK.index("DELISTING NOTICE")
+
+
+def pins_the_price(kind: str | None) -> bool:
+    return kind in _PENDING_DEAL
+
 _FDA_APPROVE = [
     r"(?:u\.s\.\s+)?(?:fda|food and drug administration)\s+(?:has |have |had )?approved",
     r"approved by the (?:u\.s\.\s+)?(?:fda|food and drug administration)",
@@ -461,6 +524,38 @@ _NOT_MARKETING = ("approval to initiate", "approval to conduct", "ide approval",
                   "clinical trial application", "protocol", "trial with")
 _RECAP = ("previously disclosed", "previously announced", "as announced",
           "prior to", "last year")
+# Trial readouts move a biotech harder than most approvals do.
+_TRIAL_FAIL = [
+    r"did not (?:meet|achieve)[^.;]{0,40}\b(?:primary|co-primary) endpoint",
+    r"failed to (?:meet|achieve)[^.;]{0,40}\b(?:primary|co-primary) endpoint",
+    r"missed (?:its |the )?primary endpoint",
+    r"(?:discontinu\w+|halt\w+|terminat\w+)[^.;]{0,50}\b(?:phase \d|trial|study)\b"
+    r"[^.;]{0,60}(?:futility|safety|lack of efficacy)",
+]
+_TRIAL_WIN = [
+    r"(?:met|achieved)[^.;]{0,40}\b(?:primary|co-primary) endpoint",
+    r"statistically significant[^.;]{0,60}\bprimary endpoint",
+]
+# Being bought is a different animal from buying: the target's price pins to
+# the deal, the acquirer's does not.
+_TARGET = [
+    r"acquisition of the company by",
+    r"(?:will|to) be acquired by",
+    r"to acquire all (?:of )?the (?:company'?s? )?(?:issued and )?outstanding shares",
+    r"tender offer[^.;]{0,80}all (?:of )?the outstanding shares",
+    r"per share, net to the seller in cash",
+]
+_ACQUIRER = [
+    r"the company (?:has agreed|entered into[^.;]{0,60}) to acquire",
+    r"(?:completed|closed)[^.;]{0,40}acquisition of",
+]
+_MERGER_ANY = [
+    r"agreement and plan of merger",
+    r"definitive merger agreement",
+    r"merger agreement",
+]
+# "$77.00 per share" — the number the stock is now pinned to.
+_DEAL_PRICE = re.compile(r"\$\s?(\d{1,4}(?:\.\d{2})?)\s+(?:in cash )?per share", re.I)
 _MONTHS = ("january|february|march|april|may|june|july|august|september|"
            "october|november|december")
 _DATE_RE = re.compile(rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})", re.I)
@@ -502,29 +597,60 @@ def _is_recap(sentence: str, filed: str | None) -> bool:
     return bool(seen) and all((fd - d).days > _STALE_DAYS for d in seen)
 
 
-def classify_fda(text: str, items: str = "", filed: str | None = None):
-    """(kind, quoted sentence) for an FDA decision announced in this filing,
-    or (None, "") — which is the answer for the overwhelming majority of
-    filings and always the answer when anything is uncertain."""
+def classify_filing(text: str, items: str = "", filed: str | None = None):
+    """(kind, quoted sentence) for an event this filing is announcing, or
+    (None, "") — which is the answer for the overwhelming majority of
+    filings and always the answer when anything is uncertain.
+
+    Rules run most-consequential first, and every one of them has to clear
+    the same three gates: not hedged (every filing warns about what MIGHT
+    happen), not a recap of something dated weeks ago, and — for approvals —
+    not permission to run a study rather than to sell a product.
+    """
     if _ITEM_EARNINGS in (items or ""):
-        # a quarterly release recaps the year's approvals; the gap that day
-        # is the earnings gap, and earnings already outranks this tag
+        # a quarterly release recaps the year's news; the gap that day is
+        # the earnings gap, and earnings already outranks every tag here
         return None, ""
     flat = _PAREN.sub(" ", text)          # drop ("FDA")-style defined terms
     low = flat.lower()
-    for kind, pats in (("FDA REJECTION", _FDA_REJECT),
-                       ("FDA APPROVAL", _FDA_APPROVE)):
+
+    def hit(pats, kind, extra_block=()):
         for pat in pats:
             for m in re.finditer(pat, low):
                 s = _sentence_at(low, m.start())
                 if any(h in s for h in _HEDGE) or any(h in s for h in _RECAP):
                     continue
-                if kind == "FDA APPROVAL" and any(h in s for h in _NOT_MARKETING):
+                if any(h in s for h in extra_block):
                     continue
                 if _is_recap(s, filed):
                     continue
-                return kind, re.sub(r"\s+", " ", _sentence_at(flat, m.start())).strip()
+                return kind, re.sub(r"\s+", " ",
+                                    _sentence_at(flat, m.start())).strip()
+        return None, ""
+
+    for pats, kind, block in (
+            (_TARGET, "BUYOUT", ()),
+            (_FDA_REJECT, "FDA REJECTION", ()),
+            (_FDA_APPROVE, "FDA APPROVAL", _NOT_MARKETING),
+            (_TRIAL_FAIL, "TRIAL FAILURE", ()),
+            (_TRIAL_WIN, "TRIAL SUCCESS", ()),
+            (_ACQUIRER, "DEAL CLOSED", ()),
+            (_MERGER_ANY, "MERGER DEAL", ())):
+        kind, quote = hit(pats, kind, block)
+        if kind:
+            if kind == "BUYOUT":
+                # The number that matters most is the price the stock is now
+                # pinned to, and it is often a sentence or two away from the
+                # one that proves it is a buyout — so look across the filing.
+                price = _DEAL_PRICE.search(flat[:60_000])
+                if price:
+                    return kind, f"${price.group(1)} per share · {quote}"
+            return kind, quote
     return None, ""
+
+
+# the old name, kept because the FDA rules are the ones worth calling out
+classify_fda = classify_filing
 
 
 def _fda_store(symbol: str) -> dict:
@@ -558,38 +684,74 @@ def _fda_save(symbol: str) -> None:
         pass
 
 
-def read_fda(symbol: str, row: dict) -> dict | None:
-    """What one 8-K says about an FDA decision. Cached by accession — the
-    document is immutable, so a "nothing here" verdict is worth keeping too."""
+def tag_from_metadata(row: dict) -> dict | None:
+    """What the form type and 8-K item numbers alone say happened. Free —
+    this data is already in the submissions feed — and unambiguous, which is
+    why only the item codes that mean exactly one thing are listed."""
+    form = (row.get("form") or "").upper()
+    for prefixes, (kind, label) in _FORM_TAGS:
+        if form.startswith(prefixes):
+            return {"kind": kind, "label": label, "quote": None,
+                    "date": row.get("date"), "accepted": row.get("accepted"),
+                    "url": row.get("url")}
+    if form != "8-K":
+        return None
+    items = [i.strip() for i in (row.get("items") or "").split(",") if i.strip()]
+    best = None
+    for code in items:
+        tag = _ITEM_TAGS.get(code)
+        if tag and (best is None or _rank(tag[0]) > _rank(best[0])):
+            best = tag
+    if not best:
+        return None
+    return {"kind": best[0], "label": best[1], "quote": None,
+            "date": row.get("date"), "accepted": row.get("accepted"),
+            "url": row.get("url")}
+
+
+def read_filing_event(symbol: str, row: dict, allow_read: bool = True) -> dict | None:
+    """What one filing says happened — item codes first (free), then the
+    document itself when it could say something more consequential.
+
+    Verdicts are cached by accession. The document is immutable, so even a
+    "nothing here" answer is worth keeping; an unread one never is.
+    """
+    meta = tag_from_metadata(row)
+    if meta and meta["kind"] in _STRONG:
+        return meta                      # nothing in the text can outrank this
+    if row.get("form") != "8-K" or _ITEM_EARNINGS in (row.get("items") or ""):
+        return meta
     acc = row.get("accession") or ""
     cache = _fda_store(symbol)
     if acc in cache:
-        return cache[acc]
-    if not available():
-        return None          # unknown, not "nothing here" — never cache this
+        return cache[acc] or meta
+    if not allow_read or not available():
+        return meta          # unknown, not "nothing here" — never cache this
     verdict = None
-    if row.get("form") == "8-K":
-        cik = cik_for(symbol)
-        if cik:
-            url = _FDA_TXT.format(cik=cik, acc=acc.replace("-", ""), accdash=acc)
-            try:
-                text = _plain(_fetch(url, limit=400_000, timeout=15))
-                kind, quote = classify_fda(text, row.get("items", ""),
-                                           row.get("date"))
-                if kind:
-                    verdict = {"kind": kind, "quote": quote[:400],
-                               "date": row.get("date"),
-                               "accepted": row.get("accepted"),
-                               "url": row.get("url")}
-            except Exception:
-                return None            # unread, not "nothing" — try again later
+    cik = cik_for(symbol)
+    if cik:
+        url = _FDA_TXT.format(cik=cik, acc=acc.replace("-", ""), accdash=acc)
+        try:
+            text = _plain(_fetch(url, limit=400_000, timeout=15))
+            kind, quote = classify_filing(text, row.get("items", ""),
+                                          row.get("date"))
+            if kind:
+                verdict = {"kind": kind, "quote": quote[:400], "label": None,
+                           "date": row.get("date"),
+                           "accepted": row.get("accepted"),
+                           "url": row.get("url")}
+        except Exception:
+            return meta                # unread — try again on a later pass
     cache[acc] = verdict
     _fda_save(symbol)
-    return verdict
+    if verdict and _rank(verdict["kind"]) >= _rank(meta["kind"] if meta else None):
+        return verdict
+    return meta or verdict
 
 
-def _is_8k(row: dict) -> bool:
-    return row.get("form") == "8-K" and _ITEM_EARNINGS not in (row.get("items") or "")
+# the FDA-era names, kept so nothing downstream has to care that the reader
+# now understands more than approvals and rejections
+read_fda = read_filing_event
 
 
 def _next_business(d: date) -> date:
@@ -619,29 +781,49 @@ def moves_session(row: dict) -> str | None:
     return dt.date().isoformat()
 
 
-def latest_fda(symbol: str, days: tuple, budget: int = 4) -> dict | None:
-    """The FDA decision announced in an 8-K inside `days`, if there is one."""
+def _taggable(row: dict) -> bool:
+    """8-Ks (minus the quarterly ones) plus the deal forms only a company in
+    a transaction ever files."""
+    form = (row.get("form") or "").upper()
+    if any(form.startswith(p) for p, _ in _FORM_TAGS):
+        return True
+    return form == "8-K" and _ITEM_EARNINGS not in (row.get("items") or "")
+
+
+def latest_event_tag(symbol: str, days: tuple, budget: int = 4) -> dict | None:
+    """The most consequential thing this company told the SEC inside `days`.
+
+    Item codes and deal forms are free, so every filing in the window is
+    read for those; the budget only limits how many documents get opened to
+    look for what the metadata cannot say.
+    """
     if not available():
         return None
-    reads = 0
+    best, reads = None, 0
     for row in filings(symbol):
-        if str(row.get("date", ""))[:10] not in days or not _is_8k(row):
+        if str(row.get("date", ""))[:10] not in days or not _taggable(row):
             continue
-        cached = _fda_store(symbol).get(row.get("accession") or "", "miss")
-        if cached == "miss":
-            if reads >= budget:
-                break
+        fresh = (row.get("accession") or "") not in _fda_store(symbol)
+        allow = (not fresh) or reads < budget
+        if fresh and allow:
             reads += 1
-        hit = read_fda(symbol, row)
-        if hit:
-            return hit
-    return None
+        hit = read_filing_event(symbol, row, allow_read=allow)
+        if not hit:
+            continue
+        better = _rank(hit["kind"]) > _rank(best["kind"] if best else None)
+        # same verdict from two filings: keep the one that can quote the
+        # deal — "$77.00 per share" beats "a tender offer exists"
+        richer = (best is not None and hit["kind"] == best["kind"]
+                  and hit.get("quote") and not best.get("quote"))
+        if better or richer:
+            best = hit
+    return best
 
 
-def fda_dates(symbol: str, dates, budget: int = 8) -> dict:
-    """{gap date -> 'FDA APPROVAL' | 'FDA REJECTION'} for the dates given.
+def event_tag_dates(symbol: str, dates, budget: int = 8) -> dict:
+    """{gap date -> kind} for the dates given.
 
-    Only days that actually have an 8-K cost a read, the budget caps how
+    Only days that actually have a filing cost anything, the budget caps how
     many new documents one pass will open, and every verdict is remembered,
     so a symbol's history fills in over a few scans instead of stalling one.
     """
@@ -651,19 +833,24 @@ def fda_dates(symbol: str, dates, budget: int = 8) -> dict:
     out: dict = {}
     reads = 0
     for row in filings(symbol):
-        if not _is_8k(row):
+        if not _taggable(row):
             continue
         session = moves_session(row)
-        if session not in want or session in out:
+        if session not in want:
             continue
-        if (row.get("accession") or "") not in _fda_store(symbol):
-            if reads >= budget:
-                continue
+        fresh = (row.get("accession") or "") not in _fda_store(symbol)
+        allow = (not fresh) or reads < budget
+        if fresh and allow:
             reads += 1
-        verdict = read_fda(symbol, row)
-        if verdict:
+        verdict = read_filing_event(symbol, row, allow_read=allow)
+        if verdict and _rank(verdict["kind"]) > _rank(out.get(session)):
             out[session] = verdict["kind"]
     return out
+
+
+# the FDA-era names, kept so callers written against them keep working
+latest_fda = latest_event_tag
+fda_dates = event_tag_dates
 
 
 def coverage(symbol: str) -> dict:

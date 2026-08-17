@@ -90,17 +90,14 @@ why, with a sample size and a conservative range on every probability.
 - **Survivorship bias**: the universe is today's watchlist + analyst
   universe; delisted gappers are absent, so fade rates run hot. Stated on
   the board itself.
-- **Catalyst tags**: EARNINGS (real, with BMO/AMC), FDA APPROVAL / FDA
-  REJECTION (real, read from the company's 8-K — see below), OFFERING /
-  DILUTION (real, SEC EDGAR), UPGRADE / DOWNGRADE / ANALYST ACTION (real),
-  MACRO (real), sector context (real). M&A and short interest still have NO
-  data source in this app and are never fabricated — such days are UNTAGGED.
-  Priority is earnings → FDA decision → offering → rating change → macro;
-  only earnings splits the statistical population, everything else is
-  context shown alongside it. When a decision and a raise land the same
-  morning both are named in one label ("… · also filed: stock offering
-  priced"), because the approval explains the gap and the raise explains
-  what happens to it next.
+- **Catalyst tags**: all real, all dated, all from sources the app actually
+  has — the full list is below. Short interest, index inclusion, analyst-day
+  guidance, product launches and short-seller reports still have NO source
+  here and are never fabricated; such days are UNTAGGED. Only earnings
+  splits the statistical population, everything else is context shown
+  alongside it. When two land the same morning both are named in one label
+  ("… · also filed: stock offering priced"), because the approval explains
+  the gap and the raise explains what happens to it next.
 
 ## Offering & dilution filings (`sec_filings.py`)
 
@@ -138,7 +135,49 @@ filings, which for a busy filer can be shorter than the 900-day daily
 history — older gap days then stay UNTAGGED. Foreign private issuers file
 6-K/F-forms with less structure. Neither is faked.
 
-## FDA approvals & rejections (`sec_filings.classify_fda`)
+## The catalyst taxonomy
+
+Ranked by how much of a gap the event explains. Earnings sits above all of
+it — not because it matters more, but because it is the one tag that
+decides which statistical population the day belongs to.
+
+| Tag | Source | Cost |
+| --- | --- | --- |
+| EARNINGS | bulk calendar + report history | free |
+| BANKRUPTCY | 8-K item 1.03 | free |
+| BUYOUT | SC 14D9 / SC TO-T / SC TO-C, 8-K item 5.01, or merger text naming this company as the target | free / one read |
+| FDA REJECTION · FDA APPROVAL | 8-K text | one read |
+| TRIAL FAILURE · TRIAL SUCCESS | 8-K text ("did not meet the primary endpoint") | one read |
+| MERGER DEAL | merger agreement whose side could not be proven | one read |
+| RESTATEMENT | 8-K item 4.02 | free |
+| DELISTING NOTICE | 8-K item 3.01 | free |
+| — *below here a share sale explains the morning better* — | | |
+| OFFERING · DILUTION | 424B/S-3/S-1 + cover page, 8-K item 3.02 | one read |
+| MERGER VOTE | DEFM14A / PREM14A | free |
+| DEAL CLOSED | 8-K item 2.01 | free |
+| IMPAIRMENT · RESTRUCTURING · AUDITOR CHANGE | 8-K items 2.06 / 2.05 / 4.01 | free |
+| UPGRADE · DOWNGRADE · ANALYST ACTION | analyst board + per-symbol feed | free |
+| LEADERSHIP CHANGE | 8-K item 5.02 | free |
+| MACRO | macro schedule | free |
+
+Most of the list costs **nothing**: 8-K item numbers and form types are
+already in the submissions feed the offering tagger fetches. Only the rows
+marked "one read" open a document, and those verdicts are cached forever.
+
+**A pending deal breaks the statistics, and the UI says so.** Once a
+takeover price is fixed the stock trades to that price instead of moving on
+its own, so its own gap history stops describing it. BUYOUT / MERGER DEAL /
+MERGER VOTE therefore carry a visible warning above the numbers — the
+statistics still render (they are measured history, not a guess), but they
+were measured on a stock that was free to move.
+
+Direction is never guessed. A merger agreement is tagged BUYOUT only when
+the filing's own words put this company on the receiving end ("the
+acquisition of the Company by Parent", "to acquire all of the Company's
+outstanding shares"); otherwise it is MERGER DEAL, and the label says read
+the filing. Where the deal price appears it is quoted: `$77.00 per share`.
+
+## FDA approvals & rejections (`sec_filings.classify_filing`)
 
 Why not openFDA: it publishes approvals on a weekly lag, under sponsor
 names that do not map cleanly to tickers (big pharma files through
@@ -183,6 +222,20 @@ business update rather than a same-day 8-K is tagged on neither day (the
 recap guard is deliberate — an August filing about a June rejection must
 not tag an August gap); and device 510(k)s or label changes announced only
 by press release never reach EDGAR at all.
+
+## Still missing, on purpose
+
+These move stocks and have **no source wired into this app**. They are
+listed so nobody mistakes an UNTAGGED day for a quiet one:
+
+- short-seller reports (no feed; they are published on the author's site)
+- index inclusion / deletion (S&P, Russell rebalances)
+- guidance changes announced at conferences rather than in an 8-K
+- product launches, partnerships and contract wins (item 1.01 is far too
+  broad to tag without reading every one)
+- short interest, borrow rates and float — deferred at spec time (§36) and
+  still deferred
+- foreign private issuers, which file 6-K with no item codes at all
 
 ## Walk-forward discipline
 

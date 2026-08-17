@@ -5165,34 +5165,46 @@ def _gap_trim(quote: str, cap: int = 120) -> str:
     return cut + "…"
 
 
-def _gap_fda(symbol: str, days: tuple) -> dict | None:
-    """An FDA approval or rejection announced in the company's own 8-K.
+_GAP_DEAL_WARNING = (
+    "This company is in a deal. While a takeover price is fixed, the stock "
+    "trades to that price instead of moving on its own — so its gap history "
+    "is not describing the same stock any more."
+)
 
-    The FDA publishes approvals on a lag and under sponsor names that do not
-    map to tickers, and it does not publish rejections at all — a Complete
-    Response Letter reaches the market only because the company discloses
-    it. The 8-K carries both, on the morning it happens."""
+
+def _gap_filing_event(symbol: str, days: tuple) -> dict | None:
+    """The most consequential thing the company told the SEC inside `days`.
+
+    Covers what no public feed does: FDA rejections (the FDA never publishes
+    a Complete Response Letter — only the company does), buyouts, trial
+    readouts, bankruptcy, delisting notices, restatements. Several come free
+    from the 8-K item codes; the rest are read out of the filing itself."""
     if not (_SEC_AVAILABLE and _sec_filings is not None):
         return None
     try:
-        hit = _sec_filings.latest_fda(symbol, days)
+        hit = _sec_filings.latest_event_tag(symbol, days)
     except Exception:
         return None
     if not hit:
         return None
-    return {"kind": hit["kind"], "label": _gap_trim(hit.get("quote")),
-            "quote": hit.get("quote"), "filed": hit.get("accepted") or hit.get("date"),
-            "url": hit.get("url")}
+    out = {"kind": hit["kind"],
+           "label": _gap_trim(hit.get("quote") or hit.get("label")),
+           "quote": hit.get("quote"),
+           "filed": hit.get("accepted") or hit.get("date"),
+           "url": hit.get("url")}
+    if _sec_filings.pins_the_price(hit["kind"]):
+        out["warning"] = _GAP_DEAL_WARNING
+    return out
 
 
-def _gap_fda_dates(symbol: str, dates, budget: int = 8) -> dict:
-    """{gap date -> FDA APPROVAL|FDA REJECTION} for past gap days, read from
-    the 8-Ks that landed on them. Budgeted: a symbol's history fills in over
-    a few scans rather than stalling one."""
+def _gap_filing_event_dates(symbol: str, dates, budget: int = 8) -> dict:
+    """{gap date -> kind} for past gap days, from the filings that landed on
+    them. Budgeted: a symbol's history fills in over a few scans rather than
+    stalling one."""
     if not (_SEC_AVAILABLE and _sec_filings is not None):
         return {}
     try:
-        return _sec_filings.fda_dates(symbol, dates, budget=budget) or {}
+        return _sec_filings.event_tag_dates(symbol, dates, budget=budget) or {}
     except Exception:
         return {}
 
@@ -5224,20 +5236,25 @@ def _gap_catalyst(symbol: str) -> dict:
             return {"kind": "EARNINGS", "label": "just reported"}
     except Exception:
         pass
-    # An FDA decision outranks everything but earnings — for a biotech it IS
-    # the gap. An offering outranks a rating change for the same reason: when
-    # a company is selling stock into the gap, that is why the gap is there.
-    fda = _gap_fda(symbol, (today, yesterday))
+    # What the company itself filed outranks everything but earnings — a
+    # buyout, a rejection, a bankruptcy IS the gap. Below a certain weight
+    # (an officer change, a restructuring charge) a share sale explains the
+    # morning better, so the offering goes first instead.
+    ev = _gap_filing_event(symbol, (today, yesterday))
     off = _gap_offering(symbol, (today, yesterday))
-    if fda:
+    strong = ev and _sec_filings is not None \
+        and _sec_filings.outranks_offering(ev["kind"])
+    if ev and (strong or not off):
         if off:
-            # approvals are routinely followed by a raise the same morning;
+            # good news is routinely followed by a raise the same morning;
             # both are real and Jerry needs to see the second one
-            fda["label"] = (f"{fda['label']} · also filed: "
-                            f"{(off.get('label') or 'an offering').lower()}")
-        return fda
+            ev["label"] = (f"{ev['label']} · also filed: "
+                           f"{(off.get('label') or 'an offering').lower()}")
+        return ev
     if off:
         return off
+    if ev:
+        return ev
     act = _gap_analyst_action(symbol, (today, yesterday))
     if act:
         return act
@@ -5280,7 +5297,7 @@ try:
         earn_hist_fn=_gap_earn_hist,
         catalyst_fn=_gap_catalyst,
         offering_fn=_gap_offering_dates,
-        fda_fn=_gap_fda_dates,
+        filing_event_fn=_gap_filing_event_dates,
         sector_etf_fn=_gap_sector_etf,
         earn_next_fn=_edge_next_earnings,
         data_dir=_STABLE_DIR,
