@@ -868,7 +868,8 @@ def run_vrp_backtest(symbols: list, iv_history_fn=None, earnings_fn=None,
                 sh = bv.sharpe_from_curve(curve)
                 if sh:
                     m["sharpe"] = sh["sharpe"]
-                m["max_drawdown_pct"] = bv.max_drawdown_pct([c["equity"] for c in curve])
+                m["max_drawdown_pct"] = round(
+                    bv.max_drawdown_pct([c["equity"] for c in curve]), 1)
         grid.append(m)
     viable = [g for g in grid if g.get("n_trades", 0) >= 8 and g.get("expectancy") is not None]
     robust = None

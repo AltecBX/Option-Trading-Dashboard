@@ -21,6 +21,20 @@ const edgeIvPct = (v) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 const edgeNum = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d));
 const edgeProb = (v) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 const edgeSgn = (v, d = 1) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}`);
+// Dates render as "Oct 28, 2026" — never raw ISO (house rule: Month Day, Year).
+const edgeDate = (s) => {
+  if (!s) return "—";
+  const d = new Date(String(s).length <= 10 ? `${s}T12:00:00` : s);
+  return Number.isNaN(d.getTime()) ? String(s)
+    : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+const edgeWhen = (s) => {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} ` +
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+};
 
 function EdgeSigPill({ signal }) {
   const tone = EDGE_SIG_TONE[signal] || "mut";
@@ -71,8 +85,8 @@ function EdgeVrpChart({ obs, stats }) {
       <circle cx={x(pts.length - 1)} cy={y(last.vrp_points)} r="3.5" className="edge-dot" />
       <text x={L - 4} y={y(lo + 2) } className="edge-chart-lbl" textAnchor="end">{lo.toFixed(0)}</text>
       <text x={L - 4} y={y(hi - 2) + 4} className="edge-chart-lbl" textAnchor="end">{hi.toFixed(0)}</text>
-      <text x={L} y={H - 4} className="edge-chart-lbl">{pts[0].date}</text>
-      <text x={W - R} y={H - 4} className="edge-chart-lbl" textAnchor="end">{last.date}</text>
+      <text x={L} y={H - 4} className="edge-chart-lbl">{edgeDate(pts[0].date)}</text>
+      <text x={W - R} y={H - 4} className="edge-chart-lbl" textAnchor="end">{edgeDate(last.date)}</text>
     </svg>
   );
 }
@@ -115,7 +129,7 @@ function EdgeTermChart({ term }) {
       {rows.map((r) => (
         <g key={r.exp}>
           <circle cx={x(r.dte)} cy={y(r.iv)} r="3" className={r.covers_earnings ? "edge-dot-earn" : "edge-dot"}>
-            <title>{`${r.exp} · ${r.dte}d · IV ${edgeIvPct(r.iv)}${r.covers_earnings ? " · covers earnings" : ""}`}</title>
+            <title>{`${edgeDate(r.exp)} · ${r.dte}d · IV ${edgeIvPct(r.iv)}${r.covers_earnings ? " · covers earnings" : ""}`}</title>
           </circle>
           <text x={x(r.dte)} y={H - 6} className="edge-chart-lbl" textAnchor="middle">{Math.round(r.dte)}d</text>
         </g>
@@ -243,7 +257,7 @@ function EdgeBacktestPanel({ apiFetch, sym }) {
                     <td className="scan-num">{g.profit_factor ?? "—"}</td>
                     <td className="scan-num down">{g.worst_5pct != null ? `$${g.worst_5pct}` : "—"}</td>
                     <td className="scan-num down">{g.es_5pct != null ? `$${g.es_5pct}` : "—"}</td>
-                    <td className="scan-num">{g.max_drawdown_pct != null ? `${g.max_drawdown_pct}%` : "—"}</td>
+                    <td className="scan-num">{g.max_drawdown_pct != null ? `${edgeNum(g.max_drawdown_pct, 1)}%` : "—"}</td>
                     <td className="scan-num">{g.assignments ?? "—"}</td>
                   </tr>
                 ))}
@@ -299,7 +313,7 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
             <button className="rr-btn" onClick={() => onOpenTicker && onOpenTicker(sym)}
               title="Open this ticker on the Trade tab.">Trade tab →</button>
           </div>
-          {r && <div className="card-sub">as of {r.as_of} · engine {d.engine && d.engine.version} · spot ${r.spot}</div>}
+          {r && <div className="card-sub">as of {edgeWhen(r.as_of)} · engine {d.engine && d.engine.version} · spot ${r.spot}</div>}
         </div>
       </div>
       {err && <div className="card-error">{err}</div>}
@@ -347,7 +361,7 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
           </div>
           {d.structures ? (
             <div>
-              <div className="edge-note">Expiry <b>{d.structures.expiry}</b> ({d.structures.dte}d)
+              <div className="edge-note">Expiry <b>{edgeDate(d.structures.expiry)}</b> ({d.structures.dte}d)
                 {" "}— chosen as the richest tenor inside the seller window, not a fixed 30 DTE.
                 {" "}Probabilities are <b>model</b> (driftless lognormal at Expected RV) — the breach
                 table below shows this ticker's MEASURED history.</div>
@@ -619,7 +633,7 @@ function EdgeTab({ apiFetch, onOpenTicker }) {
                 onClick={() => setSigFilter(s)}>{s || "All"}{" "}
                 <b>{s ? rows.filter((r) => r.signal === s).length : rows.length}</b></button>
             ))}
-            <span className="muted edge-asof">as of {board.as_of || "—"}{board.market_open === false ? " · market closed (quotes = last session)" : ""}</span>
+            <span className="muted edge-asof">as of {edgeWhen(board.as_of)}{board.market_open === false ? " · market closed (quotes = last session)" : ""}</span>
           </div>
           <div className="scan-table-wrap">
             <table className="scan-table edge-table">
@@ -657,8 +671,8 @@ function EdgeTab({ apiFetch, onOpenTicker }) {
                     <td className="scan-num">{r.vrp_percentile != null ? Math.round(r.vrp_percentile) : "—"}</td>
                     <td className="scan-num">{r.premium_class || "—"}</td>
                     <td className={`scan-num ${(r.rr25_volpts ?? 0) > 0 ? "up" : "down"}`}>{edgeSgn(r.rr25_volpts)}</td>
-                    <td className="scan-num">{r.earnings_inside ? <b>{r.earnings_date}</b> : (r.earnings_date || "—")}</td>
-                    <td className="scan-num edge-struct-cell">{r.best_kind ? `${(r.best_kind || "").replace(/_/g, " ")} ${r.best_strike ?? ""} ${r.best_expiry || ""} $${edgeNum(r.best_credit)}` : "—"}</td>
+                    <td className="scan-num">{r.earnings_inside ? <b>{edgeDate(r.earnings_date)}</b> : (r.earnings_date ? edgeDate(r.earnings_date) : "—")}</td>
+                    <td className="scan-num edge-struct-cell">{r.best_kind ? `${(r.best_kind || "").replace(/_/g, " ")} ${r.best_strike ?? ""} ${r.best_expiry ? edgeDate(r.best_expiry) : ""} $${edgeNum(r.best_credit)}` : "—"}</td>
                     <td className="scan-num">{edgeProb(r.best_p_itm)}</td>
                     <td className="scan-num">{edgeProb(r.best_p_touch)}</td>
                     <td className="scan-num">{r.best_roc_pct != null ? `${edgeNum(r.best_roc_pct, 1)}%` : "—"}</td>

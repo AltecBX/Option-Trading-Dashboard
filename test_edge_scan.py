@@ -235,6 +235,12 @@ class TestBacktestAndSizing(unittest.TestCase):
             if g0.get("n_trades", 0) >= 20:
                 self.assertIsNotNone(g0.get("worst_5pct"))
             self.assertIn("win rate", out["note"])
+            # every displayed metric ships pre-rounded — the UI shows these raw
+            # (user-reported, 8-16-2026: Max DD rendered as 21.51964976123858%)
+            for g in out["grid"]:
+                dd = g.get("max_drawdown_pct")
+                if dd is not None:
+                    self.assertEqual(dd, round(dd, 1))
 
     def test_kelly_gates_and_math(self):
         pe.configure(None)
