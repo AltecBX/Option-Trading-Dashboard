@@ -128,6 +128,21 @@ check("edge: signal filter chips tipped", /title=\{s \? `Show only names/.test(e
 // ── Gap news freshness ──────────────────────────────────────────────────
 check("gap news is limited to a few days", /GAP_NEWS_MAX_DAYS = 3/.test(src)
   && /published \? new Date\(n\.published\)/.test(src));
+// Catalyst vocabulary: upgrades and downgrades are named and colored.
+check("catalyst kinds include upgrade/downgrade",
+  /UPGRADE: "Upgrade"/.test(src) && /DOWNGRADE: "Downgrade"/.test(src));
+check("upgrade/downgrade are color-toned",
+  /GAP_CATALYST_TONE = \{ UPGRADE: "up", DOWNGRADE: "down" \}/.test(src));
+check("every catalyst kind has an explanatory tooltip", (() => {
+  const kinds = (src.match(/const GAP_CATALYST_LABEL = \{[\s\S]*?\};/) || [""])[0]
+    .match(/(?:^|[{,\s])([A-Z][A-Z ]*?|"[A-Z ]+")\s*:/g) || [];
+  const tips = (src.match(/const GAP_CATALYST_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  return ["EARNINGS", "UPGRADE", "DOWNGRADE", "ANALYST ACTION", "MACRO", "UNTAGGED"]
+    .every((k) => tips.includes(k));
+})());
+check("catalyst column is sortable", /th\("Catalyst", "cat"/.test(src)
+  && /case "cat":/.test(src));
+
 // Move columns speak the trader's language and follow today's setup.
 check("move columns are direction-aware", /GAP_MOVE_LABELS/.test(src)
   && /Max fade ↓/.test(src) && /Max squeeze ↑/.test(src)

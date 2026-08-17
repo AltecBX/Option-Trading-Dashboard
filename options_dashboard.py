@@ -5024,11 +5024,68 @@ def _gap_earn_hist(symbol: str) -> set:
     return dates
 
 
+def _gap_analyst_action(symbol: str, days: tuple) -> dict | None:
+    """The freshest rating change for `symbol` dated within `days`, as a gap
+    catalyst. Upgrades and downgrades get their own kinds — a downgrade
+    behind a gap UP is a very different setup from an upgrade behind one.
+
+    Board first (already scanned, free), then a per-symbol lookup so a
+    gapper outside the 8am board universe still gets tagged. Both sources
+    carry action_class/firm/grades, so the label is quoted from the data,
+    never inferred."""
+    def _from_row(a: dict) -> dict | None:
+        cls = (a.get("action_class") or "").lower()
+        firm = a.get("firm") or "analyst"
+        prior, new = a.get("prior_grade"), a.get("new_grade")
+        grades = f"{prior} → {new}" if prior and new else (new or "")
+        if cls == "upgrade":
+            return {"kind": "UPGRADE",
+                    "label": f"{firm}{': ' + grades if grades else ''}"}
+        if cls == "downgrade":
+            return {"kind": "DOWNGRADE",
+                    "label": f"{firm}{': ' + grades if grades else ''}"}
+        if cls == "initiate":
+            return {"kind": "ANALYST ACTION",
+                    "label": f"{firm} initiated{' at ' + new if new else ''}"}
+        if cls == "target_change":
+            pct = a.get("target_change_pct")
+            way = "raised" if (pct or 0) > 0 else "cut"
+            return {"kind": "ANALYST ACTION",
+                    "label": f"{firm} {way} target"
+                             + (f" {abs(pct):.0f}%" if pct is not None else "")}
+        if cls in ("reiterate", "unknown", ""):
+            return None
+        return {"kind": "ANALYST ACTION", "label": f"{firm} {cls}"}
+
+    try:
+        if _ANALYST_BOARD_AVAILABLE and _analyst_board is not None:
+            for a in (_analyst_board.get_board() or {}).get("actions", [])[:200]:
+                if (a.get("ticker") or "").upper() == symbol.upper() \
+                        and str(a.get("date", ""))[:10] in days:
+                    hit = _from_row(a)
+                    if hit:
+                        return hit
+    except Exception:
+        pass
+    try:
+        if _ANALYST_AVAILABLE and _analyst_client is not None:
+            hist = (_analyst_client.get_client()
+                    .get_analyst_data(symbol) or {}).get("history") or []
+            for a in hist[:12]:                     # newest first
+                if str(a.get("date", ""))[:10] in days:
+                    hit = _from_row(a)
+                    if hit:
+                        return hit
+    except Exception:
+        pass
+    return None
+
+
 def _gap_catalyst(symbol: str) -> dict:
-    """Today's catalyst tag from the four REAL sources only: earnings
-    (bulk calendar with BMO/AMC timing), analyst action, macro event day.
-    Offerings/FDA/M&A have no data source in this app and are never
-    fabricated — everything else is UNTAGGED."""
+    """Today's catalyst tag from REAL sources only: earnings (bulk calendar
+    with BMO/AMC timing), analyst upgrades/downgrades and other rating
+    actions, macro event day. Offerings/FDA/M&A have no data source in this
+    app and are never fabricated — everything else is UNTAGGED."""
     from datetime import date as _d, timedelta as _td
     today = _d.today().isoformat()
     yesterday = (_d.today() - _td(days=1)).isoformat()
@@ -5050,15 +5107,9 @@ def _gap_catalyst(symbol: str) -> dict:
             return {"kind": "EARNINGS", "label": "just reported"}
     except Exception:
         pass
-    try:
-        if _ANALYST_BOARD_AVAILABLE and _analyst_board is not None:
-            for a in (_analyst_board.get_board() or {}).get("actions", [])[:120]:
-                if (a.get("ticker") or "").upper() == symbol.upper() \
-                        and str(a.get("date", ""))[:10] in (today, yesterday):
-                    return {"kind": "ANALYST ACTION",
-                            "label": (a.get("action") or "analyst action")}
-    except Exception:
-        pass
+    act = _gap_analyst_action(symbol, (today, yesterday))
+    if act:
+        return act
     try:
         for m in _edge_macro_events():
             if m.get("date") == today:
