@@ -235,6 +235,17 @@ except Exception as _exc:  # noqa: BLE001
     _NEWS_AVAILABLE = False
     _news = None  # type: ignore
 
+# Short-seller reports and index adds/drops never get filed with anybody —
+# they exist only as headlines. Optional; the Gap Scan falls back to
+# UNTAGGED without it.
+try:
+    import news_catalyst as _news_catalyst
+    _NEWS_CATALYST_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[news_catalyst] module load failed: {_exc}", file=sys.stderr)
+    _NEWS_CATALYST_AVAILABLE = False
+    _news_catalyst = None  # type: ignore
+
 try:
     import watchlist_table as _wltable
     _WLTABLE_AVAILABLE = True
@@ -5209,6 +5220,59 @@ def _gap_filing_event_dates(symbol: str, dates, budget: int = 8) -> dict:
         return {}
 
 
+_GAP_NEWS_CACHE: dict = {}      # symbol -> (ts, catalyst | None)
+# A headline lookup is four network fetches. It is the last thing tried and
+# the weakest evidence in the list, so it must never be able to stall a
+# morning scan: a handful per five-minute window, then it waits.
+_GAP_NEWS_BUDGET = {"window": 0.0, "spent": 0}
+_GAP_NEWS_PER_WINDOW = 8
+_GAP_NEWS_WINDOW_S = 300.0
+
+
+def _gap_company_name(symbol: str) -> str | None:
+    for row in load_ticker_index():
+        if row.get("symbol") == symbol.upper():
+            return row.get("name")
+    return None
+
+
+def _gap_news_catalyst(symbol: str) -> dict | None:
+    """Last resort, and the only tag in the list that comes from a headline
+    rather than a filing: a short-seller report or an index add/drop.
+
+    Called ONLY when nothing filed explains the gap, both because that is
+    what the evidence deserves and because the news feed costs four network
+    fetches a symbol. Cached 10 minutes."""
+    if not (_NEWS_CATALYST_AVAILABLE and _news_catalyst is not None
+            and _NEWS_AVAILABLE and _news is not None):
+        return None
+    if os.environ.get("JERRY_NO_NET"):
+        return None
+    now = time.time()
+    hit = _GAP_NEWS_CACHE.get(symbol)
+    if hit and now - hit[0] < 600:
+        return hit[1]
+    if now - _GAP_NEWS_BUDGET["window"] > _GAP_NEWS_WINDOW_S:
+        _GAP_NEWS_BUDGET.update(window=now, spent=0)
+    if _GAP_NEWS_BUDGET["spent"] >= _GAP_NEWS_PER_WINDOW:
+        return None            # not cached: the next window tries again
+    _GAP_NEWS_BUDGET["spent"] += 1
+    out = None
+    try:
+        name = _gap_company_name(symbol)
+        feed = _news.get_news(symbol, name=name, limit=40) or {}
+        found = _news_catalyst.catalyst_from_news(symbol, feed, name)
+        if found:
+            out = {"kind": found["kind"], "label": _gap_trim(found["quote"]),
+                   "quote": found["quote"], "url": found.get("url"),
+                   "filed": found.get("published"),
+                   "evidence": "headline", "source": found.get("source")}
+    except Exception:
+        out = None
+    _GAP_NEWS_CACHE[symbol] = (time.time(), out)
+    return out
+
+
 def _gap_catalyst(symbol: str) -> dict:
     """Today's catalyst tag from REAL sources only: earnings (bulk calendar
     with BMO/AMC timing), FDA approvals and rejections plus offering/dilution
@@ -5264,6 +5328,11 @@ def _gap_catalyst(symbol: str) -> dict:
                 return {"kind": "MACRO", "label": f"{m.get('kind')} today"}
     except Exception:
         pass
+    # Nothing was filed and no feed knows anything. Only now is it worth
+    # reading headlines, for the two catalysts nobody ever files.
+    hl = _gap_news_catalyst(symbol)
+    if hl:
+        return hl
     return {"kind": "UNTAGGED", "label": None}
 
 

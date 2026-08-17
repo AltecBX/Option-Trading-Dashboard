@@ -472,6 +472,32 @@ class TestDealAndTrialText(unittest.TestCase):
     def test_deal_and_trial_risk_language_is_not_an_event(self):
         self.assertIsNone(sf.classify_filing(DEAL_RISK_8K, "8.01", "2026-06-29")[0])
 
+    def test_guidance_moved_outside_a_quarterly_report(self):
+        # Trex really did raise full-year guidance in a mid-July 8-K, which
+        # is a preannouncement rather than an earnings gap
+        raised = ("Trex Company Raises Full Year Guidance. Action aligns with "
+                  "Trex's stated long term strategic priority to optimize its "
+                  "channels for growth.")
+        self.assertEqual(sf.classify_filing(raised, "7.01,9.01", "2026-07-13")[0],
+                         "GUIDANCE RAISED")
+        cut = ("The Company today lowered its full-year revenue outlook to a "
+               "range of $410 million to $420 million.")
+        self.assertEqual(sf.classify_filing(cut, "8.01", "2026-07-13")[0],
+                         "GUIDANCE CUT")
+
+    def test_guidance_inside_a_quarterly_release_is_left_to_earnings(self):
+        # AMETEK raises guidance in its 2.02 release every quarter; that day
+        # is the earnings gap and earnings already outranks this
+        raised = "AMETEK Reports Record Second Quarter Results and Raises Full-Year Guidance"
+        self.assertIsNone(sf.classify_filing(raised, "2.02,9.01", "2026-08-04")[0])
+
+    def test_a_response_to_a_short_seller_is_tagged(self):
+        text = ("Item 8.01. On August 5, 2026, the Company issued a press "
+                "release responding to the short-seller report published "
+                "earlier that day.")
+        self.assertEqual(sf.classify_filing(text, "8.01", "2026-08-05")[0],
+                         "SHORT REPORT")
+
     def test_ranking_puts_the_consequential_first(self):
         self.assertTrue(sf._rank("BANKRUPTCY") > sf._rank("BUYOUT")
                         > sf._rank("FDA APPROVAL") > sf._rank("MERGER VOTE")

@@ -9,7 +9,7 @@ change), never inferred, and a row the feed itself calls 'reiterate' or
 
 import os
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 os.environ.setdefault("JERRY_NO_NET", "1")
 
@@ -421,6 +421,122 @@ class TestDealsAndTheRestOfTheTaxonomy(SecBase):
             self.assertEqual(od._gap_catalyst("ZZZZ")["kind"], "EARNINGS")
         finally:
             od._gap_earn_hist = real
+
+
+class TestHeadlineCatalysts(SecBase):
+    """The only tags that come from a headline rather than a filing — and
+    the last thing asked, because that is what the evidence deserves."""
+
+    def setUp(self):
+        super().setUp()
+        self._news = (od._NEWS_AVAILABLE, od._news, od._NEWS_CATALYST_AVAILABLE)
+        self._no_net = os.environ.pop("JERRY_NO_NET", None)
+        od._GAP_NEWS_CACHE.clear()
+        od._GAP_NEWS_BUDGET.update(window=0.0, spent=0)
+        # the name lookup would otherwise download the SEC ticker index,
+        # and these tests run with the network flag lifted
+        self._real_name = od._gap_company_name
+        od._gap_company_name = lambda s: f"{s} Corp"
+
+    def tearDown(self):
+        od._NEWS_AVAILABLE, od._news, od._NEWS_CATALYST_AVAILABLE = self._news
+        if self._no_net is not None:
+            os.environ["JERRY_NO_NET"] = self._no_net
+        od._GAP_NEWS_CACHE.clear()
+        od._gap_company_name = self._real_name
+        super().tearDown()
+
+    def wire_news(self, items, calls=None):
+        class FakeNews:
+            def get_news(self_inner, symbol, name=None, limit=40):
+                if calls is not None:
+                    calls.append(symbol)
+                return {"items": items}
+
+        od._NEWS_AVAILABLE, od._news = True, FakeNews()
+        od._NEWS_CATALYST_AVAILABLE = True
+
+    def _story(self, title):
+        return [{"title": title, "source": "Reuters",
+                 "url": "https://example.test/story",
+                 "published": (datetime.now(timezone.utc)
+                               - timedelta(hours=2)).isoformat()}]
+
+    def _quiet(self):
+        self._no_earn = od._gap_earn_hist
+        od._gap_earn_hist = lambda s: set()
+        self.addCleanup(lambda: setattr(od, "_gap_earn_hist", self._no_earn))
+        real_macro = od._edge_macro_events
+        od._edge_macro_events = lambda: []
+        self.addCleanup(lambda: setattr(od, "_edge_macro_events", real_macro))
+        self.wire(board_actions=[])
+        self.sec()
+
+    def test_a_short_seller_report_is_tagged_and_marked_as_a_headline(self):
+        self._quiet()
+        self.wire_news(self._story(
+            "ACME slides after Hindenburg Research publishes short report"))
+        out = od._gap_catalyst("ACME")
+        self.assertEqual(out["kind"], "SHORT REPORT")
+        self.assertEqual(out["evidence"], "headline")
+        self.assertIn("Hindenburg", out["label"])
+        self.assertTrue(out["url"])
+
+    def test_index_inclusion_is_tagged(self):
+        self._quiet()
+        self.wire_news(self._story("ACME Will Be Added to the S&P 500"))
+        self.assertEqual(od._gap_catalyst("ACME")["kind"], "INDEX ADD")
+
+    def test_headlines_are_only_read_when_nothing_was_filed(self):
+        # the news feed costs four fetches a symbol, and a filing is better
+        # evidence anyway — so a filed catalyst must short-circuit it
+        calls = []
+        self._quiet()
+        self.wire_news(self._story("ACME hit by Muddy Waters short report"), calls)
+        self.sec(event={"kind": "OFFERING", "label": "Stock offering priced",
+                        "form": "424B5", "date": days_now()[0], "url": "u"})
+        self.assertEqual(od._gap_catalyst("ACME")["kind"], "OFFERING")
+        self.assertEqual(calls, [], "read the news feed despite a filed catalyst")
+
+    def test_nothing_anywhere_stays_untagged(self):
+        self._quiet()
+        self.wire_news(self._story("ACME names a new head of sales"))
+        out = od._gap_catalyst("ACME")
+        self.assertEqual(out["kind"], "UNTAGGED")
+        self.assertIsNone(out["label"])
+
+    def test_offline_never_reads_the_feed(self):
+        calls = []
+        self._quiet()
+        self.wire_news(self._story("ACME hit by Muddy Waters short report"), calls)
+        os.environ["JERRY_NO_NET"] = "1"
+        try:
+            self.assertEqual(od._gap_catalyst("ACME")["kind"], "UNTAGGED")
+        finally:
+            os.environ.pop("JERRY_NO_NET", None)
+        self.assertEqual(calls, [])
+
+    def test_the_lookup_is_capped_so_a_slow_feed_cannot_stall_a_scan(self):
+        calls = []
+        self._quiet()
+        self.wire_news(self._story("ACME names a new head of sales"), calls)
+        od._GAP_NEWS_BUDGET.update(window=0.0, spent=0)
+        for i in range(od._GAP_NEWS_PER_WINDOW + 4):
+            od._gap_catalyst(f"SYM{i}")
+        self.assertEqual(len(calls), od._GAP_NEWS_PER_WINDOW,
+                         "the per-window cap did not hold")
+        # nothing is cached as "no catalyst" just because the budget ran out
+        self.assertNotIn(f"SYM{od._GAP_NEWS_PER_WINDOW + 1}", od._GAP_NEWS_CACHE)
+
+    def test_a_broken_news_feed_never_breaks_the_scan(self):
+        class Boom:
+            def get_news(self, *a, **k):
+                raise RuntimeError("news down")
+
+        self._quiet()
+        od._NEWS_AVAILABLE, od._news = True, Boom()
+        od._NEWS_CATALYST_AVAILABLE = True
+        self.assertEqual(od._gap_catalyst("ACME")["kind"], "UNTAGGED")
 
 
 class TestCatalystPriority(CatalystBase):
