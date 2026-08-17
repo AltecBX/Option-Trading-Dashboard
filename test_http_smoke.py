@@ -224,6 +224,7 @@ for p in [
     "/api/edge/scan",
     "/api/gap",
     "/api/gap/config",
+    "/api/gap/live",
     f"/api/gap/detail?symbol={S}",
     f"/api/gap/events?symbol={S}",
     f"/api/gap/backtest?symbol={S}",

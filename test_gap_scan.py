@@ -401,6 +401,101 @@ class TestFunnel(unittest.TestCase):
                 os.environ.pop("JERRY_NO_NET", None)
 
 
+class TestLiveQuoteRefresh(unittest.TestCase):
+    """The board is scanned every few minutes, but the price must not be
+    frozen between scans (user-reported 8-17-2026: detail showed $11.70
+    while the live quote was $11.58)."""
+
+    def _board(self, tmp):
+        gap_days, minute_days = fady_history()
+        minute_days[TODAY.isoformat()] = minute_day(TODAY, 100.0, 6.6, 6.2, 6.2)[:150]
+        sc = FakeSchwab(gap_days, minute_days,
+                        {"FAKE": quote(106.2, 100.0), "SPY": quote(500.0, 499.5)})
+        wire(tmp, sc)
+        # pin the clock to the fixture's premarket so the scan sees today's
+        # synthetic PM tape (the worker otherwise reads the real wall clock)
+        real = gs._now_et
+        gs._now_et = lambda: datetime.combine(TODAY, dtime(8, 45), tzinfo=ET)
+        try:
+            gs._scan_worker()
+        finally:
+            gs._now_et = real
+        return sc
+
+    def test_price_and_gap_update_without_rescan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sc = self._board(tmp)
+            before = gs.get_board()["rows"][0]
+            self.assertAlmostEqual(before["price"], 106.2, places=2)
+            stats_before = (before["p_fav"], before["tbs_p"], before["n"])
+            sc.quotes["FAKE"] = quote(103.4, 100.0)
+            out = gs.refresh_quotes()
+            self.assertTrue(out["ok"])
+            r = gs.get_board()["rows"][0]
+            self.assertAlmostEqual(r["price"], 103.4, places=2)
+            self.assertAlmostEqual(r["pm_gap_pct"], 3.4, places=2)
+            self.assertTrue(r["price_as_of"])
+            # history-derived numbers are untouched — they cannot move tick
+            # to tick, and recomputing them would cost a full rescan
+            self.assertEqual((r["p_fav"], r["tbs_p"], r["n"]), stats_before)
+            self.assertEqual(out["quotes"]["FAKE"]["price"], 103.4)
+
+    def test_pm_high_extends_monotonically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sc = self._board(tmp)
+            hi0 = gs.get_board()["rows"][0]["pm_high"]
+            self.assertIsNotNone(hi0, "scan must record the known PM high")
+            # a new print above the known high extends it; distance -> 0
+            sc.quotes["FAKE"] = quote(hi0 * 1.02, 100.0)
+            gs.refresh_quotes()
+            r = gs.get_board()["rows"][0]
+            self.assertGreater(r["pm_high"], hi0)
+            self.assertAlmostEqual(r["from_pm_high_pct"], 0.0, places=2)
+            # a lower print never lowers the known high
+            peak = r["pm_high"]
+            sc.quotes["FAKE"] = quote(peak * 0.97, 100.0)
+            gs.refresh_quotes()
+            r2 = gs.get_board()["rows"][0]
+            self.assertAlmostEqual(r2["pm_high"], peak, places=6)
+            self.assertLess(r2["from_pm_high_pct"], -2.0)
+
+    def test_stale_quote_escalates_immediately(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sc = self._board(tmp)
+            self.assertNotEqual(gs.get_board()["rows"][0]["signal"], "NO DATA")
+            sc.quotes["FAKE"] = quote(106.2, 100.0, age=1200.0)
+            gs.refresh_quotes()
+            r = gs.get_board()["rows"][0]
+            self.assertEqual(r["signal"], "NO DATA")
+            self.assertFalse(r["live_ok"])
+            self.assertIn("freshness", r["signal_why"])
+
+    def test_direction_flip_escalates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sc = self._board(tmp)
+            self.assertEqual(gs.get_board()["rows"][0]["direction"], "up")
+            sc.quotes["FAKE"] = quote(96.0, 100.0)     # gap flipped negative
+            gs.refresh_quotes()
+            r = gs.get_board()["rows"][0]
+            self.assertEqual(r["signal"], "NO DATA")
+            self.assertIn("flipped direction", r["signal_why"])
+
+    def test_offline_and_empty_board_are_safe(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            self._board(tmp)
+            os.environ["JERRY_NO_NET"] = "1"
+            try:
+                self.assertFalse(gs.refresh_quotes()["ok"])
+            finally:
+                os.environ.pop("JERRY_NO_NET", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            wire(tmp, FakeSchwab())
+            out = gs.refresh_quotes()
+            self.assertTrue(out["ok"])
+            self.assertEqual(out["quotes"], {})
+
+
 class TestBacktestGrid(unittest.TestCase):
     def test_walk_forward_grid(self):
         gap_days, minute_days = fady_history()

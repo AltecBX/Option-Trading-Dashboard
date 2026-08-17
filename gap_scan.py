@@ -54,7 +54,7 @@ _DATA_DIR: Path | None = None
 _LOCK = threading.Lock()
 _STATE = {"scanning": False, "scanned": 0, "total": 0, "last_scan": None,
           "universe_size": 0, "error": None, "rows": [], "as_of": None,
-          "context": {}, "session": None}
+          "context": {}, "session": None, "price_as_of": None}
 _HYST: dict = {}             # symbol -> hysteresis memory
 _PREV_ROWS: dict = {}        # symbol -> previous row (what-changed)
 _STORE_LOCK = threading.Lock()
@@ -444,6 +444,10 @@ def analyze_symbol(sym: str, q: dict, etf_gaps: dict | None = None,
         "pm_gap_pct": round(gap, 2), "direction": direction,
         "from_pm_high_pct": pmf.get("from_pm_high_pct") if pmf else None,
         "from_pm_low_pct": pmf.get("from_pm_low_pct") if pmf else None,
+        # kept so the cheap live refresh can extend the known PM range
+        # between full scans without refetching the premarket tape
+        "pm_high": pmf.get("pm_high") if pmf else None,
+        "pm_low": pmf.get("pm_low") if pmf else None,
         "trend_30m_pct": pmf.get("trend_30m_pct") if pmf else None,
         "pm_volume": pmf.get("pm_volume") if pmf else None,
         "catalyst_kind": cat.get("kind", "UNTAGGED"),
@@ -653,10 +657,98 @@ def trigger_scan(force: bool = False) -> dict:
     return {"started": True}
 
 
+def refresh_quotes() -> dict:
+    """Cheap live-price refresh for the rows already on the board.
+
+    A full scan is expensive (history, minute paths, event-store work) so it
+    runs on a multi-minute cadence — but the PRICE and the gap it implies
+    move every second, and a stale price next to a live signal is exactly
+    the kind of thing that gets a trade wrong. This does ONE batched quote
+    call and updates only what genuinely changes tick to tick:
+
+      price · pm_gap_pct · the known premarket high/low (monotone: the high
+      so far can only rise, the low only fall, so max/min against the new
+      print is exact) · distance from that high/low · quote freshness.
+
+    The statistics behind a row (probabilities, target-before-stop, MAE,
+    cohort) are properties of HISTORY and cannot move between scans, so
+    they are deliberately untouched.
+
+    Two conditions escalate immediately (spec §29 — risk escalations bypass
+    hysteresis): a quote that fails the freshness/spread gate, and a gap
+    that flips sign, which invalidates the direction the cohort was built
+    for. Both drop the row to NO DATA rather than letting it keep wearing a
+    clean FADE."""
+    sc = _SCHWAB_FN() if _SCHWAB_FN else None
+    if os.environ.get("JERRY_NO_NET") or not sc:
+        return {"ok": False, "reason": "quotes unavailable", "quotes": {}}
+    with _LOCK:
+        syms = [r["symbol"] for r in _STATE["rows"]
+                if r.get("symbol") and r.get("data_ok") is not False]
+    if not syms:
+        return {"ok": True, "quotes": {}, "as_of": None}
+    quotes: dict = {}
+    for i in range(0, len(syms), 200):
+        try:
+            quotes.update(sc.get_quotes(syms[i:i + 200]) or {})
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)[:200], "quotes": {}}
+    cfg = _cfg()
+    now = _now_et()
+    stamp = now.isoformat(timespec="seconds")
+    out: dict = {}
+    with _LOCK:
+        for r in _STATE["rows"]:
+            q = quotes.get(r.get("symbol"))
+            if not q:
+                continue
+            price = q.get("last")
+            prev_close = q.get("close_prev") or r.get("prev_close")
+            if not price or not prev_close or prev_close <= 0:
+                continue
+            gap = ge.live_gap_pct(price, prev_close)
+            fresh, why = _quote_fresh(q, cfg)
+            hi = max(r.get("pm_high") or price, price)
+            lo = min(r.get("pm_low") or price, price)
+            age = q.get("stale_seconds")
+            r.update({
+                "price": price, "prev_close": prev_close,
+                "pm_gap_pct": round(gap, 2) if gap is not None else None,
+                "pm_high": hi, "pm_low": lo,
+                "from_pm_high_pct": round((price / hi - 1.0) * 100.0, 2) if hi else None,
+                "from_pm_low_pct": round((price / lo - 1.0) * 100.0, 2) if lo else None,
+                "quote_age_s": round(age, 1) if age is not None else None,
+                "live_ok": bool(fresh), "live_why": why,
+                "price_as_of": stamp,
+            })
+            flipped = (gap is not None and r.get("direction")
+                       and ((gap >= 0) != (r["direction"] == "up")))
+            if (not fresh or flipped) and r.get("signal") != "NO DATA":
+                r["signal"] = "NO DATA"
+                r["signal_why"] = ("gap flipped direction since the last scan — "
+                                   "the historical cohort no longer applies"
+                                   if flipped else
+                                   f"live quote failed the freshness gate ({why})")
+                r["signal_held"] = False
+                _HYST[r["symbol"]] = ge.apply_hysteresis(
+                    _HYST.get(r["symbol"]), "NO DATA", True, cfg)
+            out[r["symbol"]] = {
+                "price": price, "pm_gap_pct": r["pm_gap_pct"],
+                "from_pm_high_pct": r["from_pm_high_pct"],
+                "from_pm_low_pct": r["from_pm_low_pct"],
+                "quote_age_s": r["quote_age_s"], "live_ok": r["live_ok"],
+                "live_why": r["live_why"], "signal": r["signal"],
+                "signal_why": r["signal_why"],
+            }
+        _STATE["price_as_of"] = stamp
+    return {"ok": True, "as_of": stamp, "quotes": out}
+
+
 def get_board() -> dict:
     with _LOCK:
         return {
             "as_of": _STATE["as_of"],
+            "price_as_of": _STATE.get("price_as_of"),
             "status": {k: _STATE[k] for k in
                        ("scanning", "scanned", "total", "last_scan",
                         "universe_size", "error")},

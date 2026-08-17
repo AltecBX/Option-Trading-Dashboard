@@ -444,7 +444,7 @@
       ]
     },
     "scan": {
-      "_doc": "Premarket funnel. Stage 1 = one quote batch over the universe (watchlist + analyst universe + index/sector ETFs), gap >= min_gap_pct and fresh quotes only. Stage 2 = top max_candidates get premarket minute bars + event-store stats. Chain-free: budget is quotes + 1 minute-history call per candidate + backfill. Defer when Schwab budget is above budget_req_per_min.",
+      "_doc": "Premarket funnel. Stage 1 = one quote batch over the universe (watchlist + analyst universe + index/sector ETFs), gap >= min_gap_pct and fresh quotes only. Stage 2 = top max_candidates get premarket minute bars + event-store stats. Chain-free: budget is quotes + 1 minute-history call per candidate + backfill. Defer when Schwab budget is above budget_req_per_min. Between full scans the board refreshes PRICES ONLY every live_refresh_seconds with one batched quote call (history-derived statistics cannot change tick to tick).",
       "min_gap_pct": 3.0,
       "max_candidates": 20,
       "cadence_minutes": 5,
@@ -453,7 +453,8 @@
       "record_et": "16:10",
       "budget_req_per_min": 70,
       "minute_backfill_per_scan": 6,
-      "min_avg_volume": 300000
+      "min_avg_volume": 300000,
+      "live_refresh_seconds": 15
     },
     "context": {
       "_doc": "Market/sector context. SECTOR DRIVEN when the sector ETF moved sector_min_pct in the same direction and the stock's gap is under isolated_ratio x the sector move; ISOLATED otherwise.",
