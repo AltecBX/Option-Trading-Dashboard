@@ -21,6 +21,29 @@ const edgeIvPct = v => v == null ? "—" : `${(v * 100).toFixed(1)}%`;
 const edgeNum = (v, d = 2) => v == null ? "—" : Number(v).toFixed(d);
 const edgeProb = v => v == null ? "—" : `${(v * 100).toFixed(1)}%`;
 const edgeSgn = (v, d = 1) => v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}`;
+// Dates render as "Oct 28, 2026" — never raw ISO (house rule: Month Day, Year).
+const edgeDate = s => {
+  if (!s) return "—";
+  const d = new Date(String(s).length <= 10 ? `${s}T12:00:00` : s);
+  return Number.isNaN(d.getTime()) ? String(s) : d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+};
+const edgeWhen = s => {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return `${d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  })} ` + d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+};
 function EdgeSigPill({
   signal
 }) {
@@ -115,12 +138,12 @@ function EdgeVrpChart({
     x: L,
     y: H - 4,
     className: "edge-chart-lbl"
-  }, pts[0].date), /*#__PURE__*/React.createElement("text", {
+  }, edgeDate(pts[0].date)), /*#__PURE__*/React.createElement("text", {
     x: W - R,
     y: H - 4,
     className: "edge-chart-lbl",
     textAnchor: "end"
-  }, last.date));
+  }, edgeDate(last.date)));
 }
 function EdgeIvErvChart({
   obs
@@ -205,7 +228,7 @@ function EdgeTermChart({
     cy: y(r.iv),
     r: "3",
     className: r.covers_earnings ? "edge-dot-earn" : "edge-dot"
-  }, /*#__PURE__*/React.createElement("title", null, `${r.exp} · ${r.dte}d · IV ${edgeIvPct(r.iv)}${r.covers_earnings ? " · covers earnings" : ""}`)), /*#__PURE__*/React.createElement("text", {
+  }, /*#__PURE__*/React.createElement("title", null, `${edgeDate(r.exp)} · ${r.dte}d · IV ${edgeIvPct(r.iv)}${r.covers_earnings ? " · covers earnings" : ""}`)), /*#__PURE__*/React.createElement("text", {
     x: x(r.dte),
     y: H - 6,
     className: "edge-chart-lbl",
@@ -405,7 +428,7 @@ function EdgeBacktestPanel({
     className: "scan-num down"
   }, g.es_5pct != null ? `$${g.es_5pct}` : "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, g.max_drawdown_pct != null ? `${g.max_drawdown_pct}%` : "—"), /*#__PURE__*/React.createElement("td", {
+  }, g.max_drawdown_pct != null ? `${edgeNum(g.max_drawdown_pct, 1)}%` : "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, g.assignments ?? "—"))))))));
 }
@@ -479,7 +502,7 @@ function EdgeDetail({
     title: "Open this ticker on the Trade tab."
   }, "Trade tab \u2192")), r && /*#__PURE__*/React.createElement("div", {
     className: "card-sub"
-  }, "as of ", r.as_of, " \xB7 engine ", d.engine && d.engine.version, " \xB7 spot $", r.spot))), err && /*#__PURE__*/React.createElement("div", {
+  }, "as of ", edgeWhen(r.as_of), " \xB7 engine ", d.engine && d.engine.version, " \xB7 spot $", r.spot))), err && /*#__PURE__*/React.createElement("div", {
     className: "card-error"
   }, err), !d && !err && /*#__PURE__*/React.createElement("div", {
     className: "card-loading"
@@ -542,7 +565,7 @@ function EdgeDetail({
     onClick: () => pickIntent(k)
   }, lbl))), d.structures ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "edge-note"
-  }, "Expiry ", /*#__PURE__*/React.createElement("b", null, d.structures.expiry), " (", d.structures.dte, "d)", " ", "\u2014 chosen as the richest tenor inside the seller window, not a fixed 30 DTE.", " ", "Probabilities are ", /*#__PURE__*/React.createElement("b", null, "model"), " (driftless lognormal at Expected RV) \u2014 the breach table below shows this ticker's MEASURED history."), /*#__PURE__*/React.createElement("div", {
+  }, "Expiry ", /*#__PURE__*/React.createElement("b", null, edgeDate(d.structures.expiry)), " (", d.structures.dte, "d)", " ", "\u2014 chosen as the richest tenor inside the seller window, not a fixed 30 DTE.", " ", "Probabilities are ", /*#__PURE__*/React.createElement("b", null, "model"), " (driftless lognormal at Expected RV) \u2014 the breach table below shows this ticker's MEASURED history."), /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table edge-struct-table"
@@ -913,7 +936,7 @@ function EdgeTab({
     onClick: () => setSigFilter(s)
   }, s || "All", " ", /*#__PURE__*/React.createElement("b", null, s ? rows.filter(r => r.signal === s).length : rows.length))), /*#__PURE__*/React.createElement("span", {
     className: "muted edge-asof"
-  }, "as of ", board.as_of || "—", board.market_open === false ? " · market closed (quotes = last session)" : "")), /*#__PURE__*/React.createElement("div", {
+  }, "as of ", edgeWhen(board.as_of), board.market_open === false ? " · market closed (quotes = last session)" : "")), /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table edge-table"
@@ -949,9 +972,9 @@ function EdgeTab({
     className: `scan-num ${(r.rr25_volpts ?? 0) > 0 ? "up" : "down"}`
   }, edgeSgn(r.rr25_volpts)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, r.earnings_inside ? /*#__PURE__*/React.createElement("b", null, r.earnings_date) : r.earnings_date || "—"), /*#__PURE__*/React.createElement("td", {
+  }, r.earnings_inside ? /*#__PURE__*/React.createElement("b", null, edgeDate(r.earnings_date)) : r.earnings_date ? edgeDate(r.earnings_date) : "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num edge-struct-cell"
-  }, r.best_kind ? `${(r.best_kind || "").replace(/_/g, " ")} ${r.best_strike ?? ""} ${r.best_expiry || ""} $${edgeNum(r.best_credit)}` : "—"), /*#__PURE__*/React.createElement("td", {
+  }, r.best_kind ? `${(r.best_kind || "").replace(/_/g, " ")} ${r.best_strike ?? ""} ${r.best_expiry ? edgeDate(r.best_expiry) : ""} $${edgeNum(r.best_credit)}` : "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, edgeProb(r.best_p_itm)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
