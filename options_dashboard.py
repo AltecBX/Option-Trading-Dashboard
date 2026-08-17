@@ -4961,6 +4961,7 @@ try:
         market_open_fn=lambda now=None: _intraday.market_open(),
         data_dir=_STABLE_DIR,
         et_tz=_ET,
+        watchlist_fn=_backtest_universe,
     )
     _EDGE_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001
