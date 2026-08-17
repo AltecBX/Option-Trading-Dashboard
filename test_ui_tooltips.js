@@ -128,6 +128,18 @@ check("edge: signal filter chips tipped", /title=\{s \? `Show only names/.test(e
 // ── Gap news freshness ──────────────────────────────────────────────────
 check("gap news is limited to a few days", /GAP_NEWS_MAX_DAYS = 3/.test(src)
   && /published \? new Date\(n\.published\)/.test(src));
+// Move columns speak the trader's language and follow today's setup.
+check("move columns are direction-aware", /GAP_MOVE_LABELS/.test(src)
+  && /Max fade ↓/.test(src) && /Max squeeze ↑/.test(src)
+  && /Max rebound ↑/.test(src) && /Max flush ↓/.test(src));
+check("no generic Favorable/Adverse headers remain",
+  !/th\("Favorable"/.test(src) && !/th\("Adverse"/.test(src));
+check("per-row arrows follow that row's own direction",
+  /e\.direction === "up" \? "↓" : "↑"/.test(src)
+  && /e\.direction === "up" \? "↑" : "↓"/.test(src));
+check("sort marker cannot be confused with meaning arrows",
+  /dir === 1 \? " ▾" : " ▴"/.test(src));
+
 check("gap direction cells use dedicated color classes",
   /gap-dir-up/.test(src) && /gap-dir-down/.test(src));
 

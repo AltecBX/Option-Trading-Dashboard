@@ -11912,3 +11912,5 @@ a.tabsheet-btn.site { text-decoration: none; }
    are only styled inside specific components, so a bare <td> stayed grey. */
 .gap-dir-up { color: var(--up, #22c55e); font-weight: 600; }
 .gap-dir-down { color: var(--down, #ef4444); font-weight: 600; }
+/* Direction arrows inside numeric cells — dimmed so the number leads. */
+.gap-arrow { opacity: .55; font-size: 11px; }
