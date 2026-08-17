@@ -42,12 +42,27 @@ const gapDateDow = s => {
 // Catalyst names are spelled out — no insider shorthand in the UI.
 const GAP_CATALYST_LABEL = {
   EARNINGS: "Earnings",
+  UPGRADE: "Upgrade",
+  DOWNGRADE: "Downgrade",
   "ANALYST ACTION": "Analyst action",
   MACRO: "Macro event",
-  OFFERING: "Offering",
   UNTAGGED: "None tagged"
 };
+// An upgrade behind a gap up confirms the move; a downgrade behind one is a
+// very different animal. Color says which way the analyst leaned.
+const GAP_CATALYST_TONE = {
+  UPGRADE: "up",
+  DOWNGRADE: "down"
+};
 const gapCatalyst = k => GAP_CATALYST_LABEL[k] || k || "None tagged";
+const GAP_CATALYST_TIP = {
+  EARNINGS: "The company reported earnings today or last night. Earnings gaps are kept in their OWN statistical population and never mixed with ordinary gaps — the probabilities you see are measured only against this stock's other earnings gaps.",
+  UPGRADE: "An analyst raised their rating on this stock today or yesterday. Hover the label for the firm and the grade change. Note this is context, not part of the statistics — only earnings days are separated into their own population.",
+  DOWNGRADE: "An analyst cut their rating on this stock today or yesterday. A downgrade behind a gap UP is worth a hard look — the move is fighting the news. Context only: only earnings days are separated in the statistics.",
+  "ANALYST ACTION": "An initiation or price-target change today or yesterday. Context only — it is not separated in the statistics the way earnings are.",
+  MACRO: "A scheduled market-wide event (CPI, FOMC or the jobs report) lands today, so much of this move may be the whole market rather than the stock. Context only.",
+  UNTAGGED: "No earnings, rating change or macro event was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, analyst feeds, macro schedule) show one. Check the news feed in the detail view."
+};
 const gapTime = s => {
   if (!s) return "—";
   const d = new Date(s);
@@ -356,8 +371,10 @@ function GapDetail({
   }, /*#__PURE__*/React.createElement("span", null, r.direction === "up" ? "Off premarket high" : "Off premarket low"), /*#__PURE__*/React.createElement("b", null, gapPct(r.direction === "up" ? r.from_pm_high_pct : r.from_pm_low_pct))), /*#__PURE__*/React.createElement("div", {
     title: "Which way the premarket tape has drifted over the last 30 minutes. Negative on a gap up means it's already rolling over."
   }, /*#__PURE__*/React.createElement("span", null, "Last 30 min"), /*#__PURE__*/React.createElement("b", null, gapPct(r.trend_30m_pct))), /*#__PURE__*/React.createElement("div", {
-    title: "What is known to be driving this move, from real data sources only: Earnings (with reporting time), Analyst action, or a Macro event day. 'None tagged' means no earnings, analyst action or macro event was found \u2014 not that nothing happened."
-  }, /*#__PURE__*/React.createElement("span", null, "Catalyst"), /*#__PURE__*/React.createElement("b", null, gapCatalyst(r.catalyst_kind), r.catalyst_label ? ` · ${r.catalyst_label}` : "")), /*#__PURE__*/React.createElement("div", {
+    title: GAP_CATALYST_TIP[r.catalyst_kind] || "What is known to be driving this move, from real data sources only."
+  }, /*#__PURE__*/React.createElement("span", null, "Catalyst"), /*#__PURE__*/React.createElement("b", {
+    className: GAP_CATALYST_TONE[r.catalyst_kind] || ""
+  }, gapCatalyst(r.catalyst_kind), r.catalyst_label ? ` · ${r.catalyst_label}` : "")), /*#__PURE__*/React.createElement("div", {
     title: r.days_to_earnings == null ? "No scheduled earnings date found for this ticker." : `Next scheduled report: ${gapDateDow(r.next_earnings)}. A fade that has to survive an earnings report is a different trade from one with a clear runway.`
   }, /*#__PURE__*/React.createElement("span", null, "Next earnings"), /*#__PURE__*/React.createElement("b", {
     className: r.days_to_earnings != null && r.days_to_earnings <= 7 ? "down" : ""
@@ -631,6 +648,8 @@ function GapTab({
           return -(r.tbs_p ?? -1);
         case "adv":
           return r.med_adverse_pct ?? 99;
+        case "cat":
+          return r.catalyst_kind === "UNTAGGED" ? "zzz" : r.catalyst_kind || "zzz";
         case "n":
           return -(r.n ?? 0);
         default:
@@ -696,7 +715,7 @@ function GapTab({
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table gap-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, th("Ticker", "symbol", "The premarket mover. Click any row to open the full evidence: every historical gap, the news, and the target/stop grid. The colored dot shows how closely today's setup matches the historical examples — green is a close match, grey is a loose one."), th("Price", "rank", "Current premarket price. Refreshes every 15 seconds.", true), th("Premarket gap", "gap", "How far the current price is from yesterday's closing price. This is the LIVE gap and it keeps moving until 9:30 — it is not the official opening gap the history is measured from."), th("Off high/low", "rank", "For a gap up: how far the price has already pulled back from the highest premarket price so far. For a gap down: how far it has bounced off the low. Note 'so far' — the final premarket high doesn't exist until 9:30.", true), th("Catalyst", "rank", "What is known to be driving the move, from real data only: Earnings (the company reported), Analyst action, or a Macro event day. 'None tagged' means none of those were found — it does not mean nothing is happening. Earnings gaps are only ever compared against this stock's other earnings gaps.", true), th("Fades 2%", "p2", "How often this stock's comparable past gaps moved at least 2% in the profitable direction from the opening price — down for a gap up, up for a gap down. The small number after the dot is how many historical examples that rate is based on. Hover the value for the conservative range."), th("Hits target first", "tbs", "How often the 2% profit target printed BEFORE a 3% stop would have been hit, measured minute by minute on real historical paths. A dash means only daily bars exist for those days — daily bars show how far a stock moved but not in what order, so no honest claim is made."), th("Squeeze / flush", "adv", "The typical move AGAINST the trade before it resolved: for a gap up that means the squeeze higher, for a gap down the flush lower. A gap that eventually fades but squeezes 4% higher first is not a comfortable short. Each row's arrow shows which way.", true), th("Examples", "n", "How many comparable historical events back these numbers. No sample size, no probability — a rate from 3 events is not a rate.", true), th("Signal", "rank", "The call. STRONG requires the favorable rate AND the target-before-stop rate AND controlled tail risk AND enough examples — all judged on the conservative end of each range, never on one flattering number. NO DATA means the evidence or the live quote isn't good enough to say anything."))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, th("Ticker", "symbol", "The premarket mover. Click any row to open the full evidence: every historical gap, the news, and the target/stop grid. The colored dot shows how closely today's setup matches the historical examples — green is a close match, grey is a loose one."), th("Price", "rank", "Current premarket price. Refreshes every 15 seconds.", true), th("Premarket gap", "gap", "How far the current price is from yesterday's closing price. This is the LIVE gap and it keeps moving until 9:30 — it is not the official opening gap the history is measured from."), th("Off high/low", "rank", "For a gap up: how far the price has already pulled back from the highest premarket price so far. For a gap down: how far it has bounced off the low. Note 'so far' — the final premarket high doesn't exist until 9:30.", true), th("Catalyst", "cat", "What is known to be driving the move, from real data only: Earnings, an analyst Upgrade or Downgrade (green/red — hover a cell for the firm and grade change), another Analyst action such as an initiation or target change, or a Macro event day. 'None tagged' means none of those were found, NOT that nothing happened. Only earnings gaps are separated into their own statistical population; the rest is context. Click to group by catalyst.", true), th("Fades 2%", "p2", "How often this stock's comparable past gaps moved at least 2% in the profitable direction from the opening price — down for a gap up, up for a gap down. The small number after the dot is how many historical examples that rate is based on. Hover the value for the conservative range."), th("Hits target first", "tbs", "How often the 2% profit target printed BEFORE a 3% stop would have been hit, measured minute by minute on real historical paths. A dash means only daily bars exist for those days — daily bars show how far a stock moved but not in what order, so no honest claim is made."), th("Squeeze / flush", "adv", "The typical move AGAINST the trade before it resolved: for a gap up that means the squeeze higher, for a gap down the flush lower. A gap that eventually fades but squeezes 4% higher first is not a comfortable short. Each row's arrow shows which way.", true), th("Examples", "n", "How many comparable historical events back these numbers. No sample size, no probability — a rate from 3 events is not a rate.", true), th("Signal", "rank", "The call. STRONG requires the favorable rate AND the target-before-stop rate AND controlled tail risk AND enough examples — all judged on the conservative end of each range, never on one flattering number. NO DATA means the evidence or the live quote isn't good enough to say anything."))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
     className: "scan-row gap-row",
     onClick: () => r.data_ok !== false && setGapSym(r.symbol),
@@ -710,8 +729,8 @@ function GapTab({
   }, /*#__PURE__*/React.createElement("b", null, gapPct(r.pm_gap_pct))), /*#__PURE__*/React.createElement("td", {
     className: "scan-num gap-hidemobile"
   }, gapPct(r.direction === "up" ? r.from_pm_high_pct : r.from_pm_low_pct)), /*#__PURE__*/React.createElement("td", {
-    className: "gap-hidemobile",
-    title: r.catalyst_label || gapCatalyst(r.catalyst_kind)
+    className: `gap-hidemobile ${GAP_CATALYST_TONE[r.catalyst_kind] ? "gap-cat-" + GAP_CATALYST_TONE[r.catalyst_kind] : ""}`,
+    title: (r.catalyst_label ? `${gapCatalyst(r.catalyst_kind)} — ${r.catalyst_label}\n\n` : "") + (GAP_CATALYST_TIP[r.catalyst_kind] || "")
   }, r.catalyst_kind === "UNTAGGED" ? /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, "\u2014") : gapCatalyst(r.catalyst_kind)), /*#__PURE__*/React.createElement("td", {

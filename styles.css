@@ -11914,3 +11914,6 @@ a.tabsheet-btn.site { text-decoration: none; }
 .gap-dir-down { color: var(--down, #ef4444); font-weight: 600; }
 /* Direction arrows inside numeric cells — dimmed so the number leads. */
 .gap-arrow { opacity: .55; font-size: 11px; }
+/* Catalyst tone: an upgrade behind a gap up confirms it, a downgrade fights it. */
+.gap-cat-up { color: var(--up); }
+.gap-cat-down { color: var(--down); }
