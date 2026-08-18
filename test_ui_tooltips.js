@@ -320,6 +320,10 @@ check("the chart offers 3Y and 5Y",
 // JSX tooltips wrap across lines, so this one is matched on whitespace-
 // normalized source rather than the raw file.
 const invFlat = inv.replace(/\s+/g, " ");
+// The same source with adjacent string literals joined, so a sentence that
+// the file splits across a `" +` line break still reads as one sentence to
+// these guards — which is how it reaches the screen.
+const invJoined = inv.replace(/"\s*\+\s*\n?\s*"/g, "").replace(/\s+/g, " ");
 check("price to sales is labelled as playing no part in the verdict",
   /plays NO part in the verdict/.test(invFlat));
 
@@ -536,6 +540,120 @@ check("wide Phase 3 tables scroll inside the house wrapper",
 
 check("the greeks sit behind an expander rather than in the decision row",
   /Greeks and contract detail/.test(invFlat));
+
+/* ── Phase 4 ──────────────────────────────────────────────────────────── */
+
+check("bank and property-trust panels exist and are shown only for their kind",
+  /function InvBank\(/.test(inv) && /function InvReit\(/.test(inv)
+  && /\{d\.bank && section\("bank"/.test(inv)
+  && /\{d\.reit && section\("reit"/.test(inv));
+
+check("every bank and property-trust tooltip is written out",
+  (() => {
+    for (const name of ["INV_BANK_TIP", "INV_REIT_TIP", "INV_CC_TIP",
+                        "INV_FWD_TIP"]) {
+      const block = (inv.match(new RegExp(`const ${name} = \\{[\\s\\S]*?\\n\\};`))
+                     || [""])[0];
+      if (!block) return `${name} missing`;
+      const keys = block.match(/^\s{2}\w+:/gm) || [];
+      if (keys.length < 5) return `${name} has only ${keys.length} entries`;
+    }
+    return true;
+  })());
+
+/* The Phase 4 panels pass their labels through a local stat() helper rather
+ * than as a literal label= attribute, so these read the helper calls. */
+const invStatLabels = (inv.match(/\{stat\("[^"]+"/g) || [])
+  .map((m) => m.slice(7, -1));
+
+check("what is not net interest margin is not called net interest margin",
+  /NOT net interest margin/.test(invJoined)
+  && !invStatLabels.includes("Net interest margin")
+  && invStatLabels.includes("Net interest income to average assets"));
+
+check("the efficiency ratio says which direction is good",
+  /LOWER IS BETTER/.test(invJoined));
+
+check("funds from operations is called a reconstruction on screen",
+  /RECONSTRUCTED from/.test(invJoined)
+  && /No property trust publishes funds from operations/.test(invJoined));
+
+check("adjusted funds from operations is refused in writing",
+  /it cannot be computed honestly/.test(invJoined)
+  && !/label="Price to adjusted funds/.test(inv));
+
+check("no insider shorthand in the Phase 4 labels", (() => {
+  if (invStatLabels.length < 25) return `only ${invStatLabels.length} labels`;
+  const shorthand = /^(FFO|AFFO|P\/TBV|P\/B|P\/FFO|ROTCE|ROE|NIM|CET1|MAE|MFE|NOI|TBV|DPS|NCO|NPL|TTM|EPS)\b/;
+  const bad = invStatLabels.filter((l) => shorthand.test(l));
+  if (bad.length) return bad.join(", ");
+  for (const want of ["Return on tangible common equity",
+                      "Price to funds from operations",
+                      "Price to tangible book value",
+                      "Payout of funds from operations"]) {
+    if (!invStatLabels.includes(want)) return `missing "${want}"`;
+  }
+  return true;
+})());
+
+check("every Phase 4 stat is given a tooltip",
+  (() => {
+    const calls = inv.match(/\{stat\([\s\S]{0,240}?\)\}/g) || [];
+    const untipped = calls.filter((c) => !/INV_(BANK|REIT)_TIP\./.test(c));
+    return untipped.length === 0
+      || `${untipped.length} of ${calls.length} without a named tooltip`;
+  })());
+
+check("the covered-call win rate is labelled as not a measure of success",
+  /NOT whether the strategy worked/.test(invJoined)
+  && /still loses to owning the shares/.test(invJoined));
+
+check("terminal wealth against buy and hold is named as the real comparison",
+  /THIS is the comparison that decides whether the strategy worked/
+    .test(invJoined));
+
+check("the buy-and-hold row is drawn as the yardstick, not another policy",
+  /inv-row-hold/.test(inv)
+  && /Owning the shares and doing nothing/.test(invFlat));
+
+check("real chain fills and model estimates are distinguished on screen",
+  /REAL CHAIN BACKTEST means/.test(invJoined)
+  && /Historical option quotes are never/.test(invJoined));
+
+check("the validation panel refuses a vanity accuracy score in writing",
+  /No accuracy score/.test(invFlat)
+  && !/accuracy_score/.test(inv) && !/investmentScore/.test(inv));
+
+check("small samples say INSUFFICIENT SAMPLE rather than showing a median",
+  /INSUFFICIENT SAMPLE/.test(invFlat) || /verdict \|\| invNA/.test(inv));
+
+check("the no-lookahead promise is stated where the reader can see it",
+  /Nothing is recomputed and nothing is rewritten/.test(invJoined)
+  && /Only COMPLETED horizons are counted/.test(invJoined));
+
+check("the exact recommended contract is named as the one scored",
+  /Never a better one chosen after seeing the outcome/.test(invJoined));
+
+check("configurations are kept apart rather than combined silently",
+  /shown separately rather than combined and called one strategy/
+    .test(invJoined));
+
+check("every Phase 4 table header carries a tooltip",
+  (() => {
+    const heads = inv.match(/<th\b[^>]*>/g) || [];
+    const untitled = heads.filter((t) => !/title=/.test(t));
+    return (heads.length > 60 && untitled.length === 0)
+      || `${heads.length} headers, ${untitled.length} untitled`;
+  })());
+
+check("the Phase 4 sections are expandable and tipped",
+  (() => {
+    for (const key of ["coveredcall", "validation", "bank", "reit"]) {
+      const re = new RegExp(`section\\("${key}", "[^"]+",\\s*\\n?\\s*"`);
+      if (!re.test(inv)) return `${key} section missing a tooltip`;
+    }
+    return true;
+  })());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

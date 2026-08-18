@@ -586,6 +586,54 @@
       "max_bid_ask_spread_pct": 25.0,
       "leaps_iv_history_days": 400,
       "leaps_tenor_tolerance": 0.3
+    },
+    "_phase4": "Phase 4 adds three things: a bank valued on tangible book and its own profitability, a property trust valued on reconstructed funds from operations, and two testing engines \u2014 a path-dependent covered-call simulator and forward validation of the recommendations this app has already recorded. Insurers and brokers are deliberately still refused: no model here is built for either, and half a model reads exactly like a whole one on screen.",
+    "bank": {
+      "_doc": "The bank model. Cost of equity is the ten-year Treasury plus a stated premium \u2014 a market-wide convention, never a per-company number fitted to make the answer come out. The justified multiple is (return on tangible common equity - growth) divided by (cost of equity - growth), which says that a bank earning exactly its cost of equity is worth exactly its tangible book.",
+      "bank_equity_risk_premium_pct": 5.0,
+      "bank_terminal_growth_pct": 3.0,
+      "bank_justified_rotce_haircut_pct": 3.0,
+      "bank_justified_rotce_uplift_pct": 2.0,
+      "bank_min_peers_for_regression": 8,
+      "bank_min_regression_r2": 0.2,
+      "bank_trend_min_periods": 8
+    },
+    "reit": {
+      "_doc": "The property-trust model. Funds from operations is RECONSTRUCTED from filed components under the NAREIT definition, because no property trust tags it in machine-readable form. Where the gains and impairment components are not tagged for the full trailing year the reconstruction is called incomplete, and the fair-value confidence is held down for it, which lowers the buy zone rather than decorating the screen with a warning.",
+      "reit_min_property_type_peers": 5,
+      "reit_high_payout_pct": 90.0,
+      "reit_min_adjustment_quarters": 4
+    },
+    "covered_call": {
+      "_doc": "The covered-call income simulator. Every one of these is a SETTING to be tested, not a rule believed in: no delta, tenor or roll policy is treated as correct here, which is the entire point of running them side by side.",
+      "cc_delta_target": 0.3,
+      "cc_percent_otm": 0.05,
+      "cc_roll_dte": 3,
+      "cc_roll_delta": 0.7,
+      "cc_min_otm_pct": 0.0,
+      "cc_cash_rate_pct": 4.0,
+      "cc_roll_only_for_credit": false,
+      "cc_min_credit": 0.05,
+      "cc_dte_tolerance": 0.6
+    },
+    "forward_test": {
+      "_doc": "Forward validation of recorded recommendations. The minimum sample is not a calibrated figure and is not claimed to be \u2014 it is the conventional floor below which a median is an anecdote. Below it every bucket reports INSUFFICIENT SAMPLE and nothing else.",
+      "forward_min_sample": 30,
+      "forward_min_sector_peers": 5,
+      "forward_positive_verdicts": [
+        "BUY SHARES",
+        "SELL PORTFOLIO SECURED PUT",
+        "BUY LEAPS",
+        "BUY-WRITE",
+        "BULL CALL SPREAD",
+        "ATTRACTIVE"
+      ],
+      "forward_negative_verdicts": [
+        "AVOID"
+      ],
+      "forward_wait_verdicts": [
+        "WAIT"
+      ]
     }
   }
 }

@@ -64,6 +64,11 @@ except Exception:                                    # pragma: no cover
 
 SCHEMA_VERSION = "1.0"
 
+# Bumped whenever the cached company profile gains a field. A profile on
+# disk written under an older version is rebuilt from the filing rather
+# than read with the new field missing.
+PROFILE_VERSION = 2
+
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
 _FACTS_TTL = 12 * 3600.0        # companyfacts changes at most once a quarter
@@ -509,6 +514,72 @@ CONCEPTS = {
     "dividends_per_share": (["CommonStockDividendsPerShareDeclared",
                              "CommonStockDividendsPerShareCashPaid"],
                             "USD/shares", "sum"),
+
+    # ── Phase 4 — banks ────────────────────────────────────────────────
+    # Measured across fifteen large and regional US banks: net interest
+    # income, non-interest income and non-interest expense are tagged by
+    # fourteen of the fifteen, and deposit interest expense by thirteen.
+    # Net interest MARGIN is tagged by none of them, which is why it is
+    # derived below under its own honest name rather than read off a
+    # concept that does not exist.
+    "net_interest_income": (["InterestIncomeExpenseNet",
+                             "InterestIncomeExpenseAfterProvisionForLoanLoss"],
+                            "USD", "sum"),
+    "noninterest_income": (["NoninterestIncome",
+                            "NoninterestIncomeOtherOperatingIncome"],
+                           "USD", "sum"),
+    "noninterest_expense": (["NoninterestExpense",
+                             "OtherNoninterestExpense"], "USD", "sum"),
+    "interest_expense_deposits": (["InterestExpenseDeposits",
+                                   "InterestExpenseDomesticDeposits"],
+                                  "USD", "sum"),
+    "net_charge_offs": (
+        ["FinancingReceivableAllowanceForCreditLossWriteOffs",
+         "FinancingReceivableAllowanceForCreditLossesWriteOffs",
+         "AllowanceForLoanAndLeaseLossesWriteOffsNet",
+         "AllowanceForLoanAndLeaseLossesWriteOffs"], "USD", "sum"),
+    "provision_credit_losses": (
+        ["ProvisionForLoanLeaseAndOtherLosses",
+         "ProvisionForLoanAndLeaseLosses",
+         "ProvisionForDoubtfulAccounts"], "USD", "sum"),
+
+    # ── Phase 4 — property trusts ──────────────────────────────────────
+    # Funds from operations is NOT tagged by any of the twenty property
+    # trusts measured — not one filer publishes `FundsFromOperations` in
+    # XBRL. It is therefore reconstructed in reit_model.py from these
+    # filed components under the NAREIT definition, and labelled as a
+    # reconstruction everywhere it appears.
+    "net_income_common": (["NetIncomeLossAvailableToCommonStockholdersBasic"],
+                          "USD", "sum"),
+    "real_estate_depreciation": (
+        ["RealEstateInvestmentPropertyDepreciation",
+         "DepreciationAndAmortization",
+         "DepreciationDepletionAndAmortization",
+         "DepreciationAmortizationAndAccretionNet",
+         "Depreciation",
+         "OtherDepreciationAndAmortization"], "USD", "sum"),
+    # Ordered widest-first and read under STRICT_PRIORITY below, because a
+    # trust that tags both a property-only gain and an all-asset gain is
+    # describing two different scopes rather than the same one twice.
+    # Adding the last three concepts moved Digital Realty's reconstruction
+    # from $9.45 to $7.41 a share against a published figure near $7.00, and
+    # Boston Properties' from $8.40 to $7.23 against a published $6.80.
+    "gain_on_sale_real_estate": (
+        ["GainLossOnSaleOfProperties",
+         "GainsLossesOnSalesOfInvestmentRealEstate",
+         "GainLossOnDispositionOfRealEstate",
+         "GainLossOnSaleOfPropertiesNetOfApplicableIncomeTaxes",
+         "GainLossOnDispositionOfAssets1",
+         "GainLossOnDispositionOfAssets",
+         "GainLossOnSaleOfPropertyPlantEquipment",
+         "GainLossOnSalesOfAssetsAndAssetImpairmentCharges"], "USD", "sum"),
+    "real_estate_impairment": (
+        ["ImpairmentOfRealEstate", "AssetImpairmentCharges",
+         "TangibleAssetImpairmentCharges"], "USD", "sum"),
+    "preferred_dividends": (
+        ["PreferredStockDividendsIncomeStatementImpact",
+         "DividendsPreferredStock",
+         "PreferredStockDividendsAndOtherAdjustments"], "USD", "sum"),
 }
 
 # Balance-sheet facts. These are INSTANTS — a value at a date, with no
@@ -529,6 +600,57 @@ INSTANT_CONCEPTS = {
                         "NotesPayableCurrent",
                         "LongTermDebtAndCapitalLeaseObligationsCurrent"],
     "assets": ["Assets"],
+
+    # ── Phase 4 ────────────────────────────────────────────────────────
+    # Goodwill and other intangibles come off tangible book; preferred
+    # equity comes off common equity. Every one of these is optional and
+    # reported as N/A with its reason when absent — Bank of America tags
+    # no preferred-equity concept at all, and the honest consequence is
+    # that its tangible book value is refused rather than overstated by
+    # treating its preferred stock as zero.
+    "goodwill": ["Goodwill"],
+    "intangible_assets": ["IntangibleAssetsNetExcludingGoodwill",
+                          "FiniteLivedIntangibleAssetsNet"],
+    "preferred_equity": ["PreferredStockLiquidationPreferenceValue",
+                         "PreferredStockValue",
+                         "PreferredStockValueOutstanding"],
+    "deposits": ["Deposits", "InterestBearingDepositLiabilities"],
+    "loans": ["FinancingReceivableExcludingAccruedInterestBeforeAllowanceForCreditLoss",
+              "LoansAndLeasesReceivableNetReportedAmount",
+              "LoansAndLeasesReceivableNetOfDeferredIncome",
+              "NotesReceivableGross"],
+    "nonaccrual_loans": [
+        "FinancingReceivableExcludingAccruedInterestNonaccrualStatus",
+        "FinancingReceivableRecordedInvestmentNonaccrualStatus",
+        "NotesReceivableGrossNonaccrualStatus"],
+}
+
+# Instants reported as a RATIO rather than in dollars. Same reader, a
+# different unit — a capital ratio filed as 0.118 is not eleven cents.
+INSTANT_RATIO_CONCEPTS = {
+    "capital_ratio": ["CommonEquityTierOneCapitalToRiskWeightedAssets",
+                      "BankingRegulatoryCommonEquityTier1CapitalToRiskWeightedAssetsRatio",
+                      "TierOneRiskBasedCapitalToRiskWeightedAssets",
+                      "CapitalToRiskWeightedAssets"],
+}
+
+# Tier one and COMMON EQUITY tier one are different ratios — tier one
+# includes preferred stock, common equity tier one does not — so whichever
+# the filer actually tagged is named on screen rather than all of them
+# being called the same thing.
+INSTANT_RATIO_LABELS = {
+    "CommonEquityTierOneCapitalToRiskWeightedAssets":
+        "Common equity tier one capital ratio",
+    "BankingRegulatoryCommonEquityTier1CapitalToRiskWeightedAssetsRatio":
+        "Common equity tier one capital ratio",
+    "TierOneRiskBasedCapitalToRiskWeightedAssets":
+        "Tier one capital ratio",
+    "CapitalToRiskWeightedAssets": "Total capital ratio",
+}
+
+INSTANT_RATIO_BASIS = {
+    "capital_ratio": "Regulatory capital as a share of risk-weighted "
+                     "assets, at the latest reported date",
 }
 
 INSTANT_BASIS = {
@@ -538,10 +660,40 @@ INSTANT_BASIS = {
     "long_term_debt": "Long-term borrowings at the latest balance-sheet date",
     "short_term_debt": "Short-term and current borrowings at the latest balance-sheet date",
     "assets": "Total assets at the latest reported balance-sheet date",
+    "goodwill": "Goodwill carried at the latest reported balance-sheet date",
+    "intangible_assets": "Intangible assets other than goodwill, at the "
+                         "latest reported balance-sheet date",
+    "preferred_equity": "Preferred stock at the latest reported "
+                        "balance-sheet date",
+    "deposits": "Customer deposits at the latest reported balance-sheet date",
+    "loans": "Loans and leases outstanding before the credit-loss allowance, "
+             "at the latest reported balance-sheet date",
+    "nonaccrual_loans": "Loans on non-accrual status at the latest reported "
+                        "balance-sheet date",
 }
 
 # Human-readable basis shown next to every number in the UI.
 BASIS = {
+    "net_interest_income": "Net interest income, trailing twelve months, "
+                           "as reported to the SEC",
+    "noninterest_income": "Fee and other non-interest income, trailing "
+                          "twelve months",
+    "noninterest_expense": "Non-interest operating expense, trailing "
+                           "twelve months",
+    "interest_expense_deposits": "Interest paid on deposits, trailing "
+                                 "twelve months",
+    "net_charge_offs": "Loans written off net of recoveries, trailing "
+                       "twelve months",
+    "provision_credit_losses": "Provision charged for expected credit "
+                               "losses, trailing twelve months",
+    "net_income_common": "GAAP net income available to common shareholders, "
+                         "trailing twelve months",
+    "real_estate_depreciation": "Depreciation and amortisation, trailing "
+                                "twelve months, as reported to the SEC",
+    "gain_on_sale_real_estate": "Gains on property sales, trailing twelve "
+                                "months, as reported to the SEC",
+    "real_estate_impairment": "Impairment charges, trailing twelve months",
+    "preferred_dividends": "Preferred dividends, trailing twelve months",
     "revenue": "GAAP trailing twelve months, as reported to the SEC",
     "net_income": "GAAP trailing twelve months, as reported to the SEC",
     "eps": "GAAP diluted, trailing twelve months, as reported to the SEC",
@@ -559,9 +711,32 @@ BASIS = {
 }
 
 
+# Metrics whose alternative concepts differ in SCOPE rather than being
+# synonyms, so the list order is a statement about which is the wider
+# measure and must outrank how many quarters each one happens to cover.
+#
+# Citigroup tags both `NoninterestExpense` (48 quarters, the total) and
+# `OtherNoninterestExpense` (70 quarters, one line inside it) and both end
+# on the same date, so coverage alone picked the component and read
+# Citigroup's cost of running the bank as seven percent of its revenue
+# rather than sixty-five. For a synonym list — the Phase 1 and Phase 2
+# metrics, where every alternative names the same thing — longer coverage
+# is still the better tie-break and nothing changes.
+STRICT_PRIORITY = frozenset({
+    "noninterest_expense", "noninterest_income", "real_estate_depreciation",
+    "provision_credit_losses", "net_interest_income",
+    "gain_on_sale_real_estate", "real_estate_impairment",
+})
+
+
 def pick_concept(gaap: dict, metric: str) -> tuple[str, str, list[dict]] | None:
-    """(concept, unit, discrete quarterly series) for a metric, or None."""
+    """(concept, unit, discrete quarterly series) for a metric, or None.
+
+    The most recently reported concept wins. Ties are broken by coverage, or
+    by list order for the metrics named in `STRICT_PRIORITY` above.
+    """
     names, unit, agg = CONCEPTS[metric]
+    strict = metric in STRICT_PRIORITY
     best = None
     for rank, name in enumerate(names):
         entry = gaap.get(name)
@@ -570,7 +745,8 @@ def pick_concept(gaap: dict, metric: str) -> tuple[str, str, list[dict]] | None:
         qs = discrete_quarters(latest_filed(entry, unit), aggregate=agg)
         if not qs:
             continue
-        score = (qs[-1]["end"], len(qs), -rank)
+        score = ((qs[-1]["end"], -rank, len(qs)) if strict
+                 else (qs[-1]["end"], len(qs), -rank))
         if best is None or score > best[0]:
             best = (score, name, unit, qs)
     return (best[1], best[2], best[3]) if best else None
@@ -809,6 +985,43 @@ def instant(facts: dict, name: str, as_of: str | None = None) -> dict:
             "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
 
 
+def instant_ratio(facts: dict, name: str, as_of: str | None = None) -> dict:
+    """The latest reported value of a balance-sheet RATIO, as a percent.
+
+    Filers are inconsistent about the unit: some tag a capital ratio in the
+    `pure` unit as 0.118 and others in `percent` as 11.8. Both are read, and
+    a `pure` value above 1.5 is treated as already being a percentage —
+    no bank has ever held eleven times its risk-weighted assets in common
+    equity, so the reading is unambiguous.
+    """
+    gaap = facts.get("facts", {}).get("us-gaap") or {}
+    best = None
+    for rank, concept in enumerate(INSTANT_RATIO_CONCEPTS[name]):
+        entry = gaap.get(concept)
+        if not entry:
+            continue
+        for unit in ("pure", "percent"):
+            rows = [r for r in instant_series(entry, unit)
+                    if as_of is None or r["end"] <= as_of]
+            if not rows:
+                continue
+            score = (rows[-1]["end"], len(rows), -rank)
+            if best is None or score > best[0]:
+                best = (score, concept, unit, rows)
+    if not best:
+        return _na("This company does not report that ratio to the SEC in a "
+                   "machine-readable form.")
+    _score, concept, unit, rows = best
+    last = rows[-1]
+    val = last["val"]
+    pct = val if (unit == "percent" or val > 1.5) else val * 100.0
+    return {"value": pct, "concept": concept, "unit": "percent",
+            "label": INSTANT_RATIO_LABELS.get(concept, name),
+            "as_of": last["end"], "filed": last.get("filed"),
+            "points": len(rows), "basis": INSTANT_RATIO_BASIS[name],
+            "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
+
+
 def net_debt(facts: dict, as_of: str | None = None) -> dict:
     """Borrowings minus cash and short-term investments.
 
@@ -901,6 +1114,42 @@ def sic_metadata(symbol: str) -> dict | None:
     return out
 
 
+# How far behind the latest reported period a cover-page share count may
+# sit and still be treated as current. A quarterly filer's cover page is
+# dated within days of filing, so a genuine one is AHEAD of its period end;
+# Robinhood's largest honest gap measured across thirty-eight tickers was
+# 181 days, and Simon Property Group's abandoned tag was 6,117.
+_COVER_MAX_LAG = 200.0
+
+
+def _newest_period(facts: dict) -> str:
+    """The newest period end this filer reports ANYWHERE.
+
+    The staleness test compares the cover-page share count against the
+    latest period the company reported. Where the diluted share count itself
+    is missing there is still a company filing accounts, and its newest fact
+    of any kind says how recently. Read from the filings rather than from the
+    clock, so the answer does not change with the date the app is run.
+    """
+    newest = ""
+    for taxonomy in ("us-gaap", "ifrs-full"):
+        for entry in (facts.get("facts", {}).get(taxonomy) or {}).values():
+            for rows in (entry.get("units") or {}).values():
+                for r in rows or ():
+                    end = r.get("end") or ""
+                    if end > newest:
+                        newest = end
+    return newest
+
+
+def _days_between(a: str | None, b: str | None) -> float | None:
+    """Days from `a` to `b`, or None if either date is missing or unparseable."""
+    try:
+        return float((_d(str(b)[:10]) - _d(str(a)[:10])).days)
+    except (ValueError, TypeError):
+        return None
+
+
 def shares_outstanding(facts: dict) -> dict:
     """Shares currently outstanding, for market cap.
 
@@ -909,19 +1158,43 @@ def shares_outstanding(facts: dict) -> dict:
     Companies with multiple share classes (Robinhood, Shopify) report it only
     per class, and Company Facts drops the per-class breakdown, so those fall
     back to the weighted-average diluted count with the basis said out loud.
+
+    A filer can also simply STOP tagging the cover-page count while carrying
+    on filing: Simon Property Group's newest `EntityCommonStockSharesOutstanding`
+    is dated September 2009 against a June 2026 income statement, and taking
+    it at face value understated its market value by thirteen percent and
+    every ratio built on it. A cover-page count more than `_COVER_MAX_LAG`
+    days behind the latest reported period is therefore treated as abandoned
+    rather than as current.
     """
     dei = facts.get("facts", {}).get("dei") or {}
     entry = dei.get("EntityCommonStockSharesOutstanding")
+    m_dil = metric(facts, "diluted_shares")
+    period = m_dil.get("period_end") or _newest_period(facts)
     if entry:
         rows = entry.get("units", {}).get("shares") or []
         rows = [r for r in rows if r.get("val")]
         if rows:
             r = max(rows, key=lambda x: (x.get("end") or "", x.get("filed") or ""))
-            return {"value": float(r["val"]), "as_of": r.get("end"),
-                    "filed": r.get("filed"),
-                    "basis": "Shares outstanding from the latest filing cover page",
-                    "source": "SEC EDGAR Company Facts (dei)", "reason": ""}
-    m = metric(facts, "diluted_shares")
+            lag = _days_between(r.get("end"), period)
+            if lag is None or lag <= _COVER_MAX_LAG:
+                return {"value": float(r["val"]), "as_of": r.get("end"),
+                        "filed": r.get("filed"),
+                        "basis": "Shares outstanding from the latest filing "
+                                 "cover page",
+                        "source": "SEC EDGAR Company Facts (dei)", "reason": ""}
+            if m_dil.get("value"):
+                return {"value": m_dil["value"], "as_of": m_dil["period_end"],
+                        "filed": m_dil.get("filed"),
+                        "basis": (f"Average diluted shares over the trailing "
+                                  f"twelve months. This filer last tagged a "
+                                  f"cover-page share count for "
+                                  f"{r.get('end')}, {lag:.0f} days before its "
+                                  f"latest reported period, so that count is "
+                                  f"no longer current."),
+                        "source": "SEC EDGAR Company Facts (XBRL)",
+                        "reason": ""}
+    m = m_dil
     if m["value"]:
         return {"value": m["value"], "as_of": m["period_end"],
                 "filed": m.get("filed"),
@@ -1029,14 +1302,19 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
     sym = (symbol or "").upper().strip()
     if not sym:
         return None
-    if sym in _PROFILE_CACHE:
-        return _PROFILE_CACHE[sym]
+    hit = _PROFILE_CACHE.get(sym)
+    if hit is not None and hit.get("profile_version") == PROFILE_VERSION:
+        return hit
     path = _profile_path(sym)
     if path is not None and path.exists():
         try:
             hit = json.loads(path.read_text())
-            _PROFILE_CACHE[sym] = hit
-            return hit
+            # A profile written before the current version simply lacks the
+            # fields added since. It is rebuilt rather than patched, so an
+            # old cache never silently reads as "no property type".
+            if hit.get("profile_version") == PROFILE_VERSION:
+                _PROFILE_CACHE[sym] = hit
+                return hit
         except Exception:
             pass
     if not available():
@@ -1060,8 +1338,11 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
     out = _trim_sentences(body, max_chars)
     if not out:
         return None
+    ptype, pscores = property_type(body)
     profile = {"symbol": sym, "description": out,
                "moat_tags": moat_tags(body),
+               "profile_version": PROFILE_VERSION,
+               "property_type": ptype, "property_type_scores": pscores,
                "as_of": row.get("date"), "accession": row.get("accession"),
                "url": row.get("url"), "form": row.get("form"),
                "source": "SEC EDGAR — Item 1, Business, of the latest annual report",
@@ -1194,3 +1475,116 @@ def moat_tags(text: str) -> list[str]:
             scored.append((n, label))
     scored.sort(key=lambda x: (-x[0], x[1]))
     return [label for _n, label in scored[:_MOAT_MAX]]
+
+
+# ── property type ───────────────────────────────────────────────────────────
+#
+# The SEC assigns every property trust the same industry code, 6798, so the
+# code cannot say whether a trust owns data centres or shopping centres —
+# and those two do not trade at the same multiple in any market anyone has
+# observed. The trust says which it is in its own annual report, so that is
+# where this reads it.
+#
+# Measured against twenty large US property trusts: sixteen classified
+# correctly, three declined to answer, and one — Iron Mountain, whose Item 1
+# now leads with data centres rather than records storage — came back as a
+# data-centre trust. Declining is the designed outcome when two categories
+# are close: an unclassified trust is compared against all property trusts,
+# which is weaker than a matched comparison but is never a wrong one.
+
+PROPERTY_TYPES = ("LIFE SCIENCE", "DATA CENTER", "COMMUNICATIONS",
+                  "INDUSTRIAL", "OFFICE", "HEALTHCARE", "RETAIL",
+                  "RESIDENTIAL", "SELF STORAGE", "LODGING", "TIMBER",
+                  "SPECIALTY")
+
+PROPERTY_TYPE_LABELS = {
+    "LIFE SCIENCE": "Laboratory and life-science space",
+    "DATA CENTER": "Data centres",
+    "COMMUNICATIONS": "Communications towers and sites",
+    "INDUSTRIAL": "Warehouses and logistics space",
+    "OFFICE": "Offices",
+    "HEALTHCARE": "Health-care property and senior housing",
+    "RETAIL": "Shops, shopping centres and net-leased retail",
+    "RESIDENTIAL": "Homes and apartments",
+    "SELF STORAGE": "Self-storage",
+    "LODGING": "Hotels and resorts",
+    "TIMBER": "Timberland",
+    "SPECIALTY": "Specialty property",
+}
+
+_PROPERTY_RULES = (
+    ("LIFE SCIENCE",
+     r"life science|laborator(?:y|ies)|research and development "
+     r"(?:space|building|campus)"),
+    ("DATA CENTER", r"data\s?cent(?:er|re)s?|colocation|interconnection"),
+    ("COMMUNICATIONS",
+     r"communications? (?:site|tower|infrastructure)|cell tower|"
+     r"macro ?tower|broadcast tower"),
+    ("INDUSTRIAL",
+     r"logistics (?:facilit|propert|real estate|space)|"
+     r"industrial (?:propert|facilit|building|real estate|space)|"
+     r"distribution cent(?:er|re)s?|warehouse"),
+    ("OFFICE",
+     r"office (?:propert|building|space|portfolio|park|asset)|workplace|"
+     r"class a office"),
+    ("HEALTHCARE",
+     r"senior housing|seniors housing|skilled nursing|medical office|"
+     r"health\s?care (?:propert|facilit|real estate)|hospitals?|outpatient"),
+    ("RETAIL",
+     r"shopping cent(?:er|re)s?|retail (?:propert|space|real estate|store)|"
+     r"malls?|freestanding retail|net lease|grocery[- ]anchored"),
+    ("RESIDENTIAL",
+     r"apartment (?:communit|home|propert)|multifamily|single-family rental|"
+     r"manufactured hous|student housing"),
+    ("SELF STORAGE", r"self[- ]storage|storage (?:facilit|unit)"),
+    ("LODGING", r"hotels?|lodging|resorts?"),
+    ("TIMBER", r"timberland"),
+    ("SPECIALTY",
+     r"records? (?:management|storage)|information management|casino|"
+     r"gaming propert|billboard|outdoor advertis|farmland"),
+)
+
+# An annual report opens by saying what the business is and then spends
+# thousands of words on everything it also touches, so the opening counts
+# for more than a passing mention forty pages later.
+_PROPERTY_LEAD_CHARS = 6000
+_PROPERTY_LEAD_WEIGHT = 3
+_PROPERTY_MIN_HITS = 3
+_PROPERTY_MIN_RAW_HITS = 2
+_PROPERTY_MARGIN = 1.5
+
+
+def property_type(text: str) -> tuple[str | None, dict]:
+    """(property type, the scores behind it) from a trust's own Item 1.
+
+    Returns None when the leader is thin or when a runner-up is close, which
+    is a refusal to guess rather than a failure.
+    """
+    if not text:
+        return None, {}
+    body = text.lower()
+    lead = body[:_PROPERTY_LEAD_CHARS]
+    scores: dict = {}
+    raw: dict = {}
+    for label, pattern in _PROPERTY_RULES:
+        base = len(re.findall(pattern, body))
+        if not base:
+            continue
+        raw[label] = base
+        scores[label] = base + (_PROPERTY_LEAD_WEIGHT - 1) * len(
+            re.findall(pattern, lead))
+    if not scores:
+        return None, {}
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    top = dict(ranked[:4])
+    # The opening of an annual report counts for more, but weighting must
+    # not manufacture a classification out of a single passing mention: a
+    # trust that says "office building" once in the first paragraph and
+    # never again has not told us what it owns.
+    if raw.get(ranked[0][0], 0) < _PROPERTY_MIN_RAW_HITS:
+        return None, top
+    if ranked[0][1] < _PROPERTY_MIN_HITS:
+        return None, top
+    if len(ranked) > 1 and ranked[1][1] > ranked[0][1] / _PROPERTY_MARGIN:
+        return None, top
+    return ranked[0][0], top

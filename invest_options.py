@@ -1062,7 +1062,13 @@ def entry_verdict(snap: dict, fair: dict, comparison: dict, put_block: dict,
                 "what_would_change": changes, "blocked_by": blocked_by,
                 "version": OPTIONS_VERSION}
 
-    if btype in ("BANK", "INSURANCE", "BROKER", "REIT"):
+    # A specialized business is refused only while no model exists for it.
+    # Banks and property trusts now arrive with a fair value built by a model
+    # written for them — `fair.model` names which — so they carry on through
+    # every gate below exactly as any other company does. Insurers and
+    # brokers still stop here, because half a model is worse than none.
+    if btype in ("BANK", "INSURANCE", "BROKER", "REIT") \
+            and not (fair or {}).get("model"):
         reasons.append((snap.get("business_type") or {}).get("note") or "")
         changes.append("A model built for this business type — book value and "
                        "net interest margin for a lender, funds from "
@@ -1394,7 +1400,12 @@ def build(symbol: str, snap: dict, fair: dict, path: dict, cfg=None,
 
     spot = _num(snap.get("price"))
     btype = (snap.get("business_type") or {}).get("type")
-    if btype in ("BANK", "INSURANCE", "BROKER", "REIT"):
+    # Same rule as the entry verdict: a specialized business short-circuits
+    # only while nothing has valued it. Once a bank or a property trust
+    # arrives with a fair value from its own model, its options are priced
+    # like anything else's — the structures were never the specialized part.
+    if btype in ("BANK", "INSURANCE", "BROKER", "REIT") \
+            and not (fair or {}).get("model"):
         out["reason"] = (snap.get("business_type") or {}).get("note") or ""
         out["entry"] = entry_verdict(snap, fair, out["comparison"], out["put"], cfg)
         out["plan"] = management_plan(out["entry"]["verdict"], snap, fair,

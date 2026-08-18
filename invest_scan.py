@@ -47,6 +47,12 @@ from pathlib import Path
 import invest_engine as engine
 import fair_value as fv
 import structures as _structs
+import bank_model as _bank
+import reit_model as _reit
+import forward_test as _forward
+import covered_call as _cc
+import chain_store
+import bt_iv
 
 try:
     import invest_options as _opts
@@ -75,6 +81,7 @@ _BENCHMARK_FN = None        # (symbol) -> sector/benchmark symbol | None
 _CHAIN_FN = None            # (symbol) -> normalized option chain | None
 _RATE_FN = None             # (years) -> {"pct","as_of","source"} | None
 _EARN_MOVES_FN = None       # (symbol) -> {"avg_abs","n"} | None
+_ACTIONS_FN = None          # (symbol) -> {"dividends": {iso: amount}} | None
 
 _LOCK = threading.RLock()
 _SNAP_TTL = 900.0           # 15 minutes; the filings behind it move quarterly
@@ -89,10 +96,12 @@ STALE_AFTER_HOURS = {"price": 24.0, "estimates": 30 * 24.0,
 def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
               daily_fn=None, config_fn=None, data_dir=None,
               earnings_fn=None, events_fn=None, benchmark_fn=None,
-              chain_fn=None, rate_fn=None, earn_moves_fn=None) -> None:
+              chain_fn=None, rate_fn=None, earn_moves_fn=None,
+              actions_fn=None) -> None:
     global _QUOTE_FN, _ESTIMATES_FN, _TEN_YEAR_FN, _DAILY_FN, _CFG_FN, _DATA_DIR
     global _EARNINGS_FN, _EVENTS_FN, _BENCHMARK_FN
-    global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN
+    global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN, _ACTIONS_FN
+    _ACTIONS_FN = actions_fn
     _QUOTE_FN = quote_fn
     _ESTIMATES_FN = estimates_fn
     _TEN_YEAR_FN = ten_year_fn
@@ -177,7 +186,8 @@ def config(refresh: bool = False) -> tuple[dict, str]:
 # having to know which heading a key lives under.
 _CFG_GROUPS = ("verdict", "scorecard", "value_trap", "regime", "cycle",
                "fair_value", "expected_return", "implied_expectations",
-               "structures", "contracts")
+               "structures", "contracts",
+               "bank", "reit", "covered_call", "forward_test")
 
 
 def _flatten_cfg(cfg: dict) -> dict:
@@ -374,6 +384,31 @@ def _daily_row(snap: dict) -> dict | None:
     row["entry_verdict"] = entry.get("verdict")
     row["entry_reason"] = (entry.get("reasons") or [None])[0]
     row["entry_flip_trigger"] = (entry.get("what_would_change") or [None])[0]
+
+    # Phase 4 state. Same discipline once more: a row written before these
+    # keys existed simply lacks them, and the forward-validation engine
+    # treats a missing key as "not recorded that day" rather than as a zero.
+    bank = snap.get("bank") or {}
+    if bank:
+        row["bank_price_to_tangible_book"] = (
+            bank.get("price_to_tangible_book") or {}).get("value")
+        row["bank_price_to_book"] = (bank.get("price_to_book") or {}).get("value")
+        row["bank_rotce_pct"] = (
+            bank.get("return_on_tangible_common_equity_pct") or {}).get("value")
+        row["bank_efficiency_ratio_pct"] = (
+            bank.get("efficiency_ratio_pct") or {}).get("value")
+        row["bank_capital_ratio_pct"] = (bank.get("capital_ratio") or {}).get("value")
+        row["bank_charge_off_rate_pct"] = (
+            bank.get("charge_off_rate_pct") or {}).get("value")
+    reit = snap.get("reit") or {}
+    if reit:
+        row["reit_ffo_per_share"] = (reit.get("ffo_per_share") or {}).get("value")
+        row["reit_price_to_ffo"] = (reit.get("price_to_ffo") or {}).get("value")
+        row["reit_payout_of_ffo_pct"] = (
+            reit.get("payout_of_ffo_pct") or {}).get("value")
+        row["reit_property_type"] = reit.get("property_type")
+        row["reit_ffo_complete"] = (reit.get("ffo") or {}).get("complete")
+    row["fair_value_model"] = (snap.get("fair_value") or {}).get("model")
 
     row["config_hash"] = snap.get("config_hash")
     return row
@@ -795,17 +830,41 @@ def _as_of(pts, day: str):
 
 VALUATION_MEASURES = ("earnings_yield_pct", "fcf_yield_pct", "trailing_pe")
 
+# Phase 4. A bank's own history of price to tangible book and a property
+# trust's own history of price to funds from operations run through the SAME
+# point-in-time engine as everything above: each day's price against only
+# the figures that had been filed by that day. Adding measures rather than
+# building a second history is the point — one engine, one regime detector,
+# one distribution, one definition of what "point in time" means.
+BANK_MEASURES = ("price_to_tangible_book", "price_to_book")
+REIT_MEASURES = ("price_to_ffo", "dividend_yield_pct")
+
 MEASURE_LABEL = {
     "earnings_yield_pct": "Trailing earnings yield",
     "fcf_yield_pct": "Free cash flow yield",
     "trailing_pe": "Price to earnings, trailing",
+    "price_to_tangible_book": "Price to tangible book value",
+    "price_to_book": "Price to book value",
+    "price_to_ffo": "Price to funds from operations",
+    "dividend_yield_pct": "Distribution yield",
 }
 # For a yield, higher is cheaper. For a multiple, lower is cheaper.
 MEASURE_CHEAP_HIGH = {"earnings_yield_pct": True, "fcf_yield_pct": True,
-                      "trailing_pe": False}
+                      "trailing_pe": False, "price_to_tangible_book": False,
+                      "price_to_book": False, "price_to_ffo": False,
+                      "dividend_yield_pct": True}
 
 
-def valuation_history(symbol: str, years: int = 5, raw: bool = False) -> dict:
+def _extra_measures(btype: str | None) -> tuple:
+    if btype == "BANK":
+        return BANK_MEASURES
+    if btype == "REIT":
+        return REIT_MEASURES
+    return ()
+
+
+def valuation_history(symbol: str, years: int = 5, raw: bool = False,
+                      business_type: str | None = None) -> dict:
     """What this company has actually been valued at, day by day, using only
     figures that were public on each of those days.
 
@@ -863,8 +922,34 @@ def valuation_history(symbol: str, years: int = 5, raw: bool = False) -> dict:
     cap_pts = _pit_lookup(_fund.ttm_series(facts, "capex"))
     sh_pts = _pit_lookup(_fund.pit_series(facts, "diluted_shares"))
 
-    series = {m: [] for m in VALUATION_MEASURES}
+    extra = _extra_measures(business_type)
+    per_share_pts = {}
+    if business_type == "BANK":
+        per_share_pts = {k: _pit_lookup(v) for k, v in
+                         (_bank.point_in_time_series(_fund, facts) or {}).items()}
+    elif business_type == "REIT":
+        per_share_pts = {k: _pit_lookup(v) for k, v in
+                         (_reit.point_in_time_series(_fund, facts) or {}).items()}
+        per_share_pts["dividends_per_share"] = _pit_lookup(
+            _fund.ttm_series(facts, "dividends_per_share"))
+
+    series = {m: [] for m in VALUATION_MEASURES + extra}
     for day, price in closes:
+        for measure, key, invert in (
+                ("price_to_tangible_book", "tangible_book_per_share", False),
+                ("price_to_book", "book_per_share", False),
+                ("price_to_ffo", "ffo_per_share", False),
+                ("dividend_yield_pct", "dividends_per_share", True)):
+            if measure not in extra:
+                continue
+            pt = _as_of(per_share_pts.get(key) or [], day)
+            v = None if pt is None else _f(pt.get("value"))
+            if v is None or v <= 0:
+                continue
+            series[measure].append(
+                {"date": day,
+                 "value": (v / price * 100.0) if invert else (price / v),
+                 "period_end": pt.get("period_end")})
         eps = _as_of(eps_pts, day)
         if eps is not None:
             ey = engine.earnings_yield(eps["value"], price)
@@ -1337,7 +1422,36 @@ def eps_growth_history(facts: dict, horizon_years: float = 3.0,
         return out
     basis = _fund.consistent_basis_from(facts)
     out["basis"] = basis
-    rows = _fund.ttm_series(facts, "eps")
+    return _growth_from_series(_fund.ttm_series(facts, "eps"), basis, out,
+                               horizon_years, tolerance_days,
+                               "trailing earnings points")
+
+
+def ffo_growth_history(facts: dict, horizon_years: float = 3.0,
+                       tolerance_days: int = 45) -> dict:
+    """The same measurement on reconstructed funds from operations per share.
+
+    Identical machinery, a different per-share figure — because for a
+    property trust it is funds from operations rather than earnings that the
+    price is a multiple of, and percentiles of one-year growth are no more
+    the percentiles of three-year growth here than they were for earnings.
+    """
+    out = {"values": [], "horizon_matched": False,
+           "horizon_years": horizon_years, "n": 0, "basis": {}, "reason": ""}
+    if _fund is None:
+        out["reason"] = "The fundamentals reader is not available."
+        return out
+    basis = _fund.consistent_basis_from(facts)
+    out["basis"] = basis
+    series = (_reit.point_in_time_series(_fund, facts) or {}).get(
+        "ffo_per_share") or []
+    return _growth_from_series(series, basis, out, horizon_years,
+                               tolerance_days,
+                               "reconstructed funds-from-operations points")
+
+
+def _growth_from_series(rows, basis, out, horizon_years, tolerance_days,
+                        what: str) -> dict:
     ends = []
     for r in rows or []:
         try:
@@ -1348,10 +1462,9 @@ def eps_growth_history(facts: dict, horizon_years: float = 3.0,
             continue
         ends.append((when, r["value"]))
     if len(ends) < 2:
-        out["reason"] = (f"Only {len(ends)} trailing earnings points sit "
-                         f"inside the window where this company's per-share "
-                         f"figures share one share basis. "
-                         + (basis.get("reason") or ""))
+        out["reason"] = (f"Only {len(ends)} {what} sit inside the window "
+                         f"where this company's per-share figures share one "
+                         f"share basis. " + (basis.get("reason") or ""))
         return out
 
     def windows(span_years: float) -> list:
@@ -1408,9 +1521,129 @@ def _dividends(facts: dict) -> dict:
             "reason": m.get("reason") or ""}
 
 
+def bank_block(snap: dict, facts: dict, cfg: dict) -> dict:
+    """The bank measures, for a filer the business-type gate called a bank."""
+    return _bank.metrics(_fund, facts, price=snap.get("price"),
+                         shares_outstanding=snap.get("shares_outstanding"),
+                         cfg=cfg)
+
+
+def reit_block(snap: dict, facts: dict, cfg: dict) -> dict:
+    """The property-trust measures, including the property type read from
+    the trust's own annual report."""
+    profile = _fund.business_description(snap.get("symbol") or "") or {}
+    return _reit.metrics(_fund, facts, price=snap.get("price"),
+                         shares_outstanding=snap.get("shares_outstanding"),
+                         property_type=profile.get("property_type"), cfg=cfg)
+
+
+def _peer_shares(row: dict, facts: dict):
+    """A peer's share count, from the peer row or from its own filings.
+
+    The peer builder collects what the Phase 2 comparison needed and a share
+    count was not part of it, so tangible book value per share came out
+    unavailable for every comparable bank and the whole peer method reported
+    zero usable multiples. Read it from the same filings the rest of the
+    peer's figures come from rather than adding a field to a payload that
+    other screens already depend on.
+    """
+    got = _f(row.get("shares_outstanding"))
+    if got:
+        return got
+    if _fund is None or not facts:
+        return None
+    return (_fund.shares_outstanding(facts) or {}).get("value")
+
+
+def _bank_peer_inputs(symbol: str, peer_payload: dict, cfg: dict) -> dict:
+    """Price to tangible book and profitability for each comparable bank.
+
+    Each peer is measured by the same module on the same filings the subject
+    is, so the comparison is like for like rather than the subject's careful
+    figure against whatever a data vendor called book value.
+    """
+    rows = []
+    for r in (peer_payload or {}).get("rows") or []:
+        sym = r.get("symbol")
+        if not sym or sym == symbol:
+            continue
+        facts = _fund.company_facts(sym) if _fund is not None else None
+        if not facts:
+            continue
+        m = _bank.metrics(_fund, facts, price=r.get("price"),
+                          shares_outstanding=_peer_shares(r, facts), cfg=cfg)
+        rows.append({
+            "symbol": sym,
+            "price_to_tangible_book": (m.get("price_to_tangible_book") or {}).get("value"),
+            "return_on_tangible_common_equity_pct":
+                (m.get("return_on_tangible_common_equity_pct") or {}).get("value")})
+    out = _bank.peer_inputs(rows)
+    out["level"] = (peer_payload or {}).get("level")
+    out["rows"] = rows
+    return out
+
+
+def _reit_peer_inputs(symbol: str, peer_payload: dict, property_type,
+                      cfg: dict) -> dict:
+    """Price to funds from operations for each comparable trust, narrowed to
+    the same kind of property where enough of them exist."""
+    rows = []
+    for r in (peer_payload or {}).get("rows") or []:
+        sym = r.get("symbol")
+        if not sym or sym == symbol:
+            continue
+        facts = _fund.company_facts(sym) if _fund is not None else None
+        if not facts:
+            continue
+        prof = _fund.business_description(sym) or {}
+        m = _reit.metrics(_fund, facts, price=r.get("price"),
+                          shares_outstanding=_peer_shares(r, facts),
+                          property_type=prof.get("property_type"), cfg=cfg)
+        rows.append({"symbol": sym,
+                     "price_to_ffo": (m.get("price_to_ffo") or {}).get("value"),
+                     "property_type": prof.get("property_type")})
+    narrowed = _reit.property_type_peers(rows, property_type, cfg)
+    mults = [r["price_to_ffo"] for r in narrowed["rows"]]
+    return {"multiples": mults,
+            "base_multiple": fv.quantile(mults, 0.5) if mults else None,
+            "level": (peer_payload or {}).get("level"),
+            "matched": narrowed["matched"], "n": narrowed["n"],
+            "property_type": narrowed["property_type"],
+            "reason": narrowed["reason"], "rows": narrowed["rows"]}
+
+
 def fair_value_block(snap: dict, vhist: dict, peer_payload: dict, facts: dict,
-                     cfg: dict) -> dict:
-    """Bear / Base / Bull with the three methods laid out beside each other."""
+                     cfg: dict, bank: dict | None = None,
+                     reit: dict | None = None) -> dict:
+    """Bear / Base / Bull with the methods laid out beside each other.
+
+    Which methods depends on what the business is. A bank is valued against
+    tangible book and its own profitability, a property trust against funds
+    from operations, and everything else against earnings and cash — and an
+    insurer or a broker against nothing, because no model here is built for
+    one and half a model is worse than an honest refusal.
+    """
+    btype = (snap.get("business_type") or {}).get("type")
+    if btype == "BANK" and bank is not None:
+        methods = _bank.methods(
+            {**bank, "eps_ttm": snap.get("eps_ttm")}, vhist,
+            _bank_peer_inputs(snap.get("symbol") or "", peer_payload, cfg),
+            ten_year_pct=snap.get("treasury_10y_pct"), cfg=cfg)
+        out = fv.fair_value(methods, price=snap.get("price"), cfg=cfg,
+                            business_type=snap.get("business_type"))
+        out["model"] = "BANK"
+        return out
+    if btype == "REIT" and reit is not None:
+        cap, why = _reit.confidence_cap(reit)
+        methods = _reit.methods(
+            reit, vhist,
+            _reit_peer_inputs(snap.get("symbol") or "", peer_payload,
+                              reit.get("property_type"), cfg), cfg=cfg)
+        out = fv.fair_value(methods, price=snap.get("price"), cfg=cfg,
+                            business_type=snap.get("business_type"),
+                            confidence_cap=cap, confidence_cap_reason=why)
+        out["model"] = "REIT"
+        return out
     eps = snap.get("eps_ttm")
     ey = _window_values(vhist, "earnings_yield_pct")
     fy = _window_values(vhist, "fcf_yield_pct")
@@ -1445,30 +1678,51 @@ def fair_value_block(snap: dict, vhist: dict, peer_payload: dict, facts: dict,
 
 def expected_return_block(snap: dict, vhist: dict, facts: dict,
                           peer_payload: dict, cfg: dict,
-                          probabilities=None) -> dict:
-    """The three-year scenario bridge from today's price to terminal wealth."""
+                          probabilities=None, reit: dict | None = None) -> dict:
+    """The three-year scenario bridge from today's price to terminal wealth.
+
+    For a property trust the SAME bridge runs on reconstructed funds from
+    operations and the multiple of it, rather than on earnings and the price
+    to earnings — because a trust's earnings are a depreciation schedule and
+    its price is a multiple of what its buildings produce. The arithmetic is
+    identical; only the per-share figure and the multiple that prices it
+    change, and both change together so the bases never cross.
+    """
     horizon = float(cfg.get("horizon_years", fv.DEFAULTS["horizon_years"]))
-    hist = eps_growth_history(facts, horizon_years=horizon)
+    is_reit = bool(reit and (reit.get("ffo_per_share") or {}).get("value"))
+    if is_reit:
+        hist = ffo_growth_history(facts, horizon_years=horizon)
+        per_share = (reit["ffo_per_share"] or {}).get("value")
+        multiple_measure, agg = "price_to_ffo", None
+        basis_label = ("Reconstructed funds from operations per share, at "
+                       "this trust's own multiple of it")
+    else:
+        hist = eps_growth_history(facts, horizon_years=horizon)
+        per_share = snap.get("eps_ttm")
+        multiple_measure = "trailing_pe"
+        agg = ((peer_payload or {}).get("valuation") or {}).get("aggregate_pe")
+        basis_label = ("GAAP trailing earnings per share, at this company's "
+                       "own price to earnings")
     growth = fv.growth_scenarios(hist.get("values"), cfg)
     growth["horizon_matched"] = hist.get("horizon_matched")
     growth["history_note"] = hist.get("note") or ""
     growth["basis"] = hist.get("basis") or {}
     if not growth.get("available") and hist.get("reason"):
         growth["reason"] = hist["reason"]
-    agg = ((peer_payload or {}).get("valuation") or {}).get("aggregate_pe")
-    multiples = fv.multiple_scenarios(_window_values(vhist, "trailing_pe"),
+    multiples = fv.multiple_scenarios(_window_values(vhist, multiple_measure),
                                       cfg, fallback=agg)
     years = horizon
     rate = _rate(years)
     div = _dividends(facts)
     out = fv.expected_return(
-        snap.get("price"), snap.get("eps_ttm"), growth, multiples, years=years,
+        snap.get("price"), per_share, growth, multiples, years=years,
         dps_ttm=div.get("value"), rate_pct=rate.get("pct"), cfg=cfg,
         probabilities=probabilities,
         reversion_years=float(cfg.get("multiple_reversion_years",
                                       fv.DEFAULTS["multiple_reversion_years"])))
     out["dividends_detail"] = div
     out["rate"] = rate
+    out["per_share_basis"] = basis_label
     out["forward_growth_context"] = {
         "value": snap.get("forward_eps_growth_pct"),
         "basis": "Analyst consensus, adjusted (non-GAAP) earnings",
@@ -1492,6 +1746,20 @@ def implied_expectations_block(snap: dict, facts: dict, cfg: dict) -> dict:
                "reason": ("No free source publishes a five-year "
                           "free-cash-flow consensus. This dashboard will not "
                           "print one it does not have.")}}
+    # This audit discounts free cash flow against enterprise value. For a
+    # bank, borrowing IS the raw material, so enterprise value is not a
+    # price to pay for the business; for a property trust, the cash cycle
+    # runs through buying and selling buildings rather than through
+    # operations. Refused for both rather than run on quantities that do not
+    # mean there what they mean elsewhere.
+    btype = (snap.get("business_type") or {}).get("type")
+    if btype in fv.SPECIALIZED_TYPES:
+        out["reason"] = (
+            (snap.get("business_type") or {}).get("note") or "") + \
+            " This audit discounts free cash flow against enterprise value, " \
+            "and neither quantity carries its usual meaning for this kind " \
+            "of business, so no market-implied growth rate is solved for."
+        return out
     norm = fv.normalize_fcf(fcf_history(facts),
                             periods=int(cfg.get("fcf_normalize_periods",
                                                 fv.DEFAULTS["fcf_normalize_periods"])))
@@ -1639,8 +1907,25 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
                             "reason": f"Peer group failed: {exc}"}
     out["peers"] = peer_payload
 
-    # 2. Valuation against its own history.
-    vhist = valuation_history(sym, years=5, raw=True)
+    # 2. What kind of business this is, BEFORE the valuation history — a
+    #    bank's own history is of price to tangible book and a property
+    #    trust's is of price to funds from operations, so the history has to
+    #    know which measures to build.
+    meta = _fund.sic_metadata(sym) or {}
+    btype = engine.business_type(meta.get("sic"), out.get("eps_ttm"),
+                                 ok=bool(snap.get("ok")))
+    out["business_type"] = btype
+    out["sic"] = meta.get("sic")
+    out["sic_description"] = meta.get("sic_description") or ""
+
+    out["bank"] = (bank_block(out, facts, cfg)
+                   if btype.get("type") == "BANK" else None)
+    out["reit"] = (reit_block(out, facts, cfg)
+                   if btype.get("type") == "REIT" else None)
+
+    # 3. Valuation against its own history.
+    vhist = valuation_history(sym, years=5, raw=True,
+                              business_type=btype.get("type"))
     out["valuation_history"] = vhist
     self_pct, window = _cheap_percentile(vhist)
     out["valuation_window"] = window
@@ -1659,14 +1944,6 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
                                               vhist.get("regime"))
     out["valuation"]["window"] = window
     out["valuation"]["regime"] = vhist.get("regime")
-
-    # 4. Business type gates what may be computed at all.
-    meta = _fund.sic_metadata(sym) or {}
-    btype = engine.business_type(meta.get("sic"), out.get("eps_ttm"),
-                                 ok=bool(snap.get("ok")))
-    out["business_type"] = btype
-    out["sic"] = meta.get("sic")
-    out["sic_description"] = meta.get("sic_description") or ""
 
     # 5. The four vectors.
     out["quality"] = quality_block(sym, facts, btype, peer_payload)
@@ -1694,14 +1971,24 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     # reads both plus the Phase 2 state above it.
     probs = fv.scenario_probabilities(cfg)
     out["scenario_probabilities"] = probs
-    out["fair_value"] = fair_value_block(out, vhist, peer_payload, facts, cfg)
+    out["fair_value"] = fair_value_block(out, vhist, peer_payload, facts, cfg,
+                                         bank=out.get("bank"),
+                                         reit=out.get("reit"))
     out["expected_return"] = expected_return_block(out, vhist, facts,
-                                                   peer_payload, cfg, probs)
+                                                   peer_payload, cfg, probs,
+                                                   reit=out.get("reit"))
     out["implied_expectations"] = implied_expectations_block(out, facts, cfg)
     out["dividends"] = _dividends(facts)
 
     path = {
-        "price": out.get("price"), "eps_ttm": out.get("eps_ttm"),
+        "price": out.get("price"),
+        # The scenario path compounds whatever per-share figure the multiple
+        # prices. For a property trust that is funds from operations, for
+        # everything else it is earnings — the same substitution the bridge
+        # above makes, kept consistent so the two never disagree.
+        "eps_ttm": ((out["reit"].get("ffo_per_share") or {}).get("value")
+                    if out.get("reit") else out.get("eps_ttm")),
+        "per_share_basis": (out["expected_return"] or {}).get("per_share_basis"),
         "growth": (out["expected_return"] or {}).get("growth"),
         "multiples": (out["expected_return"] or {}).get("multiples"),
         "dps_ttm": (out["dividends"] or {}).get("value"),
@@ -1905,8 +2192,199 @@ def _scan_row(sym: str, snap: dict) -> dict:
            "verdict": (snap.get("verdict") or {}).get("verdict"),
            "expected_cagr_weighted_pct":
                (snap.get("expected_return") or {}).get("weighted_total_cagr_pct"),
+           # Which model produced the fair value, so a bank and a software
+           # company sitting in the same list are never read as though the
+           # same arithmetic was applied to both.
+           "fair_value_model": fair.get("model") or "STANDARD",
            "status": "recorded"}
+    # The one measure that means most for each kind of business, so a bank
+    # and a property trust appear with a valuation figure of their own
+    # rather than with a blank where a price-to-earnings would have gone.
+    bank, reit = snap.get("bank") or {}, snap.get("reit") or {}
+    row["headline_multiple"] = None
+    row["headline_multiple_label"] = ""
+    if bank.get("available"):
+        row["headline_multiple"] = (bank.get("price_to_tangible_book") or {}).get("value")
+        row["headline_multiple_label"] = "Price to tangible book"
+        row["bank_rotce_pct"] = (
+            bank.get("return_on_tangible_common_equity_pct") or {}).get("value")
+    elif reit.get("available"):
+        row["headline_multiple"] = (reit.get("price_to_ffo") or {}).get("value")
+        row["headline_multiple_label"] = "Price to funds from operations"
+        row["reit_property_type"] = reit.get("property_type")
+    elif snap.get("trailing_pe"):
+        row["headline_multiple"] = snap.get("trailing_pe")
+        row["headline_multiple_label"] = "Price to earnings, trailing"
     return row
+
+
+# ── Phase 4: the covered-call simulator ─────────────────────────────────────
+
+def covered_call(symbol: str, years: int = 3, policies=None) -> dict:
+    """Run the covered-call policies over this ticker's own price history.
+
+    The fair-value-aware strike rules need a fair value ON EACH DAY, and the
+    only honest source of one is what this app actually recorded that day.
+    Today's fair value applied to two years of history would be lookahead of
+    exactly the kind the forward-validation engine exists to prevent, so
+    stored snapshots supply it and the days before the store began simply
+    carry none — which makes those rules behave as their plain delta or
+    percentage version until the record starts.
+    """
+    sym = (symbol or "").upper().strip()
+    cfg, _hash = config()
+    out = {"symbol": sym, "available": False, "reason": "",
+           "version": _cc.COVERED_CALL_VERSION,
+           "tenors": _cc.TENORS, "strike_rules": _cc.STRIKE_RULES,
+           "roll_rules": _cc.ROLL_RULES,
+           "assignment_modes": _cc.ASSIGNMENT_MODES}
+    if _DAILY_FN is None:
+        out["reason"] = "No daily price history provider is wired."
+        return out
+    try:
+        bars = (_DAILY_FN(sym, int(years * 366)) or {}).get("bars") or []
+    except Exception as exc:                          # noqa: BLE001
+        out["reason"] = f"The price history could not be loaded: {exc}"
+        return out
+    if len(bars) < 60:
+        out["reason"] = (f"Only {len(bars)} daily closes are available for "
+                         f"{sym}. A covered-call run needs a price history "
+                         f"to walk through.")
+        return out
+
+    fv_by_day = {}
+    for row in load_history(sym):
+        day = str(row.get("date") or "")[:10]
+        if not day:
+            continue
+        fv_by_day[day] = {"base": row.get("fair_value_base"),
+                          "credited": row.get("credited_fair_value"),
+                          "buy_zone": row.get("buy_zone")}
+    divs = {}
+    if _ACTIONS_FN is not None:
+        try:
+            divs = (_ACTIONS_FN(sym) or {}).get("dividends") or {}
+        except Exception:                             # noqa: BLE001
+            divs = {}
+    facts = _fund.company_facts(sym) if _fund is not None else None
+    dps = (_dividends(facts) or {}).get("value") if facts else None
+    rate = _rate(1.0)
+
+    # Volatility: the same series the options backtester uses, calibrated
+    # against this ticker's own realized volatility. Never a fixed guess.
+    iv_series = _iv_path(sym, bars)
+    store = chain_store.load(sym)
+
+    runs = _cc.compare_policies(
+        bars, iv_series, policies or _cc.default_policies(), cfg=cfg,
+        sym_store=store, dividends=divs, dividend_rate_ttm=dps,
+        fair_value_by_day=fv_by_day, rate_pct=rate.get("pct"))
+    out.update(runs)
+    out["fair_value_days_recorded"] = len(fv_by_day)
+    out["fair_value_note"] = (
+        f"The fair-value-aware rules used the {len(fv_by_day)} day"
+        f"{'s' if len(fv_by_day) != 1 else ''} of fair value this app has "
+        f"actually recorded for {sym}. Days before the record began carry "
+        f"none, so on those days those rules fall back to their delta or "
+        f"percentage form. Nothing here applies today's valuation to a past "
+        f"day.")
+    out["chain_days_stored"] = len(store)
+    return out
+
+
+def _iv_path(symbol: str, bars: list, earnings_dates=None) -> list:
+    """One implied volatility per bar, from the options backtester's own
+    model — this ticker's realized volatility through that bar, scaled by
+    the documented implied-to-realized ratio and lifted around its earnings
+    dates.
+
+    The stored long-dated implied volatility is deliberately NOT used to
+    calibrate this. Those observations are of contracts a year or more out,
+    and the calls being sold here expire in weeks; Phase 3 refused to
+    compare long-dated implied volatility against short-dated realized
+    volatility, and reusing it as a calibration here would be the same
+    mistake wearing a different hat.
+    """
+    rows = [{"date": str(b.get("date") or b.get("d") or "")[:10],
+             "close": _f(b.get("close") if b.get("close") is not None
+                         else b.get("c"))}
+            for b in bars or []]
+    rows = [r for r in rows if r["date"] and r["close"]]
+    if not rows:
+        return []
+    try:
+        scalers, _src = bt_iv.vix_scaler_series([r["date"] for r in rows], {})
+        return bt_iv.build_iv_series(rows, bt_iv.DEFAULT_RATIO, scalers,
+                                     earnings_dates or [])
+    except Exception:                                 # noqa: BLE001
+        return [None] * len(rows)
+
+
+# ── Phase 4: forward validation ─────────────────────────────────────────────
+
+def validation(symbols=None, benchmark: str | None = None) -> dict:
+    """How the recommendations this app already made have turned out.
+
+    Reads the snapshot store forward. Nothing is recomputed and nothing is
+    rewritten: each stored row is judged exactly as it was written, against
+    prices that came after it.
+    """
+    cfg, _hash = config()
+    out = {"available": False, "reason": "",
+           "version": _forward.FORWARD_TEST_VERSION}
+    syms = list(symbols or [])
+    if not syms and _STARRED_FN is not None:
+        try:
+            syms = list(_STARRED_FN() or [])
+        except Exception:                             # noqa: BLE001
+            syms = []
+    if not syms:
+        out["reason"] = ("No tickers are being tracked, so there are no "
+                         "recorded recommendations to follow forward.")
+        return out
+    if _DAILY_FN is None:
+        out["reason"] = "No daily price history provider is wired."
+        return out
+
+    hist, bars = {}, {}
+    for sym in syms:
+        rows = load_history(sym)
+        if not rows:
+            continue
+        hist[sym] = rows
+        try:
+            bars[sym] = (_DAILY_FN(sym, 900) or {}).get("bars") or []
+        except Exception:                             # noqa: BLE001
+            bars[sym] = []
+    bench_bars = []
+    bench = benchmark or _benchmark_symbol(syms[0] if syms else None)
+    if bench:
+        try:
+            bench_bars = (_DAILY_FN(bench, 900) or {}).get("bars") or []
+        except Exception:                             # noqa: BLE001
+            bench_bars = []
+
+    today = date.today().isoformat()
+    obs = _forward.observations(hist, bars, today, bench_bars, cfg=cfg)
+    out["observations"] = {k: obs[k] for k in
+                           ("n", "skipped", "benchmark_available")}
+    out["calibration"] = _forward.calibration(obs, cfg)
+    out["structures"] = _forward.structure_report(hist, bars, today, cfg)
+    out["benchmark"] = bench
+    out["tickers_with_history"] = len(hist)
+    out["stored_rows"] = sum(len(v) for v in hist.values())
+    out["available"] = True
+    out["reason"] = out["calibration"].get("reason") or ""
+    return out
+
+
+def _benchmark_symbol(sym):
+    if _BENCHMARK_FN is None or not sym:
+        return None
+    try:
+        return _BENCHMARK_FN(sym)
+    except Exception:                                 # noqa: BLE001
+        return None
 
 
 def _scan_worker(symbols: list) -> None:              # pragma: no cover

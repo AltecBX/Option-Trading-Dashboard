@@ -239,6 +239,8 @@ for p in [
     # 500 — "no chain for this ticker" is an answer, not a failure.
     f"/api/invest/structures?symbol={S}",
     "/api/invest/scan?symbols=FAKE&budget=0",
+    f"/api/invest/covered_call?symbol={S}&years=1",
+    "/api/invest/validation?symbols=FAKE",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",
