@@ -41,9 +41,13 @@ that ratio or the earning-asset base in machine-readable form, so the ratio
 reported here is net interest income over average TOTAL assets, under that
 name, and never called net interest margin.
 
-Bank of America tags no preferred-equity concept at all. Its tangible book
-value is therefore refused rather than computed as though its preferred
-stock were zero, which would overstate the common equity behind every share.
+Bank of America tags no preferred-equity balance at all, and pays over a
+billion dollars of preferred dividends a year. Its tangible book value is
+therefore refused rather than computed as though its preferred stock were
+zero, which would overstate the common equity behind every share. A company
+that tags no preferred balance AND no preferred dividend AND no preferred
+shares outstanding is a different case — that is the filings saying there is
+none, and zero is then the right deduction. See `fundamentals.preferred_equity`.
 
 Nothing here is scored, summed or ranked into a single number.
 """
@@ -121,16 +125,14 @@ def tangible_common_equity(fund, facts, as_of: str | None = None) -> dict:
         return _na("Shareholders' equity is not on file for this bank.")
     gw = fund.instant(facts, "goodwill", as_of)
     ia = fund.instant(facts, "intangible_assets", as_of)
-    pref = fund.instant(facts, "preferred_equity", as_of)
+    pref = fund.preferred_equity(facts, as_of)
     if gw.get("value") is None:
         return _na("Goodwill is not tagged in this bank's filings, so "
                    "tangible book value cannot be separated from book value.")
     if pref.get("value") is None:
-        return _na("This bank does not tag its preferred stock in a "
-                   "machine-readable form. Treating it as zero would credit "
-                   "the common shareholder with equity that belongs to the "
-                   "preferred holders, so tangible book value is left "
-                   "unreported rather than overstated.")
+        return _na(pref.get("reason") or
+                   "The preferred-stock claim on this company's equity "
+                   "cannot be read from its filings.")
     intangibles = _num(ia.get("value")) or 0.0
     tce = (_num(eq["value"]) - _num(gw["value"]) - intangibles
            - _num(pref["value"]))
@@ -185,29 +187,26 @@ def average_balance(fund, facts, name: str, as_of: str | None = None) -> dict:
     grew, so both ends of the year are used where both exist. Where the
     year-ago reading is missing the closing balance is used and said so.
     """
-    gaap = facts.get("facts", {}).get("us-gaap") or {}
-    for concept in fund.INSTANT_CONCEPTS[name]:
-        entry = gaap.get(concept)
-        if not entry:
-            continue
-        rows = fund.instant_series(entry)
-        rows = [r for r in rows if as_of is None or r["end"] <= as_of]
-        if not rows:
-            continue
-        latest = _num(rows[-1]["val"])
-        prior = _year_ago(rows, as_of)
-        if prior is not None:
-            return _ok((latest + _num(prior["val"])) / 2.0,
-                       f"Average of the {rows[-1]['end']} and "
-                       f"{prior['end']} balance-sheet readings",
-                       latest=latest, prior=_num(prior["val"]),
-                       concept=concept)
-        return _ok(latest,
-                   f"The {rows[-1]['end']} balance-sheet reading. No reading "
-                   f"about a year earlier is on file, so this is a closing "
-                   f"balance rather than an average.",
-                   latest=latest, prior=None, concept=concept)
-    return _na("Not reported in a machine-readable form.")
+    # The SAME concept the point-in-time reader picks, so an average balance
+    # and the closing balance shown beside it can never turn out to be two
+    # different definitions of the same word.
+    picked = fund.instant_pick(facts, name, as_of)
+    if not picked:
+        return _na("Not reported in a machine-readable form.")
+    concept, rows = picked
+    latest = _num(rows[-1]["val"])
+    prior = _year_ago(rows, as_of)
+    if prior is not None:
+        return _ok((latest + _num(prior["val"])) / 2.0,
+                   f"Average of the {rows[-1]['end']} and "
+                   f"{prior['end']} balance-sheet readings",
+                   latest=latest, prior=_num(prior["val"]),
+                   concept=concept)
+    return _ok(latest,
+               f"The {rows[-1]['end']} balance-sheet reading. No reading "
+               f"about a year earlier is on file, so this is a closing "
+               f"balance rather than an average.",
+               latest=latest, prior=None, concept=concept)
 
 
 # ── profitability ───────────────────────────────────────────────────────────
@@ -274,46 +273,55 @@ def regress(xs, ys) -> dict | None:
 
 
 def peer_fitted_multiple(subject_rotce_pct, peer_rotce_pcts,
-                         peer_multiples, cfg=None) -> dict:
-    """What this bank's peers charge for a bank of THIS profitability.
+                         peer_multiples, cfg=None, kind: str = "banks",
+                         return_label: str = "return on tangible common equity",
+                         multiple_label: str = "price to tangible book",
+                         min_peers=None, min_r2=None) -> dict:
+    """What this company's peers charge for one of THIS profitability.
 
-    Where a real relationship exists between return on tangible common
-    equity and price to tangible book across the group, the subject is
-    priced off that line rather than off the group median — which is the
-    whole point, because the median prices it as though every bank in the
-    group earned the same return.
+    Where a real relationship exists between profitability and the multiple
+    across the group, the subject is priced off that line rather than off the
+    group median — which is the whole point, because the median prices it as
+    though every member of the group earned the same return.
 
     Where the relationship is weak or the group is small, the median is used
     and the reason is stated. A fitted line through six points is not a
     relationship.
+
+    The labels and thresholds are parameters because the insurer and broker
+    models run the same arithmetic on return on EQUITY against price to BOOK,
+    under their own settings. Without them an insurer's screen explained
+    itself in terms of banks and tangible book, which is a sentence about a
+    different company.
     """
     cfg = cfg or {}
     r = _num(subject_rotce_pct)
     pairs = [(a, b) for a, b in zip(peer_rotce_pcts or [], peer_multiples or [])
              if _num(a) is not None and _num(b) is not None and _num(b) > 0]
-    need = int(cfg_get(cfg, "bank_min_peers_for_regression"))
-    min_r2 = float(cfg_get(cfg, "bank_min_regression_r2"))
+    need = int(cfg_get(cfg, "bank_min_peers_for_regression")
+               if min_peers is None else min_peers)
+    min_r2 = float(cfg_get(cfg, "bank_min_regression_r2")
+                   if min_r2 is None else min_r2)
     median = fv.quantile([p[1] for p in pairs], 0.5) if pairs else None
     out = {"value": median, "fitted": False, "n": len(pairs),
            "median": median, "reason": "", "r2": None, "slope": None}
     if r is None:
-        out["reason"] = ("This bank's own return on tangible common equity "
-                         "could not be measured, so its peers' median "
-                         "multiple is used unadjusted.")
+        out["reason"] = (f"This company's own {return_label} could not be "
+                         f"measured, so its peers' median multiple is used "
+                         f"unadjusted.")
         return out
     if len(pairs) < need:
-        out["reason"] = (f"Only {len(pairs)} comparable banks report both a "
-                         f"return on tangible common equity and a price to "
-                         f"tangible book — fewer than the {need} needed "
-                         f"before a fitted relationship means anything, so "
-                         f"the group median is used.")
+        out["reason"] = (f"Only {len(pairs)} comparable {kind} report both a "
+                         f"{return_label} and a {multiple_label} — fewer than "
+                         f"the {need} needed before a fitted relationship "
+                         f"means anything, so the group median is used.")
         return out
     fit = regress([p[0] for p in pairs], [p[1] for p in pairs])
     if fit is None or fit["r2"] < min_r2 or fit["slope"] <= 0:
         out["reason"] = (
-            f"Across these {len(pairs)} banks, profitability explains "
+            f"Across these {len(pairs)} {kind}, profitability explains "
             f"{(fit or {}).get('r2', 0.0) * 100:.0f}% of the difference in "
-            f"price to tangible book — below the "
+            f"{multiple_label} — below the "
             f"{min_r2 * 100:.0f}% needed to price off the relationship, so "
             f"the group median is used instead.")
         out["r2"] = (fit or {}).get("r2")
@@ -321,20 +329,21 @@ def peer_fitted_multiple(subject_rotce_pct, peer_rotce_pcts,
         return out
     val = fit["intercept"] + fit["slope"] * r
     if val <= 0:
-        out["reason"] = ("The fitted relationship puts this bank's multiple "
-                         "at or below zero, so the group median is used.")
+        out["reason"] = ("The fitted relationship puts this company's "
+                         "multiple at or below zero, so the group median is "
+                         "used.")
         out["r2"], out["slope"] = fit["r2"], fit["slope"]
         return out
     out.update({"value": val, "fitted": True, "r2": fit["r2"],
                 "slope": fit["slope"], "intercept": fit["intercept"],
-                "reason": (f"Across {len(pairs)} comparable banks, every "
-                           f"extra point of return on tangible common equity "
-                           f"is worth {fit['slope']:.2f} of price to tangible "
-                           f"book, and that relationship explains "
+                "reason": (f"Across {len(pairs)} comparable {kind}, every "
+                           f"extra point of {return_label} is worth "
+                           f"{fit['slope']:.2f} of {multiple_label}, and that "
+                           f"relationship explains "
                            f"{fit['r2'] * 100:.0f}% of the spread between "
-                           f"them. This bank is priced off that line at its "
-                           f"own {r:.1f}% return, not off the group median "
-                           f"of {median:.2f}.")})
+                           f"them. This company is priced off that line at "
+                           f"its own {r:.1f}% return, not off the group "
+                           f"median of {median:.2f}.")})
     return out
 
 
@@ -349,23 +358,20 @@ def point_in_time_series(fund, facts) -> dict:
     period ended. Dividing a later price by an earlier book is the whole
     point; dividing it by a book nobody had yet is lookahead.
     """
-    gaap = facts.get("facts", {}).get("us-gaap") or {}
-
     def series(name):
-        for concept in fund.INSTANT_CONCEPTS[name]:
-            entry = gaap.get(concept)
-            if entry:
-                rows = fund.instant_series(entry)
-                if rows:
-                    return rows
-        return []
+        picked = fund.instant_pick(facts, name)
+        return picked[1] if picked else []
 
     eq = series("equity")
     if not eq:
         return {}
     gw = {r["end"]: r["val"] for r in series("goodwill")}
     ia = {r["end"]: r["val"] for r in series("intangible_assets")}
-    pref = {r["end"]: r["val"] for r in series("preferred_equity")}
+    pref = {e: r["val"] for e, r in fund.preferred_equity_series(facts).items()}
+    # A company the filings show has no preferred stock at all deducts zero
+    # on every date rather than dropping out of its own valuation history.
+    no_preferred = (not pref
+                    and fund.preferred_equity(facts).get("value") == 0.0)
     shares = {p["period_end"]: p["value"]
               for p in fund.pit_series(facts, "diluted_shares")
               if p.get("value")}
@@ -374,7 +380,7 @@ def point_in_time_series(fund, facts) -> dict:
     for r in eq:
         end = r["end"]
         sh = shares.get(end)
-        p = pref.get(end)
+        p = pref.get(end, 0.0 if no_preferred else None)
         if not sh or p is None:
             continue
         common = _num(r["val"]) - _num(p)
@@ -404,14 +410,12 @@ def metrics(fund, facts, price=None, shares_outstanding=None,
     common_equity = tce.get("common_equity")
     if common_equity is None:
         eq = fund.instant(facts, "equity", as_of)
-        pref = fund.instant(facts, "preferred_equity", as_of)
+        pref = fund.preferred_equity(facts, as_of)
         if eq.get("value") is not None and pref.get("value") is not None:
             common_equity = _num(eq["value"]) - _num(pref["value"])
     out["common_equity"] = common_equity
 
-    ni = fund.metric(facts, "net_income_common", as_of)
-    if ni.get("value") is None:
-        ni = fund.metric(facts, "net_income", as_of)
+    ni = fund.net_income_to_common(facts, as_of)
     out["net_income_common"] = ni
 
     avg_eq = average_balance(fund, facts, "equity", as_of)
@@ -570,20 +574,14 @@ def _growth_block(fund, facts, name: str, as_of=None) -> dict:
 
 def _instant_growth(fund, facts, name: str, as_of=None) -> dict:
     """Growth in a balance-sheet figure against its reading a year earlier."""
-    gaap = facts.get("facts", {}).get("us-gaap") or {}
-    for concept in fund.INSTANT_CONCEPTS[name]:
-        entry = gaap.get(concept)
-        if not entry:
-            continue
-        rows = [r for r in fund.instant_series(entry)
-                if as_of is None or r["end"] <= as_of]
-        if len(rows) < 2:
-            continue
+    picked = fund.instant_pick(facts, name, as_of)
+    rows = picked[1] if picked else []
+    if len(rows) >= 2:
         prior = _year_ago(rows, as_of)
-        if prior is None or not _num(prior["val"]):
-            continue
-        return _ok((_num(rows[-1]["val"]) / _num(prior["val"]) - 1.0) * 100.0,
-                   f"{rows[-1]['end']} against {prior['end']}")
+        if prior is not None and _num(prior["val"]):
+            return _ok(
+                (_num(rows[-1]["val"]) / _num(prior["val"]) - 1.0) * 100.0,
+                f"{rows[-1]['end']} against {prior['end']}")
     return _na("No balance-sheet reading about a year earlier is on file to "
                "compare against.")
 

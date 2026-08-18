@@ -878,5 +878,260 @@ class TestBankAndReitConcepts(unittest.TestCase):
                          "Tier one capital ratio")
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 5 — the readers that three specialized models share
+# ══════════════════════════════════════════════════════════════════════════
+
+def _instants(name, values, ends=None):
+    ends = ends or ["2024-12-31", "2025-06-30", "2025-12-31", "2026-06-30"]
+    return {name: concept("USD", [
+        instant_fact(e, v, filed=e) for e, v in zip(ends, values)])}
+
+
+class TestStrictInstantPriority(unittest.TestCase):
+    """`StockholdersEquity` is the parent company's equity and
+    `...IncludingPortionAttributableToNoncontrollingInterest` adds equity
+    belonging to somebody else. They are usually filed on the same date, so
+    a coverage tie-break picked whichever had been tagged longer — and that
+    was the wrong one for twenty-two of fifty-three filers measured."""
+
+    def test_scope_beats_coverage_when_the_dates_tie(self):
+        f = facts(us_gaap={
+            **_instants("StockholdersEquity", [100.0] * 4),
+            **_instants(
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                [140.0] * 4,
+                ends=["2023-06-30", "2024-12-31", "2025-12-31", "2026-06-30"]),
+        })
+        got = F.instant(f, "equity")
+        self.assertEqual(got["concept"], "StockholdersEquity")
+        self.assertEqual(got["value"], 100.0)
+
+    def test_recency_still_comes_first(self):
+        # Stifel stopped tagging the parent-only concept in 2020. The
+        # fallback has to happen, or its book value is five years stale.
+        f = facts(us_gaap={
+            **_instants("StockholdersEquity", [100.0],
+                        ends=["2020-12-31"]),
+            **_instants(
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                [140.0] * 4),
+        })
+        got = F.instant(f, "equity")
+        self.assertEqual(got["value"], 140.0)
+        self.assertEqual(got["as_of"], "2026-06-30")
+
+    def test_a_component_never_outranks_its_own_total(self):
+        # Goldman Sachs tags both short-term borrowings and OTHER short-term
+        # borrowings; reading the component put its figure 28 times too low.
+        f = facts(us_gaap={
+            **_instants("ShortTermBorrowings", [100.0] * 4),
+            **_instants("OtherShortTermBorrowings", [3.0] * 4),
+        })
+        self.assertEqual(F.instant(f, "short_term_debt")["value"], 100.0)
+
+    def test_synonym_metrics_still_break_ties_on_coverage(self):
+        f = facts(us_gaap={
+            **_instants("Assets", [500.0] * 4),
+        })
+        self.assertEqual(F.instant(f, "assets")["value"], 500.0)
+
+    def test_instant_pick_and_instant_never_disagree(self):
+        f = facts(us_gaap={
+            **_instants("StockholdersEquity", [100.0] * 4),
+            **_instants(
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                [140.0] * 4),
+        })
+        concept_name, rows = F.instant_pick(f, "equity")
+        self.assertEqual(concept_name, F.instant(f, "equity")["concept"])
+        self.assertEqual(rows[-1]["val"], F.instant(f, "equity")["value"])
+
+
+class TestPreferredEquity(unittest.TestCase):
+    def test_the_largest_tagged_figure_is_taken(self):
+        # Par value is often rounded to nothing; the liquidation preference
+        # is what the preferred holders would actually take. Taking the
+        # larger can only reduce what the common shareholder is credited.
+        f = facts(us_gaap={
+            **_instants("PreferredStockValue", [0.0] * 4),
+            **_instants("PreferredStockLiquidationPreferenceValue",
+                        [3_800.0] * 4),
+        })
+        got = F.preferred_equity(f)
+        self.assertEqual(got["value"], 3_800.0)
+
+    def test_no_preferred_anywhere_is_zero_with_the_evidence_for_it(self):
+        got = F.preferred_equity(facts(us_gaap=_instants("Assets", [1.0] * 4)))
+        self.assertEqual(got["value"], 0.0)
+        self.assertIn("no preferred balance, no preferred dividend",
+                      got["basis"].lower())
+
+    def test_preferred_dividends_without_a_balance_refuse(self):
+        # Bank of America: over a billion dollars of preferred dividends a
+        # year and no preferred-stock balance tagged anywhere.
+        f = facts(us_gaap={
+            **_instants("Assets", [1.0] * 4),
+            "PreferredStockDividendsIncomeStatementImpact": concept("USD", [
+                fact("2025-07-01", "2025-09-30", 380.0, filed="2025-10-15"),
+                fact("2025-10-01", "2025-12-31", 380.0, filed="2026-01-15"),
+                fact("2026-01-01", "2026-03-31", 380.0, filed="2026-04-15"),
+                fact("2026-04-01", "2026-06-30", 380.0, filed="2026-07-15")]),
+        })
+        got = F.preferred_equity(f)
+        self.assertIsNone(got["value"])
+        self.assertIn("preferred dividends", got["reason"])
+        self.assertIn("belongs to the preferred holders", got["reason"])
+
+    def test_preferred_shares_outstanding_without_a_value_refuse(self):
+        f = facts(us_gaap={
+            **_instants("Assets", [1.0] * 4),
+            "PreferredStockSharesOutstanding": concept("shares", [
+                instant_fact("2026-06-30", 3_951_164.0, filed="2026-07-15")]),
+        })
+        self.assertIsNone(F.preferred_equity(f)["value"])
+
+    def test_a_zero_share_count_is_not_evidence_of_preferred(self):
+        f = facts(us_gaap={
+            **_instants("Assets", [1.0] * 4),
+            "PreferredStockSharesOutstanding": concept("shares", [
+                instant_fact("2026-06-30", 0.0, filed="2026-07-15")]),
+        })
+        self.assertEqual(F.preferred_equity(f)["value"], 0.0)
+
+    def test_a_long_stale_balance_stops_being_deducted(self):
+        # Progressive redeemed its preferred in 2025. Its old readings must
+        # not go on coming off the common equity for ever.
+        f = facts(us_gaap={
+            **_instants("Assets", [1.0] * 4),
+            **_instants("PreferredStockValue", [500.0],
+                        ends=["2020-12-31"]),
+        })
+        self.assertEqual(F.preferred_equity(f)["value"], 0.0)
+
+
+class TestNetIncomeToCommon(unittest.TestCase):
+    def _flow(self, name, val, start_year=2025, n=4):
+        rows, y, q = [], start_year, 0
+        months = [("01-01", "03-31"), ("04-01", "06-30"),
+                  ("07-01", "09-30"), ("10-01", "12-31")]
+        for _ in range(n):
+            s, e = months[q]
+            rows.append(fact(f"{y}-{s}", f"{y}-{e}", val,
+                             filed=f"{y}-{e[:2]}-15"))
+            q += 1
+            if q == 4:
+                q, y = 0, y + 1
+        return {name: concept("USD", rows)}
+
+    def test_the_common_figure_wins_a_tie(self):
+        # Charles Schwab: both series end on the same date and the total
+        # picks up a series reading 1.3 billion against a real 9.7.
+        f = facts(us_gaap={
+            **self._flow("NetIncomeLossAvailableToCommonStockholdersBasic", 100.0),
+            **self._flow("NetIncomeLoss", 13.0),
+        })
+        got = F.net_income_to_common(f)
+        self.assertEqual(got["value"], 400.0)
+        self.assertEqual(got["attributable_to"], "common shareholders")
+
+    def test_a_stale_common_series_falls_back_and_says_so(self):
+        # LPL Financial's net-income-to-common series stops in 2012, which
+        # put its return on equity at 2.8% against a real 18.6%.
+        f = facts(us_gaap={
+            **self._flow("NetIncomeLossAvailableToCommonStockholdersBasic",
+                         10.0, start_year=2012),
+            **self._flow("NetIncomeLoss", 100.0),
+        })
+        got = F.net_income_to_common(f)
+        self.assertEqual(got["value"], 400.0)
+        self.assertEqual(got["attributable_to"], "the company as a whole")
+        self.assertIn("stops at 2012-12-31", got["basis"])
+
+    def test_only_a_total_is_used_when_that_is_all_there_is(self):
+        f = facts(us_gaap=self._flow("NetIncomeLoss", 50.0))
+        self.assertEqual(F.net_income_to_common(f)["value"], 200.0)
+
+    def test_neither_returns_a_reason(self):
+        got = F.net_income_to_common(facts(us_gaap={}))
+        self.assertIsNone(got["value"])
+        self.assertTrue(got["reason"])
+
+
+class TestTotalEquity(unittest.TestCase):
+    def test_it_prefers_the_consolidated_figure(self):
+        f = facts(us_gaap={
+            **_instants("StockholdersEquity", [100.0] * 4),
+            **_instants(
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                [400.0] * 4),
+        })
+        self.assertEqual(F.total_equity(f)["value"], 400.0)
+
+    def test_it_falls_back_to_the_parent_where_there_is_no_other(self):
+        f = facts(us_gaap=_instants("StockholdersEquity", [100.0] * 4))
+        self.assertEqual(F.total_equity(f)["value"], 100.0)
+
+    def test_it_refuses_rather_than_returning_zero(self):
+        got = F.total_equity(facts(us_gaap={}))
+        self.assertIsNone(got["value"])
+        self.assertTrue(got["reason"])
+
+
+class TestItemOneExtraction(unittest.TestCase):
+    """Travelers' business description read as a paragraph about
+    holding-company liquidity, because taking the LONGEST candidate picked a
+    cross-reference from later in the report."""
+
+    def _doc(self):
+        toc = "Item 1. Business 3 Item 1A. Risk Factors 20 "
+        chapter = ("Item 1. Business The Travelers Companies writes property "
+                   "and casualty insurance. " + ("It underwrites risk. " * 200))
+        risks = "Item 1A. Risk Factors We face many risks. "
+        crossref = ("see Part I, Item 1 — Business — Regulation. Holding "
+                    "Company Liquidity. " + ("Liquidity is managed. " * 400)
+                    + "Item 1A. Risk Factors again. ")
+        return toc + chapter + risks + crossref
+
+    def test_the_chapter_wins_over_a_later_cross_reference(self):
+        body = F._item1_body(self._doc())
+        self.assertTrue(body.startswith("The Travelers Companies"))
+        self.assertNotIn("Holding Company Liquidity", body[:200])
+
+    def test_the_contents_entry_is_never_the_answer(self):
+        body = F._item1_body(self._doc())
+        self.assertNotIn("Risk Factors 20", body[:80])
+
+    def test_a_short_filer_still_gets_its_only_candidate(self):
+        doc = ("Item 1. Business Realty Income is a real estate partner. It "
+               "owns shops. It leases them. ")
+        self.assertIn("Realty Income", F._item1_body(doc))
+
+    def test_no_heading_at_all_returns_nothing(self):
+        self.assertEqual(F._item1_body("There is no such heading here."), "")
+
+
+class TestBusinessSubtypeClassifiers(unittest.TestCase):
+    def test_a_broker_report_never_classifies_as_an_insurer(self):
+        text = "retail brokerage accounts and self-directed investing. " * 20
+        self.assertIsNone(F.insurer_subtype(text, 6211)[0])
+
+    def test_an_insurer_report_leaves_the_broker_mix_undetermined(self):
+        text = "property and casualty insurance underwriting income. " * 20
+        self.assertEqual(F.broker_subtype(text)[0], "UNDETERMINED")
+
+    def test_the_labels_are_written_out_rather_than_abbreviated(self):
+        for label in F.INSURER_SUBTYPE_LABELS.values():
+            self.assertGreater(len(label), 8)
+        for label in F.BROKER_SUBTYPE_LABELS.values():
+            self.assertGreater(len(label), 8)
+
+    def test_every_insurer_subtype_has_a_metric_basis(self):
+        for sub in F.INSURER_SUBTYPES:
+            self.assertIn(sub, F.INSURER_METRIC_BASIS)
+            self.assertIn(F.INSURER_METRIC_BASIS[sub],
+                          ("UNDERWRITING", "BENEFIT", "SPREAD"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

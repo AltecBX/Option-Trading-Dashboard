@@ -22,6 +22,7 @@ from datetime import date, timedelta
 os.environ.setdefault("JERRY_NO_NET", "1")
 
 import forward_test as FT
+import invest_scan as S
 
 
 def series(prices, start=date(2025, 1, 1)):
@@ -347,6 +348,64 @@ class TestExactContracts(unittest.TestCase):
         rep = FT.structure_report({}, {}, TODAY)
         self.assertIn("reached its expiration yet", rep["reason"])
         self.assertEqual(rep["settled_recommendations"], 0)
+
+
+# ── Phase 5: is today's recording good enough for tomorrow's scoring ───────
+
+class TestRecordingCompleteness(unittest.TestCase):
+    """Phase 5 asked whether production is collecting everything a future
+    exact scoring pass needs. That question is answered forward, against the
+    rows being written now — the old ones are never rewritten, so a gap in
+    them is history rather than a bug."""
+
+    def _row(self, **kw):
+        base = {"date": "2026-06-01", "ticker": "AAA", "price": 100.0,
+                "config_hash": "abc123", "entry_verdict": "BUY SHARES",
+                "preferred_structure": "BUY SHARES",
+                "recommended_contract": None,
+                "recommended_contract_reason": "no contract",
+                "benchmark_symbol": "XLF", "fair_value_base": 120.0,
+                "buy_zone": 96.0}
+        base.update(kw)
+        return base
+
+    def test_a_complete_row_reports_complete(self):
+        out = S.recording_audit({"AAA": [self._row(
+            recommended_contract={"strike": 100.0, "expiration": "2026-09-18",
+                                  "mid": 3.2, "quote_source": "schwab"})]})
+        self.assertEqual(out["complete"], len(S.REQUIRED_FOR_SCORING))
+        self.assertEqual(out["missing_examples"], [])
+        self.assertIn("all", out["reason"])
+
+    def test_a_missing_field_is_named_along_with_the_ticker(self):
+        out = S.recording_audit({"AAA": [self._row(config_hash=None)]})
+        self.assertIn("config_hash", out["missing_examples"])
+        gap = next(f for f in out["fields"] if f["field"] == "config_hash")
+        self.assertEqual(gap["missing"], ["AAA"])
+        self.assertIn("cannot be scored", out["reason"])
+
+    def test_a_missing_benchmark_is_caught(self):
+        out = S.recording_audit({"AAA": [self._row(benchmark_symbol=None)]})
+        self.assertIn("benchmark_symbol", out["missing_examples"])
+
+    def test_only_the_latest_row_of_each_ticker_is_judged(self):
+        # An old row lacking a field is not a fault; the current one is.
+        old = self._row(date="2025-01-01", config_hash=None)
+        new = self._row(recommended_contract={"strike": 1.0})
+        out = S.recording_audit({"AAA": [old, new]})
+        self.assertEqual(out["complete"], len(S.REQUIRED_FOR_SCORING))
+
+    def test_every_required_field_carries_a_plain_english_description(self):
+        for _key, what in S.REQUIRED_FOR_SCORING:
+            self.assertGreater(len(what), 10)
+            self.assertNotIn("_", what)
+
+    def test_the_exact_contract_and_its_quote_are_both_required(self):
+        keys = {k for k, _ in S.REQUIRED_FOR_SCORING}
+        self.assertIn("recommended_contract", keys)
+        self.assertIn("config_hash", keys)
+        what = dict(S.REQUIRED_FOR_SCORING)["recommended_contract"]
+        self.assertIn("quote", what)
 
 
 if __name__ == "__main__":                            # pragma: no cover

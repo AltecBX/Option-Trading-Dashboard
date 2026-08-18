@@ -334,6 +334,75 @@ Two gotchas that cost real accuracy and are worth writing down:
   the filer's own record, never against the clock, so the answer does not
   change with the date the app is run.
 
+## 9c. What SEC XBRL supports for insurers and brokers (Phase 5)
+
+Same exercise, run before either model was written.
+
+**Insurers (36 US insurers measured across property-casualty, life, health,
+reinsurance and multiline):**
+
+| Concept | Coverage | Note |
+|---|---|---|
+| `PremiumsEarnedNet` | 36/36 | |
+| `PolicyholderBenefitsAndClaimsIncurredNet` | 36/36 | |
+| `LiabilityForClaimsAndClaimsAdjustmentExpense` | 34/36 | |
+| `NetInvestmentIncome` | 33/36 | |
+| `DeferredPolicyAcquisitionCostAmortizationExpense` | 31/36 | The acquisition-cost half of the expense ratio |
+| **`OtherUnderwritingExpense`** | **5/36** | The other half. This is why the combined ratio is usually blank |
+| Prior-year reserve development (Schedule-P style) | 16/22 property-casualty | `SupplementalInformationForPropertyCasualtyInsuranceUnderwritersPriorYearClaimsAndClaimsAdjustmentExpense` |
+| `PremiumsWrittenNet` | 14/36 | |
+| **Risk-based capital** | **0/36** | Filed with state regulators, not with the SEC in XBRL. Equity to total assets is reported instead, under that name |
+
+The expense side is the whole story. There is a tempting substitute —
+`BenefitsLossesAndExpenses` minus claims — and it was measured: believable for
+pure property-casualty insurers (Travelers 88.6, Chubb 85.3) and nonsense
+everywhere else (Cigna 716, Equitable 1,134), because the total sweeps in
+interest credited, annuity costs and the cost of dispensing prescriptions. It
+is not used.
+
+**Brokers (24 filers in the broker industry codes, of which 10 are actual
+broker-dealers):**
+
+| Concept | Coverage | Note |
+|---|---|---|
+| `LaborAndRelatedExpense` | 20/24 | Compensation is the largest cost at every broker |
+| `CashAndSecuritiesSegregatedUnderFederalAndOtherRegulations` | 9/10 brokers | Concept present; CURRENT for fewer |
+| `ReceivablesFromCustomers` | 8/10 brokers | Margin lending |
+| `InterestIncomeExpenseNet` | 6/24 | |
+| `BrokerageCommissionsRevenue` | 5/24 | |
+| **`PayablesToCustomers`** | **8/10 present, 0/10 current** | Newest reading anywhere is 2020 |
+| **`AssetsUnderManagementCarryingAmount`** | **1/24** | LPL Financial, dated 2012 |
+
+**Client assets do not exist in XBRL.** Not assets under management, not
+assets under administration, not net new assets. Every figure that circulates
+comes from press releases and monthly activity reports. They stay blank.
+
+**The industry code cannot answer "is this a broker".** Code 6211 holds
+Charles Schwab, Goldman Sachs AND BlackRock; 6200 holds LPL Financial and the
+CME; 6282 holds Evercore and T. Rowe Price. The question is answered from the
+balance sheet instead — and each piece of evidence has to be CURRENT
+(Evercore's investment banking revenue series stopped in 2018,
+Intercontinental Exchange's segregated cash in 2015) and MATERIAL (Ameriprise
+parks $0.9bn of segregated cash against $198bn of assets).
+
+Three more gotchas, each of which was a live bug:
+
+- **Instant concepts need strict priority too.** `StockholdersEquity` is the
+  parent company's equity and
+  `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest`
+  adds equity belonging to somebody else. Both are usually filed on the same
+  date, so the coverage tie-break picked the wrong one for 22 of 53 filers
+  measured — Interactive Brokers' book value 73% too high, American Tower's
+  65%, Simon Property Group's 21%. See `fundamentals.STRICT_INSTANT_PRIORITY`.
+- **"No preferred stock tagged" and "no preferred stock" are different.** Bank
+  of America tags no preferred balance and pays $1.5bn a year of preferred
+  dividends; Chubb, Aflac and Hanover tag no balance, no dividend and no
+  preferred share count. The first must be refused and the second is zero.
+- **A concept can be present and years stale.** LPL Financial's
+  `NetIncomeLossAvailableToCommonStockholdersBasic` stops in 2012, which put
+  its return on equity at 2.8% against a real 18.6%. Freshness decides which
+  of two overlapping concepts is used, not mere presence.
+
 ## 10. House rules that made all of this reliable
 
 1. **Cache by cadence**: daily data 15–30 min, monthly (CPI/COT) 6–12 h,

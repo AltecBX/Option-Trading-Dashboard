@@ -655,5 +655,96 @@ check("the Phase 4 sections are expandable and tipped",
     return true;
   })());
 
+// ── Phase 5: insurers, brokers and how real the option data is ────────────
+
+check("the Phase 5 sections are expandable and tipped",
+  (() => {
+    for (const key of ["insurance", "broker"]) {
+      const re = new RegExp(`section\\("${key}", "[^"]+",\\s*\\n?\\s*"`);
+      if (!re.test(inv)) return `${key} section missing a tooltip`;
+    }
+    return true;
+  })());
+
+check("the insurer panel says why the subtype decides the numbers",
+  /claims divided by premiums is a loss ratio for a car insurer and is not a ratio at all for a life insurer/
+    .test(invJoined));
+
+check("the combined ratio says which direction is good and why it is blank",
+  /BELOW 100 the insurer made money on the underwriting itself/.test(invJoined)
+  && /LOWER IS BETTER/.test(invJoined)
+  && /assembled out of unrelated concepts rather than a measurement/
+    .test(invJoined));
+
+check("adverse reserve development is named as the warning it is",
+  /Adverse development is the single most important warning in this industry/
+    .test(invJoined)
+  && /under-estimated what it already owed/.test(invJoined));
+
+check("insurer capital is not called a risk-based capital ratio",
+  /NOT a risk-based capital ratio/.test(invJoined));
+
+check("the broker panel answers whether it is a broker from the filings",
+  /The SEC code 6211 holds Charles Schwab, Goldman Sachs AND BlackRock/
+    .test(invJoined)
+  && /rather than from the code/.test(invJoined));
+
+check("client assets are refused in writing rather than estimated",
+  /are not in the machine-readable filings anywhere/.test(invJoined)
+  && /a broker's own capital says nothing about how much of its customers' money it holds/
+    .test(invJoined));
+
+check("broker leverage says both sides describe the same group",
+  /Total assets over all the equity on the balance sheet/.test(invJoined));
+
+check("the readiness block says real chain history only grows forward",
+  /It grows by one for every day the app runs after the close and can NEVER grow backwards/
+    .test(invJoined));
+
+check("real fills and model fills are called different kinds of number",
+  /different KINDS of number rather than the same number known to different precisions/
+    .test(invJoined));
+
+check("the recording audit says nothing can be filled in afterwards",
+  /nothing can be filled in after the fact/.test(invJoined)
+  && /Rows already on disk are never rewritten/.test(invJoined));
+
+check("no insider shorthand in the Phase 5 labels",
+  (() => {
+    const shorthand = /\b(P\/B|P\/TBV|ROE|ROTCE|CR|BVPS|NII|AUM|NNA|LR|ER)\b/;
+    const bad = invStatLabels.filter((l) => shorthand.test(l));
+    return bad.length === 0 || `shorthand in: ${bad.join(", ")}`;
+  })());
+
+check("every Phase 5 stat is spelled out",
+  (() => {
+    for (const want of ["Book value per share", "Price to book value",
+                        "Return on equity", "Combined ratio",
+                        "Earlier years' reserve movement",
+                        "Equity to total assets", "Assets to equity",
+                        "Compensation as share of revenue",
+                        "Net interest share of revenue"]) {
+      if (!invStatLabels.includes(want)) return `missing "${want}"`;
+    }
+    return true;
+  })());
+
+check("a life insurer is given no underwriting rows at all, not even blanks",
+  (() => {
+    // The rows exist for a property-casualty insurer and the benefit ratio
+    // for a health insurer. A life insurer gets neither — a row of blanks
+    // invites the reader to go looking for a number that is not a ratio of
+    // anything for that business.
+    const guarded = /\{!spread && stat\(health \? "Benefit ratio" : "Loss ratio"/
+      .test(inv);
+    const noteInstead = /\{spread && \(\s*\n?\s*<div className="inv-note"/.test(inv);
+    return (guarded && noteInstead)
+      || `guarded=${guarded} noteInstead=${noteInstead}`;
+  })());
+
+check("no summed insurer or broker score appears anywhere",
+  !/insuranceScore/.test(inv) && !/brokerScore/.test(inv)
+  && !/risk_score/.test(inv));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

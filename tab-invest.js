@@ -49,6 +49,16 @@ const INV_TRAP_TONE = {
   "HIGH RISK": "down",
   "NOT RATED": "mut"
 };
+
+// Which specialized model produced a row's fair value. Named in plain words
+// so a scanner row never reads as though one arithmetic was applied to a
+// bank, a property trust and a software company alike.
+const INV_MODEL_NAME = {
+  BANK: "bank",
+  REIT: "property trust",
+  INSURANCE: "insurer",
+  BROKER: "broker"
+};
 const INV_TRAP_TIP = {
   "LOW RISK": "None of the deterioration signals are firing. Cheapness here " + "is not obviously the market pricing in decline.",
   "MODERATE RISK": "At least one thing is moving the wrong way. Worth reading " + "the list before treating a low valuation as an opportunity.",
@@ -2194,6 +2204,167 @@ function InvReit({
   }, /*#__PURE__*/React.createElement("b", null, "Adjusted funds from operations"), " \u2014 ", (r.affo || {}).reason), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, "Occupancy"), " \u2014 ", (r.occupancy || {}).reason), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, "Same-store net operating income"), " \u2014", " ", (r.same_store_noi_growth_pct || {}).reason)));
 }
 
+// ── Phase 5: insurers ─────────────────────────────────────────────────────
+
+const INV_INS_TIP = {
+  subtype: "What kind of insurance this company writes, read from its own " + "annual report and checked against its SEC industry code. This decides " + "which numbers below mean anything: claims divided by premiums is a loss " + "ratio for a car insurer and is not a ratio at all for a life insurer, " + "whose premiums leave out most of what it earns and whose benefits " + "include interest credited to policyholder accounts. Where the two " + "sources cannot agree, nothing is measured rather than the wrong " + "definition being applied.",
+  bvps: "Shareholders' equity less preferred stock, per share. An insurer's " + "assets are mostly securities carried at what they would fetch, so book " + "value is closer to a real number here than in almost any industry.",
+  pb: "Share price divided by book value per share. The main measure of what " + "an insurer costs — but the cheapest in a group is usually the least " + "profitable one, which is why the return on equity sits beside it.",
+  tbvps: "Book value with goodwill and other intangibles taken out, per share.",
+  ptbv: "Share price divided by tangible book value per share.",
+  roe: "Net income to common over average shareholders' equity. This is what " + "decides whether an insurer deserves a premium to its book: one earning " + "exactly its cost of equity is worth exactly its book value.",
+  rotce: "The same return measured against tangible common equity. For an " + "insurer carrying little goodwill it differs barely at all from the " + "return on equity beside it.",
+  premium_growth: "Growth in premiums earned over the last twelve months " + "against the twelve before. Premiums are the raw material — an insurer " + "whose premiums are shrinking is either losing business or walking away " + "from underpriced business, and only the second is good news.",
+  ni_growth: "Growth in net income against a year earlier. Insurer earnings " + "are lumpy by nature: a hurricane lands in one quarter and the premiums " + "that pay for it were collected over three years.",
+  loss: "Claims and the cost of settling them, as a share of premiums " + "earned.\n\nThe numerator and denominator are checked for compatibility " + "first: both must cover the same twelve months. Allstate tags a " + "property-casualty premium series that stopped in 2018 next to an " + "all-claims series running to today, and dividing them gives 123%, which " + "looks like a catastrophe and is a date mismatch.",
+  benefit: "The share of premiums paid out as medical and other benefits — " + "the measure health insurers are actually judged on.",
+  expense: "Acquisition-cost amortisation plus other underwriting expense, " + "as a share of premiums earned.",
+  combined: "The loss ratio plus the expense ratio. BELOW 100 the insurer " + "made money on the underwriting itself; above it, the investment income " + "has to cover the difference. LOWER IS BETTER, the opposite direction " + "from most percentages here.\n\nIt is blank for most insurers because " + "only five of the thirty-six measured tag the underwriting expense the " + "second half needs. The obvious substitute — total benefits and expenses " + "less claims — sweeps in interest credited and annuity costs and, for " + "some filers, the cost of dispensing prescriptions, so it is a ratio " + "assembled out of unrelated concepts rather than a measurement.",
+  uwprofit: "Premiums earned less claims and underwriting expense. The money " + "the insurance itself made, before anything the investment portfolio did.",
+  reserves: "The liability held for claims already incurred and the cost of " + "settling them.",
+  res_mult: "Reserves as a multiple of a year's premiums. A long-tail " + "insurer — liability, workers' compensation — carries a larger multiple " + "than a car insurer because its claims take longer to settle, so the " + "level says less than the direction does.",
+  development: "The change during the last twelve months in reserves held " + "for claims from EARLIER years, as a share of premiums.\n\nNegative " + "means those reserves proved more than enough and money was released " + "back into profit. Positive — adverse development — means they did not, " + "and more had to be added. Adverse development is the single most " + "important warning in this industry: it says the insurer under-estimated " + "what it already owed, and it tends to repeat.",
+  nii: "Income earned on the investment portfolio over the last twelve months.",
+  yield: "Investment income over the average size of the portfolio.",
+  fpb: "The liability held for benefits promised under policies still in " + "force. This is what a life insurer's whole business turns on, and it " + "does not apply to a property-casualty insurer.",
+  capital: "All equity on the balance sheet as a share of total assets. This " + "is NOT a risk-based capital ratio — insurers file those with their " + "state regulators, not with the SEC in machine-readable form. A life " + "insurer's figure is far smaller than a property-casualty insurer's " + "because its balance sheet carries policyholders' separate-account " + "assets as well as its own.",
+  book_trend: "Growth in book value per share against a year earlier. Book " + "value compounding, plus the dividend, is most of an insurer's long-run " + "return.",
+  shares: "Change in the diluted share count against a year earlier. " + "Negative means the count is shrinking, which raises every per-share " + "figure above."
+};
+function InvInsurance({
+  insurance
+}) {
+  const i = insurance || {};
+  if (!i.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-fv-why",
+      title: INV_INS_TIP.subtype
+    }, i.reason || "This insurer could not be measured from its filings.");
+  }
+  const stat = (label, block, fmt, tip, tone) => /*#__PURE__*/React.createElement(InvStat, {
+    label: label,
+    value: invBankVal(block, fmt),
+    tip: tip,
+    basis: (block || {}).basis,
+    reason: (block || {}).reason,
+    tone: tone
+  });
+  const dev = i.reserve_development_state || {};
+  const crt = i.combined_ratio_trend || {};
+  const underwriting = i.metric_basis === "UNDERWRITING";
+  const health = i.metric_basis === "BENEFIT";
+  const spread = i.metric_basis === "SPREAD";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-bank"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_INS_TIP.subtype
+  }, "Read as a ", /*#__PURE__*/React.createElement("b", null, i.subtype_label || i.subtype), ". An insurer is valued on its book value and what it earns on it, because the money it holds between collecting a premium and paying a claim is neither debt nor spare cash \u2014 and a generic model reads it as one or the other."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Book value per share", i.book_per_share, invPrice, INV_INS_TIP.bvps), stat("Price to book value", i.price_to_book, v => invRatio(v, 2), INV_INS_TIP.pb), stat("Tangible book value per share", i.tangible_book_per_share, invPrice, INV_INS_TIP.tbvps), stat("Price to tangible book value", i.price_to_tangible_book, v => invRatio(v, 2), INV_INS_TIP.ptbv), stat("Return on equity", i.return_on_equity_pct, invPct, INV_INS_TIP.roe), stat("Return on tangible common equity", i.return_on_tangible_common_equity_pct, invPct, INV_INS_TIP.rotce), stat("Book value per share growth", i.book_value_per_share_trend_pct, invSignedPct, INV_INS_TIP.book_trend), stat("Diluted share count change", i.diluted_share_trend_pct, invSignedPct, INV_INS_TIP.shares)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: "What the insurance itself is doing, before anything the investment portfolio did."
+  }, health ? "Benefits and premiums" : "Underwriting"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Premiums earned", i.premiums_earned, invMoney, INV_INS_TIP.premium_growth), stat("Premium growth", i.premium_growth_pct, invSignedPct, INV_INS_TIP.premium_growth), stat("Net income growth", i.net_income_growth_pct, invSignedPct, INV_INS_TIP.ni_growth), !spread && stat(health ? "Benefit ratio" : "Loss ratio", i.loss_ratio_pct, invPct, health ? INV_INS_TIP.benefit : INV_INS_TIP.loss), underwriting && stat("Expense ratio", i.expense_ratio_pct, invPct, INV_INS_TIP.expense), underwriting && stat("Combined ratio", i.combined_ratio_pct, invPct, INV_INS_TIP.combined), underwriting && stat("Underwriting profit", i.underwriting_profit, invMoney, INV_INS_TIP.uwprofit)), spread && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_INS_TIP.loss
+  }, (i.loss_ratio_pct || {}).reason), crt.state && /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${crt.state === "DETERIORATING" ? "down" : ""}`,
+    title: `${INV_INS_TIP.combined}\n\n${crt.basis || ""}`
+  }, "The combined ratio is ", /*#__PURE__*/React.createElement("b", null, crt.state), crt.change_pp != null && ` — ${invSignedPct(crt.change_pp)} against the year before`, "."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_INS_TIP.development
+  }, "Reserves"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Reserves held", i.reserves, invMoney, INV_INS_TIP.reserves), stat("Reserves to premiums", i.reserves_to_premiums, v => invRatio(v, 1), INV_INS_TIP.res_mult), stat("Earlier years' reserve movement", i.reserve_development_pct_premiums, invSignedPct, INV_INS_TIP.development), (i.future_policy_benefits || {}).value != null && stat("Future policy benefits", i.future_policy_benefits, invMoney, INV_INS_TIP.fpb)), dev.state && /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${dev.state === "ADVERSE" ? "down" : ""}`,
+    title: `${INV_INS_TIP.development}\n\n${dev.basis || ""}`
+  }, "Reserves set aside in earlier years are proving", " ", /*#__PURE__*/React.createElement("b", null, dev.state === "ADVERSE" ? "INADEQUATE" : dev.state === "FAVOURABLE" ? "MORE THAN ENOUGH" : "ABOUT RIGHT"), dev.pct_premiums != null && ` — ${invSignedPct(dev.pct_premiums)} of a year's premiums`, "."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_INS_TIP.nii
+  }, "Investments and capital"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Investment income", i.net_investment_income, invMoney, INV_INS_TIP.nii), stat("Investment income growth", i.net_investment_income_growth_pct, invSignedPct, INV_INS_TIP.nii), stat("Investment yield", i.investment_yield_pct, invPct, INV_INS_TIP.yield), stat("Equity to total assets", i.equity_to_assets_pct, invPct, INV_INS_TIP.capital)));
+}
+
+// ── Phase 5: broker-dealers ───────────────────────────────────────────────
+
+const INV_BROKER_TIP = {
+  evidence: "What in this filer's own balance sheet says it is a " + "broker-dealer rather than an asset manager or an exchange sharing its " + "industry code.\n\nThe SEC code 6211 holds Charles Schwab, Goldman Sachs " + "AND BlackRock; code 6200 holds LPL Financial and the CME. So the " + "question is answered from the filings — receivables from customers, " + "cash segregated for customers under the SEC's customer-protection rule, " + "brokerage commissions, dealer trading revenue, underwriting revenue — " + "rather than from the code.",
+  subtype: "Retail, institutional or both, read from the annual report. " + "Unlike an insurer's subtype this does not change which numbers are " + "valid: both kinds are read on book value, return on equity and their " + "own history of price to earnings. So where the report cannot separate " + "them the model still runs and the mix is reported as undetermined.",
+  bvps: "Shareholders' equity less preferred stock, per share.",
+  pb: "Share price divided by book value per share.",
+  tbvps: "Book value with goodwill and other intangibles taken out, per share.",
+  ptbv: "Share price divided by tangible book value per share.",
+  roe: "Net income to common over average shareholders' equity. A broker " + "earning thirty percent on its equity deserves a large premium to book " + "and one earning six percent deserves a discount.",
+  rotce: "The same return measured against tangible common equity.",
+  revenue: "Total revenue over the last twelve months.",
+  rev_growth: "Growth in revenue against a year earlier.",
+  eps_growth: "Growth in net income against a year earlier.",
+  opmargin: "Operating profit as a share of revenue. Blank where the filer " + "does not tag operating profit separately, which most brokers do not.",
+  comp: "Employee compensation and benefits as a share of revenue. It is the " + "largest single cost at every broker, so the direction it moves says " + "most of what there is to say about operating leverage here.",
+  nii: "Net interest income — what the firm earns lending customers money " + "and investing their cash, after what that money costs it.",
+  nii_share: "Net interest income as a share of total revenue. A broker " + "earning most of its revenue this way is closer to a bank than to a " + "commission business, and its earnings move with short-term interest " + "rates rather than with trading volumes.",
+  transaction: "Commissions on customer trades plus dealer trading revenue. " + "Only the components this filer actually tags are included, so it is a " + "floor rather than a total.",
+  ib: "Underwriting and advisory revenue over the last twelve months.",
+  receivables: "Money owed to the firm by its own customers — chiefly margin " + "lending.",
+  segregated: "Cash and securities held apart from the firm's own money for " + "the benefit of customers, as the SEC's customer-protection rule requires.",
+  clients: "Client assets, assets under administration and net new assets " + "are the numbers this industry actually runs on, and they are not in the " + "machine-readable filings anywhere.\n\nEight of the ten brokers measured " + "tag a customer payables balance and not one has done so since 2020; a " + "single filer tags assets under management, dated 2012. Every figure " + "that circulates comes from press releases. It is left blank rather " + "than estimated, because a broker's own capital says nothing about how " + "much of its customers' money it holds.",
+  leverage: "Total assets over all the equity on the balance sheet. A " + "broker-dealer is levered by design — customer margin loans are assets " + "funded by customer credit balances — so the level says less than the " + "direction.",
+  deposits: "Customer deposits as a share of total assets. Above about a " + "tenth, a material part of what the firm does is banking.",
+  shares: "Change in the diluted share count against a year earlier.",
+  book_trend: "Growth in book value per share against a year earlier."
+};
+function InvBroker({
+  broker
+}) {
+  const b = broker || {};
+  const ev = b.broker_evidence || {};
+  if (!b.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-fv-why",
+      title: INV_BROKER_TIP.evidence
+    }, b.reason || "This filer could not be measured as a broker.");
+  }
+  const stat = (label, block, fmt, tip, tone) => /*#__PURE__*/React.createElement(InvStat, {
+    label: label,
+    value: invBankVal(block, fmt),
+    tip: tip,
+    basis: (block || {}).basis,
+    reason: (block || {}).reason,
+    tone: tone
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-bank"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_BROKER_TIP.evidence
+  }, "Read as a ", /*#__PURE__*/React.createElement("b", null, b.subtype_label || b.subtype), ". Its own filings say it is a broker-dealer:", " ", (ev.evidence || []).map(e => e.phrase).join("; "), "."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Book value per share", b.book_per_share, invPrice, INV_BROKER_TIP.bvps), stat("Price to book value", b.price_to_book, v => invRatio(v, 2), INV_BROKER_TIP.pb), stat("Tangible book value per share", b.tangible_book_per_share, invPrice, INV_BROKER_TIP.tbvps), stat("Price to tangible book value", b.price_to_tangible_book, v => invRatio(v, 2), INV_BROKER_TIP.ptbv), stat("Return on equity", b.return_on_equity_pct, invPct, INV_BROKER_TIP.roe), stat("Return on tangible common equity", b.return_on_tangible_common_equity_pct, invPct, INV_BROKER_TIP.rotce), stat("Book value per share growth", b.book_value_per_share_trend_pct, invSignedPct, INV_BROKER_TIP.book_trend), stat("Diluted share count change", b.diluted_share_trend_pct, invSignedPct, INV_BROKER_TIP.shares)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: "Where the revenue comes from and what it costs to earn."
+  }, "Operating economics"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Revenue", b.revenue_ttm, invMoney, INV_BROKER_TIP.revenue), stat("Revenue growth", b.revenue_growth_pct, invSignedPct, INV_BROKER_TIP.rev_growth), stat("Earnings growth", b.eps_growth_pct, invSignedPct, INV_BROKER_TIP.eps_growth), stat("Compensation as share of revenue", b.compensation_ratio_pct, invPct, INV_BROKER_TIP.comp), stat("Operating margin", b.operating_margin_pct, invPct, INV_BROKER_TIP.opmargin), stat("Transaction revenue", b.transaction_revenue, invMoney, INV_BROKER_TIP.transaction)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_BROKER_TIP.nii_share
+  }, "Net interest and the balance sheet"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Net interest income", b.net_interest_income, invMoney, INV_BROKER_TIP.nii), stat("Net interest share of revenue", b.net_interest_share_of_revenue_pct, invPct, INV_BROKER_TIP.nii_share), stat("Customer receivables", b.customer_receivables, invMoney, INV_BROKER_TIP.receivables), stat("Segregated customer cash", b.segregated_cash, invMoney, INV_BROKER_TIP.segregated), stat("Assets to equity", b.assets_to_equity, v => invRatio(v, 1), INV_BROKER_TIP.leverage), stat("Deposits as share of assets", b.deposits_share_of_assets_pct, invPct, INV_BROKER_TIP.deposits)), b.banking_note && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_BROKER_TIP.deposits
+  }, b.banking_note), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_BROKER_TIP.clients
+  }, "Not reported, and why"), /*#__PURE__*/React.createElement("ul", {
+    className: "inv-reasons"
+  }, /*#__PURE__*/React.createElement("li", {
+    title: INV_BROKER_TIP.clients
+  }, /*#__PURE__*/React.createElement("b", null, "Client assets and net new assets"), " \u2014 ", (b.client_assets || {}).reason), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, "Advisory and asset-management fees"), " \u2014", " ", (b.asset_management_revenue || {}).reason)));
+}
+
 // ── Phase 4: the covered-call simulator ───────────────────────────────────
 
 const INV_CC_TIP = {
@@ -2212,6 +2383,31 @@ const INV_CC_TIP = {
   basis: "Where the option prices came from. REAL CHAIN BACKTEST means every " + "fill came from an end-of-day chain snapshot this app recorded on that " + "trading day. MODEL-BASED ESTIMATE means there was no snapshot and the " + "price is a Black-Scholes value against a modelled volatility path. " + "Historical option quotes are never invented — where there is no " + "snapshot, the price is a model output and says so.",
   policy: "The tenor, the strike rule, the roll rule and what happens on " + "assignment. No combination is treated as correct: that is the point of " + "running them side by side."
 };
+const INV_READY_TIP = {
+  days: "How many separate trading days of real end-of-day option chains this " + "app has captured for this ticker. It grows by one for every day the app " + "runs after the close and can NEVER grow backwards: there is no source " + "of historical option chains this dashboard can reach, and inventing one " + "would poison every backtest built on top of it.",
+  coverage: "The share of the days this run walks through that have a " + "captured chain behind them. The rest were priced by the model.",
+  mode: "REAL CHAIN BACKTEST — every fill came from a chain this app " + "recorded that day.\nPART REAL — some fills are real and some are model " + "prices, counted separately below.\nMODEL-BASED ESTIMATE — no chain was " + "captured, so every price is a Black-Scholes value against a modelled " + "volatility path.\n\nA real fill and a model fill are different KINDS of " + "number rather than the same number known to different precisions, so " + "they are never blended into one accuracy figure.",
+  contracts: "How many individual option quotes are stored across all the " + "captured days."
+};
+function InvReadiness({
+  readiness
+}) {
+  const r = readiness || {};
+  if (!r.mode) return null;
+  const real = r.mode === "REAL CHAIN BACKTEST";
+  return /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${real ? "" : "down"}`,
+    title: INV_READY_TIP.mode
+  }, /*#__PURE__*/React.createElement("b", null, r.mode), " \u2014 ", /*#__PURE__*/React.createElement("span", {
+    title: INV_READY_TIP.days
+  }, r.days, " day", r.days === 1 ? "" : "s", " of real option chains captured", r.first && /*#__PURE__*/React.createElement(React.Fragment, null, " since ", invShortDate(r.first))), r.window_coverage_pct != null && /*#__PURE__*/React.createElement("span", {
+    title: INV_READY_TIP.coverage
+  }, ", covering ", invPct(r.window_coverage_pct, 0), " of the days this run walks through"), r.contracts > 0 && /*#__PURE__*/React.createElement("span", {
+    title: INV_READY_TIP.contracts
+  }, " ", "(", r.contracts.toLocaleString(), " stored quotes)"), ". ", /*#__PURE__*/React.createElement("span", {
+    title: INV_READY_TIP.days
+  }, r.backfill_note));
+}
 function InvCoveredCall({
   apiFetch,
   symbol
@@ -2265,7 +2461,9 @@ function InvCoveredCall({
   }, d.reason || "This simulation could not be run."), data && d.available && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "inv-note",
     title: INV_CC_TIP.vs
-  }, "Over ", (d.years || 0).toFixed(1), " years from ", invShortDate(d.from), " to", " ", invShortDate(d.to), ", ", /*#__PURE__*/React.createElement("b", null, d.n_beat_buy_and_hold, " of ", d.n_policies), " ", "policies finished ahead of simply owning the shares, which ended at", " ", /*#__PURE__*/React.createElement("b", null, invMoney(hold.terminal_wealth, 0)), " on", " ", invMoney(hold.starting_capital, 0), " of starting capital."), /*#__PURE__*/React.createElement("div", {
+  }, "Over ", (d.years || 0).toFixed(1), " years from ", invShortDate(d.from), " to", " ", invShortDate(d.to), ", ", /*#__PURE__*/React.createElement("b", null, d.n_beat_buy_and_hold, " of ", d.n_policies), " ", "policies finished ahead of simply owning the shares, which ended at", " ", /*#__PURE__*/React.createElement("b", null, invMoney(hold.terminal_wealth, 0)), " on", " ", invMoney(hold.starting_capital, 0), " of starting capital."), /*#__PURE__*/React.createElement(InvReadiness, {
+    readiness: d.readiness
+  }), /*#__PURE__*/React.createElement("div", {
     className: "inv-note",
     title: INV_CC_TIP.basis
   }, (rows[0] || {}).fill_basis, " \xB7 ", d.fill_note || ""), /*#__PURE__*/React.createElement("div", {
@@ -2449,6 +2647,23 @@ function InvFwdTable({
     }, s.sufficient ? invPct(s.median_max_adverse_excursion_pct) : "—"));
   })))));
 }
+const INV_RECORDING_TIP = "Whether what is being written down TODAY carries everything a future " + "scoring pass will need to settle up against the recommendation exactly " + "as it was made — the share price, the exact rule version, the " + "recommendation, the preferred structure, the exact contract and the quote " + "it carried, the benchmark it will be measured against, the fair value and " + "the buy zone.\n\nThis looks FORWARD. Rows already on disk are never " + "rewritten, so a row written before a field existed will always lack it and " + "that is correct. What matters is whether today's rows are complete, " + "because nothing can be filled in after the fact.";
+function InvRecording({
+  recording
+}) {
+  const r = recording || {};
+  if (!r.fields || !r.fields.length) return null;
+  const gaps = r.fields.filter(f => !f.complete);
+  return /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${gaps.length ? "down" : ""}`,
+    title: INV_RECORDING_TIP
+  }, /*#__PURE__*/React.createElement("b", null, "Recording ", r.complete, " of ", r.fields.length, " required fields"), " across", " ", r.tickers, " ticker", r.tickers === 1 ? "" : "s", ". ", r.reason, gaps.length > 0 && /*#__PURE__*/React.createElement("ul", {
+    className: "inv-reasons"
+  }, gaps.map(f => /*#__PURE__*/React.createElement("li", {
+    key: f.field,
+    title: INV_RECORDING_TIP
+  }, /*#__PURE__*/React.createElement("b", null, f.what), " \u2014 recorded for ", f.n, " of ", f.of, f.missing.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, " (missing: ", f.missing.join(", "), ")")))));
+}
 function InvValidation({
   apiFetch
 }) {
@@ -2489,7 +2704,9 @@ function InvValidation({
   }, busy ? "Reading…" : "Refresh")), /*#__PURE__*/React.createElement("div", {
     className: "inv-note",
     title: INV_FWD_TIP.noscore
-  }, "No accuracy score. Sample size first, then what the sample says, then nothing where it says nothing."), !cal.total_observations && /*#__PURE__*/React.createElement("div", {
+  }, "No accuracy score. Sample size first, then what the sample says, then nothing where it says nothing."), /*#__PURE__*/React.createElement(InvRecording, {
+    recording: d.recording
+  }), !cal.total_observations && /*#__PURE__*/React.createElement("div", {
     className: "inv-fv-why",
     title: INV_FWD_TIP.horizon
   }, cal.reason || d.reason || "Nothing has aged far enough to score yet."), cal.total_observations > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
@@ -2688,7 +2905,7 @@ by.`
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "inv-peer-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, head("symbol", "Ticker", "Ticker symbol."), head("price", "Price", "Current share price.", true), head("quality_label", "Quality", "How good the business is. Not blended with anything else."), head("growth_label", "Growth", "Revenue and earnings growth."), head("valuation_label", "Valuation", "Cheap or expensive against its own history and its peers. 100 means cheap."), head("headline_multiple", "What it costs", "The valuation measure that belongs to this kind of business: price to tangible book for a bank, price to funds from operations for a property trust, price to earnings for everything else. Hover a row to see which one it is — they are not comparable across kinds.", true), head("revisions_label", "Revisions", "Whether analysts are raising or cutting."), head("value_trap_level", "Trap risk", "Whether the business is deteriorating."), head("fair_value_base", "Base fair value", "The highest-confidence method's value.", true), head("buy_zone", "Buy zone", "The price at which the shares are worth owning.", true), head("premium_to_buy_zone_pct", "To buy zone", "How far the price sits above (positive) or below (negative) the buy zone.", true), head("preferred_structure", "Preferred structure", "Which way of taking the position won on identical capital."), head("entry_verdict", "Verdict", "The Phase 3 entry answer."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, head("symbol", "Ticker", "Ticker symbol."), head("price", "Price", "Current share price.", true), head("quality_label", "Quality", "How good the business is. Not blended with anything else."), head("growth_label", "Growth", "Revenue and earnings growth."), head("valuation_label", "Valuation", "Cheap or expensive against its own history and its peers. 100 means cheap."), head("headline_multiple", "What it costs", "The valuation measure that belongs to this kind of business: price to tangible book for a bank, price to funds from operations for a property trust, price to book for an insurer or a broker, price to earnings for everything else. Hover a row to see which one it is — they are not comparable across kinds.", true), head("revisions_label", "Revisions", "Whether analysts are raising or cutting."), head("value_trap_level", "Trap risk", "Whether the business is deteriorating."), head("fair_value_base", "Base fair value", "The highest-confidence method's value.", true), head("buy_zone", "Buy zone", "The price at which the shares are worth owning.", true), head("premium_to_buy_zone_pct", "To buy zone", "How far the price sits above (positive) or below (negative) the buy zone.", true), head("preferred_structure", "Preferred structure", "Which way of taking the position won on identical capital."), head("entry_verdict", "Verdict", "The Phase 3 entry answer."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
     if (r.status !== "recorded") {
       return /*#__PURE__*/React.createElement("tr", {
         key: r.symbol,
@@ -2710,7 +2927,7 @@ by.`
       className: "scan-num"
     }, invPrice(r.price)), /*#__PURE__*/React.createElement("td", null, r.quality_label || invNA), /*#__PURE__*/React.createElement("td", null, r.growth_label || invNA), /*#__PURE__*/React.createElement("td", null, r.valuation_label || invNA), /*#__PURE__*/React.createElement("td", {
       className: "scan-num",
-      title: r.headline_multiple_label ? `${r.headline_multiple_label}${r.fair_value_model && r.fair_value_model !== "STANDARD" ? ` · valued by the ${r.fair_value_model === "BANK" ? "bank" : "property trust"} model` : ""}` : "No valuation multiple could be built for this company."
+      title: r.headline_multiple_label ? `${r.headline_multiple_label}${r.fair_value_model && r.fair_value_model !== "STANDARD" ? ` · valued by the ${INV_MODEL_NAME[r.fair_value_model] || r.fair_value_model.toLowerCase()} model` : ""}` : "No valuation multiple could be built for this company."
     }, r.headline_multiple == null ? invNA : invRatio(r.headline_multiple, 1)), /*#__PURE__*/React.createElement("td", null, r.revisions_label || invNA), /*#__PURE__*/React.createElement("td", {
       className: INV_TRAP_TONE[r.value_trap_level] === "down" ? "down" : ""
     }, r.value_trap_level || invNA), /*#__PURE__*/React.createElement("td", {
@@ -3015,6 +3232,10 @@ function InvestTab({
     bank: d.bank
   })), d.reit && section("reit", "Property trust measures", "Funds from operations rather than reported earnings, the distribution it supports, and what the filings will not support at all.", /*#__PURE__*/React.createElement(InvReit, {
     reit: d.reit
+  })), d.insurance && section("insurance", "Insurer measures", "What kind of insurance this is, what the underwriting is doing, whether the reserves set aside for earlier years are proving enough, and the book value all of it earns a return on.", /*#__PURE__*/React.createElement(InvInsurance, {
+    insurance: d.insurance
+  })), d.broker && section("broker", "Broker measures", "Whether this filer is a broker-dealer at all, where its revenue comes from, what it costs to earn, and the customer numbers the filings will not support.", /*#__PURE__*/React.createElement(InvBroker, {
+    broker: d.broker
   })), section("fairvalue", "Fair value", "Bear, base and bull from methods that are never averaged, the confidence that comes from how far apart they are, and the price this analysis says the shares are worth.", /*#__PURE__*/React.createElement(InvFairValue, {
     fair: d.fair_value,
     snap: d

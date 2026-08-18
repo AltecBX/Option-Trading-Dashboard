@@ -68,7 +68,8 @@ def instants(values, unit="USD", start_year=2023):
 def bank_facts(preferred=2_000_000_000.0, goodwill=5_000_000_000.0,
                intangibles=500_000_000.0, equity=50_000_000_000.0,
                net_income=1_500_000_000.0, shares=1_000_000_000.0,
-               assets=600_000_000_000.0, capital_ratio=0.118):
+               assets=600_000_000_000.0, capital_ratio=0.118,
+               preferred_dividends=None):
     gaap = {
         "StockholdersEquity": _inst("", "USD", instants([equity] * 12)),
         "Goodwill": _inst("", "USD", instants([goodwill] * 12)),
@@ -97,6 +98,9 @@ def bank_facts(preferred=2_000_000_000.0, goodwill=5_000_000_000.0,
     if preferred is not None:
         gaap["PreferredStockValue"] = _inst("", "USD",
                                             instants([preferred] * 12))
+    if preferred_dividends is not None:
+        gaap["PreferredStockDividendsIncomeStatementImpact"] = _dur(
+            "", "USD", quarters(preferred_dividends))
     return {"facts": {"us-gaap": gaap}}
 
 
@@ -107,12 +111,29 @@ class TestTangibleBook(unittest.TestCase):
         self.assertAlmostEqual(t["value"], 42_500_000_000.0, places=0)
         self.assertAlmostEqual(t["common_equity"], 48_000_000_000.0, places=0)
 
-    def test_missing_preferred_refuses_rather_than_assuming_zero(self):
-        t = BM.tangible_common_equity(F, bank_facts(preferred=None))
+    def test_untagged_preferred_refuses_when_the_bank_plainly_has_some(self):
+        # No preferred BALANCE, but it pays preferred dividends every
+        # quarter. That is Bank of America, and treating its preferred as
+        # zero would credit the common shareholder with somebody else's
+        # equity — so the answer is refused rather than overstated.
+        t = BM.tangible_common_equity(
+            F, bank_facts(preferred=None, preferred_dividends=100_000_000.0))
         self.assertIsNone(t["value"])
         self.assertIn("preferred", t["reason"].lower())
-        # And the refusal explains the direction of the error it avoids.
-        self.assertIn("overstated", t["reason"])
+        self.assertIn("preferred dividends", t["reason"])
+        self.assertIn("belongs to the preferred holders", t["reason"])
+
+    def test_no_preferred_anywhere_deducts_zero_rather_than_refusing(self):
+        # No preferred balance, no preferred dividend, no preferred shares.
+        # That is the filings saying there is none — Chubb, Aflac, Hanover —
+        # and refusing there would blank the book value of a large share of
+        # the insurers and brokers this app covers for no reason at all.
+        t = BM.tangible_common_equity(F, bank_facts(preferred=None))
+        self.assertAlmostEqual(t["value"], 44_500_000_000.0, places=0)
+        self.assertAlmostEqual(t["common_equity"], 50_000_000_000.0, places=0)
+        pref = F.preferred_equity(bank_facts(preferred=None))
+        self.assertEqual(pref["value"], 0.0)
+        self.assertIn("no preferred", pref["basis"].lower())
 
     def test_missing_goodwill_refuses(self):
         facts = bank_facts()
@@ -288,9 +309,16 @@ class TestPointInTimeSeries(unittest.TestCase):
         for row in s["tangible_book_per_share"]:
             self.assertAlmostEqual(row["value"], 42.5, places=6)
 
-    def test_no_preferred_means_no_series_rather_than_a_wrong_one(self):
-        s = BM.point_in_time_series(F, bank_facts(preferred=None))
+    def test_untagged_preferred_means_no_series_rather_than_a_wrong_one(self):
+        s = BM.point_in_time_series(
+            F, bank_facts(preferred=None, preferred_dividends=100_000_000.0))
         self.assertEqual(s.get("book_per_share"), [])
+
+    def test_a_bank_with_no_preferred_still_gets_a_series(self):
+        s = BM.point_in_time_series(F, bank_facts(preferred=None))
+        self.assertTrue(s["book_per_share"])
+        for row in s["book_per_share"]:
+            self.assertAlmostEqual(row["value"], 50.0, places=6)
 
 
 class TestBankFairValue(unittest.TestCase):

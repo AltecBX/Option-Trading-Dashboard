@@ -582,7 +582,8 @@ _TYPE_NOTE = {
     "REIT": "Real estate trusts run large depreciation charges against "
             "properties that are not actually wearing out at that rate, so "
             "reported earnings understate cash generation. Funds from "
-            "operations is the right measure and is not built yet.",
+            "operations is the right measure, and it is what the property "
+            "trust panel uses instead of reported earnings.",
     "UNPROFITABLE": "The company is losing money, so earnings-based valuation "
                     "has no denominator to work with.",
     "UNSUPPORTED": "There is not enough reported data to classify or value "
@@ -1023,18 +1024,27 @@ TRAP_SIGNALS = {
 }
 
 
-def value_trap(signals: dict, cfg: dict | None = None) -> dict:
+def value_trap(signals: dict, cfg: dict | None = None,
+               extra_labels: dict | None = None) -> dict:
     """Grade deterioration, not cheapness.
 
     `signals` maps a key from TRAP_SIGNALS to either None (not measurable) or
     {"active": bool, "detail": str}. Unmeasurable signals are counted and
     reported, never treated as "fine".
+
+    `extra_labels` adds business-specific signals to the SAME grading — an
+    insurer's reserve development, a broker's leverage — rather than putting
+    them in a parallel score of their own. That is the point: a cheap insurer
+    whose old reserves are proving inadequate has to be able to reach HIGH
+    RISK by the ordinary route, because HIGH RISK is what stops the entry
+    engine recommending anything bullish.
     """
     cfg = cfg or {}
     high_at = int(cfg.get("trap_high_signals", 3))
     moderate_at = int(cfg.get("trap_moderate_signals", 1))
     active, inactive, unknown = [], [], []
-    for key, label in TRAP_SIGNALS.items():
+    labels = {**TRAP_SIGNALS, **(extra_labels or {})}
+    for key, label in labels.items():
         sig = (signals or {}).get(key)
         if sig is None:
             unknown.append({"key": key, "label": label})
@@ -1047,7 +1057,7 @@ def value_trap(signals: dict, cfg: dict | None = None) -> dict:
     n = len(active)
     level = ("HIGH RISK" if n >= high_at else
              "MODERATE RISK" if n >= moderate_at else "LOW RISK")
-    if not active and len(unknown) >= len(TRAP_SIGNALS) - 1:
+    if not active and len(unknown) >= len(labels) - 1:
         return {"level": NOT_RATED, "active": [], "inactive": inactive,
                 "unknown": unknown, "n_active": 0,
                 "reason": "Almost none of the deterioration signals could be "
@@ -1219,6 +1229,17 @@ def _vcfg(cfg, key):
     return (cfg or {}).get(key, VERDICT_DEFAULTS[key])
 
 
+# Which payload block holds the model built for each specialized business,
+# and what that block is called on screen. Used only to write the sentence
+# that tells the reader where the real answer is.
+_SPECIALIZED_PANEL = {
+    "BANK": ("bank", "The lender measures"),
+    "REIT": ("reit", "The property trust measures"),
+    "INSURANCE": ("insurance", "The insurer measures"),
+    "BROKER": ("broker", "The broker measures"),
+}
+
+
 def verdict(snap: dict, cfg: dict | None = None) -> dict:
     """ATTRACTIVE / WATCH / WAIT / AVOID / INSUFFICIENT DATA /
     SPECIALIZED MODEL REQUIRED.
@@ -1258,11 +1279,25 @@ def verdict(snap: dict, cfg: dict | None = None) -> dict:
         reasons.append(f"{btype.get('label')}. {btype.get('note')}")
         if valuation.get("self_percentile") is not None:
             reasons.append(_self_line(valuation, snap))
-        changes.append("A verdict for this business type needs a model built "
-                       "for it — book value and net interest margin for a "
-                       "lender, funds from operations for a property trust. "
-                       "That is not built yet, and a generic one would be "
-                       "worse than none.")
+        # This four-dimension scorecard is the generic one, and it stays
+        # refused for these businesses whatever else exists. What it says
+        # next depends on whether a model built for the business actually
+        # produced numbers on this page: if it did, the reader is sent to
+        # it rather than told nothing was built.
+        panel = _SPECIALIZED_PANEL.get(btype.get("type")) or ()
+        built = bool(panel and (snap.get(panel[0]) or {}).get("available"))
+        if built:
+            changes.append(f"A verdict for this business type comes from the "
+                           f"model built for it, not from this scorecard. "
+                           f"{panel[1]} above, and the entry decision below "
+                           f"it, are the answer for this company.")
+        else:
+            changes.append("A verdict for this business type needs a model "
+                           "built for it — book value and net interest "
+                           "margin for a lender, funds from operations for a "
+                           "property trust. That model cannot run on this "
+                           "company's filings, and a generic one would be "
+                           "worse than none.")
         return _verdict_out(SPECIALIZED, reasons, changes)
 
     q, g = _num(quality.get("score")), _num(growth_d.get("score"))

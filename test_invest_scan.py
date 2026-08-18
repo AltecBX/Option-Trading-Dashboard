@@ -22,7 +22,7 @@ import shutil
 import tempfile
 import time
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 os.environ.setdefault("JERRY_NO_NET", "1")
 
@@ -716,6 +716,7 @@ import fair_value as FV                                # noqa: E402
 import invest_options as IO                            # noqa: E402
 import covered_call as _CC                             # noqa: E402
 import structures as ST                                # noqa: E402
+import chain_store as _CHAIN                           # noqa: E402
 
 
 def phase3_chain(spot=10.0, today=None):
@@ -1168,8 +1169,13 @@ class TestReitIntegration(Phase4Base):
         self.assertEqual(row["reit_property_type"], "RETAIL")
 
 
-class TestInsurersAndBrokersStayRefused(Phase4Base):
-    def test_an_insurer_is_still_refused(self):
+class TestUnsupportedInsurersAndBrokersStayRefused(Phase4Base):
+    """Phase 5 built models for insurers and brokers. It did NOT lower the
+    bar: a filer in one of those industry codes with nothing behind it — no
+    readable annual report to say what kind of insurance it writes, no
+    customer money on its balance sheet — is refused exactly as before."""
+
+    def test_an_insurer_with_no_readable_annual_report_is_refused(self):
         self.sic = {"sic": "6311", "sic_description": "Life Insurance",
                     "name": "Sample Life", "cik": 42}
         S._MEM.clear()
@@ -1182,7 +1188,7 @@ class TestInsurersAndBrokersStayRefused(Phase4Base):
                          "SPECIALIZED MODEL REQUIRED")
         self.assertEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
 
-    def test_a_broker_is_still_refused(self):
+    def test_a_filer_with_no_brokerage_evidence_is_refused(self):
         self.sic = {"sic": "6211", "sic_description": "Security Brokers",
                     "name": "Sample Broker", "cik": 42}
         S._MEM.clear()
@@ -1275,6 +1281,452 @@ class TestPhase4Config(Phase4Base):
         doc = raw["investment"]["covered_call"]["_doc"]
         self.assertIn("SETTING to be tested", doc)
         self.assertIn("not a rule believed in", doc)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 5
+# ══════════════════════════════════════════════════════════════════════════
+
+class Phase5Base(Phase4Base):
+    """The sample filer dressed as an insurer or a broker.
+
+    Reached the same way the live app reaches them: through the SEC industry
+    code and the annual-report profile, rather than by calling the models
+    directly. That is what makes these integration tests.
+    """
+
+    def _flow(self, gaap, name, val):
+        rows = gaap["EarningsPerShareDiluted"]["units"]["USD/shares"]
+        gaap[name] = {"units": {"USD": [
+            fact(r["start"], r["end"], val, filed=r["filed"]) for r in rows]}}
+
+    def _inst(self, gaap, name, val):
+        rows = gaap["EarningsPerShareDiluted"]["units"]["USD/shares"]
+        gaap[name] = {"units": {"USD": [
+            {"end": r["end"], "val": val, "filed": r["filed"]} for r in rows]}}
+
+    def as_insurer(self, subtype="P&C", sic="6331", other_uw=12.0,
+                   development=-2.0):
+        self.sic = {"sic": sic, "sic_description": "Fire, Marine & Casualty",
+                    "name": "Sample Insurer", "cik": 42}
+        self.profile = {"symbol": self.SYM, "description": "An insurer.",
+                        "moat_tags": [], "property_type": None,
+                        "insurer_subtype": subtype, "broker_subtype":
+                        "UNDETERMINED", "profile_version": F.PROFILE_VERSION}
+        f = F.company_facts(self.SYM)
+        gaap = f["facts"]["us-gaap"]
+        self._inst(gaap, "StockholdersEquity", 800.0)
+        self._inst(gaap, "Goodwill", 50.0)
+        self._inst(gaap, "Assets", 3000.0)
+        self._inst(gaap, "LiabilityForClaimsAndClaimsAdjustmentExpense", 600.0)
+        self._inst(gaap, "Investments", 2000.0)
+        self._flow(gaap, "PremiumsEarnedNet", 100.0)
+        self._flow(gaap, "PolicyholderBenefitsAndClaimsIncurredNet", 65.0)
+        self._flow(gaap, "DeferredPolicyAcquisitionCostAmortizationExpense", 10.0)
+        self._flow(gaap, "NetInvestmentIncome", 18.0)
+        self._flow(gaap, "NetIncomeLossAvailableToCommonStockholdersBasic", 40.0)
+        if other_uw is not None:
+            self._flow(gaap, "OtherUnderwritingExpense", other_uw)
+        if development is not None:
+            self._flow(
+                gaap,
+                "SupplementalInformationForPropertyCasualtyInsuranceUnder"
+                "writersPriorYearClaimsAndClaimsAdjustmentExpense",
+                development)
+        S._MEM.clear()
+        return f
+
+    def as_broker(self, subtype="RETAIL", customer_money=True):
+        self.sic = {"sic": "6211", "sic_description": "Security Brokers",
+                    "name": "Sample Broker", "cik": 42}
+        self.profile = {"symbol": self.SYM, "description": "A broker.",
+                        "moat_tags": [], "property_type": None,
+                        "insurer_subtype": None, "broker_subtype": subtype,
+                        "profile_version": F.PROFILE_VERSION}
+        f = F.company_facts(self.SYM)
+        gaap = f["facts"]["us-gaap"]
+        self._inst(gaap, "StockholdersEquity", 500.0)
+        self._inst(gaap, "Goodwill", 20.0)
+        self._inst(gaap, "Assets", 6000.0)
+        self._flow(gaap, "LaborAndRelatedExpense", 60.0)
+        self._flow(gaap, "InterestIncomeExpenseNet", 50.0)
+        self._flow(gaap, "NetIncomeLossAvailableToCommonStockholdersBasic", 25.0)
+        if customer_money:
+            self._inst(gaap, "ReceivablesFromCustomers", 300.0)
+            self._inst(
+                gaap,
+                "CashAndSecuritiesSegregatedUnderFederalAndOtherRegulations",
+                800.0)
+            self._flow(gaap, "BrokerageCommissionsRevenue", 30.0)
+        else:
+            for n in ("ReceivablesFromCustomers", "BrokerageCommissionsRevenue",
+                      "CashAndSecuritiesSegregatedUnderFederalAndOtherRegulations",
+                      "PrincipalTransactionsRevenue",
+                      "InvestmentBankingRevenue"):
+                gaap.pop(n, None)
+        S._MEM.clear()
+        return f
+
+
+class TestInsurerIntegration(Phase5Base):
+    def setUp(self):
+        super().setUp()
+        self.as_insurer()
+        self.p = S.payload(self.SYM)
+
+    def test_the_insurer_block_is_built_and_the_others_are_not(self):
+        self.assertTrue(self.p["insurance"]["available"])
+        self.assertIsNone(self.p["bank"])
+        self.assertIsNone(self.p["reit"])
+        self.assertIsNone(self.p["broker"])
+
+    def test_the_subtype_reaches_the_screen(self):
+        self.assertEqual(self.p["insurance"]["subtype"], "P&C")
+        self.assertEqual(self.p["insurance"]["metric_basis"], "UNDERWRITING")
+
+    def test_the_fair_value_comes_from_the_insurer_model(self):
+        fair = self.p["fair_value"]
+        self.assertEqual(fair["model"], "INSURANCE")
+        self.assertTrue(fair["available"], fair.get("reason"))
+        self.assertTrue(any(m.get("specialized_for") == "INSURANCE"
+                            for m in fair["methods"] if m.get("available")))
+
+    def test_it_reaches_the_existing_entry_engine(self):
+        # The point of Phase 5: a supported insurer stops being refused and
+        # runs through the SAME comparator every other company does.
+        self.assertNotEqual(self.p["entry"]["verdict"],
+                            "SPECIALIZED MODEL REQUIRED")
+        self.assertIn(self.p["entry"]["verdict"], IO.ENTRY_VERDICTS)
+
+    def test_the_valuation_history_measures_book_rather_than_earnings(self):
+        vh = self.p["valuation_history"]
+        self.assertIn("price_to_book", vh["distributions"])
+        self.assertIn("price_to_tangible_book", vh["distributions"])
+
+    def test_no_generic_cash_flow_valuation_creeps_back_in(self):
+        keys = {m["key"] for m in self.p["fair_value"]["methods"]}
+        self.assertNotIn("fcf_yield", keys)
+        self.assertFalse(self.p["implied_expectations"]["available"])
+
+    def test_the_snapshot_records_the_insurer_state(self):
+        row = S._daily_row(self.p)
+        for key in ("insurance_subtype", "insurance_metric_basis",
+                    "insurance_price_to_book", "insurance_roe_pct",
+                    "insurance_combined_ratio_pct",
+                    "insurance_reserve_development_state"):
+            self.assertIn(key, row, key)
+        self.assertEqual(row["fair_value_model"], "INSURANCE")
+
+    def test_the_scanner_shows_an_insurer_with_its_own_multiple(self):
+        row = S._scan_row(self.SYM, self.p)
+        self.assertEqual(row["headline_multiple_label"], "Price to book")
+        self.assertIsNotNone(row["headline_multiple"])
+        self.assertEqual(row["fair_value_model"], "INSURANCE")
+        self.assertEqual(row["insurance_subtype"], "P&C")
+        self.assertNotIn("score", row.get("headline_multiple_label", ""))
+
+
+class TestInsurerRiskGate(Phase5Base):
+    def test_adverse_reserves_appear_in_the_same_value_trap_engine(self):
+        self.as_insurer(development=6.0)         # 1.5% of premiums, adverse
+        p = S.payload(self.SYM)
+        keys = {a["key"] for a in p["value_trap"]["active"]}
+        self.assertIn("adverse_reserve_development", keys)
+
+    def test_a_deteriorating_insurer_cannot_be_recommended_bullishly(self):
+        # Three insurer-specific signals firing at once reaches HIGH RISK by
+        # the ordinary route, and HIGH RISK stops the entry engine.
+        self.as_insurer(development=6.0, other_uw=45.0)   # combined ratio 120
+        f = F.company_facts(self.SYM)
+        gaap = f["facts"]["us-gaap"]
+        self._inst(gaap, "StockholdersEquity", 800.0)
+        S._MEM.clear()
+        p = S.payload(self.SYM)
+        trap = p["value_trap"]
+        keys = {a["key"] for a in trap["active"]}
+        self.assertIn("adverse_reserve_development", keys)
+        self.assertIn("underwriting_loss", keys)
+        if trap["level"] == "HIGH RISK":
+            self.assertEqual(p["entry"]["verdict"], "AVOID")
+            self.assertEqual(p["entry"]["blocked_by"], "value trap")
+
+    def test_an_unclassifiable_insurer_is_still_refused(self):
+        self.as_insurer()
+        self.profile = {**self.profile, "insurer_subtype": None}
+        S._MEM.clear()
+        p = S.payload(self.SYM)
+        self.assertFalse(p["insurance"]["available"])
+        self.assertEqual(p["fair_value"]["verdict"],
+                         "SPECIALIZED MODEL REQUIRED")
+        self.assertEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
+        # And the refusal carries the model's OWN reason rather than a
+        # generic note about insurers.
+        self.assertIn("what kind of insurer", p["fair_value"]["reason"].lower())
+
+
+class TestBrokerIntegration(Phase5Base):
+    def setUp(self):
+        super().setUp()
+        self.as_broker()
+        self.p = S.payload(self.SYM)
+
+    def test_the_broker_block_is_built(self):
+        self.assertTrue(self.p["broker"]["available"])
+        self.assertTrue(self.p["broker"]["broker_evidence"]["is_broker"])
+        self.assertIsNone(self.p["insurance"])
+
+    def test_the_fair_value_comes_from_the_broker_model(self):
+        fair = self.p["fair_value"]
+        self.assertEqual(fair["model"], "BROKER")
+        self.assertTrue(fair["available"], fair.get("reason"))
+
+    def test_it_reaches_the_existing_entry_engine(self):
+        self.assertNotEqual(self.p["entry"]["verdict"],
+                            "SPECIALIZED MODEL REQUIRED")
+        self.assertIn(self.p["entry"]["verdict"], IO.ENTRY_VERDICTS)
+
+    def test_client_assets_stay_blank_with_a_reason(self):
+        b = self.p["broker"]
+        self.assertIsNone(b["client_assets"]["value"])
+        self.assertTrue(b["client_assets"]["reason"])
+        self.assertIsNone(b["net_new_assets"]["value"])
+
+    def test_an_asset_manager_in_the_same_industry_code_is_refused(self):
+        self.as_broker(customer_money=False)
+        p = S.payload(self.SYM)
+        self.assertFalse(p["broker"]["available"])
+        self.assertEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
+        self.assertIn("category error", p["fair_value"]["reason"])
+
+    def test_the_snapshot_records_the_broker_state(self):
+        row = S._daily_row(self.p)
+        for key in ("broker_subtype", "broker_is_broker_dealer",
+                    "broker_price_to_book", "broker_roe_pct",
+                    "broker_assets_to_equity"):
+            self.assertIn(key, row, key)
+        self.assertTrue(row["broker_is_broker_dealer"])
+
+
+class TestPhase5Snapshot(Phase5Base):
+    def test_the_exact_contract_and_quote_are_recorded_prospectively(self):
+        self.as_insurer()
+        row = S._daily_row(S.payload(self.SYM))
+        self.assertIn("recommended_structure", row)
+        self.assertIn("recommended_contract", row)
+        # Either a contract with its quote, or an explicit reason there is
+        # none. Never an ambiguous blank.
+        if row["recommended_contract"] is None:
+            self.assertTrue(row["recommended_contract_reason"])
+        else:
+            for key in ("expiration", "strike", "quote_source",
+                        "underlying_price"):
+                self.assertIn(key, row["recommended_contract"], key)
+
+    def test_the_benchmark_is_chosen_before_the_outcome_is_known(self):
+        self.as_insurer()
+        p = S.payload(self.SYM)
+        self.assertIn("benchmark", p)
+        row = S._daily_row(p)
+        self.assertIn("benchmark_symbol", row)
+        self.assertIn("benchmark_close", row)
+
+    def test_history_is_never_rewritten_by_a_new_field(self):
+        self.as_insurer()
+        S.payload(self.SYM)
+        rows = S.load_history(self.SYM)
+        # A row written before a key existed simply lacks it. Nothing here
+        # goes back and fills one in.
+        older = dict(rows[-1])
+        older.pop("insurance_subtype", None)
+        self.assertNotIn("insurance_subtype", older)
+
+    def test_the_recording_audit_names_what_is_missing(self):
+        self.as_insurer()
+        S.payload(self.SYM)
+        hist = {self.SYM: S.load_history(self.SYM)}
+        out = S.recording_audit(hist)
+        self.assertEqual(out["tickers"], 1)
+        self.assertEqual(len(out["fields"]), len(S.REQUIRED_FOR_SCORING))
+        self.assertTrue(out["reason"])
+        for f in out["fields"]:
+            self.assertIn("what", f)
+            if not f["complete"]:
+                self.assertIn(f["field"], out["missing_examples"])
+
+    def test_the_audit_says_so_when_nothing_is_recorded(self):
+        out = S.recording_audit({})
+        self.assertEqual(out["tickers"], 0)
+        self.assertIn("nothing to check", out["reason"])
+
+
+class TestChainCapture(Phase5Base):
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp(prefix="jerry_cap_")
+        _CHAIN.configure(self.tmp)
+        _CHAIN._RECORDED_TODAY.clear()
+        self.asked = []
+
+    def tearDown(self):
+        S._CC_CHAIN_FN = None
+        _CHAIN.configure(None)
+        _CHAIN._RECORDED_TODAY.clear()
+        super().tearDown()
+
+    def _payload(self, sym, max_dte, strikes):
+        self.asked.append((sym, max_dte, strikes))
+        today = date.today()
+        chains = {}
+        for dte in (7, 17, 38):
+            exp = (today + timedelta(days=dte)).isoformat()
+            calls = [{"strike": float(k), "bid": 1.0, "ask": 1.1, "iv": 0.24,
+                      "delta": 0.4, "openInterest": 500, "last": 1.05,
+                      "volume": 12} for k in range(80, 126, 5)]
+            chains[exp] = {"calls": calls, "puts": []}
+        return {"underlying": {"last": 100.0}, "source": "schwab",
+                "expirations": list(chains), "chains": chains}
+
+    def test_it_asks_only_for_the_near_window(self):
+        S._CC_CHAIN_FN = self._payload
+        out = S.capture_chains([self.SYM])
+        self.assertEqual(out["captured"], [self.SYM])
+        self.assertEqual(len(self.asked), 1)
+        sym, max_dte, strikes = self.asked[0]
+        self.assertLessEqual(max_dte, 60)
+        self.assertLessEqual(strikes, 120)
+
+    def test_it_captures_every_covered_call_tenor(self):
+        S._CC_CHAIN_FN = self._payload
+        S.capture_chains([self.SYM])
+        store = _CHAIN.load(self.SYM)
+        day = sorted(store)[-1]
+        dtes = sorted((date.fromisoformat(e) - date.fromisoformat(day)).days
+                      for e in store[day]["exps"])
+        self.assertEqual(dtes, [7, 17, 38])
+
+    def test_the_stored_rows_carry_provenance_and_quality(self):
+        S._CC_CHAIN_FN = self._payload
+        S.capture_chains([self.SYM])
+        store = _CHAIN.load(self.SYM)
+        day = sorted(store)[-1]
+        q = _CHAIN.lookup(store, day, "call", 100.0, 7)
+        self.assertEqual(q["source"], "schwab")
+        self.assertEqual(q["quality_label"], "TWO SIDED")
+        self.assertEqual(q["last"], 1.05)
+        self.assertEqual(q["volume"], 12)
+
+    def test_a_second_capture_the_same_day_does_not_overwrite(self):
+        S._CC_CHAIN_FN = self._payload
+        S.capture_chains([self.SYM])
+        _CHAIN._RECORDED_TODAY.clear()
+        out = S.capture_chains([self.SYM])
+        self.assertEqual(out["captured"], [])
+        self.assertEqual(out["skipped"], [self.SYM])
+
+    def test_no_provider_says_so_rather_than_failing_silently(self):
+        S._CC_CHAIN_FN = None
+        out = S.capture_chains([self.SYM])
+        self.assertEqual(out["captured"], [])
+        self.assertIn("No option-chain provider", out["reason"])
+
+    def test_a_failing_provider_is_recorded_as_a_failure(self):
+        def boom(sym, max_dte, strikes):
+            raise RuntimeError("no")
+        S._CC_CHAIN_FN = boom
+        out = S.capture_chains([self.SYM])
+        self.assertEqual(out["failed"], [self.SYM])
+
+    def test_nothing_is_ever_back_filled(self):
+        S._CC_CHAIN_FN = self._payload
+        S.capture_chains([self.SYM])
+        store = _CHAIN.load(self.SYM)
+        # Exactly one day, and it is today. A capture never reaches back.
+        self.assertEqual(list(store), [date.today().isoformat()])
+
+
+class TestReadiness(Phase5Base):
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp(prefix="jerry_ready_")
+        _CHAIN.configure(self.tmp)
+        _CHAIN._RECORDED_TODAY.clear()
+
+    def tearDown(self):
+        _CHAIN.configure(None)
+        _CHAIN._RECORDED_TODAY.clear()
+        super().tearDown()
+
+    def test_an_empty_store_is_a_model_based_estimate(self):
+        out = S.chain_readiness(self.SYM)
+        self.assertEqual(out["mode"], _CC.BASIS_MODEL)
+        self.assertEqual(out["days"], 0)
+        self.assertIn("cannot be back-filled", out["reason"])
+        self.assertTrue(out["grows_only_forward"])
+
+    def test_a_partial_store_is_part_real(self):
+        today = date.today()
+        exp = (today + timedelta(days=30)).isoformat()
+        payload = {"underlying": {"last": 100.0}, "source": "schwab",
+                   "chains": {exp: {"calls": [
+                       {"strike": 100.0, "bid": 1.0, "ask": 1.1, "iv": 0.2,
+                        "delta": 0.5, "openInterest": 10}], "puts": []}}}
+        _CHAIN.record(self.SYM, payload, today=today.isoformat())
+        days = [(today - timedelta(days=i)).isoformat() for i in range(4)]
+        out = S.chain_readiness(self.SYM, days=days)
+        self.assertEqual(out["mode"], _CC.BASIS_MIXED)
+        self.assertAlmostEqual(out["window_coverage_pct"], 25.0, places=6)
+        self.assertIn("counted separately", out["mode_note"])
+
+    def test_the_covered_call_run_carries_the_readiness_block(self):
+        out = S.covered_call(self.SYM, years=3)
+        self.assertIn("readiness", out)
+        self.assertIn(out["readiness"]["mode"],
+                      (_CC.BASIS_REAL, _CC.BASIS_MIXED, _CC.BASIS_MODEL))
+
+    def test_real_and_model_fills_are_never_blended_into_one_number(self):
+        out = S.covered_call(self.SYM, years=3)
+        row = out["rows"][0]
+        # The run reports how many of each, and a single basis label. It
+        # never reports an "accuracy" that averages the two.
+        self.assertIn("fill_basis", row)
+        self.assertNotIn("fill_accuracy", row)
+        self.assertNotIn("accuracy_pct", out)
+
+
+class TestPhase5Config(Phase5Base):
+    def test_every_phase_5_group_is_flattened(self):
+        cfg, _h = S.config(refresh=True)
+        for key in ("insurance_combined_ratio_alarm",
+                    "insurance_adverse_development_pct",
+                    "insurance_min_subtype_peers",
+                    "broker_material_deposits_pct",
+                    "broker_leverage_alarm", "broker_min_subtype_peers",
+                    "capture_max_dte", "capture_strike_count"):
+            self.assertIn(key, cfg, key)
+        for group in ("insurance", "broker", "chain_capture"):
+            self.assertNotIn(group, cfg)
+
+    def test_no_universal_insurer_or_broker_multiple_is_declared(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        inv = raw["investment"]
+        # Every insurer and broker setting is a threshold or a minimum
+        # sample size. There is deliberately no "fair price to book".
+        for group in ("insurance", "broker"):
+            for key in inv[group]:
+                if key == "_doc":
+                    continue
+                self.assertNotIn("fair_multiple", key)
+                self.assertNotIn("target_pb", key)
+        self.assertIn("Neither of the two new models is applied to "
+                      "everything in its industry code", inv["_phase5"])
+
+    def test_the_capture_settings_say_they_are_never_back_filled(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        doc = raw["investment"]["chain_capture"]["_doc"]
+        self.assertIn("nothing here is ever back-filled", doc)
+        self.assertIn("A day that goes uncaptured is gone", doc)
 
 
 if __name__ == "__main__":

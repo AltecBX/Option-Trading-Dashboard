@@ -1138,10 +1138,13 @@ hashes are broken out separately rather than combined and called one strategy.
   series stops in 2018 and only `CashPaid` continues. Exxon tags only two
   quarters and therefore reports N/A with the reason rather than a wrong
   number.
-* **Insurers and brokers** remain refused outright. Banks and property trusts
-  are valued by their own models as of Phase 4; no model here is built for an
-  insurer's float or a broker's segregated customer assets, and half a model
-  reads exactly like a whole one on screen.
+* **Insurers whose kind cannot be established** are refused. Sixteen of the
+  forty-two US insurers measured classify as nothing, mostly because their
+  annual report carries no readable "Item 1. Business" heading at all — and a
+  wrong subtype applies the wrong ratios. See the Phase 5 section below.
+* **Filers in a broker's industry code that hold no customer money** are
+  refused: they are exchanges or asset managers, and the broker model is
+  built on a broker's balance sheet.
 * **A bank that does not tag its preferred stock** has its tangible book value
   refused rather than overstated. Bank of America is that bank, and it drops
   out of every bank peer comparison for the same reason.
@@ -1159,15 +1162,304 @@ hashes are broken out separately rather than combined and called one strategy.
   store has no history for these names yet. Each run reports what share of its
   fills came from real snapshots, and becomes a real backtest as that fills in.
 
-## What is ready for Phase 5
+# Phase 5 — an insurer on an insurer's terms, a broker on a broker's, and
+# option data that becomes real with time
 
-* **Insurers and brokers.** The business-type gate already enforces the
-  refusal everywhere and `fair_value.stamp` is the one hook a purpose-built
-  model needs. An insurer needs book value adjusted for float and reserve
-  development; a broker needs client assets and net interest on cash
-  balances. Neither is half-built here.
-* **Real-chain covered-call backtests.** The simulator already prefers stored
-  chains over model prices and labels every fill. What it needs is time.
-* **A validation panel with something in it.** Every horizon currently reports
-  INSUFFICIENT SAMPLE, which is the correct answer for a store this young. The
-  first thirty-day outcomes land thirty days from now.
+Phase 4 left two of the four specialized business types refused. Phase 5
+builds them, and strengthens the prospective capture that turns the
+covered-call simulator and the forward validation from estimates into
+measurements.
+
+It does NOT lower the bar to do it. Five of the forty-two US insurers
+measured still come back refused, and thirteen of the fourteen filers that
+share a broker's industry code without being brokers are kept out. Both
+refusals are the point.
+
+## The insurer model — `insurance_model.py`
+
+### The subtype comes first, because it decides which numbers exist
+
+Divide claims by premiums and you get 66% for Progressive, which is its loss
+ratio and means what it says. Do the same arithmetic for MetLife and you get
+99%, for Principal Financial 129% and for Brighthouse 248%.
+
+Those are not loss ratios. A life insurer's premiums exclude the fee and
+spread income that is most of what it earns, and its benefits include
+interest credited to policyholder accounts and the annual change in reserves
+for policies that pay out decades from now. The numerator and the denominator
+describe different businesses.
+
+So the model classifies before it measures — property and casualty, life,
+health, reinsurance, multiline — from the insurer's own Item 1 checked
+against its SEC industry code, and refuses when the two cannot agree.
+
+| Subtype     | Metric basis  | What that means                                     |
+| ----------- | ------------- | --------------------------------------------------- |
+| P&C         | UNDERWRITING  | Loss ratio, expense ratio, combined ratio all apply  |
+| Reinsurance | UNDERWRITING  | Same measures; a reinsurer underwrites the same way  |
+| Multiline   | UNDERWRITING  | Both books; the underwriting side is measured        |
+| Health      | BENEFIT       | Benefit ratio only — no underwriting expense is filed |
+| Life        | SPREAD        | No loss ratio at all; book value, spread and reserves |
+
+A life insurer's panel does not draw those rows even as N/A. A row of blanks
+invites the reader to go looking for a number that is not a ratio of anything
+for that business, so one paragraph says why instead.
+
+Measured across forty-two US insurers, thirty-seven classify — fifteen
+property-casualty, nine life, six health, five reinsurance and two multiline.
+Four of the five refusals have no readable Item 1 heading in their annual
+report at all (Cincinnati Financial, Equitable, Berkshire Hathaway,
+Alleghany), and the fifth is American International Group, whose report this
+reader cannot find one in either. A refusal costs a screen. A wrong subtype
+puts arithmetic on the screen and calls it a measurement.
+
+### Compatibility, and the Allstate case
+
+Every ratio against premiums is checked before it is computed: the numerator
+and the denominator must cover the SAME twelve months.
+
+Allstate tags `PremiumsEarnedNetPropertyAndCasualty`, whose series stopped in
+March 2018, alongside `IncurredClaimsPropertyCasualtyAndLiability`, which
+runs to today. Dividing one by the other gives a loss ratio of 123%, which
+looks like a catastrophe and is a date mismatch. The check catches it and the
+screen reports nothing with that reason.
+
+### The combined ratio, and why it is usually blank
+
+    Combined ratio = Loss ratio + Expense ratio
+    Loss ratio     = Claims incurred ÷ Premiums earned
+    Expense ratio  = (Acquisition-cost amortisation + Other underwriting
+                      expense) ÷ Premiums earned
+
+The loss side is fine: all thirty-six insurers measured tag both claims
+incurred and premiums earned. The expense side is not. Only five tag
+`OtherUnderwritingExpense`.
+
+There is a tempting shortcut — total benefits, losses and expenses minus
+claims. Measured, it produces believable numbers for pure property-casualty
+insurers (Travelers 88.6, Chubb 85.3) and nonsense everywhere else (Cigna
+716, Equitable 1,134), because the total sweeps in interest credited, annuity
+costs and, for the health insurers, the cost of dispensing prescriptions. It
+is a ratio manufactured from unrelated concepts, so it is not used.
+
+Where the real underwriting expense IS filed the reconstruction lands where
+it should: Progressive 87.8 against a published figure near 88, Selective
+97.9 against a published 98.
+
+### Reserve development
+
+`SupplementalInformationForPropertyCasualtyInsuranceUnderwritersPriorYear
+ClaimsAndClaimsAdjustmentExpense` is tagged by sixteen of twenty-two
+property-casualty insurers with long histories. Negative means reserves set
+aside in earlier years proved more than enough and were released; positive —
+adverse development — means they did not.
+
+It is the single most important warning in this industry, because it says the
+insurer under-estimated what it already owed, and it tends to repeat. Everest
+Group's +$478m quarter in late 2025 shows up exactly as it should.
+
+Adverse development caps the fair-value confidence at LOW, which lowers the
+credited value and therefore the buy zone. It is not a warning printed beside
+a number it did not change.
+
+### What an insurer is worth
+
+    Justified price to book = (ROE − g) ÷ (Cost of equity − g)
+
+The same dividend-discount result the bank model uses, on book rather than
+tangible book, with the same market-wide cost of equity — the ten-year
+Treasury plus a stated equity risk premium. An insurer earning exactly its
+cost of equity is worth exactly its book.
+
+Five methods, never averaged: its own price to book, its own price to
+tangible book, its own earnings history, comparable insurers of the same
+subtype priced off the profitability relationship where one holds, and the
+justified multiple above.
+
+## The broker model — `broker_model.py`
+
+### Is it even a broker?
+
+The industry codes here are the widest in the SEC's list. Code 6211 holds
+Charles Schwab, Goldman Sachs AND BlackRock. Code 6200 holds LPL Financial
+and the CME. Code 6282, "Investment Advice", holds Evercore and T. Rowe
+Price.
+
+So the question is answered from the BALANCE SHEET. A broker-dealer holds
+customer money and earns brokerage revenue, and says so in concepts an asset
+manager has no reason to tag: receivables from customers, cash segregated
+under the SEC's customer-protection rule, brokerage commissions, principal
+transactions, investment banking revenue.
+
+Each piece of evidence has to be CURRENT — Evercore and PJT Partners tag
+investment banking revenue whose series stopped in 2018, Intercontinental
+Exchange's segregated cash stopped in 2015 — and the balance-sheet ones have
+to be MATERIAL, at least one percent of the firm's own assets, because every
+financial company parks a little cash somewhere. Ameriprise Financial holds
+nine hundred million dollars of segregated cash against a hundred and
+ninety-eight billion of assets and is a wealth and insurance group.
+
+Measured across twenty-four filers in those codes, the test admits all ten
+genuine broker-dealers (Schwab, Interactive Brokers, Robinhood, LPL, Raymond
+James, Stifel, Morgan Stanley, Goldman Sachs, Jefferies, Virtu) and one of
+the fourteen others: MarketAxess, whose bond-trading venue operates a
+registered broker-dealer holding forty-nine million dollars of segregated
+customer cash. That is a real broker-dealer fact about a business that is
+really a trading venue, and it is recorded here rather than papered over.
+
+### The subtype does not gate anything
+
+Retail, institutional or both, read from the annual report. Unlike an
+insurer's subtype this does not change which numbers are valid — both kinds
+are read on book value, return on equity and their own history of price to
+earnings — so where the report cannot separate them the model still runs and
+the mix is reported as undetermined. Refusing a filer over a label that would
+not have changed a single number would be theatre.
+
+A material deposit book is flagged separately, from filed deposits rather
+than from prose: Schwab, Raymond James, Stifel, Morgan Stanley and Goldman
+Sachs all fund themselves substantially that way, and it changes what their
+balance sheet is doing.
+
+### Client assets are refused
+
+They are the numbers this industry actually runs on and they are not in the
+filings. `PayablesToCustomers` is tagged by eight of the ten brokers and by
+none of them since 2020; `AssetsUnderManagementCarryingAmount` appears once,
+for LPL, dated 2012. Every figure that circulates comes from press releases
+and monthly activity reports.
+
+They stay blank. For a retail or diversified brokerage the missing number
+caps the fair-value confidence at MODERATE, because a valuation built on book
+value and earnings can look steady while customers leave.
+
+## Real option data — `chain_store.py` and the daily capture
+
+### What every observation now retains
+
+    [strike, bid, ask, implied volatility, delta, open interest,
+     last, volume, quality]
+
+plus, per day: the underlying price, the capture timestamp, the quote source
+and the event state (an earnings date inside the window, and how far away).
+The first six are the pre-Phase-5 layout and are read unchanged; a row
+written before Phase 5 has no last trade, volume or quality, and a reader
+must treat that as "not recorded that day" rather than as zero.
+
+Quality separates a two-sided market a penny wide from a one-sided quote and
+from a stale one. Both are "real" and only one of them is a price anybody
+could have traded at.
+
+### The capture
+
+Once a day after the close, for the followed names: expirations from today
+out to about fifty days, and a bounded ring of strikes around the money. That
+covers every tenor the covered-call simulator sells — weekly, fourteen to
+twenty-one days, thirty to forty-five — with room for a fair-value-aware
+strike a quarter above the price, and it is a small request rather than a
+whole chain.
+
+**Nothing is ever back-filled.** There is no source of historical option
+chains this app can reach. A day that goes uncaptured is gone. A day already
+on disk is never replaced, so a second capture cannot quietly rewrite what a
+backtest was built on.
+
+### Readiness
+
+Every covered-call run now carries a readiness block: how many days of real
+chains exist, when they start, what share of the run's days they cover, and
+one of three modes — REAL CHAIN BACKTEST, PART REAL / PART MODELED, or
+MODEL-BASED ESTIMATE. Real fills and model fills are counted separately and
+never blended into a single accuracy figure, because they are different kinds
+of number rather than the same number known to different precisions.
+
+## Is today's recording good enough for tomorrow's scoring?
+
+The forward-validation panel now audits its own inputs. Eight things must be
+in every daily row for a future scoring pass to settle up exactly:
+
+    the share price · the config hash · the recommendation · the preferred
+    structure · the exact contract AND the quote it carried · the benchmark
+    it will be measured against · the fair value · the buy zone
+
+Two of those were not being recorded before Phase 5. The exact contract now
+goes in with its bid, ask, mid, spread, open interest, volume, delta,
+implied volatility and quote source; the sector benchmark and its close go in
+on the day the recommendation is made, because choosing a benchmark after
+seeing which one flatters the result is the same lookahead everything else
+here refuses.
+
+The audit looks FORWARD. Rows already on disk are never rewritten, so a row
+written before a field existed will always lack it and that is correct. What
+matters is whether what is being written today is complete, because nothing
+can be filled in after the fact.
+
+## Bugs found in earlier phases
+
+Five, all real and all now fixed:
+
+1. **Book value was overstated for twenty-two of fifty-three filers.**
+   `StockholdersEquity` is the parent company's equity;
+   `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest`
+   adds equity belonging to somebody else. Both are usually filed on the same
+   date, so the coverage tie-break picked whichever had been tagged longer.
+   Interactive Brokers' book value came out 73% too high, American Tower's
+   65%, Simon Property Group's 21%. The same fault picked a component over
+   its total for short-term borrowings (Goldman Sachs, 28× too small) and for
+   intangibles. Fixed with `STRICT_INSTANT_PRIORITY`.
+2. **Bank of America's refusal was over-broad.** Refusing tangible book for
+   any filer that does not tag preferred stock also refused Chubb, Aflac,
+   Hanover, American Financial and RLI — none of which HAS any preferred.
+   `fundamentals.preferred_equity` now tells "we could not find it" from
+   "there is none": no preferred balance AND no preferred dividend AND no
+   preferred share count is the filings saying there is none. Bank of
+   America, which pays $1.5bn a year of preferred dividends, is still
+   refused.
+3. **LPL Financial's return on equity read 2.8% against a real 18.6%.** Its
+   `NetIncomeLossAvailableToCommonStockholdersBasic` series stopped in 2012
+   and the models took it because it was present rather than because it was
+   current. `fundamentals.net_income_to_common` now takes whichever series is
+   CURRENT and prefers the common figure only on a tie — which is also what
+   Charles Schwab needs, where the total picks up a series reading $1.3bn
+   against a real $9.7bn.
+4. **Travelers' business description was a paragraph about holding-company
+   liquidity.** `_item1_body` took the LONGEST candidate, and a cross-
+   reference late in the report ("see Part I, Item 1 — Business —
+   Regulation") ran to the next mention of Risk Factors and beat the chapter
+   it pointed at. It now takes the FIRST candidate with a chapter's worth of
+   prose behind it, because a document is written in order. This also fixed
+   CME Group.
+5. **The refusal told the reader a model existed that already did.** The
+   four-dimension scorecard refuses every specialized business — that part is
+   right, because the scorecard itself is the generic one — but it went on to
+   say "that is not built yet", which stopped being true for lenders and
+   property trusts in Phase 4 and for insurers and brokers here. Progressive
+   showed a full insurer panel above a sentence saying no insurer model had
+   been written. It now names the panel that holds the answer, and keeps the
+   old sentence only for a company whose specialized model genuinely could
+   not run — an insurer whose kind cannot be established, a filer in a
+   broker's industry code that is not a broker.
+
+## What is still not built
+
+* **A verdict for an insurer whose annual report cannot be read.** Sixteen of
+  forty-two. The fix is a better Item 1 extractor, not a looser model.
+* **Exchanges and asset managers** are still SPECIALIZED MODEL REQUIRED. They
+  do not need a specialized model — a derivatives exchange has real free cash
+  flow and real margins, and the standard model would serve it — but routing
+  them there is a business-type reclassification rather than one of Phase 5's
+  three jobs. MarketAxess is the one venue the broker test wrongly admits.
+* **Ameriprise Financial and the other hybrids.** A firm that is a large
+  retail brokerage AND a large annuity writer is read as neither. The
+  business-type gate allows one answer per filer.
+* **Client assets, net new assets and assets under administration.** Not in
+  the filings. A cached filing-table reader could reach the press-release
+  tables; nothing here scrapes prose.
+* **Statutory capital.** Insurers file risk-based capital with state
+  regulators, not with the SEC in XBRL. Equity to total assets is reported
+  instead, under its own name.
+* **Real-chain covered-call backtests.** The capture starts from the day this
+  ships. Every run today is still a MODEL-BASED ESTIMATE and says so.
+* **Forward validation with a sample in it.** Every horizon still reports
+  INSUFFICIENT SAMPLE, which remains the correct answer.
+
