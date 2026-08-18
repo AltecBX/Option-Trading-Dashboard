@@ -232,6 +232,8 @@ for p in [
     "/api/invest/config",
     f"/api/invest?symbol={S}",
     f"/api/invest/history?symbol={S}&years=5",
+    f"/api/invest/valuation?symbol={S}&years=5",
+    f"/api/invest/peers?symbol={S}",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",

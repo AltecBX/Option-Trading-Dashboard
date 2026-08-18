@@ -5440,13 +5440,52 @@ def _invest_ten_year() -> dict | None:
         return None
 
 
+def _invest_earnings(symbol: str) -> dict:
+    """Next and last report dates, for the earnings-cycle state."""
+    out = {"next": None, "last": None}
+    try:
+        out["next"] = (_edge_next_earnings(symbol) or {}).get("next")
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/earnings next", exc)
+    try:
+        past = sorted(_backtest_earnings_dates(symbol) or [])
+        today = datetime.now(_ET).date().isoformat()
+        past = [d for d in (str(x)[:10] for x in past) if d <= today]
+        out["last"] = past[-1] if past else None
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/earnings last", exc)
+    return out
+
+
+def _invest_event(symbol: str) -> dict | None:
+    """The most recent structural filing — restatement, reverse split, late
+    filing. Reuses the Gap tab's filing tagger rather than reading EDGAR
+    again for the same documents."""
+    if not (_SEC_AVAILABLE and _sec_filings is not None):
+        return None
+    try:
+        return _sec_filings.latest_event_tag(symbol, days=(0, 365))
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/event", exc)
+        return None
+
+
 try:
     import invest_scan as _invest
+    import peers as _peers_mod
+    _peers_mod.configure(
+        universe_fn=lambda: (_backtest_universe() or {}).get("all") or [],
+        quote_fn=_invest_quote,
+        data_dir=_STABLE_DIR,
+    )
     _invest.configure(
         quote_fn=_invest_quote,
         estimates_fn=_invest_estimates,
         ten_year_fn=_invest_ten_year,
         daily_fn=_gap_daily,
+        earnings_fn=_invest_earnings,
+        events_fn=_invest_event,
+        benchmark_fn=_gap_sector_etf,
         data_dir=_STABLE_DIR,
     )
     _INVEST_AVAILABLE = True
@@ -8372,10 +8411,31 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         self._send_json(_invest.payload(symbol, force=force,
                                                         years=years),
                                         no_store=True)
+                elif section == "peers":
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    self._send_json(
+                        _peers_mod.get(symbol,
+                                       refresh=(qs.get("force", ["0"])[0] or "0")
+                                       in ("1", "true")),
+                        no_store=True)
+                elif section == "valuation":
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    try:
+                        yrs = int(qs.get("years", ["5"])[0] or "5")
+                    except ValueError:
+                        yrs = 5
+                    self._send_json(_invest.valuation_history(symbol, years=yrs),
+                                    no_store=True)
                 elif section == "config":
                     cfg_i, h = _invest.config()
                     self._send_json({"config": cfg_i, "hash": h,
-                                     "engine": _invest.engine.ENGINE_VERSION},
+                                     "engine": _invest.engine.ENGINE_VERSION,
+                                     "scorecard": _invest.engine.SCORECARD_VERSION,
+                                     "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:
                     self._send_json({"error": f"unknown invest section {section}"},

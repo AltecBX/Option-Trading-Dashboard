@@ -457,5 +457,148 @@ class TestFundamentalsRollUp(unittest.TestCase):
         self.assertTrue(F._minus_a_year("2024-02-29").startswith("2023-03-0"))
 
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 2 — balance-sheet facts, point-in-time series, SEC metadata
+# ══════════════════════════════════════════════════════════════════════════
+
+def instant_fact(end, val, filed="2026-02-01", form="10-Q"):
+    """A balance-sheet fact: a value AT a date, with no start."""
+    return {"end": end, "val": val, "filed": filed, "form": form}
+
+
+class TestInstantFacts(unittest.TestCase):
+    def test_instants_are_read_by_date_with_the_newest_filing_winning(self):
+        e = concept("USD", [instant_fact("2026-03-31", 100.0, filed="2026-05-01"),
+                            instant_fact("2026-03-31", 105.0, filed="2026-08-01"),
+                            instant_fact("2026-06-30", 110.0, filed="2026-08-01")])
+        rows = F.instant_series(e)
+        self.assertEqual(len(rows), 2)
+        self.assertAlmostEqual(rows[0]["val"], 105.0)
+        self.assertEqual(rows[0]["first_filed"], "2026-05-01")
+
+    def test_duration_facts_are_not_mistaken_for_instants(self):
+        e = concept("USD", [fact("2026-01-01", "2026-03-31", 50.0)])
+        self.assertEqual(F.instant_series(e), [])
+
+    def test_instant_picks_the_best_covered_concept(self):
+        f = facts(us_gaap={
+            "StockholdersEquity": concept("USD", [
+                instant_fact("2026-06-30", 400.0)]),
+            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest":
+                concept("USD", [instant_fact("2024-06-30", 300.0)])})
+        got = F.instant(f, "equity")
+        self.assertAlmostEqual(got["value"], 400.0)
+        self.assertEqual(got["as_of"], "2026-06-30")
+        self.assertIn("balance-sheet", got["basis"])
+
+    def test_a_missing_balance_sheet_line_is_an_explicit_na(self):
+        got = F.instant(facts(us_gaap={}), "equity")
+        self.assertIsNone(got["value"])
+        self.assertIn("does not report", got["reason"])
+
+    def test_as_of_walks_the_balance_sheet_back(self):
+        f = facts(us_gaap={"StockholdersEquity": concept("USD", [
+            instant_fact("2025-06-30", 300.0), instant_fact("2026-06-30", 400.0)])})
+        self.assertAlmostEqual(F.instant(f, "equity", as_of="2025-12-31")["value"],
+                               300.0)
+
+
+class TestNetDebt(unittest.TestCase):
+    def test_borrowings_less_cash_and_short_term_investments(self):
+        f = facts(us_gaap={
+            "LongTermDebtNoncurrent": concept("USD", [instant_fact("2026-06-30", 100.0)]),
+            "DebtCurrent": concept("USD", [instant_fact("2026-06-30", 20.0)]),
+            "CashAndCashEquivalentsAtCarryingValue": concept("USD", [
+                instant_fact("2026-06-30", 30.0)]),
+            "ShortTermInvestments": concept("USD", [instant_fact("2026-06-30", 10.0)])})
+        nd = F.net_debt(f)
+        self.assertAlmostEqual(nd["value"], 80.0)
+        self.assertAlmostEqual(nd["debt"], 120.0)
+        self.assertAlmostEqual(nd["liquid"], 40.0)
+
+    def test_more_cash_than_debt_is_a_negative_number_not_a_floor(self):
+        f = facts(us_gaap={
+            "LongTermDebtNoncurrent": concept("USD", [instant_fact("2026-06-30", 10.0)]),
+            "CashAndCashEquivalentsAtCarryingValue": concept("USD", [
+                instant_fact("2026-06-30", 60.0)])})
+        self.assertAlmostEqual(F.net_debt(f)["value"], -50.0)
+
+    def test_no_borrowings_tagged_is_na_rather_than_zero(self):
+        # "We could not find the debt" and "there is no debt" are different
+        # statements, and Robinhood is the measured example of the first.
+        f = facts(us_gaap={"CashAndCashEquivalentsAtCarryingValue": concept(
+            "USD", [instant_fact("2026-06-30", 60.0)])})
+        nd = F.net_debt(f)
+        self.assertIsNone(nd["value"])
+        self.assertIn("cannot be told apart", nd["reason"])
+
+
+class TestPointInTimeSeries(unittest.TestCase):
+    def test_a_missing_fourth_quarter_does_not_empty_the_series(self):
+        # Apple reports no separate fourth-quarter share count — it exists
+        # only inside the annual figure — so a rule requiring four contiguous
+        # quarters returns nothing for one of the most-viewed tickers here.
+        gaap = {"WeightedAverageNumberOfDilutedSharesOutstanding": concept(
+            "shares", [
+                fact("2025-01-01", "2025-03-31", 100.0, filed="2025-05-01"),
+                fact("2025-04-01", "2025-06-30", 99.0, filed="2025-08-01"),
+                fact("2025-07-01", "2025-09-30", 98.0, filed="2025-11-01"),
+                fact("2025-01-01", "2025-12-31", 98.5, form="10-K",
+                     filed="2026-02-01"),
+            ])}
+        series = F.pit_series(facts(us_gaap=gaap), "diluted_shares")
+        self.assertEqual(len(series), 4)
+        self.assertEqual(series[-1]["period_end"], "2025-12-31")
+        self.assertEqual(series[-1]["span"], "year")
+        self.assertEqual(series[0]["span"], "quarter")
+
+    def test_each_point_is_dated_at_the_filing_that_first_stated_it(self):
+        gaap = {"WeightedAverageNumberOfDilutedSharesOutstanding": concept(
+            "shares", [
+                fact("2025-01-01", "2025-03-31", 100.0, filed="2025-05-01"),
+                fact("2025-01-01", "2025-03-31", 100.0, filed="2026-02-01"),
+            ])}
+        series = F.pit_series(facts(us_gaap=gaap), "diluted_shares")
+        self.assertEqual(series[0]["first_filed"], "2025-05-01")
+        self.assertEqual(series[0]["filed"], "2026-02-01")
+
+    def test_an_absent_concept_gives_an_empty_series(self):
+        self.assertEqual(F.pit_series(facts(us_gaap={}), "diluted_shares"), [])
+
+
+class TestSicMetadata(unittest.TestCase):
+    def test_cached_metadata_round_trips(self):
+        F._META["ZZMETA"] = (__import__("time").time(),
+                             {"symbol": "ZZMETA", "sic": "6021",
+                              "sic_description": "National Commercial Banks",
+                              "_fetched_ts": __import__("time").time()})
+        try:
+            got = F.sic_metadata("ZZMETA")
+            self.assertEqual(got["sic"], "6021")
+        finally:
+            F._META.pop("ZZMETA", None)
+
+    def test_an_unknown_ticker_returns_nothing_rather_than_a_blank_record(self):
+        self.assertIsNone(F.sic_metadata(""))
+
+
+class TestPhase2Concepts(unittest.TestCase):
+    def test_the_quality_concepts_are_registered_with_a_basis(self):
+        for name in ("operating_income", "tax_expense", "pretax_income",
+                     "share_based_comp", "depreciation_amortization"):
+            self.assertIn(name, F.CONCEPTS)
+            self.assertIn(name, F.BASIS)
+
+    def test_the_balance_sheet_concepts_are_registered_with_a_basis(self):
+        for name in F.INSTANT_CONCEPTS:
+            self.assertIn(name, F.INSTANT_BASIS)
+
+    def test_operating_income_builds_a_trailing_figure(self):
+        gaap = four_quarters("OperatingIncomeLoss", "USD", [10.0, 11.0, 12.0, 13.0])
+        m = F.metric(facts(us_gaap=gaap), "operating_income")
+        self.assertAlmostEqual(m["value"], 46.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
