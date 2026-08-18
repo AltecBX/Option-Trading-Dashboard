@@ -2345,6 +2345,15 @@ const INV_INS_TIP = {
     "profitable one, which is why the return on equity sits beside it.",
   tbvps: "Book value with goodwill and other intangibles taken out, per share.",
   ptbv: "Share price divided by tangible book value per share.",
+  client_growth: "How much the money customers keep here has grown against " +
+    "the same measure a year earlier, both read from the company's own " +
+    "filing tables. There is no growth figure until a reading from a year " +
+    "ago exists: filings are read forward from today and never back-filled.",
+  net_new: "Money customers moved in less money they moved out, over the " +
+    "period the filing reports. This is the number a brokerage is actually " +
+    "judged on, and it is shown only where the company prints it in a table " +
+    "this app can read without guessing at the label, the period or the " +
+    "unit.",
   roe: "Net income to common over average shareholders' equity. This is what " +
     "decides whether an insurer deserves a premium to its book: one earning " +
     "exactly its cost of equity is worth exactly its book value.",
@@ -2557,6 +2566,15 @@ const INV_BROKER_TIP = {
   pb: "Share price divided by book value per share.",
   tbvps: "Book value with goodwill and other intangibles taken out, per share.",
   ptbv: "Share price divided by tangible book value per share.",
+  client_growth: "How much the money customers keep here has grown against " +
+    "the same measure a year earlier, both read from the company's own " +
+    "filing tables. There is no growth figure until a reading from a year " +
+    "ago exists: filings are read forward from today and never back-filled.",
+  net_new: "Money customers moved in less money they moved out, over the " +
+    "period the filing reports. This is the number a brokerage is actually " +
+    "judged on, and it is shown only where the company prints it in a table " +
+    "this app can read without guessing at the label, the period or the " +
+    "unit.",
   roe: "Net income to common over average shareholders' equity. A broker " +
     "earning thirty percent on its equity deserves a large premium to book " +
     "and one earning six percent deserves a discount.",
@@ -2585,12 +2603,17 @@ const INV_BROKER_TIP = {
     "the benefit of customers, as the SEC's customer-protection rule requires.",
   clients: "Client assets, assets under administration and net new assets " +
     "are the numbers this industry actually runs on, and they are not in the " +
-    "machine-readable filings anywhere.\n\nEight of the ten brokers measured " +
-    "tag a customer payables balance and not one has done so since 2020; a " +
-    "single filer tags assets under management, dated 2012. Every figure " +
-    "that circulates comes from press releases. It is left blank rather " +
-    "than estimated, because a broker's own capital says nothing about how " +
-    "much of its customers' money it holds.",
+    "machine-readable filings anywhere.\n\nWhere they appear at all they are " +
+    "in the tables of the filings themselves — usually the earnings release " +
+    "attached to an 8-K — and that is where this figure comes from: a row " +
+    "whose label is one of a fixed list, under a column that names a " +
+    "period, in a table that states its own scale. A row that is ambiguous, " +
+    "a column with no period, or a table that leaves its scale to be " +
+    "guessed at all produce nothing rather than a number, because the " +
+    "difference between millions and billions is a factor of a thousand.\n\n" +
+    "Where no such table exists it stays blank. It is never estimated from " +
+    "the balance sheet: a broker's own capital says nothing about how much " +
+    "of its customers' money it holds.",
   leverage: "Total assets over all the equity on the balance sheet. A " +
     "broker-dealer is levered by design — customer margin loans are assets " +
     "funded by customer credit balances — so the level says less than the " +
@@ -2684,16 +2707,255 @@ function InvBroker({ broker }) {
         </div>
       )}
 
+      {(b.client_assets || {}).value != null && (
+        <React.Fragment>
+          <div className="inv-sechead" title={INV_BROKER_TIP.clients}>
+            The customer franchise
+          </div>
+          <div className="inv-grid">
+            {stat("Client assets", b.client_assets, invMoney,
+                  INV_BROKER_TIP.clients)}
+            {stat("Client asset growth over a year",
+                  b.client_asset_growth_pct, invSignedPct,
+                  INV_BROKER_TIP.client_growth)}
+            {stat("Net new client money", b.net_new_assets, invMoney,
+                  INV_BROKER_TIP.net_new)}
+          </div>
+          <div className="inv-note" title={INV_BROKER_TIP.clients}>
+            {(b.client_assets || {}).basis}
+          </div>
+        </React.Fragment>
+      )}
+
       <div className="inv-sechead" title={INV_BROKER_TIP.clients}>
         Not reported, and why
       </div>
       <ul className="inv-reasons">
-        <li title={INV_BROKER_TIP.clients}>
-          <b>Client assets and net new assets</b> — {(b.client_assets || {}).reason}
-        </li>
+        {(b.client_assets || {}).value == null && (
+          <li title={INV_BROKER_TIP.clients}>
+            <b>Client assets and net new assets</b> —{" "}
+            {(b.client_assets || {}).reason}
+          </li>
+        )}
         <li><b>Advisory and asset-management fees</b> —{" "}
           {(b.asset_management_revenue || {}).reason}</li>
       </ul>
+    </div>
+  );
+}
+
+// ── Phase 6: which engine this company went to, and why ───────────────────
+
+const INV_ROUTE_TIP = {
+  what: "An SEC industry code is a filing convenience, not a description of " +
+    "a business. Code 6211 holds Charles Schwab, Goldman Sachs and " +
+    "BlackRock; code 6200 holds LPL Financial and the CME. Which of those a " +
+    "company is gets decided here, from what is actually on its balance " +
+    "sheet and what its revenue is made of — and that decision is what " +
+    "picks the valuation model below.",
+  cls: "The kind of business this is, judged from its filings rather than " +
+    "from its industry code.",
+  model: "The valuation model this company is sent to. An exchange and an " +
+    "asset manager both go to the ordinary one: both have ordinary revenue, " +
+    "ordinary margins and ordinary free cash flow, and neither is valued on " +
+    "book value.",
+  why: "The evidence behind the decision, in the order it was weighed.",
+  exposure: "Every business this company is materially in, with the " +
+    "measurement each one was judged on and the level it had to clear. " +
+    "Shares are not comparable across the list — deposits are a share of " +
+    "assets and premiums a share of revenue — so nothing here averages them.",
+  accounts: "Whether the accounts behave like an operating company's at " +
+    "all: capital expenditure reported, and operating cash flow reported, " +
+    "positive and within sight of revenue. A broker fails this, because " +
+    "customer money moves through its operating cash flow — Goldman Sachs " +
+    "reports minus thirty-nine billion dollars of it against sixty-six " +
+    "billion of revenue, which is the wrong measure rather than a problem.",
+  chapter: "Which annual report the business description was read from, how " +
+    "it was found in the document, and how sure the reader is. A business " +
+    "chapter the reader is not confident it found is shown as text and is " +
+    "not allowed to decide which model runs.",
+};
+
+// "a exchange" and "a asset manager" are the two the routing labels
+// actually produce; the rule is general so a new class cannot reintroduce it.
+function invArticle(word) {
+  return ("aeiou".includes((word || "")[0]) ? "an " : "a ") + word;
+}
+
+function InvRouting({ routing, extraction }) {
+  const r = routing || {};
+  if (!r.business_class) return null;
+  const stat = (label, block, fmt, tip) => (
+    <InvStat label={label} value={invBankVal(block, fmt)} tip={tip}
+             basis={(block || {}).basis} reason={(block || {}).reason} />
+  );
+  const corp = r.corporate_accounts || {};
+  const ex = extraction || {};
+  return (
+    <div className="inv-bank">
+      <div className="inv-note" title={INV_ROUTE_TIP.what}>
+        Read as {invArticle(String(r.label || "").toLowerCase())}, and valued
+        with the{" "}
+        {String(r.model || "standard").toLowerCase().replace(/_/g, " ")} model.
+        {r.note ? " " + r.note : ""}
+      </div>
+      <div className="inv-grid">
+        {stat("Kind of business", { value: r.label }, (v) => v,
+              INV_ROUTE_TIP.cls)}
+        {stat("Valuation model", { value: r.model }, (v) => v,
+              INV_ROUTE_TIP.model)}
+        {stat("How sure", { value: r.confidence }, (v) => v,
+              INV_ROUTE_TIP.cls)}
+      </div>
+      {(r.why || []).length > 0 && (
+        <React.Fragment>
+          <div className="inv-sechead" title={INV_ROUTE_TIP.why}>Why</div>
+          <ul className="inv-reasons">
+            {(r.why || []).map((w, i) => (
+              <li key={i} title={INV_ROUTE_TIP.why}>{w}</li>
+            ))}
+          </ul>
+        </React.Fragment>
+      )}
+      {(r.exposures || []).some((e) => e.material) && (
+        <React.Fragment>
+          <div className="inv-sechead" title={INV_ROUTE_TIP.exposure}>
+            What it is materially in
+          </div>
+          <ul className="inv-reasons">
+            {(r.exposures || []).filter((e) => e.material).map((e, i) => (
+              <li key={i} title={INV_ROUTE_TIP.exposure}>
+                <b>{e.label}</b> —{" "}
+                {e.share_pct == null ? e.measure
+                  : `${invPct(e.share_pct)} by ${e.measure}, against a ` +
+                    `${invPct(e.threshold_pct)} level`}
+              </li>
+            ))}
+          </ul>
+        </React.Fragment>
+      )}
+      <div className="inv-note" title={INV_ROUTE_TIP.accounts}>
+        {corp.ok ? corp.basis : corp.reason}
+      </div>
+      {ex.confidence && (
+        <div className="inv-note" title={INV_ROUTE_TIP.chapter}>
+          Business description read from the {ex.form} filed{" "}
+          {invDate(ex.filed)} by {ex.method}; confidence {ex.confidence}.
+        </div>
+      )}
+    </div>
+  );
+}
+
+const INV_HYBRID_TIP = {
+  what: "Some companies are two financial businesses at once — a wealth " +
+    "manager and an annuity writer, an asset manager that bought an " +
+    "insurer — and each of those is valued a different way. Which model is " +
+    "right depends on which business dominates, and that is stated here " +
+    "rather than assumed.",
+  case: "ONE MODEL RUNS means only one of the businesses can be valued from " +
+    "the filings, so that one is used and the rest are disclosed. MODELS " +
+    "AGREE means both can be valued and they land close enough together " +
+    "that the usual confidence machinery settles it. MODELS DISAGREE means " +
+    "they do not, and no single fair value is shown.",
+  spread: "How far apart the two models are about what this company is " +
+    "worth, measured between their base values.",
+  nosotp: "No sum of the parts is attempted. Segment revenue and segment " +
+    "income are not in the SEC's machine-readable filings at all, so a " +
+    "segment-weighted valuation would be a guess with a decimal point on it.",
+};
+
+function InvHybrid({ hybrid }) {
+  const h = hybrid || {};
+  if (!h.is_hybrid) return null;
+  const stat = (label, block, fmt, tip) => (
+    <InvStat label={label} value={invBankVal(block, fmt)} tip={tip}
+             basis={(block || {}).basis} reason={(block || {}).reason} />
+  );
+  return (
+    <div className="inv-bank">
+      <div className={`inv-note ${h.reliable ? "" : "down"}`}
+           title={INV_HYBRID_TIP.what}>
+        {h.reason}
+      </div>
+      <div className="inv-grid">
+        {stat("Which case this is", { value: h.case }, (v) => v,
+              INV_HYBRID_TIP.case)}
+        {stat("How far apart the models are", { value: h.disagreement_pct },
+              invPct, INV_HYBRID_TIP.spread)}
+      </div>
+      {(h.valuations || []).length > 0 && (
+        <ul className="inv-reasons">
+          {(h.valuations || []).map((v, i) => (
+            <li key={i} title={INV_HYBRID_TIP.case}>
+              <b>{v.label}</b> —{" "}
+              {v.available && v.base != null
+                ? `base ${invPrice(v.base)} from the ` +
+                  `${String(v.model).toLowerCase()} model`
+                : (v.reason || "this model cannot be built from the filings")}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="inv-note" title={INV_HYBRID_TIP.nosotp}>
+        {INV_HYBRID_TIP.nosotp}
+      </div>
+    </div>
+  );
+}
+
+const INV_XCHECK_TIP = {
+  what: "Some measures have to be rebuilt from the machine-readable filings " +
+    "because the filings do not tag them directly — funds from operations " +
+    "for a property trust, the combined ratio for an insurer. Where the " +
+    "company also prints the figure in a table of its own, the two are put " +
+    "side by side here.",
+  state: "AGREES means the rebuilt figure matches what the company " +
+    "publishes. RECONSTRUCTION MISMATCH means it does not, and the " +
+    "valuation built on the rebuilt figure is not trusted at full " +
+    "confidence until the difference is explained. The nicer of the two is " +
+    "never quietly chosen.",
+};
+
+function InvCrossCheck({ cross }) {
+  const c = cross || {};
+  if (!(c.checks || []).length) return null;
+  return (
+    <div className="inv-bank">
+      <div className={`inv-note ${c.mismatches ? "down" : ""}`}
+           title={INV_XCHECK_TIP.state}>
+        {c.state === "AGREES"
+          ? "What this app rebuilt from the filings matches what the company "
+            + "publishes in its own tables."
+          : "What this app rebuilt from the filings does NOT match what the "
+            + "company publishes in its own tables."}
+      </div>
+      <table className="inv-peer-table">
+        <thead>
+          <tr>
+            <th title={INV_XCHECK_TIP.what}>Measure</th>
+            <th title={INV_XCHECK_TIP.what}>Published by the company</th>
+            <th title={INV_XCHECK_TIP.what}>Rebuilt from the filings</th>
+            <th title={INV_XCHECK_TIP.state}>Difference</th>
+            <th title={INV_XCHECK_TIP.state}>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(c.checks || []).map((row, i) => (
+            <tr key={i}>
+              <td>{row.measure}</td>
+              <td>{row.unit === "percent" ? invPct(row.published)
+                                          : invMoney(row.published)}</td>
+              <td>{row.unit === "percent" ? invPct(row.reconstructed)
+                                          : invMoney(row.reconstructed)}</td>
+              <td>{invPct(row.difference_pct)}</td>
+              <td className={row.state === "AGREES" ? "" : "down"}>
+                {row.state}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -3458,7 +3720,11 @@ function InvestTab({ apiFetch, ticker, onOpenTicker }) {
         </div>
         <div className="inv-ctrl">
           <input className="inv-sym" value={sym} maxLength={8}
-                 onChange={(e) => setSym(e.target.value.toUpperCase().replace(/[^A-Z.]/g, ""))}
+                 onChange={(e) => setSym(
+                   // Hyphens belong here. The SEC writes a class share as
+                   // BRK-B, and stripping the hyphen turned every lookup of
+                   // one into a search for a ticker that does not exist.
+                   e.target.value.toUpperCase().replace(/[^A-Z.\-]/g, ""))}
                  onKeyDown={(e) => { if (e.key === "Enter") load(sym, years, true); }}
                  title="Type a ticker and press Enter. Follows the dashboard's
                    selected ticker automatically." aria-label="Ticker" />
@@ -3663,6 +3929,26 @@ function InvestTab({ apiFetch, ticker, onOpenTicker }) {
               </div>
             </div>
           )}
+
+          {/* ── Phase 6: which engine this company went to, and why. Behind
+              an expander because most readers never need it, and always
+              available because a valuation you cannot question is not one
+              you can rely on. ── */}
+          {d.routing && d.routing.business_class &&
+            section("routing", "Which model this company gets, and why",
+            "The industry code starts the answer and the filings finish it. Code 6211 holds Charles Schwab, Goldman Sachs and BlackRock; what separates them is the customer money on the balance sheet and what the revenue is made of.",
+            <InvRouting routing={d.routing}
+                        extraction={(d.profile || {}).extraction} />)}
+
+          {d.hybrid && d.hybrid.is_hybrid &&
+            section("hybrid", "More than one business at once",
+            "A company that is two financial businesses gets no single fair value unless the two models agree about one. Which case this is, and what each model says, are both shown.",
+            <InvHybrid hybrid={d.hybrid} />)}
+
+          {d.cross_check && (d.cross_check.checks || []).length > 0 &&
+            section("crosscheck", "Rebuilt against published",
+            "Where a measure had to be rebuilt from the machine-readable filings and the company also prints it in a table of its own, the two are put side by side. A disagreement lowers confidence rather than being resolved in favour of the nicer number.",
+            <InvCrossCheck cross={d.cross_check} />)}
 
           {/* ── Phase 4: the measures that belong to this kind of business.
               Shown only for the kind they belong to, so a software company's

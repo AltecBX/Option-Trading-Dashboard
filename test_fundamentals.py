@@ -1133,5 +1133,101 @@ class TestBusinessSubtypeClassifiers(unittest.TestCase):
                           ("UNDERWRITING", "BENEFIT", "SPREAD"))
 
 
+class TestBusinessChapterConfidenceGate(unittest.TestCase):
+    """Phase 6: a chapter the reader is not sure it found may be shown as
+    text and may not decide which valuation model runs."""
+
+    CHAPTER = ("Sample Insurance Group writes property and casualty insurance "
+               "through independent agents. Its underwriting covers "
+               "automobile, homeowners and commercial multi-peril lines. ") * 20
+
+    def setUp(self):
+        self.calls = []
+        self._real = F._reader.business_section
+        self._sec = F._sec
+
+        def fake(symbol, sec, strip_lead_in=None, **kw):
+            self.calls.append(symbol)
+            return self.answer
+
+        F._reader.business_section = fake
+        F._sec = object()
+        F._PROFILE_CACHE.clear()
+        self.answer = {"ok": True, "text": self.CHAPTER, "confidence": "HIGH",
+                       "reason": "", "provenance": {
+                           "form": "10-K", "filed": "2026-02-19",
+                           "accession": "0001", "method": "heading element",
+                           "confidence": "HIGH"}}
+        self._real_avail = F.available
+        F.available = lambda: True
+        self._real_sic = F.sic_metadata
+        F.sic_metadata = lambda s: {"sic": "6331"}
+        self._real_dir = F._DATA_DIR
+        F._DATA_DIR = None
+
+    def tearDown(self):
+        F._reader.business_section = self._real
+        F._sec = self._sec
+        F.available = self._real_avail
+        F.sic_metadata = self._real_sic
+        F._DATA_DIR = self._real_dir
+        F._PROFILE_CACHE.clear()
+
+    def test_a_confident_chapter_classifies_the_business(self):
+        got = F.business_description("SMPL")
+        self.assertEqual(got["extraction_confidence"], "HIGH")
+        self.assertIsNotNone(got["insurer_subtype"])
+        self.assertTrue(got["routing_phrases"] is not None)
+
+    def test_a_doubtful_chapter_classifies_nothing(self):
+        self.answer = {**self.answer, "confidence": "LOW",
+                       "reason": "picked by length rather than by a heading"}
+        F._PROFILE_CACHE.clear()
+        got = F.business_description("SMPL")
+        self.assertIsNone(got["insurer_subtype"])
+        self.assertIsNone(got["broker_subtype"])
+        self.assertIsNone(got["property_type"])
+        self.assertTrue(got["description"])
+        self.assertIn("length", got["extraction_reason"])
+
+    def test_a_failed_read_still_returns_the_reason(self):
+        self.answer = {"ok": False, "text": "", "confidence": "FAILED",
+                       "reason": "This filer has filed no annual report.",
+                       "provenance": {}}
+        F._PROFILE_CACHE.clear()
+        got = F.business_description("Y")
+        self.assertEqual(got["extraction_confidence"], "FAILED")
+        self.assertIn("no annual report", got["extraction_reason"])
+        self.assertIsNone(got["insurer_subtype"])
+
+    def test_the_profile_carries_the_provenance(self):
+        got = F.business_description("SMPL")
+        self.assertEqual(got["extraction"]["accession"], "0001")
+        self.assertEqual(got["extraction"]["method"], "heading element")
+        self.assertEqual(got["form"], "10-K")
+
+
+class TestPhase6Concepts(unittest.TestCase):
+    """Concepts added for routing, kept separate from the Phase 5 models."""
+
+    def test_the_new_revenue_concepts_are_declared_with_a_basis(self):
+        for name in ("investment_advisory_fees", "market_data_revenue",
+                     "clearing_fees_revenue", "trading_gains"):
+            self.assertIn(name, F.CONCEPTS)
+            self.assertIn(name, F.BASIS)
+
+    def test_policyholder_liabilities_is_its_own_instant(self):
+        self.assertIn("policyholder_liabilities", F.INSTANT_CONCEPTS)
+        self.assertIn("policyholder_liabilities", F.INSTANT_BASIS)
+        self.assertIn("policyholder_liabilities", F.STRICT_INSTANT_PRIORITY)
+
+    def test_the_market_maker_tag_is_not_folded_into_broker_evidence(self):
+        """TradingGainsLosses belongs to routing; adding it to the Phase 5
+        broker evidence list would change who that gate admits."""
+        self.assertNotIn("TradingGainsLosses",
+                         F.CONCEPTS["principal_transactions"][0])
+        self.assertIn("TradingGainsLosses", F.CONCEPTS["trading_gains"][0])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -51,6 +51,8 @@ import bank_model as _bank
 import reit_model as _reit
 import insurance_model as _ins
 import broker_model as _brk
+import business_routing as _route
+import filing_tables as _tables
 import forward_test as _forward
 import covered_call as _cc
 import chain_store
@@ -85,6 +87,7 @@ _RATE_FN = None             # (years) -> {"pct","as_of","source"} | None
 _EARN_MOVES_FN = None       # (symbol) -> {"avg_abs","n"} | None
 _ACTIONS_FN = None          # (symbol) -> {"dividends": {iso: amount}} | None
 _CC_CHAIN_FN = None         # (symbol) -> the near-dated chain, for capture
+_TABLES_FN = None           # (symbol, wanted) -> filing-table readings
 
 _LOCK = threading.RLock()
 _SNAP_TTL = 900.0           # 15 minutes; the filings behind it move quarterly
@@ -100,10 +103,12 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
               daily_fn=None, config_fn=None, data_dir=None,
               earnings_fn=None, events_fn=None, benchmark_fn=None,
               chain_fn=None, rate_fn=None, earn_moves_fn=None,
-              actions_fn=None, cc_chain_fn=None) -> None:
+              actions_fn=None, cc_chain_fn=None, tables_fn=None) -> None:
     global _QUOTE_FN, _ESTIMATES_FN, _TEN_YEAR_FN, _DAILY_FN, _CFG_FN, _DATA_DIR
     global _EARNINGS_FN, _EVENTS_FN, _BENCHMARK_FN
     global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN, _ACTIONS_FN, _CC_CHAIN_FN
+    global _TABLES_FN
+    _TABLES_FN = tables_fn
     _ACTIONS_FN = actions_fn
     _CC_CHAIN_FN = cc_chain_fn
     _QUOTE_FN = quote_fn
@@ -460,6 +465,49 @@ def _daily_row(snap: dict) -> dict | None:
     row["risk_flags"] = [a.get("key")
                          for a in ((snap.get("value_trap") or {})
                                    .get("active") or [])]
+
+    # Phase 6 state. Same discipline a fourth time: nothing already on disk
+    # is rewritten, and a reader treats a missing key as "not recorded that
+    # day". What is added is WHY this company went to the engine it went to,
+    # so a future scoring pass can tell a change of answer from a change of
+    # model.
+    routing = snap.get("routing") or {}
+    if routing:
+        row["business_class"] = routing.get("business_class")
+        row["primary_model"] = routing.get("model")
+        row["routing_confidence"] = routing.get("confidence")
+        row["secondary_businesses"] = list(routing.get("secondary") or [])
+        row["routing_evidence"] = [
+            {"business": e.get("business"), "share_pct": e.get("share_pct"),
+             "measure": e.get("measure"), "material": e.get("material")}
+            for e in (routing.get("exposures") or []) if e.get("material")]
+    prof = _fund.business_description(snap.get("symbol") or "") or {}
+    if prof.get("extraction_confidence"):
+        row["business_text_confidence"] = prof.get("extraction_confidence")
+        row["business_text_method"] = (prof.get("extraction") or {}).get("method")
+        row["business_text_accession"] = (prof.get("extraction") or {}).get("accession")
+    hyb = snap.get("hybrid") or {}
+    if hyb:
+        row["hybrid_case"] = hyb.get("case")
+        row["hybrid_reliable"] = hyb.get("reliable")
+        row["hybrid_disagreement_pct"] = hyb.get("disagreement_pct")
+    cross = snap.get("cross_check") or {}
+    if cross.get("checks"):
+        row["reconstruction_state"] = cross.get("state")
+        row["reconstruction_checks"] = [
+            {"measure": c.get("measure"), "published": c.get("published"),
+             "reconstructed": c.get("reconstructed"),
+             "difference_pct": c.get("difference_pct"), "state": c.get("state")}
+            for c in cross["checks"]]
+    ca = snap.get("client_assets") or {}
+    if ca.get("available"):
+        row["client_assets"] = (ca.get("assets") or {}).get("value")
+        row["client_assets_as_of"] = (ca.get("assets") or {}).get("as_of")
+        row["client_assets_growth_pct"] = (
+            ca.get("assets_growth_pct") or {}).get("value")
+        row["net_new_assets"] = (ca.get("net_new") or {}).get("value")
+        row["client_asset_provenance"] = (
+            (ca.get("assets") or {}).get("provenance") or {})
 
     # The exact contract and the exact quote behind the preferred structure,
     # so a future scoring pass can settle up against what was actually
@@ -1737,6 +1785,409 @@ def broker_block(snap: dict, facts: dict, cfg: dict) -> dict:
                         subtype=profile.get("broker_subtype"), cfg=cfg)
 
 
+# ── Phase 6: which engine, and why ──────────────────────────────────────────
+
+def routing_block(sym: str, facts: dict, sic, eps_ttm, ok: bool,
+                  cfg: dict) -> dict:
+    """The economic class of the business, from filed evidence.
+
+    The SEC industry code is the starting point and not the answer. Code
+    6211 holds Charles Schwab, Goldman Sachs and BlackRock; whether a filer
+    is a broker, an exchange or an asset manager is settled by what is on
+    its balance sheet, what its revenue is made of, and whether its accounts
+    behave like an operating company's at all.
+    """
+    profile = _fund.business_description(sym or "") or {}
+    return _route.route(
+        _fund, facts, sic=sic,
+        phrases=profile.get("routing_phrases") or {},
+        text_confidence=profile.get("extraction_confidence"),
+        eps_ttm=eps_ttm, ok=ok, cfg=cfg)
+
+
+def _routed_business_type(btype: dict, routing: dict) -> dict:
+    """The business-type dict every later stage reads, corrected by routing.
+
+    The shape is unchanged from Phase 2 on purpose — `type`, `label`, `sic`,
+    `allows`, `note` — because the scorecard, the valuation history, the
+    verdict and the fair value all read it. What changes is the answer: an
+    exchange and an asset manager are STANDARD businesses whatever their
+    industry code says, and a filer whose code says insurer while its own
+    annual report describes a railway and a utility group is neither one
+    thing nor the other.
+    """
+    kind = (routing or {}).get("business_class")
+    if not kind or kind == _route.UNSUPPORTED:
+        return btype if kind != _route.UNSUPPORTED else engine._btype("UNSUPPORTED")
+    # A loss-maker stays a loss-maker: there is no denominator whatever the
+    # balance sheet looks like.
+    if (btype or {}).get("type") == "UNPROFITABLE":
+        return btype
+    model = (routing or {}).get("model") or "STANDARD"
+    out = engine._btype(model if model in engine._TYPE_ALLOWS else "STANDARD",
+                        (routing or {}).get("sic"))
+    out["label"] = (routing or {}).get("label") or out["label"]
+    out["business_class"] = kind
+    if (routing or {}).get("note"):
+        out["note"] = routing["note"]
+    return out
+
+
+# Which table-derived measures belong to which kind of business. Nothing is
+# fetched for a company that has no use for it.
+TABLE_WANTS = {
+    "BROKER": ("client_assets", "assets_under_administration",
+               "advisory_assets", "net_new_assets"),
+    "ASSET_MANAGER": ("assets_under_management", "net_flows"),
+    "REIT": ("published_ffo",),
+    "INSURANCE": ("published_combined_ratio", "published_loss_ratio",
+                  "published_expense_ratio"),
+}
+# An ordinary company has none of these measures, and asking for them would
+# mean fetching a dozen documents per filer to find nothing. A hybrid takes
+# the wants of whichever business its model came from.
+
+
+def table_block(sym: str, business_class: str) -> dict:
+    """Operating measures read out of the company's own filing tables.
+
+    Company Facts does not carry client assets or assets under management,
+    because neither is a line of a financial statement. They are read from
+    the tables of the filings themselves, under the rules in
+    filing_tables.py, and refused whenever the label, the period or the unit
+    is not certain.
+    """
+    if _TABLES_FN is None or not sym:
+        return {"available": False, "readings": {},
+                "reason": "Filing tables are not being read in this "
+                          "environment."}
+    wanted = TABLE_WANTS.get(business_class)
+    if not wanted:
+        return {"available": False, "readings": {},
+                "reason": "No filing-table measure applies to this kind of "
+                          "business."}
+    try:
+        got = _TABLES_FN(sym, wanted) or {}
+    except Exception as exc:                         # pragma: no cover
+        return {"available": False, "readings": {},
+                "reason": f"The filing tables could not be read: {exc}"}
+    readings = {k: v for k, v in (got.get("readings") or {}).items()
+                if v.get("usable")}
+    return {"available": bool(readings), "readings": readings,
+            "history": got.get("history") or {},
+            "filings_read": got.get("filings_read") or 0,
+            "version": got.get("version") or _tables.TABLES_VERSION,
+            "reason": "" if readings else
+            ("None of this company's recent filings prints a table this app "
+             "can read these measures out of. Nothing is guessed from prose.")}
+
+
+def _reading(tables: dict, *names):
+    for n in names:
+        got = ((tables or {}).get("readings") or {}).get(n)
+        if got and got.get("value") is not None:
+            return got
+    return None
+
+
+def _fresh_reading(tables: dict, *names):
+    """A reading that still describes the business today.
+
+    Brokers report client assets every quarter and several report monthly, so
+    a figure two quarters old is history. T. Rowe Price's newest readable
+    assets-under-management row is from December and is left out rather than
+    shown as though it were current.
+    """
+    got = _reading(tables, *names)
+    if got is None:
+        return None
+    per = (got.get("provenance") or {}).get("period")
+    return got if _fresh_enough(per) else None
+
+
+def _yoy(tables: dict, name: str, current: dict):
+    """The same measure four quarters back, when the filings hold it."""
+    hist = ((tables or {}).get("history") or {}).get(name) or []
+    cur_period = (current.get("provenance") or {}).get("period")
+    if not cur_period or len(hist) < 2:
+        return None
+    want = f"{int(cur_period[:4]) - 1}{cur_period[4:]}"
+    for row in hist:
+        if ((row.get("provenance") or {}).get("period") or "") == want:
+            return row
+    return None
+
+
+def client_asset_block(tables: dict, cfg: dict) -> dict:
+    """How much money customers keep here, and whether it is growing.
+
+    Phase 5 refused these outright, because Company Facts does not carry
+    them. They are context for quality and growth, never a score: a broker
+    with more client money is not automatically worth more.
+    """
+    out = {"available": False, "reason": (tables or {}).get("reason") or "",
+           "assets": None, "assets_growth_pct": None,
+           "net_new": None, "net_new_rate_pct": None, "basis": ""}
+    assets = _fresh_reading(tables, "client_assets",
+                            "assets_under_administration",
+                            "assets_under_management", "advisory_assets")
+    flows = _fresh_reading(tables, "net_new_assets", "net_flows")
+    if assets is None and flows is None:
+        return out
+    out["available"] = True
+    out["reason"] = ""
+    if assets is not None:
+        prov = assets.get("provenance") or {}
+        out["assets"] = {
+            "value": assets["value"], "label": assets["label"],
+            "as_of": prov.get("period"), "reason": "",
+            "basis": (f"{assets['label']} as the company printed it, in the "
+                      f"{assets.get('form')} filed "
+                      f"{_pretty(assets.get('filed') or '')}, from a row "
+                      f"labelled \"{prov.get('row_label')}\" in figures "
+                      f"stated in {prov.get('scale_word') or 'units'}."),
+            "provenance": prov,
+        }
+        year_ago = _yoy(tables, assets["metric"], assets)
+        if year_ago and year_ago.get("value"):
+            pct = (assets["value"] / year_ago["value"] - 1.0) * 100.0
+            out["assets_growth_pct"] = {
+                "value": pct, "reason": "",
+                "basis": (f"Against {year_ago['value']:,.0f} a year earlier, "
+                          f"read from the filing for "
+                          f"{(year_ago.get('provenance') or {}).get('period')}.")}
+        else:
+            out["assets_growth_pct"] = {
+                "value": None,
+                "reason": ("There is no reading of the same measure a year "
+                           "earlier to compare against yet. Filings are read "
+                           "forward from today and never back-filled.")}
+    if flows is not None:
+        prov = flows.get("provenance") or {}
+        out["net_new"] = {
+            "value": flows["value"], "label": flows["label"],
+            "as_of": prov.get("period"), "reason": "",
+            "basis": (f"{flows['label']} for the period the filing reports, "
+                      f"from a row labelled \"{prov.get('row_label')}\"."),
+            "provenance": prov,
+        }
+        if assets is not None and assets.get("value"):
+            # Against the START of the period, which is what "new" means.
+            start = assets["value"] - flows["value"]
+            if start > 0:
+                out["net_new_rate_pct"] = {
+                    "value": flows["value"] / start * 100.0, "reason": "",
+                    "basis": ("Net new money as a share of what clients held "
+                              "at the start of the period — the closing "
+                              "balance less the money that came in.")}
+    return out
+
+
+# How old a client-asset reading may be and still describe the business
+# today. Brokers report quarterly, and several report monthly, so anything
+# older than two quarters is history rather than news.
+CLIENT_ASSET_MAX_AGE_DAYS = 200
+
+
+def _apply_client_assets(broker: dict, block: dict) -> None:
+    """Fill the broker panel's customer franchise from the filing tables.
+
+    Phase 5 left these blank with a paragraph explaining that the filings do
+    not carry them, and capped a retail broker's fair-value confidence for
+    exactly that reason. Where the tables now do carry them, the blanks are
+    filled and the cap lifts on its own — the cap reads the same field.
+    """
+    if not broker or not (block or {}).get("available"):
+        return
+    assets = block.get("assets") or {}
+    if assets.get("value") is not None and _fresh_enough(assets.get("as_of")):
+        broker["client_assets"] = {"value": assets["value"], "reason": "",
+                                   "basis": assets.get("basis", ""),
+                                   "as_of": assets.get("as_of"),
+                                   "provenance": assets.get("provenance")}
+        growth = block.get("assets_growth_pct") or {}
+        if growth.get("value") is not None:
+            broker["client_asset_growth_pct"] = {
+                "value": growth["value"], "reason": "",
+                "basis": growth.get("basis", "")}
+    flows = block.get("net_new") or {}
+    if flows.get("value") is not None and _fresh_enough(flows.get("as_of")):
+        broker["net_new_assets"] = {"value": flows["value"], "reason": "",
+                                    "basis": flows.get("basis", ""),
+                                    "as_of": flows.get("as_of"),
+                                    "provenance": flows.get("provenance")}
+
+
+def _fresh_enough(iso: str | None) -> bool:
+    if not iso:
+        return False
+    try:
+        age = (date.today() - date.fromisoformat(iso[:10])).days
+    except ValueError:
+        return False
+    return 0 <= age <= CLIENT_ASSET_MAX_AGE_DAYS
+
+
+# How far apart a published figure and a reconstructed one may be before the
+# difference is a warning rather than rounding.
+RECONSTRUCTION_TOLERANCE_PCT = 5.0
+
+
+def cross_check_block(tables: dict, reit: dict | None,
+                      insurance: dict | None) -> dict:
+    """The company's own published figure beside the one rebuilt from XBRL.
+
+    Where they agree the reconstruction is corroborated. Where they do not,
+    the disagreement is stated and confidence is lowered — the nicer of the
+    two is never quietly chosen.
+    """
+    checks = []
+
+    def add(name, published, reconstructed, unit, note=""):
+        if published is None or reconstructed is None:
+            return
+        diff = published - reconstructed
+        base = abs(published) or 1.0
+        pct = abs(diff) / base * 100.0
+        checks.append({
+            "measure": name, "published": published,
+            "reconstructed": reconstructed, "difference": diff,
+            "difference_pct": pct, "unit": unit,
+            "state": "AGREES" if pct <= RECONSTRUCTION_TOLERANCE_PCT
+                     else "RECONSTRUCTION MISMATCH",
+            "note": note,
+        })
+
+    ffo = _reading(tables, "published_ffo")
+    if ffo is not None and (reit or {}).get("available"):
+        got = (reit.get("ffo") or {})
+        # The published figure is one quarter; the reconstructed one is a
+        # trailing year, so only the per-share measures are comparable and
+        # neither is compared unless both name the same window.
+        window = (ffo.get("provenance") or {}).get("window")
+        if window == "YEAR TO DATE":
+            add("Funds from operations", ffo["value"], got.get("value"),
+                "USD", "Year-to-date published figure against the "
+                       "reconstruction for the same window.")
+
+    for key, metric, label in (
+            ("published_combined_ratio", "combined_ratio_pct",
+             "Combined ratio"),
+            ("published_loss_ratio", "loss_ratio_pct", "Loss ratio"),
+            ("published_expense_ratio", "expense_ratio_pct",
+             "Expense ratio")):
+        pub = _reading(tables, key)
+        if pub is None or not (insurance or {}).get("available"):
+            continue
+        rec = (insurance.get(metric) or {}).get("value")
+        add(label, pub["value"], rec, "percent",
+            f"Published in the {pub.get('form')} filed "
+            f"{_pretty(pub.get('filed') or '')}.")
+
+    mismatched = [c for c in checks if c["state"] == "RECONSTRUCTION MISMATCH"]
+    return {
+        "checks": checks,
+        "state": ("RECONSTRUCTION MISMATCH" if mismatched
+                  else ("AGREES" if checks else "NOT CHECKED")),
+        "reason": ("" if checks else
+                   "No filing of this company prints one of these measures in "
+                   "a table this app will read, so there is nothing to check "
+                   "the reconstruction against."),
+        "mismatches": len(mismatched),
+    }
+
+
+def _with_article(name: str) -> str:
+    return ("an " if name[:1] in "aeiou" else "a ") + name
+
+
+def hybrid_block(snap: dict, routing: dict, vhist: dict, peer_payload: dict,
+                 facts: dict, cfg: dict, blocks: dict) -> dict:
+    """What to do when a company is genuinely two financial businesses.
+
+    Three answers, and no fourth:
+
+      A. One of the businesses has a model that can actually run. That model
+         is used and the others are disclosed.
+      B. Two models both run and their base values agree inside the existing
+         fair-value agreement band. The normal confidence machinery resolves
+         it and both ranges are shown.
+      C. Two models both run and disagree. The answer is that there is no
+         single fair value, which is a WAIT — not an average of two numbers
+         that describe different companies.
+
+    Nothing here weights by segment. Segment revenue and segment income are
+    not in SEC Company Facts, so a sum of the parts would be a guess.
+    """
+    out = {"is_hybrid": True, "case": "", "reason": "", "reliable": True,
+           "primary": routing.get("primary"),
+           "secondary": list(routing.get("secondary") or []),
+           "valuations": [], "disagreement_pct": None,
+           "version": _route.ROUTING_VERSION}
+
+    def value_as(kind: str):
+        model = _route.CLASS_MODEL.get(kind) or "STANDARD"
+        forced = dict(snap)
+        forced["business_type"] = {**(snap.get("business_type") or {}),
+                                   "type": model}
+        got = fair_value_block(forced, vhist, peer_payload, facts, cfg,
+                               bank=blocks.get("bank"),
+                               reit=blocks.get("reit"),
+                               insurance=blocks.get("insurance"),
+                               broker=blocks.get("broker"))
+        return model, got
+
+    tried = []
+    for kind in [routing.get("primary")] + list(routing.get("secondary") or []):
+        if not kind:
+            continue
+        model, got = value_as(kind)
+        base = (got or {}).get("base")
+        tried.append({"business": kind, "label": _route.CLASS_LABEL.get(kind, kind),
+                      "model": model, "base": base,
+                      "available": bool((got or {}).get("available")),
+                      "reason": (got or {}).get("reason") or ""})
+    out["valuations"] = tried
+
+    usable = [t for t in tried if t["available"] and t["base"]]
+    if len(usable) <= 1:
+        out["case"] = "ONE MODEL RUNS"
+        if usable:
+            out["reason"] = (
+                f"Of the {len(tried)} businesses this company is in, only the "
+                f"{usable[0]['label'].lower()} model can be built from its "
+                f"filings, so that is the one used. The others are disclosed "
+                f"rather than valued.")
+        else:
+            out["reliable"] = False
+            out["reason"] = ("None of the models for the businesses this "
+                             "company is in can be built from its filings.")
+        return out
+
+    bases = [t["base"] for t in usable]
+    spread = (max(bases) - min(bases)) / min(bases) * 100.0 if min(bases) > 0 else None
+    out["disagreement_pct"] = spread
+    # The same band the fair-value engine already calls agreement, so a
+    # hybrid is not held to a stricter standard than a single business.
+    band = float(fv.cfg_get(cfg, "spread_high_max")) * 100.0
+    if spread is not None and spread <= band:
+        out["case"] = "MODELS AGREE"
+        out["reason"] = (
+            f"Both businesses can be valued and their base values are "
+            f"{spread:,.0f}% apart, inside the {band:,.0f}% band this app "
+            f"calls agreement, so the usual confidence machinery resolves it.")
+        return out
+    out["case"] = "MODELS DISAGREE"
+    out["reliable"] = False
+    names = " and ".join(_with_article(t["label"].lower()) for t in usable)
+    out["reason"] = (
+        f"This company is {names} at once, and the two models disagree by "
+        f"{spread:,.0f}% about what it is worth — "
+        + "; ".join(f"{t['label'].lower()} ${t['base']:,.2f}" for t in usable)
+        + ". There is no single fair value to act on, so none is shown.")
+    return out
+
+
 def _peer_shares(row: dict, facts: dict):
     """A peer's share count, from the peer row or from its own filings.
 
@@ -2233,6 +2684,13 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     meta = _fund.sic_metadata(sym) or {}
     btype = engine.business_type(meta.get("sic"), out.get("eps_ttm"),
                                  ok=bool(snap.get("ok")))
+    # Phase 6: the industry code starts the answer and the filings finish it.
+    # An exchange, an asset manager and a broker all share code 6211, and
+    # only the balance sheet and the revenue mix can tell them apart.
+    routing = routing_block(sym, facts, meta.get("sic"), out.get("eps_ttm"),
+                            bool(snap.get("ok")), cfg)
+    out["routing"] = routing
+    btype = _routed_business_type(btype, routing)
     out["business_type"] = btype
     out["sic"] = meta.get("sic")
     out["sic_description"] = meta.get("sic_description") or ""
@@ -2245,6 +2703,17 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
                         if btype.get("type") == "INSURANCE" else None)
     out["broker"] = (broker_block(out, facts, cfg)
                      if btype.get("type") == "BROKER" else None)
+
+    # What the company prints in its own filing tables and XBRL never
+    # carries: client assets, assets under management, a published combined
+    # ratio, a published funds-from-operations figure.
+    tables = table_block(sym, routing.get("business_class")
+                         if routing.get("business_class") != _route.HYBRID
+                         else (routing.get("primary") or ""))
+    out["filing_tables"] = tables
+    out["client_assets"] = client_asset_block(tables, cfg)
+    if out.get("broker") is not None:
+        _apply_client_assets(out["broker"], out["client_assets"])
 
     # The benchmark this ticker will be scored against, recorded on the day
     # the recommendation is made. Choosing it later — after seeing which
@@ -2302,11 +2771,42 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     # reads both plus the Phase 2 state above it.
     probs = fv.scenario_probabilities(cfg)
     out["scenario_probabilities"] = probs
+    out["cross_check"] = cross_check_block(tables, out.get("reit"),
+                                           out.get("insurance"))
     out["fair_value"] = fair_value_block(out, vhist, peer_payload, facts, cfg,
                                          bank=out.get("bank"),
                                          reit=out.get("reit"),
                                          insurance=out.get("insurance"),
                                          broker=out.get("broker"))
+    # A company that is two financial businesses at once gets no single fair
+    # value unless the models agree about one.
+    out["hybrid"] = None
+    if routing.get("business_class") == _route.HYBRID:
+        out["hybrid"] = hybrid_block(
+            out, routing, vhist, peer_payload, facts, cfg,
+            {"bank": out.get("bank"), "reit": out.get("reit"),
+             "insurance": out.get("insurance"), "broker": out.get("broker")})
+        if not out["hybrid"].get("reliable"):
+            out["fair_value"] = {
+                **out["fair_value"], "available": False,
+                "verdict": "HYBRID — VALUATION UNRELIABLE",
+                "confidence": {"level": "UNRELIABLE", "spread": None,
+                               "reason": out["hybrid"]["reason"]},
+                "reason": out["hybrid"]["reason"]}
+    # A reconstruction the company's own published figure contradicts is not
+    # trusted at full confidence, whatever the methods agree on.
+    if (out.get("cross_check") or {}).get("state") == "RECONSTRUCTION MISMATCH":
+        worst = max((c["difference_pct"] for c in out["cross_check"]["checks"]),
+                    default=0.0)
+        note = (f"The figure rebuilt from this company's XBRL differs from the "
+                f"one it publishes in its own filing tables by {worst:,.0f}%. "
+                f"Until that is explained the valuation built on the rebuilt "
+                f"figure is not treated as reliable.")
+        out["fair_value"] = fv.cap_confidence(out["fair_value"], "LOW", note) \
+            if hasattr(fv, "cap_confidence") else {
+                **out["fair_value"],
+                "confidence": {**(out["fair_value"].get("confidence") or {}),
+                               "level": "LOW", "reason": note}}
     out["expected_return"] = expected_return_block(out, vhist, facts,
                                                    peer_payload, cfg, probs,
                                                    reit=out.get("reit"))
@@ -2595,6 +3095,16 @@ def _scan_row(sym: str, snap: dict) -> dict:
     elif snap.get("trailing_pe"):
         row["headline_multiple"] = snap.get("trailing_pe")
         row["headline_multiple_label"] = "Price to earnings, trailing"
+    routing = snap.get("routing") or {}
+    row["business_class"] = routing.get("business_class")
+    row["business_class_label"] = routing.get("label")
+    hyb = snap.get("hybrid") or {}
+    if hyb:
+        row["hybrid_case"] = hyb.get("case")
+        row["hybrid_reliable"] = hyb.get("reliable")
+    cross = snap.get("cross_check") or {}
+    if (cross.get("checks") or []):
+        row["reconstruction_state"] = cross.get("state")
     return row
 
 
