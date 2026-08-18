@@ -157,6 +157,16 @@ check("ambiguous catalysts read amber, not green or red", (() => {
 // trading them as if they still described the stock.
 check("a pinned-price warning is rendered, not just tucked in a tooltip",
   /gap-cat-warning/.test(src) && /r\.catalyst_warning/.test(src));
+check("headline-only catalysts are named",
+  ['"SHORT REPORT": "Short-seller report"', '"INDEX ADD": "Index add"',
+   '"INDEX DROP": "Index drop"', '"GUIDANCE CUT": "Guidance cut"']
+    .every((k) => src.includes(k)));
+// The evidence grade is the whole reason these two are allowed in at all:
+// a filing is the company on the record, a headline is a reporter.
+check("a headline-derived tag says so on screen, not only in a tooltip",
+  /gap-cat-grade/.test(src)
+  && /catalyst_evidence === "headline"/.test(src)
+  && /read the story/.test(src));
 // Read the kinds out of the label map instead of listing them here, so a
 // new catalyst cannot ship without a tooltip — the recurring complaint.
 const catalystKinds = (() => {

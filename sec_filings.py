@@ -474,9 +474,10 @@ _FORM_TAGS = (
 )
 # When one filing carries several of these, the most consequential wins.
 _RANK = ["LEADERSHIP CHANGE", "AUDITOR CHANGE", "RESTRUCTURING", "IMPAIRMENT",
-         "DEAL CLOSED", "MERGER VOTE", "DELISTING NOTICE", "RESTATEMENT",
-         "MERGER DEAL", "TRIAL SUCCESS", "TRIAL FAILURE", "FDA APPROVAL",
-         "FDA REJECTION", "BUYOUT", "BANKRUPTCY"]
+         "DEAL CLOSED", "MERGER VOTE", "INDEX ADD", "INDEX DROP",
+         "GUIDANCE RAISED", "GUIDANCE CUT", "DELISTING NOTICE", "SHORT REPORT",
+         "RESTATEMENT", "MERGER DEAL", "TRIAL SUCCESS", "TRIAL FAILURE",
+         "FDA APPROVAL", "FDA REJECTION", "BUYOUT", "BANKRUPTCY"]
 # Above this, reading the document cannot say anything more important.
 _STRONG = {"BANKRUPTCY", "BUYOUT"}
 # A pending deal fixes the price the stock trades to, which is exactly the
@@ -556,6 +557,24 @@ _MERGER_ANY = [
 ]
 # "$77.00 per share" — the number the stock is now pinned to.
 _DEAL_PRICE = re.compile(r"\$\s?(\d{1,4}(?:\.\d{2})?)\s+(?:in cash )?per share", re.I)
+# Companies do respond to short-seller reports on the record — usually a
+# day or two after the gap, which the recap guard handles.
+_SHORT_REPORT = [
+    r"short[- ]seller(?:'s)? report",
+    r"report (?:published|issued) by[^.;]{0,40}short",
+    r"responds? to (?:the )?(?:recent )?short[- ]seller",
+]
+# Guidance moved OUTSIDE a quarterly release is a preannouncement, and
+# those gap hard. (Quarterly 8-Ks are skipped before any of this runs.)
+_GUIDE_UP = [
+    r"(?:rais\w+|increas\w+|rais\w+ its)[^.;]{0,50}\b(?:guidance|outlook|forecast)\b",
+    r"\b(?:guidance|outlook)\b[^.;]{0,40}(?:raised|increased)",
+]
+_GUIDE_DOWN = [
+    r"(?:lower\w+|reduc\w+|cut\w*|withdraw\w+|suspend\w+)[^.;]{0,50}"
+    r"\b(?:guidance|outlook|forecast)\b",
+    r"\b(?:guidance|outlook)\b[^.;]{0,40}(?:lowered|reduced|withdrawn)",
+]
 _MONTHS = ("january|february|march|april|may|june|july|august|september|"
            "october|november|december")
 _DATE_RE = re.compile(rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})", re.I)
@@ -634,6 +653,9 @@ def classify_filing(text: str, items: str = "", filed: str | None = None):
             (_FDA_APPROVE, "FDA APPROVAL", _NOT_MARKETING),
             (_TRIAL_FAIL, "TRIAL FAILURE", ()),
             (_TRIAL_WIN, "TRIAL SUCCESS", ()),
+            (_SHORT_REPORT, "SHORT REPORT", ()),
+            (_GUIDE_DOWN, "GUIDANCE CUT", ()),
+            (_GUIDE_UP, "GUIDANCE RAISED", ()),
             (_ACQUIRER, "DEAL CLOSED", ()),
             (_MERGER_ANY, "MERGER DEAL", ())):
         kind, quote = hit(pats, kind, block)

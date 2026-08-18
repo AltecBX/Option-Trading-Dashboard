@@ -493,6 +493,10 @@ def analyze_symbol(sym: str, q: dict, etf_gaps: dict | None = None,
         # set when the catalyst itself makes this stock's own history stop
         # describing it — a pending takeover pins the price to the deal
         "catalyst_warning": cat.get("warning"),
+        # "headline" for the two catalysts nobody files (short-seller
+        # reports, index changes) — weaker evidence, and labeled as such
+        "catalyst_evidence": cat.get("evidence"),
+        "catalyst_source": cat.get("source"),
         "next_earnings": next_earn, "days_to_earnings": days_to_earn,
         "sector": sctx,
         "p_fav": pf, "p_fav_target_pct": pt,

@@ -151,8 +151,11 @@ decides which statistical population the day belongs to.
 | MERGER DEAL | merger agreement whose side could not be proven | one read |
 | RESTATEMENT | 8-K item 4.02 | free |
 | DELISTING NOTICE | 8-K item 3.01 | free |
+| SHORT REPORT | named short-selling firm in a fresh headline (8-K response where one exists) | news feed |
 | — *below here a share sale explains the morning better* — | | |
 | OFFERING · DILUTION | 424B/S-3/S-1 + cover page, 8-K item 3.02 | one read |
+| GUIDANCE CUT · GUIDANCE RAISED | 8-K text, outside quarterly releases | one read |
+| INDEX ADD · INDEX DROP | fresh headline naming S&P / Russell / Nasdaq-100 | news feed |
 | MERGER VOTE | DEFM14A / PREM14A | free |
 | DEAL CLOSED | 8-K item 2.01 | free |
 | IMPAIRMENT · RESTRUCTURING · AUDITOR CHANGE | 8-K items 2.06 / 2.05 / 4.01 | free |
@@ -223,16 +226,63 @@ recap guard is deliberate — an August filing about a June rejection must
 not tag an August gap); and device 510(k)s or label changes announced only
 by press release never reach EDGAR at all.
 
+## Headline-derived catalysts (`news_catalyst.py`)
+
+Two things move stocks hard and are **never filed with anybody**:
+
+- a **short-seller report** — published on the author's own website. The
+  target sometimes files a response days later, by which time the gap has
+  happened. (Checked: TransMedics' and Onterris' responses both landed
+  inside quarterly 8-Ks, which are skipped as earnings gaps anyway.)
+- an **index add or drop** — announced by S&P or FTSE Russell, not by the
+  company, though the company usually issues a press release.
+
+These come from the news feed the app already runs (Yahoo · Finnhub ·
+Google News · Finviz) and are the **only** tags not backed by a filing, so
+the UI says so: the row shows `· headline · <publisher>`, the tooltip
+spells out that no filing exists for this kind of event, and the link opens
+the story instead of EDGAR.
+
+Three rules keep the weakest evidence in the system honest:
+
+| Rule | Why | Rejected example (real) |
+| --- | --- | --- |
+| Named short-selling firms, or an explicit "short-seller report" | "short" appears in half of all market commentary | *"SoFi Stock Short Interest Builds"* |
+| The headline must name the ticker or the company | per-symbol feeds carry adjacent stories constantly | *"Defiance Launches MUZ: The First 2X Short ETF for Micron"* — in **MU**'s feed |
+| Two days old at most | a stock gaps on the morning the report lands, not through the week of commentary after | Reddit's S&P inclusion, three days stale |
+
+The news check runs **last and only when nothing was filed** — that is what
+the evidence deserves, and it also keeps four network fetches per symbol off
+the common path. Cached 10 minutes.
+
+**History cannot carry these.** The news feed reaches back days, not years,
+so past gap days are tagged from filings only. A dash in the analogs means
+no *filing* was found for that day.
+
+## Guidance changes
+
+Guidance moved **outside** a quarterly report is a preannouncement, and
+those gap hard. Read from the 8-K text like the FDA and deal rules; a raise
+or cut inside a 2.02 release is ignored, because that day is an earnings
+gap and earnings outranks everything anyway. Verified both ways against
+real filings (Trex's mid-July raise tags; AMETEK's quarterly raise does not).
+
 ## Still missing, on purpose
 
-These move stocks and have **no source wired into this app**. They are
-listed so nobody mistakes an UNTAGGED day for a quiet one:
+These move stocks and have **no source wired into this app**. Listed so
+nobody mistakes an UNTAGGED day for a quiet one:
 
-- short-seller reports (no feed; they are published on the author's site)
-- index inclusion / deletion (S&P, Russell rebalances)
-- guidance changes announced at conferences rather than in an 8-K
-- product launches, partnerships and contract wins (item 1.01 is far too
-  broad to tag without reading every one)
+- **product launches** — measured and rejected, not skipped. In a sample of
+  160 real headlines across four tickers, every single headline matching
+  launch language ("launches", "unveils", "introduces", "debuts") was about
+  a *different* company than the feed it appeared in — an ETF issuer
+  launching a Micron-linked product, an energy-hardware vendor in Plug
+  Power's feed. A tag that wrong would attach a confident, false reason to
+  a gap that happened for another one. The detail view's 3-day news list
+  already shows launches for the reader to judge.
+- guidance given verbally at a conference and never filed
+- partnerships and contract wins (8-K item 1.01 is far too broad to tag
+  without reading every one, and most are not why a stock gapped)
 - short interest, borrow rates and float — deferred at spec time (§36) and
   still deferred
 - foreign private issuers, which file 6-K with no item codes at all

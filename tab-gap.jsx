@@ -43,6 +43,9 @@ const GAP_CATALYST_LABEL = {
   "DELISTING NOTICE": "Delisting notice", RESTATEMENT: "Restatement",
   "AUDITOR CHANGE": "Auditor change", RESTRUCTURING: "Restructuring",
   IMPAIRMENT: "Write-down", "LEADERSHIP CHANGE": "Leadership change",
+  "SHORT REPORT": "Short-seller report", "INDEX ADD": "Index add",
+  "INDEX DROP": "Index drop", "GUIDANCE RAISED": "Guidance raised",
+  "GUIDANCE CUT": "Guidance cut",
   UNTAGGED: "None tagged",
 };
 // An upgrade behind a gap up confirms the move; a downgrade behind one is a
@@ -57,6 +60,8 @@ const GAP_CATALYST_TONE = {
   "MERGER DEAL": "warn", "MERGER VOTE": "warn", "DEAL CLOSED": "warn",
   "AUDITOR CHANGE": "warn", RESTRUCTURING: "warn", IMPAIRMENT: "warn",
   "LEADERSHIP CHANGE": "warn",
+  "SHORT REPORT": "down", "GUIDANCE CUT": "down", "INDEX DROP": "down",
+  "GUIDANCE RAISED": "up", "INDEX ADD": "up",
 };
 const gapCatalyst = (k) => GAP_CATALYST_LABEL[k] || k || "None tagged";
 const GAP_CATALYST_TIP = {
@@ -82,7 +87,12 @@ const GAP_CATALYST_TIP = {
   RESTRUCTURING: "The company recorded costs for an exit or disposal plan (8-K item 2.05) — layoffs, closing a site, discontinuing a product line.",
   IMPAIRMENT: "The company wrote down the value of an asset (8-K item 2.06). An accounting recognition that something it owns is worth less than the books said.",
   "LEADERSHIP CHANGE": "An officer or director change was filed (8-K item 5.02). This covers a CEO leaving AND a routine board appointment, so it is the weakest tag here — it only shows when nothing stronger explains the move.",
-  UNTAGGED: "No earnings, FDA decision, deal, offering filing, rating change or macro event was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view.",
+  "SHORT REPORT": "A short seller published a report against this stock — the tag names the firm and quotes the headline. NOTE THE EVIDENCE: this one comes from the NEWS FEED, not from a filing, because short sellers publish on their own websites and file nothing with anybody. Only named research firms (Hindenburg, Muddy Waters, Wolfpack, Kerrisdale and the like) or an explicit 'short-seller report' count — rising short INTEREST is not this. Click through to read the story.",
+  "INDEX ADD": "This stock is being added to an index (S&P, Russell, Nasdaq-100). Index funds have to buy it, which is why it gaps — but the buying is mechanical and concentrated around the rebalance date, so it is a different animal from news. From the news feed rather than a filing: index changes are announced by S&P or FTSE Russell, not by the company.",
+  "INDEX DROP": "This stock is being removed from an index. Index funds have to sell it. From the news feed rather than a filing — the index provider announces these, not the company.",
+  "GUIDANCE RAISED": "The company raised its own forecast OUTSIDE a quarterly report — a preannouncement. Read from its 8-K; guidance inside a quarterly release is not counted here, because that day is an earnings gap and earnings already outranks this.",
+  "GUIDANCE CUT": "The company cut, withdrew or suspended its own forecast OUTSIDE a quarterly report. A preannounced cut is one of the harder gaps down there is, because it usually means the quarter went wrong badly enough that they could not wait. Read from the company's 8-K.",
+  UNTAGGED: "No earnings, FDA decision, deal, offering filing, rating change, macro event or catalyst headline was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view.",
 };
 // Past gap days carry the same tags, but the wording has to be past tense —
 // and honest that history is tagged from the filing TYPE, without opening
@@ -382,11 +392,19 @@ function GapDetail({ apiFetch, sym, onClose, onOpenTicker, liveQ }) {
                 <b className={GAP_CATALYST_TONE[r.catalyst_kind]
                   ? "gap-cat-" + GAP_CATALYST_TONE[r.catalyst_kind] : ""}>
                   {gapCatalyst(r.catalyst_kind)}{r.catalyst_label ? ` · ${r.catalyst_label}` : ""}
+                  {/* evidence grade, said out loud: a filing is the company
+                      on the record, a headline is a reporter. */}
+                  {r.catalyst_evidence === "headline" && (
+                    <span className="gap-cat-grade"
+                      title="This tag came from a news headline, not from a filing. Short-seller reports and index changes are never filed with the SEC by anybody, so a headline is the only record there is — weaker evidence, and shown as such.">
+                      · headline{r.catalyst_source ? ` · ${r.catalyst_source}` : ""}</span>)}
                   {r.catalyst_url && (
                     <a className="gap-cat-link" href={r.catalyst_url} target="_blank"
                       rel="noopener noreferrer"
-                      title="Open the filing on the SEC's EDGAR site — the source this tag was read from.">
-                      read the filing</a>)}</b></div>
+                      title={r.catalyst_evidence === "headline"
+                        ? "Open the story this tag was read from."
+                        : "Open the filing on the SEC's EDGAR site — the source this tag was read from."}>
+                      {r.catalyst_evidence === "headline" ? "read the story" : "read the filing"}</a>)}</b></div>
               {r.catalyst_warning && (
                 <div className="gap-cat-warning"
                   title="The statistics below are still this stock's measured history — but they were measured on a stock that was free to move. Read them with that in mind.">
@@ -688,7 +706,7 @@ function GapTab({ apiFetch, onOpenTicker }) {
                     {th("Price", "rank", "Current premarket price. Refreshes every 15 seconds.", true)}
                     {th("Premarket gap", "gap", "How far the current price is from yesterday's closing price. This is the LIVE gap and it keeps moving until 9:30 — it is not the official opening gap the history is measured from.")}
                     {th("Off high/low", "rank", "For a gap up: how far the price has already pulled back from the highest premarket price so far. For a gap down: how far it has bounced off the low. Note 'so far' — the final premarket high doesn't exist until 9:30.", true)}
-                    {th("Catalyst", "cat", "What is known to be driving the move, from real data only: Earnings, an FDA approval (green) or rejection (red) read out of the company's own 8-K, an Offering or Dilution filing straight from SEC EDGAR (red — the company is selling or registering stock), an analyst Upgrade or Downgrade (green/red — hover a cell for the firm and grade change), another Analyst action such as an initiation or target change, or a Macro event day. 'None tagged' means none of those were found, NOT that nothing happened. Only earnings gaps are separated into their own statistical population; the rest is context. Click to group by catalyst.", true)}
+                    {th("Catalyst", "cat", "What is known to be driving the move, from real data only: Earnings, a Buyout or other deal, an FDA approval (green) or rejection (red) read out of the company's own 8-K, a trial readout, Bankruptcy, a Delisting notice, a Guidance change, an Offering or Dilution filing straight from SEC EDGAR (red — the company is selling or registering stock), a Short-seller report or Index change (these two come from headlines, since nobody files them, and say so), an analyst Upgrade or Downgrade (green/red — hover a cell for the firm and grade change), another Analyst action such as an initiation or target change, or a Macro event day. 'None tagged' means none of those were found, NOT that nothing happened. Only earnings gaps are separated into their own statistical population; the rest is context. Click to group by catalyst.", true)}
                     {th("Fades 2%", "p2", "How often this stock's comparable past gaps moved at least 2% in the profitable direction from the opening price — down for a gap up, up for a gap down. The small number after the dot is how many historical examples that rate is based on. Hover the value for the conservative range.")}
                     {th("Hits target first", "tbs", "How often the 2% profit target printed BEFORE a 3% stop would have been hit, measured minute by minute on real historical paths. A dash means only daily bars exist for those days — daily bars show how far a stock moved but not in what order, so no honest claim is made.")}
                     {th("Squeeze / flush", "adv", "The typical move AGAINST the trade before it resolved: for a gap up that means the squeeze higher, for a gap down the flush lower. A gap that eventually fades but squeezes 4% higher first is not a comfortable short. Each row's arrow shows which way.", true)}
@@ -706,7 +724,10 @@ function GapTab({ apiFetch, onOpenTicker }) {
                         <td className="scan-num gap-hidemobile">{gapPct(r.direction === "up" ? r.from_pm_high_pct : r.from_pm_low_pct)}</td>
                         <td className={`gap-hidemobile ${GAP_CATALYST_TONE[r.catalyst_kind] ? "gap-cat-" + GAP_CATALYST_TONE[r.catalyst_kind] : ""}`}
                           title={(r.catalyst_label || r.catalyst_quote
-                            ? `${gapCatalyst(r.catalyst_kind)} — ${r.catalyst_quote || r.catalyst_label}\n\n` : "")
+                            ? `${gapCatalyst(r.catalyst_kind)} — ${r.catalyst_quote || r.catalyst_label}`
+                              + (r.catalyst_evidence === "headline"
+                                ? `\n(headline${r.catalyst_source ? ", " + r.catalyst_source : ""} — not a filing)` : "")
+                              + "\n\n" : "")
                             + (r.catalyst_warning ? `⚠ ${r.catalyst_warning}\n\n` : "")
                             + (GAP_CATALYST_TIP[r.catalyst_kind] || "")}>
                           {r.catalyst_kind === "UNTAGGED"

@@ -11923,6 +11923,10 @@ a.tabsheet-btn.site { text-decoration: none; }
    write-down, an officer change. Amber says "this happened", not "this is
    good" or "this is bad". */
 .gap-cat-warn { color: var(--warn); }
+/* Evidence grade. A filing is the company on the record; a headline is a
+   reporter, and the difference is worth a word on screen. */
+.gap-cat-grade { margin-left: 6px; font-size: 11px; font-weight: 500;
+  color: var(--muted); }
 /* Straight to the filing on EDGAR, so the tag can be checked at the source. */
 .gap-cat-link { margin-left: 8px; font-size: 11px; font-weight: 500;
   color: var(--accent, #60a5fa); text-decoration: underline; white-space: nowrap; }
