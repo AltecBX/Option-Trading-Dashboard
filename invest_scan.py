@@ -45,7 +45,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import invest_engine as engine
+import fair_value as fv
+import structures as _structs
 
+try:
+    import invest_options as _opts
+except Exception:                                    # pragma: no cover
+    _opts = None
 try:
     import fundamentals as _fund
 except Exception:                                    # pragma: no cover
@@ -66,6 +72,9 @@ _CFG_FN = None              # () -> (investment config dict, thresholds hash)
 _EARNINGS_FN = None         # (symbol) -> {"next": iso, "last": iso} | None
 _EVENTS_FN = None           # (symbol) -> {"kind","label","date"} | None
 _BENCHMARK_FN = None        # (symbol) -> sector/benchmark symbol | None
+_CHAIN_FN = None            # (symbol) -> normalized option chain | None
+_RATE_FN = None             # (years) -> {"pct","as_of","source"} | None
+_EARN_MOVES_FN = None       # (symbol) -> {"avg_abs","n"} | None
 
 _LOCK = threading.RLock()
 _SNAP_TTL = 900.0           # 15 minutes; the filings behind it move quarterly
@@ -79,9 +88,11 @@ STALE_AFTER_HOURS = {"price": 24.0, "estimates": 30 * 24.0,
 
 def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
               daily_fn=None, config_fn=None, data_dir=None,
-              earnings_fn=None, events_fn=None, benchmark_fn=None) -> None:
+              earnings_fn=None, events_fn=None, benchmark_fn=None,
+              chain_fn=None, rate_fn=None, earn_moves_fn=None) -> None:
     global _QUOTE_FN, _ESTIMATES_FN, _TEN_YEAR_FN, _DAILY_FN, _CFG_FN, _DATA_DIR
     global _EARNINGS_FN, _EVENTS_FN, _BENCHMARK_FN
+    global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN
     _QUOTE_FN = quote_fn
     _ESTIMATES_FN = estimates_fn
     _TEN_YEAR_FN = ten_year_fn
@@ -90,6 +101,9 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
     _EARNINGS_FN = earnings_fn
     _EVENTS_FN = events_fn
     _BENCHMARK_FN = benchmark_fn
+    _CHAIN_FN = chain_fn
+    _RATE_FN = rate_fn
+    _EARN_MOVES_FN = earn_moves_fn
     if data_dir:
         _DATA_DIR = Path(data_dir) / "invest"
         for sub in ("snapshots", "latest"):
@@ -102,6 +116,10 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
         _DATA_DIR = None
     if _fund is not None:
         _fund.configure(data_dir=data_dir)
+    if _opts is not None:
+        _opts.configure(chain_fn=chain_fn, bars_fn=daily_fn, rate_fn=rate_fn,
+                        earnings_fn=earnings_fn, earn_moves_fn=earn_moves_fn,
+                        data_dir=data_dir)
 
 
 _CFG_CACHE = {"cfg": None, "hash": None, "ts": 0.0}
@@ -157,7 +175,9 @@ def config(refresh: bool = False) -> tuple[dict, str]:
 # readable and each group carries its own explanation. The code wants one
 # flat dict, so the groups are folded up here rather than every caller
 # having to know which heading a key lives under.
-_CFG_GROUPS = ("verdict", "scorecard", "value_trap", "regime", "cycle")
+_CFG_GROUPS = ("verdict", "scorecard", "value_trap", "regime", "cycle",
+               "fair_value", "expected_return", "implied_expectations",
+               "structures", "contracts")
 
 
 def _flatten_cfg(cfg: dict) -> dict:
@@ -293,6 +313,68 @@ def _daily_row(snap: dict) -> dict | None:
     row["verdict"] = (snap.get("verdict") or {}).get("verdict")
     under = snap.get("underreaction") or {}
     row["underreaction_score"] = under.get("score")
+
+    # Phase 3 state, flattened. Same discipline as Phase 2: a row written
+    # before these keys existed simply lacks them, and a reader must treat a
+    # missing key as "not recorded that day" rather than as a zero. Nothing
+    # already on disk is ever rewritten.
+    fair = snap.get("fair_value") or {}
+    row["fair_value_bear"] = fair.get("bear")
+    row["fair_value_base"] = fair.get("base")
+    row["fair_value_bull"] = fair.get("bull")
+    row["fair_value_confidence"] = fair.get("confidence_level")
+    row["fair_value_spread"] = (fair.get("confidence") or {}).get("spread")
+    row["fair_value_method"] = fair.get("base_method")
+    row["credited_fair_value"] = fair.get("credited")
+    row["buy_zone"] = fair.get("buy_zone")
+    row["premium_to_buy_zone_pct"] = fair.get("premium_to_buy_zone_pct")
+
+    er = snap.get("expected_return") or {}
+    for s in ("bear", "base", "bull"):
+        cell = (er.get("scenarios") or {}).get(s) or {}
+        row[f"expected_price_{s}"] = cell.get("price_end")
+        row[f"expected_cagr_{s}_pct"] = cell.get("total_cagr_pct")
+    row["expected_cagr_weighted_pct"] = er.get("weighted_total_cagr_pct")
+    row["expected_horizon_years"] = er.get("years")
+
+    imp = snap.get("implied_expectations") or {}
+    row["implied_fcf_growth_pct"] = (imp.get("implied") or {}).get("growth_pct")
+    row["implied_growth_min_pct"] = (imp.get("grid") or {}).get("min_pct")
+    row["implied_growth_max_pct"] = (imp.get("grid") or {}).get("max_pct")
+    row["expectations_gap_pp"] = (imp.get("gap") or {}).get("gap_pp")
+
+    row["scenario_probabilities"] = snap.get("scenario_probabilities")
+    row["dividends_per_share_ttm"] = (snap.get("dividends") or {}).get("value")
+
+    structs = snap.get("structures") or {}
+    comp = structs.get("comparison") or {}
+    row["preferred_structure"] = comp.get("preferred")
+    row["comparison_expiration"] = comp.get("expiration")
+    row["comparison_toss_up"] = comp.get("toss_up")
+    row["structure_returns_pct"] = {
+        r.get("kind"): r.get("weighted_annualized_pct")
+        for r in (comp.get("rows") or []) if r.get("eligible")}
+    put = structs.get("put") or {}
+    best_put = put.get("best") or {}
+    row["csp_strike"] = (best_put.get("contract") or {}).get("strike")
+    row["csp_expiration"] = best_put.get("expiration")
+    row["csp_credit"] = (best_put.get("contract") or {}).get("credit")
+    row["csp_clears_hurdle"] = put.get("clears_hurdle")
+    leaps = next((r for r in (comp.get("rows") or [])
+                  if r.get("kind") == _structs.LEAPS), None) or {}
+    row["leaps_strike"] = (leaps.get("contract") or {}).get("strike")
+    row["leaps_expiration"] = leaps.get("expiration")
+    row["leaps_debit"] = (leaps.get("contract") or {}).get("debit")
+    bw = next((r for r in (comp.get("rows") or [])
+               if r.get("kind") == _structs.BUY_WRITE), None) or {}
+    row["buy_write_call_strike"] = (bw.get("contract") or {}).get("call_strike")
+    row["buy_write_credit"] = (bw.get("contract") or {}).get("call_credit")
+
+    entry = snap.get("entry") or {}
+    row["entry_verdict"] = entry.get("verdict")
+    row["entry_reason"] = (entry.get("reasons") or [None])[0]
+    row["entry_flip_trigger"] = (entry.get("what_would_change") or [None])[0]
+
     row["config_hash"] = snap.get("config_hash")
     return row
 
@@ -723,7 +805,7 @@ MEASURE_CHEAP_HIGH = {"earnings_yield_pct": True, "fcf_yield_pct": True,
                       "trailing_pe": False}
 
 
-def valuation_history(symbol: str, years: int = 5) -> dict:
+def valuation_history(symbol: str, years: int = 5, raw: bool = False) -> dict:
     """What this company has actually been valued at, day by day, using only
     figures that were public on each of those days.
 
@@ -835,6 +917,20 @@ def valuation_history(symbol: str, years: int = 5) -> dict:
         dists[measure] = block
 
     out["available"] = any(v.get("available") for v in dists.values())
+    if raw:
+        # The full per-day arrays, for the Phase 3 fair value engine. Kept
+        # OUT of the response by default: three measures × two windows is
+        # about seven thousand floats, and the browser needs the percentiles
+        # rather than the observations they were taken from.
+        out["raw_values"] = {}
+        for measure, pts in series.items():
+            block = {"all": [p["value"] for p in pts]}
+            if pts:
+                for win in (3, 5):
+                    cut = (date.fromisoformat(pts[-1]["date"])
+                           - timedelta(days=int(win * 365.25))).isoformat()
+                    block[f"{win}y"] = [p["value"] for p in pts if p["date"] >= cut]
+            out["raw_values"][measure] = block
     out["series"] = {m: pts[::max(1, len(pts) // 400)] for m, pts in series.items()}
     out["distributions"] = dists
     out["regime"] = engine.regime_shift(series["earnings_yield_pct"])
@@ -1193,6 +1289,288 @@ def _cyclical_peak(snap: dict, margin_pts: list, cfg: dict):
                        f"earnings this good are the ones that do not last.")}
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 3 — what it is worth, what today's price implies, and how to own it
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _window_values(vhist: dict, measure: str, window: str = "5y") -> list:
+    """The full per-day array for one measure, five years falling back to
+    three. Percentiles need the observations, not a summary of them."""
+    raw = ((vhist or {}).get("raw_values") or {}).get(measure) or {}
+    for win in (window, "5y", "3y", "all"):
+        vals = raw.get(win)
+        if vals and len(vals) >= 60:
+            return vals
+    return []
+
+
+MIN_GROWTH_WINDOWS = 6
+
+
+def eps_growth_history(facts: dict, horizon_years: float = 3.0,
+                       tolerance_days: int = 45) -> dict:
+    """Every compound growth rate this company has actually posted over a
+    window the same length as the one being projected.
+
+    Two things here were learned the hard way.
+
+    MEASURE OVER THE HORIZON BEING PROJECTED. Percentiles of ONE-year growth
+    are not percentiles of three-year growth: Apple's 75th-percentile single
+    year is +39%, its 75th-percentile three-year run is +13.5%, and
+    compounding the first of those over three years produces a bull case of
+    seven hundred dollars a share. Measuring compound growth over the same
+    length of window as the projection removes that error at the source
+    instead of clamping it afterwards.
+
+    ONLY WHERE THE SHARE BASIS IS ONE BASIS. Per-share figures from before an
+    unrestated stock split are on a different share, and dividing one by the
+    other measures the split. The window starts after the last such break.
+
+    Falls back to one-year rates, labelled, when the clean window is too short
+    to hold enough compound windows.
+    """
+    out = {"values": [], "horizon_matched": False, "horizon_years": horizon_years,
+           "n": 0, "basis": {}, "reason": ""}
+    if _fund is None:
+        out["reason"] = "The fundamentals reader is not available."
+        return out
+    basis = _fund.consistent_basis_from(facts)
+    out["basis"] = basis
+    rows = _fund.ttm_series(facts, "eps")
+    ends = []
+    for r in rows or []:
+        try:
+            when = date.fromisoformat(r["period_end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if basis.get("from") and r["period_end"] < basis["from"]:
+            continue
+        ends.append((when, r["value"]))
+    if len(ends) < 2:
+        out["reason"] = (f"Only {len(ends)} trailing earnings points sit "
+                         f"inside the window where this company's per-share "
+                         f"figures share one share basis. "
+                         + (basis.get("reason") or ""))
+        return out
+
+    def windows(span_years: float) -> list:
+        got = []
+        for when, value in ends:
+            target = when - timedelta(days=int(365.25 * span_years))
+            best, best_gap = None, None
+            for other, prior in ends:
+                gap = abs((other - target).days)
+                if gap <= tolerance_days and (best_gap is None or gap < best_gap):
+                    best, best_gap = prior, gap
+            if best is None or best <= 0 or value is None or value <= 0:
+                continue
+            got.append(((value / best) ** (1.0 / span_years) - 1.0) * 100.0)
+        return got
+
+    compound = windows(float(horizon_years))
+    if len(compound) >= MIN_GROWTH_WINDOWS:
+        out.update({"values": compound, "n": len(compound),
+                    "horizon_matched": True,
+                    "note": (f"{len(compound)} overlapping {horizon_years:.0f}-year "
+                             f"compound growth rates from this company's own "
+                             f"reported history.")})
+        return out
+    single = windows(1.0)
+    out.update({"values": single, "n": len(single), "horizon_matched": False,
+                "note": (f"Only {len(compound)} overlapping "
+                         f"{horizon_years:.0f}-year windows fit inside the "
+                         f"comparable history, so these are {len(single)} "
+                         f"ONE-year growth rates instead. A one-year rate "
+                         f"compounded over {horizon_years:.0f} years spreads "
+                         f"wider than the company's actual multi-year record, "
+                         f"which is why the clamp matters more here.")})
+    if len(single) < 4:
+        out["reason"] = (f"Only {len(single)} usable growth readings inside "
+                         f"the comparable window. "
+                         + (basis.get("reason") or ""))
+    return out
+
+
+def fcf_history(facts: dict) -> list:
+    return [r["value"] for r in _fcf_ttm_series(facts)] if _fund else []
+
+
+def _dividends(facts: dict) -> dict:
+    """Trailing dividends per share, or the reason there are none."""
+    if _fund is None:
+        return {"value": None, "reason": "The fundamentals reader is not "
+                                         "available."}
+    m = _fund.metric(facts, "dividends_per_share")
+    return {"value": m.get("value"), "basis": m.get("basis"),
+            "concept": m.get("concept"), "period_end": m.get("period_end"),
+            "filed": m.get("filed"),
+            "reason": m.get("reason") or ""}
+
+
+def fair_value_block(snap: dict, vhist: dict, peer_payload: dict, facts: dict,
+                     cfg: dict) -> dict:
+    """Bear / Base / Bull with the three methods laid out beside each other."""
+    eps = snap.get("eps_ttm")
+    ey = _window_values(vhist, "earnings_yield_pct")
+    fy = _window_values(vhist, "fcf_yield_pct")
+    regime_shifted = bool((vhist.get("regime") or {}).get("shifted"))
+    window = snap.get("valuation_window") or "5-year"
+
+    peer_rows = (peer_payload or {}).get("rows") or []
+    peer_mults = [r.get("trailing_pe") for r in peer_rows
+                  if r.get("trailing_pe") and r.get("symbol") != snap.get("symbol")]
+    agg = ((peer_payload or {}).get("valuation") or {}).get("aggregate_pe")
+
+    norm = fv.normalize_fcf(fcf_history(facts),
+                            periods=int(cfg.get("fcf_normalize_periods",
+                                                fv.DEFAULTS["fcf_normalize_periods"])))
+    methods = [
+        fv.method_self_history(eps, ey, cfg, regime_shifted=regime_shifted,
+                               window_label=window),
+        fv.method_peers_trailing(eps, peer_mults, aggregate_pe=agg,
+                                 level=(peer_payload or {}).get("level"),
+                                 cfg=cfg),
+        fv.method_peers_forward(snap.get("eps_forward"), [],
+                                level=(peer_payload or {}).get("level"),
+                                cfg=cfg),
+        fv.method_fcf(norm.get("value"), snap.get("shares_outstanding"), fy,
+                      cfg=cfg),
+    ]
+    out = fv.fair_value(methods, price=snap.get("price"), cfg=cfg,
+                        business_type=snap.get("business_type"))
+    out["normalized_fcf"] = norm
+    return out
+
+
+def expected_return_block(snap: dict, vhist: dict, facts: dict,
+                          peer_payload: dict, cfg: dict,
+                          probabilities=None) -> dict:
+    """The three-year scenario bridge from today's price to terminal wealth."""
+    horizon = float(cfg.get("horizon_years", fv.DEFAULTS["horizon_years"]))
+    hist = eps_growth_history(facts, horizon_years=horizon)
+    growth = fv.growth_scenarios(hist.get("values"), cfg)
+    growth["horizon_matched"] = hist.get("horizon_matched")
+    growth["history_note"] = hist.get("note") or ""
+    growth["basis"] = hist.get("basis") or {}
+    if not growth.get("available") and hist.get("reason"):
+        growth["reason"] = hist["reason"]
+    agg = ((peer_payload or {}).get("valuation") or {}).get("aggregate_pe")
+    multiples = fv.multiple_scenarios(_window_values(vhist, "trailing_pe"),
+                                      cfg, fallback=agg)
+    years = horizon
+    rate = _rate(years)
+    div = _dividends(facts)
+    out = fv.expected_return(
+        snap.get("price"), snap.get("eps_ttm"), growth, multiples, years=years,
+        dps_ttm=div.get("value"), rate_pct=rate.get("pct"), cfg=cfg,
+        probabilities=probabilities,
+        reversion_years=float(cfg.get("multiple_reversion_years",
+                                      fv.DEFAULTS["multiple_reversion_years"])))
+    out["dividends_detail"] = div
+    out["rate"] = rate
+    out["forward_growth_context"] = {
+        "value": snap.get("forward_eps_growth_pct"),
+        "basis": "Analyst consensus, adjusted (non-GAAP) earnings",
+        "note": ("Shown beside the scenario growth rates as a cross-check and "
+                 "deliberately NOT mixed into them: the scenarios compound a "
+                 "GAAP trailing earnings figure, and switching bases halfway "
+                 "through would put most of the answer in the switch."),
+        "reason": snap.get("estimates_reason") or "",
+    }
+    return out
+
+
+def implied_expectations_block(snap: dict, facts: dict, cfg: dict) -> dict:
+    """What growth today's enterprise value is already paying for."""
+    # Stated up front so EVERY return path carries it. "No consensus" is a
+    # fact about the world, not a consequence of this particular filer's
+    # balance sheet being unreadable, and it should read the same either way.
+    out = {"available": False, "reason": "",
+           "consensus_growth": {
+               "available": False,
+               "reason": ("No free source publishes a five-year "
+                          "free-cash-flow consensus. This dashboard will not "
+                          "print one it does not have.")}}
+    norm = fv.normalize_fcf(fcf_history(facts),
+                            periods=int(cfg.get("fcf_normalize_periods",
+                                                fv.DEFAULTS["fcf_normalize_periods"])))
+    out["normalized_fcf"] = norm
+    nd = _fund.net_debt(facts) if _fund is not None else {"value": None}
+    mcap = engine._num(snap.get("market_cap"))
+    out["net_debt"] = nd
+    if mcap is None:
+        out["reason"] = "The market value of the company is not available."
+        return out
+    if nd.get("value") is None:
+        out["reason"] = ("Net debt could not be built from this filer's "
+                         "balance sheet, and enterprise value without it "
+                         "would understate what a levered company costs to "
+                         "buy outright. " + (nd.get("reason") or ""))
+        return out
+    ev = mcap + nd["value"]
+    out["enterprise_value"] = ev
+    if not norm.get("available"):
+        out["reason"] = norm.get("reason")
+        return out
+
+    disc = fv.discount_rate(snap.get("treasury_10y_pct"), cfg=cfg)
+    out["discount_rate"] = disc
+    if not disc.get("available"):
+        out["reason"] = disc.get("reason")
+        return out
+    years = int(cfg.get("reverse_dcf_years", fv.DEFAULTS["reverse_dcf_years"]))
+    gt = float(cfg.get("terminal_growth_pct", fv.DEFAULTS["terminal_growth_pct"]))
+    solved = fv.implied_growth(ev, norm["value"], years, disc["pct"], gt)
+    grid = fv.implied_growth_grid(
+        ev, norm["value"], years, disc["pct"],
+        terminal_growths_pct=cfg.get("sensitivity_terminal_growths_pct"),
+        rate_step_pct=float(cfg.get("sensitivity_rate_step_pct",
+                                    fv.DEFAULTS["sensitivity_rate_step_pct"])))
+
+    hist = fcf_history(facts)
+    hist_cagr = None
+    if len(hist) >= 5:
+        span_years = max(1.0, (len(hist) - 1) / 4.0)
+        hist_cagr = fv.cagr(hist[0], hist[-1], span_years)
+    out.update({
+        "available": bool(solved.get("available")),
+        "implied": solved, "grid": grid,
+        "terminal_growth_pct": gt, "years": years,
+        "historical_fcf_growth_pct": hist_cagr,
+        "historical_note": ("Compound annual growth of trailing free cash "
+                            "flow across the reported history."
+                            if hist_cagr is not None else
+                            "Not enough free-cash-flow history to compute a "
+                            "realized growth rate."),
+        "consensus_growth": {
+            "available": False,
+            "reason": ("No free source publishes a five-year free-cash-flow "
+                       "consensus. This dashboard will not print one it does "
+                       "not have.")},
+        "gap": fv.expectations_gap(solved.get("growth_pct"), hist_cagr),
+        "reason": "" if solved.get("available") else solved.get("reason", ""),
+        "note": ("This is an expectations audit, not a valuation. It solves "
+                 "for ONE unknown — the growth the price is paying for — and "
+                 "leaves the discount rate and the terminal growth rate as "
+                 "stated assumptions varied across the grid."),
+    })
+    return out
+
+
+def _rate(years) -> dict:
+    if _RATE_FN is None:
+        return {"pct": None, "reason": "No Treasury provider is wired."}
+    try:
+        r = _RATE_FN(years) or {}
+    except Exception:                                # noqa: BLE001
+        return {"pct": None, "reason": "The Treasury curve was unreachable."}
+    return {"pct": r.get("pct"), "as_of": r.get("as_of"),
+            "source": r.get("source"), "tenor": r.get("tenor"),
+            "reason": "" if r.get("pct") is not None else
+                      "No yield was returned for this horizon."}
+
+
 # ── the payload the tab reads ───────────────────────────────────────────────
 
 def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
@@ -1226,6 +1604,24 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
         out["valuation_history"] = {"available": False,
                                     "reason": snap.get("unavailable_reason") or ""}
         out["verdict"] = engine.verdict(out, cfg)
+        why = snap.get("unavailable_reason") or "No reported fundamentals."
+        out["fair_value"] = {"available": False, "reason": why,
+                             "confidence": {"level": "UNRELIABLE",
+                                            "reason": why},
+                             "confidence_level": "UNRELIABLE", "methods": []}
+        out["expected_return"] = {"available": False, "reason": why}
+        out["implied_expectations"] = {"available": False, "reason": why}
+        out["dividends"] = {"value": None, "reason": why}
+        out["structures"] = {"available": False, "reason": why,
+                             "comparison": {"available": False},
+                             "put": {"available": False}}
+        out["scenario_probabilities"] = fv.scenario_probabilities(cfg)
+        out["entry"] = {"verdict": "INSUFFICIENT DATA", "reasons": [why],
+                        "what_would_change": [
+                            "Reported fundamentals have to be readable before "
+                            "anything can be valued or any structure priced."]}
+        out["plan"] = {"available": False,
+                       "reason": "No position is recommended."}
         return out
 
     facts = _fund.company_facts(sym)
@@ -1244,7 +1640,7 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     out["peers"] = peer_payload
 
     # 2. Valuation against its own history.
-    vhist = valuation_history(sym, years=5)
+    vhist = valuation_history(sym, years=5, raw=True)
     out["valuation_history"] = vhist
     self_pct, window = _cheap_percentile(vhist)
     out["valuation_window"] = window
@@ -1291,6 +1687,44 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     out["target_yield_pct"] = _target_yield(vhist, cfg)
 
     out["verdict"] = engine.verdict(out, cfg)
+
+    # ── Phase 3 ──
+    # Order matters again: the fair value sets the buy zone, the buy zone
+    # gates which put strikes may even be considered, and the entry verdict
+    # reads both plus the Phase 2 state above it.
+    probs = fv.scenario_probabilities(cfg)
+    out["scenario_probabilities"] = probs
+    out["fair_value"] = fair_value_block(out, vhist, peer_payload, facts, cfg)
+    out["expected_return"] = expected_return_block(out, vhist, facts,
+                                                   peer_payload, cfg, probs)
+    out["implied_expectations"] = implied_expectations_block(out, facts, cfg)
+    out["dividends"] = _dividends(facts)
+
+    path = {
+        "price": out.get("price"), "eps_ttm": out.get("eps_ttm"),
+        "growth": (out["expected_return"] or {}).get("growth"),
+        "multiples": (out["expected_return"] or {}).get("multiples"),
+        "dps_ttm": (out["dividends"] or {}).get("value"),
+        "probabilities": probs,
+    }
+    out["scenario_path"] = path
+    if _opts is not None:
+        out["structures"] = _opts.build(sym, out, out["fair_value"], path, cfg,
+                                        probabilities=probs, record=force)
+        out["entry"] = (out["structures"] or {}).get("entry")
+        out["plan"] = (out["structures"] or {}).get("plan")
+    else:                                            # pragma: no cover
+        out["structures"] = {"available": False,
+                             "reason": "The options layer is not available."}
+        out["entry"] = {"verdict": "INSUFFICIENT DATA",
+                        "reasons": ["The options layer is not available."],
+                        "what_would_change": []}
+        out["plan"] = {"available": False, "reason": ""}
+
+    # The raw per-day arrays were only needed by the fair value engine. They
+    # are several thousand floats and the browser has the percentiles.
+    vhist.pop("raw_values", None)
+
     out["config_hash"] = cfg_hash
     store(out)              # the enriched row replaces the base one for today
     return out
@@ -1426,6 +1860,120 @@ def _return_90d(symbol: str):
     if not then:
         return None
     return (closes[-1] / then - 1.0) * 100.0
+
+
+# ── the watchlist scanner ───────────────────────────────────────────────────
+#
+# There is deliberately NO summed investment score here. A column that added
+# Quality to Growth to Valuation would let one strong reading carry a weak one
+# and would be sortable, which is worse: it would become the column everybody
+# sorts by. The independent readings stay independent and the table is sorted
+# on whichever one the question is about.
+
+_SCAN_FIELDS = ("price", "quality_label", "growth_label", "valuation_label",
+                "revisions_label", "value_trap_level", "fair_value_base",
+                "buy_zone", "premium_to_buy_zone_pct", "preferred_structure",
+                "entry_verdict", "verdict", "fair_value_confidence",
+                "business_type", "expected_cagr_weighted_pct")
+
+_SCAN_BUILDING: set = set()
+
+
+def _scan_row(sym: str, snap: dict) -> dict:
+    fair = snap.get("fair_value") or {}
+    comp = (snap.get("structures") or {}).get("comparison") or {}
+    row = {"symbol": sym, "as_of": snap.get("as_of"),
+           "name": snap.get("entity_name") or "",
+           "price": snap.get("price"),
+           "quality_label": (snap.get("quality") or {}).get("label"),
+           "quality_score": (snap.get("quality") or {}).get("score"),
+           "growth_label": (snap.get("growth") or {}).get("label"),
+           "growth_score": (snap.get("growth") or {}).get("score"),
+           "valuation_label": (snap.get("valuation") or {}).get("label"),
+           "valuation_score": (snap.get("valuation") or {}).get("score"),
+           "revisions_label": (snap.get("revisions") or {}).get("label"),
+           "revisions_score": (snap.get("revisions") or {}).get("score"),
+           "value_trap_level": (snap.get("value_trap") or {}).get("level"),
+           "business_type": (snap.get("business_type") or {}).get("type"),
+           "fair_value_base": fair.get("base"),
+           "fair_value_confidence": fair.get("confidence_level"),
+           "buy_zone": fair.get("buy_zone"),
+           "premium_to_buy_zone_pct": fair.get("premium_to_buy_zone_pct"),
+           "preferred_structure": comp.get("preferred"),
+           "entry_verdict": (snap.get("entry") or {}).get("verdict"),
+           "entry_reason": ((snap.get("entry") or {}).get("reasons") or [""])[0],
+           "verdict": (snap.get("verdict") or {}).get("verdict"),
+           "expected_cagr_weighted_pct":
+               (snap.get("expected_return") or {}).get("weighted_total_cagr_pct"),
+           "status": "recorded"}
+    return row
+
+
+def _scan_worker(symbols: list) -> None:              # pragma: no cover
+    for sym in symbols:
+        try:
+            payload(sym, force=False)
+        except Exception:                            # noqa: BLE001
+            pass
+        finally:
+            with _LOCK:
+                _SCAN_BUILDING.discard(sym)
+
+
+def scan(symbols=None, build_budget: int = 4) -> dict:
+    """The Investment scanner over a list of tickers.
+
+    Reads the stored snapshots rather than rebuilding every ticker on every
+    request: a full build reads SEC filings, a peer group and an option chain,
+    and doing that for a watchlist inside one HTTP request would be a
+    multi-minute page. Tickers with nothing stored are reported as such and a
+    small number are built in the background per call, so the table fills in
+    rather than either lying or hanging.
+    """
+    syms = [(_safe(s) or "") for s in (symbols or [])]
+    syms = [s for s in syms if s]
+    if not syms and _STARRED_FN is not None:
+        try:
+            syms = [_safe(s) for s in (_STARRED_FN() or [])]
+        except Exception:                            # noqa: BLE001
+            syms = []
+    rows, missing = [], []
+    for sym in syms:
+        snap = load_latest(sym)
+        if not snap:
+            missing.append(sym)
+            rows.append({"symbol": sym, "status": "not recorded yet",
+                         "reason": ("This ticker has never been opened on the "
+                                    "Investment tab and no snapshot exists "
+                                    "for it yet.")})
+            continue
+        if not snap.get("ok"):
+            rows.append({"symbol": sym, "status": "unavailable",
+                         "name": snap.get("entity_name") or "",
+                         "reason": snap.get("unavailable_reason") or ""})
+            continue
+        rows.append(_scan_row(sym, snap))
+
+    queued = []
+    if missing:
+        with _LOCK:
+            for sym in missing:
+                if len(queued) >= max(0, int(build_budget)):
+                    break
+                if sym not in _SCAN_BUILDING:
+                    _SCAN_BUILDING.add(sym)
+                    queued.append(sym)
+        if queued:
+            threading.Thread(target=_scan_worker, args=(queued,),
+                             name="invest-scan", daemon=True).start()
+
+    return {"rows": rows, "as_of": _now_iso(), "n": len(rows),
+            "n_recorded": sum(1 for r in rows if r.get("status") == "recorded"),
+            "n_missing": len(missing), "building": queued,
+            "note": ("No column here is a total. There is deliberately no "
+                     "summed investment score: the four readings answer "
+                     "different questions and adding them would let a strong "
+                     "one carry a weak one.")}
 
 
 def record_daily(symbols) -> dict:

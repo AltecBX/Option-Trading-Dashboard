@@ -421,5 +421,121 @@ check("specialized business types say so instead of showing a number",
   /N\/A for this business type/.test(inv)
   && /SPECIALIZED MODEL REQUIRED/.test(inv));
 
+// ── Investment tab, Phase 3 ───────────────────────────────────────────────
+// The decision moved to the top of the page, so these guard the claims the
+// new panels make in writing. Every one of them is a sentence a reader will
+// act on, which is exactly why it has to survive a refactor.
+
+check("the entry verdict covers every named answer",
+  ["BUY SHARES", "SELL PORTFOLIO SECURED PUT", "BUY LEAPS", "BUY-WRITE",
+   "BULL CALL SPREAD", "TOSS UP", "WAIT:", "AVOID:"]
+    .every((v) => inv.includes(v)));
+
+check("every entry verdict is toned and explained",
+  /INV_ENTRY_TONE/.test(inv) && /INV_ENTRY_TIP/.test(inv)
+  && (inv.match(/INV_ENTRY_TIP\s*=\s*\{[\s\S]*?\n\};/) || [""])[0].length > 800);
+
+check("the six decision numbers are shown before anything else",
+  /Current price/.test(invFlat) && /Bear \/ Base \/ Bull/.test(invFlat)
+  && /Fair value confidence/.test(invFlat) && /Buy zone/.test(invFlat)
+  && /Expected return/.test(invFlat) && /Preferred structure/.test(invFlat));
+
+check("fair value methods are never described as averaged",
+  /NOT averaged/.test(invFlat)
+  && /base value is the single highest-confidence method/.test(invFlat));
+
+check("the confidence bands are stated as a convention, not a result",
+  /a stated convention, not a tested result/.test(invFlat));
+
+check("a single valuation method is never rated HIGH, and says why",
+  /silence is not agreement/.test(invFlat) || /capped at MODERATE/.test(invFlat));
+
+check("the credited fair value formula is shown to the reader",
+  /credit_note/.test(inv) && /Bear \+ /.test(invFlat));
+
+check("lower confidence is described as lowering the price we will pay",
+  /LOWER confidence LOWERS the price/.test(invFlat));
+
+check("buyback yield is refused in writing",
+  /counts the same cash twice/.test(invFlat));
+
+check("dividends are described as cash, not a yield added to the price return",
+  /compounded to the horizon/.test(invFlat)
+  && /NOT added to the price return/.test(invFlat));
+
+check("the expected-return bars claim to reconcile and say why",
+  /they add up exactly/.test(invFlat)
+  && /asserted in the test suite/.test(invFlat));
+
+check("the reverse discounted cash flow is called an expectations tool",
+  /EXPECTATIONS instrument/.test(invFlat) && /not a valuation/.test(invFlat));
+
+check("the solver is named as bracketed rather than Newton-Raphson",
+  /bisection on a bracketed interval/.test(invFlat)
+  && /Newton-Raphson/.test(invFlat));
+
+check("the discount rate is stated as an assumption, not a computed WACC",
+  /NOT a per-company weighted average cost of capital/.test(invFlat));
+
+check("five-year free-cash-flow consensus is never claimed",
+  /will not print one it does not have/.test(invFlat));
+
+check("the comparator states identical capital, horizon and scenario prices",
+  /Identical capital\. Identical horizon\. Identical scenario prices/.test(invFlat));
+
+check("return-on-premium and buying-power ranking are refused in writing",
+  /return-on-premium/.test(invFlat)
+  && /return-on-buying-power-reduction/.test(invFlat)
+  && /makes leverage look like skill/.test(invFlat));
+
+check("the put's risk is described as full strike notional, never the BPR",
+  /strike × 100/i.test(invFlat)
+  && /never the buying-power\s+reduction/i.test(invFlat));
+
+check("the acquisition price is stated as coming before the strike",
+  /acquisition price comes FIRST/.test(invFlat)
+  && /INSUFFICIENT PREMIUM AT DESIRED OWNERSHIP PRICE/.test(inv));
+
+check("premium chasing is refused in writing",
+  /never raised to find premium/.test(invFlat)
+  || /opposite of the point/.test(invFlat));
+
+check("delta bands and IV-rank rules are explicitly not the decision",
+  /no 0\.15–0\.25 delta rule/.test(invFlat)
+  && /no 0\.75–0\.85 rule/.test(invFlat));
+
+check("ExpectedRV30 is refused as a LEAPS yardstick, in writing",
+  /ExpectedRV30 is deliberately ABSENT/.test(invFlat)
+  && /thirty-day volatility forecast/.test(invFlat));
+
+check("long-dated implied-volatility history says it is never back-filled",
+  /never back-filled/.test(invFlat));
+
+check("the fundamental scenarios are not presented as a price distribution",
+  /fundamental scenarios are not a price distribution/.test(invFlat));
+
+check("a buy-write is described as one expiration, not weekly rolling",
+  /not a model of selling a call every week/.test(invFlat));
+
+check("the management plan says no orders are ever placed",
+  /No orders are placed/.test(invFlat)
+  && /written plan, not an\s*automation/.test(invFlat));
+
+check("the scanner refuses a summed investment score in writing",
+  /NO summed investment score/.test(invFlat)
+  && !/investment_score/.test(inv));
+
+check("every new Phase 3 table header carries a tooltip",
+  (() => {
+    const heads = inv.match(/<th\b[^>]*>/g) || [];
+    return heads.length > 40 && heads.every((t) => /title=/.test(t));
+  })());
+
+check("wide Phase 3 tables scroll inside the house wrapper",
+  (inv.match(/scan-table-wrap/g) || []).length >= 6);
+
+check("the greeks sit behind an expander rather than in the decision row",
+  /Greeks and contract detail/.test(invFlat));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

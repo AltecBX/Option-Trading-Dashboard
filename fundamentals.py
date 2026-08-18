@@ -176,6 +176,81 @@ def _d(s: str) -> date:
     return date.fromisoformat(s)
 
 
+# Units whose values are expressed in SHARES and therefore change basis at a
+# stock split. Dollar amounts never do.
+_SHARE_BASIS_UNITS = ("USD/shares", "shares", "pure")
+
+# Ratios a split can produce. A rescale is applied only when the ratio implied
+# by two filings lands on one of these, because an ordinary restatement moves
+# a number by an arbitrary amount and must NOT be undone. Apple's 2010
+# retrospective revenue-recognition change moved earnings per share by a
+# factor of 1.2649 between two filings; nothing in this list is within reach
+# of it, so it is left exactly as filed.
+_SPLIT_RATIOS = sorted(
+    {float(k) for k in (2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 50, 100)}
+    | {1.0 / k for k in (2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 50, 100)}
+    | {1.5, 2.0 / 3.0})
+_SPLIT_TOLERANCE = 0.02          # reported cents round; 1/4 shows up as 0.2523
+_SPLIT_MIN_MOVE = 0.10           # ignore anything that is not a real jump
+
+
+def _snap_split(ratio: float) -> float | None:
+    """The clean split ratio this observed ratio is, or None."""
+    if ratio is None or ratio <= 0 or abs(ratio - 1.0) < _SPLIT_MIN_MOVE:
+        return None
+    for cand in _SPLIT_RATIOS:
+        if abs(ratio / cand - 1.0) <= _SPLIT_TOLERANCE:
+            return cand
+    return None
+
+
+def _basis_factors(rows: list[dict]) -> dict:
+    """filed date -> the factor putting that filing's per-share values on the
+    LATEST filing's share basis.
+
+    A company that splits re-expresses its prior per-share figures in the next
+    filing, so keeping the newest version of each PERIOD normally handles it.
+    That breaks when a period is never restated again: Apple's fiscal 2019
+    earnings per share stands at 11.89 in the filing that reported it and 2.97
+    in the one after the 2020 four-for-one split, and the twelve-month figure
+    for fiscal 2018 was left on the older basis entirely. Differencing a
+    fourth quarter out of a post-split annual figure and a pre-split
+    nine-month one then produced −6.01 a share for a quarter Apple earned
+    money in.
+
+    The repair uses the filings against each other. Consecutive filings repeat
+    each other's periods as comparatives, so the ratio between the two
+    versions of the same period IS the split — and only when that ratio lands
+    on a clean split factor is anything rescaled.
+    """
+    by_filed: dict = {}
+    for r in rows:
+        f = r.get("filed")
+        if not f or r.get("val") is None or not r.get("end"):
+            continue
+        by_filed.setdefault(f, {})[(r.get("start"), r.get("end"))] = float(r["val"])
+    filings = sorted(by_filed)
+    if len(filings) < 2:
+        return {}
+    steps = []
+    for a, b in zip(filings, filings[1:]):
+        A, B = by_filed[a], by_filed[b]
+        ratios = [B[k] / A[k] for k in (set(A) & set(B)) if A[k]]
+        step = 1.0
+        if len(ratios) >= 2:
+            ratios.sort()
+            med = ratios[len(ratios) // 2]
+            # Every overlapping period must agree, or this is not one basis
+            # change but a set of unrelated restatements.
+            if med and all(abs(x / med - 1.0) <= 0.03 for x in ratios):
+                step = _snap_split(med) or 1.0
+        steps.append(step)
+    factors = {filings[-1]: 1.0}
+    for i in range(len(filings) - 2, -1, -1):
+        factors[filings[i]] = factors[filings[i + 1]] * steps[i]
+    return {f: v for f, v in factors.items() if v != 1.0}
+
+
 def latest_filed(entry: dict, unit: str) -> list[dict]:
     """All duration facts for one concept+unit, with the LATEST FILED value
     winning for each (start, end) period.
@@ -185,8 +260,16 @@ def latest_filed(entry: dict, unit: str) -> list[dict]:
     filing; keeping the newest filing's version of each period yields a
     series already on today's share basis, which is the same basis
     split-adjusted price history uses.
+
+    Where a period was never restated, `_basis_factors` recovers the split
+    from the overlap between consecutive filings and puts it on today's basis
+    anyway. Where even that is not recoverable — Apple's 2014 seven-for-one
+    split falls between two filings that share no period at all — the value
+    keeps the basis it was filed on, and `basis_breaks` below reports where
+    the series stops being comparable across time.
     """
     rows = (entry or {}).get("units", {}).get(unit, [])
+    factors = _basis_factors(rows) if unit in _SHARE_BASIS_UNITS else {}
     best: dict = {}
     first: dict = {}
     for r in rows:
@@ -206,8 +289,10 @@ def latest_filed(entry: dict, unit: str) -> list[dict]:
             dur = (_d(end) - _d(start)).days
         except ValueError:
             continue
+        factor = factors.get(r.get("filed"), 1.0)
         out.append({"start": start, "end": end, "dur": dur,
-                    "val": float(r["val"]), "form": r.get("form"),
+                    "val": float(r["val"]) * factor, "form": r.get("form"),
+                    "basis_factor": factor,
                     # `filed` is the LATEST filing that stated this period —
                     # the restated, split-adjusted version, which is the
                     # value to show. `first_filed` is when the period first
@@ -220,6 +305,51 @@ def latest_filed(entry: dict, unit: str) -> list[dict]:
                     "fy": r.get("fy"), "fp": r.get("fp")})
     out.sort(key=lambda r: (r["end"], r["dur"]))
     return out
+
+
+def basis_breaks(facts: dict) -> list[dict]:
+    """Where this filer's per-share history stops being comparable.
+
+    `_basis_factors` recovers a split when consecutive filings share a period
+    to measure it on. Sometimes they do not: Apple's June 2014 seven-for-one
+    split sits between two quarterly filings that have no period in common,
+    so everything last restated before it is still on the old basis and
+    everything after is on today's. Comparing across that line is comparing
+    two different shares.
+
+    Detected on the diluted share count, where a split is a clean multiple
+    and ordinary issuance is a few percent. A jump that does NOT land on a
+    split ratio is left alone — a company that really did double its share
+    count has not changed basis, it has diluted, and that is a fact the
+    history should keep.
+    """
+    pts = pit_series(facts, "diluted_shares")
+    out = []
+    for a, b in zip(pts, pts[1:]):
+        va, vb = a.get("value"), b.get("value")
+        if not va or not vb or va <= 0:
+            continue
+        snapped = _snap_split(vb / va)
+        if snapped is not None:
+            out.append({"at": b["period_end"], "ratio": vb / va,
+                        "split": snapped, "from": a["period_end"]})
+    return out
+
+
+def consistent_basis_from(facts: dict) -> dict:
+    """The earliest period end from which per-share figures share one basis."""
+    breaks = basis_breaks(facts)
+    if not breaks:
+        return {"from": None, "breaks": [], "reason": ""}
+    last = breaks[-1]
+    return {"from": last["at"], "breaks": breaks,
+            "reason": (f"The share basis changes at {last['at']} — the "
+                       f"reported diluted share count steps by a factor of "
+                       f"{last['split']:.4g}, which is a stock split this "
+                       f"filer's own filings never restated all the way "
+                       f"back. Per-share figures before that date are not "
+                       f"comparable with the ones after it, so they are left "
+                       f"out rather than silently averaged in.")}
 
 
 def quarters_spanned(dur_days: float) -> int | None:
@@ -368,6 +498,17 @@ CONCEPTS = {
                                    "DepreciationAndAmortization",
                                    "DepreciationAmortizationAndAccretionNet",
                                    "Depreciation"], "USD", "sum"),
+
+    # ── Phase 3 ────────────────────────────────────────────────────────
+    # Dividends declared per share. Which concept a filer uses varies and
+    # changes over time: Apple and Microsoft tag Declared throughout, while
+    # Coca-Cola's Declared series stops in 2018 and only CashPaid continues
+    # to today. That is exactly what pick_concept's coverage-and-recency
+    # selection exists for — a fixed priority list would read Coca-Cola's
+    # dividend as of 2018 and call it current.
+    "dividends_per_share": (["CommonStockDividendsPerShareDeclared",
+                             "CommonStockDividendsPerShareCashPaid"],
+                            "USD/shares", "sum"),
 }
 
 # Balance-sheet facts. These are INSTANTS — a value at a date, with no
@@ -413,6 +554,8 @@ BASIS = {
     "pretax_income": "GAAP pre-tax income, trailing twelve months",
     "share_based_comp": "Share-based compensation expense, trailing twelve months",
     "depreciation_amortization": "Depreciation and amortisation, trailing twelve months",
+    "dividends_per_share": "Dividends per common share declared, trailing "
+                           "twelve months, as reported to the SEC",
 }
 
 

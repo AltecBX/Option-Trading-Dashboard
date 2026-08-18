@@ -12253,3 +12253,119 @@ a.tabsheet-btn.site { text-decoration: none; }
   border-radius: 3px; border: 1px solid currentColor; opacity: .85; }
 .inv-trapsig-off .inv-trapsig-tag { color: var(--fg-4); }
 .inv-trapsig-unknown .inv-trapsig-tag { color: var(--fg-4); }
+
+/* ── Investment tab, Phase 3 ───────────────────────────────────────────────
+   The decision moved to the top: an entry verdict, then the six numbers §18
+   asks for before anything else, then the business reading behind them folded
+   into a "Why" expander. Everything below is a compact card. Wide tables
+   (structures, LEAPS, the scanner) scroll inside .scan-table-wrap, which is
+   the house class — the page body never scrolls sideways. */
+
+.inv-hero-verdicts { display: flex; gap: 8px; align-items: center;
+  flex-wrap: wrap; margin-left: auto; }
+
+.inv-entry { font: 700 11px/1.6 var(--font-mono); letter-spacing: 0.08em;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor;
+  white-space: nowrap; }
+.inv-entry-up { color: var(--up); background: color-mix(in srgb, var(--up) 12%, transparent); }
+.inv-entry-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.inv-entry-down { color: var(--down); background: color-mix(in srgb, var(--down) 12%, transparent); }
+.inv-entry-mut { color: var(--fg-3); }
+.inv-entry-sm { font-size: 9.5px; padding: 1px 6px; letter-spacing: .05em; }
+
+/* The six numbers. Grid rather than flex so the labels stay aligned when one
+   value wraps — a decision bar whose cells jump around reads as unreliable. */
+.inv-decision { display: grid; gap: 10px 18px; margin: 12px 0 4px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.inv-dcell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-dcell-label { font: 600 10px/1.4 var(--font-mono); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--fg-4); }
+.inv-dcell-val { font: 700 15px/1.3 var(--font-display); color: var(--fg);
+  overflow-wrap: anywhere; }
+.inv-dcell-val.up { color: var(--up); }
+.inv-dcell-val.down { color: var(--down); }
+.inv-dcell-val.warn { color: var(--warn); }
+.inv-dcell-val.mut { color: var(--fg-3); }
+.inv-dcell-val.inv-na { color: var(--fg-4); font-weight: 600; }
+
+.inv-entry-reasons { margin-top: 8px; }
+.inv-why { margin-top: 10px; }
+.inv-exp-inner { background: transparent; }
+
+/* Fair value: a band from bear to bull with the buy zone and today marked. */
+.inv-fv, .inv-er, .inv-imp, .inv-comp, .inv-put, .inv-leaps, .inv-plan,
+.inv-scanner { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.inv-fv-band { display: flex; flex-direction: column; gap: 5px; }
+.inv-fv-track { position: relative; height: 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-4) 22%, transparent); display: block; }
+.inv-fv-fill { position: absolute; inset: 0; border-radius: 999px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--up) 30%, transparent),
+    color-mix(in srgb, var(--warn) 26%, transparent),
+    color-mix(in srgb, var(--down) 30%, transparent)); }
+.inv-fv-base { position: absolute; top: -3px; width: 2px; height: 18px;
+  background: var(--fg-2); transform: translateX(-1px); }
+.inv-fv-zone { position: absolute; top: -4px; width: 3px; height: 20px;
+  background: var(--up); transform: translateX(-1.5px); text-decoration: none; }
+.inv-fv-now { position: absolute; top: -6px; width: 3px; height: 24px;
+  background: var(--fg); transform: translateX(-1.5px); border-radius: 2px; }
+.inv-fv-ends { display: flex; justify-content: space-between; gap: 8px;
+  font: 600 10.5px var(--font-mono); color: var(--fg-3); flex-wrap: wrap; }
+
+.inv-conf { margin-left: auto; font: 700 10px/1.6 var(--font-mono);
+  letter-spacing: .06em; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid currentColor; }
+.inv-conf-up { color: var(--up); }
+.inv-conf-warn { color: var(--warn); }
+.inv-conf-down { color: var(--down); }
+.inv-conf-mut { color: var(--fg-3); }
+
+.inv-tag { margin-left: 6px; font: 700 8.5px/1.7 var(--font-mono);
+  letter-spacing: .07em; text-transform: uppercase; padding: 0 5px;
+  border-radius: 3px; border: 1px solid currentColor; color: var(--up); }
+.inv-fv-why { color: var(--fg-3); font: 500 11px/1.5 var(--font-sans); }
+.inv-row-off { opacity: .72; }
+.inv-contract-line { font: 500 10.5px/1.5 var(--font-mono); color: var(--fg-4);
+  margin-top: 2px; }
+
+.inv-er-bars { gap: 4px; }
+.inv-bar-head { font: 600 11px/1.5 var(--font-sans); color: var(--fg-2);
+  margin-bottom: 2px; }
+
+.inv-scenario-strip { display: flex; gap: 8px; flex-wrap: wrap; }
+.inv-scenario-pill { font: 600 10.5px/1.7 var(--font-mono); padding: 1px 9px;
+  border-radius: 999px; border: 1px solid var(--line); color: var(--fg-2); }
+
+.inv-planrow { display: grid; gap: 2px 14px; padding: 8px 0;
+  border-bottom: 1px solid var(--line); grid-template-columns: 200px 1fr; }
+.inv-planrow:last-of-type { border-bottom: none; }
+.inv-planrow-trigger { font: 700 11px/1.5 var(--font-mono); color: var(--fg); }
+.inv-planrow-detail { font: 500 11.5px/1.6 var(--font-sans); color: var(--fg-2); }
+
+.inv-scan-refresh { margin-left: auto; }
+.inv-comp-table td, .inv-fv-table td, .inv-grid-table td { white-space: nowrap; }
+.inv-comp-table .inv-contract-line { white-space: normal; }
+
+@media (max-width: 620px) {
+  /* The decision bar keeps every cell — those six numbers ARE the page — at
+     two per row. Everything wider than the screen scrolls inside its own
+     table wrapper rather than pushing the body sideways. */
+  .inv-decision { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .inv-dcell-val { font-size: 13px; }
+  .inv-hero-verdicts { margin-left: 0; width: 100%; }
+  .inv-planrow { grid-template-columns: 1fr; }
+  .inv-fv-ends { font-size: 9.5px; }
+  .inv-scenario-pill { font-size: 9.5px; }
+}
+
+/* Two verdicts, two questions. Without the labels "WAIT / WAIT" side by side
+   reads as a rendering bug rather than as one answer about the business and
+   another about today's price. */
+.inv-vpair { display: inline-flex; flex-direction: column; gap: 2px;
+  align-items: flex-end; }
+.inv-vpair-label { font: 600 8.5px/1.4 var(--font-mono); letter-spacing: .09em;
+  text-transform: uppercase; color: var(--fg-4); }
+@media (max-width: 620px) {
+  .inv-vpair { align-items: flex-start; }
+}

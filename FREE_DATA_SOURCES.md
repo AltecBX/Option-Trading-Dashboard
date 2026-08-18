@@ -70,6 +70,12 @@ The free backbone. Everything below is one `pip install yfinance`:
 - `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=2026`
   → XML, one entry per trading day, all maturities 1M–30Y. One call per
   calendar year; cache current year 30 min, past years forever.
+- The same rows give a yield at ANY horizon: interpolate linearly between the
+  two quoted tenors either side (`treasury.rate_for_years()`). The Investment
+  tab's structure comparator leaves whatever a structure does not spend in
+  cash, and what that cash earns depends on how long the position runs — a
+  single stand-in rate for every horizon would flatter short structures and
+  penalize long ones.
 
 ### FRED (St. Louis Fed) — any series as CSV, **no API key**
 - `https://fred.stlouisfed.org/graph/fredgraph.csv?id=SERIES&cosd=YYYY-MM-DD`
@@ -120,6 +126,16 @@ Same declared User-Agent rule as every other SEC endpoint. Payloads run
 revenue, net income, diluted EPS, share counts, operating cash flow and
 capital spending per reporting period, plus the filing cover-page share count
 under the `dei` taxonomy.
+
+**Dividends per share** are in here too, but which concept a filer uses varies
+AND changes over time: Apple and Microsoft tag
+`CommonStockDividendsPerShareDeclared` throughout, Coca-Cola's `Declared`
+series stops in 2018 while `CommonStockDividendsPerShareCashPaid` continues to
+today, and Exxon tags only two quarters of either. Select by coverage and
+recency, never by a fixed priority list — a fixed list reads Coca-Cola's 2018
+dividend and calls it current. Measured trailing-twelve-month figures after
+doing it properly: Apple $1.05, Microsoft $3.64, Coca-Cola $2.06, Costco
+$5.37, Realty Income $3.24, Exxon N/A-with-a-reason, Plug Power none.
 
 **Gotchas, all measured on seventeen live tickers — every one of these will
 bite you:**
@@ -195,6 +211,28 @@ yfinance (`get_earnings_estimate`, `get_eps_revisions`, `info.forwardEps`) is
 the free option and it is unofficial and rate-limited. There is also no free
 archive of *past* consensus, so a historical forward-P/E series cannot be
 reconstructed; it can only be accumulated going forward.
+
+### Per-share values sit on the basis of the filing that last stated them
+
+The rule "keep the newest filing's version of each period" handles a stock
+split whenever the company restates that period afterwards. It does not when
+the company never restates it again. Apple's fiscal-2018 twelve-month earnings
+per share stands at 11.91 in the filing that reported it and 2.97 in the one
+after the 2020 four-for-one split — and the nine-month figure for the same year
+was left on the older basis, so differencing a fourth quarter out of the two
+produced **−6.01 a share for a quarter Apple earned money in**.
+
+Recover the split from the filings themselves: consecutive filings repeat each
+other's periods as comparatives, so the ratio between the two versions of one
+period IS the split factor. Rescale ONLY when that ratio lands on a clean split
+ratio — Apple's 2010 retrospective revenue-recognition change moved earnings
+per share by a factor of 1.2649 between two filings, and undoing that would
+destroy a real restatement.
+
+Some splits are unrecoverable this way: Apple's June 2014 seven-for-one sits
+between two quarterly filings that share no period at all. Detect the
+discontinuity on the diluted share count and stop comparing across it, rather
+than pretending the series is continuous.
 
 ## 5. Reference / universe data
 

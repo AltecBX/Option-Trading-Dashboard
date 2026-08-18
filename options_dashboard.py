@@ -5470,6 +5470,102 @@ def _invest_event(symbol: str) -> dict | None:
         return None
 
 
+def _invest_chain(symbol: str) -> dict | None:
+    """The FULL option chain for the Investment tab, long expirations included.
+
+    Phase 3 needs contracts one to two years out, which no other path in this
+    app asks for — the short-dated scanners deliberately request a narrow
+    window. Schwab's chain already carries every listed expiration in the
+    normalized {underlying, expirations, chains} shape the rest of the app
+    speaks, so it is returned as-is. The yfinance fallback rebuilds that same
+    shape one expiration at a time, and only for the tenors Phase 3 actually
+    scans, because pulling every weekly out to 2028 would be dozens of calls
+    for contracts nothing reads.
+    """
+    sc = _schwab()
+    if sc is not None:
+        try:
+            ch = sc.get_option_chain(symbol, strike_count=120)
+            if ch and ch.get("chains"):
+                return ch
+        except Exception as exc:  # noqa: BLE001
+            _log_warn(symbol, "invest/chain schwab", exc)
+    try:
+        stock = yf.Ticker(symbol)
+        exps = list(stock.options or [])
+        if not exps:
+            return None
+        today = date.today()
+        spot = float(stock.history(period="1d",
+                                   auto_adjust=False)["Close"].iloc[-1])
+        out = {"underlying": {"symbol": symbol.upper(), "last": spot},
+               "expirations": [], "chains": {}, "source": "yfinance"}
+        wanted = []
+        for e in exps:
+            try:
+                ed = pd.Timestamp(e).date()
+            except Exception:
+                continue
+            dte = (ed - today).days
+            # The two windows Phase 3 scans: the short-dated put coverage and
+            # the long-dated call window.
+            if 5 <= dte <= 80 or 250 <= dte <= 760:
+                wanted.append((e, ed))
+        for e, ed in wanted[:14]:
+            try:
+                opt = stock.option_chain(e)
+            except Exception:
+                continue
+
+            def _rows(df):
+                res = []
+                for r in df.itertuples():
+                    try:
+                        res.append({
+                            "strike": float(getattr(r, "strike", 0) or 0),
+                            "bid": float(getattr(r, "bid", 0) or 0),
+                            "ask": float(getattr(r, "ask", 0) or 0),
+                            "last": float(getattr(r, "lastPrice", 0) or 0),
+                            "iv": float(getattr(r, "impliedVolatility", 0) or 0),
+                            "volume": float(getattr(r, "volume", 0) or 0),
+                            "openInterest": float(getattr(r, "openInterest", 0) or 0),
+                            "delta": None,
+                        })
+                    except (TypeError, ValueError):
+                        continue
+                return sorted(res, key=lambda x: x["strike"])
+            key = ed.isoformat()
+            out["chains"][key] = {"calls": _rows(opt.calls),
+                                  "puts": _rows(opt.puts)}
+            out["expirations"].append(key)
+        out["expirations"].sort()
+        return out if out["chains"] else None
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/chain yfinance", exc)
+        return None
+
+
+def _invest_starred() -> list:
+    """The starred watchlist — the names the owner actually follows. The
+    Investment scanner defaults to these rather than the full 1,289-name
+    list, which would be 1,289 filings downloads for a table nobody asked
+    for."""
+    try:
+        return list((_backtest_universe() or {}).get("starred") or [])
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(None, "invest/starred", exc)
+        return []
+
+
+def _invest_rate(years) -> dict | None:
+    """The Treasury par yield matched to a holding period."""
+    try:
+        return _treasury.rate_for_years(years)
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(None, "invest/rate", exc)
+        return None
+
+
 try:
     import invest_scan as _invest
     import peers as _peers_mod
@@ -5486,6 +5582,9 @@ try:
         earnings_fn=_invest_earnings,
         events_fn=_invest_event,
         benchmark_fn=_gap_sector_etf,
+        chain_fn=_invest_chain,
+        rate_fn=_invest_rate,
+        earn_moves_fn=_edge_earn_moves,
         data_dir=_STABLE_DIR,
     )
     _INVEST_AVAILABLE = True
@@ -8430,11 +8529,40 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         yrs = 5
                     self._send_json(_invest.valuation_history(symbol, years=yrs),
                                     no_store=True)
+                elif section == "scan":
+                    syms = [s.strip().upper() for s in
+                            (qs.get("symbols", [""])[0] or "").split(",")
+                            if s.strip()]
+                    if not syms:
+                        syms = _invest_starred()
+                    try:
+                        budget = int(qs.get("budget", ["4"])[0] or "4")
+                    except ValueError:
+                        budget = 4
+                    self._send_json(
+                        _invest.scan(syms[:120], build_budget=max(0, min(12, budget))),
+                        no_store=True)
+                elif section == "structures":
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    pay = _invest.payload(symbol)
+                    self._send_json({
+                        "symbol": symbol,
+                        "fair_value": pay.get("fair_value"),
+                        "expected_return": pay.get("expected_return"),
+                        "implied_expectations": pay.get("implied_expectations"),
+                        "structures": pay.get("structures"),
+                        "entry": pay.get("entry"), "plan": pay.get("plan"),
+                        "scenario_probabilities": pay.get("scenario_probabilities"),
+                    }, no_store=True)
                 elif section == "config":
                     cfg_i, h = _invest.config()
                     self._send_json({"config": cfg_i, "hash": h,
                                      "engine": _invest.engine.ENGINE_VERSION,
                                      "scorecard": _invest.engine.SCORECARD_VERSION,
+                                     "fair_value": _invest.fv.FAIR_VALUE_VERSION,
+                                     "comparator": _invest._structs.COMPARATOR_VERSION,
                                      "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:
