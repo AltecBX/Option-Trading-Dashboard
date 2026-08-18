@@ -240,6 +240,58 @@ def ten_year() -> dict | None:
     return None
 
 
+_TENOR_YEARS = {"1M": 1 / 12, "3M": 0.25, "6M": 0.5, "1Y": 1.0, "2Y": 2.0,
+                "3Y": 3.0, "5Y": 5.0, "7Y": 7.0, "10Y": 10.0, "20Y": 20.0,
+                "30Y": 30.0}
+
+
+def rate_for_years(years: float) -> dict | None:
+    """The par yield matched to a holding period, as a PERCENT.
+
+    The Investment tab's structure comparator leaves whatever a structure
+    does not spend in cash, and that cash earns something real. Which
+    something depends on how long the position runs, so the rate is read off
+    the same official curve at the matching point rather than a single
+    stand-in rate used for every horizon. Between two quoted tenors the yield
+    is interpolated linearly, which is what a par curve is drawn as anyway;
+    outside them the nearest quoted tenor is used and named.
+    """
+    try:
+        y = float(years)
+    except (TypeError, ValueError):
+        return None
+    if not (y > 0):
+        return None
+    rows = _curve_history()
+    if not rows:
+        return None
+    latest = None
+    for row in reversed(rows):
+        if any(row.get(t) is not None for t in _TENOR_YEARS):
+            latest = row
+            break
+    if latest is None:
+        return None
+    pts = sorted((_TENOR_YEARS[t], float(latest[t]), t)
+                 for t in _TENOR_YEARS if latest.get(t) is not None)
+    if not pts:
+        return None
+    if y <= pts[0][0]:
+        return {"pct": pts[0][1], "as_of": latest.get("date"), "tenor": pts[0][2],
+                "source": f"U.S. Treasury daily par yield curve, {pts[0][2]}"}
+    if y >= pts[-1][0]:
+        return {"pct": pts[-1][1], "as_of": latest.get("date"), "tenor": pts[-1][2],
+                "source": f"U.S. Treasury daily par yield curve, {pts[-1][2]}"}
+    for (x0, v0, t0), (x1, v1, t1) in zip(pts, pts[1:]):
+        if x0 <= y <= x1:
+            w = 0.0 if x1 == x0 else (y - x0) / (x1 - x0)
+            return {"pct": v0 + (v1 - v0) * w, "as_of": latest.get("date"),
+                    "tenor": f"{t0}–{t1}",
+                    "source": (f"U.S. Treasury daily par yield curve, "
+                               f"interpolated between {t0} and {t1}")}
+    return None                                      # pragma: no cover
+
+
 def _curve_history() -> list[dict]:
     """~3 years of daily curves, oldest→newest (for percentiles & compares)."""
     def fetch():

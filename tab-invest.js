@@ -955,6 +955,1217 @@ function InvDrawdowns({
   }, "Context only. There is no Beta here on purpose: what this stock actually did in a fall is more use than a single number summarising how it usually moves."));
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// PHASE 3 — what it is worth, what today's price implies, and how to own it
+// ══════════════════════════════════════════════════════════════════════════
+
+const INV_ENTRY_TONE = {
+  "BUY SHARES": "up",
+  "SELL PORTFOLIO SECURED PUT": "up",
+  "BUY LEAPS": "up",
+  "BUY-WRITE": "up",
+  "BULL CALL SPREAD": "up",
+  "TOSS UP": "warn",
+  WAIT: "warn",
+  AVOID: "down",
+  "SPECIALIZED MODEL REQUIRED": "mut",
+  "INSUFFICIENT DATA": "mut"
+};
+const INV_ENTRY_TIP = {
+  "BUY SHARES": "The price is inside the buy zone and, on identical capital " + "at the same expiration, owning the shares outright beat every option " + "structure that could be priced.",
+  "SELL PORTFOLIO SECURED PUT": "The price is above the buy zone, so the " + "shares are not a buy here — but a put at or below the price you actually " + "want to own it at pays enough to be worth the obligation. The strike is " + "never raised to find more premium: the acquisition price comes first.",
+  "BUY LEAPS": "On identical capital at the same expiration, a long call " + "returned more than the shares. It receives no dividend and it expires, " + "both of which are already counted in the numbers below.",
+  "BUY-WRITE": "Buying the shares and selling ONE call against them beat the " + "alternatives on the same account. This is a single expiration, not a " + "model of selling a call every week — that path depends on where the " + "stock went between rolls and belongs in a simulator.",
+  "BULL CALL SPREAD": "A bounded structure won on the same capital. Both the " + "most it can make and the most it can lose are fixed at the outset.",
+  "TOSS UP": "The ranking flips when the scenario weights move by a few " + "points, and those weights are assumptions rather than measurements. The " + "honest reading is that these structures are equivalent at this price.",
+  WAIT: "Nothing here is worth doing at today's price. The exact level, and " + "the exact bid, that would change the answer are both stated.",
+  AVOID: "A gate failed outright — the company is losing money, or several " + "deterioration signals are firing at once. No bullish structure is " + "recommended through that.",
+  "SPECIALIZED MODEL REQUIRED": "A bank, insurer, broker or property trust. " + "Every valuation method here prices earnings or free cash flow, and " + "neither means for these businesses what it means for an operating " + "company.",
+  "INSUFFICIENT DATA": "Something essential is missing — a price, readable " + "filings, or enough history. This is a real answer, not an error."
+};
+const INV_CONFIDENCE_TONE = {
+  HIGH: "up",
+  MODERATE: "warn",
+  LOW: "down",
+  UNRELIABLE: "down"
+};
+const INV_CONFIDENCE_TIP = "How far apart the valuation methods are. Within 25% between the highest " + "and lowest is HIGH, 25–50% MODERATE, 50–100% LOW, wider is UNRELIABLE. " + "A single method standing alone is capped at MODERATE, because nothing " + "disagreeing with it is not the same as something agreeing with it. " + "These bands are a stated convention, not a tested result.";
+function InvEntryPill({
+  entry
+}) {
+  const label = (entry || {}).verdict || "INSUFFICIENT DATA";
+  const tone = INV_ENTRY_TONE[label] || "mut";
+  return /*#__PURE__*/React.createElement("span", {
+    className: `inv-entry inv-entry-${tone}`,
+    title: INV_ENTRY_TIP[label]
+  }, label);
+}
+
+// The six numbers §18 asks for above everything else.
+function InvDecisionBar({
+  snap,
+  fair,
+  er,
+  structures
+}) {
+  const f = fair || {};
+  const comp = (structures || {}).comparison || {};
+  const zone = f.buy_zone;
+  const gap = f.premium_to_buy_zone_pct;
+  const cell = (label, value, tip, tone) => /*#__PURE__*/React.createElement("div", {
+    className: "inv-dcell",
+    key: label
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-dcell-label",
+    title: tip
+  }, label), /*#__PURE__*/React.createElement("b", {
+    className: `inv-dcell-val${tone ? ` ${tone}` : ""}${value === invNA ? " inv-na" : ""}`,
+    title: tip
+  }, value));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-decision"
+  }, cell("Current price", invPrice(snap && snap.price), "The live share price every number on this page is measured against."), cell("Bear / Base / Bull", f.available ? `${invPrice(f.bear)} / ${invPrice(f.base)} / ${invPrice(f.bull)}` : invNA, "Three defensible values, not an average of methods. The base is the " + "single highest-confidence method that could be built; the bear is " + "the most pessimistic value any valid method produced and the bull " + "the most optimistic, so methods that disagree widen the range " + "instead of being blended into a false middle."), cell("Fair value confidence", f.confidence_level || invNA, INV_CONFIDENCE_TIP + (f.confidence && f.confidence.reason ? `\n\n${f.confidence.reason}` : ""), INV_CONFIDENCE_TONE[f.confidence_level] || ""), cell("Buy zone", invPrice(zone), (f.credit_note || "") + "\n\nThis is the price at which this analysis " + "says the shares are worth owning. It gates everything below it: a " + "put strike above this level is never considered, however rich the " + "premium."), cell("Discount to buy zone", gap == null ? invNA : `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%`, "How far today's price sits above (positive) or below (negative) the " + "buy zone. Below zero the shares themselves qualify.", gap == null ? "" : gap <= 0 ? "up" : "down"), cell("Expected return", (er || {}).weighted_total_cagr_pct == null ? invNA : `${er.weighted_total_cagr_pct.toFixed(1)}% a year`, "Probability-weighted total return over the scenario horizon, " + "including dividends carried to the horizon as cash at the matching " + "Treasury yield. The weights are assumptions and are shown below.", (er || {}).weighted_total_cagr_pct == null ? "" : er.weighted_total_cagr_pct >= 0 ? "up" : "down"), cell("Preferred structure", comp.preferred || invNA, "Which way of taking this position returned most on IDENTICAL " + "capital, at an identical expiration, on identical scenario prices. " + "Never ranked on return-on-premium or on buying-power reduction — " + "those denominators reward a structure for the money it did not put " + "to work."));
+}
+
+// ── fair value ────────────────────────────────────────────────────────────
+
+function InvFairValue({
+  fair,
+  snap
+}) {
+  const f = fair || {};
+  const methods = f.methods || [];
+  if (!f.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "Every method here prices earnings or cash generation on a stated basis. Where none of them can be built from what is on file, this says so rather than producing a number with nothing behind it."
+    }, f.reason || "No fair value could be built.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-fv"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Three valuation methods, each
+carrying the basis it was computed on. They are NOT averaged: averaging a good
+method with a bad one produces a number worse than the good method alone and
+hides which was which. The base value is the single highest-confidence method;
+the others set the WIDTH of the range and set the confidence, because methods
+that disagree are methods that should not be trusted to two decimal places.
+
+Basis never mixes. Trailing GAAP earnings against comparable companies' GAAP
+trailing multiples is a comparison. Trailing GAAP earnings against their
+FORWARD multiples would price one company's audited past with another's
+forecast future, so that combination is simply not offered.
+
+LOWER confidence LOWERS the price we will pay. The obvious-looking "margin of
+safety times confidence" runs the wrong way: it shrinks the discount demanded
+exactly when the valuation is least trustworthy. Instead the confidence decides
+how far ABOVE the pessimistic value the credited value is allowed to travel.`
+  }, "Fair value", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 base from ", f.base_method_label || "—", " · ", f.n_methods, " of ", methods.length, " methods usable"), /*#__PURE__*/React.createElement("span", {
+    className: `inv-conf inv-conf-${INV_CONFIDENCE_TONE[f.confidence_level] || "mut"}`,
+    title: INV_CONFIDENCE_TIP
+  }, f.confidence_level)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-fv-band",
+    title: `Bear ${invPrice(f.bear)}, base
+${invPrice(f.base)}, bull ${invPrice(f.bull)}. The pin is today's price.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-fv-track"
+  }, /*#__PURE__*/React.createElement("i", {
+    className: "inv-fv-fill"
+  }), /*#__PURE__*/React.createElement("em", {
+    className: "inv-fv-base",
+    style: {
+      left: invFvAt(f, f.base)
+    }
+  }), /*#__PURE__*/React.createElement("b", {
+    className: "inv-fv-now",
+    style: {
+      left: invFvAt(f, snap && snap.price)
+    }
+  }), /*#__PURE__*/React.createElement("s", {
+    className: "inv-fv-zone",
+    style: {
+      left: invFvAt(f, f.buy_zone)
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "inv-fv-ends"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: "The most pessimistic value any valid method produced."
+  }, "Bear ", invPrice(f.bear)), /*#__PURE__*/React.createElement("span", {
+    title: "The single highest-confidence method's value."
+  }, "Base ", invPrice(f.base)), /*#__PURE__*/React.createElement("span", {
+    title: "The most optimistic value any valid method produced."
+  }, "Bull ", invPrice(f.bull)))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Credited fair value",
+    value: invPrice(f.credited),
+    tip: f.credit_note,
+    basis: `Bear + ${f.confidence_credit == null ? "—" : `${Math.round(f.confidence_credit * 100)}%`} × (Base − Bear)`
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Margin of safety required",
+    value: f.margin_of_safety == null ? invNA : `${Math.round(f.margin_of_safety * 100)}%`,
+    tip: "Taken off the credited value to set the buy zone. It is a stated requirement, not a measurement."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Buy zone",
+    value: invPrice(f.buy_zone),
+    tip: "Credited fair value less the margin of safety. Below this price the shares qualify; above it, only a put struck at or below this level does."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Price against the buy zone",
+    value: f.premium_to_buy_zone_pct == null ? invNA : `${f.premium_to_buy_zone_pct >= 0 ? "+" : ""}${f.premium_to_buy_zone_pct.toFixed(1)}%`,
+    tone: f.premium_to_buy_zone_pct == null ? "" : f.premium_to_buy_zone_pct <= 0 ? "up" : "down",
+    tip: "Negative means today's price is inside the buy zone."
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table inv-fv-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which valuation method."
+  }, "Method"), /*#__PURE__*/React.createElement("th", {
+    title: "What the method priced and at what multiple. Every method carries its basis; the two are never mixed inside one calculation."
+  }, "Basis"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The pessimistic value this method produced."
+  }, "Bear"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "This method's central value."
+  }, "Base"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The optimistic value this method produced."
+  }, "Bull"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How many observations or comparable companies stood behind it."
+  }, "Observations"))), /*#__PURE__*/React.createElement("tbody", null, methods.map(m => /*#__PURE__*/React.createElement("tr", {
+    key: m.key,
+    className: m.key === f.base_method ? "inv-peer-self" : ""
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, m.label), m.key === f.base_method && /*#__PURE__*/React.createElement("span", {
+    className: "inv-tag",
+    title: "The highest-confidence method available, and the one the base value comes from."
+  }, "base")), /*#__PURE__*/React.createElement("td", {
+    className: "inv-peer-name",
+    title: m.basis
+  }, m.basis), m.available ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPrice(m.bear)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, /*#__PURE__*/React.createElement("b", null, invPrice(m.base))), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPrice(m.bull)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, m.n ? invCount(m.n) : invNA)) : /*#__PURE__*/React.createElement("td", {
+    className: "inv-fv-why",
+    colSpan: 4,
+    title: m.reason
+  }, m.reason)))))), f.normalized_fcf && !f.normalized_fcf.available && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, f.normalized_fcf.reason));
+}
+function invFvAt(f, v) {
+  const lo = Math.min(f.bear, f.buy_zone == null ? f.bear : f.buy_zone);
+  const hi = f.bull;
+  if (v == null || lo == null || hi == null || hi <= lo) return "0%";
+  return `${Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100))}%`;
+}
+
+// ── expected return bridge ────────────────────────────────────────────────
+
+const INV_SCENARIOS = [["bear", "Bear"], ["base", "Base"], ["bull", "Bull"]];
+function InvExpectedReturn({
+  er
+}) {
+  const e = er || {};
+  if (!e.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "The bridge needs a positive price, positive trailing earnings, a growth record long enough to take percentiles of, and a multiple this company has actually traded at."
+    }, e.reason || "No expected return could be built.");
+  }
+  const g = e.growth || {};
+  const m = e.multiples || {};
+  const probs = e.probabilities || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-er"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Where today's price gets you over
+${e.years} years, scenario by scenario.
+
+Three refusals live in this panel. Buyback yield is NOT added on top: a
+buyback shrinks the share count, which raises earnings per share, which is
+already the first bar — adding it again counts the same cash twice. Dividend
+yield is NOT added to the price return: a dividend is cash on a date, so it is
+compounded to the horizon at the matching Treasury yield and enters terminal
+wealth, which is what actually happens to it. And the multiple at the horizon
+is on the SAME basis as the multiple today; a bridge that starts on trailing
+GAAP and lands on a forward adjusted multiple has manufactured most of its own
+answer.`
+  }, "Expected return", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", e.years, "-year horizon", e.rate && e.rate.pct != null ? ` · dividends reinvested at ${e.rate.pct.toFixed(2)}%` : "")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Probability-weighted return",
+    value: e.weighted_total_cagr_pct == null ? invNA : `${e.weighted_total_cagr_pct.toFixed(2)}% a year`,
+    tone: e.weighted_total_cagr_pct == null ? "" : e.weighted_total_cagr_pct >= 0 ? "up" : "down",
+    tip: "Terminal wealth across the three scenarios, weighted by the probabilities shown, expressed as a compound annual rate on today's price."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Scenario weights",
+    value: `${Math.round((probs.bear || 0) * 100)} / ${Math.round((probs.base || 0) * 100)} / ${Math.round((probs.bull || 0) * 100)}`,
+    tip: "Bear / base / bull. These are ASSUMPTIONS, not facts. The structure comparison below re-runs its ranking under nearby weightings and says TOSS UP when the winner changes."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Dividends, last twelve months",
+    value: e.dps_ttm == null ? invNA : invPrice(e.dps_ttm),
+    reason: (e.dividends_detail || {}).reason,
+    basis: (e.dividends_detail || {}).basis,
+    tip: "Declared per common share, as reported to the SEC. Grown with earnings along each scenario path and compounded to the horizon at the matching Treasury yield."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Analyst forward growth, for comparison",
+    value: invSignedPct((e.forward_growth_context || {}).value),
+    reason: (e.forward_growth_context || {}).reason,
+    basis: (e.forward_growth_context || {}).basis,
+    tip: (e.forward_growth_context || {}).note
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which scenario."
+  }, "Scenario"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: `Annual earnings growth. ${g.note || ""}`
+  }, "Earnings growth"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Earnings per share at the horizon."
+  }, "Earnings at horizon"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: `The multiple the shares are assumed to trade at. ${m.note || ""}`
+  }, "Exit multiple"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Share price at the horizon: earnings times the exit multiple."
+  }, "Price at horizon"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Dividends received over the period, carried forward to the horizon at the matching Treasury yield."
+  }, "Dividends"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Share price at the horizon plus the dividends, per share."
+  }, "Terminal wealth"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Compound annual total return on today's price, including the dividends."
+  }, "Total return"))), /*#__PURE__*/React.createElement("tbody", null, INV_SCENARIOS.map(([key, label]) => {
+    const s = (e.scenarios || {})[key] || {};
+    if (!s.available) {
+      return /*#__PURE__*/React.createElement("tr", {
+        key: key
+      }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, label)), /*#__PURE__*/React.createElement("td", {
+        colSpan: 7,
+        className: "inv-fv-why"
+      }, s.reason || "Not available."));
+    }
+    return /*#__PURE__*/React.createElement("tr", {
+      key: key
+    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, label), /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, " ", Math.round((probs[key] || 0) * 100), "%")), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invSignedPct(s.growth_pct)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(s.eps_end)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invRatio(s.multiple_end)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(s.price_end)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice((s.dividends || {}).value)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(s.terminal_wealth)), /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${s.total_cagr_pct >= 0 ? "up" : "down"}`
+    }, s.total_cagr_pct == null ? invNA : `${s.total_cagr_pct.toFixed(2)}%`));
+  })))), INV_SCENARIOS.map(([key, label]) => {
+    const s = (e.scenarios || {})[key] || {};
+    if (!s.available || !s.contributions) return null;
+    const scale = Math.max(...s.contributions.map(c => Math.abs(c.value)), 1e-9);
+    const total = s.contributions.reduce((a, c) => a + c.value, 0);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-bars inv-er-bars",
+      key: key
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "inv-bar-head",
+      title: s.note
+    }, label, " \u2014 where the return comes from", /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, " \xB7 log points a year, and they add up exactly")), s.contributions.map(c => /*#__PURE__*/React.createElement("div", {
+      className: "inv-bar-row",
+      key: c.driver
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "inv-bar-label",
+      title: INV_ER_DRIVER_TIP[c.driver] || c.driver
+    }, c.driver), /*#__PURE__*/React.createElement("span", {
+      className: "inv-bar-track"
+    }, /*#__PURE__*/React.createElement("i", {
+      className: c.value >= 0 ? "up" : "down",
+      style: {
+        width: `${Math.min(100, Math.abs(c.value) / scale * 100)}%`
+      }
+    })), /*#__PURE__*/React.createElement("b", {
+      className: c.value >= 0 ? "up" : "down"
+    }, `${c.value >= 0 ? "+" : ""}${c.value.toFixed(2)}`))), /*#__PURE__*/React.createElement("div", {
+      className: "inv-bar-row inv-bar-total"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "inv-bar-label",
+      title: "The three bars above add up to exactly this number, because earnings times the multiple IS the price and the dividend leg is the rest of terminal wealth. The reconciliation is asserted in the test suite."
+    }, "Total"), /*#__PURE__*/React.createElement("span", {
+      className: "inv-bar-track"
+    }), /*#__PURE__*/React.createElement("b", {
+      className: total >= 0 ? "up" : "down"
+    }, `${total >= 0 ? "+" : ""}${total.toFixed(2)}`)));
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: g.note || ""
+  }, g.history_note || g.note || "", g.horizon_matched === false && " "), (g.basis || {}).reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, g.basis.reason), m.note && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, m.note));
+}
+const INV_ER_DRIVER_TIP = {
+  "Earnings growth": "How much of the annual return comes from the company earning more per share.",
+  "Multiple change": "How much comes from the market paying a different number of times those earnings. Negative means the shares are assumed to de-rate from where they trade today.",
+  "Dividends": "How much comes from cash paid out and carried to the horizon at the matching Treasury yield. It is never added to the price return as a percentage."
+};
+
+// ── implied expectations ──────────────────────────────────────────────────
+
+function InvImplied({
+  imp
+}) {
+  const x = imp || {};
+  if (!x.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "The audit needs an enterprise value \u2014 market value plus net debt \u2014 and a positive normalized free cash flow. Where either is missing it says so rather than solving for a number with a hole in it."
+    }, x.reason || "No implied-expectations audit could be built.");
+  }
+  const grid = x.grid || {};
+  const dr = x.discount_rate || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-imp"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `This is an EXPECTATIONS instrument,
+not a valuation. A forward discounted cash flow answers "what is it worth" with
+whatever growth rate somebody typed in. This runs the same model backwards and
+solves for ONE unknown — the free-cash-flow growth today's price is already
+paying for — which is a question with an honest answer.
+
+Solved by bisection on a bracketed interval rather than Newton-Raphson: the
+present value rises monotonically with the growth rate for positive cash flow,
+so bisection cannot diverge, cannot need a derivative and cannot wander onto a
+second root.
+
+The discount rate is deliberately NOT a per-company weighted average cost of
+capital. A beta estimated from five years of daily returns moves by whole
+points depending on the window chosen, and that false precision would
+propagate into every cell of the grid below.`
+  }, "What the market is already paying for", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", x.years, "-year reverse discounted cash flow")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Market-implied growth in free cash flow",
+    value: (x.implied || {}).growth_pct == null ? invNA : `${x.implied.growth_pct.toFixed(1)}% a year`,
+    basis: `${x.years} explicit years, then ${x.terminal_growth_pct}% for ever`,
+    tip: "The compound growth rate that makes the discounted cash flows equal today's enterprise value. One unknown, solved numerically."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Across the assumption grid",
+    value: grid.min_pct == null ? invNA : `${grid.min_pct.toFixed(1)}% to ${grid.max_pct.toFixed(1)}%`,
+    tip: "The same solve at a discount rate one point either side and at three terminal growth rates. A single implied-growth number reads like a measurement; the range is what makes it read like the output of assumptions somebody chose."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "What it has actually delivered",
+    value: x.historical_fcf_growth_pct == null ? invNA : `${x.historical_fcf_growth_pct.toFixed(1)}% a year`,
+    reason: x.historical_note,
+    tip: "Compound growth of trailing free cash flow across the reported history."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Expectations gap",
+    value: (x.gap || {}).gap_pp == null ? invNA : `${x.gap.gap_pp >= 0 ? "+" : ""}${x.gap.gap_pp.toFixed(1)} points`,
+    tone: (x.gap || {}).gap_pp == null ? "" : x.gap.gap_pp > 0 ? "down" : "up",
+    reason: (x.gap || {}).reason,
+    tip: (x.gap || {}).note || `The implied rate minus the
+realized one. A positive gap is not a sell signal; it is the size of the
+improvement being paid for in advance.`
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Enterprise value",
+    value: invMoney(x.enterprise_value),
+    basis: "Market value of the shares plus net debt",
+    tip: "What buying the whole company outright would cost, including taking on its borrowings net of cash."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Normalized free cash flow",
+    value: invMoney((x.normalized_fcf || {}).value),
+    reason: (x.normalized_fcf || {}).reason,
+    basis: `Median of the last ${(x.normalized_fcf || {}).n || "—"} trailing-twelve-month readings`,
+    tip: "The median rather than the latest, because one quarter of unusual working capital should not become the company's permanent cash generation."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Discount rate assumed",
+    value: dr.pct == null ? invNA : `${dr.pct.toFixed(2)}%`,
+    basis: dr.basis,
+    reason: dr.reason,
+    tip: "A stated assumption, displayed and varied across the grid below \u2014 not a computed cost of capital dressed up as a measurement."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Consensus growth",
+    value: invNA,
+    reason: (x.consensus_growth || {}).reason,
+    tip: "No free source publishes a five-year free-cash-flow consensus. This dashboard will not print one it does not have."
+  })), grid.available && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table inv-grid-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Rows are the discount rate; columns the growth rate assumed for ever after the explicit period. Both are assumptions, which is why this is a grid rather than a number."
+  }, "Discount rate \uFF3C terminal growth"), (grid.terminal_growths_pct || []).map(g => /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    key: g,
+    title: `Free cash flow assumed to grow ${g}% a year for ever after the explicit period.`
+  }, g.toFixed(1), "%")))), /*#__PURE__*/React.createElement("tbody", null, (grid.cells || []).map((row, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, (grid.rates_pct || [])[i] == null ? invNA : `${grid.rates_pct[i].toFixed(2)}%`)), row.map((c, j) => /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    key: j,
+    title: c.reason || ""
+  }, c.growth_pct == null ? invNA : `${c.growth_pct.toFixed(1)}%`))))))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, x.note));
+}
+
+// ── the structure comparator ──────────────────────────────────────────────
+
+const INV_STRUCT_TIP = {
+  SHARES: "Buy 100 shares and hold them to the same date every option below is marked at. The only structure where the capital and the notional are the same number.",
+  "PORTFOLIO SECURED PUT": "Sell one put and hold the FULL strike notional against it — strike × 100, never the broker's buying-power reduction. If the stock goes to zero the obligation is the full strike, whatever the margin clerk asked for.",
+  LEAPS: "Buy one long-dated call. The unspent capital is not free money: it earns the matching Treasury yield and the comparison counts it. The call receives no dividend.",
+  "BUY-WRITE": "Buy 100 shares and sell ONE call against them. A single expiration — this is deliberately not a model of selling a call every week, because that path depends on where the stock went between rolls.",
+  "BULL CALL SPREAD": "Buy the lower call, sell the higher one, at the prices actually quoted. Both the maximum gain and the maximum loss are fixed at the outset."
+};
+function InvComparator({
+  comp,
+  snap
+}) {
+  const c = comp || {};
+  const [greeks, setGreeks] = useState(false);
+  if (!c.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "Every structure is priced from the chain the app's own loader returns. Some tickers have no listed options at all, and long-dated contracts do not exist on every name."
+    }, c.reason || "No structure comparison could be built.");
+  }
+  const rows = c.rows || [];
+  const sens = c.sensitivity || {};
+  const dc = c.downside_context || {};
+  const sp = c.scenario_prices || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-comp"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Identical capital. Identical
+horizon. Identical scenario prices. That is the whole point of this table.
+
+Every row starts with the same account — 100 times the current share price,
+which is one round lot and therefore what one contract controls — and whatever
+a structure does not spend stays in that account earning the matching Treasury
+yield to expiration. Each is then judged on what the WHOLE account is worth at
+expiration.
+
+Nothing is ranked on return-on-premium, return-on-margin or
+return-on-buying-power-reduction. Those denominators reward a structure for the
+money it did NOT put to work, which is what makes leverage look like skill.`
+  }, "Structure comparison", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", c.capital == null ? "" : invMoney(c.capital, 0), " to ", invShortDate(c.expiration), c.dte == null ? "" : `, ${Math.round(c.dte)} days`), c.toss_up && /*#__PURE__*/React.createElement("span", {
+    className: "inv-conf inv-conf-warn",
+    title: sens.reason
+  }, "TOSS UP \u2014 PROBABILITY SENSITIVE")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: c.horizon_note
+  }, c.horizon_note), /*#__PURE__*/React.createElement("div", {
+    className: "inv-scenario-strip",
+    title: `The three fundamental
+scenario prices at THIS expiration, built from the same fair-value assumptions
+as the three-year bridge. The multiple travels only part of the way to its
+target over a shorter horizon — a forty-five-day contract does not re-rate a
+company — which is why these separate less than the long-horizon scenarios do.`
+  }, INV_SCENARIOS.map(([k, label]) => /*#__PURE__*/React.createElement("span", {
+    key: k,
+    className: "inv-scenario-pill"
+  }, label, " ", invPrice(sp[k])))), dc.available && /*#__PURE__*/React.createElement("div", {
+    className: "inv-warn",
+    title: dc.note
+  }, /*#__PURE__*/React.createElement("b", null, "The fundamental scenarios are not a price distribution."), " ", dc.note), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table inv-comp-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The structure."
+  }, "Structure"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Cash actually committed to the position out of the comparison account."
+  }, "Capital"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The full economic size of the obligation \u2014 strike \xD7 100 for a short put, 100 shares at today's price for stock, the width for a spread. Not the same as the maximum loss, and both are shown."
+  }, "Notional"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The worst the whole account can end at, against what it started with."
+  }, "Max loss"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The share price at which the position breaks even at expiration."
+  }, "Breakeven"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Profit or loss on the whole comparison account in the bear scenario."
+  }, "Bear"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Profit or loss on the whole comparison account in the base scenario."
+  }, "Base"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Profit or loss on the whole comparison account in the bull scenario."
+  }, "Bull"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Terminal wealth across the three scenarios weighted by the probabilities shown above."
+  }, "Weighted wealth"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Probability-weighted return on the FULL comparison capital, annualized. This is the ranking column."
+  }, "Return a year"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The worst of the three scenarios, in dollars."
+  }, "Worst case"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether the contract could actually be traded: open interest and the bid-ask spread."
+  }, "Liquidity"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How many earnings reports the position is expected to sit through. Only the first date is published; the rest step forward a quarter at a time."
+  }, "Events"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+    const t = r.terminal || {};
+    const liq = r.liquidity || {};
+    if (!r.eligible) {
+      return /*#__PURE__*/React.createElement("tr", {
+        key: r.kind,
+        className: "inv-row-off"
+      }, /*#__PURE__*/React.createElement("td", {
+        title: INV_STRUCT_TIP[r.kind]
+      }, /*#__PURE__*/React.createElement("b", null, r.kind)), /*#__PURE__*/React.createElement("td", {
+        colSpan: 12,
+        className: "inv-fv-why",
+        title: r.reason
+      }, r.reason));
+    }
+    const top = r.kind === c.preferred;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.kind,
+      className: top ? "inv-peer-self" : ""
+    }, /*#__PURE__*/React.createElement("td", {
+      title: INV_STRUCT_TIP[r.kind]
+    }, /*#__PURE__*/React.createElement("b", null, r.kind), top && /*#__PURE__*/React.createElement("span", {
+      className: "inv-tag",
+      title: "Highest return on the full comparison capital."
+    }, "preferred"), /*#__PURE__*/React.createElement("div", {
+      className: "inv-contract-line",
+      title: r.notional_note
+    }, invContractLine(r))), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invMoney(r.capital_allocated, 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: r.notional_note
+    }, invMoney(r.notional, 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num down"
+    }, invMoney(r.max_loss, 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(r.breakeven)), INV_SCENARIOS.map(([k]) => /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${((t[k] || {}).pnl || 0) >= 0 ? "up" : "down"}`,
+      key: k,
+      title: `Ends at ${invPrice((t[k] || {}).stock_price)} a share.`
+    }, invMoney((t[k] || {}).pnl, 0))), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invMoney(r.weighted_wealth, 0)), /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${(r.weighted_annualized_pct || 0) >= 0 ? "up" : "down"}`
+    }, /*#__PURE__*/React.createElement("b", null, r.weighted_annualized_pct == null ? invNA : `${r.weighted_annualized_pct.toFixed(2)}%`)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num down"
+    }, invMoney(r.worst_pnl, 0)), /*#__PURE__*/React.createElement("td", {
+      title: liq.label || ""
+    }, liq.ok == null ? "—" : liq.ok ? "tradeable" : "thin"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: (r.events_crossed || {}).reason || (r.events_crossed || {}).note || ""
+    }, (r.events_crossed || {}).count == null ? invNA : (r.events_crossed || {}).count));
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: sens.reason
+  }, sens.reason), /*#__PURE__*/React.createElement("details", {
+    className: "inv-exp inv-exp-inner",
+    open: greeks,
+    onToggle: ev => setGreeks(ev.target.open)
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "Delta, implied volatility and the rest. Useful to read, and deliberately not what decides anything here."
+  }, "Greeks and contract detail"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-exp-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "The structure."
+  }, "Structure"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How much the contract moves per dollar of share price. Filled from the app's own Black-Scholes when the feed does not carry it \u2014 the source is on the cell."
+  }, "Delta"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The contract's own implied volatility."
+  }, "Implied volatility"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "What the contract would be worth if it expired today."
+  }, "Intrinsic"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Everything above intrinsic value \u2014 what time and volatility are being charged for."
+  }, "Extrinsic"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Extrinsic value divided by the years to expiration: what the optionality costs per year."
+  }, "Extrinsic a year"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Open interest."
+  }, "Open interest"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Bid-ask spread as a share of the mid price."
+  }, "Spread"))), /*#__PURE__*/React.createElement("tbody", null, rows.filter(r => r.eligible && r.contract).map(r => {
+    const k = r.contract || {};
+    const liq = r.liquidity || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.kind
+    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.kind)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: k.delta_source || ""
+    }, k.delta == null ? invNA : k.delta.toFixed(3)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, k.iv == null ? invNA : `${(k.iv * 100).toFixed(1)}%`), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, k.intrinsic == null ? invNA : invPrice(k.intrinsic)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, k.extrinsic == null ? invNA : invPrice(k.extrinsic)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, k.extrinsic_per_year == null ? invNA : invPrice(k.extrinsic_per_year)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, liq.open_interest == null ? invNA : invCount(liq.open_interest)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, liq.spread_pct == null ? invNA : `${liq.spread_pct.toFixed(1)}%`));
+  })))), rows.filter(r => r.eligible).map(r => (r.notes || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    key: r.kind
+  }, /*#__PURE__*/React.createElement("b", null, r.kind), " \u2014 ", (r.notes || []).join(" "))))));
+}
+function invContractLine(r) {
+  const k = r.contract || {};
+  if (k.long_strike != null) {
+    return `${invPrice(k.long_strike)} / ${invPrice(k.short_strike)} · debit ${invPrice(k.net_debit)}`;
+  }
+  if (k.call_strike != null) {
+    return `call ${invPrice(k.call_strike)} · credit ${invPrice(k.call_credit)}`;
+  }
+  if (k.credit != null) {
+    return `${invPrice(k.strike)} put · credit ${invPrice(k.credit)} · assigned at ${invPrice(k.effective_assignment_cost)}`;
+  }
+  if (k.debit != null) {
+    return `${invPrice(k.strike)} call · debit ${invPrice(k.debit)}`;
+  }
+  return `${k.shares || 100} shares at ${invPrice(k.entry)}`;
+}
+
+// ── the short-dated put optimizer ─────────────────────────────────────────
+
+function InvBestPut({
+  put,
+  market,
+  snap
+}) {
+  const p = put || {};
+  const best = p.best;
+  const rows = p.candidates || [];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-put"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `The acquisition price comes FIRST. A
+strike above the buy zone is never considered however rich the premium — a put
+sold above the price you wanted to pay is not a way of buying the business
+cheaply, it is a bet with the business attached.
+
+Nothing here is decided by a delta band, an implied-volatility rank or a
+preferred number of days to expiration. Those are all displayed because they
+are useful to read, but the choice is made on what the whole comparison
+account is worth, which is a measurement rather than a convention.
+
+Where no put at or below the buy zone pays enough, the answer is WAIT —
+INSUFFICIENT PREMIUM AT DESIRED OWNERSHIP PRICE. The strike is never raised to
+find premium.
+
+Risk is sized at strike × 100 — the full notional — never the buying-power
+reduction a broker shows.`
+  }, "Best put at or below the buy zone", p.buy_zone != null && /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 buy zone ", invPrice(p.buy_zone))), p.headline && /*#__PURE__*/React.createElement("div", {
+    className: "inv-warn",
+    title: "The strike is never raised to find premium. That would be selling a put above the price this analysis says the shares are worth, which is the opposite of the point."
+  }, /*#__PURE__*/React.createElement("b", null, p.headline)), p.reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, p.reason), best && /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Strike",
+    value: invPrice((best.contract || {}).strike),
+    basis: `${invShortDate(best.expiration)}, ${Math.round(best.dte || 0)} days`,
+    tip: "At or below the buy zone by construction."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Premium",
+    value: invPrice((best.contract || {}).credit),
+    basis: "Bid \u2014 the only price a resting seller is promised",
+    tip: "The credit basis is the BID throughout this dashboard. A mid-price fill is a hope, not a floor."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Effective purchase price",
+    value: invPrice((best.contract || {}).effective_assignment_cost),
+    tip: "The strike less the premium already received. This is what the shares actually cost if the put is assigned."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Full notional risk",
+    value: invMoney(best.notional, 0),
+    basis: "Strike \xD7 100",
+    tip: "What can be put to you. The position is sized against this, never against the buying-power reduction a broker shows \u2014 if the stock goes to zero the obligation is the full strike whatever the margin clerk asked for."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Premium on full notional, annualized",
+    value: invPct((best.contract || {}).annualized_on_notional_pct),
+    tip: "The credit as a share of the full strike notional, scaled to a year. Shown for reading, not for ranking."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Below the buy zone",
+    value: invPct((best.contract || {}).below_buy_zone_pct),
+    tip: "How far under the price this analysis says the shares are worth the strike sits."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Return on the full comparison capital",
+    value: best.weighted_annualized_pct == null ? invNA : `${best.weighted_annualized_pct.toFixed(2)}% a year`,
+    tone: p.clears_hurdle ? "up" : "down",
+    tip: "Probability-weighted, on the same account every other structure is measured on."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Hurdle",
+    value: p.hurdle_pct == null ? invNA : `${p.hurdle_pct.toFixed(2)}% a year`,
+    reason: p.clears_hurdle === false ? "This put does not clear it." : "",
+    tip: "The matching Treasury yield plus a stated cushion \u2014 what the same cash earns doing nothing. A put that pays less than this is not worth the obligation."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Bid that would qualify",
+    value: p.required_bid == null ? invNA : invPrice(p.required_bid),
+    tip: "Solved rather than searched for: the wealth of a secured put is (capital + premium) \xD7 (1+r)^T less the expected obligation, so the premium that reaches the hurdle is plain algebra."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Delta",
+    value: (best.contract || {}).delta == null ? invNA : (best.contract || {}).delta.toFixed(3),
+    basis: (best.contract || {}).delta_source,
+    tip: "Displayed, not used to choose. There is deliberately no 0.15\u20130.25 delta rule here."
+  })), best && best.market_risk && /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Chance of finishing in the money",
+    value: invPct(best.market_risk.p_itm_model == null ? null : best.market_risk.p_itm_model * 100),
+    basis: best.market_risk.prob_basis,
+    tip: "A MODEL probability from the app's own volatility forecast, not a market-implied one and not a real-world frequency. It answers a different question from the fundamental scenarios and is kept in its own column."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Chance of touching the strike",
+    value: invPct(best.market_risk.p_touch_model == null ? null : best.market_risk.p_touch_model * 100),
+    tip: "The probability the price trades through the strike at any point before expiration, not just at the end."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Expected shortfall in the worst 5%",
+    value: invPrice(best.market_risk.es5_per_share),
+    tip: "The average loss per share across the worst one-in-twenty outcomes, after the credit. This is what the fundamental bear case does not tell you."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Model edge per share",
+    value: invPrice(best.market_risk.ev_per_share),
+    tone: (best.market_risk.ev_per_share || 0) >= 0 ? "up" : "down",
+    tip: "The bid less the model's fair value at the volatility forecast, less costs. Positive means the market is paying more than the app's own volatility model says the risk is worth."
+  })), market && market.available && /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Implied volatility, 30 day",
+    value: market.iv30 == null ? invNA : `${(market.iv30 * 100).toFixed(1)}%`,
+    basis: market.iv30_method,
+    tip: "What the option market is charging for the next month."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Expected realized volatility, 30 day",
+    value: market.erv30 == null ? invNA : `${(market.erv30 * 100).toFixed(1)}%`,
+    basis: market.erv_method,
+    tip: "What the app's own walk-forward volatility model expects over the same month. This is a THIRTY-DAY forecast and is deliberately never held up against a one-year contract."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Volatility risk premium",
+    value: (market.vrp || {}).vrp_points == null ? invNA : `${market.vrp.vrp_points.toFixed(1)} points`,
+    tone: ((market.vrp || {}).vrp_points || 0) >= 0 ? "up" : "down",
+    tip: "Implied minus expected realized. Positive is the seller being paid more than the model thinks the risk costs."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Premium type",
+    value: (market.classification || {}).class || invNA,
+    tip: "Whether the premium on offer is compensation for ordinary volatility, for a scheduled event, or both."
+  })), rows.length > 1 && /*#__PURE__*/React.createElement("details", {
+    className: "inv-exp inv-exp-inner"
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "Every put at or below the buy zone with a bid on it, best first."
+  }, "All qualifying strikes (", rows.length, ")"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-exp-body"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Expiration date."
+  }, "Expires"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Days to expiration."
+  }, "Days"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Strike price."
+  }, "Strike"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The bid \u2014 what a resting seller is promised."
+  }, "Bid"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Strike less the premium: what the shares cost if assigned."
+  }, "Assigned at"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How far the strike sits under the buy zone."
+  }, "Below zone"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Full strike notional, strike \xD7 100."
+  }, "Notional"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Credit as a share of full notional, scaled to a year."
+  }, "Annualized"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Probability-weighted return on the full comparison capital."
+  }, "On capital"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Model chance of finishing in the money."
+  }, "In the money"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether it could actually be traded."
+  }, "Liquidity"))), /*#__PURE__*/React.createElement("tbody", null, rows.map((r, i) => {
+    const k = r.contract || {};
+    const liq = r.liquidity || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: `${r.expiration}-${k.strike}-${i}`
+    }, /*#__PURE__*/React.createElement("td", null, invShortDate(r.expiration)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, Math.round(r.dte || 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.strike)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.credit)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.effective_assignment_cost)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPct(k.below_buy_zone_pct)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invMoney(r.notional, 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPct(k.annualized_on_notional_pct)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, r.weighted_annualized_pct == null ? invNA : `${r.weighted_annualized_pct.toFixed(2)}%`), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPct((r.market_risk || {}).p_itm_model == null ? null : r.market_risk.p_itm_model * 100)), /*#__PURE__*/React.createElement("td", {
+      title: liq.label
+    }, liq.ok ? "tradeable" : "thin"));
+  })))))));
+}
+
+// ── the LEAPS optimizer ───────────────────────────────────────────────────
+
+function InvBestLeaps({
+  comp
+}) {
+  const c = comp || {};
+  const pool = c.leaps_pool || [];
+  const ivh = c.iv_context || {};
+  const rv = c.realized_vol || {};
+  if (!pool.length) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "Long-dated contracts do not exist on every ticker, and the ones that do are not always quoted two-sided."
+    }, c.reason || "No long-dated calls could be priced for this ticker.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-leaps"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Long-dated calls, chosen through the
+structure comparison rather than by a preferred delta. There is deliberately no
+0.75–0.85 rule, no implied-volatility percentile gate and no implied-to-realized
+ceiling: those are conventions, and the economics on identical capital are a
+measurement.
+
+ExpectedRV30 is deliberately ABSENT from this panel. It is a thirty-day
+volatility forecast, and holding a two-year contract's implied volatility up
+against it and calling the difference an edge compares a two-year price with a
+one-month forecast. What a long contract can honestly be judged against is what
+this stock's volatility has actually been over windows of the same length.`
+  }, "Best long-dated calls", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", pool.length, " contracts priced")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Realized volatility over this tenor",
+    value: rv.rv_tenor == null ? invNA : `${(rv.rv_tenor * 100).toFixed(1)}%`,
+    reason: rv.reason,
+    basis: rv.tenor_trading_days ? `${rv.tenor_trading_days} trading days — the same length as the contract` : "",
+    tip: "Measured over a window the same length as the contract, which is the only realized-volatility figure a long-dated implied volatility can honestly be read against."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Realized volatility, one year",
+    value: rv.rv_1y == null ? invNA : `${(rv.rv_1y * 100).toFixed(1)}%`,
+    tip: "Long-run context."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Realized volatility, three years",
+    value: rv.rv_3y == null ? invNA : `${(rv.rv_3y * 100).toFixed(1)}%`,
+    tip: "Longer-run context."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Where this implied volatility sits in its own history",
+    value: ivh.percentile == null ? invNA : `${invOrdinal(ivh.percentile)} percentile`,
+    reason: ivh.reason,
+    basis: ivh.n ? `${ivh.n} recorded observations near this tenor` : "",
+    tip: "Against this dashboard's OWN record of long-dated implied volatility at a similar tenor. It starts on the day this was first recorded and is never back-filled \u2014 no free archive of past long-dated option prices exists, and inventing one would be a fabricated history."
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Expiration date."
+  }, "Expires"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Days to expiration."
+  }, "Days"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Strike price."
+  }, "Strike"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How much the contract moves per dollar of share price. Filled from Black-Scholes where the feed does not carry it."
+  }, "Delta"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The bid."
+  }, "Bid"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The offer \u2014 the honest execution price for a buyer."
+  }, "Ask"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "What it would be worth if it expired today."
+  }, "Intrinsic"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Everything above intrinsic value."
+  }, "Extrinsic"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Extrinsic value per year to expiration: what the optionality costs annually."
+  }, "Extrinsic a year"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The share price above which the contract makes money at expiration."
+  }, "Breakeven"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The contract's own implied volatility."
+  }, "Implied volatility"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Open interest."
+  }, "Open interest"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Profit or loss on the whole comparison account in the bear scenario."
+  }, "Bear"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Base scenario."
+  }, "Base"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Bull scenario."
+  }, "Bull"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Probability-weighted terminal wealth on identical capital."
+  }, "Weighted wealth"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The worst the account can end at against what it started with."
+  }, "Max loss"))), /*#__PURE__*/React.createElement("tbody", null, pool.map((r, i) => {
+    const k = r.contract || {};
+    const liq = r.liquidity || {};
+    const t = r.terminal || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: `${r.expiration}-${k.strike}-${i}`
+    }, /*#__PURE__*/React.createElement("td", null, invShortDate(r.expiration)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, Math.round(r.dte || 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.strike)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: k.delta_source || ""
+    }, k.delta == null ? invNA : k.delta.toFixed(3)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(liq.bid)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(liq.ask)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.intrinsic)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.extrinsic)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(k.extrinsic_per_year)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(r.breakeven)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, k.iv == null ? invNA : `${(k.iv * 100).toFixed(1)}%`), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, liq.open_interest == null ? invNA : invCount(liq.open_interest)), INV_SCENARIOS.map(([s]) => /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${((t[s] || {}).pnl || 0) >= 0 ? "up" : "down"}`,
+      key: s
+    }, invMoney((t[s] || {}).pnl, 0))), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invMoney(r.weighted_wealth, 0)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num down"
+    }, invMoney(r.max_loss, 0)));
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, "Every row is marked on the same account of 100 times the current share price, so a cheap contract is not flattered by the money it leaves uninvested \u2014 that money earns the matching Treasury yield and the comparison counts it."));
+}
+
+// ── the management plan ───────────────────────────────────────────────────
+
+function InvPlan({
+  plan
+}) {
+  const p = plan || {};
+  if (!p.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "A management plan describes how a position ends. Where no position is recommended there is nothing to manage, and the conditions that would change the answer are stated with the verdict instead."
+    }, p.reason || "No position is recommended.");
+  }
+  const row = (r, i) => /*#__PURE__*/React.createElement("div", {
+    className: "inv-planrow",
+    key: `${r.trigger}-${i}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-planrow-trigger"
+  }, r.trigger), /*#__PURE__*/React.createElement("span", {
+    className: "inv-planrow-detail"
+  }, r.detail));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-plan"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `What would end this position,
+decided before it is opened. No orders are placed anywhere in this dashboard
+and nothing here is an alert — it is a written condition per exit, so the
+decision to close is made on the thesis rather than on the screen colour of the
+day.
+
+No orders are placed anywhere in this dashboard. This is a written plan, not an
+automation, and nothing here fires an alert.`
+  }, "Management plan", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 for ", p.verdict)), (p.specific || []).map(row), (p.common || []).map(row), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, p.note));
+}
+
+// ── the watchlist scanner ─────────────────────────────────────────────────
+
+function InvScanner({
+  apiFetch,
+  onPick
+}) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [sortKey, setSortKey] = useState("premium_to_buy_zone_pct");
+  const [asc, setAsc] = useState(true);
+  const load = React.useCallback(() => {
+    setBusy(true);
+    apiFetch("/api/invest/scan").then(r => r.json()).then(j => setData(j)).catch(() => setData({
+      rows: [],
+      error: true
+    })).finally(() => setBusy(false));
+  }, [apiFetch]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const d = data || {};
+  const rows = (d.rows || []).slice();
+  rows.sort((a, b) => {
+    const x = a[sortKey],
+      y = b[sortKey];
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    if (typeof x === "string") return asc ? x.localeCompare(y) : y.localeCompare(x);
+    return asc ? x - y : y - x;
+  });
+  const head = (key, label, tip, num) => /*#__PURE__*/React.createElement("th", {
+    className: num ? "scan-num" : "",
+    key: key,
+    title: `${tip}\n\nClick to sort.`,
+    onClick: () => {
+      if (key === sortKey) setAsc(!asc);else {
+        setSortKey(key);
+        setAsc(true);
+      }
+    },
+    style: {
+      cursor: "pointer"
+    }
+  }, label, sortKey === key ? asc ? " ▲" : " ▼" : "");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-scanner"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Every starred watchlist name, read
+from the snapshots this tab has already stored. A full build reads SEC filings,
+a peer group and an option chain, so doing that for a whole watchlist inside
+one page load would be a multi-minute wait — names with nothing stored say so
+and a few are built in the background per visit.
+
+There is deliberately NO summed investment score. A column that added Quality
+to Growth to Valuation would let one strong reading carry a weak one, and it
+would be sortable, which is worse: it would become the column everybody sorts
+by.`
+  }, "Watchlist scan", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", d.n_recorded || 0, " of ", d.n || 0, " recorded", d.n_missing ? `, ${d.n_missing} not yet` : ""), /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost inv-scan-refresh",
+    onClick: load,
+    disabled: busy,
+    title: "Re-read the stored snapshots."
+  }, busy ? "Loading…" : "Refresh")), (d.building || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, "Building ", (d.building || []).join(", "), " in the background \u2014 refresh in a moment."), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, head("symbol", "Ticker", "Ticker symbol."), head("price", "Price", "Current share price.", true), head("quality_label", "Quality", "How good the business is. Not blended with anything else."), head("growth_label", "Growth", "Revenue and earnings growth."), head("valuation_label", "Valuation", "Cheap or expensive against its own history and its peers. 100 means cheap."), head("revisions_label", "Revisions", "Whether analysts are raising or cutting."), head("value_trap_level", "Trap risk", "Whether the business is deteriorating."), head("fair_value_base", "Base fair value", "The highest-confidence method's value.", true), head("buy_zone", "Buy zone", "The price at which the shares are worth owning.", true), head("premium_to_buy_zone_pct", "To buy zone", "How far the price sits above (positive) or below (negative) the buy zone.", true), head("preferred_structure", "Preferred structure", "Which way of taking the position won on identical capital."), head("entry_verdict", "Verdict", "The Phase 3 entry answer."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+    if (r.status !== "recorded") {
+      return /*#__PURE__*/React.createElement("tr", {
+        key: r.symbol,
+        className: "inv-row-off"
+      }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
+        colSpan: 11,
+        className: "inv-fv-why",
+        title: r.reason
+      }, r.reason));
+    }
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.symbol,
+      onClick: () => onPick && onPick(r.symbol),
+      style: {
+        cursor: onPick ? "pointer" : "default"
+      },
+      title: r.entry_reason || r.name
+    }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(r.price)), /*#__PURE__*/React.createElement("td", null, r.quality_label || invNA), /*#__PURE__*/React.createElement("td", null, r.growth_label || invNA), /*#__PURE__*/React.createElement("td", null, r.valuation_label || invNA), /*#__PURE__*/React.createElement("td", null, r.revisions_label || invNA), /*#__PURE__*/React.createElement("td", {
+      className: INV_TRAP_TONE[r.value_trap_level] === "down" ? "down" : ""
+    }, r.value_trap_level || invNA), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(r.fair_value_base)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invPrice(r.buy_zone)), /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${(r.premium_to_buy_zone_pct || 0) <= 0 ? "up" : "down"}`
+    }, r.premium_to_buy_zone_pct == null ? invNA : `${r.premium_to_buy_zone_pct >= 0 ? "+" : ""}${r.premium_to_buy_zone_pct.toFixed(1)}%`), /*#__PURE__*/React.createElement("td", null, r.preferred_structure || invNA), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+      className: `inv-entry inv-entry-sm inv-entry-${INV_ENTRY_TONE[r.entry_verdict] || "mut"}`
+    }, r.entry_verdict || invNA)));
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, d.note));
+}
+
 // ── the tab ───────────────────────────────────────────────────────────────
 
 function InvestTab({
@@ -970,7 +2181,7 @@ function InvestTab({
   // A set, not a single key: an accordion where opening one section closes
   // another fights the reader, and a controlled `open` prop on <details>
   // conflicts with the browser toggling it itself.
-  const [open, setOpen] = useState(() => new Set(["valuation"]));
+  const [open, setOpen] = useState(() => new Set(["fairvalue", "structures"]));
   const toggle = (key, want) => setOpen(prev => {
     const next = new Set(prev);
     if (want === undefined ? next.has(key) : !want) next.delete(key);else next.add(key);
@@ -1076,9 +2287,37 @@ function InvestTab({
     title: d.business_type.note
   }, d.business_type.label), /*#__PURE__*/React.createElement(InvCyclePill, {
     cycle: d.earnings_cycle
-  })), /*#__PURE__*/React.createElement(InvVerdictPill, {
-    verdict: v.verdict
   })), /*#__PURE__*/React.createElement("div", {
+    className: "inv-hero-verdicts"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-vpair",
+    title: "What to DO at today's price: which structure, or why nothing."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-vpair-label"
+  }, "Action"), /*#__PURE__*/React.createElement(InvEntryPill, {
+    entry: d.entry
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "inv-vpair",
+    title: "What the BUSINESS looks like, independent of what it costs today \u2014 the four-vector reading from the section below."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-vpair-label"
+  }, "Business"), /*#__PURE__*/React.createElement(InvVerdictPill, {
+    verdict: v.verdict
+  })))), /*#__PURE__*/React.createElement(InvDecisionBar, {
+    snap: d,
+    fair: d.fair_value,
+    er: d.expected_return,
+    structures: d.structures
+  }), d.entry && (d.entry.reasons || []).length > 0 && /*#__PURE__*/React.createElement("ul", {
+    className: "inv-reasons inv-entry-reasons"
+  }, (d.entry.reasons || []).map((r, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, r))), d.entry && (d.entry.what_would_change || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "inv-change",
+    title: "Every WAIT, AVOID and TOSS UP names the exact thing that would change it. A verdict that cannot say what it is waiting for is a mood."
+  }, (d.entry.what_would_change || []).map((c, i) => /*#__PURE__*/React.createElement("div", {
+    key: i
+  }, c))), /*#__PURE__*/React.createElement("div", {
     className: "inv-tiles"
   }, INV_DIMENSIONS.map(([key, label, tip]) => /*#__PURE__*/React.createElement(InvScoreTile, {
     key: key,
@@ -1090,7 +2329,15 @@ function InvestTab({
   })), /*#__PURE__*/React.createElement(InvTrapTile, {
     trap: d.value_trap,
     onOpen: k => toggle(k, true)
-  })), /*#__PURE__*/React.createElement("ul", {
+  })), /*#__PURE__*/React.createElement("details", {
+    className: "inv-exp inv-exp-inner inv-why",
+    open: open.has("why"),
+    onToggle: e => toggle("why", e.target.open)
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "The business reading behind the decision above: the four independent vectors and what each of them found."
+  }, "Why \u2014 the business verdict is ", v.verdict || "INSUFFICIENT DATA"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-exp-body"
+  }, /*#__PURE__*/React.createElement("ul", {
     className: "inv-reasons"
   }, (v.reasons || []).map((r, i) => /*#__PURE__*/React.createElement("li", {
     key: i
@@ -1099,7 +2346,7 @@ function InvestTab({
     title: "Every WAIT or AVOID says what would have to change. The price is the level at which the earnings yield reaches this company's OWN median valuation \u2014 not a universal multiple."
   }, (v.what_would_change || []).map((c, i) => /*#__PURE__*/React.createElement("div", {
     key: i
-  }, c))), d.profile && /*#__PURE__*/React.createElement(InvMoatTags, {
+  }, c))))), d.profile && /*#__PURE__*/React.createElement(InvMoatTags, {
     tags: d.profile.moat_tags,
     profile: d.profile
   })), /*#__PURE__*/React.createElement("div", {
@@ -1203,7 +2450,25 @@ function InvestTab({
     target: "_blank",
     rel: "noopener noreferrer",
     title: "Open the annual report on EDGAR."
-  }, "read the filing")))), section("valuation", "Valuation against its own history", "Where this company is priced today against where it has been priced before, using only what was public on each of those days.", /*#__PURE__*/React.createElement(InvValuationHistory, {
+  }, "read the filing")))), section("fairvalue", "Fair value", "Bear, base and bull from methods that are never averaged, the confidence that comes from how far apart they are, and the price this analysis says the shares are worth.", /*#__PURE__*/React.createElement(InvFairValue, {
+    fair: d.fair_value,
+    snap: d
+  })), section("expected", "Expected return", "Where today's price gets you over the scenario horizon, with dividends handled as cash rather than added to the price return.", /*#__PURE__*/React.createElement(InvExpectedReturn, {
+    er: d.expected_return
+  })), section("implied", "What the market is already paying for", "The reverse discounted cash flow, solved for one unknown and shown across the grid of assumptions it depends on.", /*#__PURE__*/React.createElement(InvImplied, {
+    imp: d.implied_expectations
+  })), section("structures", "Structure comparison", "Every way of taking this position, on identical capital at an identical expiration on identical scenario prices.", /*#__PURE__*/React.createElement(InvComparator, {
+    comp: (d.structures || {}).comparison,
+    snap: d
+  })), section("bestput", "Best put", "The short-dated put optimizer, gated at the buy zone and never above it.", /*#__PURE__*/React.createElement(InvBestPut, {
+    put: (d.structures || {}).put,
+    market: (d.structures || {}).market_risk,
+    snap: d
+  })), section("bestleaps", "Best long-dated calls", "Long-dated calls chosen through the comparison rather than by a preferred delta, with tenor-matched volatility context.", /*#__PURE__*/React.createElement(InvBestLeaps, {
+    comp: (d.structures || {}).comparison
+  })), section("plan", "Management plan", "What would end this position, decided before it is opened.", /*#__PURE__*/React.createElement(InvPlan, {
+    plan: d.plan
+  })), section("valuation", "Valuation against its own history", "Where this company is priced today against where it has been priced before, using only what was public on each of those days.", /*#__PURE__*/React.createElement(InvValuationHistory, {
     vh: d.valuation_history,
     valuation: d.valuation,
     symbol: sym
@@ -1229,6 +2494,9 @@ function InvestTab({
     dd: d.drawdowns
   })), section("experimental", "Revision underreaction (experimental)", "An untested idea, recorded daily so it can be tested honestly later. It takes no part in the verdict.", /*#__PURE__*/React.createElement(InvUnderreaction, {
     u: d.underreaction
+  })), section("scanner", "Watchlist scan", "Every starred name, read from the snapshots already stored. No column here is a total.", /*#__PURE__*/React.createElement(InvScanner, {
+    apiFetch: apiFetch,
+    onPick: setSym
   })), /*#__PURE__*/React.createElement("div", {
     className: "inv-foot",
     title: `This tab stores one snapshot of every

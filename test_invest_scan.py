@@ -708,5 +708,275 @@ class TestConfigFlattening(InvestBase):
         S._CFG_CACHE["cfg"] = None
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 3
+# ══════════════════════════════════════════════════════════════════════════
+
+import fair_value as FV                                # noqa: E402
+import invest_options as IO                            # noqa: E402
+import structures as ST                                # noqa: E402
+
+
+def phase3_chain(spot=10.0, today=None):
+    """A synthetic chain with one short-dated and two long-dated expirations."""
+    today = today or datetime.now().date()
+    out = {"underlying": {"symbol": "SMPL", "last": spot},
+           "expirations": [], "chains": {}, "source": "test"}
+    for d in (45, 400, 550):
+        t = d / 365.0
+        calls, puts = [], []
+        k = 4.0
+        while k <= 16.0:
+            tv = round(0.30 * spot * (t ** 0.5) * 0.4, 2)
+            c_int = max(0.0, spot - k)
+            p_int = max(0.0, k - spot)
+            row = {"volume": 40, "openInterest": 400, "iv": 0.30, "delta": None}
+            calls.append({**row, "strike": k, "bid": round(c_int + tv, 2),
+                          "ask": round(c_int + tv + 0.05, 2)})
+            puts.append({**row, "strike": k, "bid": round(p_int + tv, 2),
+                         "ask": round(p_int + tv + 0.05, 2)})
+            k += 1.0
+        key = (today + timedelta(days=d)).isoformat()
+        out["chains"][key] = {"calls": calls, "puts": puts}
+        out["expirations"].append(key)
+    return out
+
+
+class Phase3Base(ValuationBase):
+    def setUp(self):
+        super().setUp()
+        self.chain = phase3_chain()
+        IO._CHAIN_MEM.clear()
+        S.configure(quote_fn=lambda s: self.quote,
+                    estimates_fn=lambda s: self.estimates,
+                    ten_year_fn=lambda: self.ten_year,
+                    daily_fn=lambda s, d: self.bars,
+                    chain_fn=lambda s: self.chain,
+                    rate_fn=lambda y: {"pct": 4.0, "as_of": "2026-08-17",
+                                       "source": "UST curve"},
+                    data_dir=self.dir)
+        S._MEM.clear()
+        S._CFG_CACHE["cfg"] = None
+
+    def tearDown(self):
+        IO._CHAIN_MEM.clear()
+        IO.configure()
+        S._CFG_CACHE["cfg"] = None
+        super().tearDown()
+
+
+class TestGrowthHistory(Phase3Base):
+    def test_growth_is_measured_over_the_horizon_being_projected(self):
+        facts = F.company_facts(self.SYM)
+        h = S.eps_growth_history(facts, horizon_years=3.0)
+        self.assertTrue(h["horizon_matched"])
+        self.assertGreaterEqual(h["n"], S.MIN_GROWTH_WINDOWS)
+        self.assertIn("3-year compound", h["note"])
+
+    def test_a_short_window_falls_back_to_one_year_rates_and_says_so(self):
+        facts = F.company_facts(self.SYM)
+        h = S.eps_growth_history(facts, horizon_years=6.0)
+        self.assertFalse(h["horizon_matched"])
+        self.assertIn("ONE-year growth rates", h["note"])
+
+    def test_the_window_stops_at_a_share_basis_break(self):
+        f = F.company_facts(self.SYM)
+        shares = f["facts"]["us-gaap"][
+            "WeightedAverageNumberOfDilutedSharesOutstanding"]["units"]["shares"]
+        # A clean four-for-one split partway through the series.
+        for r in shares[:10]:
+            r["val"] = 400.0
+        h = S.eps_growth_history(f, horizon_years=3.0)
+        self.assertIsNotNone(h["basis"]["from"])
+        self.assertIn("share basis changes", h["basis"]["reason"])
+
+
+class TestFairValueBlock(Phase3Base):
+    def test_builds_from_the_companys_own_history(self):
+        vh = S.valuation_history(self.SYM, years=5, raw=True)
+        snap = S.snapshot(self.SYM, force=True)
+        cfg, _h = S.config()
+        out = S.fair_value_block(snap, vh, {"level": "BROAD BENCHMARK", "rows": []},
+                                 F.company_facts(self.SYM), cfg)
+        self.assertTrue(out["available"])
+        self.assertLessEqual(out["bear"], out["base"])
+        self.assertLessEqual(out["base"], out["bull"])
+        self.assertIsNotNone(out["buy_zone"])
+
+    def test_the_forward_peer_method_is_offered_and_refused(self):
+        vh = S.valuation_history(self.SYM, years=5, raw=True)
+        snap = S.snapshot(self.SYM, force=True)
+        cfg, _h = S.config()
+        out = S.fair_value_block(snap, vh, {"level": "DIRECT PEERS", "rows": []},
+                                 F.company_facts(self.SYM), cfg)
+        fwd = next(m for m in out["methods"] if m["key"] == "peers_forward")
+        self.assertFalse(fwd["available"])
+
+    def test_a_bank_is_refused_outright(self):
+        vh = S.valuation_history(self.SYM, years=5, raw=True)
+        snap = S.snapshot(self.SYM, force=True)
+        snap["business_type"] = {"type": "BANK", "note": "banks differ"}
+        cfg, _h = S.config()
+        out = S.fair_value_block(snap, vh, {}, F.company_facts(self.SYM), cfg)
+        self.assertFalse(out["available"])
+        self.assertEqual(out["verdict"], FV.SPECIALIZED)
+
+
+class TestExpectedReturnBlock(Phase3Base):
+    def test_scenarios_and_a_weighted_result(self):
+        vh = S.valuation_history(self.SYM, years=5, raw=True)
+        snap = S.snapshot(self.SYM, force=True)
+        cfg, _h = S.config()
+        out = S.expected_return_block(snap, vh, F.company_facts(self.SYM), {}, cfg)
+        self.assertTrue(out["available"])
+        self.assertIsNotNone(out["weighted_total_cagr_pct"])
+        for s in ("bear", "base", "bull"):
+            self.assertTrue(out["scenarios"][s]["available"])
+
+    def test_the_analyst_basis_is_shown_beside_but_never_mixed_in(self):
+        vh = S.valuation_history(self.SYM, years=5, raw=True)
+        snap = S.snapshot(self.SYM, force=True)
+        cfg, _h = S.config()
+        out = S.expected_return_block(snap, vh, F.company_facts(self.SYM), {}, cfg)
+        note = out["forward_growth_context"]["note"]
+        self.assertIn("NOT mixed", note)
+        self.assertIn("adjusted", out["forward_growth_context"]["basis"])
+
+    def test_dividends_are_read_from_the_filings_or_explained(self):
+        vh = S.valuation_history(self.SYM, years=5, raw=True)
+        snap = S.snapshot(self.SYM, force=True)
+        cfg, _h = S.config()
+        out = S.expected_return_block(snap, vh, F.company_facts(self.SYM), {}, cfg)
+        d = out["dividends_detail"]
+        self.assertTrue(d["reason"] or d["value"] is not None)
+
+
+class TestImpliedExpectationsBlock(Phase3Base):
+    def block(self):
+        snap = S.snapshot(self.SYM, force=True)
+        cfg, _h = S.config()
+        return S.implied_expectations_block(snap, F.company_facts(self.SYM), cfg)
+
+    def test_enterprise_value_needs_net_debt_and_says_so_when_absent(self):
+        out = self.block()
+        if not out["available"]:
+            self.assertTrue(out["reason"])
+        else:
+            self.assertIn("enterprise_value", out)
+
+    def test_consensus_growth_is_never_invented(self):
+        out = self.block()
+        self.assertFalse(out["consensus_growth"]["available"])
+        self.assertIn("will not print one it does not have",
+                      out["consensus_growth"]["reason"])
+
+
+class TestPhase3Payload(Phase3Base):
+    def test_every_phase_3_block_is_present(self):
+        p = S.payload(self.SYM, force=True)
+        for key in ("fair_value", "expected_return", "implied_expectations",
+                    "structures", "entry", "plan", "dividends",
+                    "scenario_probabilities"):
+            self.assertIn(key, p)
+
+    def test_the_raw_valuation_arrays_never_reach_the_browser(self):
+        p = S.payload(self.SYM, force=True)
+        self.assertNotIn("raw_values", p["valuation_history"])
+
+    def test_an_unreadable_filer_still_gets_every_key(self):
+        p = S.payload("NOSUCHTICKER")
+        for key in ("fair_value", "expected_return", "implied_expectations",
+                    "structures", "entry", "plan"):
+            self.assertIn(key, p)
+        self.assertEqual(p["entry"]["verdict"], "INSUFFICIENT DATA")
+
+    def test_the_entry_verdict_is_one_of_the_named_answers(self):
+        p = S.payload(self.SYM, force=True)
+        self.assertIn(p["entry"]["verdict"], IO.ENTRY_VERDICTS)
+
+    def test_every_wait_or_avoid_says_what_would_change_it(self):
+        p = S.payload(self.SYM, force=True)
+        if p["entry"]["verdict"] in ("WAIT", "AVOID", "TOSS UP"):
+            self.assertTrue(p["entry"]["what_would_change"])
+
+
+class TestPhase3Snapshot(Phase3Base):
+    def test_the_daily_row_records_the_state_that_produced_the_answer(self):
+        S.payload(self.SYM, force=True)
+        row = S.load_history(self.SYM)[-1]
+        for field in ("fair_value_bear", "fair_value_base", "fair_value_bull",
+                      "fair_value_confidence", "credited_fair_value",
+                      "buy_zone", "premium_to_buy_zone_pct",
+                      "expected_cagr_weighted_pct", "expected_price_base",
+                      "implied_fcf_growth_pct", "scenario_probabilities",
+                      "preferred_structure", "comparison_toss_up",
+                      "structure_returns_pct", "csp_strike", "leaps_strike",
+                      "buy_write_call_strike", "entry_verdict", "entry_reason",
+                      "entry_flip_trigger", "config_hash"):
+            self.assertIn(field, row)
+
+    def test_old_rows_are_never_rewritten(self):
+        S.snapshot(self.SYM, force=True)          # a Phase 1 shaped row
+        hist, _latest = S._paths(self.SYM)
+        rows = S.load_history(self.SYM)
+        rows[0]["date"] = "2020-01-01"
+        rows[0].pop("buy_zone", None)
+        hist.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        S._MEM.clear()
+        S.payload(self.SYM, force=True)
+        after = S.load_history(self.SYM)
+        old = next(r for r in after if r["date"] == "2020-01-01")
+        self.assertNotIn("buy_zone", old)         # untouched, not back-filled
+        self.assertIn("buy_zone", after[-1])
+
+
+class TestScanner(Phase3Base):
+    def test_a_recorded_ticker_produces_a_compact_row(self):
+        S.payload(self.SYM, force=True)
+        out = S.scan([self.SYM], build_budget=0)
+        self.assertEqual(out["n"], 1)
+        row = out["rows"][0]
+        self.assertEqual(row["status"], "recorded")
+        for field in ("quality_label", "growth_label", "valuation_label",
+                      "revisions_label", "value_trap_level", "fair_value_base",
+                      "buy_zone", "premium_to_buy_zone_pct",
+                      "preferred_structure", "entry_verdict"):
+            self.assertIn(field, row)
+
+    def test_there_is_no_summed_investment_score(self):
+        S.payload(self.SYM, force=True)
+        out = S.scan([self.SYM], build_budget=0)
+        row = out["rows"][0]
+        for key in row:
+            self.assertNotIn("total_score", key)
+            self.assertNotIn("investment_score", key)
+        self.assertIn("no column here is a total", out["note"].lower())
+
+    def test_an_unrecorded_ticker_says_so_rather_than_showing_blanks(self):
+        out = S.scan(["NEVERSEEN"], build_budget=0)
+        row = out["rows"][0]
+        self.assertEqual(row["status"], "not recorded yet")
+        self.assertIn("never been opened", row["reason"])
+        self.assertEqual(out["n_missing"], 1)
+
+    def test_the_background_build_budget_is_respected(self):
+        out = S.scan(["AAA", "BBB", "CCC", "DDD", "EEE"], build_budget=2)
+        self.assertLessEqual(len(out["building"]), 2)
+
+
+class TestPhase3Config(Phase3Base):
+    def test_every_phase_3_group_is_flattened(self):
+        cfg, _h = S.config(refresh=True)
+        for key in ("min_margin_of_safety", "confidence_credit",
+                    "horizon_years", "growth_cap_pct",
+                    "multiple_reversion_years", "reverse_dcf_years",
+                    "equity_risk_premium_pct", "toss_up_margin_pct",
+                    "csp_min_dte", "leaps_max_dte", "min_open_interest"):
+            self.assertIn(key, cfg, key)
+        for group in ("fair_value", "expected_return", "structures",
+                      "contracts", "implied_expectations"):
+            self.assertNotIn(group, cfg)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

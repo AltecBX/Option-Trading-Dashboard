@@ -508,6 +508,84 @@
       "cycle_pre_days": 14,
       "cycle_fresh_days": 21,
       "cycle_stale_days": 100
+    },
+    "_phase3": "Phase 3 (INVESTMENT.md). Turns the tab from 'is this company attractive' into 'what is it worth, what does today's price imply, and which structure is economically best'. Bear/Base/Bull comes from valid basis-compatible methods only, never an average of them; the confidence decides how far above the pessimistic value the credited value is allowed to travel, so LOWER confidence LOWERS the price we will pay. Every structure is compared on identical capital at an identical expiration on identical scenario prices.",
+    "fair_value": {
+      "_doc": "The three valuation methods and how they combine. The percentiles run on the company's own YIELD history, where a HIGH yield is a CHEAP price \u2014 which is why the pessimistic case sits at the high-yield percentile. The disagreement bands are a stated convention, not a tested result: nothing here has verified that a 30% gap between two methods predicts anything. They exist so a wide disagreement visibly costs the valuation its confidence instead of being averaged quietly away.",
+      "self_bear_yield_percentile": 0.85,
+      "self_base_yield_percentile": 0.5,
+      "self_bull_yield_percentile": 0.15,
+      "peer_bear_percentile": 0.25,
+      "peer_bull_percentile": 0.75,
+      "fcf_bear_yield_percentile": 0.85,
+      "fcf_base_yield_percentile": 0.5,
+      "fcf_bull_yield_percentile": 0.15,
+      "fcf_normalize_periods": 5,
+      "spread_high_max": 0.25,
+      "spread_moderate_max": 0.5,
+      "spread_low_max": 1.0,
+      "_credit_doc": "Credited fair value = Bear + credit x (Base - Bear). This is the correct direction: multiplying the margin of safety by the confidence would shrink the discount demanded exactly when the valuation is least trustworthy.",
+      "confidence_credit": {
+        "HIGH": 1.0,
+        "MODERATE": 0.65,
+        "LOW": 0.35,
+        "UNRELIABLE": 0.0
+      },
+      "min_margin_of_safety": 0.2
+    },
+    "expected_return": {
+      "_doc": "The scenario bridge. Growth rates are percentiles of the company's OWN realized compound earnings growth measured over windows the same length as the projection \u2014 percentiles of one-year growth are not percentiles of three-year growth, and compounding the former produced a bull case of seven hundred dollars a share for Apple. Exit multiples are percentiles of the multiple this company has actually traded at. Dividends are cash: they are compounded to the horizon at the matching Treasury yield and enter terminal wealth, never added to the price return as a percentage. Buyback yield is not added at all \u2014 a buyback raises earnings per share, which is already the first contribution.",
+      "horizon_years": 3.0,
+      "growth_bear_percentile": 0.25,
+      "growth_base_percentile": 0.5,
+      "growth_bull_percentile": 0.75,
+      "growth_floor_pct": -30.0,
+      "growth_cap_pct": 40.0,
+      "multiple_bear_percentile": 0.25,
+      "multiple_base_percentile": 0.5,
+      "multiple_bull_percentile": 0.75,
+      "_reversion_doc": "How long the multiple is assumed to take to travel from where it is today to the scenario target. It exists so the same scenario assumptions can price a three-year share thesis and a forty-five-day put without pretending a six-week contract re-rates the whole way.",
+      "multiple_reversion_years": 3.0,
+      "prob_bear": 0.25,
+      "prob_base": 0.5,
+      "prob_bull": 0.25
+    },
+    "implied_expectations": {
+      "_doc": "The reverse discounted cash flow, solved by bisection on a bracketed interval for ONE unknown: the five-year free-cash-flow growth the price is already paying for. The discount rate is deliberately NOT a per-company weighted average cost of capital \u2014 a beta estimated from five years of daily returns moves by whole points depending on the window, and that false precision would propagate into every cell of the grid. It is the 10-year Treasury plus a stated premium, varied across the grid.",
+      "reverse_dcf_years": 5,
+      "equity_risk_premium_pct": 4.5,
+      "terminal_growth_pct": 3.0,
+      "sensitivity_rate_step_pct": 1.0,
+      "sensitivity_terminal_growths_pct": [
+        2.0,
+        3.0,
+        4.0
+      ]
+    },
+    "structures": {
+      "_doc": "The comparator. Comparison capital is 100 x the current share price \u2014 one round lot, which is what one contract controls. Nothing is ever ranked on return-on-premium, return-on-margin or return-on-buying-power-reduction: those denominators reward a structure for the money it did NOT put to work, which is what makes leverage look like skill. Cash a structure does not spend earns the matching Treasury yield to expiration.",
+      "toss_up_margin_pct": 0.5,
+      "probability_shift": 0.05,
+      "min_dividend_extrinsic_cushion": 1.0,
+      "min_put_premium_over_treasury_pp": 1.0
+    },
+    "contracts": {
+      "_doc": "Which contracts are looked at. These are SEARCH WINDOWS, not selection rules: no delta band, no implied-volatility rank and no preferred days-to-expiration decides anything. Those are all displayed because they are useful to read, but the choice is made on what the whole comparison account is worth, which is a measurement rather than a convention.",
+      "csp_min_dte": 7,
+      "csp_max_dte": 75,
+      "leaps_min_dte": 270,
+      "leaps_max_dte": 730,
+      "max_candidates_per_side": 60,
+      "max_csp_expirations": 8,
+      "max_leaps_expirations": 6,
+      "spread_long_band_pct": 20.0,
+      "spread_short_min_pct": 5.0,
+      "spread_short_max_pct": 60.0,
+      "max_spread_combos": 240,
+      "min_open_interest": 25,
+      "max_bid_ask_spread_pct": 25.0,
+      "leaps_iv_history_days": 400,
+      "leaps_tenor_tolerance": 0.3
     }
   }
 }

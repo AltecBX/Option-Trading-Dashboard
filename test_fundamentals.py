@@ -600,5 +600,145 @@ class TestPhase2Concepts(unittest.TestCase):
         self.assertAlmostEqual(m["value"], 46.0)
 
 
+# ── Phase 3 ────────────────────────────────────────────────────────────────
+
+class TestDividendsPerShare(unittest.TestCase):
+    """Coca-Cola taught this one: its DividendsPerShareDeclared series stops
+    in 2018 while CashPaid runs to today, so a fixed priority list would read
+    a 2018 dividend and call it current."""
+
+    def test_a_trailing_dividend_is_summed_from_the_quarters(self):
+        gaap = four_quarters("CommonStockDividendsPerShareDeclared",
+                             "USD/shares", [0.25, 0.25, 0.26, 0.26])
+        m = F.metric(facts(us_gaap=gaap), "dividends_per_share")
+        self.assertAlmostEqual(m["value"], 1.02)
+
+    def test_the_live_concept_wins_over_the_dead_one(self):
+        gaap = {}
+        gaap.update(four_quarters("CommonStockDividendsPerShareCashPaid",
+                                  "USD/shares", [0.50, 0.51, 0.52, 0.53]))
+        # A stale sibling with two ancient points must not be chosen.
+        gaap["CommonStockDividendsPerShareDeclared"] = concept("USD/shares", [
+            fact("2017-01-01", "2017-03-31", 0.10, filed="2017-05-01"),
+            fact("2017-04-01", "2017-06-30", 0.10, filed="2017-08-01"),
+        ])
+        m = F.metric(facts(us_gaap=gaap), "dividends_per_share")
+        self.assertEqual(m["concept"], "CommonStockDividendsPerShareCashPaid")
+        self.assertAlmostEqual(m["value"], 2.06)
+
+    def test_a_non_payer_gets_a_reason_not_a_zero(self):
+        m = F.metric(facts(us_gaap={}), "dividends_per_share")
+        self.assertIsNone(m["value"])
+        self.assertTrue(m["reason"])
+
+    def test_it_is_registered_with_a_basis(self):
+        self.assertIn("dividends_per_share", F.BASIS)
+
+
+class TestPerShareBasis(unittest.TestCase):
+    """Apple taught this one. Its fiscal 2018 twelve-month earnings per share
+    was last filed BEFORE the 2020 four-for-one split and the nine-month
+    figure after it, so differencing a fourth quarter out of the two produced
+    −6.01 a share for a quarter the company earned money in."""
+
+    def split_fixture(self):
+        """The same three periods filed twice, the second time post-split."""
+        rows = [
+            # pre-split filing
+            fact("2024-01-01", "2024-12-31", 40.0, form="10-K", filed="2025-02-01"),
+            fact("2023-01-01", "2023-12-31", 28.0, form="10-K", filed="2025-02-01"),
+            # post-split filing repeats both at a quarter of the value
+            fact("2024-01-01", "2024-12-31", 10.0, form="10-K", filed="2026-02-01"),
+            fact("2023-01-01", "2023-12-31", 7.0, form="10-K", filed="2026-02-01"),
+            fact("2025-01-01", "2025-12-31", 12.0, form="10-K", filed="2026-02-01"),
+        ]
+        return concept("USD/shares", rows)
+
+    def test_a_clean_split_ratio_is_recovered_and_applied(self):
+        got = F.latest_filed(self.split_fixture(), "USD/shares")
+        by_end = {r["end"]: r for r in got}
+        # Both older periods were restated in the newer filing, so they are
+        # already on today's basis and need no factor.
+        self.assertAlmostEqual(by_end["2024-12-31"]["val"], 10.0)
+        self.assertAlmostEqual(by_end["2023-12-31"]["val"], 7.0)
+
+    def test_a_period_never_restated_is_rebased_anyway(self):
+        rows = self.split_fixture()["units"]["USD/shares"]
+        # An old period that only the pre-split filing ever mentioned.
+        rows.append(fact("2022-01-01", "2022-12-31", 24.0, form="10-K",
+                         filed="2025-02-01"))
+        got = F.latest_filed(concept("USD/shares", rows), "USD/shares")
+        old = next(r for r in got if r["end"] == "2022-12-31")
+        self.assertAlmostEqual(old["val"], 6.0)      # 24 × 1/4
+        self.assertAlmostEqual(old["basis_factor"], 0.25)
+
+    def test_an_ordinary_restatement_is_never_undone(self):
+        """Apple's 2010 revenue-recognition change moved earnings per share by
+        a factor of 1.2649 between two filings. Nothing in the split table is
+        within reach of it, and it must survive untouched."""
+        rows = [
+            fact("2009-01-01", "2009-12-31", 10.0, form="10-K", filed="2010-01-01"),
+            fact("2008-01-01", "2008-12-31", 8.0, form="10-K", filed="2010-01-01"),
+            fact("2009-01-01", "2009-12-31", 12.649, form="10-K", filed="2011-01-01"),
+            fact("2008-01-01", "2008-12-31", 10.119, form="10-K", filed="2011-01-01"),
+        ]
+        got = F.latest_filed(concept("USD/shares", rows), "USD/shares")
+        for r in got:
+            self.assertEqual(r["basis_factor"], 1.0)
+
+    def test_dollar_amounts_are_never_rebased(self):
+        rows = [
+            fact("2024-01-01", "2024-12-31", 4000.0, form="10-K", filed="2025-02-01"),
+            fact("2023-01-01", "2023-12-31", 2800.0, form="10-K", filed="2025-02-01"),
+            fact("2024-01-01", "2024-12-31", 1000.0, form="10-K", filed="2026-02-01"),
+            fact("2023-01-01", "2023-12-31", 700.0, form="10-K", filed="2026-02-01"),
+            fact("2022-01-01", "2022-12-31", 2400.0, form="10-K", filed="2025-02-01"),
+        ]
+        got = F.latest_filed(concept("USD", rows), "USD")
+        old = next(r for r in got if r["end"] == "2022-12-31")
+        self.assertAlmostEqual(old["val"], 2400.0)
+
+    def test_a_single_filing_needs_no_factors(self):
+        rows = [fact("2024-01-01", "2024-12-31", 4.0, filed="2025-02-01")]
+        self.assertEqual(F._basis_factors(rows), {})
+
+    def test_snap_split_only_accepts_clean_ratios(self):
+        self.assertAlmostEqual(F._snap_split(0.2523), 0.25)
+        self.assertAlmostEqual(F._snap_split(7.02), 7.0)
+        self.assertIsNone(F._snap_split(1.2649))
+        self.assertIsNone(F._snap_split(1.03))
+        self.assertIsNone(F._snap_split(None))
+
+
+class TestBasisBreaks(unittest.TestCase):
+    """Where a split cannot be recovered at all — Apple's 2014 seven-for-one
+    sits between two filings that share no period — the series stops being
+    comparable and has to say so."""
+
+    def shares(self, vals, ends=None):
+        ends = ends or ["2023-12-31", "2024-12-31", "2025-12-31", "2026-12-31"]
+        rows = []
+        for i, (e, v) in enumerate(zip(ends, vals)):
+            rows.append(fact(f"{e[:4]}-01-01", e, v, form="10-K",
+                             filed=f"{int(e[:4]) + 1}-02-01"))
+        return facts(us_gaap={"WeightedAverageNumberOfDilutedSharesOutstanding":
+                              concept("shares", rows)})
+
+    def test_no_break_on_an_ordinary_series(self):
+        out = F.consistent_basis_from(self.shares([1000, 990, 980, 970]))
+        self.assertIsNone(out["from"])
+        self.assertEqual(out["breaks"], [])
+
+    def test_a_clean_multiple_is_flagged_as_a_basis_break(self):
+        out = F.consistent_basis_from(self.shares([1000, 990, 4950, 4900]))
+        self.assertEqual(out["from"], "2025-12-31")
+        self.assertIn("share basis changes", out["reason"])
+
+    def test_ordinary_dilution_is_not_a_basis_break(self):
+        # A 20% issuance is real dilution, not a split, and the history keeps it.
+        out = F.consistent_basis_from(self.shares([1000, 1200, 1250, 1300]))
+        self.assertIsNone(out["from"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

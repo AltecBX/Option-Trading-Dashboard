@@ -234,6 +234,11 @@ for p in [
     f"/api/invest/history?symbol={S}&years=5",
     f"/api/invest/valuation?symbol={S}&years=5",
     f"/api/invest/peers?symbol={S}",
+    # Phase 3: the structures/entry payload and the watchlist scanner. Both
+    # must answer 200 with a reason when there is no option chain to read, not
+    # 500 — "no chain for this ticker" is an answer, not a failure.
+    f"/api/invest/structures?symbol={S}",
+    "/api/invest/scan?symbols=FAKE&budget=0",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",
