@@ -1,13 +1,20 @@
 (function () {
-// tab-invest.jsx — LAZY CHUNK (v4.41), loaded on first Investment open.
+// tab-invest.jsx — LAZY CHUNK (v4.42), loaded on first Investment open.
 //
-// The long-horizon workstation. Four questions, in this order:
-//   1. Is this a strong, profitable business?
-//   2. Are revenue and earnings per share growing?
-//   3. Is it cheap against its OWN fundamentals?
-//   4. At what price would it be worth owning?
+// The long-horizon workstation. Six questions now:
+//   1. How good is this business?              -> QUALITY
+//   2. How strong is its growth?               -> GROWTH
+//   3. Cheap or expensive against ITSELF?      -> VALUATION (own history)
+//   4. Cheap or expensive against its PEERS?   -> VALUATION (peer percentile)
+//   5. Are analyst expectations improving?     -> REVISIONS
+//   6. Is the cheapness actually a trap?       -> VALUE TRAP RISK
 //
-// Endpoints: GET /api/invest?symbol=X · /api/invest/history · /api/invest/config
+// The four vectors are shown side by side and NEVER blended into one score.
+// A single number would let strong growth hide an expensive price, which is
+// the exact mistake this layout exists to prevent.
+//
+// Endpoints: GET /api/invest?symbol=X · /api/invest/history
+//          · /api/invest/valuation · /api/invest/peers · /api/invest/config
 //
 // House rules honoured here:
 //   · Nothing renders 0 to mean "unknown". Missing is "N/A" with the reason
@@ -22,14 +29,38 @@ const INV_VERDICT_TONE = {
   WATCH: "warn",
   WAIT: "warn",
   AVOID: "down",
-  "INSUFFICIENT DATA": "mut"
+  "INSUFFICIENT DATA": "mut",
+  "SPECIALIZED MODEL REQUIRED": "mut"
 };
 const INV_VERDICT_TIP = {
-  ATTRACTIVE: "Profitable, growing, and the earnings yield clears the 10-year " + "Treasury by the cushion set in the configuration. This is the tab saying " + "the four questions all answered yes — not a recommendation, and not a score.",
-  WATCH: "Worth following. Either the valuation is close but not yet at the " + "cushion, or the valuation is fine and something in the business is not.",
-  WAIT: "Nothing wrong with the business, but you are being asked to pay more " + "than this dashboard's yield rule accepts. The price and the earnings " + "figure that WOULD change the answer are both stated below.",
-  AVOID: "A gate failed outright — the company is losing money, or revenue is " + "shrinking while analysts cut. The specific reason is listed.",
-  "INSUFFICIENT DATA": "There is not enough on file to answer honestly. This is " + "a real answer, not an error: some filers report only once a year, some " + "report in a foreign currency, and some have too little history."
+  ATTRACTIVE: "Good business, growing, priced at the cheap end of its OWN " + "history and of its peer group, with analysts not cutting and no cluster of " + "deterioration signals. Not a recommendation and not a score — a set of " + "conditions you can re-check by hand from the numbers on this screen.",
+  WATCH: "Worth following. Either the price is reasonable but not at the cheap " + "end, or the price is fine and something in the business is not.",
+  WAIT: "Nothing wrong with the business — it is priced near the expensive end " + "of its own range. The price and the earnings figure that would move the " + "answer are both stated below, and they come from THIS company's own " + "median valuation rather than from a universal multiple.",
+  AVOID: "A gate failed outright: the company is losing money, or several " + "deterioration signals are firing at once. Cheapness with that pattern is " + "the classic value trap, and this dashboard will not call it attractive.",
+  "INSUFFICIENT DATA": "There is not enough on file to answer honestly. This is " + "a real answer, not an error: some filers report only once a year, some " + "report in a foreign currency, and some have too little history.",
+  "SPECIALIZED MODEL REQUIRED": "This is a bank, insurer, broker or property " + "trust. The generic scorecard leans on return on invested capital, free " + "cash flow and net debt, none of which mean for these businesses what they " + "mean for an operating company. A model built for them is not written yet, " + "and a generic one dressed up as an answer would be worse than none."
+};
+
+// The four vectors, in the order they are read.
+const INV_DIMENSIONS = [["quality", "Quality", "How good the business is: what it earns on the " + "capital it uses, how much of that profit turns into cash, whether margins " + "are widening, whether the share count is shrinking or being diluted away, " + "how much revenue goes out as stock to employees, and how levered it is. " + "Ranked against comparable companies where a peer group exists."], ["growth", "Growth", "Revenue growth, earnings growth and the forward " + "estimate, ranked against comparable companies. The margin and share-count " + "contributions come from the earnings breakdown further down rather than " + "being recomputed, so the same movement is never counted twice."], ["valuation", "Valuation", "Cheap or expensive — but against ITSELF and " + "against comparable businesses, never against a universal multiple. 100 " + "means cheap. A great company is allowed to trade at a high multiple; what " + "matters is whether it is high FOR THIS COMPANY."], ["revisions", "Revisions", "Whether analysts are raising or cutting their " + "numbers. Shows NOT RATED below four covering analysts, because three " + "people agreeing is three people agreeing, not a signal."]];
+const INV_TRAP_TONE = {
+  "LOW RISK": "up",
+  "MODERATE RISK": "warn",
+  "HIGH RISK": "down",
+  "NOT RATED": "mut"
+};
+const INV_TRAP_TIP = {
+  "LOW RISK": "None of the deterioration signals are firing. Cheapness here " + "is not obviously the market pricing in decline.",
+  "MODERATE RISK": "At least one thing is moving the wrong way. Worth reading " + "the list before treating a low valuation as an opportunity.",
+  "HIGH RISK": "Several things are deteriorating at once. A stock that looks " + "cheap with this pattern is the classic value trap — the price fell " + "BECAUSE the business is getting worse, and this dashboard will not call " + "it attractive.",
+  "NOT RATED": "Almost none of the deterioration signals could be measured for " + "this filer, so silence here is not evidence that nothing is wrong."
+};
+const INV_CYCLE_TIP = {
+  "PRE-EARNINGS": "Reports within the next two weeks. Trailing figures and " + "estimates can both move sharply on the day.",
+  "POST-EARNINGS FRESH": "Reported recently, so the trailing figures and the " + "estimates are as current as they get.",
+  "NORMAL": "Mid-cycle: the last report is digested and the next is not close.",
+  "STALE": "The last report is old enough that the trailing figures describe a " + "quarter the business has already moved past.",
+  "UNKNOWN": "No earnings dates are available for this ticker."
 };
 
 // ── formatting ────────────────────────────────────────────────────────────
@@ -90,6 +121,17 @@ function invShortDate(s) {
     day: "numeric",
     year: "numeric"
   });
+}
+// 21 -> "21st". "21th percentile" undercuts every careful sentence near it.
+function invOrdinal(v) {
+  if (v == null || !isFinite(v)) return invNA;
+  const n = Math.round(v);
+  if (n % 100 >= 10 && n % 100 <= 20) return `${n}th`;
+  return `${n}${{
+    1: "st",
+    2: "nd",
+    3: "rd"
+  }[n % 10] || "th"}`;
 }
 function invAge(hours) {
   if (hours == null || !isFinite(hours)) return "";
@@ -408,6 +450,511 @@ in either line.`
   }, n)));
 }
 
+// ── the four-vector header ────────────────────────────────────────────────
+
+function InvScoreTile({
+  dimKey,
+  label,
+  tip,
+  block,
+  onOpen
+}) {
+  const b = block || {};
+  const score = b.score;
+  const has = score != null && isFinite(score);
+  const tone = !has ? "mut" : score >= 60 ? "up" : score >= 40 ? "warn" : "down";
+  const detail = [tip, b.coverage ? `Built from ${b.coverage}.` : null, b.peer_ranked ? "Ranked against comparable companies." : has ? "Scored on absolute bands — too few comparable companies to rank against." : null, !has && b.reason ? `Not rated: ${b.reason}` : null].filter(Boolean).join("\n\n");
+  return /*#__PURE__*/React.createElement("button", {
+    className: `inv-tile inv-tile-${tone}`,
+    title: detail,
+    onClick: () => onOpen && onOpen(dimKey)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-tile-label"
+  }, label), /*#__PURE__*/React.createElement("b", {
+    className: "inv-tile-value"
+  }, b.label || "NOT RATED"), /*#__PURE__*/React.createElement("span", {
+    className: "inv-tile-bar",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("i", {
+    style: {
+      width: `${has ? Math.max(2, Math.min(100, score)) : 0}%`
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "inv-tile-num"
+  }, has ? `${Math.round(score)} / 100` : "—"));
+}
+function InvTrapTile({
+  trap,
+  onOpen
+}) {
+  const t = trap || {};
+  const level = t.level || "NOT RATED";
+  const tone = INV_TRAP_TONE[level] || "mut";
+  const detail = [INV_TRAP_TIP[level], t.n_active ? `${t.n_active} signal${t.n_active === 1 ? "" : "s"} firing.` : null, (t.unknown || []).length ? `${t.unknown.length} could not be measured.` : null, t.reason || null].filter(Boolean).join("\n\n");
+  return /*#__PURE__*/React.createElement("button", {
+    className: `inv-tile inv-tile-${tone}`,
+    title: detail,
+    onClick: () => onOpen && onOpen("trap")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-tile-label"
+  }, "Value trap risk"), /*#__PURE__*/React.createElement("b", {
+    className: "inv-tile-value"
+  }, level), /*#__PURE__*/React.createElement("span", {
+    className: "inv-tile-sub"
+  }, (t.active || []).length ? `${t.active.length} signal${t.active.length === 1 ? "" : "s"} firing` : "no deterioration signals firing"));
+}
+function InvCyclePill({
+  cycle
+}) {
+  const c = cycle || {};
+  const state = c.state || "UNKNOWN";
+  return /*#__PURE__*/React.createElement("span", {
+    className: "inv-cycle",
+    title: `${INV_CYCLE_TIP[state] || ""}${c.reason ? "\n\n" + c.reason : ""}`
+  }, state);
+}
+
+// ── valuation against its own history ─────────────────────────────────────
+
+function InvRangeBar({
+  dist,
+  cheapHigh,
+  fmt
+}) {
+  const d = dist || {};
+  if (!d.available) return null;
+  const lo = d.min,
+    hi = d.max;
+  const span = hi - lo || 1;
+  const at = v => `${Math.max(0, Math.min(100, (v - lo) / span * 100))}%`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-range",
+    title: `The bar spans everything this measure has been over the window: ${fmt(lo)} at the low end to ${fmt(hi)} at the high. The marks are the 10th percentile, the median and the 90th; the pin is where it stands today.`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-range-track"
+  }, /*#__PURE__*/React.createElement("i", {
+    className: "inv-range-fill",
+    style: {
+      left: at(d.p10),
+      width: `calc(${at(d.p90)} - ${at(d.p10)})`
+    }
+  }), /*#__PURE__*/React.createElement("em", {
+    className: "inv-range-median",
+    style: {
+      left: at(d.median)
+    }
+  }), /*#__PURE__*/React.createElement("b", {
+    className: "inv-range-now",
+    style: {
+      left: at(d.current)
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "inv-range-ends"
+  }, /*#__PURE__*/React.createElement("span", null, fmt(lo)), /*#__PURE__*/React.createElement("span", null, fmt(hi))));
+}
+function InvValuationHistory({
+  vh,
+  valuation,
+  symbol
+}) {
+  const v = vh || {};
+  const [win, setWin] = useState("5y");
+  if (!v.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "A valuation history needs a daily price for every day it measures and reported figures lined up against those days. Where either is missing it is left out rather than filled in."
+    }, v.reason || `No valuation history could be built for ${symbol}.`);
+  }
+  const dists = v.distributions || {};
+  const regime = v.regime || {};
+  const measures = [["earnings_yield_pct", x => x == null ? invNA : `${x.toFixed(1)}%`], ["fcf_yield_pct", x => x == null ? invNA : `${x.toFixed(1)}%`], ["trailing_pe", x => x == null ? invNA : `${x.toFixed(1)}×`]];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-vhist"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Where this company is valued today
+against where it has been valued before, using only figures that were public
+on each of those days. Reported earnings enter the history on the day they were
+FILED, not the day the quarter ended, so nothing on this chart was unknowable
+at the time. Prices and per-share figures both come from split-restated
+sources, so a stock split leaves no step.
+
+This is the answer to "cheap compared with itself" — the question a universal
+price/earnings threshold cannot ask.`
+  }, "Valuation against its own history", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", v.n_days, " trading days, ", invShortDate(v.from), " to ", invShortDate(v.to)), /*#__PURE__*/React.createElement("span", {
+    className: "inv-yearsel"
+  }, ["3y", "5y"].map(w => /*#__PURE__*/React.createElement("button", {
+    key: w,
+    className: `inv-yearbtn${win === w ? " on" : ""}`,
+    onClick: () => setWin(w),
+    title: `Measure against the last ${w === "3y" ? "three" : "five"} years.`
+  }, w.toUpperCase())))), regime.shifted && /*#__PURE__*/React.createElement("div", {
+    className: "inv-warn",
+    title: `The typical level over the last
+${regime.recent_years} years is ${regime.recent_median != null ? regime.recent_median.toFixed(1) : "—"},
+against ${regime.earlier_median != null ? regime.earlier_median.toFixed(1) : "—"} over the period before it — a move of
+${regime.shift != null ? regime.shift.toFixed(1) : "—"}, which is larger than the earlier period's own
+10th-to-90th-percentile spread of ${regime.earlier_spread != null ? regime.earlier_spread.toFixed(1) : "—"}. That is a change of
+level rather than a wiggle, so the older half of this history describes a
+different market for this stock and the verdict leans on it less.`
+  }, /*#__PURE__*/React.createElement("b", null, "REGIME SHIFT DETECTED"), " \u2014 the level this stock is valued at has moved. The older part of the history below is a weaker guide than usual, and the verdict reduces its reliance on it."), measures.map(([key, fmt]) => {
+    const block = dists[key] || {};
+    const d = block[win] || {};
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-vrow",
+      key: key
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "inv-vrow-head"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "inv-vrow-label",
+      title: key === "earnings_yield_pct" ? "Trailing earnings per share divided by the share price. Higher is cheaper. This is the measure the verdict uses, because a yield can be placed beside a bond yield and a multiple cannot." : key === "fcf_yield_pct" ? "Free cash flow divided by the market value of the company, on each day's price and each day's known share count. Higher is cheaper." : "Share price divided by trailing earnings. Lower is cheaper. Shown because everyone reads it."
+    }, block.label || key), /*#__PURE__*/React.createElement("b", {
+      className: `inv-vrow-now${d.cheap_percentile == null ? "" : d.cheap_percentile >= 60 ? " up" : d.cheap_percentile <= 40 ? " down" : ""}`
+    }, fmt(block.current)), /*#__PURE__*/React.createElement("span", {
+      className: "inv-vrow-pct",
+      title: d.cheap_percentile == null ? "" : `Today sits at the ${invOrdinal(d.cheap_percentile)} percentile of this company's own ${win === "3y" ? "three" : "five"}-year range, measured so that 100 always means cheap. ${d.n} observations.`
+    }, d.cheap_percentile == null ? invNA : `${invOrdinal(d.cheap_percentile)} pct`)), d.available ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(InvRangeBar, {
+      dist: {
+        ...d,
+        current: block.current
+      },
+      cheapHigh: block.cheap_when_high,
+      fmt: fmt
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "inv-vrow-stats"
+    }, /*#__PURE__*/React.createElement("span", {
+      title: "The 10th percentile \u2014 cheaper than this only one day in ten."
+    }, "10th ", fmt(d.p10)), /*#__PURE__*/React.createElement("span", {
+      title: "The middle of the range over this window."
+    }, "Median ", fmt(d.median)), /*#__PURE__*/React.createElement("span", {
+      title: "The 90th percentile \u2014 more expensive than this only one day in ten."
+    }, "90th ", fmt(d.p90)), /*#__PURE__*/React.createElement("span", {
+      className: "muted",
+      title: "How many trading days went into this range."
+    }, d.n, " days"))) : /*#__PURE__*/React.createElement("div", {
+      className: "inv-note"
+    }, d.reason || block.reason || "Not enough history in this window."));
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "Forward price/earnings is deliberately absent from this panel. There is no free archive of what analysts expected on a past date, so a historical forward multiple would have to be invented. It stays a current-only figure until this dashboard's own daily snapshots have accumulated enough real history."
+  }, "Forward price to earnings is not shown here on purpose: no free record of past analyst expectations exists, so a historical forward multiple would have to be fabricated. It becomes available once this dashboard's own daily snapshots have accumulated enough of their own history."));
+}
+
+// ── quality detail ────────────────────────────────────────────────────────
+
+const INV_QUALITY_TIP = {
+  "Return on invested capital": "Operating profit after tax, divided by the " + "equity and net debt funding the business. The single best one-number read " + "on whether a company turns capital into profit.",
+  "Free cash flow conversion": "How much of reported profit actually shows up " + "as cash. Persistently below 100% means the earnings are being consumed by " + "working capital or capital spending.",
+  "Operating margin trend": "Points of operating margin gained or lost per " + "year, fitted across the reported history. A snapshot cannot tell a " + "business holding a steady margin from one grinding downward at the same level.",
+  "Share count trend": "How fast the share count is changing per year. " + "Negative is buybacks, positive is dilution — every share issued is a " + "slice of your claim on the same earnings.",
+  "Stock compensation as a share of revenue": "Pay settled in stock rather " + "than cash. It does not appear in cash flow but it is a real cost, borne " + "by shareholders through dilution.",
+  "Net debt to operating profit": "Borrowings, less cash, against operating " + "profit before depreciation. How many years of earnings the debt represents."
+};
+function InvQuality({
+  quality
+}) {
+  const q = quality || {};
+  const comps = q.components || [];
+  const fmt = (key, v) => {
+    if (v == null) return invNA;
+    if (key === "leverage") return `${v.toFixed(1)}×`;
+    if (key === "operating_margin_trend" || key === "share_count_trend") return `${v >= 0 ? "+" : ""}${v.toFixed(1)} pts/yr`;
+    return `${v.toFixed(1)}%`;
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-quality"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Six inputs chosen to be
+non-duplicative, each scored independently and each explaining its own result.
+Coverage varies genuinely by filer and industry — Microsoft tags no combined
+depreciation figure at all, and several large companies do not report operating
+income in machine-readable form. A missing input is a missing input, never a
+failing grade and never a zero.`
+  }, "Quality", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", q.coverage || "", q.peer_ranked ? " · ranked against comparable companies" : " · scored on absolute bands")), comps.map(c => /*#__PURE__*/React.createElement("div", {
+    className: "inv-qrow",
+    key: c.key
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-qrow-label",
+    title: INV_QUALITY_TIP[c.label] || c.label
+  }, c.label), /*#__PURE__*/React.createElement("b", {
+    className: `inv-qrow-val${c.value == null ? " inv-na" : ""}`,
+    title: c.reason || c.scored_against || ""
+  }, c.reason === "SPECIALIZED MODEL REQUIRED" ? "N/A for this business type" : fmt(c.key, c.value)), /*#__PURE__*/React.createElement("span", {
+    className: "inv-qrow-bar",
+    "aria-hidden": "true"
+  }, c.score != null && /*#__PURE__*/React.createElement("i", {
+    className: c.score >= 60 ? "up" : c.score >= 40 ? "warn" : "down",
+    style: {
+      width: `${Math.max(2, Math.min(100, c.score))}%`
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "inv-qrow-score",
+    title: c.score == null ? c.reason || "Not scored." : `${Math.round(c.score)} of 100 — ${c.scored_against || ""}`
+  }, c.score == null ? "—" : Math.round(c.score)))), q.reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, q.reason));
+}
+
+// ── earnings and revisions ────────────────────────────────────────────────
+
+function InvRevisions({
+  revisions,
+  snap
+}) {
+  const r = revisions || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-revisions"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `What analysts expect, and whether
+they are raising or cutting. Below four covering analysts this shows NOT RATED
+rather than a number: three analysts agreeing is three people agreeing.
+
+These estimates are on the analysts' ADJUSTED basis. Every trailing figure
+elsewhere on this tab is GAAP, exactly as filed with the SEC. The two are shown
+side by side and never combined inside one ratio.`
+  }, "Earnings and revisions", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", r.label || "NOT RATED", r.analyst_count ? ` · ${Math.round(r.analyst_count)} analysts` : "")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "This year's earnings estimate",
+    value: invPrice(r.current_year_eps),
+    reason: r.reason,
+    basis: r.basis,
+    tip: "Analyst consensus for the current fiscal year, adjusted basis."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Next year's earnings estimate",
+    value: invPrice(r.next_year_eps),
+    reason: r.reason,
+    basis: r.basis,
+    tip: "Analyst consensus for the following fiscal year."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Forward earnings growth",
+    value: invSignedPct(r.forward_growth_pct),
+    tone: r.forward_growth_pct == null ? "" : r.forward_growth_pct >= 0 ? "up" : "down",
+    reason: r.reason,
+    tip: "Next year's estimate against this year's, both on the same analyst basis."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Revisions, last 30 days",
+    value: invSignedPct(r.change_30d),
+    tone: r.change_30d == null ? "" : r.change_30d >= 0 ? "up" : "down",
+    reason: r.reason,
+    basis: r.change_basis,
+    tip: "Net share of covering analysts who RAISED rather than cut in the last 30 days. This is revision breadth, not a percentage change in the estimate itself."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Revisions, last 90 days",
+    value: invSignedPct(r.change_90d),
+    tone: r.change_90d == null ? "" : r.change_90d >= 0 ? "up" : "down",
+    reason: r.reason,
+    basis: r.change_basis,
+    tip: "The same measure over ninety days."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Analyst coverage",
+    value: r.analyst_count == null ? invNA : `${Math.round(r.analyst_count)} analysts`,
+    reason: r.reason,
+    tip: "How many analysts publish an estimate. Below four, the revision rating is withheld."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Analysts raising",
+    value: r.up == null ? invNA : Math.round(r.up),
+    reason: r.reason,
+    tip: "Analysts who raised their estimate in the window."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Analysts cutting",
+    value: r.down == null ? invNA : Math.round(r.down),
+    reason: r.reason,
+    tip: "Analysts who cut their estimate in the window."
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, r.gaap_note));
+}
+
+// ── peers ─────────────────────────────────────────────────────────────────
+
+function InvPeers({
+  peers,
+  symbol,
+  snap
+}) {
+  const p = peers || {};
+  const rows = p.rows || [];
+  const val = p.valuation || {};
+  if (p.status === "building") {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "research-empty",
+      title: "Each peer's filings are downloaded once and then cached, so this is slow only the first time a ticker is opened."
+    }, "Building the peer group for ", symbol, " \u2014 each member's filings are read once and then cached. Refresh in a few seconds.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-peers"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Comparable companies, chosen by the
+industry code the SEC itself assigns to every filer. Most specific first:
+a curated list, then the same four-digit code, then the three-digit industry
+group, then the two-digit sector. A group needs at least five members to be a
+distribution rather than a handful of companies; below that it falls back a
+level and says so here.
+
+A broad-benchmark group is shown for context but is NOT used to rank this
+company's valuation — ranking a bank's earnings yield against a software
+company's is arithmetic, not comparison.`
+  }, "Peers", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", p.level || "none", p.sic ? ` · industry code ${p.sic}${p.sic_description ? ` (${p.sic_description})` : ""}` : "", p.curated ? " · curated list" : "")), p.reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, p.reason), val.available && /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Group price to earnings, aggregate",
+    value: invRatio(val.aggregate_pe),
+    basis: val.basis,
+    tip: "Total market value of the profitable members divided by their total earnings \u2014 what an index-level multiple actually means. NEVER an average of the members' ratios: one member earning almost nothing produces a ratio in the hundreds and drags an average somewhere no member is."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Median member price to earnings",
+    value: invRatio(val.median_member_pe),
+    tip: "The middle member's ratio, shown beside the aggregate so a group carried by one enormous constituent is visible."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "This company",
+    value: invRatio(snap && snap.trailing_pe),
+    tip: "This company's own trailing price to earnings, for comparison against the two figures beside it."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Members priced",
+    value: `${val.n_profitable} of ${val.n}`,
+    reason: val.n_excluded ? `${val.n_excluded} excluded as loss-making: ${(val.excluded || []).join(", ")}` : "",
+    tip: "How many members had positive earnings and so could enter the aggregate multiple. Loss-makers are excluded and named \u2014 a group where half the members lose money is a different group."
+  })), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Ticker."
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: "Company name as registered with the SEC."
+  }, "Company"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Share price times shares outstanding."
+  }, "Market value"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Share price divided by trailing GAAP earnings. Blank where earnings are negative."
+  }, "Price / earnings"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Trailing earnings divided by price. Higher is cheaper."
+  }, "Earnings yield"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Free cash flow divided by market value."
+  }, "Cash flow yield"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Operating profit as a share of revenue."
+  }, "Operating margin"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Revenue against the same twelve months a year earlier."
+  }, "Revenue growth"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol,
+    className: r.symbol === symbol ? "inv-peer-self" : ""
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
+    className: "inv-peer-name",
+    title: r.name
+  }, r.name), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invMoney(r.market_cap, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invRatio(r.trailing_pe)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.earnings_yield_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.fcf_yield_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.operating_margin_pct)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${(r.revenue_growth_pct ?? 0) >= 0 ? "up" : "down"}`
+  }, invSignedPct(r.revenue_growth_pct))))))));
+}
+
+// ── value trap ────────────────────────────────────────────────────────────
+
+function InvValueTrap({
+  trap
+}) {
+  const t = trap || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-trap"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: `Cheapness is not evidence of value —
+it is the question. These signals ask whether the business is deteriorating,
+because a stock reaching the cheap end of its own range BECAUSE things are
+getting worse is the classic value trap.
+
+Each signal fires on a direction of travel rather than on a level: the level
+that counts as bad differs by industry, and the level is already scored under
+Quality. A signal that cannot be measured is listed as such, never counted as
+"fine".`
+  }, "Value trap check", /*#__PURE__*/React.createElement("span", {
+    className: `inv-traplevel inv-traplevel-${INV_TRAP_TONE[t.level] || "mut"}`
+  }, t.level || "NOT RATED")), t.reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, t.reason), /*#__PURE__*/React.createElement("div", {
+    className: "inv-traplist"
+  }, (t.active || []).map(a => /*#__PURE__*/React.createElement("div", {
+    className: "inv-trapsig inv-trapsig-on",
+    key: a.key,
+    title: a.detail
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-trapsig-tag"
+  }, "firing"), /*#__PURE__*/React.createElement("b", null, a.label), a.detail ? /*#__PURE__*/React.createElement("span", null, " \u2014 ", a.detail) : null)), (t.inactive || []).map(a => /*#__PURE__*/React.createElement("div", {
+    className: "inv-trapsig inv-trapsig-off",
+    key: a.key,
+    title: a.detail
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-trapsig-tag"
+  }, "not firing"), a.label, a.detail ? /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \u2014 ", a.detail) : null)), (t.unknown || []).map(a => /*#__PURE__*/React.createElement("div", {
+    className: "inv-trapsig inv-trapsig-unknown",
+    key: a.key,
+    title: "This signal could not be measured from what this company reports. That is not the same as the signal being clear."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-trapsig-tag"
+  }, "unknown"), a.label, " ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2014 could not be measured")))));
+}
+
+// ── drawdowns ─────────────────────────────────────────────────────────────
+
+function InvDrawdowns({
+  dd
+}) {
+  const d = dd || {};
+  if (!d.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-note"
+    }, d.reason || "No drawdown history.");
+  }
+  const row = (label, w, tip) => w && /*#__PURE__*/React.createElement("div", {
+    className: "inv-ddrow",
+    key: label
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-ddrow-label",
+    title: tip
+  }, label), /*#__PURE__*/React.createElement("b", {
+    className: "down"
+  }, w.pct.toFixed(1), "%"), /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, invShortDate(w.peak_date), " \u2192 ", invShortDate(w.trough_date)));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-dd"
+  }, row("Worst fall over the window", d.max, "The largest peak-to-trough fall anywhere in the price history available."), row("Worst fall in the last year", d.recent, "The largest peak-to-trough fall inside the last twelve months."), (d.windows || []).map(w => row(w.label, w, "How this stock behaved through that period, if the history reaches back that far.")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "Beta is deliberately absent. It compresses a whole distribution into one number that says nothing about what this stock actually did when things went wrong \u2014 which is what these rows show."
+  }, "Context only. There is no Beta here on purpose: what this stock actually did in a fall is more use than a single number summarising how it usually moves."));
+}
+
 // ── the tab ───────────────────────────────────────────────────────────────
 
 function InvestTab({
@@ -420,6 +967,15 @@ function InvestTab({
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [years, setYears] = useState(3);
+  // A set, not a single key: an accordion where opening one section closes
+  // another fights the reader, and a controlled `open` prop on <details>
+  // conflicts with the browser toggling it itself.
+  const [open, setOpen] = useState(() => new Set(["valuation"]));
+  const toggle = (key, want) => setOpen(prev => {
+    const next = new Set(prev);
+    if (want === undefined ? next.has(key) : !want) next.delete(key);else next.add(key);
+    return next;
+  });
   useEffect(() => {
     if (ticker && ticker.toUpperCase() !== sym) setSym(ticker.toUpperCase());
   }, [ticker]);
@@ -442,21 +998,39 @@ function InvestTab({
   useEffect(() => {
     load(sym, years, false);
   }, [sym, years, load]);
+
+  // The peer group builds in a background thread on a cold cache, so one
+  // quiet re-read fills it in rather than leaving "building…" on screen.
+  useEffect(() => {
+    if (!data || (data.peers || {}).status !== "building") return undefined;
+    const t = setTimeout(() => load(sym, years, false), 6000);
+    return () => clearTimeout(t);
+  }, [data, sym, years, load]);
   const d = data || {};
   const prov = d.provenance || {};
   const v = d.verdict || {};
   const md = d.metric_detail || {};
   const reasonOf = k => (md[k] || {}).reason || "";
+  const section = (key, label, tip, node) => /*#__PURE__*/React.createElement("details", {
+    className: "inv-exp",
+    key: key,
+    open: open.has(key),
+    onToggle: e => toggle(key, e.target.open)
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: tip
+  }, label), /*#__PURE__*/React.createElement("div", {
+    className: "inv-exp-body"
+  }, node));
   return /*#__PURE__*/React.createElement("div", {
     className: "card inv-card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "card-title",
-    title: "A long-horizon view of the business behind the ticker: what it earns, whether that is growing, and what you are being asked to pay for it. Everything here comes from the company's own filings with the SEC unless a line says otherwise."
+    title: "A long-horizon view of the business behind the ticker: how good it is, whether it is growing, what you are being asked to pay for it against its own history and against comparable businesses, and whether the cheapness is real."
   }, "Investment \xB7 is this business worth owning"), /*#__PURE__*/React.createElement("div", {
     className: "card-sub"
-  }, "Reported fundamentals from SEC EDGAR, priced against the live 10-year Treasury yield. No score, no rating \u2014 one of five words and the arithmetic behind it.")), /*#__PURE__*/React.createElement("div", {
+  }, "Reported fundamentals from SEC EDGAR. Four independent readings, never blended into one score, plus a check on whether cheap means broken.")), /*#__PURE__*/React.createElement("div", {
     className: "inv-ctrl"
   }, /*#__PURE__*/React.createElement("input", {
     className: "inv-sym",
@@ -472,7 +1046,7 @@ function InvestTab({
     className: "btn",
     onClick: () => load(sym, years, true),
     disabled: busy,
-    title: "Re-read the filings, the quote and the Treasury curve now."
+    title: "Re-read the filings, the quote, the peer group and the Treasury curve now."
   }, busy ? "Loading…" : "Refresh"), onOpenTicker && /*#__PURE__*/React.createElement("button", {
     className: "btn ghost",
     onClick: () => onOpenTicker(sym),
@@ -496,44 +1070,39 @@ function InvestTab({
     title: "Company name exactly as it registers with the SEC."
   }, d.entity_name || sym), /*#__PURE__*/React.createElement("span", {
     className: "muted",
-    title: `SEC Central Index Key ${d.cik} — the
-                  company's permanent identifier in EDGAR.`
-  }, " \xB7 ", sym)), /*#__PURE__*/React.createElement(InvVerdictPill, {
+    title: `SEC Central Index Key ${d.cik}${d.sic ? ` · industry code ${d.sic}, ${d.sic_description}` : ""}`
+  }, " ", "\xB7 ", sym, " \xB7 ", invPrice(d.price)), d.business_type && d.business_type.type !== "STANDARD" && /*#__PURE__*/React.createElement("span", {
+    className: "inv-btype",
+    title: d.business_type.note
+  }, d.business_type.label), /*#__PURE__*/React.createElement(InvCyclePill, {
+    cycle: d.earnings_cycle
+  })), /*#__PURE__*/React.createElement(InvVerdictPill, {
     verdict: v.verdict
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "inv-tiles"
+  }, INV_DIMENSIONS.map(([key, label, tip]) => /*#__PURE__*/React.createElement(InvScoreTile, {
+    key: key,
+    dimKey: key,
+    label: label,
+    tip: tip,
+    block: d[key],
+    onOpen: k => toggle(k, true)
+  })), /*#__PURE__*/React.createElement(InvTrapTile, {
+    trap: d.value_trap,
+    onOpen: k => toggle(k, true)
   })), /*#__PURE__*/React.createElement("ul", {
     className: "inv-reasons"
   }, (v.reasons || []).map((r, i) => /*#__PURE__*/React.createElement("li", {
     key: i
   }, r))), (v.what_would_change || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "inv-change",
-    title: "Every WAIT or AVOID says what would have to change. The price is simply the price at which the earnings yield reaches the threshold in the configuration; the earnings figure is the same sum solved the other way round."
+    title: "Every WAIT or AVOID says what would have to change. The price is the level at which the earnings yield reaches this company's OWN median valuation \u2014 not a universal multiple."
   }, (v.what_would_change || []).map((c, i) => /*#__PURE__*/React.createElement("div", {
     key: i
   }, c))), d.profile && /*#__PURE__*/React.createElement(InvMoatTags, {
     tags: d.profile.moat_tags,
     profile: d.profile
   })), /*#__PURE__*/React.createElement("div", {
-    className: "inv-sechead",
-    title: "What the company says it does, in its own words, taken from Item 1 of its most recent annual report. No language model is involved at any point \u2014 this is quoted, and the filing it came from is one click away."
-  }, "The business"), d.profile ? /*#__PURE__*/React.createElement("div", {
-    className: "inv-desc"
-  }, d.profile.description, /*#__PURE__*/React.createElement("div", {
-    className: "inv-src",
-    title: `Quoted from Item 1, Business, of the
-                annual report filed ${invDate(d.profile.as_of)}. Filings never
-                change, so this is read once and kept.`
-  }, d.profile.source, " \xB7 filed ", invShortDate(d.profile.as_of), d.profile.url && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", /*#__PURE__*/React.createElement("a", {
-    href: d.profile.url,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    title: "Open the annual report on EDGAR."
-  }, "read the filing")))) : /*#__PURE__*/React.createElement("div", {
-    className: "research-empty",
-    title: "The business description is quoted from Item 1 of a 10-K. When no annual report can be read for this filer, nothing is substituted."
-  }, "No annual report business section could be read for ", sym, "."), /*#__PURE__*/React.createElement("div", {
-    className: "inv-sechead",
-    title: "The numbers that answer the first three questions. Each carries its source, its as-of date and its basis; hover any of them."
-  }, "Core snapshot"), /*#__PURE__*/React.createElement("div", {
     className: "inv-grid"
   }, /*#__PURE__*/React.createElement(InvStat, {
     label: "Share price",
@@ -546,7 +1115,7 @@ function InvestTab({
     prov: prov.price,
     basis: `Share price times ${invCount(d.shares_outstanding)} shares — ${(d.shares_detail || {}).basis || ""}`,
     reason: (d.shares_detail || {}).reason,
-    tip: "Share price multiplied by the share count on the cover page of the latest filing. Computed here from two sourced numbers rather than taken from a vendor, so both halves can be checked."
+    tip: "Share price multiplied by the share count on the cover page of the latest filing \u2014 two sourced numbers, so both halves can be checked."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Price to earnings, trailing",
     value: invRatio(d.trailing_pe),
@@ -554,13 +1123,27 @@ function InvestTab({
     basis: (md.eps || {}).basis,
     asOf: (md.eps || {}).period_end,
     reason: d.eps_ttm != null && d.eps_ttm <= 0 ? "Earnings are negative, and a negative price-to-earnings ratio is an arithmetic artifact rather than a cheap stock, so it is not shown." : reasonOf("eps"),
-    tip: "Share price divided by the last twelve months of reported GAAP diluted earnings per share. Shown because everyone reads it; the earnings YIELD below is what the verdict actually uses, because it stays meaningful when earnings are small or negative."
+    tip: "Share price divided by the last twelve months of reported GAAP diluted earnings per share."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Price to earnings, forward",
     value: invRatio(d.forward_pe),
     prov: prov.estimates,
     reason: d.estimates_available ? "" : (prov.estimates || {}).reason || d.estimates_reason,
-    tip: "Share price divided by the analyst consensus estimate for this fiscal year. Analyst estimates are on an adjusted (non-GAAP) basis and are NEVER mixed with the GAAP trailing figures in the same ratio."
+    tip: "Share price divided by the analyst consensus for this fiscal year. Adjusted basis \u2014 never mixed with the GAAP trailing figures inside one ratio."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Earnings yield",
+    value: invPct(d.earnings_yield_pct),
+    prov: prov.fundamentals,
+    reason: reasonOf("eps"),
+    tip: "Trailing earnings per share divided by the share price. This is what the valuation percentile is measured on."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Free cash flow yield",
+    value: invPct(d.fcf_yield_pct),
+    prov: prov.fundamentals,
+    basis: (d.free_cash_flow_detail || {}).basis,
+    reason: (d.free_cash_flow_detail || {}).reason,
+    tone: d.fcf_yield_pct == null || d.fcf_yield_pct >= 0 ? "" : "down",
+    tip: "Cash from operations minus capital spending over the last twelve months, divided by the market value of the company."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Revenue, last twelve months",
     value: invMoney(d.revenue_ttm, 0),
@@ -568,14 +1151,14 @@ function InvestTab({
     basis: (md.revenue || {}).basis,
     asOf: (md.revenue || {}).period_end,
     reason: reasonOf("revenue"),
-    tip: "Total revenue over the last four reported quarters, rebuilt from the company's own quarterly filings."
+    tip: "Total revenue over the last four reported quarters."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Revenue growth, year over year",
     value: invSignedPct(d.revenue_growth_pct),
     tone: d.revenue_growth_pct == null ? "" : d.revenue_growth_pct >= 0 ? "up" : "down",
     prov: prov.fundamentals,
     reason: d.revenue_growth_note || reasonOf("revenue"),
-    tip: "This twelve-month revenue against the same twelve months a year earlier. When the year-ago figure was zero or negative, no percentage is shown \u2014 a percentage change from a loss is not a meaningful number, and the words describing what happened appear instead."
+    tip: "This twelve-month revenue against the same twelve months a year earlier."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Earnings per share, last twelve months",
     value: invPrice(d.eps_ttm),
@@ -584,7 +1167,7 @@ function InvestTab({
     asOf: (md.eps || {}).period_end,
     reason: reasonOf("eps"),
     tone: d.eps_ttm == null ? "" : d.eps_ttm >= 0 ? "" : "down",
-    tip: "Reported GAAP diluted earnings per share, summed over the last four quarters. This is what the company signed and filed, not an adjusted figure."
+    tip: "Reported GAAP diluted earnings per share, summed over the last four quarters."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Earnings growth, year over year",
     value: invSignedPct(d.eps_growth_pct),
@@ -593,78 +1176,11 @@ function InvestTab({
     reason: d.eps_growth_note || reasonOf("eps"),
     tip: "Trailing earnings per share against the same twelve months a year earlier, on the same GAAP basis."
   }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "This year's earnings estimate",
-    value: invPrice(d.eps_forward),
-    prov: prov.estimates,
-    reason: d.estimates_available ? "" : (prov.estimates || {}).reason || d.estimates_reason,
-    tip: "What analysts currently expect the company to earn per share this fiscal year. Adjusted (non-GAAP) basis."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Next year's earnings estimate",
-    value: invPrice(d.eps_next_year),
-    prov: prov.estimates,
-    reason: d.estimates_available ? "" : (prov.estimates || {}).reason || d.estimates_reason,
-    tip: "What analysts expect for the following fiscal year."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Forward earnings growth",
-    value: invSignedPct(d.forward_eps_growth_pct),
-    tone: d.forward_eps_growth_pct == null ? "" : d.forward_eps_growth_pct >= 0 ? "up" : "down",
-    prov: prov.estimates,
-    reason: d.forward_eps_growth_note || (d.estimates_available ? "" : d.estimates_reason),
-    tip: "Next year's estimate against this year's \u2014 both on the same analyst basis, so the comparison is like for like."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Estimate revisions, last 30 days",
-    value: invSignedPct(d.estimate_change_30d_pct),
-    tone: d.estimate_change_30d_pct == null ? "" : d.estimate_change_30d_pct >= 0 ? "up" : "down",
-    prov: prov.estimates,
-    reason: d.estimates_available ? "" : (prov.estimates || {}).reason || d.estimates_reason,
-    tip: "The net share of covering analysts who RAISED this year's estimate rather than cut it, over the last 30 days. This is revision breadth, not a percentage change in the estimate itself: the free provider publishes revision counts, not an archive of past estimates, and this tab will not present one as the other."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Earnings yield",
-    value: invPct(d.earnings_yield_pct),
-    prov: prov.fundamentals,
-    reason: reasonOf("eps"),
-    tone: d.earnings_yield_pct == null || d.treasury_10y_pct == null ? "" : d.earnings_yield_pct >= d.treasury_10y_pct ? "up" : "down",
-    tip: "Trailing earnings per share divided by the share price \u2014 the P/E turned upside down. This is the number the verdict compares against the Treasury yield, because a yield can be set beside a bond yield and a multiple cannot."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Free cash flow yield",
-    value: invPct(d.fcf_yield_pct),
-    prov: prov.fundamentals,
-    basis: (d.free_cash_flow_detail || {}).basis,
-    reason: (d.free_cash_flow_detail || {}).reason,
-    tone: d.fcf_yield_pct == null || d.fcf_yield_pct >= 0 ? "" : "down",
-    tip: "Cash from operations minus capital spending over the last twelve months, divided by the market value of the company. Cash is harder to shape than accounting earnings, which is why this sits next to the earnings yield rather than instead of it. Banks and some property companies do not report capital spending in a comparable way, and show N/A rather than a made-up number."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "10-year Treasury yield",
-    value: invPct(d.treasury_10y_pct, 2),
-    prov: prov.treasury_10y,
-    tip: "The yield on a 10-year US Treasury note \u2014 what you can earn without owning a business at all. Every valuation judgement on this tab is made relative to it, from the same official daily curve the Treasuries tab draws."
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "inv-subgrid"
-  }, /*#__PURE__*/React.createElement(InvStat, {
     label: "Net profit margin",
     value: invPct(d.net_margin_pct),
     prov: prov.fundamentals,
     reason: reasonOf("net_income") || reasonOf("revenue"),
-    tip: "What share of each dollar of revenue survives as profit, over the last twelve months."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Net income, last twelve months",
-    value: invMoney(d.net_income_ttm, 0),
-    prov: prov.fundamentals,
-    reason: reasonOf("net_income"),
-    tip: "Reported GAAP net income over the last four quarters."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Free cash flow, last twelve months",
-    value: invMoney(d.free_cash_flow_ttm, 0),
-    prov: prov.fundamentals,
-    reason: (d.free_cash_flow_detail || {}).reason,
-    tip: "Cash from operations minus capital spending. Quarterly cash-flow figures are reported year-to-date rather than per quarter, so each quarter is recovered by subtracting the previous one before the four are added up."
-  }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Shares outstanding",
-    value: invCount(d.shares_outstanding),
-    prov: prov.fundamentals,
-    basis: (d.shares_detail || {}).basis,
-    reason: (d.shares_detail || {}).reason,
-    tip: "The share count from the cover page of the most recent filing. Companies with several share classes report it per class, which the SEC's machine-readable feed does not carry; those fall back to the average diluted count and say so."
+    tip: "What share of each dollar of revenue survives as profit."
   }), /*#__PURE__*/React.createElement(InvStat, {
     label: "Price to sales",
     value: invRatio(d.price_sales, 2),
@@ -672,27 +1188,97 @@ function InvestTab({
     reason: reasonOf("revenue"),
     tip: "Market value divided by revenue. Shown because it is easy to compute and people look for it \u2014 it plays NO part in the verdict. A company can sell a great deal and never earn anything, and this ratio cannot tell the two apart."
   }), /*#__PURE__*/React.createElement(InvStat, {
-    label: "Latest reported period",
-    value: d.period_end ? invDate(d.period_end) : invNA,
-    prov: prov.fundamentals,
-    tip: "The end of the most recent quarter included in every trailing figure above, and the date its filing reached the SEC.",
-    asOf: d.last_filed
-  })), /*#__PURE__*/React.createElement(InvDrivers, {
+    label: "10-year Treasury yield",
+    value: invPct(d.treasury_10y_pct, 2),
+    prov: prov.treasury_10y,
+    tip: "What a government bond pays. Shown for context \u2014 it is no longer a hurdle the stock has to clear, because a universal yield threshold cannot tell an excellent business priced fairly from a poor one priced cheaply."
+  })), d.profile && /*#__PURE__*/React.createElement("div", {
+    className: "inv-desc"
+  }, d.profile.description, /*#__PURE__*/React.createElement("div", {
+    className: "inv-src",
+    title: `Quoted from Item 1, Business, of
+                the annual report filed ${invDate(d.profile.as_of)}.`
+  }, d.profile.source, " \xB7 filed ", invShortDate(d.profile.as_of), d.profile.url && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", /*#__PURE__*/React.createElement("a", {
+    href: d.profile.url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    title: "Open the annual report on EDGAR."
+  }, "read the filing")))), section("valuation", "Valuation against its own history", "Where this company is priced today against where it has been priced before, using only what was public on each of those days.", /*#__PURE__*/React.createElement(InvValuationHistory, {
+    vh: d.valuation_history,
+    valuation: d.valuation,
+    symbol: sym
+  })), section("revisions", "Earnings and revisions", "What analysts expect and whether they are raising or cutting.", /*#__PURE__*/React.createElement(InvRevisions, {
+    revisions: d.revisions,
+    snap: d
+  })), section("quality", "Quality", "The six inputs behind the quality reading, each scored or each explaining its absence.", /*#__PURE__*/React.createElement(InvQuality, {
+    quality: d.quality
+  })), section("peers", "Peers", "Comparable companies by the SEC's own industry code, and what the group is being valued at.", /*#__PURE__*/React.createElement(InvPeers, {
+    peers: d.peers,
+    symbol: sym,
+    snap: d
+  })), section("trap", "Value trap check", "Whether the business is deteriorating — the question cheapness cannot answer on its own.", /*#__PURE__*/React.createElement(InvValueTrap, {
+    trap: d.value_trap
+  })), section("growth", "Earnings drivers", "What moved earnings per share over the last year, split between revenue, margin and share count.", /*#__PURE__*/React.createElement(InvDrivers, {
     drivers: d.drivers
-  }), /*#__PURE__*/React.createElement(InvHistoryChart, {
+  })), section("chart", "Price against earnings", "Price and trailing earnings indexed to 100, so their shapes can be compared.", /*#__PURE__*/React.createElement(InvHistoryChart, {
     history: d.history,
     years: years,
     onYears: setYears,
     symbol: sym
-  }), /*#__PURE__*/React.createElement("div", {
+  })), section("stress", "Drawdown history", "What this stock actually did when things went wrong.", /*#__PURE__*/React.createElement(InvDrawdowns, {
+    dd: d.drawdowns
+  })), section("experimental", "Revision underreaction (experimental)", "An untested idea, recorded daily so it can be tested honestly later. It takes no part in the verdict.", /*#__PURE__*/React.createElement(InvUnderreaction, {
+    u: d.underreaction
+  })), /*#__PURE__*/React.createElement("div", {
     className: "inv-foot",
-    title: `This tab stores one snapshot of these
-numbers per day so that a future version can show how the valuation itself has
-moved. ${d.stored_days || 0} day${d.stored_days === 1 ? "" : "s"} recorded so
-far for ${sym}. Nothing is back-filled: a forward estimate that was not recorded
-on the day it was made cannot be recovered later, and inventing one would be a
-history that never happened.`
+    title: `This tab stores one snapshot of every
+number above per day, so a later phase can test whether any of this predicted
+anything. ${d.stored_days || 0} day${d.stored_days === 1 ? "" : "s"} recorded so far
+for ${sym}. Nothing is ever back-filled or overwritten.`
   }, d.stored_days || 0, " daily snapshot", d.stored_days === 1 ? "" : "s", " recorded for ", sym, " \xB7 configuration ", d.config_hash || "—")));
+}
+function InvUnderreaction({
+  u
+}) {
+  const x = u || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-under"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-warn",
+    title: "This is recorded, not believed. The prospective snapshot store is what will eventually test whether it predicts anything at all."
+  }, /*#__PURE__*/React.createElement("b", null, "EXPERIMENTAL \u2014 unvalidated."), " This dashboard has not tested whether this predicts anything, and it takes no part in the verdict."), !x.available ? /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, x.reason || "Not computable yet.") : /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Underreaction score",
+    value: x.score == null ? invNA : x.score.toFixed(2),
+    tip: "How strongly estimates have been raised, minus how much the share price has already moved for it. Both halves are standardised across comparable companies first, so this is a relative reading, not an absolute one."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Revision strength",
+    value: x.revision_z == null ? invNA : x.revision_z.toFixed(2),
+    tip: "Change in this year's consensus over ninety days, scaled by the SHARE PRICE rather than by the old estimate \u2014 dividing by a near-zero estimate produces a number in the hundreds of percent that says more about the denominator than the revision."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Price reaction",
+    value: x.price_reaction_z == null ? invNA : x.price_reaction_z.toFixed(2),
+    tip: "This stock's ninety-day return minus its sector's, standardised the same way."
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "inv-subgrid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Revision breadth, 30 days",
+    value: invSignedPct(x.revision_breadth_30d_pct),
+    tip: "Net share of covering analysts raising rather than cutting."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Analyst coverage",
+    value: x.analyst_count == null ? invNA : Math.round(x.analyst_count),
+    tip: "How many analysts publish an estimate."
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Earnings report inside the window",
+    value: x.earnings_inside_window == null ? invNA : x.earnings_inside_window ? "Yes" : "No",
+    tip: "Whether the company reported inside the ninety days being measured. A revision that follows a report is a different animal from one that does not."
+  })), x.note && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note"
+  }, x.note));
 }
 
 // Chunk registration (house pattern — verify_frontend checks this).

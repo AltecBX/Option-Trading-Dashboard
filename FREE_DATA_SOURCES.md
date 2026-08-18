@@ -158,6 +158,36 @@ with real prose after it), and inline-XBRL 10-Ks open with a hidden
 additionally sets the first letter of each heading as a drop cap, so the text
 reads `ITEM 1. B USINESS`.
 
+**Industry classification, free, on every filer.** The same submissions record
+carries the SEC's own Standard Industrial Classification code:
+
+```
+GET https://data.sec.gov/submissions/CIK0000320193.json
+  -> sic: "3571", sicDescription: "Electronic Computers",
+     fiscalYearEnd: "0926", exchanges: ["Nasdaq"], category: "Large accelerated filer"
+```
+
+Measured: 6021 JPMorgan (bank), 6311 MetLife and 6331 Allstate (insurers),
+6798 Realty Income (REIT), 6211 Robinhood and Schwab (brokers), 2911 Exxon and
+Chevron, 1040 Newmont (commodity). That one field answers both "who are this
+company's peers" and "which calculations would be nonsense for it" — better
+than a vendor's sector string, because it is what the company itself files
+under.
+
+For **bulk** SIC lookups use EDGAR's browse endpoint instead, which returns the
+same code in a tenth of the bytes:
+
+```
+GET https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193
+      &type=10-K&count=1&output=atom
+  -> <assigned-sic>3571</assigned-sic>          17KB, against 164KB for submissions
+```
+
+That difference is what makes indexing a 1,300-name watchlist practical at all.
+Expect ~1.5s per lookup in practice, so warm it in the background, cache it
+forever, and be ready to work with a partly-filled index — a SIC code does not
+change once you have it.
+
 **What EDGAR does NOT have: analyst estimates.** The SEC holds what a company
 *reported*, never what anyone *expects*. Forward EPS, this year's and next
 year's consensus, and estimate revisions have no free authoritative source —

@@ -323,5 +323,103 @@ const invFlat = inv.replace(/\s+/g, " ");
 check("price to sales is labelled as playing no part in the verdict",
   /plays NO part in the verdict/.test(invFlat));
 
+// ── Investment tab, Phase 2 (v4.42) ───────────────────────────────────────
+// The tab's central claim is that the four vectors are INDEPENDENT and that
+// nothing is presented as more certain than its inputs. These guard both.
+
+check("the four vectors exist and are never blended into one score", (() => {
+  const dims = (inv.match(/const INV_DIMENSIONS = \[[\s\S]*?\n\];/) || [""])[0];
+  const want = ["quality", "growth", "valuation", "revisions"];
+  const missing = want.filter((k) => !dims.includes(`"${k}"`));
+  if (missing.length) return `missing ${missing.join(",")}`;
+  // No combined/overall/composite score anywhere in the tab.
+  return !/composite|overall_score|total_score|investment_score/i.test(inv)
+    || "a blended score leaked in";
+})());
+
+check("every vector tile carries an explanation", (() => {
+  const dims = (inv.match(/const INV_DIMENSIONS = \[[\s\S]*?\n\];/) || [""])[0];
+  const rows = dims.split("\n").filter((l) => /^\s*\["/.test(l));
+  return rows.length === 4 || `${rows.length} tiles found`;
+})());
+
+check("all six verdicts are toned and tipped", (() => {
+  const words = ["ATTRACTIVE", "WATCH", "WAIT", "AVOID", "INSUFFICIENT DATA",
+                 "SPECIALIZED MODEL REQUIRED"];
+  const tone = (inv.match(/const INV_VERDICT_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  const tip = (inv.match(/const INV_VERDICT_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  const missing = words.filter((w) => !tone.includes(w) || !tip.includes(w));
+  return missing.length === 0 || missing.join(",");
+})());
+
+check("the Phase 1 universal Treasury hurdle is gone from the UI",
+  !/Treasury by the cushion/.test(invFlat)
+  && !/point cushion this dashboard asks for/.test(invFlat));
+
+check("the Treasury yield is labelled as context, not a hurdle",
+  /no longer a hurdle the stock has to clear/.test(invFlat));
+
+check("all three value-trap levels are toned and explained", (() => {
+  const tone = (inv.match(/const INV_TRAP_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  const tip = (inv.match(/const INV_TRAP_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  const missing = ["LOW RISK", "MODERATE RISK", "HIGH RISK", "NOT RATED"]
+    .filter((w) => !tone.includes(w) || !tip.includes(w));
+  return missing.length === 0 || missing.join(",");
+})());
+
+check("all five earnings-cycle states are explained", (() => {
+  const tip = (inv.match(/const INV_CYCLE_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  const missing = ["PRE-EARNINGS", "POST-EARNINGS FRESH", "NORMAL", "STALE",
+                   "UNKNOWN"].filter((w) => !tip.includes(w));
+  return missing.length === 0 || missing.join(",");
+})());
+
+check("every quality input has its own plain-English explanation", (() => {
+  const tips = (inv.match(/const INV_QUALITY_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  const want = ["Return on invested capital", "Free cash flow conversion",
+                "Operating margin trend", "Share count trend",
+                "Stock compensation as a share of revenue",
+                "Net debt to operating profit"];
+  const missing = want.filter((w) => !tips.includes(w));
+  return missing.length === 0 || missing.join(",");
+})());
+
+check("the regime-shift banner is rendered and explains itself",
+  /REGIME SHIFT DETECTED/.test(inv) && /regime\.earlier_spread/.test(inv));
+
+check("the peer panel refuses an average of ratios in writing",
+  /NEVER an average of the members' ratios/.test(invFlat)
+  && /aggregate_pe/.test(inv) && /median_member_pe/.test(inv));
+
+check("excluded loss-making peers are surfaced, not silently dropped",
+  /n_excluded/.test(inv) && /excluded as loss-making/.test(invFlat));
+
+check("the peer level and industry code are shown so the group can be judged",
+  /p\.level/.test(inv) && /industry code/.test(invFlat));
+
+check("historical forward price-to-earnings is refused in writing",
+  /would have to be fabricated/.test(invFlat)
+  && /no free record\s+of past analyst expectations exists/.test(invFlat));
+
+check("the revision rating states its coverage gate",
+  /NOT RATED below four covering analysts/.test(invFlat));
+
+check("GAAP trailing and adjusted analyst bases are kept apart in words",
+  /gaap_note/.test(inv));
+
+check("the underreaction panel is marked experimental and out of the verdict",
+  /EXPERIMENTAL — unvalidated/.test(invFlat)
+  && /takes no part in the verdict/.test(invFlat));
+
+check("beta is deliberately absent from the drawdown panel",
+  /no Beta here on purpose/.test(invFlat) && !/\bbeta:/i.test(inv));
+
+check("value-trap signals that could not be measured are shown as such",
+  /inv-trapsig-unknown/.test(inv) && /could not be measured/.test(invFlat));
+
+check("specialized business types say so instead of showing a number",
+  /N\/A for this business type/.test(inv)
+  && /SPECIALIZED MODEL REQUIRED/.test(inv));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

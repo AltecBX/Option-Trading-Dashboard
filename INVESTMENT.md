@@ -1,4 +1,4 @@
-# Investment tab — Phase 1
+# Investment tab — Phases 1 and 2
 
 The dashboard's other tabs ask what a stock will do this week. This one asks
 whether the business behind the ticker is worth owning at all, and at what
@@ -9,10 +9,14 @@ price. Four questions, in this order:
 3. Is it cheap compared with its own fundamentals?
 4. At what price would it be worth owning?
 
-Phase 1 answers those four and stops. There is no cash-secured-put optimizer,
-no LEAPS optimizer, no full fair-value engine, no structure comparator, no
-reverse DCF and no peer engine — those are later phases, and this document
-ends with what is ready for them.
+Phase 2 adds two more:
+
+5. Are analyst expectations improving or deteriorating?
+6. Is the apparent cheapness actually a value trap?
+
+There is still no cash-secured-put optimizer, no LEAPS optimizer, no full
+fair-value engine, no structure comparator and no reverse DCF — those are
+Phase 3, and this document ends with what is ready for them.
 
 ---
 
@@ -221,63 +225,6 @@ be compared regardless of scale. Three refusals live in this chart:
 
 ---
 
-## The verdict
-
-Five words: **ATTRACTIVE · WATCH · WAIT · AVOID · INSUFFICIENT DATA**.
-
-There is deliberately **no 0-100 investment score**. The distance between a
-61 and a 68 would not mean anything, and a number invites a precision the
-inputs cannot support. Every verdict is reproducible by hand from figures
-printed on the same screen, and every WAIT or AVOID states what would have to
-change:
-
-> **WAIT** — At $300.00 a share the analyst forward earnings estimate of $9.00
-> is an earnings yield of 3.0%, against a 10-year Treasury yield of 4.20%.
-> That is −1.2 percentage points of compensation for owning a business instead
-> of a government bond.
->
-> Reconsider below $145.16 a share, or if the analyst forward earnings estimate
-> rises to $18.60. Either one puts the earnings yield at 6.2% — the 10-year
-> Treasury yield plus the 2.0 point cushion this dashboard asks for.
-
-### Why yields, not multiples
-
-Internally the tab thinks in yields: earnings yield (EPS ÷ price) and free
-cash flow yield (free cash flow ÷ market value). A yield can be set beside a
-Treasury yield; a multiple cannot. A yield stays finite when earnings are
-small and stays meaningful when they are negative, where a P/E goes to
-infinity and then flips sign. Trailing and forward price/earnings are still
-**displayed**, because that is the number everyone reads — but a negative P/E
-is never printed, because "−14×" reads like a cheap stock and is an
-arithmetic artifact.
-
-**Price to sales is displayed and gates nothing.** A company can sell a great
-deal and never earn anything, and the ratio cannot tell the two apart.
-
-**There is no historical forward-P/E series and no ten-year average P/E.**
-Both would require an archive of past consensus that does not exist for free.
-
-### Thresholds
-
-All in `thresholds.json` under `investment`, hashed into every snapshot:
-
-| Key | Default | Meaning |
-|---|---|---|
-| `attractive_spread_pp` | 2.0 | Percentage points of earnings yield above the 10-year Treasury required for ATTRACTIVE |
-| `watch_spread_pp` | 0.0 | At or above the Treasury but below the cushion reads WATCH |
-| `min_revenue_growth_pct` | 0.0 | Below this counts as shrinking |
-| `min_fcf_yield_pct` | 0.0 | Below this, the business consumed cash |
-| `estimate_cut_pct` | −5.0 | Revision breadth below this counts as analysts cutting |
-| `fallback_treasury_pct` | 4.0 | Used only when the live curve is unreachable — and the verdict says so |
-
-**This is a demanding bar and that is on purpose.** At a 4.7% 10-year yield,
-`attractive_spread_pp: 2.0` asks for a 6.7% earnings yield — a trailing
-price/earnings ratio near 15. Most large, high-quality companies read WAIT
-against it. Lower it to accept growth at a higher multiple; raise it to be
-stricter. Nothing in the code cares which you choose.
-
----
-
 ## Volatility terminology (preserved for later phases)
 
 Phase 1 makes no options recommendation, but the distinction the rest of the
@@ -313,3 +260,272 @@ These are three different quantities and later phases must not average them.
 Still missing, on purpose, until someone asks for them: cash-secured put and
 LEAPS optimizers, a full fair-value engine, a structure comparator, a reverse
 DCF, and peer comparison.
+
+---
+
+# Phase 2
+
+## What Phase 1 got wrong, and why it was removed
+
+Phase 1 judged every company with one rule: is the earnings yield above the
+10-year Treasury plus a fixed cushion. At a 4.7% 10-year that asked for a 6.7%
+earnings yield — a price/earnings ratio near fifteen — and it marked **Apple
+and Microsoft WAIT** for no better reason than that.
+
+That is arithmetic, not analysis. A universal multiple threshold cannot tell
+an excellent business priced fairly from a poor one priced cheaply, and it
+gets the more important question backwards: a great company is *allowed* to
+trade at a high multiple. What matters is whether the multiple is high **for
+this company** and high **for this kind of company**.
+
+The rule has been **deleted**, not tuned. `attractive_spread_pp` and
+`watch_spread_pp` are gone from `thresholds.json`. The 10-year Treasury yield
+is still displayed, now labelled as context rather than as a hurdle.
+
+## The four-vector scorecard
+
+Four **independent** dimensions, deliberately never blended into one number.
+A single score would let strong growth hide an expensive price, which is the
+exact mistake the layout exists to prevent.
+
+| Vector | What it reads |
+|---|---|
+| **QUALITY** | Return on invested capital · free cash flow conversion · operating margin trend · share count trend · stock compensation as a share of revenue · net debt to operating profit |
+| **GROWTH** | Revenue growth · earnings growth · forward earnings growth, plus the margin and share-count contributions **lifted from the Phase 1 earnings bridge** rather than recomputed, so no movement is counted twice |
+| **VALUATION** | Cheap or expensive against **its own history** and against **comparable businesses**. 100 means cheap. |
+| **REVISIONS** | Whether analysts are raising or cutting. **NOT RATED** below four covering analysts. |
+
+Each dimension scores only the inputs it could actually build, prints its own
+coverage ("5 of 6 inputs available"), and **never fills a missing input with a
+neutral 50** — averaging in a 50 for an unknown would drag an 80 to 65 and
+invent an opinion out of an absence.
+
+Scoring is **peer-relative percentile** wherever a credible group of five or
+more exists. Below that it falls back to coarse absolute bands and says so on
+screen, because an absolute cut-off is a blunt instrument across industries.
+
+## Quality, measured against what filers actually report
+
+Coverage is genuinely partial and varies by filer. Measured across twenty
+tickers before the code was written:
+
+- `OperatingIncomeLoss` is **absent** for JPMorgan, Realty Income, Robinhood,
+  Exxon, Chevron and Pfizer.
+- Share-based compensation is **absent** for Walmart, Exxon, Chevron and AT&T.
+- Microsoft tags **no combined depreciation-and-amortisation figure at all**.
+
+So every input is independently optional with its own reason. A missing input
+is a missing input — never a failing grade, never a zero.
+
+```
+ROIC = operating profit × (1 − effective tax rate) ÷ (equity + net debt)
+```
+
+Invested capital is what shareholders and lenders have actually tied up.
+Returns None when that base is zero or negative, where the ratio stops meaning
+anything. Apple's comes out near 100%, which is correct — enormous operating
+profit on a capital base shrunk by two decades of buybacks.
+
+## Valuation against its own history
+
+The major Phase 2 feature. For every trading day in the window, three inputs
+are combined:
+
+- the split-adjusted close
+- the trailing earnings (or free cash flow) **known on that day**
+- the share count **known on that day**, for the free-cash-flow yield
+
+Point-in-time safety comes from the Phase 1 reader: the **latest** restatement
+supplies the value, so a split leaves no step and the series sits on today's
+share basis; the **first** filing date supplies the timing, so nothing appears
+before it was knowable.
+
+For 3-year and 5-year windows the tab reports **current, percentile, median,
+10th and 90th percentile** for earnings yield, free cash flow yield and
+trailing price/earnings. Percentiles are oriented so **100 always means cheap**
+whichever direction the underlying measure runs.
+
+Below 60 observations in a window, the window shows N/A with its count.
+
+**Forward price/earnings has no history and is not given one.** No free archive
+of past analyst consensus exists. It stays a current-only figure until this
+dashboard's own daily snapshots accumulate enough of their own.
+
+## Regime check
+
+```
+recent  = the last 2 years of the valuation series
+earlier = the rest of the 5-year window
+shift   = median(recent) − median(earlier)
+bar     = max( p90(earlier) − p10(earlier),  10% of median(earlier) )
+REGIME SHIFT DETECTED when |shift| > bar
+```
+
+A shift worth calling is one bigger than the earlier period's **own spread** —
+a change of level, not a wiggle. The floor matters: an earlier period that
+barely moved has a spread near zero, and without the floor its very stability
+would make a shift impossible to detect at exactly the moment it is most
+obvious. That was a real bug, caught by the module's own tests.
+
+When a shift is detected the banner is rendered above the numbers, and the
+valuation score **halves the weight on the company's own history**, because
+the older half was recorded under conditions the company is no longer in.
+
+## Peers
+
+Grouping comes from the **Standard Industrial Classification code the SEC
+assigns to every filer** and carries on its own submissions record. Free, on
+every filer, and the same field the company files under.
+
+Hierarchy, most specific first: **DIRECT PEERS** (a curated list, or the same
+four-digit code) → **INDUSTRY** (three-digit) → **SECTOR** (two-digit) →
+**BROAD BENCHMARK**. A group needs **five** members; below that it falls back
+a level and says so. A curated override lives at
+`<data>/invest/peers_curated.json` and beats the code, because automated peer
+picking gets some companies wrong.
+
+A **BROAD BENCHMARK** group is displayed for context but is deliberately **not
+used to rank valuation** — ranking a bank's earnings yield against a software
+company's is arithmetic, not comparison.
+
+### The group multiple
+
+```
+Aggregate P/E = total market value of the profitable members
+                ÷ their total earnings
+```
+
+Never an arithmetic average of the members' ratios. On a five-member test
+group where one member earns a cent a share, the naive average is **764×** —
+a number describing nobody. The aggregate is **18.5×**. The median member's
+ratio is shown beside it, and loss-makers are **excluded and named**, because
+"four of five were profitable" is part of the answer.
+
+The index is built from EDGAR's atom endpoint (17KB) rather than the full
+submissions record (164KB) — the difference between an index that can be
+warmed across a 1,300-name watchlist and one that cannot. It fills a slice at
+a time on the daily scheduler and then stays filled, because a SIC code does
+not change.
+
+## Business type
+
+SIC ranges classify every filer into STANDARD, BANK, INSURANCE, REIT, BROKER,
+CYCLICAL, UNPROFITABLE or UNSUPPORTED, and the classification is used to
+**refuse** calculations rather than to perform them:
+
+| Type | Withheld | Why |
+|---|---|---|
+| Bank | free cash flow, leverage, ROIC | Borrowing IS a bank's raw material |
+| Insurer | free cash flow, leverage, ROIC | Float reads as either debt or spare cash; both wrong |
+| Broker | free cash flow, leverage, ROIC | Customer assets and segregated cash sit on the balance sheet |
+| REIT | free cash flow, leverage | Depreciation on properties that are not wearing out at that rate |
+
+Those types return **SPECIALIZED MODEL REQUIRED** as their verdict rather than
+a confident-looking number built on holes.
+
+## Value trap
+
+Cheapness is not evidence of value; it is the question. Eight deterioration
+signals — falling estimates, deteriorating revenue growth, narrowing margins,
+deteriorating free cash flow, rising leverage, rising dilution, structural
+change (restatement, reverse split, late filing, read from the filing tagger
+the Gap tab already uses), and a possible cyclical peak.
+
+Each fires on a **direction of travel**, not a level — the level that counts as
+bad differs by industry, and the level is already scored under Quality.
+Three or more active is **HIGH RISK**, one is **MODERATE**, none is **LOW**.
+
+A signal that could not be measured is listed as **unknown**, never counted as
+fine. When almost nothing is measurable the whole check reads NOT RATED,
+because silence is not evidence of health.
+
+**A stock that is cheap with HIGH RISK cannot receive ATTRACTIVE.** It receives
+AVOID, and the reasons say why: "It is cheap against its own history, and that
+is exactly the pattern a value trap makes."
+
+## Revision underreaction — EXPERIMENTAL
+
+Recorded, not believed, and **kept out of the verdict entirely**.
+
+```
+revision intensity = (consensus EPS now − consensus EPS 90 days ago) ÷ price
+price reaction     = stock 90-day return − sector 90-day return
+underreaction      = z(revision intensity) − z(price reaction)
+```
+
+Both halves are standardised across the peer group before being differenced.
+Intensity is scaled by **price**, not by the old estimate: dividing by a
+near-zero prior estimate produces a number in the hundreds of percent that
+says more about the denominator than about the revision.
+
+This dashboard has no evidence that it predicts anything. The prospective
+snapshot store is what will eventually test it.
+
+## The Phase 2 verdict
+
+**ATTRACTIVE · WATCH · WAIT · AVOID · INSUFFICIENT DATA · SPECIALIZED MODEL
+REQUIRED.** Still no weighted composite: the rules are conditions on named
+dimensions, so any answer can be re-derived by hand from the same screen.
+
+- Good quality + acceptable growth + cheap + revisions not weak + trap low → **ATTRACTIVE**
+- Good quality + strong growth + expensive → **WAIT**, with the price named
+- Cheap + HIGH trap risk → **AVOID (value trap)**
+- Losing money with no profitable forward estimate → **AVOID**
+- Bank / insurer / broker / REIT → **SPECIALIZED MODEL REQUIRED**
+
+Every WAIT and AVOID states what would have to change, and the price comes
+from **this company's own median valuation** rather than a universal multiple:
+
+> **WAIT** — Today's earnings yield is at the 18th percentile of its own
+> history. Reaching its own median valuation — an earnings yield of 4.0% —
+> means about $125.00 a share at today's earnings, or trailing earnings of
+> $4.00 a share at today's price.
+
+## Snapshots
+
+The daily row now also carries: each dimension's score and label, both
+valuation percentiles, the regime flag, the value-trap level and its active
+signal keys, business type, earnings-cycle state, peer level and aggregate
+multiple, the verdict, the experimental underreaction score, and the
+configuration hash.
+
+**History is never rewritten.** A row written before these fields existed
+simply lacks the keys, and a reader must treat a missing key as "not recorded
+that day" rather than as a zero. Within a day the last write wins, so the
+enriched payload replaces the base snapshot for the same date.
+
+## Earnings cycle
+
+PRE-EARNINGS (reports within 14 days) · POST-EARNINGS FRESH (reported within
+21) · NORMAL · STALE (last report over 100 days ago) · UNKNOWN. Visible now
+and feeding the confidence language around stale estimates; a later phase uses
+it for option entry timing.
+
+## Drawdown history
+
+Worst peak-to-trough fall over the window, the worst of the last year, and the
+2020 and 2022 stress periods where the history reaches them. **No Beta, on
+purpose**: it compresses a whole distribution into one number that says nothing
+about what this stock actually did when things went wrong — which is precisely
+what these rows show.
+
+## What is ready for Phase 3
+
+- **Four independent dimensions plus a trap state**, each with its inputs and
+  its coverage, which is what a fair-value engine needs to know how much to
+  trust its own inputs.
+- **A point-in-time valuation history** with distributions — the input a
+  reverse DCF or a normalised-earnings model works from.
+- **A peer engine with aggregate group valuation**, ready to supply the
+  comparable multiple a bear/base/bull range needs.
+- **Business-type gating already enforced**, so a specialised model can be
+  slotted in per type without unpicking the generic one.
+- **An earnings-cycle state** for option entry timing.
+- **A snapshot store recording the full Phase 2 state daily**, with a
+  configuration hash, so a forward test can tell which thresholds produced
+  which call — and the experimental underreaction signal is already
+  accumulating against that day.
+
+Still not built, on purpose: bear/base/bull fair value, reverse DCF, expected
+return bridge, cash-secured put and LEAPS optimizers, structure comparator,
+options recommendation, scanner.

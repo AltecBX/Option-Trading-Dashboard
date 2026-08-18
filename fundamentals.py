@@ -347,6 +347,56 @@ CONCEPTS = {
                "PaymentsToAcquireProductiveAssets",
                "PaymentsToAcquireOtherProductiveAssets",
                "PaymentsForCapitalImprovements"], "USD", "sum"),
+
+    # ── Phase 2 quality inputs ─────────────────────────────────────────
+    # Coverage is genuinely partial and that is the point: measured across
+    # twenty tickers, OperatingIncomeLoss is absent for JPMorgan, Realty
+    # Income, Robinhood, Exxon, Chevron and Pfizer; share-based compensation
+    # is absent for Walmart, Exxon, Chevron and AT&T; Microsoft tags no
+    # combined depreciation-and-amortisation figure at all. Each metric is
+    # therefore independently optional, with its own reason when missing —
+    # never a zero, and never a quality score that pretends it had the input.
+    "operating_income": (["OperatingIncomeLoss"], "USD", "sum"),
+    "tax_expense": (["IncomeTaxExpenseBenefit"], "USD", "sum"),
+    "pretax_income": (
+        ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic"], "USD", "sum"),
+    "share_based_comp": (["ShareBasedCompensation",
+                          "AllocatedShareBasedCompensationExpense"], "USD", "sum"),
+    "depreciation_amortization": (["DepreciationDepletionAndAmortization",
+                                   "DepreciationAndAmortization",
+                                   "DepreciationAmortizationAndAccretionNet",
+                                   "Depreciation"], "USD", "sum"),
+}
+
+# Balance-sheet facts. These are INSTANTS — a value at a date, with no
+# start — so they are read by their own path rather than the duration
+# machinery above, and never summed or differenced.
+INSTANT_CONCEPTS = {
+    "equity": ["StockholdersEquity",
+               "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+    "cash": ["CashAndCashEquivalentsAtCarryingValue",
+             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
+    "short_investments": ["ShortTermInvestments", "MarketableSecuritiesCurrent",
+                          "AvailableForSaleSecuritiesDebtSecuritiesCurrent"],
+    "long_term_debt": ["LongTermDebtNoncurrent", "LongTermDebt",
+                       "LongTermDebtAndCapitalLeaseObligations",
+                       "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities"],
+    "short_term_debt": ["LongTermDebtCurrent", "DebtCurrent",
+                        "ShortTermBorrowings", "OtherShortTermBorrowings",
+                        "NotesPayableCurrent",
+                        "LongTermDebtAndCapitalLeaseObligationsCurrent"],
+    "assets": ["Assets"],
+}
+
+INSTANT_BASIS = {
+    "equity": "Shareholders' equity at the latest reported balance-sheet date",
+    "cash": "Cash and cash equivalents at the latest reported balance-sheet date",
+    "short_investments": "Short-term investments at the latest balance-sheet date",
+    "long_term_debt": "Long-term borrowings at the latest balance-sheet date",
+    "short_term_debt": "Short-term and current borrowings at the latest balance-sheet date",
+    "assets": "Total assets at the latest reported balance-sheet date",
 }
 
 # Human-readable basis shown next to every number in the UI.
@@ -358,6 +408,11 @@ BASIS = {
                       "trailing twelve months",
     "operating_cash_flow": "GAAP trailing twelve months, as reported to the SEC",
     "capex": "GAAP trailing twelve months, as reported to the SEC",
+    "operating_income": "GAAP operating income, trailing twelve months",
+    "tax_expense": "GAAP income tax expense, trailing twelve months",
+    "pretax_income": "GAAP pre-tax income, trailing twelve months",
+    "share_based_comp": "Share-based compensation expense, trailing twelve months",
+    "depreciation_amortization": "Depreciation and amortisation, trailing twelve months",
 }
 
 
@@ -515,11 +570,192 @@ def ttm_series(facts: dict, name: str) -> list[dict]:
     return out
 
 
+def pit_series(facts: dict, name: str) -> list[dict]:
+    """Point-in-time values for a STOCK-like metric, one per report.
+
+    Trailing-twelve-month aggregation is wrong for a weighted-average share
+    count, and requiring four contiguous quarters is worse: Apple reports no
+    separate fourth-quarter share count at all — it appears only inside the
+    annual figure — so the contiguity rule empties the series for one of the
+    most-viewed companies in the app.
+
+    This returns each reported period's own value instead: every discrete
+    quarter, plus the annual figures for the periods no quarter covers, each
+    dated at the filing that first stated it.
+    """
+    gaap = facts.get("facts", {}).get("us-gaap") or {}
+    got = pick_concept(gaap, name)
+    out: dict = {}
+    if got:
+        for q in got[2]:
+            out[q["end"]] = {"period_end": q["end"], "value": q["val"],
+                             "first_filed": q.get("first_filed") or q.get("filed"),
+                             "filed": q.get("filed"), "span": "quarter"}
+    names, unit, _agg = CONCEPTS[name]
+    for concept in names:
+        entry = gaap.get(concept)
+        if not entry or unit not in (entry.get("units") or {}):
+            continue
+        for r in latest_filed(entry, unit):
+            if quarters_spanned(r["dur"]) == 4 and r["end"] not in out:
+                out[r["end"]] = {"period_end": r["end"], "value": r["val"],
+                                 "first_filed": r.get("first_filed") or r.get("filed"),
+                                 "filed": r.get("filed"), "span": "year"}
+    return sorted(out.values(), key=lambda r: r["period_end"])
+
+
 def quarterly(facts: dict, name: str) -> list[dict]:
     """Discrete quarterly series for a metric (used by the EPS bridge)."""
     gaap = facts.get("facts", {}).get("us-gaap") or {}
     got = pick_concept(gaap, name)
     return got[2] if got else []
+
+
+# ── balance-sheet (instant) facts ───────────────────────────────────────────
+#
+# An instant fact is a value AT a date: total debt on March 31st, not debt
+# earned during March. They carry `end` and no `start`, are never summed and
+# never differenced, and the newest filing still wins each date so a
+# restatement is picked up the same way it is for flows.
+
+def instant_series(entry: dict, unit: str = "USD") -> list[dict]:
+    rows = (entry or {}).get("units", {}).get(unit, [])
+    best: dict = {}
+    first: dict = {}
+    for r in rows:
+        end = r.get("end")
+        if r.get("start") or not end or r.get("val") is None:
+            continue
+        prev = best.get(end)
+        if prev is None or (r.get("filed") or "") > (prev.get("filed") or ""):
+            best[end] = r
+        f = r.get("filed") or ""
+        if f and (end not in first or f < first[end]):
+            first[end] = f
+    out = [{"end": end, "val": float(r["val"]), "form": r.get("form"),
+            "filed": r.get("filed"), "first_filed": first.get(end) or r.get("filed")}
+           for end, r in best.items()]
+    out.sort(key=lambda r: r["end"])
+    return out
+
+
+def instant(facts: dict, name: str, as_of: str | None = None) -> dict:
+    """The latest balance-sheet value for a metric, with provenance."""
+    gaap = facts.get("facts", {}).get("us-gaap") or {}
+    best = None
+    for rank, concept in enumerate(INSTANT_CONCEPTS[name]):
+        entry = gaap.get(concept)
+        if not entry:
+            continue
+        rows = [r for r in instant_series(entry)
+                if as_of is None or r["end"] <= as_of]
+        if not rows:
+            continue
+        score = (rows[-1]["end"], len(rows), -rank)
+        if best is None or score > best[0]:
+            best = (score, concept, rows)
+    if not best:
+        return _na("This company does not report that balance-sheet figure "
+                   "to the SEC in a machine-readable form.")
+    _score, concept, rows = best
+    last = rows[-1]
+    return {"value": last["val"], "concept": concept, "unit": "USD",
+            "as_of": last["end"], "filed": last.get("filed"),
+            "first_filed": last.get("first_filed"),
+            "points": len(rows), "basis": INSTANT_BASIS[name],
+            "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
+
+
+def net_debt(facts: dict, as_of: str | None = None) -> dict:
+    """Borrowings minus cash and short-term investments.
+
+    Requires at least one debt figure; a company that reports no borrowings
+    at all is reported as N/A rather than as zero net debt, because "we could
+    not find the debt" and "there is no debt" are different statements.
+    """
+    lt = instant(facts, "long_term_debt", as_of)
+    st = instant(facts, "short_term_debt", as_of)
+    cash = instant(facts, "cash", as_of)
+    inv = instant(facts, "short_investments", as_of)
+    debt_parts = [x["value"] for x in (lt, st) if x.get("value") is not None]
+    if not debt_parts:
+        return _na("No borrowings are tagged in this company's filings, so "
+                   "net debt cannot be told apart from a company that simply "
+                   "has none.")
+    liquid = sum(x["value"] for x in (cash, inv) if x.get("value") is not None)
+    return {"value": sum(debt_parts) - liquid,
+            "debt": sum(debt_parts), "liquid": liquid,
+            "as_of": (lt.get("as_of") or st.get("as_of")),
+            "components": {"long_term_debt": lt, "short_term_debt": st,
+                           "cash": cash, "short_investments": inv},
+            "basis": "Long-term plus short-term borrowings, less cash and "
+                     "short-term investments, at the latest balance-sheet date",
+            "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
+
+
+# ── SEC company metadata (SIC industry, fiscal year, exchange) ──────────────
+#
+# The submissions feed sec_filings already reads carries a Standard Industrial
+# Classification code assigned by the SEC. It is free, it is on every filer,
+# and — unlike a vendor's sector string — it is the same field the company
+# itself files under. It drives both peer grouping and the business-type
+# check, so a bank is never handed a net-debt-to-EBITDA ratio.
+
+_META_TTL = 30 * 86400.0
+_META: dict = {}
+
+
+def _meta_path(symbol: str) -> Path | None:
+    if _DATA_DIR is None:
+        return None
+    safe = re.sub(r"[^A-Z0-9._-]", "", symbol.upper())
+    return _DATA_DIR.parent / "meta" / f"{safe}.json" if safe else None
+
+
+def sic_metadata(symbol: str) -> dict | None:
+    """{sic, sic_description, fiscal_year_end, exchanges, name, cik} or None."""
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return None
+    hit = _META.get(sym)
+    if hit and time.time() - hit[0] < _META_TTL:
+        return hit[1]
+    path = _meta_path(sym)
+    if path is not None and path.exists():
+        try:
+            disk = json.loads(path.read_text())
+            if time.time() - float(disk.get("_fetched_ts") or 0) < _META_TTL:
+                _META[sym] = (time.time(), disk)
+                return disk
+        except Exception:
+            pass
+    if not available():
+        return None
+    cik = _sec.cik_for(sym)
+    if not cik:
+        return None
+    try:
+        raw = _sec._fetch_json(_sec._SUB_URL.format(cik=int(cik)))  # noqa: SLF001
+    except Exception:
+        return None
+    sic = raw.get("sic")
+    out = {"symbol": sym, "cik": int(cik),
+           "sic": str(sic).zfill(4) if sic else None,
+           "sic_description": raw.get("sicDescription") or "",
+           "fiscal_year_end": raw.get("fiscalYearEnd") or "",
+           "exchanges": raw.get("exchanges") or [],
+           "name": raw.get("name") or "",
+           "category": raw.get("category") or "",
+           "source": "SEC EDGAR company submissions",
+           "_fetched_ts": time.time()}
+    _META[sym] = (time.time(), out)
+    if path is not None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(path, out)
+        except Exception:                            # pragma: no cover
+            pass
+    return out
 
 
 def shares_outstanding(facts: dict) -> dict:
