@@ -672,7 +672,7 @@
       "routing_advisory_share_pct": 20.0,
       "routing_exchange_share_pct": 5.0,
       "routing_exchange_phrases": 2,
-      "routing_manager_phrases": 3,
+      "routing_manager_phrases": 2,
       "routing_dominant_share_pct": 65.0,
       "routing_min_ocf_margin_pct": 2.0,
       "routing_max_ocf_margin_pct": 150.0
@@ -681,6 +681,23 @@
       "_doc": "Reading a small, named set of operating measures out of the company's own SEC filing tables — client assets, assets under management, net new money, a published combined ratio, a published funds-from-operations figure. None of these is in XBRL, because none of them is a line of a financial statement. Every reading carries the accession, the document, the row label, the column, the period and the unit, and a reading is refused outright when the row is ambiguous, the period is missing or the scale is a guess: a thousandfold unit error must never reach a screen. A filing never changes, so a reading of one is written once and never rewritten.",
       "reconstruction_tolerance_pct": 5.0,
       "client_asset_max_age_days": 200
+    },
+    "_phase7": "Phase 7 adds no valuation engine. It makes the weakest data inputs production-grade. An annual report organised by segment rather than by adjective is now classified from the segments it names, which is what American International Group's report does and why it could not be classified before. A table caption is no longer assumed to cover every row in the table: the scale is taken from the most specific statement that covers the number, which is how T. Rowe Price's $1,893.4 becomes $1.9 trillion instead of $1.9 billion. The number itself is taken from the column its period heads rather than from the front of the row, because Affiliated Managers prints last year first. Published figures are compared with reconstructed ones only when the basis, the period and the window all match — a REIT publishes funds from operations five ways and only one of them is what a share is entitled to. And every prospective capture now writes down what it tried, so a missed trading day is reported the next morning instead of discovered in a backtest six months later.",
+    "insurance_basis": {
+      "_doc": "When a company-wide loss ratio means something. A multiline insurer files one premium line and one claims line, and where it is genuinely two businesses the claims include benefits paid by a life book whose earnings the premiums leave out. Measured across today's multiline insurers: Chubb 3.2 percent of assets, Kemper 4.5, Cincinnati Financial 6.9, Berkshire Hathaway 1.4 — and Horace Mann at 32.3, which is a life company with a car insurer attached. Above the line the underwriting ratios are refused as a mixed business basis; book value, returns, reserves and the whole valuation carry on regardless.",
+      "insurance_spread_material_pct": 10.0,
+      "insurance_evidence_max_age_days": 400.0
+    },
+    "cross_check": {
+      "_doc": "The company's own published figure beside the one this app rebuilt from XBRL. Neither replaces the other and the nicer of the two is never quietly chosen. A comparison is only made when the basis, the period and the window all match, which in practice means an annual published figure against the reconstruction rebuilt as of that same year end. A material mismatch lowers the reconstruction's confidence and is shown; it never edits a number.",
+      "cross_check_match_pct": 1.0,
+      "cross_check_material_pct": 5.0
+    },
+    "capture_health": {
+      "_doc": "Whether the prospective capture actually happened. The Investment snapshot, the end-of-day option chain, the long-dated observation, the benchmark close and the exact recommended contract are expected once per followed ticker per TRADING day — weekends and market holidays expect nothing, and the calendar is computed from the exchange's rules rather than typed out, so it does not expire. Nothing here is ever back-filled: a missed option chain stays missed, and the point of the report is that it says so the next morning instead of six months later during a backtest.",
+      "capture_hour_et": 17,
+      "capture_late_after_hours": 2,
+      "capture_keep_days": 400
     }
   }
 }

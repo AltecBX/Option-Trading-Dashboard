@@ -488,6 +488,49 @@ was seven years ago. Conversely, `PolicyholderFunds` and
 annuity business inside a company whose industry code says asset manager.
 
 
+## 9e. What a filing table's caption does and does not tell you (Phase 7)
+
+A caption is a statement about a table. It is not a statement about every row
+in it, and reading it as one is worth a factor of a thousand.
+
+Measured across the earnings releases and quarterly reports of nine asset
+managers, six brokers, four property trusts and six insurers:
+
+| Where the scale is actually written | Example |
+|---|---|
+| In the row's own label | Interactive Brokers: `Customer Equity (in billions)` inside a table captioned in thousands |
+| In a section heading above a block of rows | T. Rowe Price: `Assets under management (in billions) (4)`, eighteen rows into a table captioned `(in millions, except per-share data)` |
+| In a column heading | Franklin Resources: a head row beginning `(in billions)` |
+| In the table's own heading rows | BlackRock, whose earnings release puts two panels side by side, each with its own scale |
+| Nowhere at all | American Tower's funds-from-operations table, which is therefore refused |
+
+Two things follow. The scale has to come from the most specific statement
+that covers the number, and a figure whose scale nothing states has to be
+refused rather than inferred from its magnitude. "This number looks too big
+to be millions" is not evidence.
+
+The same lesson applies to periods. A column heading is the only thing that
+says which period a figure belongs to, and the shapes real filers use are:
+
+* `June 30, 2026` and `6/30/2026` — the common cases
+* `30-Jun-26` — Franklin Resources, every column
+* `2Q’26` with a curly apostrophe — Blackstone
+* `Q2` in one head row over `2026` in the next — BlackRock
+* `Three Months Ended June 30,` in one row over `2026 | 2025` in the next —
+  most 10-Qs
+
+And the order of the columns cannot be assumed. Affiliated Managers prints
+2025 before 2026, so taking the first figure in a row reads a year-old
+number as current.
+
+Finally, the same label can name several different measures. A REIT
+publishes funds from operations five ways — of the operating partnership, to
+limited partners, to common stockholders, core, and adjusted — and only one
+of them is what a share is entitled to. An insurer prints a combined ratio
+once per segment plus once for the company, all under the same label. What
+separates them is what the filer wrote ABOVE the table.
+
+
 ## 10. House rules that made all of this reliable
 
 1. **Cache by cadence**: daily data 15–30 min, monthly (CPI/COT) 6–12 h,

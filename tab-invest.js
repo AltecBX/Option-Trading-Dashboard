@@ -2207,6 +2207,8 @@ function InvReit({
 // ── Phase 5: insurers ─────────────────────────────────────────────────────
 
 const INV_INS_TIP = {
+  how: "How the kind of insurance was decided. Most annual reports say what " + "the company writes in so many words, and those words are counted. Some " + "describe the company by the segments it is organised into instead — " + "General Insurance, Commercial Lines, Personal Lines, Life and " + "Retirement — and for those the segment names are read instead. The " + "second path only runs when the first one has refused: nothing is " + "loosened to reach an answer.",
+  mixed: "A multiline insurer files one premium line and one claims line, " + "and where the company is genuinely two businesses the claims include " + "benefits paid by a life book whose earnings the premiums leave out. " + "Dividing one by the other then produces a number that looks like a " + "loss ratio and is a blend of two different businesses, so it is " + "refused. Book value, returns, reserves and the valuation itself are " + "unaffected — only the underwriting ratios go.",
   subtype: "What kind of insurance this company writes, read from its own " + "annual report and checked against its SEC industry code. This decides " + "which numbers below mean anything: claims divided by premiums is a loss " + "ratio for a car insurer and is not a ratio at all for a life insurer, " + "whose premiums leave out most of what it earns and whose benefits " + "include interest credited to policyholder accounts. Where the two " + "sources cannot agree, nothing is measured rather than the wrong " + "definition being applied.",
   bvps: "Shareholders' equity less preferred stock, per share. An insurer's " + "assets are mostly securities carried at what they would fetch, so book " + "value is closer to a real number here than in almost any industry.",
   pb: "Share price divided by book value per share. The main measure of what " + "an insurer costs — but the cheapest in a group is usually the least " + "profitable one, which is why the return on equity sits beside it.",
@@ -2261,7 +2263,16 @@ function InvInsurance({
   }, /*#__PURE__*/React.createElement("div", {
     className: "inv-note",
     title: INV_INS_TIP.subtype
-  }, "Read as a ", /*#__PURE__*/React.createElement("b", null, i.subtype_label || i.subtype), ". An insurer is valued on its book value and what it earns on it, because the money it holds between collecting a premium and paying a claim is neither debt nor spare cash \u2014 and a generic model reads it as one or the other."), /*#__PURE__*/React.createElement("div", {
+  }, "Read as a ", /*#__PURE__*/React.createElement("b", null, i.subtype_label || i.subtype), ". An insurer is valued on its book value and what it earns on it, because the money it holds between collecting a premium and paying a claim is neither debt nor spare cash \u2014 and a generic model reads it as one or the other."), !!(i.classification || {}).method && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_INS_TIP.how
+  }, "How that was decided: ", (i.classification || {}).reason, (i.classification || {}).method === "segment names in the annual report" ? " This company's annual report describes itself by the segments" + " it is organised into rather than by what it writes, so the" + " segments are what was read." : "", ((i.classification || {}).secondary || []).length ? ` It is also in: ${((i.classification || {}).secondary || []).join(", ").toLowerCase()}.` : ""), (i.metric_basis_compatibility || {}).ok === false && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: INV_INS_TIP.mixed
+  }, (i.metric_basis_compatibility || {}).reason), !!(i.metric_basis_compatibility || {}).note && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_INS_TIP.mixed
+  }, (i.metric_basis_compatibility || {}).note), /*#__PURE__*/React.createElement("div", {
     className: "inv-grid"
   }, stat("Book value per share", i.book_per_share, invPrice, INV_INS_TIP.bvps), stat("Price to book value", i.price_to_book, v => invRatio(v, 2), INV_INS_TIP.pb), stat("Tangible book value per share", i.tangible_book_per_share, invPrice, INV_INS_TIP.tbvps), stat("Price to tangible book value", i.price_to_tangible_book, v => invRatio(v, 2), INV_INS_TIP.ptbv), stat("Return on equity", i.return_on_equity_pct, invPct, INV_INS_TIP.roe), stat("Return on tangible common equity", i.return_on_tangible_common_equity_pct, invPct, INV_INS_TIP.rotce), stat("Book value per share growth", i.book_value_per_share_trend_pct, invSignedPct, INV_INS_TIP.book_trend), stat("Diluted share count change", i.diluted_share_trend_pct, invSignedPct, INV_INS_TIP.shares)), /*#__PURE__*/React.createElement("div", {
     className: "inv-sechead",
@@ -2487,19 +2498,25 @@ function InvHybrid({
 }
 const INV_XCHECK_TIP = {
   what: "Some measures have to be rebuilt from the machine-readable filings " + "because the filings do not tag them directly — funds from operations " + "for a property trust, the combined ratio for an insurer. Where the " + "company also prints the figure in a table of its own, the two are put " + "side by side here.",
-  state: "AGREES means the rebuilt figure matches what the company " + "publishes. RECONSTRUCTION MISMATCH means it does not, and the " + "valuation built on the rebuilt figure is not trusted at full " + "confidence until the difference is explained. The nicer of the two is " + "never quietly chosen."
+  state: "MATCH means the rebuilt figure and the published one are the same " + "number. MINOR DIFFERENCE means they differ by less than the tolerance. " + "MATERIAL MISMATCH means they do not agree, and the valuation built on " + "the rebuilt figure is not trusted at full confidence until the " + "difference is explained. INCOMPATIBLE BASIS means the company does " + "publish the measure, on a different basis, period or window — a " + "property trust publishes funds from operations five ways and only one " + "of them is what a share is entitled to. PUBLISHED UNAVAILABLE means it " + "does not print the measure in a table this app will read. The nicer of " + "the two numbers is never quietly chosen.",
+  basis: "Which definition each side of the comparison uses, and over what " + "period. A quarter compared with a year is a 300% disagreement about " + "nothing, so a comparison is only made when the basis, the period and " + "the window all match.",
+  measures: "Client assets, assets under administration, advisory assets " + "and assets under management are four different things, and this app " + "never treats one as standing in for another. Assets under " + "administration include money the firm only holds; advisory assets are " + "the part it is paid to advise on; assets under management are the part " + "it actually runs. Each is stored under its own name with its own " + "period, scope and unit.",
+  unit: "Where the scale of this figure was read from — the row's own " + "label, a heading above it, its column, the table, or the caption. The " + "most specific statement wins, and a figure whose scale nothing states " + "is refused rather than guessed at, because the guess is worth a factor " + "of a thousand."
 };
+const INV_XCHECK_BAD = ["MATERIAL MISMATCH"];
 function InvCrossCheck({
   cross
 }) {
   const c = cross || {};
-  if (!(c.checks || []).length) return null;
+  const checks = c.checks || [];
+  const measures = (c.measures || {}).rows || [];
+  if (!checks.length && !measures.length) return null;
   return /*#__PURE__*/React.createElement("div", {
     className: "inv-bank"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, !!c.reason && /*#__PURE__*/React.createElement("div", {
     className: `inv-note ${c.mismatches ? "down" : ""}`,
     title: INV_XCHECK_TIP.state
-  }, c.state === "AGREES" ? "What this app rebuilt from the filings matches what the company " + "publishes in its own tables." : "What this app rebuilt from the filings does NOT match what the " + "company publishes in its own tables."), /*#__PURE__*/React.createElement("table", {
+  }, c.reason), !!checks.length && /*#__PURE__*/React.createElement("table", {
     className: "inv-peer-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     title: INV_XCHECK_TIP.what
@@ -2511,11 +2528,39 @@ function InvCrossCheck({
     title: INV_XCHECK_TIP.state
   }, "Difference"), /*#__PURE__*/React.createElement("th", {
     title: INV_XCHECK_TIP.state
-  }, "State"))), /*#__PURE__*/React.createElement("tbody", null, (c.checks || []).map((row, i) => /*#__PURE__*/React.createElement("tr", {
+  }, "State"), /*#__PURE__*/React.createElement("th", {
+    title: INV_XCHECK_TIP.basis
+  }, "Basis and period"))), /*#__PURE__*/React.createElement("tbody", null, checks.map((row, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
-  }, /*#__PURE__*/React.createElement("td", null, row.measure), /*#__PURE__*/React.createElement("td", null, row.unit === "percent" ? invPct(row.published) : invMoney(row.published)), /*#__PURE__*/React.createElement("td", null, row.unit === "percent" ? invPct(row.reconstructed) : invMoney(row.reconstructed)), /*#__PURE__*/React.createElement("td", null, invPct(row.difference_pct)), /*#__PURE__*/React.createElement("td", {
-    className: row.state === "AGREES" ? "" : "down"
-  }, row.state))))));
+  }, /*#__PURE__*/React.createElement("td", null, row.measure), /*#__PURE__*/React.createElement("td", null, row.unit === "percent" ? invPct(row.published) : invMoney(row.published)), /*#__PURE__*/React.createElement("td", null, row.unit === "percent" ? invPct(row.reconstructed) : invMoney(row.reconstructed)), /*#__PURE__*/React.createElement("td", null, row.difference_pct == null ? "—" : invPct(row.difference_pct)), /*#__PURE__*/React.createElement("td", {
+    className: INV_XCHECK_BAD.includes(row.state) ? "down" : "",
+    title: row.reason || INV_XCHECK_TIP.state
+  }, row.state), /*#__PURE__*/React.createElement("td", {
+    title: row.note || INV_XCHECK_TIP.basis
+  }, [row.published_basis, row.published_period ? invDate(row.published_period) : ""].filter(Boolean).join(" · ") || "—"))))), !!measures.length && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_XCHECK_TIP.measures
+  }, (c.measures || {}).reason), /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_XCHECK_TIP.measures
+  }, "Measure read from a filing"), /*#__PURE__*/React.createElement("th", {
+    title: INV_XCHECK_TIP.measures
+  }, "Amount"), /*#__PURE__*/React.createElement("th", {
+    title: INV_XCHECK_TIP.basis
+  }, "As of"), /*#__PURE__*/React.createElement("th", {
+    title: INV_XCHECK_TIP.measures
+  }, "Whole company or one part"), /*#__PURE__*/React.createElement("th", {
+    title: INV_XCHECK_TIP.unit
+  }, "Scale, and where it was read"))), /*#__PURE__*/React.createElement("tbody", null, measures.map((row, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", {
+    title: row.row_label ? `Read from a row labelled "${row.row_label}"` : INV_XCHECK_TIP.measures
+  }, row.label), /*#__PURE__*/React.createElement("td", null, invMoney(row.value)), /*#__PURE__*/React.createElement("td", null, invDate(row.period)), /*#__PURE__*/React.createElement("td", {
+    title: INV_XCHECK_TIP.measures
+  }, row.scope === "CONSOLIDATED" ? "Whole company" : row.scope === "SEGMENT" ? "One segment" : "The filing does not say"), /*#__PURE__*/React.createElement("td", {
+    title: INV_XCHECK_TIP.unit
+  }, [row.unit, row.unit_source].filter(Boolean).join(" · ") || "—")))))));
 }
 
 // ── Phase 4: the covered-call simulator ───────────────────────────────────
@@ -2988,6 +3033,168 @@ function InvValidation({
     }, s.win_rate_pct != null ? invPct(s.win_rate_pct, 0) : invNA));
   })))));
 }
+
+// ── Phase 7: is the prospective capture actually happening? ───────────────
+//
+// Everything the forward work rests on is collected going forward and can
+// never be back-filled, so the only two questions worth a panel are how much
+// there is and whether today added to it. Deliberately compact and behind an
+// expander: this is operational, and it must not crowd the screen the buy or
+// wait decision is made on.
+
+const INV_CAPTURE_TIP = {
+  what: "How much real, prospectively captured data this app holds, and " + "whether it is still being captured. None of it can be back-filled: " + "there is no source of historical option chains this app can reach, so " + "a trading day that goes uncaptured stays uncaptured. That is why a " + "missed day is reported here the next morning rather than discovered " + "months later in a backtest.",
+  state: "HEALTHY means the last trading day captured everything expected. " + "PARTIAL means some of it was missed. CAPTURE FAILURE means a whole " + "trading day produced nothing, which is the state worth acting on. A " + "weekend or a market holiday is NOT EXPECTED rather than missed.",
+  snapshots: "Days on which the whole valuation state was recorded for at " + "least one followed ticker. This is what forward validation scores " + "later, so a day without it is a day that can never be scored.",
+  chains: "Days on which a real end-of-day option chain was captured. This " + "is the one that can never be recovered.",
+  leaps: "Days on which the long-dated contracts around the money and their " + "implied volatility were recorded, which is what gives a long-dated " + "option its own volatility history instead of a borrowed one.",
+  last: "The most recent trading day on which everything expected was " + "captured. If this is not the last trading day, something was missed.",
+  coverage: "The share of trading days since capture began that have a real " + "chain behind them. Days before the first capture are not counted as " + "missed, because nothing was expected of them.",
+  missing: "Followed tickers that were expected today and have not been " + "captured. Before the capture window this is simply everything; after " + "it, it is a list of failures.",
+  forward: "Forward validation scores a recommendation only once its whole " + "horizon has passed. Nothing is scored early and no verdict is given " + "until enough observations have completed, so what is shown here is " + "when the first result can exist — not a result.",
+  symbol: "Per ticker: how many days of each kind exist, when the real " + "chain history starts and ends, and which expected trading days have no " + "chain. Weekends and market holidays are not counted as missed."
+};
+const INV_CAPTURE_CLASS = {
+  HEALTHY: "up",
+  PARTIAL: "",
+  "CAPTURE FAILURE": "down",
+  COMPLETE: "up",
+  MISSED: "down",
+  "NOT EXPECTED": "muted"
+};
+function InvCaptureStat({
+  label,
+  value,
+  tip
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "inv-stat-label",
+    title: tip
+  }, label), /*#__PURE__*/React.createElement("b", {
+    className: "inv-stat-val",
+    title: tip
+  }, value));
+}
+function InvDataReadiness({
+  apiFetch,
+  symbol
+}) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = React.useCallback(() => {
+    setBusy(true);
+    apiFetch("/api/invest/readiness").then(r => r.json()).then(j => setData(j)).catch(() => setData({
+      error: true
+    })).finally(() => setBusy(false));
+  }, [apiFetch]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const d = data || {};
+  const today = d.today || {};
+  const health = d.health || {};
+  const fwd = d.forward || {};
+  const rows = d.symbol_rows || [];
+  const mine = rows.filter(r => r.symbol === (symbol || "").toUpperCase());
+  const show = mine.length ? mine.concat(rows.filter(r => !mine.includes(r))) : rows;
+  if (d.error) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-note",
+      title: INV_CAPTURE_TIP.what
+    }, "The capture-health report could not be read.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-bank"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${INV_CAPTURE_CLASS[health.state] || ""}`,
+    title: INV_CAPTURE_TIP.state
+  }, busy && !data ? "Loading…" : `${health.state || "—"} — ${health.reason || ""}`), !!health.alert && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: INV_CAPTURE_TIP.state
+  }, health.alert), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Investment snapshots",
+    tip: INV_CAPTURE_TIP.snapshots,
+    value: `${d.investment_snapshot_days || 0} days`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Real option chains",
+    tip: INV_CAPTURE_TIP.chains,
+    value: `${d.real_chain_days || 0} days`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Long-dated observations",
+    tip: INV_CAPTURE_TIP.leaps,
+    value: `${d.leaps_observation_days || 0} days`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Last successful capture",
+    tip: INV_CAPTURE_TIP.last,
+    value: d.last_successful_capture ? invDate(d.last_successful_capture) : "None yet"
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Today's capture status",
+    tip: INV_CAPTURE_TIP.state,
+    value: d.trading_day ? today.state || "—" : `Not expected — ${d.not_trading_because || "not a trading day"}`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Symbols missing today",
+    tip: INV_CAPTURE_TIP.missing,
+    value: (d.symbols_missing_today || []).length ? (d.symbols_missing_today || []).join(", ") : "None"
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Real chain coverage",
+    tip: INV_CAPTURE_TIP.coverage,
+    value: d.chain_coverage_pct == null ? "Nothing captured yet" : invPct(d.chain_coverage_pct)
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Earliest thirty-day validation result",
+    tip: INV_CAPTURE_TIP.forward,
+    value: (() => {
+      const h = (fwd.horizons || []).find(x => x.days === 30);
+      return h ? h.first_eligible_pretty : "No snapshot recorded yet";
+    })()
+  })), !!(fwd.horizons || []).length && /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.forward
+  }, "Horizon"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.forward
+  }, "Earliest possible result"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.forward
+  }, "Still ageing toward it"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.forward
+  }, "Horizon complete"))), /*#__PURE__*/React.createElement("tbody", null, (fwd.horizons || []).map(h => /*#__PURE__*/React.createElement("tr", {
+    key: h.days
+  }, /*#__PURE__*/React.createElement("td", null, h.days, " days"), /*#__PURE__*/React.createElement("td", null, h.first_eligible_pretty), /*#__PURE__*/React.createElement("td", null, h.ageing), /*#__PURE__*/React.createElement("td", null, h.complete))))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_CAPTURE_TIP.forward
+  }, fwd.reason), !!show.length && /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.symbol
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.snapshots
+  }, "Snapshot days"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.chains
+  }, "Chain days"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.chains
+  }, "First chain"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.chains
+  }, "Last chain"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.coverage
+  }, "Real chain coverage"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.symbol
+  }, "Expected days with no chain"))), /*#__PURE__*/React.createElement("tbody", null, show.slice(0, 40).map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol
+  }, /*#__PURE__*/React.createElement("td", null, r.symbol), /*#__PURE__*/React.createElement("td", null, r.snapshot_days), /*#__PURE__*/React.createElement("td", null, r.chain_days), /*#__PURE__*/React.createElement("td", null, r.first_chain ? invShortDate(r.first_chain) : "—"), /*#__PURE__*/React.createElement("td", null, r.last_chain ? invShortDate(r.last_chain) : "—"), /*#__PURE__*/React.createElement("td", null, r.chain_coverage_pct == null ? "—" : invPct(r.chain_coverage_pct)), /*#__PURE__*/React.createElement("td", {
+    title: (r.missing_expected_days || []).length ? (r.missing_expected_days || []).map(invShortDate).join(", ") : INV_CAPTURE_TIP.symbol
+  }, (r.missing_expected_days || []).length || "None"))))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_CAPTURE_TIP.what
+  }, d.backfill_note), /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost",
+    onClick: load,
+    disabled: busy,
+    title: "Re-read the capture log."
+  }, busy ? "Loading…" : "Refresh"));
+}
 function InvScanner({
   apiFetch,
   onPick
@@ -3390,8 +3597,11 @@ function InvestTab({
     extraction: (d.profile || {}).extraction
   })), d.hybrid && d.hybrid.is_hybrid && section("hybrid", "More than one business at once", "A company that is two financial businesses gets no single fair value unless the two models agree about one. Which case this is, and what each model says, are both shown.", /*#__PURE__*/React.createElement(InvHybrid, {
     hybrid: d.hybrid
-  })), d.cross_check && (d.cross_check.checks || []).length > 0 && section("crosscheck", "Rebuilt against published", "Where a measure had to be rebuilt from the machine-readable filings and the company also prints it in a table of its own, the two are put side by side. A disagreement lowers confidence rather than being resolved in favour of the nicer number.", /*#__PURE__*/React.createElement(InvCrossCheck, {
+  })), d.cross_check && ((d.cross_check.checks || []).length > 0 || ((d.cross_check.measures || {}).rows || []).length > 0) && section("crosscheck", "Rebuilt against published", "Where a measure had to be rebuilt from the machine-readable filings and the company also prints it in a table of its own, the two are put side by side. A comparison is only made when the basis, the period and the window all match, and a disagreement lowers confidence rather than being resolved in favour of the nicer number.", /*#__PURE__*/React.createElement(InvCrossCheck, {
     cross: d.cross_check
+  })), section("readiness", "Data readiness", "How much real, prospectively captured data this app holds, and whether today added to it. None of it can be back-filled, so a missed trading day is reported here the next morning rather than discovered months later in a backtest.", /*#__PURE__*/React.createElement(InvDataReadiness, {
+    apiFetch: apiFetch,
+    symbol: d.symbol
   })), d.bank && section("bank", "Bank measures", "What a lender is actually made of: tangible book value, the return earned on it, what its deposits cost and what its loan book is doing.", /*#__PURE__*/React.createElement(InvBank, {
     bank: d.bank
   })), d.reit && section("reit", "Property trust measures", "Funds from operations rather than reported earnings, the distribution it supports, and what the filings will not support at all.", /*#__PURE__*/React.createElement(InvReit, {

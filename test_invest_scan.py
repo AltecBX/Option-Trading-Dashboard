@@ -719,6 +719,9 @@ import broker_model as BRK                             # noqa: E402
 import business_routing as ROUTE                       # noqa: E402
 import structures as ST                                # noqa: E402
 import chain_store as _CHAIN                           # noqa: E402
+import cross_check as XC                               # noqa: E402
+import capture_health as CH                            # noqa: E402
+import forward_test as _FT                             # noqa: E402
 
 
 def phase3_chain(spot=10.0, today=None):
@@ -1322,7 +1325,16 @@ class Phase5Base(Phase4Base):
         self.profile = {"symbol": self.SYM, "description": "An insurer.",
                         "moat_tags": [], "property_type": None,
                         "insurer_subtype": subtype, "broker_subtype":
-                        "UNDETERMINED", "profile_version": F.PROFILE_VERSION}
+                        "UNDETERMINED", "profile_version": F.PROFILE_VERSION,
+                        # Phase 7: how the subtype was reached travels with
+                        # it, so the snapshot can record which path answered.
+                        "insurer_classification": {
+                            "primary": subtype, "secondary": [],
+                            "method": "business keywords",
+                            "confidence": "HIGH",
+                            "reason": "The report says so in as many words.",
+                            "keyword_scores": {"pc": 30},
+                            "segment_scores": {"pc": 40}, "evidence": {}}}
         f = F.company_facts(self.SYM)
         gaap = f["facts"]["us-gaap"]
         self._inst(gaap, "StockholdersEquity", 800.0)
@@ -1783,18 +1795,23 @@ class Phase6Base(Phase5Base):
         S._MEM.clear()
 
     def with_table(self, metric, value, period=None, label="row",
-                   previous=None):
+                   previous=None, form="8-K", scope="CONSOLIDATED"):
         # Relative to today, because a client-asset reading two quarters old
         # is refused as history — and a fixture pinned to a calendar date
         # would start failing the day the clock passed it.
         period = period or (date.today() - timedelta(days=45)).isoformat()
-        self._tables = {"readings": {metric: {
+        row = {
             "value": value, "usable": True, "confidence": "HIGH",
             "metric": metric, "label": metric.replace("_", " ").capitalize(),
-            "form": "8-K", "filed": period, "previous": previous,
+            "form": form, "filed": period, "previous": previous,
             "provenance": {"period": period, "row_label": label,
-                           "scale_word": "billions", "window": "QUARTER"},
-        }}, "history": {}, "filings_read": 1}
+                           "scale_word": "billions", "resolved_unit":
+                           "billions", "unit_source": "row label",
+                           "unit_confidence": "HIGH", "scope": scope,
+                           "window": "QUARTER"},
+        }
+        self._tables = {"readings": {metric: row},
+                        "history": {metric: [row]}, "filings_read": 1}
         S._MEM.clear()
 
 
@@ -1939,39 +1956,73 @@ class TestClientAssetsFromFilingTables(Phase6Base):
 
 
 class TestPublishedAgainstReconstructed(Phase6Base):
+    """A published figure is only compared with a rebuilt one when the basis,
+    the period and the window all match — which in practice means an annual
+    figure against the reconstruction rebuilt as of that same year end."""
+
+    def annual(self, metric, value, **kw):
+        """A published figure out of an annual report, at the same period end
+        the reconstruction covers."""
+        at = ((S.payload(self.SYM)["insurance"].get("combined_ratio_pct")
+               or {}).get("period_end")
+              or (date.today() - timedelta(days=45)).isoformat())
+        self.with_table(metric, value, period=at, form="10-K", **kw)
+        return at
+
     def test_agreement_is_reported_as_agreement(self):
         self.as_insurer()
-        p = S.payload(self.SYM)
-        rebuilt = (p["insurance"].get("combined_ratio_pct") or {}).get("value")
+        rebuilt = (S.payload(self.SYM)["insurance"]
+                   .get("combined_ratio_pct") or {}).get("value")
         self.assertIsNotNone(rebuilt)
-        self.with_table("published_combined_ratio", rebuilt)
+        self.annual("published_combined_ratio", rebuilt)
         p = S.payload(self.SYM)
-        self.assertEqual(p["cross_check"]["state"], "AGREES")
+        self.assertEqual(p["cross_check"]["state"], XC.MATCH)
 
     def test_a_material_difference_is_flagged_and_lowers_confidence(self):
         self.as_insurer()
         rebuilt = (S.payload(self.SYM)["insurance"]
                    .get("combined_ratio_pct") or {}).get("value")
-        self.with_table("published_combined_ratio", rebuilt * 1.4)
+        self.annual("published_combined_ratio", rebuilt * 1.4)
         p = S.payload(self.SYM)
-        self.assertEqual(p["cross_check"]["state"], "RECONSTRUCTION MISMATCH")
+        self.assertEqual(p["cross_check"]["state"], XC.MATERIAL)
         self.assertEqual(p["fair_value"]["confidence"]["level"], "LOW")
 
     def test_the_nicer_number_is_never_quietly_chosen(self):
         self.as_insurer()
         rebuilt = (S.payload(self.SYM)["insurance"]
                    .get("combined_ratio_pct") or {}).get("value")
-        self.with_table("published_combined_ratio", rebuilt * 1.4)
+        self.annual("published_combined_ratio", rebuilt * 1.4)
         p = S.payload(self.SYM)
         still = (p["insurance"].get("combined_ratio_pct") or {}).get("value")
         self.assertAlmostEqual(still, rebuilt, places=6)
+
+    def test_a_quarterly_figure_is_not_compared_with_a_trailing_year(self):
+        """The published quarter and the rebuilt year are different numbers
+        about different lengths of time."""
+        self.as_insurer()
+        rebuilt = (S.payload(self.SYM)["insurance"]
+                   .get("combined_ratio_pct") or {}).get("value")
+        self.with_table("published_combined_ratio", rebuilt, form="10-Q")
+        p = S.payload(self.SYM)
+        self.assertIn(p["cross_check"]["state"],
+                      (XC.UNAVAILABLE, XC.INCOMPATIBLE))
+
+    def test_a_segment_figure_is_never_the_company_figure(self):
+        self.as_insurer()
+        rebuilt = (S.payload(self.SYM)["insurance"]
+                   .get("combined_ratio_pct") or {}).get("value")
+        self.annual("published_combined_ratio", rebuilt, scope="SEGMENT")
+        p = S.payload(self.SYM)
+        self.assertEqual(p["cross_check"]["state"], XC.INCOMPATIBLE)
 
     def test_no_published_figure_is_not_a_failure(self):
         self.as_insurer()
         self._tables = {}
         p = S.payload(self.SYM)
-        self.assertEqual(p["cross_check"]["state"], "NOT CHECKED")
+        self.assertIn(p["cross_check"]["state"],
+                      (XC.NOT_CHECKED, XC.UNAVAILABLE))
         self.assertTrue(p["cross_check"]["reason"])
+        self.assertEqual(p["cross_check"]["mismatches"], 0)
 
 
 class TestPhase6Snapshot(Phase6Base):
@@ -2039,3 +2090,232 @@ class TestPhase6Config(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Phase 7 — capture health, restart recovery, forward readiness
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class Phase7Base(Phase6Base):
+    """The scheduler and the capture log, on a clock the test controls."""
+
+    def setUp(self):
+        super().setUp()
+        CH.configure(self.dir)
+        S._SCHED["recorded_for"] = None
+        self._real_starred = S._STARRED_FN
+        S._STARRED_FN = lambda: [self.SYM]
+        self._real_cc_chain = S._CC_CHAIN_FN
+        self.alerts = []
+        self._real_alert = S._ALERT_FN
+        S._ALERT_FN = lambda title, msg: self.alerts.append((title, msg))
+
+    def tearDown(self):
+        S._STARRED_FN = self._real_starred
+        S._CC_CHAIN_FN = self._real_cc_chain
+        S._ALERT_FN = self._real_alert
+        S._SCHED["recorded_for"] = None
+        CH.configure(None)
+        super().tearDown()
+
+
+class TestTheCaptureClock(Phase7Base):
+    def test_the_clock_is_the_exchange_s_not_the_container_s(self):
+        """Railway keeps its clock in UTC. Seventeen hundred UTC is one in
+        the afternoon in New York, and the end-of-day capture used to run
+        then."""
+        now = S.market_now()
+        self.assertIsNotNone(now)
+        if S._MARKET_TZ is not None:
+            self.assertIsNotNone(now.tzinfo)
+            self.assertIn("New_York", str(now.tzinfo))
+
+    def test_nothing_is_captured_before_the_window(self):
+        self.assertIsNone(S.tick(now=datetime(2026, 8, 17, 11, 0)))
+
+    def test_nothing_is_captured_on_a_weekend(self):
+        self.assertIsNone(S.tick(now=datetime(2026, 8, 15, 18, 0)))
+
+    def test_nothing_is_captured_on_a_market_holiday(self):
+        self.assertIsNone(S.tick(now=datetime(2026, 11, 26, 18, 0)))
+
+    def test_a_trading_evening_captures(self):
+        got = S.tick(now=datetime(2026, 8, 17, 18, 0))
+        self.assertIsNotNone(got)
+        self.assertIn(self.SYM, got["recorded"])
+        self.assertTrue(CH.captured(CH.SNAPSHOT, self.SYM, "2026-08-17"))
+
+
+class TestRestartRecovery(Phase7Base):
+    def test_a_restart_after_the_window_still_takes_the_day(self):
+        """The container came back at eight in the evening. The day is not
+        lost."""
+        got = S.tick(now=datetime(2026, 8, 17, 20, 0))
+        self.assertIn(self.SYM, got["recorded"])
+        self.assertTrue(CH.captured(CH.SNAPSHOT, self.SYM, "2026-08-17"))
+
+    def test_a_restart_does_not_repeat_work_that_already_succeeded(self):
+        S.tick(now=datetime(2026, 8, 17, 18, 0))
+        S._SCHED["recorded_for"] = None                  # a fresh process
+        again = S.tick(now=datetime(2026, 8, 17, 21, 0))
+        self.assertEqual(again["recorded"], [])
+        self.assertEqual(again["already_captured"], [self.SYM])
+
+    def test_a_late_capture_is_stamped_late_rather_than_hidden(self):
+        S.record_daily([self.SYM], day="2026-08-17")
+        entry = CH.day_log("2026-08-17")["kinds"][CH.SNAPSHOT][self.SYM]
+        self.assertIn("late", entry)
+        self.assertTrue(entry["at"])
+
+    def test_a_chain_is_never_captured_on_a_day_the_market_was_shut(self):
+        """A quote taken on a Saturday is Friday's quote wearing Saturday's
+        date, and storing it would put a chain in the history for a day that
+        never traded."""
+        real = S._market_today
+        try:
+            S._market_today = lambda: "2026-08-15"       # a Saturday
+            got = S.capture_chains([self.SYM])
+        finally:
+            S._market_today = real
+        self.assertEqual(got["captured"], [])
+        self.assertEqual(got["not_expected"], [self.SYM])
+        self.assertIn("weekend", got["reason"])
+
+    def test_nothing_here_ever_back_fills_a_chain(self):
+        got = S.capture_chains([self.SYM])
+        self.assertNotIn("backfilled", got)
+        for key in ("captured", "skipped", "failed"):
+            self.assertIn(key, got)
+
+
+class TestCaptureHealthReaches(Phase7Base):
+    def test_a_complete_day_raises_no_alert(self):
+        for kind in CH.KINDS:
+            CH.record(kind, self.SYM, True, day="2026-08-17")
+        got = S._raise_if_incomplete([self.SYM], "2026-08-17")
+        self.assertEqual(got["state"], CH.HEALTHY)
+        self.assertEqual(self.alerts, [])
+
+    def test_an_incomplete_day_reuses_the_app_s_own_push(self):
+        CH.record(CH.SNAPSHOT, self.SYM, True, day="2026-08-17")
+        got = S._raise_if_incomplete([self.SYM], "2026-08-17")
+        self.assertIn(got["state"], (CH.HEALTH_PARTIAL, CH.FAILURE))
+        self.assertEqual(len(self.alerts), 1)
+        self.assertIn("Investment data capture", self.alerts[0][0])
+
+    def test_the_expectation_is_per_kind_and_per_symbol(self):
+        want = S.expected_today([self.SYM, "MSFT"])
+        for kind in CH.KINDS:
+            self.assertIn(self.SYM, want[kind])
+            self.assertIn("MSFT", want[kind])
+
+
+class TestDataReadiness(Phase7Base):
+    def test_the_payload_says_how_much_real_data_exists(self):
+        S.payload(self.SYM, force=True)
+        got = S.data_readiness([self.SYM])
+        for key in ("investment_snapshot_days", "real_chain_days",
+                    "leaps_observation_days", "chain_coverage_pct",
+                    "last_successful_capture", "symbols_missing_today"):
+            self.assertIn(key, got)
+        self.assertGreaterEqual(got["investment_snapshot_days"], 1)
+
+    def test_a_weekend_is_reported_as_not_expected(self):
+        got = S.data_readiness([self.SYM], today="2026-08-15")
+        self.assertFalse(got["trading_day"])
+        self.assertEqual(got["not_trading_because"], "a weekend")
+        self.assertEqual(got["today"]["state"], CH.NOT_EXPECTED)
+
+    def test_a_missed_trading_day_is_visible_the_next_morning(self):
+        got = S.data_readiness([self.SYM], today="2026-08-17")
+        self.assertEqual(got["today"]["state"], CH.MISSED)
+        self.assertEqual(got["health"]["state"], CH.FAILURE)
+
+    def test_the_per_symbol_rows_distinguish_a_weekend_from_a_failure(self):
+        CH.record(CH.CHAIN, self.SYM, True, day="2026-08-14")
+        CH.record(CH.CHAIN, self.SYM, True, day="2026-08-17")
+        got = S.data_readiness([self.SYM], today="2026-08-17")
+        row = next(r for r in got["symbol_rows"] if r["symbol"] == self.SYM)
+        self.assertEqual(row["missing_expected_days"], [])
+
+    def test_the_note_says_it_can_never_be_back_filled(self):
+        got = S.data_readiness([self.SYM])
+        self.assertIn("ever back-filled", got["backfill_note"])
+
+
+class TestForwardReadiness(Phase7Base):
+    def test_the_earliest_thirty_day_result_is_named_not_guessed(self):
+        S.payload(self.SYM, force=True)
+        got = S.data_readiness([self.SYM])["forward"]
+        thirty = next(h for h in got["horizons"] if h["days"] == 30)
+        first = date.fromisoformat(got["first_snapshot"])
+        self.assertEqual(thirty["first_eligible_date"],
+                         (first + timedelta(days=30)).isoformat())
+        self.assertIn(",", thirty["first_eligible_pretty"])
+
+    def test_an_incomplete_horizon_is_counted_not_scored(self):
+        S.payload(self.SYM, force=True)
+        got = S.data_readiness([self.SYM])["forward"]
+        thirty = next(h for h in got["horizons"] if h["days"] == 30)
+        self.assertGreaterEqual(thirty["ageing"], 1)
+        self.assertEqual(thirty["complete"], 0)
+        self.assertEqual(got["verdict"], _FT.INSUFFICIENT)
+
+    def test_no_snapshot_means_nothing_is_ageing(self):
+        got = S._forward_readiness(set(), "2026-08-17")
+        self.assertEqual(got["horizons"], [])
+        self.assertIn("nothing ageing", got["reason"])
+
+
+class TestPhase7Snapshot(Phase6Base):
+    def test_the_row_records_how_the_insurer_was_classified(self):
+        self.as_insurer()
+        row = S._daily_row(S.payload(self.SYM))
+        self.assertIn("insurer_subtype", row)
+        self.assertIn("insurer_subtype_method", row)
+        self.assertIn("insurer_metric_basis_ok", row)
+
+    def test_the_row_records_how_each_table_figure_was_scaled(self):
+        self.as_broker()
+        self.with_table("client_assets", 1.2e12)
+        row = S._daily_row(S.payload(self.SYM))
+        unit = row["table_units"]["client_assets"]
+        self.assertEqual(unit["unit"], "billions")
+        self.assertEqual(unit["unit_source"], "row label")
+        self.assertEqual(unit["scope"], "CONSOLIDATED")
+
+    def test_an_old_row_is_never_rewritten(self):
+        self.as_broker()
+        first = S._daily_row(S.payload(self.SYM))
+        self.assertNotIn("rewritten", first)
+        self.assertTrue(first.get("date"))
+
+
+class TestPhase7Config(unittest.TestCase):
+    def test_every_phase_7_threshold_is_declared(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        for key in ("insurance_spread_material_pct",
+                    "insurance_evidence_max_age_days"):
+            self.assertIn(key, inv["insurance_basis"], key)
+        for key in XC.DEFAULTS:
+            self.assertIn(key, inv["cross_check"], key)
+
+    def test_the_notes_say_what_is_refused_and_why(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        self.assertIn("adds no valuation engine", inv["_phase7"])
+        self.assertIn("ever back-filled", inv["capture_health"]["_doc"])
+        self.assertIn("nicer of the two is never quietly chosen",
+                      inv["cross_check"]["_doc"])
+        self.assertIn("mixed business basis",
+                      inv["insurance_basis"]["_doc"].lower())
+
+    def test_no_new_valuation_multiple_is_declared(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        for group in ("insurance_basis", "cross_check", "capture_health"):
+            for key in inv[group]:
+                self.assertNotIn("fair_multiple", key)
+                self.assertNotIn("target_", key)

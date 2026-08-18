@@ -778,8 +778,26 @@ check("no sum-of-the-parts weighting appears anywhere",
   && !/sum_of_parts/.test(inv));
 
 check("a reconstruction mismatch is shown rather than resolved",
-  /RECONSTRUCTION MISMATCH/.test(inv)
+  /MATERIAL MISMATCH/.test(inv)
   && /never quietly chosen/.test(inv));
+
+// Phase 7. A published figure and a rebuilt one are only compared when the
+// basis, the period and the window all match, and the reader is told which
+// of the five states applies rather than being shown a bare number.
+check("every cross-check state is explained in plain words",
+  ["MATCH", "MINOR DIFFERENCE", "MATERIAL MISMATCH", "INCOMPATIBLE BASIS",
+   "PUBLISHED UNAVAILABLE"].every((s) => inv.includes(s))
+  && /different basis, period or window|different measures that share a name|INCOMPATIBLE BASIS means/.test(inv));
+
+check("the asset measures are never treated as synonyms",
+  /never treats one as standing in for another/.test(invJoined)
+  && /assets under administration include money the firm only holds/i
+      .test(invJoined));
+
+check("the unit of a filing-table figure says where it was read from",
+  /INV_XCHECK_TIP\.unit/.test(inv)
+  && /refused rather than guessed at/.test(invJoined)
+  && /Scale, and where it was read/.test(inv));
 
 check("client assets say where the number came from",
   /b\.client_assets/.test(inv)

@@ -99,9 +99,18 @@ def insurer_facts(premiums=1_000_000_000.0, losses=650_000_000.0,
     return {"facts": {"us-gaap": gaap}}
 
 
-def metrics(subtype="P&C", price=60.0, **kw):
+def metrics(subtype="P&C", price=60.0, secondary=None, **kw):
     return IM.metrics(F, insurer_facts(**kw), price=price,
-                      shares_outstanding=100_000_000.0, subtype=subtype)
+                      shares_outstanding=100_000_000.0, subtype=subtype,
+                      secondary=secondary)
+
+
+def with_life_book(share_pct, assets=30_000_000_000.0, **kw):
+    """The same insurer with a life or annuity book of a given size."""
+    facts = insurer_facts(assets=assets, **kw)
+    facts["facts"]["us-gaap"]["PolicyholderContractDeposits"] = _e(
+        "USD", instants([assets * share_pct / 100.0] * 12))
+    return facts
 
 
 # ── subtype classification ─────────────────────────────────────────────────
@@ -513,3 +522,110 @@ class TestJunkInput(unittest.TestCase):
 
 if __name__ == "__main__":                             # pragma: no cover
     unittest.main()
+
+
+# ── Phase 7: a company-wide ratio needs a company-wide basis ────────────────
+
+class TestMixedBusinessBasis(unittest.TestCase):
+    """A multiline insurer files one premium line and one claims line. Where
+    it is genuinely two businesses, the claims include benefits paid by a
+    life book whose earnings the premiums leave out, and dividing one by the
+    other is not a loss ratio."""
+
+    def run_it(self, subtype, share_pct, **kw):
+        return IM.metrics(F, with_life_book(share_pct, **kw), price=60.0,
+                          shares_outstanding=100_000_000.0, subtype=subtype)
+
+    def test_a_multiline_with_a_small_life_book_still_gets_its_ratios(self):
+        m = self.run_it("MULTILINE", 3.2)
+        self.assertTrue(m["metric_basis_compatibility"]["ok"])
+        self.assertIsNotNone(m["loss_ratio_pct"]["value"])
+        self.assertIn("below the", m["metric_basis_compatibility"]["note"])
+
+    def test_a_multiline_with_a_large_life_book_is_refused(self):
+        m = self.run_it("MULTILINE", 32.3)
+        self.assertFalse(m["metric_basis_compatibility"]["ok"])
+        self.assertIsNone(m["loss_ratio_pct"]["value"])
+        self.assertIn(IM.MIXED_BASIS, m["loss_ratio_pct"]["reason"])
+        self.assertIn(IM.MIXED_BASIS, m["combined_ratio_pct"]["reason"])
+
+    def test_the_refusal_does_not_take_the_rest_of_the_model_with_it(self):
+        m = self.run_it("MULTILINE", 32.3)
+        self.assertTrue(m["available"])
+        self.assertIsNotNone(m["book_per_share"]["value"])
+        self.assertIsNotNone(m["price_to_book"]["value"])
+        self.assertIsNotNone(m["return_on_equity_pct"]["value"])
+        self.assertIsNotNone(m["net_investment_income"]["value"])
+
+    def test_a_property_casualty_insurer_is_untouched(self):
+        m = self.run_it("P&C", 32.3)
+        self.assertTrue(m["metric_basis_compatibility"]["ok"])
+        self.assertIsNotNone(m["loss_ratio_pct"]["value"])
+
+    def test_a_named_life_exposure_triggers_the_same_test(self):
+        m = IM.metrics(F, with_life_book(32.3), price=60.0,
+                       shares_outstanding=100_000_000.0, subtype="P&C",
+                       secondary=["LIFE"])
+        self.assertFalse(m["metric_basis_compatibility"]["ok"])
+
+    def test_a_multiline_whose_life_book_cannot_be_sized_is_refused(self):
+        m = metrics(subtype="MULTILINE")
+        self.assertFalse(m["metric_basis_compatibility"]["ok"])
+        self.assertIn("do not currently say how large",
+                      m["metric_basis_compatibility"]["reason"])
+
+    def test_a_stale_life_liability_does_not_describe_the_company(self):
+        """Brighthouse stopped tagging its claim reserve in 2017."""
+        facts = with_life_book(32.3)
+        rows = facts["facts"]["us-gaap"]["PolicyholderContractDeposits"]
+        rows["units"]["USD"] = [{"end": "2017-09-30", "val": 1e10,
+                                 "filed": "2017-11-01", "form": "10-Q"}]
+        m = IM.metrics(F, facts, price=60.0, shares_outstanding=1e8,
+                       subtype="MULTILINE")
+        self.assertIsNone(m["business_mix"]["policyholder_liabilities_pct"])
+        self.assertFalse(m["metric_basis_compatibility"]["ok"])
+
+
+class TestConceptScopeCompatibility(unittest.TestCase):
+    def test_property_casualty_claims_over_company_premiums_is_refused(self):
+        got = IM.basis_compatibility(
+            "P&C", {"concept": "PremiumsEarnedNet"},
+            {"concept": "IncurredClaimsPropertyCasualtyAndLiability"},
+            {"spread_material": False})
+        self.assertFalse(got["ok"])
+        self.assertIn("property-casualty business only", got["reason"])
+
+    def test_the_same_scope_on_both_sides_is_fine(self):
+        got = IM.basis_compatibility(
+            "P&C", {"concept": "PremiumsEarnedNetPropertyAndCasualty"},
+            {"concept": "IncurredClaimsPropertyCasualtyAndLiability"},
+            {"spread_material": False})
+        self.assertTrue(got["ok"])
+
+    def test_health_claims_over_company_premiums_is_refused(self):
+        got = IM.basis_compatibility(
+            "HEALTH", {"concept": "PremiumsEarnedNet"},
+            {"concept": "PolicyholderBenefitsAndClaimsIncurredHealthCare"},
+            {"spread_material": False})
+        self.assertFalse(got["ok"])
+
+
+class TestBusinessMix(unittest.TestCase):
+    def test_the_two_halves_are_measured_against_the_balance_sheet(self):
+        mix = IM.business_mix(F, with_life_book(20.0))
+        self.assertAlmostEqual(mix["policyholder_liabilities_pct"], 20.0,
+                               places=4)
+        self.assertAlmostEqual(mix["underwriting_reserves_pct"], 20.0,
+                               places=4)
+        self.assertTrue(mix["spread_material"])
+
+    def test_a_company_with_no_life_liability_says_so(self):
+        mix = IM.business_mix(F, insurer_facts())
+        self.assertIsNone(mix["spread_material"])
+        self.assertIn("does not currently tag", mix["reason"])
+
+    def test_the_threshold_is_configurable_and_named(self):
+        mix = IM.business_mix(F, with_life_book(12.0),
+                              cfg={"insurance_spread_material_pct": 20.0})
+        self.assertEqual(mix["threshold_pct"], 20.0)
+        self.assertFalse(mix["spread_material"])

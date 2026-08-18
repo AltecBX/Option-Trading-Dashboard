@@ -53,6 +53,8 @@ import insurance_model as _ins
 import broker_model as _brk
 import business_routing as _route
 import filing_tables as _tables
+import cross_check as _xcheck
+import capture_health as _health
 import forward_test as _forward
 import covered_call as _cc
 import chain_store
@@ -88,6 +90,7 @@ _EARN_MOVES_FN = None       # (symbol) -> {"avg_abs","n"} | None
 _ACTIONS_FN = None          # (symbol) -> {"dividends": {iso: amount}} | None
 _CC_CHAIN_FN = None         # (symbol) -> the near-dated chain, for capture
 _TABLES_FN = None           # (symbol, wanted) -> filing-table readings
+_ALERT_FN = None            # (title, message) -> whatever the app's push does
 
 _LOCK = threading.RLock()
 _SNAP_TTL = 900.0           # 15 minutes; the filings behind it move quarterly
@@ -103,12 +106,15 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
               daily_fn=None, config_fn=None, data_dir=None,
               earnings_fn=None, events_fn=None, benchmark_fn=None,
               chain_fn=None, rate_fn=None, earn_moves_fn=None,
-              actions_fn=None, cc_chain_fn=None, tables_fn=None) -> None:
+              actions_fn=None, cc_chain_fn=None, tables_fn=None,
+              alert_fn=None) -> None:
     global _QUOTE_FN, _ESTIMATES_FN, _TEN_YEAR_FN, _DAILY_FN, _CFG_FN, _DATA_DIR
     global _EARNINGS_FN, _EVENTS_FN, _BENCHMARK_FN
     global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN, _ACTIONS_FN, _CC_CHAIN_FN
-    global _TABLES_FN
+    global _TABLES_FN, _ALERT_FN
     _TABLES_FN = tables_fn
+    if alert_fn is not None:
+        _ALERT_FN = alert_fn
     _ACTIONS_FN = actions_fn
     _CC_CHAIN_FN = cc_chain_fn
     _QUOTE_FN = quote_fn
@@ -132,6 +138,14 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
                 break
     else:
         _DATA_DIR = None
+    # The capture log lives beside the snapshots and is deliberately its own
+    # store: it is operational, it can be thrown away, and no stored
+    # recommendation depends on it.
+    try:
+        _health.configure(data_dir,
+                          keep_days=(config()[0] or {}).get("capture_keep_days"))
+    except Exception:                                # pragma: no cover
+        _health.configure(data_dir)
     if _fund is not None:
         _fund.configure(data_dir=data_dir)
     if _opts is not None:
@@ -197,7 +211,14 @@ _CFG_GROUPS = ("verdict", "scorecard", "value_trap", "regime", "cycle",
                "fair_value", "expected_return", "implied_expectations",
                "structures", "contracts",
                "bank", "reit", "covered_call", "forward_test",
-               "insurance", "broker", "chain_capture")
+               "insurance", "broker", "chain_capture",
+               # Phase 6 and 7. These were documented in thresholds.json and
+               # never folded into the flat config, so every one of them read
+               # its module default and the file was decoration. Folding them
+               # in changes no value — each entry already matches its
+               # default — and makes the file mean what it says.
+               "routing", "filing_tables", "insurance_basis", "cross_check",
+               "capture_health")
 
 
 def _flatten_cfg(cfg: dict) -> dict:
@@ -508,6 +529,41 @@ def _daily_row(snap: dict) -> dict | None:
         row["net_new_assets"] = (ca.get("net_new") or {}).get("value")
         row["client_asset_provenance"] = (
             (ca.get("assets") or {}).get("provenance") or {})
+
+    # Phase 7. What kind of insurer this was taken to be, how that was
+    # reached, and whether its underwriting ratios had an honest basis —
+    # recorded on the day, because a later reading of the same filing could
+    # differ and the recommendation was made on this one.
+    ins = snap.get("insurance") or {}
+    iclass = ins.get("classification") or {}
+    if iclass.get("primary"):
+        row["insurer_subtype"] = iclass.get("primary")
+        row["insurer_subtype_method"] = iclass.get("method")
+        row["insurer_subtype_confidence"] = iclass.get("confidence")
+        row["insurer_secondary_exposure"] = list(iclass.get("secondary") or [])
+        row["insurer_segment_scores"] = iclass.get("segment_scores") or {}
+    compat = ins.get("metric_basis_compatibility") or {}
+    if compat:
+        row["insurer_metric_basis_ok"] = compat.get("ok")
+        if not compat.get("ok"):
+            row["insurer_metric_basis_reason"] = compat.get("reason")
+    mix = ins.get("business_mix") or {}
+    if mix.get("policyholder_liabilities_pct") is not None:
+        row["insurer_spread_share_pct"] = mix["policyholder_liabilities_pct"]
+
+    # How every filing-table figure in this snapshot was read: the unit, and
+    # which statement in the filing settled it.
+    units_used = {}
+    for name, r in ((snap.get("filing_tables") or {}).get("readings")
+                    or {}).items():
+        prov = r.get("provenance") or {}
+        units_used[name] = {"unit": prov.get("resolved_unit"),
+                            "unit_source": prov.get("unit_source"),
+                            "unit_confidence": prov.get("unit_confidence"),
+                            "period": prov.get("period"),
+                            "scope": prov.get("scope")}
+    if units_used:
+        row["table_units"] = units_used
 
     # The exact contract and the exact quote behind the preferred structure,
     # so a future scoring pass can settle up against what was actually
@@ -1771,9 +1827,15 @@ def insurance_block(snap: dict, facts: dict, cfg: dict) -> dict:
     """The insurer measures, for a filer the business-type gate called an
     insurer — once its own annual report has said what kind."""
     profile = _fund.business_description(snap.get("symbol") or "") or {}
-    return _ins.metrics(_fund, facts, price=snap.get("price"),
-                        shares_outstanding=snap.get("shares_outstanding"),
-                        subtype=profile.get("insurer_subtype"), cfg=cfg)
+    iclass = profile.get("insurer_classification") or {}
+    got = _ins.metrics(_fund, facts, price=snap.get("price"),
+                       shares_outstanding=snap.get("shares_outstanding"),
+                       subtype=profile.get("insurer_subtype"), cfg=cfg,
+                       secondary=iclass.get("secondary") or [])
+    # How the subtype was reached, so a reader can see whether it came from
+    # the report's own words or from the segments it is organised into.
+    got["classification"] = iclass
+    return got
 
 
 def broker_block(snap: dict, facts: dict, cfg: dict) -> dict:
@@ -2028,73 +2090,118 @@ def _fresh_enough(iso: str | None) -> bool:
     return 0 <= age <= CLIENT_ASSET_MAX_AGE_DAYS
 
 
-# How far apart a published figure and a reconstructed one may be before the
-# difference is a warning rather than rounding.
-RECONSTRUCTION_TOLERANCE_PCT = 5.0
+# ── Phase 7: published against reconstructed ────────────────────────────────
+
+# Which published readings are comparable with a trailing-twelve-month
+# reconstruction at all: a figure out of an annual report, which covers the
+# year the report is about. A quarter is not a year, and comparing the two
+# reports a 300% disagreement about the units of time.
+ANNUAL_FORM = "10-K"
+
+
+def _annual_reading(tables: dict, metric: str):
+    """The newest reading of this measure that came out of an annual report.
+
+    The comparison it enables is worth the wait: an annual figure has a year
+    behind it, the reconstruction can be rebuilt as of that same year end,
+    and the two are then the same measure over the same twelve months.
+    """
+    for row in ((tables or {}).get("history") or {}).get(metric) or []:
+        if row.get("form") == ANNUAL_FORM and row.get("value") is not None:
+            return row
+    return None
 
 
 def cross_check_block(tables: dict, reit: dict | None,
-                      insurance: dict | None) -> dict:
-    """The company's own published figure beside the one rebuilt from XBRL.
+                      insurance: dict | None, facts: dict | None = None,
+                      snap: dict | None = None, cfg: dict | None = None,
+                      profile: dict | None = None) -> dict:
+    """The company's own published figures beside the ones rebuilt from XBRL.
 
-    Where they agree the reconstruction is corroborated. Where they do not,
-    the disagreement is stated and confidence is lowered — the nicer of the
-    two is never quietly chosen.
+    Every comparison is like for like or it is not made. Where a company
+    publishes an annual figure, the reconstruction is rebuilt AS OF THAT
+    YEAR END so the two cover the same twelve months; where it publishes
+    only a quarter, the check reports that there is nothing comparable
+    rather than comparing a quarter with a year.
     """
+    cfg = cfg or {}
     checks = []
+    tab = tables or {}
 
-    def add(name, published, reconstructed, unit, note=""):
-        if published is None or reconstructed is None:
-            return
-        diff = published - reconstructed
-        base = abs(published) or 1.0
-        pct = abs(diff) / base * 100.0
-        checks.append({
-            "measure": name, "published": published,
-            "reconstructed": reconstructed, "difference": diff,
-            "difference_pct": pct, "unit": unit,
-            "state": "AGREES" if pct <= RECONSTRUCTION_TOLERANCE_PCT
-                     else "RECONSTRUCTION MISMATCH",
-            "note": note,
-        })
+    # ── property trusts ────────────────────────────────────────────────
+    pub = _annual_reading(tab, "published_ffo")
+    if pub is not None and _reit is not None and facts:
+        prov = pub.get("provenance") or {}
+        at = prov.get("period")
+        try:
+            rebuilt = _reit.metrics(
+                _fund, facts, price=(snap or {}).get("price"),
+                shares_outstanding=(snap or {}).get("shares_outstanding"),
+                property_type=(profile or {}).get("property_type"),
+                as_of=at, cfg=cfg)
+        except Exception:                                # pragma: no cover
+            rebuilt = {}
+        rec = (rebuilt.get("ffo") or {})
+        checks.append(_xcheck.compare(
+            "Funds from operations", pub["value"], rec.get("value"), "USD",
+            published_basis=prov.get("basis") or _tables.FFO_COMMON,
+            reconstructed_basis=_tables.FFO_COMMON,
+            published_period=at, reconstructed_period=rec.get("period_end"),
+            published_window="FULL YEAR", reconstructed_window="FULL YEAR",
+            published_scope=prov.get("scope") or "",
+            provenance=prov, cfg=cfg,
+            note=(f"Published in the annual report filed "
+                  f"{_pretty(pub.get('filed') or '')}, from a row labelled "
+                  f"\"{prov.get('row_label')}\", against the same twelve "
+                  f"months rebuilt from the income statement.")))
+    elif (reit or {}).get("available"):
+        checks.append(_xcheck.compare(
+            "Funds from operations", None, (reit.get("ffo") or {}).get("value"),
+            "USD", cfg=cfg))
 
-    ffo = _reading(tables, "published_ffo")
-    if ffo is not None and (reit or {}).get("available"):
-        got = (reit.get("ffo") or {})
-        # The published figure is one quarter; the reconstructed one is a
-        # trailing year, so only the per-share measures are comparable and
-        # neither is compared unless both name the same window.
-        window = (ffo.get("provenance") or {}).get("window")
-        if window == "YEAR TO DATE":
-            add("Funds from operations", ffo["value"], got.get("value"),
-                "USD", "Year-to-date published figure against the "
-                       "reconstruction for the same window.")
-
-    for key, metric, label in (
+    # ── insurers ───────────────────────────────────────────────────────
+    for metric, key, label in (
             ("published_combined_ratio", "combined_ratio_pct",
              "Combined ratio"),
             ("published_loss_ratio", "loss_ratio_pct", "Loss ratio"),
             ("published_expense_ratio", "expense_ratio_pct",
              "Expense ratio")):
-        pub = _reading(tables, key)
-        if pub is None or not (insurance or {}).get("available"):
+        pub = _annual_reading(tab, metric)
+        if pub is None:
+            if (insurance or {}).get("available"):
+                checks.append(_xcheck.compare(
+                    label, None, (insurance.get(key) or {}).get("value"),
+                    "percent", cfg=cfg))
             continue
-        rec = (insurance.get(metric) or {}).get("value")
-        add(label, pub["value"], rec, "percent",
-            f"Published in the {pub.get('form')} filed "
-            f"{_pretty(pub.get('filed') or '')}.")
+        prov = pub.get("provenance") or {}
+        at = prov.get("period")
+        try:
+            rebuilt = _ins.metrics(
+                _fund, facts, price=(snap or {}).get("price"),
+                shares_outstanding=(snap or {}).get("shares_outstanding"),
+                subtype=(profile or {}).get("insurer_subtype"), as_of=at,
+                cfg=cfg,
+                secondary=((profile or {}).get("insurer_classification")
+                           or {}).get("secondary") or []) if facts else {}
+        except Exception:                                # pragma: no cover
+            rebuilt = {}
+        rec = (rebuilt.get(key) or {})
+        checks.append(_xcheck.compare(
+            label, pub["value"], rec.get("value"), "percent",
+            published_period=at, reconstructed_period=rec.get("period_end"),
+            published_window="FULL YEAR", reconstructed_window="FULL YEAR",
+            published_scope=prov.get("scope") or "",
+            provenance=prov, cfg=cfg,
+            note=(f"Published in the annual report filed "
+                  f"{_pretty(pub.get('filed') or '')}, from a row labelled "
+                  f"\"{prov.get('row_label')}\" in a table the company "
+                  f"heads as {(prov.get('scope') or 'unstated').lower()}.")))
 
-    mismatched = [c for c in checks if c["state"] == "RECONSTRUCTION MISMATCH"]
-    return {
-        "checks": checks,
-        "state": ("RECONSTRUCTION MISMATCH" if mismatched
-                  else ("AGREES" if checks else "NOT CHECKED")),
-        "reason": ("" if checks else
-                   "No filing of this company prints one of these measures in "
-                   "a table this app will read, so there is nothing to check "
-                   "the reconstruction against."),
-        "mismatches": len(mismatched),
-    }
+    out = _xcheck.report(checks, cfg)
+    # Every asset and flow measure the filings supplied, each on its own
+    # period, scope and unit — kept apart rather than reconciled.
+    out["measures"] = _xcheck.audit_measures(tab.get("readings") or {}, cfg)
+    return out
 
 
 def _with_article(name: str) -> str:
@@ -2771,8 +2878,9 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     # reads both plus the Phase 2 state above it.
     probs = fv.scenario_probabilities(cfg)
     out["scenario_probabilities"] = probs
-    out["cross_check"] = cross_check_block(tables, out.get("reit"),
-                                           out.get("insurance"))
+    out["cross_check"] = cross_check_block(
+        tables, out.get("reit"), out.get("insurance"), facts=facts, snap=out,
+        cfg=cfg, profile=_fund.business_description(sym) or {})
     out["fair_value"] = fair_value_block(out, vhist, peer_payload, facts, cfg,
                                          bank=out.get("bank"),
                                          reit=out.get("reit"),
@@ -2795,9 +2903,9 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
                 "reason": out["hybrid"]["reason"]}
     # A reconstruction the company's own published figure contradicts is not
     # trusted at full confidence, whatever the methods agree on.
-    if (out.get("cross_check") or {}).get("state") == "RECONSTRUCTION MISMATCH":
-        worst = max((c["difference_pct"] for c in out["cross_check"]["checks"]),
-                    default=0.0)
+    if (out.get("cross_check") or {}).get("state") == _xcheck.MATERIAL:
+        worst = max((c["difference_pct"] for c in out["cross_check"]["checks"]
+                     if c.get("difference_pct") is not None), default=0.0)
         note = (f"The figure rebuilt from this company's XBRL differs from the "
                 f"one it publishes in its own filing tables by {worst:,.0f}%. "
                 f"Until that is explained the valuation built on the rebuilt "
@@ -3182,35 +3290,63 @@ def capture_chains(symbols, cfg: dict | None = None) -> dict:
     Nothing is back-filled and nothing already stored for today is replaced.
     """
     cfg = cfg or (config()[0])
-    out = {"captured": [], "skipped": [], "failed": [],
-           "as_of": _now_iso(),
+    today = _market_today()
+    out = {"captured": [], "skipped": [], "failed": [], "not_expected": [],
+           "as_of": _now_iso(), "day": today, "late": False,
            "max_dte": int(cfg.get("capture_max_dte",
                                   CAPTURE_DEFAULTS["capture_max_dte"])),
            "strike_count": int(cfg.get("capture_strike_count",
                                        CAPTURE_DEFAULTS["capture_strike_count"]))}
+    # A quote taken on a Saturday is Friday's quote wearing Saturday's date.
+    # Storing it would put a chain in the history for a day the market never
+    # traded, and a backtest would later fill from it.
+    if not _health.is_trading_day(today):
+        out["reason"] = (
+            f"The market did not trade on {_pretty(today)} — it was "
+            f"{_health.why_not_trading(today) or 'not a trading day'} — so no "
+            f"chain was asked for. A quote taken now would be the previous "
+            f"session's, stored under today's date.")
+        out["not_expected"] = [_safe(x) for x in (symbols or []) if _safe(x)]
+        return out
     if _CC_CHAIN_FN is None:
         out["reason"] = ("No option-chain provider is wired for capture, so "
                          "no chains can be recorded today.")
+        for sym in symbols or []:
+            if _safe(sym):
+                _health.record(_health.CHAIN, _safe(sym), False, day=today,
+                               reason="no option-chain provider is wired")
         return out
+    out["late"] = _after_capture_window()
     for sym in symbols or []:
         s = _safe(sym)
         if not s:
             continue
+        if _health.captured(_health.CHAIN, s, today):
+            out["skipped"].append(s)
+            continue
         try:
             payload_ = _CC_CHAIN_FN(s, out["max_dte"], out["strike_count"])
-        except Exception:                            # noqa: BLE001
-            payload_ = None
+        except Exception as exc:                     # noqa: BLE001
+            payload_, why = None, str(exc)[:120]
+        else:
+            why = "the provider returned no chain"
         if not payload_:
             out["failed"].append(s)
+            _health.record(_health.CHAIN, s, False, day=today, reason=why)
             continue
         # `record` returns False when a snapshot already exists for today,
         # which is the correct outcome rather than an error: the first
         # capture of a day is the one that is kept.
-        if chain_store.record(s, payload_, source=payload_.get("source"),
-                              event=_chain_event(s)):
-            out["captured"].append(s)
-        else:
-            out["skipped"].append(s)
+        wrote = chain_store.record(s, payload_, source=payload_.get("source"),
+                                   event=_chain_event(s))
+        (out["captured"] if wrote else out["skipped"]).append(s)
+        _health.record(_health.CHAIN, s, True, day=today,
+                       source=payload_.get("source") or "",
+                       records=len(payload_.get("chains") or {}),
+                       late=out["late"],
+                       reason=("" if wrote else
+                               "a chain was already stored for today, and "
+                               "the first capture of a day is the one kept"))
     return out
 
 
@@ -3346,6 +3482,143 @@ def _iv_path(symbol: str, bars: list, earnings_dates=None) -> list:
 
 
 # ── Phase 4: forward validation ─────────────────────────────────────────────
+
+# ── Phase 7: is the prospective capture actually happening? ─────────────────
+
+def data_readiness(symbols=None, today: str | None = None) -> dict:
+    """How much real, prospectively captured data exists — and whether it is
+    still being captured.
+
+    Everything the forward work rests on is collected going forward and can
+    never be back-filled, so the two questions that matter are how much there
+    is and whether today added to it. Both are answered from the stores
+    themselves rather than from an assumption that the scheduler ran.
+    """
+    day = today or _market_today()
+    syms = [_safe(s) for s in (symbols or []) if _safe(s)]
+    if not syms and _STARRED_FN is not None:
+        try:
+            syms = [_safe(s) for s in (_STARRED_FN() or []) if _safe(s)]
+        except Exception:                            # noqa: BLE001
+            syms = []
+    syms = syms[:MAX_DAILY_SYMBOLS]
+    expected = expected_today(syms, day)
+    out = {
+        "as_of": _now_iso(), "day": day, "symbols": syms,
+        "trading_day": _health.is_trading_day(day),
+        "not_trading_because": _health.why_not_trading(day),
+        "today": _health.day_status(day, expected),
+        "previous": _health.day_status(_health.previous_trading_day(day),
+                                       expected),
+        "health": _health.health(expected, days_back=5, today=day),
+        "capture_hour_et": _capture_hour(),
+        "version": _health.CAPTURE_HEALTH_VERSION,
+        "backfill_note": (
+            "Nothing here is ever back-filled. There is no source of "
+            "historical option chains this app can reach, so a trading day "
+            "that goes uncaptured stays uncaptured — which is why a missed "
+            "day is reported the next morning rather than discovered in a "
+            "backtest months later."),
+    }
+
+    snapshot_days, chain_days, leaps_days, real_days = set(), set(), set(), 0
+    per_symbol = []
+    for sym in syms:
+        rows = load_history(sym)
+        snaps = {(r.get("date") or "")[:10] for r in rows if r.get("date")}
+        snapshot_days |= snaps
+        store = chain_store.load(sym)
+        chain = sorted(store or {})
+        chain_days |= set(chain)
+        obs = []
+        if _opts is not None:
+            try:
+                obs = [(o.get("date") or "")[:10]
+                       for o in _opts.load_leaps_observations(sym)]
+            except Exception:                        # noqa: BLE001
+                obs = []
+        leaps_days |= set(obs)
+        cov = _health.symbol_coverage(sym, first_day=(min(snaps) if snaps
+                                                      else None), today=day)
+        per_symbol.append({
+            "symbol": sym,
+            "snapshot_days": len(snaps),
+            "first_snapshot": min(snaps) if snaps else None,
+            "last_snapshot": max(snaps) if snaps else None,
+            "chain_days": len(chain),
+            "first_chain": chain[0] if chain else None,
+            "last_chain": chain[-1] if chain else None,
+            "leaps_days": len(set(obs)),
+            "missing_expected_days":
+                (cov["kinds"][_health.CHAIN]["missing_days"] or [])[-10:],
+            "chain_coverage_pct": cov["kinds"][_health.CHAIN]["coverage_pct"],
+            "captured_today": _health.captured(_health.SNAPSHOT, sym, day),
+        })
+        real_days += len(chain)
+    out["symbol_rows"] = sorted(per_symbol, key=lambda r: r["symbol"])
+    out["investment_snapshot_days"] = len(snapshot_days)
+    out["real_chain_days"] = len(chain_days)
+    out["leaps_observation_days"] = len(leaps_days)
+    out["first_snapshot"] = min(snapshot_days) if snapshot_days else None
+    out["first_chain"] = min(chain_days) if chain_days else None
+    out["last_chain"] = max(chain_days) if chain_days else None
+    out["last_successful_capture"] = out["health"].get("last_successful")
+    out["symbols_missing_today"] = sorted(
+        {s for v in (out["today"].get("missing") or {}).values() for s in v})
+
+    # Real-chain coverage over the trading days since capture began. Days
+    # before the first capture are not counted as missed, because nothing
+    # was expected of them.
+    if chain_days:
+        span = _health.trading_days(min(chain_days), day)
+        out["chain_coverage_pct"] = (
+            len([d for d in span if d in chain_days]) / len(span) * 100.0
+            if span else None)
+        out["chain_span_days"] = len(span)
+    else:
+        out["chain_coverage_pct"] = None
+        out["chain_span_days"] = 0
+
+    out["forward"] = _forward_readiness(snapshot_days, day)
+    return out
+
+
+def _forward_readiness(snapshot_days: set, day: str) -> dict:
+    """When forward validation can first say anything, and how many
+    observations are ageing toward each horizon.
+
+    This adds no verdict of any kind. An incomplete horizon is not scored,
+    and until enough of them complete the answer stays INSUFFICIENT SAMPLE.
+    """
+    out = {"first_snapshot": min(snapshot_days) if snapshot_days else None,
+           "horizons": [], "verdict": _forward.INSUFFICIENT,
+           "reason": (
+               "Forward validation scores a recommendation only once its "
+               "whole horizon has passed. Nothing is scored early, nothing "
+               "is annualised from a partial window, and no verdict is given "
+               "until there are enough completed observations for one to "
+               "mean anything.")}
+    if not snapshot_days:
+        out["reason"] = ("No snapshot has been recorded yet, so there is "
+                         "nothing ageing toward a result.")
+        return out
+    first = min(snapshot_days)
+    for horizon in _forward.HORIZONS:
+        eligible = date.fromisoformat(first) + timedelta(days=horizon)
+        ageing = sum(1 for d in snapshot_days
+                     if date.fromisoformat(d) + timedelta(days=horizon)
+                     > date.fromisoformat(day))
+        complete = len(snapshot_days) - ageing
+        out["horizons"].append({
+            "days": horizon,
+            "first_eligible_date": eligible.isoformat(),
+            "first_eligible_pretty": _pretty(eligible.isoformat()),
+            "reached": eligible.isoformat() <= day,
+            "ageing": ageing, "complete": complete,
+            "needed": _forward.MIN_SAMPLE,
+        })
+    return out
+
 
 def validation(symbols=None, benchmark: str | None = None) -> dict:
     """How the recommendations this app already made have turned out.
@@ -3539,17 +3812,71 @@ def scan(symbols=None, build_budget: int = 4) -> dict:
                      "one carry a weak one.")}
 
 
-def record_daily(symbols) -> dict:
+def record_daily(symbols, day: str | None = None) -> dict:
     """Take one prospective snapshot per ticker. Called by the app's daily
-    scheduler so the store grows whether or not anyone opens the tab."""
+    scheduler so the store grows whether or not anyone opens the tab.
+
+    Every ticker's attempt is written to the capture log, whether it worked
+    or not, and so are the three things that ride along with a snapshot: the
+    long-dated observation, the benchmark close it will be measured against,
+    and the exact contract the app recommended. A snapshot that carries none
+    of those is a snapshot that cannot be validated later, and the log says
+    so on the day rather than at the end of the backtest.
+    """
+    today = day or _market_today()
+    late = _after_capture_window()
     done, failed = [], []
     for sym in symbols or []:
+        s = _safe(sym)
+        if not s:
+            continue
         try:
-            payload(sym, force=True)          # the full Phase 2 state
-            done.append(sym)
+            snap = payload(s, force=True)     # the full Phase 2 state
+        except Exception as exc:              # noqa: BLE001
+            failed.append(s)
+            for kind in (_health.SNAPSHOT, _health.LEAPS, _health.BENCHMARK,
+                         _health.CONTRACT):
+                _health.record(kind, s, False, day=today,
+                               reason=f"the snapshot could not be built: "
+                                      f"{str(exc)[:100]}")
+            continue
+        done.append(s)
+        _health.record(_health.SNAPSHOT, s, True, day=today, late=late,
+                       source="sec+quote", records=1)
+        _record_riders(s, snap, today, late)
+    return {"recorded": done, "failed": failed, "as_of": _now_iso(),
+            "day": today, "late": late}
+
+
+def _record_riders(sym: str, snap: dict, today: str, late: bool) -> None:
+    """The three things a snapshot has to carry to be worth scoring later."""
+    bench = (snap or {}).get("benchmark") or {}
+    _health.record(_health.BENCHMARK, sym, bench.get("close") is not None,
+                   day=today, late=late, source=bench.get("symbol") or "",
+                   reason=("" if bench.get("close") is not None
+                           else (bench.get("reason")
+                                 or "no benchmark close was available")))
+    rows = ((snap.get("structures") or {}).get("comparison") or {}).get("rows") or []
+    leaps = next((r for r in rows if (r.get("kind") or "").upper() == "LEAPS"),
+                 None)
+    obs = []
+    if _opts is not None:
+        try:
+            obs = [o for o in _opts.load_leaps_observations(sym)
+                   if (o.get("date") or "")[:10] == today]
         except Exception:                            # noqa: BLE001
-            failed.append(sym)
-    return {"recorded": done, "failed": failed, "as_of": _now_iso()}
+            obs = []
+    _health.record(_health.LEAPS, sym, bool(obs), day=today, late=late,
+                   records=len((obs[0].get("rows") if obs else []) or []),
+                   reason=("" if obs else
+                           "no long-dated contracts were observable for this "
+                           "ticker today"))
+    contract = (leaps or {}).get("contract") or {}
+    priced = contract.get("debit") is not None or contract.get("mid") is not None
+    _health.record(_health.CONTRACT, sym, bool(priced), day=today, late=late,
+                   reason=("" if priced else
+                           "the app made no priced contract recommendation "
+                           "for this ticker today"))
 
 
 # ── daily recorder ──────────────────────────────────────────────────────────
@@ -3563,6 +3890,16 @@ def record_daily(symbols) -> dict:
 _SCHED = {"started": False, "recorded_for": None}
 _STARRED_FN = None
 RECORD_AFTER_ET_HOUR = 17
+# The container this app runs on keeps its clock in UTC, and the scheduler
+# used to read it as though it were New York time. Seventeen hundred UTC is
+# one in the afternoon in New York, so the "end of day" chain was captured
+# in the middle of the session and the daily snapshot was taken before the
+# close. Both are read on an exchange clock now.
+try:                                                 # pragma: no cover
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _MARKET_TZ = _ZoneInfo("America/New_York")
+except Exception:                                    # pragma: no cover
+    _MARKET_TZ = None
 MAX_DAILY_SYMBOLS = 60
 # Chain capture is one network request per ticker per day against a
 # rate-limited broker API, so it is bounded separately from the snapshot.
@@ -3594,11 +3931,59 @@ def _tick_loop() -> None:                            # pragma: no cover
         time.sleep(900)
 
 
+def market_now(now: datetime | None = None) -> datetime:
+    """The time in New York, which is the only clock the market keeps."""
+    if now is not None:
+        return now
+    if _MARKET_TZ is not None:
+        return datetime.now(_MARKET_TZ)
+    return datetime.now()                            # pragma: no cover
+
+
+def _market_today() -> str:
+    return market_now().date().isoformat()
+
+
+def _capture_hour() -> int:
+    try:
+        return int((config()[0] or {}).get("capture_hour_et")
+                   or RECORD_AFTER_ET_HOUR)
+    except Exception:                                # pragma: no cover
+        return RECORD_AFTER_ET_HOUR
+
+
+def _after_capture_window() -> bool:
+    """Is this capture happening later in the evening than it should?
+
+    A capture that runs at eight because the app had just restarted is still
+    today's market, and it is still worth taking — but it is stamped, so a
+    reader can see that this day's quote was not taken at the close.
+    """
+    try:
+        late_after = int((config()[0] or {}).get("capture_late_after_hours") or 2)
+    except Exception:                                # pragma: no cover
+        late_after = 2
+    return market_now().hour >= _capture_hour() + late_after
+
+
 def tick(now: datetime | None = None) -> dict | None:
-    """One scheduler beat. Records at most once per calendar day."""
-    now = now or datetime.now()
+    """One scheduler beat. Records at most once per trading day.
+
+    Three things this has to get right, and did not before:
+
+      * The clock is the exchange's, not the container's.
+      * A weekend or a market holiday is not a capture day at all.
+      * A restart after the capture window does not lose the day. Whether
+        today has already been captured is read from the capture log rather
+        than from a variable that dies with the process, so a container that
+        comes back at eight in the evening still takes the day, and one that
+        comes back after having already taken it does not take it twice.
+    """
+    now = market_now(now)
     today = now.date().isoformat()
-    if now.hour < RECORD_AFTER_ET_HOUR:
+    if now.hour < _capture_hour():
+        return None
+    if not _health.is_trading_day(today):
         return None
     with _LOCK:
         if _SCHED["recorded_for"] == today:
@@ -3619,7 +4004,12 @@ def tick(now: datetime | None = None) -> dict | None:
     if not syms:
         return {"recorded": [], "failed": [], "peer_index": warmed,
                 "as_of": _now_iso()} if warmed else None
-    out = record_daily(syms)
+    # A restart in the same evening must not redo work that already
+    # succeeded, and must do the work that did not.
+    pending = [s for s in syms
+               if not _health.captured(_health.SNAPSHOT, _safe(s), today)]
+    out = record_daily(pending, day=today)
+    out["already_captured"] = [s for s in syms if s not in pending]
     out["peer_index"] = warmed
     # The option chains for the followed names, captured after the close so
     # the covered-call simulator and the option backtests become real with
@@ -3629,4 +4019,32 @@ def tick(now: datetime | None = None) -> dict | None:
         out["chains"] = capture_chains(syms[:MAX_CAPTURE_SYMBOLS])
     except Exception:                                # noqa: BLE001
         out["chains"] = None
+    out["health"] = _raise_if_incomplete(syms, today)
     return out
+
+
+def expected_today(symbols, day: str | None = None) -> dict:
+    """Which tickers each kind of capture was due for on this day."""
+    syms = [_safe(s) for s in (symbols or []) if _safe(s)]
+    return {_health.SNAPSHOT: syms[:MAX_DAILY_SYMBOLS],
+            _health.CHAIN: syms[:MAX_CAPTURE_SYMBOLS],
+            _health.LEAPS: syms[:MAX_DAILY_SYMBOLS],
+            _health.BENCHMARK: syms[:MAX_DAILY_SYMBOLS],
+            _health.CONTRACT: syms[:MAX_DAILY_SYMBOLS]}
+
+
+def _raise_if_incomplete(symbols, day: str) -> dict:
+    """Say so, once, when a capture day did not finish.
+
+    This reuses the app's existing push, if one is configured. It does not
+    build a notification system of its own, and it does not send anything on
+    a healthy day.
+    """
+    got = _health.health(expected_today(symbols, day), days_back=1, today=day)
+    if got.get("alert") and _ALERT_FN is not None:
+        try:
+            _ALERT_FN("Investment data capture", got["alert"])
+            got["alerted"] = True
+        except Exception:                            # noqa: BLE001
+            got["alerted"] = False
+    return got

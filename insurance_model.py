@@ -82,7 +82,7 @@ import math
 import bank_model as bm
 import fair_value as fv
 
-INSURANCE_MODEL_VERSION = "invest-insurance-1.0.0"
+INSURANCE_MODEL_VERSION = "invest-insurance-1.1.0"
 
 BUSINESS_TYPE = "INSURANCE"
 
@@ -111,6 +111,45 @@ DEFAULTS = {
     # rather than from a distribution of prices, because it is a formula.
     "insurance_justified_roe_haircut_pct": 3.0,
     "insurance_justified_roe_uplift_pct": 2.0,
+    # Phase 7. How large a life or annuity book has to be, as a share of
+    # total assets, before a company-wide loss ratio stops meaning anything.
+    # Measured across today's multiline insurers: Chubb 3.2%, Kemper 4.5%,
+    # Cincinnati Financial 6.9%, Berkshire Hathaway 1.4% — and Horace Mann
+    # at 32.3%, which is a life company with a car insurer attached. Below
+    # this line the spread side cannot move the ratio by more than a
+    # rounding; above it, claims and premiums are describing different
+    # businesses and the ratio is refused.
+    "insurance_spread_material_pct": 10.0,
+    # A balance-sheet fact older than this no longer describes the company.
+    # Filers retire concepts: Ameriprise stopped tagging future policy
+    # benefits in 2013 and Brighthouse stopped tagging claim reserves in
+    # 2017, and reading either as current would answer a question about
+    # today with a fact about a decade ago.
+    "insurance_evidence_max_age_days": 400.0,
+}
+
+MIXED_BASIS = "UNDERWRITING METRIC N/A — MIXED BUSINESS BASIS"
+
+# What part of an insurer each XBRL concept describes. A loss ratio is the
+# claims of one business divided by the premiums of the same business; take
+# the numerator from one and the denominator from another and the result is
+# not a ratio of anything.
+CONCEPT_SCOPE = {
+    "PremiumsEarnedNet": "COMPANY",
+    "PremiumsEarnedNetPropertyAndCasualty": "PROPERTY CASUALTY",
+    "PremiumsEarnedNetLife": "LIFE",
+    "PremiumsWrittenNet": "COMPANY",
+    "PremiumsWrittenGross": "COMPANY",
+    "PolicyholderBenefitsAndClaimsIncurredNet": "COMPANY",
+    "IncurredClaimsPropertyCasualtyAndLiability": "PROPERTY CASUALTY",
+    "PolicyholderBenefitsAndClaimsIncurredHealthCare": "HEALTH",
+}
+
+SCOPE_LABEL = {
+    "COMPANY": "the whole company",
+    "PROPERTY CASUALTY": "the property-casualty business only",
+    "LIFE": "the life business only",
+    "HEALTH": "the health business only",
 }
 
 
@@ -176,11 +215,129 @@ def ratio_of(numerator: dict, denominator: dict, basis: str,
                period_end=numerator.get("period_end"))
 
 
+# ── how much of this insurer is a spread business ───────────────────────────
+
+def business_mix(fund, facts, as_of: str | None = None, cfg=None) -> dict:
+    """What the balance sheet says this insurer's two halves are worth.
+
+    A property-casualty insurer holds reserves for claims already incurred;
+    a life or annuity writer holds what it owes policyholders on contracts
+    that pay out decades from now. Both are tagged, both are read at their
+    latest reported date, and a figure the filer stopped tagging years ago
+    is not read at all — Brighthouse's claim reserve series stops in 2017
+    and would otherwise describe a company that no longer exists.
+    """
+    cfg = cfg or {}
+    max_age = float(cfg_get(cfg, "insurance_evidence_max_age_days"))
+    out = {"assets": None, "underwriting_reserves_pct": None,
+           "policyholder_liabilities_pct": None, "spread_material": None,
+           "threshold_pct": float(cfg_get(cfg, "insurance_spread_material_pct")),
+           "reason": "", "as_of": {}}
+    assets = fund.instant(facts, "assets", as_of)
+    total = _num(assets.get("value"))
+    if not total or total <= 0:
+        out["reason"] = ("Total assets are not reported in machine-readable "
+                         "form, so the two halves of this insurer cannot be "
+                         "weighed against each other.")
+        return out
+    out["assets"] = total
+    # Freshness is measured against the FILER'S OWN newest balance-sheet
+    # date, not against the wall clock. A company that files quarterly is
+    # always a few weeks behind, and holding its facts to today's date would
+    # make every one of them look stale.
+    clock = as_of or assets.get("as_of")
+
+    def share(key):
+        block = fund.instant(facts, key, as_of)
+        value, at = _num(block.get("value")), block.get("as_of")
+        if value is None or not at:
+            return None, at
+        age = fund._days_between(at, clock)              # noqa: SLF001
+        if age is not None and age > max_age:
+            return None, at
+        return value / total * 100.0, at
+
+    uw, uw_at = share("insurance_reserves")
+    sp, sp_at = share("policyholder_liabilities")
+    out["underwriting_reserves_pct"] = uw
+    out["policyholder_liabilities_pct"] = sp
+    out["as_of"] = {"assets": assets.get("as_of"),
+                    "insurance_reserves": uw_at,
+                    "policyholder_liabilities": sp_at}
+    if sp is None:
+        out["reason"] = (
+            "This company does not currently tag what it owes policyholders "
+            "on long-dated contracts, so how large its life and annuity side "
+            "is cannot be established from its filings.")
+        return out
+    out["spread_material"] = sp >= out["threshold_pct"]
+    return out
+
+
+def basis_compatibility(subtype, prem: dict, losses: dict, mix: dict,
+                        secondary=None) -> dict:
+    """Whether these two figures describe the same business.
+
+    A multiline insurer files one premium line and one claims line, and each
+    covers whatever the company chose to put in it. Where the company is
+    genuinely two businesses, dividing all the claims by all the premiums
+    produces a number that looks like a loss ratio and is a blend of a
+    property-casualty ratio with a life company's benefits — Horace Mann's
+    claims include a life book a third the size of its balance sheet while
+    its premiums leave out most of what that book earns.
+    """
+    out = {"ok": True, "reason": "", "numerator_scope": "",
+           "denominator_scope": "", "note": ""}
+    num = CONCEPT_SCOPE.get(losses.get("concept") or "", "")
+    den = CONCEPT_SCOPE.get(prem.get("concept") or "", "")
+    out["numerator_scope"], out["denominator_scope"] = num, den
+    if num and den and num != den:
+        out["ok"] = False
+        out["reason"] = (
+            f"{MIXED_BASIS}. The claims figure this company files covers "
+            f"{SCOPE_LABEL.get(num, num.lower())} and the premium figure "
+            f"covers {SCOPE_LABEL.get(den, den.lower())}. Dividing one by "
+            f"the other is not a loss ratio; it is two businesses compared "
+            f"with each other.")
+        return out
+
+    both_life = subtype == "MULTILINE" or "LIFE" in list(secondary or [])
+    if not both_life:
+        return out
+    if mix.get("spread_material") is None:
+        out["ok"] = False
+        out["reason"] = (
+            f"{MIXED_BASIS}. This company's own annual report describes both "
+            f"a property-casualty business and a life or retirement business, "
+            f"and its filings do not currently say how large the second one "
+            f"is. Until they do, whether a company-wide loss ratio means "
+            f"anything cannot be established, so none is shown. "
+            f"{mix.get('reason', '')}".strip())
+        return out
+    if mix["spread_material"]:
+        out["ok"] = False
+        out["reason"] = (
+            f"{MIXED_BASIS}. What this company owes policyholders on "
+            f"long-dated contracts is {mix['policyholder_liabilities_pct']:,.1f}% "
+            f"of its balance sheet, above the {mix['threshold_pct']:,.0f}% "
+            f"line at which a life book stops being a detail. Its claims "
+            f"figure includes the benefits that book pays while its premium "
+            f"figure leaves out most of what that book earns, so dividing "
+            f"one by the other would not be a loss ratio.")
+        return out
+    out["note"] = (
+        f"This is a multiline insurer, and its life side is "
+        f"{mix['policyholder_liabilities_pct']:,.1f}% of its balance sheet — "
+        f"below the {mix['threshold_pct']:,.0f}% at which it could move this "
+        f"ratio — so the company-wide figures are used.")
+    return out
+
+
 # ── the whole picture ───────────────────────────────────────────────────────
 
 def metrics(fund, facts, price=None, shares_outstanding=None,
             subtype: str | None = None, as_of: str | None = None,
-            cfg=None) -> dict:
+            cfg=None, secondary=None) -> dict:
     """Every insurer measure this app can honestly report for THIS kind of
     insurer, each with its basis or each explaining its own absence."""
     cfg = cfg or {}
@@ -277,8 +434,13 @@ def metrics(fund, facts, price=None, shares_outstanding=None,
     # ── underwriting ────────────────────────────────────────────────────
     losses = fund.metric(facts, "losses_incurred", as_of)
     out["losses_incurred"] = losses
+    mix = business_mix(fund, facts, as_of, cfg)
+    out["business_mix"] = mix
+    out["secondary_exposure"] = list(secondary or [])
+    compat = basis_compatibility(subtype, prem, losses, mix, secondary)
+    out["metric_basis_compatibility"] = compat
     out.update(_underwriting(fund, facts, prem, losses, basis_family,
-                             subtype, as_of, cfg))
+                             subtype, as_of, cfg, compat))
 
     # ── reserves ────────────────────────────────────────────────────────
     out.update(_reserves(fund, facts, prem, basis_family, as_of, cfg))
@@ -354,9 +516,19 @@ def _pack(value, basis, reason) -> dict:
 
 
 def _underwriting(fund, facts, prem, losses, basis_family, subtype,
-                  as_of, cfg) -> dict:
+                  as_of, cfg, compat=None) -> dict:
     """Loss, expense and combined ratios — where they mean something."""
     out: dict = {}
+    if compat and not compat.get("ok"):
+        # The numbers exist and describe different businesses. Book value,
+        # returns, reserves, investments and the whole valuation carry on;
+        # it is only the underwriting ratios that have no honest basis.
+        why = compat["reason"]
+        for k in ("loss_ratio_pct", "expense_ratio_pct", "combined_ratio_pct",
+                  "underwriting_profit", "acquisition_cost_ratio_pct"):
+            out[k] = _na(why)
+        out["combined_ratio_trend"] = {"state": None, "reason": why}
+        return out
     if basis_family == SPREAD:
         why = (
             "A life insurer's premiums leave out the fee and spread income "

@@ -2329,6 +2329,20 @@ function InvReit({ reit }) {
 // ── Phase 5: insurers ─────────────────────────────────────────────────────
 
 const INV_INS_TIP = {
+  how: "How the kind of insurance was decided. Most annual reports say what " +
+    "the company writes in so many words, and those words are counted. Some " +
+    "describe the company by the segments it is organised into instead — " +
+    "General Insurance, Commercial Lines, Personal Lines, Life and " +
+    "Retirement — and for those the segment names are read instead. The " +
+    "second path only runs when the first one has refused: nothing is " +
+    "loosened to reach an answer.",
+  mixed: "A multiline insurer files one premium line and one claims line, " +
+    "and where the company is genuinely two businesses the claims include " +
+    "benefits paid by a life book whose earnings the premiums leave out. " +
+    "Dividing one by the other then produces a number that looks like a " +
+    "loss ratio and is a blend of two different businesses, so it is " +
+    "refused. Book value, returns, reserves and the valuation itself are " +
+    "unaffected — only the underwriting ratios go.",
   subtype: "What kind of insurance this company writes, read from its own " +
     "annual report and checked against its SEC industry code. This decides " +
     "which numbers below mean anything: claims divided by premiums is a loss " +
@@ -2446,6 +2460,30 @@ function InvInsurance({ insurance }) {
         between collecting a premium and paying a claim is neither debt nor
         spare cash — and a generic model reads it as one or the other.
       </div>
+      {!!(i.classification || {}).method && (
+        <div className="inv-note" title={INV_INS_TIP.how}>
+          How that was decided: {(i.classification || {}).reason}
+          {(i.classification || {}).method === "segment names in the annual report"
+            ? " This company's annual report describes itself by the segments"
+              + " it is organised into rather than by what it writes, so the"
+              + " segments are what was read."
+            : ""}
+          {((i.classification || {}).secondary || []).length
+            ? ` It is also in: ${((i.classification || {}).secondary || [])
+                .join(", ").toLowerCase()}.`
+            : ""}
+        </div>
+      )}
+      {(i.metric_basis_compatibility || {}).ok === false && (
+        <div className="inv-note down" title={INV_INS_TIP.mixed}>
+          {(i.metric_basis_compatibility || {}).reason}
+        </div>
+      )}
+      {!!(i.metric_basis_compatibility || {}).note && (
+        <div className="inv-note" title={INV_INS_TIP.mixed}>
+          {(i.metric_basis_compatibility || {}).note}
+        </div>
+      )}
       <div className="inv-grid">
         {stat("Book value per share", i.book_per_share, invPrice,
               INV_INS_TIP.bvps)}
@@ -2910,52 +2948,121 @@ const INV_XCHECK_TIP = {
     "for a property trust, the combined ratio for an insurer. Where the " +
     "company also prints the figure in a table of its own, the two are put " +
     "side by side here.",
-  state: "AGREES means the rebuilt figure matches what the company " +
-    "publishes. RECONSTRUCTION MISMATCH means it does not, and the " +
-    "valuation built on the rebuilt figure is not trusted at full " +
-    "confidence until the difference is explained. The nicer of the two is " +
-    "never quietly chosen.",
+  state: "MATCH means the rebuilt figure and the published one are the same " +
+    "number. MINOR DIFFERENCE means they differ by less than the tolerance. " +
+    "MATERIAL MISMATCH means they do not agree, and the valuation built on " +
+    "the rebuilt figure is not trusted at full confidence until the " +
+    "difference is explained. INCOMPATIBLE BASIS means the company does " +
+    "publish the measure, on a different basis, period or window — a " +
+    "property trust publishes funds from operations five ways and only one " +
+    "of them is what a share is entitled to. PUBLISHED UNAVAILABLE means it " +
+    "does not print the measure in a table this app will read. The nicer of " +
+    "the two numbers is never quietly chosen.",
+  basis: "Which definition each side of the comparison uses, and over what " +
+    "period. A quarter compared with a year is a 300% disagreement about " +
+    "nothing, so a comparison is only made when the basis, the period and " +
+    "the window all match.",
+  measures: "Client assets, assets under administration, advisory assets " +
+    "and assets under management are four different things, and this app " +
+    "never treats one as standing in for another. Assets under " +
+    "administration include money the firm only holds; advisory assets are " +
+    "the part it is paid to advise on; assets under management are the part " +
+    "it actually runs. Each is stored under its own name with its own " +
+    "period, scope and unit.",
+  unit: "Where the scale of this figure was read from — the row's own " +
+    "label, a heading above it, its column, the table, or the caption. The " +
+    "most specific statement wins, and a figure whose scale nothing states " +
+    "is refused rather than guessed at, because the guess is worth a factor " +
+    "of a thousand.",
 };
+
+const INV_XCHECK_BAD = ["MATERIAL MISMATCH"];
 
 function InvCrossCheck({ cross }) {
   const c = cross || {};
-  if (!(c.checks || []).length) return null;
+  const checks = c.checks || [];
+  const measures = (c.measures || {}).rows || [];
+  if (!checks.length && !measures.length) return null;
   return (
     <div className="inv-bank">
-      <div className={`inv-note ${c.mismatches ? "down" : ""}`}
-           title={INV_XCHECK_TIP.state}>
-        {c.state === "AGREES"
-          ? "What this app rebuilt from the filings matches what the company "
-            + "publishes in its own tables."
-          : "What this app rebuilt from the filings does NOT match what the "
-            + "company publishes in its own tables."}
-      </div>
-      <table className="inv-peer-table">
-        <thead>
-          <tr>
-            <th title={INV_XCHECK_TIP.what}>Measure</th>
-            <th title={INV_XCHECK_TIP.what}>Published by the company</th>
-            <th title={INV_XCHECK_TIP.what}>Rebuilt from the filings</th>
-            <th title={INV_XCHECK_TIP.state}>Difference</th>
-            <th title={INV_XCHECK_TIP.state}>State</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(c.checks || []).map((row, i) => (
-            <tr key={i}>
-              <td>{row.measure}</td>
-              <td>{row.unit === "percent" ? invPct(row.published)
-                                          : invMoney(row.published)}</td>
-              <td>{row.unit === "percent" ? invPct(row.reconstructed)
-                                          : invMoney(row.reconstructed)}</td>
-              <td>{invPct(row.difference_pct)}</td>
-              <td className={row.state === "AGREES" ? "" : "down"}>
-                {row.state}
-              </td>
+      {!!c.reason && (
+        <div className={`inv-note ${c.mismatches ? "down" : ""}`}
+             title={INV_XCHECK_TIP.state}>{c.reason}</div>
+      )}
+      {!!checks.length && (
+        <table className="inv-peer-table">
+          <thead>
+            <tr>
+              <th title={INV_XCHECK_TIP.what}>Measure</th>
+              <th title={INV_XCHECK_TIP.what}>Published by the company</th>
+              <th title={INV_XCHECK_TIP.what}>Rebuilt from the filings</th>
+              <th title={INV_XCHECK_TIP.state}>Difference</th>
+              <th title={INV_XCHECK_TIP.state}>State</th>
+              <th title={INV_XCHECK_TIP.basis}>Basis and period</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {checks.map((row, i) => (
+              <tr key={i}>
+                <td>{row.measure}</td>
+                <td>{row.unit === "percent" ? invPct(row.published)
+                                            : invMoney(row.published)}</td>
+                <td>{row.unit === "percent" ? invPct(row.reconstructed)
+                                            : invMoney(row.reconstructed)}</td>
+                <td>{row.difference_pct == null ? "—"
+                                                : invPct(row.difference_pct)}</td>
+                <td className={INV_XCHECK_BAD.includes(row.state) ? "down" : ""}
+                    title={row.reason || INV_XCHECK_TIP.state}>
+                  {row.state}
+                </td>
+                <td title={row.note || INV_XCHECK_TIP.basis}>
+                  {[row.published_basis, row.published_period
+                    ? invDate(row.published_period) : ""].filter(Boolean)
+                    .join(" · ") || "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {!!measures.length && (
+        <>
+          <div className="inv-note" title={INV_XCHECK_TIP.measures}>
+            {(c.measures || {}).reason}
+          </div>
+          <table className="inv-peer-table">
+            <thead>
+              <tr>
+                <th title={INV_XCHECK_TIP.measures}>Measure read from a filing</th>
+                <th title={INV_XCHECK_TIP.measures}>Amount</th>
+                <th title={INV_XCHECK_TIP.basis}>As of</th>
+                <th title={INV_XCHECK_TIP.measures}>Whole company or one part</th>
+                <th title={INV_XCHECK_TIP.unit}>Scale, and where it was read</th>
+              </tr>
+            </thead>
+            <tbody>
+              {measures.map((row, i) => (
+                <tr key={i}>
+                  <td title={row.row_label
+                             ? `Read from a row labelled "${row.row_label}"`
+                             : INV_XCHECK_TIP.measures}>{row.label}</td>
+                  <td>{invMoney(row.value)}</td>
+                  <td>{invDate(row.period)}</td>
+                  <td title={INV_XCHECK_TIP.measures}>
+                    {row.scope === "CONSOLIDATED" ? "Whole company"
+                      : row.scope === "SEGMENT" ? "One segment"
+                      : "The filing does not say"}
+                  </td>
+                  <td title={INV_XCHECK_TIP.unit}>
+                    {[row.unit, row.unit_source].filter(Boolean).join(" · ")
+                      || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }
@@ -3510,6 +3617,211 @@ function InvValidation({ apiFetch }) {
   );
 }
 
+// ── Phase 7: is the prospective capture actually happening? ───────────────
+//
+// Everything the forward work rests on is collected going forward and can
+// never be back-filled, so the only two questions worth a panel are how much
+// there is and whether today added to it. Deliberately compact and behind an
+// expander: this is operational, and it must not crowd the screen the buy or
+// wait decision is made on.
+
+const INV_CAPTURE_TIP = {
+  what: "How much real, prospectively captured data this app holds, and " +
+    "whether it is still being captured. None of it can be back-filled: " +
+    "there is no source of historical option chains this app can reach, so " +
+    "a trading day that goes uncaptured stays uncaptured. That is why a " +
+    "missed day is reported here the next morning rather than discovered " +
+    "months later in a backtest.",
+  state: "HEALTHY means the last trading day captured everything expected. " +
+    "PARTIAL means some of it was missed. CAPTURE FAILURE means a whole " +
+    "trading day produced nothing, which is the state worth acting on. A " +
+    "weekend or a market holiday is NOT EXPECTED rather than missed.",
+  snapshots: "Days on which the whole valuation state was recorded for at " +
+    "least one followed ticker. This is what forward validation scores " +
+    "later, so a day without it is a day that can never be scored.",
+  chains: "Days on which a real end-of-day option chain was captured. This " +
+    "is the one that can never be recovered.",
+  leaps: "Days on which the long-dated contracts around the money and their " +
+    "implied volatility were recorded, which is what gives a long-dated " +
+    "option its own volatility history instead of a borrowed one.",
+  last: "The most recent trading day on which everything expected was " +
+    "captured. If this is not the last trading day, something was missed.",
+  coverage: "The share of trading days since capture began that have a real " +
+    "chain behind them. Days before the first capture are not counted as " +
+    "missed, because nothing was expected of them.",
+  missing: "Followed tickers that were expected today and have not been " +
+    "captured. Before the capture window this is simply everything; after " +
+    "it, it is a list of failures.",
+  forward: "Forward validation scores a recommendation only once its whole " +
+    "horizon has passed. Nothing is scored early and no verdict is given " +
+    "until enough observations have completed, so what is shown here is " +
+    "when the first result can exist — not a result.",
+  symbol: "Per ticker: how many days of each kind exist, when the real " +
+    "chain history starts and ends, and which expected trading days have no " +
+    "chain. Weekends and market holidays are not counted as missed.",
+};
+
+const INV_CAPTURE_CLASS = {
+  HEALTHY: "up", PARTIAL: "", "CAPTURE FAILURE": "down",
+  COMPLETE: "up", MISSED: "down", "NOT EXPECTED": "muted",
+};
+
+function InvCaptureStat({ label, value, tip }) {
+  return (
+    <div className="inv-stat">
+      <span className="inv-stat-label" title={tip}>{label}</span>
+      <b className="inv-stat-val" title={tip}>{value}</b>
+    </div>
+  );
+}
+
+function InvDataReadiness({ apiFetch, symbol }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = React.useCallback(() => {
+    setBusy(true);
+    apiFetch("/api/invest/readiness")
+      .then((r) => r.json())
+      .then((j) => setData(j))
+      .catch(() => setData({ error: true }))
+      .finally(() => setBusy(false));
+  }, [apiFetch]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const d = data || {};
+  const today = d.today || {};
+  const health = d.health || {};
+  const fwd = d.forward || {};
+  const rows = d.symbol_rows || [];
+  const mine = rows.filter((r) => r.symbol === (symbol || "").toUpperCase());
+  const show = mine.length ? mine.concat(rows.filter((r) => !mine.includes(r)))
+                           : rows;
+
+  if (d.error) {
+    return <div className="inv-note" title={INV_CAPTURE_TIP.what}>
+      The capture-health report could not be read.
+    </div>;
+  }
+  return (
+    <div className="inv-bank">
+      <div className={`inv-note ${INV_CAPTURE_CLASS[health.state] || ""}`}
+           title={INV_CAPTURE_TIP.state}>
+        {busy && !data ? "Loading…"
+          : `${health.state || "—"} — ${health.reason || ""}`}
+      </div>
+      {!!health.alert && (
+        <div className="inv-note down" title={INV_CAPTURE_TIP.state}>
+          {health.alert}
+        </div>
+      )}
+      <div className="inv-grid">
+        <InvCaptureStat label="Investment snapshots"
+          tip={INV_CAPTURE_TIP.snapshots}
+          value={`${d.investment_snapshot_days || 0} days`} />
+        <InvCaptureStat label="Real option chains"
+          tip={INV_CAPTURE_TIP.chains}
+          value={`${d.real_chain_days || 0} days`} />
+        <InvCaptureStat label="Long-dated observations"
+          tip={INV_CAPTURE_TIP.leaps}
+          value={`${d.leaps_observation_days || 0} days`} />
+        <InvCaptureStat label="Last successful capture"
+          tip={INV_CAPTURE_TIP.last}
+          value={d.last_successful_capture
+                 ? invDate(d.last_successful_capture) : "None yet"} />
+        <InvCaptureStat label="Today's capture status"
+          tip={INV_CAPTURE_TIP.state}
+          value={d.trading_day ? (today.state || "—")
+                 : `Not expected — ${d.not_trading_because || "not a trading day"}`} />
+        <InvCaptureStat label="Symbols missing today"
+          tip={INV_CAPTURE_TIP.missing}
+          value={(d.symbols_missing_today || []).length
+                 ? (d.symbols_missing_today || []).join(", ")
+                 : "None"} />
+        <InvCaptureStat label="Real chain coverage"
+          tip={INV_CAPTURE_TIP.coverage}
+          value={d.chain_coverage_pct == null ? "Nothing captured yet"
+                 : invPct(d.chain_coverage_pct)} />
+        <InvCaptureStat label="Earliest thirty-day validation result"
+          tip={INV_CAPTURE_TIP.forward}
+          value={(() => {
+            const h = (fwd.horizons || []).find((x) => x.days === 30);
+            return h ? h.first_eligible_pretty : "No snapshot recorded yet";
+          })()} />
+      </div>
+
+      {!!(fwd.horizons || []).length && (
+        <table className="inv-peer-table">
+          <thead>
+            <tr>
+              <th title={INV_CAPTURE_TIP.forward}>Horizon</th>
+              <th title={INV_CAPTURE_TIP.forward}>Earliest possible result</th>
+              <th title={INV_CAPTURE_TIP.forward}>Still ageing toward it</th>
+              <th title={INV_CAPTURE_TIP.forward}>Horizon complete</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(fwd.horizons || []).map((h) => (
+              <tr key={h.days}>
+                <td>{h.days} days</td>
+                <td>{h.first_eligible_pretty}</td>
+                <td>{h.ageing}</td>
+                <td>{h.complete}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="inv-note" title={INV_CAPTURE_TIP.forward}>
+        {fwd.reason}
+      </div>
+
+      {!!show.length && (
+        <table className="inv-peer-table">
+          <thead>
+            <tr>
+              <th title={INV_CAPTURE_TIP.symbol}>Ticker</th>
+              <th title={INV_CAPTURE_TIP.snapshots}>Snapshot days</th>
+              <th title={INV_CAPTURE_TIP.chains}>Chain days</th>
+              <th title={INV_CAPTURE_TIP.chains}>First chain</th>
+              <th title={INV_CAPTURE_TIP.chains}>Last chain</th>
+              <th title={INV_CAPTURE_TIP.coverage}>Real chain coverage</th>
+              <th title={INV_CAPTURE_TIP.symbol}>Expected days with no chain</th>
+            </tr>
+          </thead>
+          <tbody>
+            {show.slice(0, 40).map((r) => (
+              <tr key={r.symbol}>
+                <td>{r.symbol}</td>
+                <td>{r.snapshot_days}</td>
+                <td>{r.chain_days}</td>
+                <td>{r.first_chain ? invShortDate(r.first_chain) : "—"}</td>
+                <td>{r.last_chain ? invShortDate(r.last_chain) : "—"}</td>
+                <td>{r.chain_coverage_pct == null ? "—"
+                     : invPct(r.chain_coverage_pct)}</td>
+                <td title={(r.missing_expected_days || []).length
+                           ? (r.missing_expected_days || []).map(invShortDate)
+                               .join(", ")
+                           : INV_CAPTURE_TIP.symbol}>
+                  {(r.missing_expected_days || []).length || "None"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="inv-note" title={INV_CAPTURE_TIP.what}>
+        {d.backfill_note}
+      </div>
+      <button className="btn ghost" onClick={load} disabled={busy}
+              title="Re-read the capture log.">
+        {busy ? "Loading…" : "Refresh"}
+      </button>
+    </div>
+  );
+}
+
 function InvScanner({ apiFetch, onPick }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -3945,10 +4257,18 @@ function InvestTab({ apiFetch, ticker, onOpenTicker }) {
             "A company that is two financial businesses gets no single fair value unless the two models agree about one. Which case this is, and what each model says, are both shown.",
             <InvHybrid hybrid={d.hybrid} />)}
 
-          {d.cross_check && (d.cross_check.checks || []).length > 0 &&
+          {d.cross_check && ((d.cross_check.checks || []).length > 0
+                             || ((d.cross_check.measures || {}).rows || []).length > 0) &&
             section("crosscheck", "Rebuilt against published",
-            "Where a measure had to be rebuilt from the machine-readable filings and the company also prints it in a table of its own, the two are put side by side. A disagreement lowers confidence rather than being resolved in favour of the nicer number.",
+            "Where a measure had to be rebuilt from the machine-readable filings and the company also prints it in a table of its own, the two are put side by side. A comparison is only made when the basis, the period and the window all match, and a disagreement lowers confidence rather than being resolved in favour of the nicer number.",
             <InvCrossCheck cross={d.cross_check} />)}
+
+          {/* ── Phase 7: whether the prospective capture is still running.
+              Operational, so it sits behind an expander of its own and
+              never crowds the screen the decision is made on. ── */}
+          {section("readiness", "Data readiness",
+            "How much real, prospectively captured data this app holds, and whether today added to it. None of it can be back-filled, so a missed trading day is reported here the next morning rather than discovered months later in a backtest.",
+            <InvDataReadiness apiFetch={apiFetch} symbol={d.symbol} />)}
 
           {/* ── Phase 4: the measures that belong to this kind of business.
               Shown only for the kind they belong to, so a software company's
