@@ -237,5 +237,91 @@ check("catalyst tone never relies on bare .up/.down classes",
   !/className=\{GAP_CATALYST_TONE\[[^\]]+\] \|\| ""\}/.test(src)
   && (src.match(/"gap-cat-" \+ GAP_CATALYST_TONE/g) || []).length >= 3);
 
+// ── Investment tab (v4.41) ────────────────────────────────────────────────
+// This tab makes promises in writing on screen — that nothing shows 0 for
+// unknown, that every number carries a source, that the earnings bridge
+// reconciles, that dates read "March 28, 2026". These guard the promises.
+const inv = read("tab-invest.jsx");
+
+check("Investment tab registers its chunk export",
+  /Object\.assign\(window, \{ InvestTab: React\.memo\(InvestTab\) \}\)/.test(inv));
+
+// Missing is "N/A", never 0 and never a bare dash that reads like a number.
+check("every formatter returns N/A rather than a zero or a dash", (() => {
+  const fns = inv.match(/function inv(Money|Price|Pct|SignedPct|Ratio|Count|Date)\b[\s\S]*?\n\}/g) || [];
+  if (fns.length < 7) return `only ${fns.length} formatters found`;
+  const bad = fns.filter((f) => !/invNA/.test(f));
+  return bad.length === 0 || `${bad.length} formatter(s) without invNA`;
+})());
+check("N/A is a named constant, not a scattered literal",
+  /const invNA = "N\/A"/.test(inv));
+
+// Every statistic carries a provenance line: source, as-of, basis, staleness.
+check("the provenance component renders source, as-of, basis and staleness",
+  /function InvSource\(/.test(inv) && /Source: \$\{/.test(inv)
+  && /Basis: \$\{/.test(inv) && /STALE/.test(inv));
+check("every InvStat is given a tooltip", (() => {
+  const stats = inv.match(/<InvStat\b[\s\S]*?\/>/g) || [];
+  if (stats.length < 15) return `only ${stats.length} stats found`;
+  const untipped = stats.filter((s) => !/\btip=/.test(s));
+  return untipped.length === 0 || `${untipped.length} without tip=`;
+})());
+check("every InvStat is given a label and a value", (() => {
+  const stats = inv.match(/<InvStat\b[\s\S]*?\/>/g) || [];
+  const bad = stats.filter((s) => !/\blabel=/.test(s) || !/\bvalue=/.test(s));
+  return bad.length === 0 || `${bad.length} incomplete`;
+})());
+
+// Headers and section heads are spelled out for a non-programmer reader.
+check("section heads all carry tooltips", (() => {
+  const heads = inv.match(/<div className="inv-sechead"[^>]*>/g) || [];
+  const untitled = heads.filter((h) => !/title=/.test(h));
+  return untitled.length === 0 || `${untitled.length} untitled`;
+})());
+check("no insider shorthand in visible labels",
+  !/label="P\/E"/.test(inv) && !/label="FCF/.test(inv)
+  && !/label="EPS/.test(inv) && !/label="TTM/.test(inv)
+  && /label="Free cash flow yield"/.test(inv)
+  && /label="Price to earnings, trailing"/.test(inv));
+
+// House date rule: Month Day, Year — never raw ISO on screen.
+check("dates render as Month Day, Year",
+  /month: "long", day: "numeric", year: "numeric"/.test(inv)
+  && /month: "short", day: "numeric", year: "numeric"/.test(inv));
+
+// The five words, and only the five words.
+check("all five verdicts are toned and tipped", (() => {
+  const words = ["ATTRACTIVE", "WATCH", "WAIT", "AVOID", "INSUFFICIENT DATA"];
+  const tone = (inv.match(/const INV_VERDICT_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  const tip = (inv.match(/const INV_VERDICT_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  const missing = words.filter((w) => !tone.includes(w) || !tip.includes(w));
+  return missing.length === 0 || missing.join(",");
+})());
+check("no 0-100 investment score leaked into the UI",
+  !/score/i.test(inv.replace(/inv-src/g, "")) || "the word 'score' appears");
+
+// The earnings bridge states that it reconciles; the tab must say which
+// method produced it and warn when it describes a different EPS.
+check("earnings drivers name their method and warn on identity gaps",
+  /Dollar EPS Bridge/.test(inv) && /Shapley/.test(inv)
+  && /d\.warning/.test(inv) && /inv-warn/.test(inv));
+check("driver bars are individually explained",
+  /const INV_DRIVER_TIP = \{/.test(inv) && /Share count/.test(inv)
+  && /Buybacks shrink the count/.test(inv));
+
+// The chart's three refusals must be stated where they are read.
+check("the price chart explains filing-date plotting and the forward line",
+  /plotted on the day they were FILED/.test(inv)
+  && /never back-filled/.test(inv));
+check("the chart offers 3Y and 5Y",
+  /\[3, 5\]\.map/.test(inv) && /inv-yearbtn/.test(inv));
+
+// Price to sales is displayed but must never gate a decision.
+// JSX tooltips wrap across lines, so this one is matched on whitespace-
+// normalized source rather than the raw file.
+const invFlat = inv.replace(/\s+/g, " ");
+check("price to sales is labelled as playing no part in the verdict",
+  /plays NO part in the verdict/.test(invFlat));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

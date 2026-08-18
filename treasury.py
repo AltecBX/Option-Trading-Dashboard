@@ -219,6 +219,27 @@ def risk_free_3m_cached() -> tuple[float, str] | None:
     return y3m / 100.0, f"3M T-bill {y3m:.2f}% (Treasury.gov, {latest.get('date')})"
 
 
+def ten_year() -> dict | None:
+    """Latest 10-year constant-maturity yield as a PERCENT, off the same
+    official curve the Treasuries tab draws.
+
+    The Investment tab compares a stock's earnings yield against this, so it
+    wants the number even on a cold cache — unlike risk_free_3m_cached(),
+    which must never block an option price. One fetch, then the existing
+    30-minute cache serves everyone.
+    """
+    rows = _curve_history()
+    if not rows:
+        return None
+    for row in reversed(rows):
+        y = row.get("10Y")
+        if y is not None:
+            return {"pct": float(y), "as_of": row.get("date"),
+                    "source": "U.S. Treasury daily par yield curve, "
+                              "10-year constant maturity"}
+    return None
+
+
 def _curve_history() -> list[dict]:
     """~3 years of daily curves, oldest→newest (for percentiles & compares)."""
     def fetch():

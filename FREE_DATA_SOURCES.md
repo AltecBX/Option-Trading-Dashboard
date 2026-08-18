@@ -107,6 +107,65 @@ The free backbone. Everything below is one `pip install yfinance`:
 - CPI release dates: BLS calendar (8:30 AM ET). FOMC: federalreserve.gov.
   Jobs report: first Friday rule. Label them "per published schedule."
 
+## 4b. Company fundamentals — SEC EDGAR Company Facts (`fundamentals.py`)
+
+Everything a company has XBRL-tagged in its own filings, as JSON, free, no key:
+
+```
+GET https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json
+```
+
+Same declared User-Agent rule as every other SEC endpoint. Payloads run
+0.3–3 MB, so cache them — this app keeps them 12 hours on disk. Gives you
+revenue, net income, diluted EPS, share counts, operating cash flow and
+capital spending per reporting period, plus the filing cover-page share count
+under the `dei` taxonomy.
+
+**Gotchas, all measured on seventeen live tickers — every one of these will
+bite you:**
+
+- **Concept names are not consistent between filers.** Robinhood's revenue is
+  `Revenues` (72 points); its `RevenueFromContractWithCustomerExcludingAssessedTax`
+  has 4 points and stops in 2021. Pick the concept with the most recent,
+  best-covered series — never a fixed priority list.
+- **Cash-flow facts are cumulative year-to-date** (Q1 = 3 months, Q2 = 6,
+  Q3 = 9); income-statement facts are discrete quarters. Filter for ~90-day
+  periods and free cash flow comes out empty for almost every company.
+  Difference consecutive cumulative periods to get each quarter.
+- **Weighted-average share counts are averages, not flows.** Summing four
+  quarters claims Microsoft has 30 billion shares instead of 7.4 billion.
+- **Retail filers use 52/53-week calendars.** Costco's third-quarter
+  year-to-date is 252 days, not 273. Classify periods proportionally.
+- **The same period appears many times** as later filings restate it and
+  splits re-express per-share figures. Take the value from the LATEST filing
+  (restated, split-consistent) but the DATE from the earliest (when it was
+  actually knowable) — otherwise a 2021 quarter plots at a 2023 filing.
+- **Coverage is not guaranteed.** Exxon's payload currently holds six
+  period-ends and no annual report at all.
+- **Foreign private issuers file under `ifrs-full` in their own currency**
+  (TSMC in TWD, Novo Nordisk in DKK). The ADR ratio and FX rate are NOT in the
+  data, so per-share figures cannot be compared to a US dollar ADR price.
+- **Annual-only filers (Form 20-F, e.g. Alibaba) have no quarterly facts**, so
+  no trailing-twelve-month figure can be built.
+- **Multi-class companies** (Robinhood, Shopify) report the cover-page share
+  count per class, and Company Facts drops the per-class breakdown entirely.
+
+**Business descriptions**: Item 1 of the latest 10-K, off the same
+`data.sec.gov/submissions` feed the filing scanner already uses. Two traps —
+"Item 1. Business" also appears in the table of contents (take the occurrence
+with real prose after it), and inline-XBRL 10-Ks open with a hidden
+`<ix:header>` block that flattens to thousands of taxonomy URLs. Microsoft
+additionally sets the first letter of each heading as a drop cap, so the text
+reads `ITEM 1. B USINESS`.
+
+**What EDGAR does NOT have: analyst estimates.** The SEC holds what a company
+*reported*, never what anyone *expects*. Forward EPS, this year's and next
+year's consensus, and estimate revisions have no free authoritative source —
+yfinance (`get_earnings_estimate`, `get_eps_revisions`, `info.forwardEps`) is
+the free option and it is unofficial and rate-limited. There is also no free
+archive of *past* consensus, so a historical forward-P/E series cannot be
+reconstructed; it can only be accumulated going forward.
+
 ## 5. Reference / universe data
 
 - **SEC** — full symbol↔company↔CIK map:

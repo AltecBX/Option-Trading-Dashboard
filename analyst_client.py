@@ -221,6 +221,27 @@ def _classify_action(raw_action: str | None, prior: str | None, new: str | None)
 
 
 # ── Main client class ─────────────────────────────────────────────────
+def _f(v):
+    """float(v) or None — pandas NaN and None both come back as None."""
+    try:
+        out = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if out != out else out          # NaN != NaN
+
+
+def _revision_breadth(up, down):
+    """Net share of covering analysts who RAISED rather than cut, as a
+    percentage of those who moved at all. +100 means every revision was an
+    increase, -100 every one a cut, 0 an even split. None when nobody moved,
+    which is different from a balanced split and is not reported as zero."""
+    u, d = _f(up) or 0.0, _f(down) or 0.0
+    total = u + d
+    if total <= 0:
+        return None
+    return (u - d) / total * 100.0
+
+
 class AnalystClient:
     def __init__(self):
         self._lock = threading.RLock()
@@ -428,6 +449,116 @@ class AnalystClient:
             }
         except Exception:
             return None
+
+    # ── EPS estimates (Investment tab) ────────────────────────────────
+    #
+    # Forward earnings are the one Investment-tab input with no free
+    # authoritative source: the SEC has what a company REPORTED, never what
+    # analysts EXPECT. This reuses the same provider-then-fallback shape as
+    # the price targets above, and — importantly — reports honestly when
+    # nothing is reachable rather than substituting trailing earnings for
+    # forward ones. Callers treat `available: False` as N/A.
+    #
+    # The estimate basis is adjusted (non-GAAP) earnings, which is NOT the
+    # GAAP trailing basis the SEC figures use. The two are never combined
+    # inside one ratio; `basis` travels with the payload so the tab can say
+    # which one any given number came from.
+    def _fetch_yf_estimates(self, symbol: str) -> dict | None:
+        if not _YF_OK:
+            return None
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            cur = nxt = None
+            trend_30 = trend_90 = None
+            try:
+                est = ticker.get_earnings_estimate()
+                # Index labels: 0q, +1q, 0y, +1y. Only the annual rows are
+                # used — a quarterly estimate is not an annual EPS.
+                if est is not None and hasattr(est, "index"):
+                    if "0y" in est.index:
+                        cur = _f(est.loc["0y"].get("avg"))
+                    if "+1y" in est.index:
+                        nxt = _f(est.loc["+1y"].get("avg"))
+            except Exception:
+                pass
+            try:
+                rev = ticker.get_eps_revisions()
+                # yfinance reports revision COUNTS (how many analysts moved
+                # up or down), not a percentage change in the estimate. A
+                # net revision breadth is an honest reading of those; calling
+                # it a percentage change in EPS would not be.
+                if rev is not None and hasattr(rev, "index") and "0y" in rev.index:
+                    row = rev.loc["0y"]
+                    up7, down7 = _f(row.get("upLast7days")), _f(row.get("downLast7days"))
+                    up30, down30 = _f(row.get("upLast30days")), _f(row.get("downLast30days"))
+                    trend_30 = _revision_breadth(up30, down30)
+                    trend_90 = _revision_breadth(up7, down7)
+            except Exception:
+                pass
+            if cur is None and nxt is None:
+                info = {}
+                try:
+                    info = ticker.info or {}
+                except Exception:
+                    info = {}
+                cur = _f(info.get("forwardEps"))
+            if cur is None and nxt is None:
+                return None
+            return {"current_year_eps": cur, "next_year_eps": nxt,
+                    "revision_breadth_30d_pct": trend_30,
+                    "revision_breadth_7d_pct": trend_90}
+        except Exception:
+            return None
+
+    def get_eps_estimates(self, symbol: str, force_refresh: bool = False) -> dict:
+        """Normalized forward-earnings block for the Investment tab.
+
+        Always returns a dict. `available` is False — with a reason — when no
+        provider answered, and no field is ever filled with a stand-in.
+        """
+        sym = (symbol or "").upper().strip()
+        key = f"eps_est:{sym}"
+        if not force_refresh:
+            hit = self._cache_get(key)
+            if hit is not None:
+                return hit
+        raw = self._fetch_yf_estimates(sym) if sym else None
+        if not raw:
+            out = {"symbol": sym, "available": False,
+                   "source": None, "as_of": None,
+                   "basis": "Analyst consensus, adjusted (non-GAAP) earnings",
+                   "reason": ("No analyst estimate provider answered. Forward "
+                              "earnings are not published by the SEC, so when "
+                              "the estimate provider is unreachable there is "
+                              "no free substitute — the forward figures stay "
+                              "unavailable rather than being filled in with "
+                              "trailing earnings."),
+                   "current_year_eps": None, "next_year_eps": None,
+                   "change_30d_pct": None, "change_90d_pct": None}
+            self._cache_set(key, out, ttl=600)
+            return out
+        out = {"symbol": sym, "available": True,
+               "source": "yfinance (Yahoo Finance analyst estimates)",
+               "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "basis": "Analyst consensus, adjusted (non-GAAP) earnings",
+               "reason": "",
+               "current_year_eps": raw.get("current_year_eps"),
+               "next_year_eps": raw.get("next_year_eps"),
+               # Named for what they are. The provider gives revision BREADTH
+               # (net share of analysts moving up), not a change in the
+               # estimate itself, and the field name says so downstream.
+               "change_30d_pct": raw.get("revision_breadth_30d_pct"),
+               "change_90d_pct": None,
+               "change_basis": ("Net share of covering analysts who raised "
+                                "rather than cut, over the last 30 days. This "
+                                "is revision breadth, not a percentage change "
+                                "in the estimate itself — the free provider "
+                                "publishes revision counts, not an estimate "
+                                "history."),
+               "change_7d_breadth_pct": raw.get("revision_breadth_7d_pct")}
+        self._cache_set(key, out)
+        return out
 
     # ── Public method ─────────────────────────────────────────────────
     def get_analyst_data(self, symbol: str, current_price: float | None = None,
