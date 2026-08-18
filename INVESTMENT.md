@@ -1463,3 +1463,369 @@ Five, all real and all now fixed:
 * **Forward validation with a sample in it.** Every horizon still reports
   INSUFFICIENT SAMPLE, which remains the correct answer.
 
+
+
+# Phase 6 — the right engine, and better data to feed it
+
+Phase 5 built an insurer model and a broker model and sent companies to them
+by SEC industry code. Two things were wrong with that, and both showed up as
+refusals that read like limitations of the company rather than of the app.
+
+The first was the document reader. Five insurers were refused because their
+business chapter could not be found, and not one of those failures was the
+filer's fault: three of them file a 10-K/A amendment after the 10-K, and an
+amendment carries only the items it amends. The second was the routing.
+Industry code 6211 holds Charles Schwab, Goldman Sachs and BlackRock; 6200
+holds LPL Financial and the CME; 6282 holds Evercore and T. Rowe Price.
+Sending all of them to a broker model meant the model correctly refused most
+of them, and the refusal was then read as "this company cannot be valued"
+when what it meant was "this company is not a broker".
+
+Phase 6 does four things: it reads the document properly, it routes on
+economics rather than on a code, it handles a company that is genuinely two
+financial businesses, and it reads a small, named set of operating measures
+out of the filing tables that XBRL does not carry.
+
+## Reading the business chapter
+
+`filing_reader.py` tries four methods in a fixed order, best evidence first,
+and reports which one worked:
+
+| Method | What it uses | Highest confidence |
+|---|---|---|
+| Table of contents anchor | the document's own link to Item 1 | HIGH |
+| Heading element | an element whose whole text IS the heading | HIGH |
+| Heading text boundary | Item 1 through Item 1A in the flattened text | MODERATE |
+| Longest candidate | the Phase 5 heuristic, last resort | LOW |
+
+Four things had to change for that to work on real filings.
+
+**Filings are tried newest first, and an amendment that has no Item 1 is
+passed over.** Ameriprise, Equitable and Interactive Brokers all file a
+10-K/A after the 10-K; the amendment carries Part III and an exhibit index
+and nothing else. The reader gets nothing usable from it and moves on to the
+10-K underneath, which costs one extra fetch and answers the question.
+
+**Every heading pattern tolerates whitespace between any two letters.**
+Berkshire Hathaway styles its chapter heading letter by letter, so the
+flattened text reads `Item 1. Busines s Description`; Cincinnati Financial
+writes `I TEM 1.` and MarketAxess `I tem 1.`. `sec_filings._plain`
+deliberately does not close up a close-then-open tag pair — joining
+`authorized</span><span>the` would be far worse than the blemish — so the
+tolerance lives in the heading patterns, where it is safe because the
+pattern is short and anchored.
+
+**The read limit went from 4MB to 20MB.** Thirty of fifty-six documents
+measured exceeded four megabytes. Filings are immutable and cached by
+accession, so the document is fetched once, ever.
+
+**A chapter's own contents list is cut off the front, bounded by the first
+sentence.** MetLife, Prudential, Brighthouse and Apollo open Item 1 with an
+index of the chapter. An unbounded version of that rule sliced Visa, Simon
+Property and seven others off mid-sentence, because ordinary prose is full
+of label-then-number shapes: "as of December 31, 2025", "Note 4". A contents
+list contains no sentences, and that is the whole safety of the rule.
+
+Rejections are explicit. A contents entry, a cross-reference, a
+single-paragraph pointer and a block of Risk Factors text that ran on past a
+missing boundary each produce a named refusal rather than a body.
+
+**Confidence gates classification, not display.** A LOW extraction is still
+shown to a reader as a description — a person can judge prose for
+themselves — and is not allowed to decide which valuation model runs. The
+subtype is read from a fixed budget of forty thousand characters, which is
+what Phase 5 classified on: Palomar Holdings comes out a property-casualty
+insurer on forty thousand characters and a reinsurer on sixty thousand,
+purely because its reinsurance section sits at the end, and what a company
+is must not depend on how much of its chapter the reader managed to keep.
+
+### Coverage, before and after
+
+| Universe | Chapter read before | after | Classified before | after |
+|---|---|---|---|---|
+| 42 insurers | 38 | 41 | 37 | 40 |
+| 27 exchanges, managers and brokers | 23 | 27 | — | — |
+
+The three insurers that gained a classification are Cincinnati Financial
+(multiline), Equitable Holdings (life) and Berkshire Hathaway (multiline,
+and then overridden — see below). Of the four filers in the second group
+that gained a readable chapter, three are the amendment cases and the fourth
+is Morgan Stanley, whose chapter heading is the single word "Business".
+
+Two insurers are still refused, and both refusals are correct:
+
+* **Alleghany** files no annual report at all. It was taken over in 2022 and
+  stopped filing. The reason says so.
+* **AIG's** chapter is now read at HIGH confidence and still does not say
+  clearly enough what kind of insurance it writes: five property-casualty
+  signals against a minimum of eight, with its chapter organised by segment
+  names rather than by lines of business. Loosening the classifier to admit
+  it would admit a great deal else, and claims over premiums is a loss ratio
+  for one kind of insurer and not a ratio at all for another.
+
+Equitable Holdings is now classified as a life insurer and is still refused
+by the insurer model, for a different and honest reason: its shareholders'
+equity is negative, so there is no book value to value it on.
+
+## Routing on economics
+
+`business_routing.py` answers "which model does this company get" from three
+kinds of filed evidence and one kind of prose.
+
+**What is on the balance sheet**, as a share of total assets: customer
+receivables plus segregated cash, deposits or loans, policy reserves.
+**What the revenue is made of**, as a share of revenue: premiums, advisory
+fees, commissions and dealer trading, market data and clearing fees.
+**Whether the accounts behave like a corporation's at all** — capital
+expenditure reported, and operating cash flow reported, positive, and
+between 2% and 150% of revenue. **And what the chapter says**, reduced to
+family names, and only when the reader is confident it found the chapter.
+
+Every threshold was measured:
+
+| Measure | Level | Why that level |
+|---|---|---|
+| Customer money as a share of assets | 3% | Every genuine broker clears it; Stifel is thinnest at 3.4%. MarketAxess sits at 2.0% and Ameriprise at 0.5% |
+| Deposits or loans as a share of assets | 20% | Stifel 72%, Raymond James 67% |
+| Commissions, dealer trading and underwriting as a share of revenue | 30% | Virtu is a market maker with barely any customer balances and 70% trading revenue; MarketAxess earns 5.9% from principal trading |
+| Policy reserves as a share of assets | 10% | Apollo 70%, KKR 27%, Ameriprise 20%, Berkshire 6.6% |
+| Market data and clearing fees as a share of revenue | 5% | Decisive when present |
+| Kinds of market-infrastructure language in the chapter | 2 | Catches Nasdaq, Tradeweb, Coinbase, MarketAxess |
+| Kinds of asset-management language in the chapter | 2 | Catches BlackRock, T. Rowe Price, Invesco, Franklin, Blackstone, KKR, Apollo, Ares |
+
+**Evidence has to be current.** Every one of these measures is refused when
+the concept behind it is more than 400 days behind the filer's own newest
+fact, and that rule does most of the work. Evercore tags investment banking
+revenue whose series stopped in 2018. So do the market-data and clearing-fee
+concepts at the CME, Intercontinental Exchange and Cboe, and the advisory-fee
+concepts at every asset manager measured: the revenue standard changed
+between 2013 and 2018 and everyone folded the detail into a single
+revenue-from-contracts total. Written without the freshness rule, this
+module read Evercore as a dealer on a seven-year-old figure and T. Rowe
+Price as earning 59% of today's revenue from a 2018 fee line. Both were
+wrong, and both were caught by measuring rather than by reasoning.
+
+The consequence is that an exchange and an asset manager are usually
+recognised from their business chapters rather than their revenue lines, and
+the module says so rather than implying a precision it does not have.
+
+**Materiality is what separates the hard cases.** Intercontinental Exchange
+holds customer margin worth 4.6% of its assets, because it runs clearing
+houses. Morgan Stanley holds customer balances worth 4.9% of its assets,
+because it is a broker. No threshold can tell those apart, and nothing here
+pretends one can: what settles ICE is that its chapter describes a market
+venue, a clearing house, an electronic marketplace, listing services and a
+regulated contract market, and its accounts are an operating company's.
+Where a chapter uses both kinds of language — Franklin Resources' regulation
+section names clearing houses and national securities exchanges — the kind
+it says MORE about wins, and a tie goes to the venue, because a manager
+describes exchanges it uses while a venue does not describe money it does
+not manage.
+
+Every routing decision is inspectable, behind an expander: the class, the
+model, the confidence, the sentences of reasoning in the order they were
+weighed, every material exposure with the measurement and the level it had
+to clear, whether the accounts behave like an operating company's, and which
+filing the description came from.
+
+### Where each kind goes
+
+| Class | Model | Note |
+|---|---|---|
+| Standard operating company | STANDARD | unchanged |
+| Bank or lender | BANK | unchanged, by industry code |
+| Insurer | INSURANCE | unchanged, by industry code |
+| Real estate investment trust | REIT | unchanged, by industry code |
+| Broker or dealer | BROKER | now from customer money and trading revenue |
+| Exchange or market infrastructure | **STANDARD** | new |
+| Asset manager | **STANDARD** | new |
+| More than one financial business | the dominant one, or none | new |
+
+An exchange and an asset manager go to the standard engine because both have
+ordinary revenue, ordinary margins and ordinary free cash flow, and neither
+is valued on book value. No exchange multiple and no asset-manager multiple
+is declared anywhere: they are valued the ordinary way, against their own
+history and their own peers.
+
+One industry code changed hands. 6199, "finance services", is the code the
+SEC gives a filer that fits nowhere else, and it used to sit at the top of
+the bank range; Coinbase files under it. It is now answered from evidence
+alongside the broker codes, and a genuine lender filing under it still
+reaches the bank model through the deposits-or-loans measure.
+
+## More than one business at once
+
+A company can be two financial businesses, and each of them is valued
+differently. Ameriprise is a wealth manager and an annuity writer; Apollo
+and KKR are alternative asset managers that each bought an annuity writer;
+Berkshire files under an insurance code and describes a railway, a utility
+group and a collection of manufacturers in its first paragraph.
+
+There are three answers and no fourth:
+
+* **ONE MODEL RUNS** — only one of the businesses has a model that can be
+  built from the filings. That one is used and the others are disclosed.
+* **MODELS AGREE** — both can be valued and their base values fall inside
+  the same agreement band the fair-value engine already uses. The normal
+  confidence machinery resolves it and both ranges are shown.
+* **MODELS DISAGREE** — both can be valued and they do not agree. The answer
+  is HYBRID — VALUATION UNRELIABLE, which names the businesses that
+  disagree and how far apart they are, and shows no single fair value.
+  Apollo's two models are 194% apart.
+
+**No sum of the parts is attempted anywhere.** Segment revenue and segment
+income are not in SEC Company Facts at all — the flattened facts carry
+consolidated values only — so a segment-weighted valuation would be a guess
+with a decimal point on it.
+
+Berkshire is a special case handled by the conglomerate marker: its own
+business chapter says it is a holding company owning subsidiaries engaged in
+numerous diverse business activities, and that overrides its insurance
+industry code. Its policy reserves are 6.6% of its assets, below the level
+at which an insurance model could carry the whole company, and its accounts
+are an operating company's, so it is valued the ordinary way with the
+insurance business disclosed. That is the outcome Phase 6 was asked for:
+correct refusal to force it into a pure insurance model.
+
+## Reading the filing tables
+
+`filing_tables.py` reads a small, named set of measures out of SEC filing
+documents. This is not web scraping: every document comes from the app's own
+SEC transport, by accession number, out of the EDGAR archive. Nothing is
+fetched from a company website, nothing is read out of a PDF, and no
+language model is asked what a row means.
+
+Ten metrics, each with an explicit list of row labels:
+
+| Group | Metrics |
+|---|---|
+| Broker and wealth | client assets, assets under administration, advisory assets, net new assets |
+| Asset manager | assets under management, net flows |
+| Insurance | published combined ratio, published loss ratio, published expense ratio |
+| Property trust | published funds from operations |
+
+The rules are all refusals:
+
+* **Exact label matching after normalisation.** Parentheses always come off —
+  filers put three different things in them, and none belongs in the label:
+  a footnote marker, an abbreviation (`Assets under administration ("AUA")`)
+  and the scale (`Customer Equity (in billions)`). "Assets" alone is not
+  client assets.
+* **A period on every number.** A figure whose column names no period is
+  refused. A period after the filing date does not exist. A reporting period
+  ends on the last day of a month, so a heading naming 15 July is naming the
+  day the release was issued and does not outrank the quarter end printed
+  beside it.
+* **Units read from the table, most local statement winning.** The row's own
+  words beat the table's heading, which beats the sentence before the table.
+  Interactive Brokers prints "Customer Equity (in billions)" inside a table
+  captioned in thousands, and Robinhood prints platform assets in billions
+  inside a table captioned in millions.
+* **A hedged caption over a decimal balance is refused.** "(in millions,
+  except per-share data)" does not say which rows the exception covers.
+  T. Rowe Price prints ending assets under management as "$1,893.4" inside
+  such a table, meaning 1,893.4 BILLION; reading it on the caption's scale
+  turns a $1.9 trillion book of other people's money into $1.9 billion.
+  BlackRock's "15,344,624" in the same kind of table is genuinely millions
+  and is used. Filers print exact millions as whole numbers and rounded
+  billions with one decimal, and that is the distinction the rule rests on.
+* **A percentage is never a money figure.** Schwab prints two per-cent-change
+  columns before the dollars; reading the first number in the row without
+  that check turns thirteen trillion dollars of client assets into eleven.
+* **Ambiguity is refused, not resolved.** Travelers prints a combined ratio
+  for every segment; five rows share the label and disagree, so the answer
+  is `N/A — AMBIGUOUS TABLE MATCH`. Two tables printing the same figure in
+  millions and in thousands agree once converted and are not ambiguous.
+* **Continuity is checked.** A balance that moved by a factor of a thousand
+  is a unit error, not news. A book of client money that tripled in a
+  quarter is held back for checking.
+
+Every reading carries the accession, the document, the table, the row label,
+the column heading, the raw text, the parsed value, the scale and where the
+scale came from, the period and its precision, and the window. Readings are
+cached by accession and document and written once: a filing never changes,
+so a reading of one never changes, and a later filing writes a new entry
+rather than editing an old one.
+
+### What that yields today
+
+| Company | Measure | Value | As of |
+|---|---|---|---|
+| Charles Schwab | Client assets | $13.08tn | June 30, 2026 |
+| Charles Schwab | Net new assets | $118.7bn | June 30, 2026 |
+| Raymond James | Assets under administration | $1.86tn | June 30, 2026 |
+| LPL Financial | Advisory assets, net new assets | $1.55tn, $23.6bn | June 30, 2026 |
+| Interactive Brokers | Client assets | $930bn | June 30, 2026 |
+| Robinhood | Client assets | $279bn | June 30, 2026 |
+| BlackRock | Assets under management | $15.34tn | June 30, 2026 |
+
+For a retail or diversified broker, the Phase 5 fair-value confidence cap
+that existed **only** because client assets were unknown lifts on its own
+when a reading like these is available: the cap reads the same field the
+table fills.
+
+## Rebuilt against published
+
+Where a measure has to be rebuilt from XBRL and the company also prints it
+in a table, the two are shown side by side. Agreement corroborates the
+reconstruction; a difference of more than 5% is flagged as RECONSTRUCTION
+MISMATCH and holds the fair-value confidence down to LOW until it is
+explained. The nicer of the two numbers is never quietly chosen, and the
+rebuilt figure is not replaced by the published one.
+
+Two honest limits on this today. Windows have to match: Realty Income heads
+one table "Three months ended June 30, | Six months ended June 30," and
+prints both, and a heading that names two windows at once is AMBIGUOUS and
+is not compared with anything — an earlier version of this check reported a
+300% mismatch that was a quarter measured against a year. And Simon Property
+publishes "Real Estate Funds from Operations of the Operating Partnership",
+which is a different measure from funds from operations attributable to
+common shareholders; it is not used, because a cross-check against a
+different measure is worse than no cross-check.
+
+## Bugs found in Phases 1 to 5
+
+Four, all real and all now fixed:
+
+1. **The newest annual filing is not always an annual report.** Taking
+   `filings()[0]` among 10-K and 10-K/A gave Ameriprise, Equitable and
+   Interactive Brokers an amendment with no Item 1 in it, and the reader
+   reported "no business chapter" for three companies whose business
+   chapters are perfectly ordinary.
+2. **The 4MB read limit truncated thirty of fifty-six annual reports.** It
+   was not the cause of the classification failures, but it cut Item 1A
+   boundaries in half the universe, which is why so many extractions ran to
+   exactly the forty-thousand-character cap.
+3. **Routing evidence was read without a freshness check.** Writing this
+   phase surfaced it: the concepts behind advisory fees, market data and
+   clearing fees all stopped being tagged between 2013 and 2018, and reading
+   them as current made Evercore a dealer and T. Rowe Price a company
+   earning 59% of today's revenue from a 2018 line. The Phase 5 broker gate
+   already applied a 400-day rule; routing now applies the same one.
+4. **The subtype moved with the amount of text.** Reading more of Palomar
+   Holdings' chapter changed it from a property-casualty insurer to a
+   reinsurer, because its reinsurance section sits at the end. Classification
+   now reads a fixed budget.
+
+## What is still not built
+
+* **AIG.** Its chapter is read and still does not say clearly enough what
+  kind of insurance it writes. The fix is a better subtype classifier, not a
+  looser one.
+* **Alleghany and companies like it.** A filer that has stopped filing has
+  no annual report to read. This is permanent and correctly refused.
+* **Equitable Holdings' book value.** Negative shareholders' equity leaves
+  the insurer model with nothing to value against. That is a real feature of
+  the company, not a data gap.
+* **Segment economics.** Not in Company Facts, so no sum-of-the-parts
+  valuation exists and none is attempted.
+* **Assets under management for most managers.** The tables that carry it are
+  captioned in millions with the row printed in billions, and the hedged-
+  caption rule refuses them. BlackRock's is readable; T. Rowe Price's,
+  Franklin's and Invesco's are not.
+* **A published combined ratio for most insurers.** Travelers and Progressive
+  print one per segment and the rows disagree, so the answer is ambiguous.
+  Chubb's is readable.
+* **Real-chain covered-call backtests and forward validation with a sample
+  in them.** Unchanged from Phase 5: the capture is prospective, nothing is
+  back-filled, and INSUFFICIENT SAMPLE remains the correct answer.

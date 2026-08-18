@@ -660,6 +660,27 @@
       "_doc": "The daily capture of real option chains for followed tickers. Deliberately narrow: expirations out to about six weeks and a bounded ring of strikes around the money, which is everything the covered-call tenors and strike rules read and nothing more. A day that goes uncaptured is gone — there is no source of historical chains this app can reach, and nothing here is ever back-filled.",
       "capture_max_dte": 50,
       "capture_strike_count": 50
+    },
+    "_phase6": "Phase 6 is about sending each company to the right engine and giving that engine better data. An SEC industry code is a filing convenience: code 6211 holds Charles Schwab, Goldman Sachs and BlackRock, and code 6200 holds LPL Financial and the CME. Which of those a filer is gets answered from its own balance sheet and its own revenue mix, with materiality applied throughout, so a tiny regulated broker-dealer subsidiary inside an exchange no longer decides how the whole company is valued. An exchange and an asset manager have ordinary revenue, ordinary margins and ordinary free cash flow, so both are valued by the ordinary engine rather than left at SPECIALIZED MODEL REQUIRED. A company that is genuinely two financial businesses at once is called a hybrid and gets no single fair value unless the two models agree about one.",
+    "routing": {
+      "_doc": "Which valuation model a company gets, from filed evidence rather than its industry code. Every threshold here was measured across fifty-six real annual reports and their Company Facts. The two that carry the most weight are the customer-balance share, which every genuine broker clears and MarketAxess and Ameriprise do not, and the market-data-and-clearing revenue share, which settles Intercontinental Exchange in spite of the clearing margin on its balance sheet.",
+      "routing_customer_share_pct": 3.0,
+      "routing_deposit_share_pct": 20.0,
+      "routing_brokerage_share_pct": 30.0,
+      "routing_insurance_share_pct": 10.0,
+      "routing_premium_share_pct": 10.0,
+      "routing_advisory_share_pct": 20.0,
+      "routing_exchange_share_pct": 5.0,
+      "routing_exchange_phrases": 2,
+      "routing_manager_phrases": 3,
+      "routing_dominant_share_pct": 65.0,
+      "routing_min_ocf_margin_pct": 2.0,
+      "routing_max_ocf_margin_pct": 150.0
+    },
+    "filing_tables": {
+      "_doc": "Reading a small, named set of operating measures out of the company's own SEC filing tables — client assets, assets under management, net new money, a published combined ratio, a published funds-from-operations figure. None of these is in XBRL, because none of them is a line of a financial statement. Every reading carries the accession, the document, the row label, the column, the period and the unit, and a reading is refused outright when the row is ambiguous, the period is missing or the scale is a guess: a thousandfold unit error must never reach a screen. A filing never changes, so a reading of one is written once and never rewritten.",
+      "reconstruction_tolerance_pct": 5.0,
+      "client_asset_max_age_days": 200
     }
   }
 }

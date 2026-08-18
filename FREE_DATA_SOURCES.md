@@ -403,6 +403,91 @@ Three more gotchas, each of which was a live bug:
   its return on equity at 2.8% against a real 18.6%. Freshness decides which
   of two overlapping concepts is used, not mere presence.
 
+## 9d. Reading the annual report itself, and its tables (Phase 6)
+
+Company Facts is XBRL, and XBRL is the financial statements. What kind of
+business a company is, and how much of other people's money it holds, are
+not in there. Both live in the filing documents, and both are readable
+through the same SEC transport — by accession, out of the EDGAR archive —
+with no scraping of anybody's website and no PDFs.
+
+### Finding Item 1 in a real 10-K
+
+Measured over 69 annual reports:
+
+- **The newest annual filing is not always an annual report.** A 10-K/A
+  amendment carries only the items it amends. Three filers in the universe
+  file one after every 10-K, and taking the newest form gets Part III and an
+  exhibit index. Try the filings newest-first and accept the first one that
+  actually yields a chapter.
+- **Headings are styled letter by letter.** `Item 1. Busines s Description`
+  (Berkshire), `I TEM 1.` (Cincinnati Financial), `I tem 1.` (MarketAxess).
+  Any tag-stripping flattener that refuses to join a close-then-open tag pair
+  — as it should, because joining `authorized</span><span>the` is worse —
+  leaves these split. Heading patterns must tolerate whitespace between any
+  two letters. It is safe there and nowhere else.
+- **The chapter heading may not contain the item number at all.** Morgan
+  Stanley's is the single word "Business", with `Item 1` only in the
+  contents list. The document's own `<a href="#…">` anchor is the best
+  evidence available and resolves it.
+- **A 4MB read limit truncates half of them.** Thirty of fifty-six documents
+  exceeded it. Filings are immutable, so fetch once and read all of it.
+- **The longest candidate is the wrong one.** A cross-reference late in the
+  report ("see Part I, Item 1 — Business — Regulation") runs to the next
+  mention of Risk Factors and is longer than the chapter it points at. A
+  document is written in order: the chapter is the FIRST candidate long
+  enough to be one.
+
+### Reading a number out of a filing table
+
+- **The scale is stated three places and they disagree.** The row's own label
+  wins over the table heading, which wins over the sentence before the table.
+  Interactive Brokers prints "Customer Equity (in billions)" in a table
+  captioned in thousands.
+- **"(in millions, except per-share data)" does not say what the exception
+  covers.** T. Rowe Price prints assets under management as "$1,893.4" in
+  such a table, meaning billions. Filers write exact millions as whole
+  numbers and rounded billions with one decimal; a decimal balance under a
+  hedged caption is not safe to convert and should be refused.
+- **Percentage columns come first.** Schwab prints two per-cent-change
+  columns before the dollars. A money metric must skip any cell containing
+  `%`.
+- **Column indexes cannot be trusted.** Colspans and empty spacer cells mean
+  the fourth heading is not above the fourth number. What can be trusted is
+  that the current period is printed first, with comparatives after it —
+  true of every release measured — so take the first figure and read the
+  period from the heading as a whole.
+- **A bare "June 30," needs the year from the row below it.** That two-row
+  heading is the commonest in the corpus.
+- **A reporting period ends on the last day of a month.** A heading naming
+  15 July is the date the release was issued.
+- **A heading can name two windows at once.** "Three months ended June 30, |
+  Six months ended June 30," — comparing across that gap turns a quarter
+  into a 300% error against a year. Ambiguous means do not compare.
+- **Segment rows share the company-wide label.** Travelers prints a combined
+  ratio for every segment. Several rows, one label, different numbers, same
+  period: refuse.
+
+### Which concepts died in 2018
+
+A whole family of income-statement detail stopped being tagged when the
+revenue standard changed, and every one of these has a series that simply
+ends:
+
+| Concept | Last tagged, typically |
+|---|---|
+| `InvestmentAdvisoryFees`, `AssetManagementFees` | 2013–2018 |
+| `MarketDataRevenue`, `ClearingFeesRevenue` | 2018 |
+| `InvestmentBankingRevenue` (some filers) | 2018 |
+| `PayablesToCustomers` | 2020 |
+
+They are still worth reading, because they are decisive when present, but
+any use of them needs a freshness rule or it will describe a company as it
+was seven years ago. Conversely, `PolicyholderFunds` and
+`PolicyholderContractDeposits` are current and widely tagged, and they see an
+annuity business inside a company whose industry code says asset manager.
+
+
 ## 10. House rules that made all of this reliable
 
 1. **Cache by cadence**: daily data 15–30 min, monthly (CPI/COT) 6–12 h,

@@ -4757,6 +4757,13 @@ _bt_plans.configure(_STABLE_DIR)
 try:
     import chain_store as _chain_store
     _chain_store.configure(_STABLE_DIR)
+    # Filing-table readings live beside the rest of the Investment cache.
+    # A filing is immutable, so a reading of one is written once and kept.
+    try:
+        import filing_tables as _filing_tables
+        _filing_tables.configure(_STABLE_DIR)
+    except Exception:                                # pragma: no cover
+        pass
 
     def _record_chain(sym: str, payload: dict) -> bool:
         """Snapshot a fetched chain, with the provider and the state of the
@@ -5519,6 +5526,26 @@ def _invest_cc_chain(symbol: str, max_dte: int = 50,
     return ch if (ch and ch.get("chains")) else None
 
 
+def _invest_tables(symbol: str, wanted) -> dict | None:
+    """Operating measures read out of the company's own SEC filing tables.
+
+    Client assets, assets under management, net new money, a published
+    combined ratio, a published funds-from-operations figure: none of these
+    is in XBRL, because none of them is a line of a financial statement.
+    They are read from the tables of filings fetched through the app's own
+    SEC transport, by accession, and every reading is cached forever because
+    a filing never changes.
+    """
+    if not (_SEC_AVAILABLE and _sec_filings is not None):
+        return None
+    try:
+        import filing_tables as _ft
+        return _ft.collect(_sec_filings, symbol, wanted)
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/filing-tables", exc)
+        return None
+
+
 def _invest_chain(symbol: str) -> dict | None:
     """The FULL option chain for the Investment tab, long expirations included.
 
@@ -5644,6 +5671,10 @@ try:
         # beyond that, so pulling every listed expiration would be a large
         # request for data nothing uses.
         cc_chain_fn=_invest_cc_chain,
+        # The strict filing-table reader. It reads only documents fetched
+        # through the app's own SEC transport, by accession, and caches every
+        # reading forever because a filing never changes.
+        tables_fn=_invest_tables,
         data_dir=_STABLE_DIR,
     )
     _INVEST_AVAILABLE = True
@@ -8648,6 +8679,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                          _invest._ins.INSURANCE_MODEL_VERSION,
                                      "broker": _invest._brk.BROKER_MODEL_VERSION,
                                      "chain_store": _invest.chain_store.SCHEMA,
+                                     "routing":
+                                         _invest._route.ROUTING_VERSION,
+                                     "filing_reader":
+                                         _invest._fund._reader.READER_VERSION,
+                                     "filing_tables":
+                                         _invest._tables.TABLES_VERSION,
                                      "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:

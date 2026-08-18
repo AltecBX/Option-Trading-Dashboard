@@ -63,12 +63,18 @@ try:
 except Exception:                                    # pragma: no cover
     _sec = None
 
+import filing_reader as _reader
+import business_routing as _routing
+
+if _sec is not None:                                 # pragma: no branch
+    _reader.configure(plain_fn=_sec._plain)          # noqa: SLF001
+
 SCHEMA_VERSION = "1.0"
 
 # Bumped whenever the cached company profile gains a field. A profile on
 # disk written under an older version is rebuilt from the filing rather
 # than read with the new field missing.
-PROFILE_VERSION = 3
+PROFILE_VERSION = 4
 
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
@@ -631,6 +637,20 @@ CONCEPTS = {
     "interest_income_gross": (["InterestAndDividendIncomeOperating",
                                "InterestIncomeOperating",
                                "InvestmentIncomeInterest"], "USD", "sum"),
+    # Phase 6 — what a financial company actually EARNS from, which is how
+    # an exchange is told from a broker and an asset manager from both. An
+    # industry code cannot do it: 6211 holds Schwab, Goldman Sachs and
+    # BlackRock, and 6200 holds LPL Financial and the CME.
+    "investment_advisory_fees": (["InvestmentAdvisoryManagementAndAdministrativeFee",
+                                  "InvestmentAdvisoryFees",
+                                  "AssetManagementFees",
+                                  "ManagementFeeRevenue"], "USD", "sum"),
+    "market_data_revenue": (["MarketDataRevenue"], "USD", "sum"),
+    "clearing_fees_revenue": (["ClearingFeesRevenue"], "USD", "sum"),
+    # Kept separate from principal_transactions on purpose: this is the
+    # market maker's tag, and adding it to the Phase 5 broker evidence list
+    # would change who that gate admits. Routing uses it, nothing else does.
+    "trading_gains": (["TradingGainsLosses"], "USD", "sum"),
 }
 
 # Balance-sheet facts. These are INSTANTS — a value at a date, with no
@@ -687,6 +707,19 @@ INSTANT_CONCEPTS = {
     "investments": ["Investments",
                     "AvailableForSaleSecuritiesDebtSecurities",
                     "DebtSecuritiesAvailableForSaleExcludingAccruedInterest"],
+    # Phase 6, and deliberately separate from future_policy_benefits so the
+    # Phase 5 insurer model is untouched: what a life or annuity writer owes
+    # its policyholders, under the concepts filers actually still tag today.
+    # Apollo tags PolicyholderContractDeposits and Ameriprise tags
+    # PolicyholderFunds; Ameriprise's future-policy-benefit series stopped in
+    # 2013. Routing reads this to see an annuity business inside a company
+    # whose industry code says asset manager.
+    "policyholder_liabilities": [
+        "PolicyholderContractDeposits",
+        "PolicyholderFunds",
+        "LiabilityForFuturePolicyBenefits",
+        "LiabilityForFuturePolicyBenefitsAndUnpaidClaimsAndClaimsAdjustmentExpense",
+    ],
     "future_policy_benefits": [
         "LiabilityForFuturePolicyBenefitsAndUnpaidClaimsAndClaimsAdjustmentExpense",
         "LiabilityForFuturePolicyBenefit",
@@ -751,6 +784,10 @@ INSTANT_BASIS = {
                           "balance-sheet date",
     "investments": "The investment portfolio at the latest reported "
                    "balance-sheet date",
+    "policyholder_liabilities": "What the company owes its policyholders — "
+                                "annuity account balances, policyholder funds "
+                                "and future policy benefits — at the latest "
+                                "reported balance-sheet date",
     "future_policy_benefits": "Liability held for benefits promised under "
                               "policies still in force, at the latest "
                               "reported balance-sheet date",
@@ -785,6 +822,7 @@ STRICT_INSTANT_PRIORITY = frozenset({
     "equity", "preferred_equity", "loans", "cash",
     "long_term_debt", "short_term_debt", "intangible_assets",
     "insurance_reserves", "investments", "future_policy_benefits",
+    "policyholder_liabilities",
 })
 
 # Human-readable basis shown next to every number in the UI.
@@ -851,6 +889,14 @@ BASIS = {
                             "twelve months",
     "interest_income_gross": "Interest and dividend income before funding "
                              "costs, trailing twelve months",
+    "investment_advisory_fees": "Fees for managing or advising on other "
+                                "people's money, trailing twelve months",
+    "market_data_revenue": "Revenue from selling price and trading data, "
+                           "trailing twelve months",
+    "clearing_fees_revenue": "Revenue from clearing and settling trades, "
+                             "trailing twelve months",
+    "trading_gains": "Gains and losses from trading as principal, trailing "
+                     "twelve months",
 }
 
 
@@ -1674,37 +1720,66 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
             pass
     if not available():
         return None
-    try:
-        rows = _sec.filings(sym)
-    except Exception:
-        return None
-    tenk = [r for r in rows if (r.get("form") or "").upper() in ("10-K", "10-K/A")]
-    if not tenk:
-        return None
-    row = tenk[0]
-    try:
-        raw = _sec._fetch(row["url"], limit=4_000_000)      # noqa: SLF001
-    except Exception:
-        return None
-    text = _sec._plain(_HIDDEN_DIV.sub(b" ", _IX_HEADER.sub(b" ", raw)))  # noqa: SLF001
-    body = _item1_body(text)
+    # The document reader lives in its own module because reading a filing
+    # properly is a job of its own: which filing, which heading, where the
+    # chapter ends, and how sure any of that is. It returns the provenance
+    # with the text, and a caller that classifies a business is expected to
+    # check the confidence rather than the length.
+    got = _reader.business_section(sym, _sec, strip_lead_in=_strip_lead_in)
+    body = got.get("text") or ""
+    prov = got.get("provenance") or {}
     if not body:
-        return None
+        return {"symbol": sym, "description": "", "moat_tags": [],
+                "profile_version": PROFILE_VERSION,
+                "property_type": None, "property_type_scores": {},
+                "insurer_subtype": None, "insurer_subtype_scores": {},
+                "broker_subtype": None, "broker_subtype_scores": {},
+                "routing_phrases": {},
+                "as_of": prov.get("filed"), "accession": prov.get("accession"),
+                "url": prov.get("url"), "form": prov.get("form"),
+                "extraction": prov,
+                "extraction_confidence": got.get("confidence")
+                                         or _reader.FAILED,
+                "extraction_reason": got.get("reason") or "",
+                "source": "SEC EDGAR — Item 1, Business, of the latest annual report",
+                "fallback": False}
     out = _trim_sentences(body, max_chars)
     if not out:
         return None
-    ptype, pscores = property_type(body)
-    meta = sic_metadata(sym) or {}
-    isub, iscores = insurer_subtype(body, meta.get("sic"))
-    bsub, bscores = broker_subtype(body)
+    # What kind of business this is may only be read off a chapter the
+    # reader is confident it found. A LOW extraction is still shown as a
+    # description, because a reader can judge prose for themselves; it is
+    # not allowed to decide which valuation model runs.
+    conf = got.get("confidence")
+    if _reader.acceptable(conf):
+        # A fixed budget of the chapter, so what kind of business this is
+        # does not move when the reader manages to keep more of it.
+        head = body[:_reader.CLASSIFY_CHARS]
+        ptype, pscores = property_type(head)
+        meta = sic_metadata(sym) or {}
+        isub, iscores = insurer_subtype(head, meta.get("sic"))
+        bsub, bscores = broker_subtype(head)
+        phrases = _routing.phrase_evidence(head)
+    else:
+        ptype, pscores = None, {}
+        isub, iscores = None, {}
+        bsub, bscores = None, {}
+        phrases = {}
     profile = {"symbol": sym, "description": out,
                "moat_tags": moat_tags(body),
                "profile_version": PROFILE_VERSION,
                "property_type": ptype, "property_type_scores": pscores,
                "insurer_subtype": isub, "insurer_subtype_scores": iscores,
                "broker_subtype": bsub, "broker_subtype_scores": bscores,
-               "as_of": row.get("date"), "accession": row.get("accession"),
-               "url": row.get("url"), "form": row.get("form"),
+               # What kinds of business the chapter describes, reduced to
+               # family names once and cached, so routing never has to hold
+               # sixty thousand characters of annual report in memory.
+               "routing_phrases": phrases,
+               "as_of": prov.get("filed"), "accession": prov.get("accession"),
+               "url": prov.get("url"), "form": prov.get("form"),
+               "extraction": prov,
+               "extraction_confidence": got.get("confidence"),
+               "extraction_reason": got.get("reason") or "",
                "source": "SEC EDGAR — Item 1, Business, of the latest annual report",
                "fallback": False}
     _PROFILE_CACHE[sym] = profile

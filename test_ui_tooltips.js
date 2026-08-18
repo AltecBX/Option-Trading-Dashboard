@@ -746,5 +746,83 @@ check("no summed insurer or broker score appears anywhere",
   !/insuranceScore/.test(inv) && !/brokerScore/.test(inv)
   && !/risk_score/.test(inv));
 
+
+// ── Phase 6: routing, hybrids, client assets, cross-checks ───────────────
+
+check("the routing panel exists and every label carries a tooltip",
+  (() => {
+    if (!/function InvRouting\(/.test(inv)) return "InvRouting is missing";
+    const block = inv.slice(inv.indexOf("function InvRouting("),
+                            inv.indexOf("function InvHybrid("));
+    const stats = [...block.matchAll(/stat\("([^"]+)"/g)].map((m) => m[1]);
+    if (!stats.length) return "no rows on the routing panel";
+    const tipped = [...block.matchAll(/INV_ROUTE_TIP\.\w+/g)].length;
+    return tipped >= stats.length || `${stats.length} rows, ${tipped} tooltips`;
+  })());
+
+check("the routing panel says the industry code is not the answer",
+  /industry code is a filing convenience/.test(inv));
+
+check("the routing panel shows the evidence behind the decision",
+  /r\.why/.test(inv) && /exposures/.test(inv));
+
+check("a hybrid is told it has no single fair value when models disagree",
+  (() => {
+    if (!/function InvHybrid\(/.test(inv)) return "InvHybrid is missing";
+    return /MODELS DISAGREE/.test(inv)
+      && /No sum of the parts is attempted/.test(inv);
+  })());
+
+check("no sum-of-the-parts weighting appears anywhere",
+  !/segmentWeight/.test(inv) && !/sumOfParts/.test(inv)
+  && !/sum_of_parts/.test(inv));
+
+check("a reconstruction mismatch is shown rather than resolved",
+  /RECONSTRUCTION MISMATCH/.test(inv)
+  && /never quietly chosen/.test(inv));
+
+check("client assets say where the number came from",
+  /b\.client_assets/.test(inv)
+  && /INV_BROKER_TIP\.client_growth/.test(inv)
+  && /INV_BROKER_TIP\.net_new/.test(inv));
+
+check("the client-asset tooltip explains what is refused and why",
+  (() => {
+    const m = inv.match(/clients: "([\s\S]*?)",\n  leverage:/);
+    if (!m) return "the client-asset tooltip is missing";
+    const t = m[1];
+    return (/factor of a thousand/.test(t) && /never estimated/.test(t))
+      || "the tooltip does not say what is refused";
+  })());
+
+check("every Phase 6 stat is spelled out",
+  (() => {
+    for (const want of ["Kind of business", "Valuation model", "How sure",
+                        "Client assets", "Net new client money",
+                        "Client asset growth over a year",
+                        "Which case this is",
+                        "How far apart the models are"]) {
+      if (!invStatLabels.includes(want)) return `missing "${want}"`;
+    }
+    return true;
+  })());
+
+check("a class share can be typed into the symbol box",
+  (() => {
+    // The SEC writes Berkshire's B share as BRK-B. Stripping the hyphen
+    // turned every lookup of a class share into a search for a ticker that
+    // does not exist, and the tab sat on "loading" until it timed out.
+    const m = inv.match(/setSym\(\s*(?:\/\/[^\n]*\n\s*)*e\.target\.value[\s\S]{0,120}?\)\)\}/);
+    if (!m) return "the symbol input's filter could not be found";
+    return /\[\^A-Z\.\\?-\]/.test(m[0]) || `filter is ${m[0].slice(-60)}`;
+  })());
+
+check("no insider shorthand in the Phase 6 labels",
+  (() => {
+    const bad = invStatLabels.filter((l) =>
+      /\b(AUM|AUA|NNA|SOTP|FCF|OCF)\b/.test(l));
+    return bad.length === 0 || `shorthand in: ${bad.join(", ")}`;
+  })());
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -715,6 +715,8 @@ class TestConfigFlattening(InvestBase):
 import fair_value as FV                                # noqa: E402
 import invest_options as IO                            # noqa: E402
 import covered_call as _CC                             # noqa: E402
+import broker_model as BRK                             # noqa: E402
+import business_routing as ROUTE                       # noqa: E402
 import structures as ST                                # noqa: E402
 import chain_store as _CHAIN                           # noqa: E402
 
@@ -1188,14 +1190,22 @@ class TestUnsupportedInsurersAndBrokersStayRefused(Phase4Base):
                          "SPECIALIZED MODEL REQUIRED")
         self.assertEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
 
-    def test_a_filer_with_no_brokerage_evidence_is_refused(self):
+    def test_a_filer_with_no_brokerage_economics_is_not_called_a_broker(self):
+        """Phase 6: the industry code stopped being the answer.
+
+        A filer in a broker's code with no customer balances, no deposits
+        and ordinary operating cash flow is an ordinary company, and it is
+        valued the ordinary way rather than pushed through a broker model
+        and refused.
+        """
         self.sic = {"sic": "6211", "sic_description": "Security Brokers",
                     "name": "Sample Broker", "cik": 42}
         S._MEM.clear()
         p = S.payload(self.SYM)
-        self.assertEqual(p["business_type"]["type"], "BROKER")
-        self.assertEqual(p["fair_value"]["verdict"],
-                         "SPECIALIZED MODEL REQUIRED")
+        self.assertEqual(p["business_type"]["type"], "STANDARD")
+        self.assertIsNone(p["broker"])
+        self.assertNotEqual(p["fair_value"].get("verdict"),
+                            "SPECIALIZED MODEL REQUIRED")
 
 
 class TestCoveredCallEndpoint(Phase4Base):
@@ -1491,12 +1501,20 @@ class TestBrokerIntegration(Phase5Base):
         self.assertTrue(b["client_assets"]["reason"])
         self.assertIsNone(b["net_new_assets"]["value"])
 
-    def test_an_asset_manager_in_the_same_industry_code_is_refused(self):
+    def test_a_filer_with_no_customer_money_is_not_run_as_a_broker(self):
+        """Phase 6: not a broker no longer means not valuable.
+
+        BlackRock shares an industry code with Charles Schwab. It is not a
+        broker, and the broker model is right to refuse it — but its
+        revenue, margins and free cash flow are an ordinary company's, so it
+        reaches the ordinary engine instead of a refusal.
+        """
         self.as_broker(customer_money=False)
         p = S.payload(self.SYM)
-        self.assertFalse(p["broker"]["available"])
-        self.assertEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
-        self.assertIn("category error", p["fair_value"]["reason"])
+        self.assertIsNone(p["broker"])
+        self.assertEqual(p["business_type"]["type"], "STANDARD")
+        self.assertNotEqual(p["entry"]["verdict"],
+                            "SPECIALIZED MODEL REQUIRED")
 
     def test_the_snapshot_records_the_broker_state(self):
         row = S._daily_row(self.p)
@@ -1727,6 +1745,296 @@ class TestPhase5Config(Phase5Base):
         doc = raw["investment"]["chain_capture"]["_doc"]
         self.assertIn("nothing here is ever back-filled", doc)
         self.assertIn("A day that goes uncaptured is gone", doc)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Phase 6 — routing, hybrids, filing tables and cross-checks
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class Phase6Base(Phase5Base):
+    """The sample filer with a business chapter and a set of filing tables."""
+
+    def setUp(self):
+        super().setUp()
+        self._tables = {}
+        # The provider hook only, so every other provider the base set up
+        # keeps working exactly as the earlier phases' tests expect.
+        self._real_tables_fn = S._TABLES_FN
+        S._TABLES_FN = lambda sym, wanted: self._tables
+        S._MEM.clear()
+
+    def tearDown(self):
+        S._TABLES_FN = self._real_tables_fn
+        super().tearDown()
+
+    def with_phrases(self, **kinds):
+        prof = dict(self.profile or {"symbol": self.SYM, "description": "x",
+                                     "moat_tags": [],
+                                     "profile_version": F.PROFILE_VERSION})
+        prof["routing_phrases"] = {"exchange": list(kinds.get("exchange", ())),
+                                   "manager": list(kinds.get("manager", ())),
+                                   "conglomerate": bool(kinds.get("conglomerate"))}
+        prof["extraction_confidence"] = kinds.get("confidence", "HIGH")
+        prof["extraction"] = {"form": "10-K", "filed": "2026-02-19",
+                              "method": "table of contents anchor",
+                              "accession": "0001-26-1"}
+        self.profile = prof
+        S._MEM.clear()
+
+    def with_table(self, metric, value, period=None, label="row",
+                   previous=None):
+        # Relative to today, because a client-asset reading two quarters old
+        # is refused as history — and a fixture pinned to a calendar date
+        # would start failing the day the clock passed it.
+        period = period or (date.today() - timedelta(days=45)).isoformat()
+        self._tables = {"readings": {metric: {
+            "value": value, "usable": True, "confidence": "HIGH",
+            "metric": metric, "label": metric.replace("_", " ").capitalize(),
+            "form": "8-K", "filed": period, "previous": previous,
+            "provenance": {"period": period, "row_label": label,
+                           "scale_word": "billions", "window": "QUARTER"},
+        }}, "history": {}, "filings_read": 1}
+        S._MEM.clear()
+
+
+class TestRoutingReachesThePayload(Phase6Base):
+    def test_a_broker_is_routed_by_its_balance_sheet(self):
+        self.as_broker()
+        p = S.payload(self.SYM)
+        self.assertEqual(p["routing"]["business_class"], "BROKER")
+        self.assertEqual(p["business_type"]["type"], "BROKER")
+        self.assertTrue(p["routing"]["why"])
+
+    def test_a_venue_reaches_the_standard_engine(self):
+        self.as_broker(customer_money=False)
+        self.with_phrases(exchange=["a market venue", "a clearing house",
+                                    "an electronic marketplace"])
+        p = S.payload(self.SYM)
+        self.assertEqual(p["routing"]["business_class"], "EXCHANGE")
+        self.assertEqual(p["business_type"]["type"], "STANDARD")
+        self.assertIsNone(p["broker"])
+
+    def test_an_asset_manager_reaches_the_standard_engine(self):
+        self.as_broker(customer_money=False)
+        self.with_phrases(manager=["money managed for others",
+                                   "an asset management business"])
+        p = S.payload(self.SYM)
+        self.assertEqual(p["routing"]["business_class"], "ASSET_MANAGER")
+        self.assertEqual(p["business_type"]["type"], "STANDARD")
+        self.assertNotEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
+
+    def test_a_chapter_the_reader_doubts_cannot_reclassify_anything(self):
+        self.as_broker(customer_money=False)
+        self.with_phrases(exchange=["a market venue", "a clearing house"],
+                          confidence="LOW")
+        p = S.payload(self.SYM)
+        self.assertNotEqual(p["routing"]["business_class"], "EXCHANGE")
+
+    def test_the_routing_is_inspectable(self):
+        self.as_broker()
+        r = S.payload(self.SYM)["routing"]
+        for key in ("business_class", "label", "model", "confidence", "why",
+                    "exposures", "corporate_accounts", "version"):
+            self.assertIn(key, r)
+
+    def test_a_bank_and_a_trust_are_routed_as_before(self):
+        self.as_bank()
+        self.assertEqual(S.payload(self.SYM)["business_type"]["type"], "BANK")
+
+
+class TestHybridSafety(Phase6Base):
+    def as_hybrid(self):
+        self.as_insurer()
+        f = F.company_facts(self.SYM)
+        self._inst(f["facts"]["us-gaap"], "PolicyholderFunds", 900.0)
+        self.sic = {"sic": "6282", "sic_description": "Investment Advice",
+                    "name": "Sample Hybrid", "cik": 42}
+        self.with_phrases(manager=["money managed for others",
+                                   "an asset management business"])
+        return f
+
+    def test_two_material_businesses_are_named_as_a_hybrid(self):
+        self.as_hybrid()
+        p = S.payload(self.SYM)
+        self.assertEqual(p["routing"]["business_class"], "HYBRID")
+        self.assertTrue(p["hybrid"]["is_hybrid"])
+        self.assertIn(p["hybrid"]["case"],
+                      ("ONE MODEL RUNS", "MODELS AGREE", "MODELS DISAGREE"))
+
+    def test_it_never_averages_two_models(self):
+        self.as_hybrid()
+        h = S.payload(self.SYM)["hybrid"]
+        bases = [v["base"] for v in h["valuations"] if v.get("base")]
+        fair = S.payload(self.SYM)["fair_value"]
+        if len(bases) > 1 and fair.get("base"):
+            self.assertNotAlmostEqual(fair["base"], sum(bases) / len(bases),
+                                      places=4)
+
+    def test_a_hybrid_that_cannot_be_resolved_shows_no_fair_value(self):
+        self.as_hybrid()
+        p = S.payload(self.SYM)
+        if not p["hybrid"]["reliable"]:
+            self.assertFalse(p["fair_value"]["available"])
+            self.assertIn("HYBRID", p["fair_value"]["verdict"])
+
+    def test_no_sum_of_the_parts_is_attempted(self):
+        self.as_hybrid()
+        h = S.payload(self.SYM)["hybrid"]
+        self.assertNotIn("segment_weights", h)
+        self.assertNotIn("sum_of_parts", h)
+
+    def test_a_conglomerate_under_an_insurance_code_is_not_a_pure_insurer(self):
+        self.as_insurer()
+        self.with_phrases(conglomerate=True)
+        p = S.payload(self.SYM)
+        self.assertEqual(p["routing"]["business_class"], "HYBRID")
+
+
+class TestClientAssetsFromFilingTables(Phase6Base):
+    def test_a_readable_table_fills_the_customer_franchise(self):
+        self.as_broker()
+        self.with_table("client_assets", 1.2e12)
+        p = S.payload(self.SYM)
+        self.assertTrue(p["client_assets"]["available"])
+        self.assertAlmostEqual(p["broker"]["client_assets"]["value"], 1.2e12)
+
+    def test_the_confidence_cap_lifts_once_client_assets_are_known(self):
+        self.as_broker(subtype="RETAIL")
+        before, why = BRK.confidence_cap(S.payload(self.SYM)["broker"])
+        self.assertEqual(before, "MODERATE")
+        self.with_table("client_assets", 1.2e12)
+        after, _ = BRK.confidence_cap(S.payload(self.SYM)["broker"])
+        self.assertIsNone(after)
+        self.assertIn("client assets", why)
+
+    def test_a_stale_reading_is_not_used(self):
+        self.as_broker(subtype="RETAIL")
+        self.with_table("client_assets", 1.2e12,
+                        period=(date.today() - timedelta(days=900)).isoformat())
+        p = S.payload(self.SYM)
+        self.assertIsNone(p["broker"]["client_assets"]["value"])
+
+    def test_missing_tables_leave_the_phase_five_refusal_standing(self):
+        self.as_broker()
+        self._tables = {}
+        p = S.payload(self.SYM)
+        self.assertIsNone(p["broker"]["client_assets"]["value"])
+        self.assertTrue(p["broker"]["client_assets"]["reason"])
+
+    def test_the_reading_carries_where_it_came_from(self):
+        self.as_broker()
+        self.with_table("client_assets", 1.2e12, label="Total client assets")
+        prov = S.payload(self.SYM)["client_assets"]["assets"]["provenance"]
+        self.assertEqual(prov["row_label"], "Total client assets")
+        self.assertEqual(prov["period"],
+                         (date.today() - timedelta(days=45)).isoformat())
+
+    def test_growth_needs_a_reading_from_a_year_ago(self):
+        self.as_broker()
+        self.with_table("client_assets", 1.2e12)
+        got = S.payload(self.SYM)["client_assets"]["assets_growth_pct"]
+        self.assertIsNone(got["value"])
+        self.assertIn("never back-filled", got["reason"])
+
+
+class TestPublishedAgainstReconstructed(Phase6Base):
+    def test_agreement_is_reported_as_agreement(self):
+        self.as_insurer()
+        p = S.payload(self.SYM)
+        rebuilt = (p["insurance"].get("combined_ratio_pct") or {}).get("value")
+        self.assertIsNotNone(rebuilt)
+        self.with_table("published_combined_ratio", rebuilt)
+        p = S.payload(self.SYM)
+        self.assertEqual(p["cross_check"]["state"], "AGREES")
+
+    def test_a_material_difference_is_flagged_and_lowers_confidence(self):
+        self.as_insurer()
+        rebuilt = (S.payload(self.SYM)["insurance"]
+                   .get("combined_ratio_pct") or {}).get("value")
+        self.with_table("published_combined_ratio", rebuilt * 1.4)
+        p = S.payload(self.SYM)
+        self.assertEqual(p["cross_check"]["state"], "RECONSTRUCTION MISMATCH")
+        self.assertEqual(p["fair_value"]["confidence"]["level"], "LOW")
+
+    def test_the_nicer_number_is_never_quietly_chosen(self):
+        self.as_insurer()
+        rebuilt = (S.payload(self.SYM)["insurance"]
+                   .get("combined_ratio_pct") or {}).get("value")
+        self.with_table("published_combined_ratio", rebuilt * 1.4)
+        p = S.payload(self.SYM)
+        still = (p["insurance"].get("combined_ratio_pct") or {}).get("value")
+        self.assertAlmostEqual(still, rebuilt, places=6)
+
+    def test_no_published_figure_is_not_a_failure(self):
+        self.as_insurer()
+        self._tables = {}
+        p = S.payload(self.SYM)
+        self.assertEqual(p["cross_check"]["state"], "NOT CHECKED")
+        self.assertTrue(p["cross_check"]["reason"])
+
+
+class TestPhase6Snapshot(Phase6Base):
+    def test_the_row_records_why_this_engine_was_used(self):
+        self.as_broker()
+        row = S._daily_row(S.payload(self.SYM))
+        for key in ("business_class", "primary_model", "routing_confidence",
+                    "routing_evidence"):
+            self.assertIn(key, row)
+        self.assertEqual(row["business_class"], "BROKER")
+
+    def test_the_row_records_how_the_business_chapter_was_read(self):
+        self.as_broker()
+        self.with_phrases()
+        row = S._daily_row(S.payload(self.SYM))
+        self.assertEqual(row["business_text_confidence"], "HIGH")
+        self.assertEqual(row["business_text_method"],
+                         "table of contents anchor")
+
+    def test_the_row_records_client_assets_with_their_provenance(self):
+        self.as_broker()
+        self.with_table("client_assets", 1.2e12)
+        row = S._daily_row(S.payload(self.SYM))
+        self.assertAlmostEqual(row["client_assets"], 1.2e12)
+        self.assertEqual(row["client_assets_as_of"],
+                         (date.today() - timedelta(days=45)).isoformat())
+        self.assertTrue(row["client_asset_provenance"])
+
+    def test_an_older_row_simply_lacks_the_new_keys(self):
+        """History is never rewritten; a reader treats a missing key as
+        "not recorded that day"."""
+        self.as_broker()
+        row = S._daily_row(S.payload(self.SYM))
+        old = {k: v for k, v in row.items() if not k.startswith("business_")}
+        self.assertNotIn("business_class", old)
+
+
+class TestPhase6Config(unittest.TestCase):
+    def test_every_routing_threshold_is_declared(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        for key in ROUTE.DEFAULTS:
+            self.assertIn(key, inv["routing"], key)
+
+    def test_the_routing_note_says_the_code_is_not_the_answer(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        self.assertIn("industry code is a filing convenience", inv["_phase6"])
+        self.assertIn("materiality", inv["_phase6"].lower())
+
+    def test_the_table_note_says_a_thousandfold_error_is_refused(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        doc = inv["filing_tables"]["_doc"]
+        self.assertIn("thousandfold unit error must never reach a screen", doc)
+        self.assertIn("written once and never rewritten", doc)
+
+    def test_no_universal_exchange_or_manager_multiple_is_declared(self):
+        with open("thresholds.json", encoding="utf-8") as fh:
+            inv = json.load(fh)["investment"]
+        for key in inv["routing"]:
+            self.assertNotIn("fair_multiple", key)
+            self.assertNotIn("target_", key)
 
 
 if __name__ == "__main__":
