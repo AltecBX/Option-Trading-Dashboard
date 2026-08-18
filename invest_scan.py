@@ -897,7 +897,7 @@ def quality_block(symbol: str, facts: dict, btype: dict,
         "fcf_conversion",
         (fcf / ni["value"] * 100.0
          if fcf is not None and ni.get("value") and ni["value"] > 0 else None),
-        [],
+        peer_vals("fcf_conversion_pct"),
         reason=("Free cash flow could not be built from this filer's "
                 "statements." if fcf is None else
                 "Net income is zero or negative, so there is no profit for "
@@ -935,7 +935,7 @@ def quality_block(symbol: str, facts: dict, btype: dict,
         "sbc_pct_revenue",
         (sbc["value"] / rev["value"] * 100.0
          if sbc.get("value") is not None and rev.get("value") else None),
-        [],
+        peer_vals("sbc_pct_revenue"),
         reason=(sbc.get("reason") or rev.get("reason")
                 or "Share-based compensation is not separately tagged.")))
 
@@ -948,19 +948,23 @@ def quality_block(symbol: str, facts: dict, btype: dict,
         "leverage",
         (nd["value"] / ebitda
          if nd.get("value") is not None and ebitda and ebitda > 0 else None),
-        [],
+        peer_vals("leverage"),
         reason=(nd.get("reason") or da.get("reason") or op.get("reason")
                 or "Operating profit before depreciation is not positive, so "
                    "a debt-to-earnings ratio would not mean anything."),
         allowed=engine.allows(btype, "leverage")))
 
     block = engine.score_dimension(comps)
+    # True only when a component was ACTUALLY ranked against peers. The label
+    # is a claim on screen; it has to be earned rather than assumed from the
+    # existence of a peer group.
+    block["peer_ranked"] = any("ranked against" in (c.get("scored_against") or "")
+                               for c in comps)
     block["inputs"] = {"operating_income": op, "revenue": rev,
                        "net_income": ni, "free_cash_flow": fcf,
                        "effective_tax_rate": tax_rate, "equity": equity,
                        "net_debt": nd, "ebitda": ebitda,
                        "share_based_comp": sbc}
-    block["peer_ranked"] = bool(peer_ok and len(peer_rows) >= engine.MIN_PEERS)
     return block
 
 
@@ -1005,7 +1009,8 @@ def growth_block(snap: dict, decomp: dict,
     ]
     block = engine.score_dimension(comps, min_inputs=1)
     block["drivers"] = engine.growth_drivers(decomp)
-    block["peer_ranked"] = bool(peer_ok and len(peer_rows) >= engine.MIN_PEERS)
+    block["peer_ranked"] = any("ranked against" in (c.get("scored_against") or "")
+                               for c in comps)
     return block
 
 

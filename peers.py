@@ -326,6 +326,34 @@ def member_metrics(symbol: str) -> dict | None:
            if ocf.get("value") is not None and cap.get("value") is not None
            else None)
     op = _fund.metric(facts, "operating_income")
+
+    # Quality inputs, so the Quality vector can actually be RANKED against
+    # this group rather than merely claiming to be. Everything here comes out
+    # of the same cached filings the valuation figures above came from, so a
+    # peer costs one download whether one field is read or ten.
+    tax = _fund.metric(facts, "tax_expense")
+    pretax = _fund.metric(facts, "pretax_income")
+    sbc = _fund.metric(facts, "share_based_comp")
+    da = _fund.metric(facts, "depreciation_amortization")
+    equity = _fund.instant(facts, "equity")
+    nd = _fund.net_debt(facts)
+    roic_pct = engine.roic(op.get("value"),
+                           engine.effective_tax_rate(tax.get("value"),
+                                                     pretax.get("value")),
+                           equity.get("value"), nd.get("value"))
+    fcf_conversion_pct = (fcf / ni["value"] * 100.0
+                          if fcf is not None and ni.get("value")
+                          and ni["value"] > 0 else None)
+    sbc_pct_revenue = (sbc["value"] / rev["value"] * 100.0
+                       if sbc.get("value") is not None and rev.get("value")
+                       else None)
+    ebitda = ((op["value"] + da["value"])
+              if op.get("value") is not None and da.get("value") is not None
+              else None)
+    leverage = (nd["value"] / ebitda
+                if nd.get("value") is not None and ebitda and ebitda > 0
+                else None)
+
     prior_rev = (rev.get("prior") or {}).get("value") if rev.get("prior") else None
     if prior_rev is None and rev.get("value") is not None:
         back = _fund._minus_a_year(rev["period_end"])      # noqa: SLF001
@@ -352,6 +380,10 @@ def member_metrics(symbol: str) -> dict | None:
                                                      rev.get("value"))),
         "revenue_growth_pct": engine.growth(rev.get("value"), prior_rev)["pct"],
         "eps_growth_pct": engine.growth(eps["value"], prior_eps)["pct"],
+        "roic_pct": roic_pct,
+        "fcf_conversion_pct": fcf_conversion_pct,
+        "sbc_pct_revenue": sbc_pct_revenue,
+        "leverage": leverage,
         "period_end": eps.get("period_end"),
     }
 
@@ -487,6 +519,10 @@ _RANK_FIELDS = {
     "operating_margin_pct": True,
     "revenue_growth_pct": True,
     "eps_growth_pct": True,
+    "roic_pct": True,
+    "fcf_conversion_pct": True,
+    "sbc_pct_revenue": False,        # more stock issued to staff is worse
+    "leverage": False,               # more debt against earnings is worse
 }
 
 

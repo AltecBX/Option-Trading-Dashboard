@@ -542,14 +542,29 @@ class TestQualityBlock(ValuationBase):
                             S.engine.SPECIALIZED)
 
     def test_peer_ranking_is_used_when_a_real_group_exists(self):
-        rows = [{"symbol": f"P{i}", "roic_pct": 5.0 * i} for i in range(6)]
+        # Free cash flow conversion is the input this fixture can actually
+        # build, so it is the one that must end up peer-ranked.
+        rows = [{"symbol": f"P{i}", "fcf_conversion_pct": 20.0 * i}
+                for i in range(6)]
         q = S.quality_block(self.SYM, self._facts(),
                             S.engine.business_type("3571"),
                             {"level": "DIRECT PEERS", "rows": rows})
         self.assertTrue(q["peer_ranked"])
+        conv = next(c for c in q["components"] if c["key"] == "fcf_conversion")
+        self.assertIn("ranked against 6", conv["scored_against"])
+
+    def test_peer_ranked_is_false_when_nothing_was_actually_ranked(self):
+        # The label is a claim on screen. A peer group that has no value for
+        # any input this company can build has not ranked anything.
+        rows = [{"symbol": f"P{i}", "roic_pct": 5.0 * i} for i in range(6)]
+        q = S.quality_block(self.SYM, self._facts(),
+                            S.engine.business_type("3571"),
+                            {"level": "DIRECT PEERS", "rows": rows})
+        self.assertFalse(q["peer_ranked"])
 
     def test_a_broad_benchmark_group_is_not_used_for_ranking(self):
-        rows = [{"symbol": f"P{i}", "roic_pct": 5.0 * i} for i in range(6)]
+        rows = [{"symbol": f"P{i}", "fcf_conversion_pct": 20.0 * i}
+                for i in range(6)]
         q = S.quality_block(self.SYM, self._facts(),
                             S.engine.business_type("3571"),
                             {"level": "BROAD BENCHMARK", "rows": rows})
