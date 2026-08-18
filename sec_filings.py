@@ -223,11 +223,25 @@ def filings(symbol: str) -> list[dict]:
 
 _TAGS = re.compile(r"(?is)<(script|style)[^>]*>.*?</\1>")
 _ANY_TAG = re.compile(r"(?s)<[^>]+>")
+# Filers split words across styling tags — "Jul</span>y 30, 2026" is real,
+# from Aethlon's reverse-split 8-K. Every tag becoming a space turns that
+# into "Jul y 30" in a sentence Jerry reads.
+#
+# Closed up only for a SINGLE inline tag sitting between two word
+# characters. A close-then-open pair — "approved</span><span>the" — is the
+# seam between two separately styled words, and joining those is far worse
+# than the blemish being fixed: "authorizedthe repurchase" would stop the
+# classifier's own patterns from matching. One tag splits a word; two tags
+# separate them.
+_MIDWORD_TAG = re.compile(
+    r"(?i)(?<=\w)</?(?:span|font|b|i|em|strong|u|sup|sub|small|ix:[a-z:]+)"
+    r"(?:\s[^>]*)?>(?=\w)")
 
 
 def _plain(raw: bytes) -> str:
     s = raw.decode("utf-8", "replace")
-    s = _ANY_TAG.sub(" ", _TAGS.sub(" ", s))
+    s = _TAGS.sub(" ", s)
+    s = _ANY_TAG.sub(" ", _MIDWORD_TAG.sub("", s))
     return re.sub(r"\s+", " ", html.unescape(s))
 
 
@@ -472,10 +486,29 @@ _FORM_TAGS = (
      ("BUYOUT", "Tender offer outstanding for this company's shares")),
     (("DEFM14A", "PREM14A"), ("MERGER VOTE", "Shareholder vote on a merger")),
 )
+# Matched whole, not by prefix, because the amendments mean something else.
+# A first SC 13D is somebody declaring an activist position; the ninety-odd
+# SC 13D/A amendments behind it are that holder trimming, adding or leaving,
+# and the form alone cannot say which — so only the original is tagged.
+_FORM_EXACT = {
+    "SC 13D": ("ACTIVIST STAKE",
+               "A holder crossed 5% and filed with intent to influence "
+               "the company (Schedule 13D)"),
+    "SCHEDULE 13D": ("ACTIVIST STAKE",
+                     "A holder crossed 5% and filed with intent to influence "
+                     "the company (Schedule 13D)"),
+    "NT 10-K": ("LATE FILING",
+                "Notified the SEC the annual report will be late (Form NT 10-K)"),
+    "NT 10-Q": ("LATE FILING",
+                "Notified the SEC the quarterly report will be late (Form NT 10-Q)"),
+}
 # When one filing carries several of these, the most consequential wins.
 _RANK = ["LEADERSHIP CHANGE", "AUDITOR CHANGE", "RESTRUCTURING", "IMPAIRMENT",
+         "INSIDER SELLING", "INSIDER BUYING", "BUYBACK",
          "DEAL CLOSED", "MERGER VOTE", "INDEX ADD", "INDEX DROP",
-         "GUIDANCE RAISED", "GUIDANCE CUT", "DELISTING NOTICE", "SHORT REPORT",
+         "GUIDANCE RAISED", "GUIDANCE CUT",
+         "LATE FILING", "DELISTING NOTICE", "SHORT REPORT",
+         "ACTIVIST STAKE", "REVERSE SPLIT",
          "RESTATEMENT", "MERGER DEAL", "TRIAL SUCCESS", "TRIAL FAILURE",
          "FDA APPROVAL", "FDA REJECTION", "BUYOUT", "BANKRUPTCY"]
 # Above this, reading the document cannot say anything more important.
@@ -483,6 +516,9 @@ _STRONG = {"BANKRUPTCY", "BUYOUT"}
 # A pending deal fixes the price the stock trades to, which is exactly the
 # situation where its own gap history stops describing it.
 _PENDING_DEAL = {"BUYOUT", "MERGER DEAL", "MERGER VOTE"}
+# A reverse split restates every historical price and share count at once.
+# The gap statistics underneath are still arithmetic on the old scale.
+_RESCALES = {"REVERSE SPLIT"}
 
 
 def _rank(kind: str | None) -> int:
@@ -491,13 +527,20 @@ def _rank(kind: str | None) -> int:
 
 def outranks_offering(kind: str | None) -> bool:
     """Whether this event explains a gap better than a share sale does. An
-    officer change or a restructuring charge does not; a delisting notice,
-    a restatement or a deal does."""
-    return _rank(kind) >= _RANK.index("DELISTING NOTICE")
+    officer change or a restructuring charge does not; a company that cannot
+    file its financials on time, a delisting notice, a restatement or a deal
+    does."""
+    return _rank(kind) >= _RANK.index("LATE FILING")
 
 
 def pins_the_price(kind: str | None) -> bool:
     return kind in _PENDING_DEAL
+
+
+def rescales_history(kind: str | None) -> bool:
+    """Whether this event changed the price scale itself, which makes the
+    stock's own gap history arithmetic on numbers that no longer exist."""
+    return kind in _RESCALES
 
 _FDA_APPROVE = [
     r"(?:u\.s\.\s+)?(?:fda|food and drug administration)\s+(?:has |have |had )?approved",
@@ -575,6 +618,35 @@ _GUIDE_DOWN = [
     r"\b(?:guidance|outlook|forecast)\b",
     r"\b(?:guidance|outlook)\b[^.;]{0,40}(?:lowered|reduced|withdrawn)",
 ]
+# A board authorising a buyback is the company bidding for its own stock.
+# The trap is that most repurchase language is housekeeping: a Rule 10b5-1
+# plan set up to execute a program authorised months ago, or a quarterly
+# report of shares already bought. Only a new authorisation is news.
+_BUYBACK = [
+    r"(?:board|directors)[^.;]{0,60}(?:approv\w+|authoriz\w+|adopt\w+)"
+    r"[^.;]{0,60}(?:share |stock |common stock )?repurchase",
+    r"(?:approv\w+|authoriz\w+)[^.;]{0,40}repurchase[^.;]{0,40}"
+    r"(?:program|plan|of up to|up to)",
+    r"new[^.;]{0,20}(?:share |stock )?repurchase (?:program|authorization)",
+]
+# Executing an existing programme, or reporting the balance left on one, is
+# not authorising one. "remaining" is doing the most work here: Tyler's June
+# 8-K reports "we have remaining authorization ... to repurchase up to
+# $332.7 million", which reads exactly like an authorisation and is a
+# balance. Blocking the word costs the rare filing that announces a new
+# programme alongside the old one's remainder, which is the safe direction.
+_NOT_NEW_BUYBACK = ("10b5-1", "rule 10b5-1", "previously authorized",
+                    "previously approved", "existing repurchase",
+                    "under the program", "remaining")
+# "a 1-for-5 reverse stock split" — for a small cap this is often the whole
+# reason the price moved, and it rewrites every historical price at once.
+_REVERSE_SPLIT = [
+    r"reverse (?:stock |share )?split",
+]
+_NOT_SPLIT = ("no reverse", "not effect", "does not intend", "reverse split ratio to be",
+              "forward split")
+_SPLIT_RATIO = re.compile(
+    r"(?:1|one)[\s-]*(?:for|:)[\s-]*(\d{1,3})(?:\.\d+)?\s*(?:reverse)?", re.I)
 _MONTHS = ("january|february|march|april|may|june|july|august|september|"
            "october|november|december")
 _DATE_RE = re.compile(rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})", re.I)
@@ -654,9 +726,11 @@ def classify_filing(text: str, items: str = "", filed: str | None = None):
             (_TRIAL_FAIL, "TRIAL FAILURE", ()),
             (_TRIAL_WIN, "TRIAL SUCCESS", ()),
             (_SHORT_REPORT, "SHORT REPORT", ()),
+            (_REVERSE_SPLIT, "REVERSE SPLIT", _NOT_SPLIT),
             (_GUIDE_DOWN, "GUIDANCE CUT", ()),
             (_GUIDE_UP, "GUIDANCE RAISED", ()),
             (_ACQUIRER, "DEAL CLOSED", ()),
+            (_BUYBACK, "BUYBACK", _NOT_NEW_BUYBACK),
             (_MERGER_ANY, "MERGER DEAL", ())):
         kind, quote = hit(pats, kind, block)
         if kind:
@@ -667,6 +741,12 @@ def classify_filing(text: str, items: str = "", filed: str | None = None):
                 price = _DEAL_PRICE.search(flat[:60_000])
                 if price:
                     return kind, f"${price.group(1)} per share · {quote}"
+            if kind == "REVERSE SPLIT":
+                # The ratio is the whole story: 1-for-5 means the quoted
+                # price quintuples overnight for arithmetic reasons alone.
+                ratio = _SPLIT_RATIO.search(quote)
+                if ratio:
+                    return kind, f"1-for-{ratio.group(1)} · {quote}"
             return kind, quote
     return None, ""
 
@@ -711,6 +791,11 @@ def tag_from_metadata(row: dict) -> dict | None:
     this data is already in the submissions feed — and unambiguous, which is
     why only the item codes that mean exactly one thing are listed."""
     form = (row.get("form") or "").upper()
+    exact = _FORM_EXACT.get(form)
+    if exact:
+        return {"kind": exact[0], "label": exact[1], "quote": None,
+                "date": row.get("date"), "accepted": row.get("accepted"),
+                "url": row.get("url")}
     for prefixes, (kind, label) in _FORM_TAGS:
         if form.startswith(prefixes):
             return {"kind": kind, "label": label, "quote": None,
@@ -804,12 +889,190 @@ def moves_session(row: dict) -> str | None:
 
 
 def _taggable(row: dict) -> bool:
-    """8-Ks (minus the quarterly ones) plus the deal forms only a company in
-    a transaction ever files."""
+    """8-Ks (minus the quarterly ones) plus the deal, activist and
+    late-filing forms, all of which answer the question by existing."""
     form = (row.get("form") or "").upper()
+    if form in _FORM_EXACT:
+        return True
     if any(form.startswith(p) for p, _ in _FORM_TAGS):
         return True
     return form == "8-K" and _ITEM_EARNINGS not in (row.get("items") or "")
+
+
+# ── who inside the company was buying or selling ────────────────────────────
+#
+# Form 4 is filed by the insider, not the company, but it lands in the
+# company's own submissions feed — measured, not assumed: Form 4 was 5,873
+# of the filings across the fifteen tickers checked, more than half of every
+# feed. Which is the first problem. Almost none of it means anything.
+#
+# Across 200 consecutive Form 4s from nine tickers the transaction codes ran
+# A (stock granted) 101, S (sold) 62, F (shares withheld for tax on a vest)
+# 31, M (option exercised) 24, P (bought on the open market) 9. Grants,
+# withholding and exercises are the mechanics of getting paid. Only P and S
+# are somebody choosing to trade their own company at the market price.
+#
+# The second problem is the one that decides the whole design. Of those 345
+# sales, 321 — 93% — were made under a Rule 10b5-1 plan: scheduled months
+# ahead, non-discretionary by law, and therefore silent on what the seller
+# thinks today. Of the ten purchases, zero were under a plan. Insiders sell
+# for many reasons and buy for one, and here that is a measurement rather
+# than a maxim. So: buying is reported, selling is reported only when it was
+# discretionary, and everything else is dropped.
+
+_XSL_SEG = re.compile(r"/xsl[^/]+/")        # the feed links the rendered view
+_BUY, _SELL = "P", "S"
+# A director putting $9,808 to work is not a signal; the same four insiders
+# on one day putting $167K in is. Floors apply to the session's total, so a
+# cluster of small buys still clears.
+_MIN_BUY = 25_000.0
+_MIN_SELL = 250_000.0
+
+
+def _f4(text: str, tag: str) -> str:
+    """Form 4 wraps most values in <value> and some not at all, and writes
+    booleans as both 1/0 and true/false."""
+    m = re.search(rf"<{tag}>\s*(?:<value>\s*)?([^<]*)", text)
+    return (m.group(1) or "").strip() if m else ""
+
+
+def _f4_flag(text: str, tag: str) -> bool:
+    return _f4(text, tag).lower() in ("1", "true")
+
+
+def _f4_num(text: str, tag: str) -> float:
+    raw = _f4(text, tag).replace(",", "")
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
+
+
+def parse_form4(text: str) -> dict:
+    """One Form 4 reduced to open-market dollars. Derivative transactions
+    are ignored on purpose — an option exercise is compensation arriving,
+    not a view being expressed."""
+    roles = []
+    if _f4_flag(text, "isOfficer"):
+        roles.append(_f4(text, "officerTitle") or "officer")
+    if _f4_flag(text, "isDirector"):
+        roles.append("director")
+    if _f4_flag(text, "isTenPercentOwner"):
+        roles.append("10% owner")
+    bought = sold = 0.0
+    for m in re.finditer(r"<nonDerivativeTransaction>(.*?)</nonDerivativeTransaction>",
+                         text, re.S):
+        blk = m.group(1)
+        value = _f4_num(blk, "transactionShares") * _f4_num(blk, "transactionPricePerShare")
+        code = _f4(blk, "transactionCode").upper()
+        if code == _BUY:
+            bought += value
+        elif code == _SELL:
+            sold += value
+    return {"owner": _f4(text, "rptOwnerName"),
+            "role": ", ".join(roles),
+            "plan": _f4_flag(text, "aff10b5One"),
+            "bought": bought, "sold": sold}
+
+
+def _read_form4(symbol: str, row: dict, allow_read: bool = True) -> dict | None:
+    acc = row.get("accession") or ""
+    cache = _fda_store(symbol)
+    if acc in cache:
+        return cache[acc]
+    if not allow_read or not available():
+        return None                  # unknown, not "nothing" — never cached
+    url = _XSL_SEG.sub("/", row.get("url") or "")
+    if not url:
+        return None
+    try:
+        rec = parse_form4(_fetch(url, limit=120_000, timeout=15)
+                          .decode("utf-8", "replace"))
+    except Exception:
+        return None                            # unread — retry on a later pass
+    if not (rec["bought"] or rec["sold"]):
+        rec = None                             # a grant or a tax withholding
+    cache[acc] = rec
+    _fda_save(symbol)
+    return rec
+
+
+def _money(v: float) -> str:
+    if v >= 1e9:
+        return f"${v / 1e9:.1f}B"
+    if v >= 1e6:
+        return f"${v / 1e6:.1f}M"
+    if v >= 1e3:
+        return f"${v / 1e3:.0f}K"
+    return f"${v:,.0f}"
+
+
+def _insider_label(kind: str, people: list, total: float) -> str:
+    verb = "bought" if kind == "INSIDER BUYING" else "sold"
+    if len(people) == 1:
+        who, role = people[0]
+        who = f"{who} ({role})" if role else who
+        head = f"{who} {verb} {_money(total)} of stock"
+    else:
+        head = f"{len(people)} insiders {verb} {_money(total)} of stock"
+    if kind == "INSIDER SELLING":
+        # The only reason this sale is here at all: it was a decision, not a
+        # calendar entry. Say so, because 93% of insider sales are not.
+        head += " — not under a scheduled plan"
+    return head
+
+
+def latest_insider(symbol: str, days: tuple, budget: int = 6) -> dict | None:
+    """Open-market insider trading that lands in `days`, rolled up by the
+    session it could move.
+
+    Rolled up rather than reported one filing at a time because insiders
+    move together: four CING officers and directors each filed separately on
+    the same day, and only their total says anything.
+    """
+    if not available():
+        return None
+    sessions: dict = {}
+    reads = 0
+    for row in filings(symbol):
+        if (row.get("form") or "").upper() != "4":
+            continue
+        session = moves_session(row)
+        if session not in days:
+            continue
+        fresh = (row.get("accession") or "") not in _fda_store(symbol)
+        allow = (not fresh) or reads < budget
+        if fresh and allow:
+            reads += 1
+        rec = _read_form4(symbol, row, allow_read=allow)
+        if not rec:
+            continue
+        slot = sessions.setdefault(session, {"buy": 0.0, "sell": 0.0,
+                                             "buyers": [], "sellers": [],
+                                             "row": row})
+        if rec["bought"]:
+            slot["buy"] += rec["bought"]
+            slot["buyers"].append((rec["owner"], rec["role"]))
+        # A planned sale was decided months ago and is dropped here, which is
+        # what removes 93% of the selling before anything reaches the screen.
+        if rec["sold"] and not rec["plan"]:
+            slot["sell"] += rec["sold"]
+            slot["sellers"].append((rec["owner"], rec["role"]))
+    best = None
+    for session, s in sessions.items():
+        if s["buy"] >= _MIN_BUY:
+            kind, total, people = "INSIDER BUYING", s["buy"], s["buyers"]
+        elif s["sell"] >= _MIN_SELL:
+            kind, total, people = "INSIDER SELLING", s["sell"], s["sellers"]
+        else:
+            continue
+        hit = {"kind": kind, "label": _insider_label(kind, people, total),
+               "quote": None, "date": s["row"].get("date"),
+               "accepted": s["row"].get("accepted"),
+               "url": s["row"].get("url"), "value": total}
+        if best is None or _rank(kind) > _rank(best["kind"]):
+            best = hit
+    return best
 
 
 def latest_event_tag(symbol: str, days: tuple, budget: int = 4) -> dict | None:
@@ -839,6 +1102,15 @@ def latest_event_tag(symbol: str, days: tuple, budget: int = 4) -> dict | None:
                   and hit.get("quote") and not best.get("quote"))
         if better or richer:
             best = hit
+    # Form 4s are read on their own path — they are half the feed, they are
+    # not 8-Ks, and only a session's total says anything. Merged by the same
+    # rank, so a buyout still beats a director topping up.
+    try:
+        ins = latest_insider(symbol, days)
+    except Exception:
+        ins = None
+    if ins and _rank(ins["kind"]) > _rank(best["kind"] if best else None):
+        best = ins
     return best
 
 

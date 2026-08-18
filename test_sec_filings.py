@@ -663,5 +663,259 @@ class TestEventDates(unittest.TestCase):
         self.assertEqual(sf.event_dates("ZZZZ")["2026-09-30"], "OFFERING")
 
 
+def form4(code="P", shares=10000, price=10.0, plan=False, officer=None,
+          director=False, ten_pct=False, owner="Doe Jane",
+          bool_style="text") -> str:
+    """A Form 4 in the real shape — including the part that bit: EDGAR
+    writes the same booleans as 1/0 in some filers' documents and
+    true/false in others', and wraps most values in <value> but not all."""
+    yes, no = ("true", "false") if bool_style == "text" else ("1", "0")
+    rel = f"<isOfficer>{yes if officer else no}</isOfficer>"
+    if officer:
+        rel += f"<officerTitle>{officer}</officerTitle>"
+    rel += f"<isDirector>{yes if director else no}</isDirector>"
+    rel += f"<isTenPercentOwner>{yes if ten_pct else no}</isTenPercentOwner>"
+    return f"""<?xml version="1.0"?><ownershipDocument>
+      <documentType>4</documentType>
+      <issuer><issuerTradingSymbol>ZZZZ</issuerTradingSymbol></issuer>
+      <reportingOwner><reportingOwnerId>
+        <rptOwnerName>{owner}</rptOwnerName>
+      </reportingOwnerId><reportingOwnerRelationship>{rel}
+      </reportingOwnerRelationship></reportingOwner>
+      <aff10b5One>{yes if plan else no}</aff10b5One>
+      <nonDerivativeTable><nonDerivativeTransaction>
+        <securityTitle><value>Common Stock</value></securityTitle>
+        <transactionCoding><transactionCode>{code}</transactionCode></transactionCoding>
+        <transactionAmounts>
+          <transactionShares><value>{shares}</value></transactionShares>
+          <transactionPricePerShare><value>{price}</value></transactionPricePerShare>
+        </transactionAmounts>
+      </nonDerivativeTransaction></nonDerivativeTable>
+    </ownershipDocument>"""
+
+
+class TestFormFourParsing(unittest.TestCase):
+    def test_open_market_purchase_is_counted(self):
+        rec = sf.parse_form4(form4("P", 1000, 5.0))
+        self.assertEqual(rec["bought"], 5000.0)
+        self.assertEqual(rec["sold"], 0.0)
+
+    def test_numeric_booleans_read_the_same_as_text_ones(self):
+        # ADMA's filer writes true/false, CING's writes 1/0
+        a = sf.parse_form4(form4(plan=True, officer="CFO", bool_style="text"))
+        b = sf.parse_form4(form4(plan=True, officer="CFO", bool_style="num"))
+        self.assertTrue(a["plan"] and b["plan"])
+        self.assertEqual(a["role"], b["role"])
+
+    def test_roles_are_spelled_out_from_the_filing(self):
+        rec = sf.parse_form4(form4(officer="EVP and Chief Medical Officer",
+                                   director=True))
+        self.assertEqual(rec["role"], "EVP and Chief Medical Officer, director")
+
+    def test_compensation_codes_are_not_trades(self):
+        # A=granted, F=withheld for tax, M=option exercised, G=gift.
+        # 156 of the 200 real Form 4s measured were exactly this.
+        for code in ("A", "F", "M", "G", "C"):
+            rec = sf.parse_form4(form4(code, 50000, 10.0))
+            self.assertEqual((rec["bought"], rec["sold"]), (0.0, 0.0), code)
+
+
+class TestInsiderRollup(unittest.TestCase):
+    def wire(self, rows, docs):
+        net = Net(json_by_url={SUB_URL: submissions(rows)}, text_by_url=docs)
+        net.__enter__()
+        sf.configure(cik_fn=lambda s: 999)
+        self.addCleanup(net.__exit__)
+        return net
+
+    def test_a_cluster_of_small_buys_adds_up(self):
+        # CING: four officers and directors filed separately on one day, and
+        # only the total ($167K) says anything. The smallest was $9,808.
+        rows, docs = [], {}
+        for i, (who, amt) in enumerate([("Werth Peter J.", 98053),
+                                        ("Schaffer Shane J.", 34317),
+                                        ("Callahan Jennifer L.", 24515),
+                                        ("Brams Matthew", 9808)]):
+            acc = f"0001234567-26-{i:06d}"
+            rows.append({"date": "2026-02-10", "form": "4", "acc": acc})
+            docs[doc_url(acc)] = form4("P", amt, 1.0, owner=who, director=True)
+        self.wire(rows, docs)
+        hit = sf.latest_insider("ZZZZ", ("2026-02-10",))
+        self.assertEqual(hit["kind"], "INSIDER BUYING")
+        self.assertIn("4 insiders", hit["label"])
+        self.assertIn("$167K", hit["label"])
+
+    def test_a_lone_trivial_buy_is_dropped(self):
+        acc = "0001234567-26-000000"
+        self.wire([{"date": "2026-02-10", "form": "4", "acc": acc}],
+                  {doc_url(acc): form4("P", 1946, 5.04)})     # $9,808
+        self.assertIsNone(sf.latest_insider("ZZZZ", ("2026-02-10",)))
+
+    def test_a_planned_sale_is_never_reported(self):
+        # Robinhood's CEO sold $13.5M on 2026-07-08 under a 10b5-1 plan.
+        # 93% of real insider sales look like this and none of them are news.
+        acc = "0001234567-26-000000"
+        self.wire([{"date": "2026-07-08", "form": "4", "acc": acc}],
+                  {doc_url(acc): form4("S", 1000000, 13.5, plan=True,
+                                       officer="Chief Executive Officer")})
+        self.assertIsNone(sf.latest_insider("ZZZZ", ("2026-07-08",)))
+
+    def test_a_discretionary_sale_is_reported_and_says_so(self):
+        acc = "0001234567-26-000000"
+        self.wire([{"date": "2026-04-14", "form": "4", "acc": acc}],
+                  {doc_url(acc): form4("S", 100000, 101.0, plan=False,
+                                       owner="Sadana Sumit",
+                                       officer="EVP and Chief Business Officer")})
+        hit = sf.latest_insider("ZZZZ", ("2026-04-14",))
+        self.assertEqual(hit["kind"], "INSIDER SELLING")
+        self.assertIn("not under a scheduled plan", hit["label"])
+        self.assertIn("EVP and Chief Business Officer", hit["label"])
+
+    def test_buying_outranks_selling_on_the_same_session(self):
+        rows, docs = [], {}
+        for i, (code, amt) in enumerate([("S", 400000), ("P", 100000)]):
+            acc = f"0001234567-26-{i:06d}"
+            rows.append({"date": "2026-03-09", "form": "4", "acc": acc})
+            docs[doc_url(acc)] = form4(code, amt, 1.0, director=True)
+        self.wire(rows, docs)
+        self.assertEqual(sf.latest_insider("ZZZZ", ("2026-03-09",))["kind"],
+                         "INSIDER BUYING")
+
+    def test_an_evening_form4_moves_the_next_morning(self):
+        # ADMA's Form 4s are accepted at 21:00 ET; that is tomorrow's gap.
+        acc = "0001234567-26-000000"
+        self.wire([{"date": "2026-07-28", "form": "4", "acc": acc,
+                    "accepted": "2026-07-29T01:00:00.000Z"}],   # 21:00 ET
+                  {doc_url(acc): form4("P", 20000, 10.0, director=True)})
+        self.assertIsNone(sf.latest_insider("ZZZZ", ("2026-07-28",)))
+        self.assertEqual(sf.latest_insider("ZZZZ", ("2026-07-29",))["kind"],
+                         "INSIDER BUYING")
+
+    def test_offline_reads_nothing_and_caches_nothing(self):
+        clear()
+        os.environ["JERRY_NO_NET"] = "1"
+        self.assertIsNone(sf.latest_insider("ZZZZ", ("2026-02-10",)))
+
+
+class TestOwnershipAndCorporateActions(unittest.TestCase):
+    def wire(self, rows, docs=None):
+        net = Net(json_by_url={SUB_URL: submissions(rows)}, text_by_url=docs or {})
+        net.__enter__()
+        sf.configure(cik_fn=lambda s: 999)
+        self.addCleanup(net.__exit__)
+
+    def test_a_first_13d_is_an_activist_stake(self):
+        self.wire([{"date": "2026-05-04", "form": "SC 13D"}])
+        self.assertEqual(sf.latest_event_tag("ZZZZ", ("2026-05-04",))["kind"],
+                         "ACTIVIST STAKE")
+
+    def test_a_13d_amendment_is_not(self):
+        # 90 of the 121 real Schedule 13D filings measured were amendments —
+        # the same holder adding, trimming or leaving, and the form cannot say.
+        self.wire([{"date": "2026-05-04", "form": "SC 13D/A"}])
+        self.assertIsNone(sf.latest_event_tag("ZZZZ", ("2026-05-04",)))
+
+    def test_a_passive_13g_is_not_an_activist_stake(self):
+        self.wire([{"date": "2026-05-04", "form": "SC 13G"}])
+        self.assertIsNone(sf.latest_event_tag("ZZZZ", ("2026-05-04",)))
+
+    def test_late_filing_notices_are_free_from_the_form_type(self):
+        for form in ("NT 10-K", "NT 10-Q"):
+            self.wire([{"date": "2026-05-04", "form": form}])
+            self.assertEqual(sf.latest_event_tag("ZZZZ", ("2026-05-04",))["kind"],
+                             "LATE FILING", form)
+
+    def test_a_late_filing_outranks_an_offering(self):
+        self.assertTrue(sf.outranks_offering("LATE FILING"))
+        self.assertTrue(sf.outranks_offering("ACTIVIST STAKE"))
+        self.assertTrue(sf.outranks_offering("REVERSE SPLIT"))
+        # unchanged from before: these still lose to a share sale
+        self.assertFalse(sf.outranks_offering("GUIDANCE CUT"))
+        self.assertFalse(sf.outranks_offering("INSIDER BUYING"))
+        self.assertFalse(sf.outranks_offering("BUYBACK"))
+
+    def test_only_a_reverse_split_rescales_the_history(self):
+        self.assertTrue(sf.rescales_history("REVERSE SPLIT"))
+        for kind in ("BUYOUT", "OFFERING", "INSIDER BUYING", None):
+            self.assertFalse(sf.rescales_history(kind))
+
+
+# Quoted from the filings these were verified against: Aethlon Medical's
+# reverse-split 8-K, Onity Group's buyback authorization, and Tyler
+# Technologies' June 8-K, which reports a balance and must NOT tag.
+SPLIT_8K = ("On July 30, 2026, Aethlon Medical, Inc., a Nevada corporation, "
+            "filed a Certificate of Change pursuant to Section 78.209 of the "
+            "Nevada Revised Statutes with the Secretary of State of the State "
+            "of Nevada authorizing a 1-for-5 reverse stock split of the "
+            "Company's issued and outstanding shares of common stock.")
+BUYBACK_8K = ("Authorization of Share Repurchase Program. On June 1, 2026, "
+              "Onity's Board of Directors authorized a share repurchase "
+              "program for an aggregate amount of up to $20.0 million of the "
+              "Company's issued and outstanding common stock.")
+BUYBACK_BALANCE_8K = ("As of June 12, 2026, we have remaining authorization "
+                      "from our Board of Directors to repurchase up to $332.7 "
+                      "million of our common stock.")
+BUYBACK_PLAN_8K = ("On June 12, 2026, Tyler entered into a Rule 10b5-1 "
+                   "trading plan with a brokerage firm to repurchase up to "
+                   "$150.0 million of its common stock.")
+
+
+class TestCorporateActionClassifier(unittest.TestCase):
+    def test_a_reverse_split_is_tagged_with_its_ratio(self):
+        kind, quote = sf.classify_filing(SPLIT_8K, "", "2026-07-31")
+        self.assertEqual(kind, "REVERSE SPLIT")
+        self.assertTrue(quote.startswith("1-for-5 · "), quote)
+
+    def test_a_new_buyback_authorization_is_tagged(self):
+        kind, quote = sf.classify_filing(BUYBACK_8K, "", "2026-06-02")
+        self.assertEqual(kind, "BUYBACK")
+        self.assertIn("$20.0 million", quote)
+
+    def test_the_balance_left_on_a_program_is_not_an_authorization(self):
+        self.assertEqual(sf.classify_filing(BUYBACK_BALANCE_8K, "", "2026-06-12")[0],
+                         None)
+
+    def test_a_plan_to_execute_an_old_program_is_not_an_authorization(self):
+        self.assertEqual(sf.classify_filing(BUYBACK_PLAN_8K, "", "2026-06-12")[0],
+                         None)
+
+    def test_a_quarterly_release_never_tags_a_buyback(self):
+        self.assertEqual(sf.classify_filing(BUYBACK_8K, "2.02", "2026-06-02")[0],
+                         None)
+
+    def test_a_split_that_is_not_happening_is_not_tagged(self):
+        txt = ("The Company does not intend to effect a reverse stock split "
+               "at this time.")
+        self.assertIsNone(sf.classify_filing(txt, "", "2026-06-02")[0])
+
+
+class TestWordsSplitAcrossTags(unittest.TestCase):
+    """Filers break words across styling tags. Every tag becoming a space
+    turned Aethlon's "Jul</span>y 30, 2026" into "Jul y 30, 2026" in a
+    sentence Jerry reads."""
+
+    def test_a_word_split_by_an_inline_tag_is_rejoined(self):
+        got = sf._plain(b"<p>On Jul</span>y 30, 2026, the Company filed.</p>")
+        self.assertIn("July 30, 2026", got)
+
+    def test_separate_words_are_still_kept_apart(self):
+        got = sf._plain(b"<td>Item 1.01</td><td>Entry into an Agreement</td>")
+        self.assertIn("1.01 Entry", got)
+
+    def test_a_tag_between_words_still_separates_them(self):
+        # The trap: a close-then-open pair is the seam between two styled
+        # words. Fusing it to "approvedthe" would stop the classifier's own
+        # patterns matching, which is far worse than the blemish being fixed.
+        got = sf._plain(b"<span>approved</span><span>the offering</span>")
+        self.assertIn("approved the offering", got)
+
+    def test_a_split_word_still_reaches_the_classifier(self):
+        txt = sf._plain(b"<p>On Jul</span>y 30, 2026, the Board authoriz"
+                        b"<span>ed a 1-for-8 reverse stock split.</p>")
+        kind, quote = sf.classify_filing(txt, "", "2026-07-31")
+        self.assertEqual(kind, "REVERSE SPLIT")
+        self.assertIn("1-for-8", quote)
+
+
 if __name__ == "__main__":
     unittest.main()

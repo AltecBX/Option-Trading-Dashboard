@@ -176,6 +176,10 @@ class FakeSec:
         import sec_filings as _sf
         return _sf.pins_the_price(kind)
 
+    def rescales_history(self, kind):
+        import sec_filings as _sf
+        return _sf.rescales_history(kind)
+
 
 class SecBase(CatalystBase):
     def setUp(self):
@@ -380,6 +384,45 @@ class TestDealsAndTheRestOfTheTaxonomy(SecBase):
     def test_events_that_do_not_pin_the_price_carry_no_warning(self):
         self.sec(fda=self._event("FDA APPROVAL", quote="The FDA has approved it."))
         self.assertNotIn("warning", od._gap_filing_event("ADMA", days_now()))
+
+    def test_a_reverse_split_warns_that_the_price_scale_changed(self):
+        # the same trap as a pinned deal price, from the other direction:
+        # the fade percentages below were computed before the split
+        self.sec(fda=self._event("REVERSE SPLIT",
+                                 quote="1-for-5 · authorizing a 1-for-5 "
+                                       "reverse stock split"))
+        out = od._gap_filing_event("AEMD", days_now())
+        self.assertEqual(out["kind"], "REVERSE SPLIT")
+        self.assertIn("1-for-5", out["label"])
+        self.assertIn("different price scale", out["warning"])
+
+    def test_insider_buying_reaches_the_board_with_who_and_how_much(self):
+        self.sec(fda=self._event("INSIDER BUYING",
+                                 label="4 insiders bought $167K of stock"))
+        out = od._gap_filing_event("CING", days_now())
+        self.assertEqual(out["kind"], "INSIDER BUYING")
+        self.assertIn("4 insiders", out["label"])
+        self.assertNotIn("warning", out)
+
+    def test_an_offering_still_outranks_insider_buying(self):
+        # a director topping up does not explain a gap the way a share sale
+        # does, so the offering has to win when both land
+        self._no_earnings()
+        self.wire(board_actions=[])
+        self.sec(event=self._offering(),
+                 fda=self._event("INSIDER BUYING", label="a director bought"))
+        self.assertEqual(od._gap_catalyst("ZZZZ")["kind"], "OFFERING")
+
+    def test_a_late_filing_beats_an_offering(self):
+        # a company that cannot produce its own financials explains a gap
+        # better than a share sale does
+        self._no_earnings()
+        self.wire(board_actions=[])
+        self.sec(event=self._offering(),
+                 fda=self._event("LATE FILING",
+                                 label="Notified the SEC the annual report "
+                                       "will be late (Form NT 10-K)"))
+        self.assertEqual(od._gap_catalyst("ZZZZ")["kind"], "LATE FILING")
 
     def test_metadata_only_tags_use_their_label(self):
         self.sec(fda=self._event("DELISTING NOTICE",
