@@ -3334,19 +3334,28 @@ def capture_chains(symbols, cfg: dict | None = None) -> dict:
             out["failed"].append(s)
             _health.record(_health.CHAIN, s, False, day=today, reason=why)
             continue
-        # `record` returns False when a snapshot already exists for today,
-        # which is the correct outcome rather than an error: the first
-        # capture of a day is the one that is kept.
+        # `record` returns False for two very different reasons: a chain is
+        # already stored for today, which is the correct outcome, and the
+        # payload was unusable or the write failed, which is a lost day. The
+        # store itself is asked which happened — marking the second as a
+        # success would make tomorrow skip the symbol for a chain that does
+        # not exist, and a day that goes uncaptured cannot be recovered.
         wrote = chain_store.record(s, payload_, source=payload_.get("source"),
                                    event=_chain_event(s))
-        (out["captured"] if wrote else out["skipped"]).append(s)
-        _health.record(_health.CHAIN, s, True, day=today,
+        stored = wrote or today in (chain_store.load(s) or {})
+        (out["captured"] if wrote else
+         out["skipped"] if stored else out["failed"]).append(s)
+        _health.record(_health.CHAIN, s, stored, day=today,
                        source=payload_.get("source") or "",
                        records=len(payload_.get("chains") or {}),
                        late=out["late"],
                        reason=("" if wrote else
                                "a chain was already stored for today, and "
-                               "the first capture of a day is the one kept"))
+                               "the first capture of a day is the one kept"
+                               if stored else
+                               "the provider returned a chain and the store "
+                               "would not keep it — no spot, no usable "
+                               "expirations, or the write failed"))
     return out
 
 
@@ -3503,14 +3512,27 @@ def data_readiness(symbols=None, today: str | None = None) -> dict:
             syms = []
     syms = syms[:MAX_DAILY_SYMBOLS]
     expected = expected_today(syms, day)
+    # Today is not a failure until today's capture window has passed. At ten
+    # in the morning nothing has been captured because nothing was due, and
+    # calling that a capture failure would make the panel cry wolf every
+    # morning until it stopped being read. The health summary looks at the
+    # last day whose window HAS passed; today's own pending state is shown
+    # separately, beside it.
+    due = (_health.is_trading_day(day)
+           and market_now().hour >= _capture_hour()
+           and day == _market_today())
+    settled = day if (due or day != _market_today()) else \
+        _health.previous_trading_day(day)
     out = {
         "as_of": _now_iso(), "day": day, "symbols": syms,
         "trading_day": _health.is_trading_day(day),
         "not_trading_because": _health.why_not_trading(day),
+        "capture_due_yet": bool(due or day != _market_today()),
         "today": _health.day_status(day, expected),
         "previous": _health.day_status(_health.previous_trading_day(day),
                                        expected),
-        "health": _health.health(expected, days_back=5, today=day),
+        "health": _health.health(expected, days_back=5, today=settled),
+        "health_day": settled,
         "capture_hour_et": _capture_hour(),
         "version": _health.CAPTURE_HEALTH_VERSION,
         "backfill_note": (
@@ -3565,6 +3587,14 @@ def data_readiness(symbols=None, today: str | None = None) -> dict:
     out["last_successful_capture"] = out["health"].get("last_successful")
     out["symbols_missing_today"] = sorted(
         {s for v in (out["today"].get("missing") or {}).values() for s in v})
+    if not out["capture_due_yet"]:
+        out["today"]["state"] = "NOT DUE YET"
+        out["today"]["reason"] = (
+            f"Today's capture runs after {_capture_hour()}:00 in New York. "
+            f"Nothing is missing yet; what is listed below is simply what is "
+            f"still to come. The state above describes "
+            f"{_pretty(settled)}, the last day whose capture window has "
+            f"passed.")
 
     # Real-chain coverage over the trading days since capture began. Days
     # before the first capture are not counted as missed, because nothing
@@ -3833,12 +3863,22 @@ def record_daily(symbols, day: str | None = None) -> dict:
         try:
             snap = payload(s, force=True)     # the full Phase 2 state
         except Exception as exc:              # noqa: BLE001
+            snap, why = None, (f"the snapshot could not be built: "
+                               f"{str(exc)[:100]}")
+        else:
+            # `payload` returns normally with ok False when the fundamentals
+            # are not available. That is an honest answer and it is not a
+            # captured valuation state, so it is not recorded as one — or
+            # tomorrow's restart would skip a symbol whose snapshot never
+            # existed.
+            why = ("" if snap.get("ok") else
+                   (snap.get("unavailable_reason")
+                    or "the fundamentals for this ticker are not available"))
+        if snap is None or why:
             failed.append(s)
             for kind in (_health.SNAPSHOT, _health.LEAPS, _health.BENCHMARK,
                          _health.CONTRACT):
-                _health.record(kind, s, False, day=today,
-                               reason=f"the snapshot could not be built: "
-                                      f"{str(exc)[:100]}")
+                _health.record(kind, s, False, day=today, reason=why)
             continue
         done.append(s)
         _health.record(_health.SNAPSHOT, s, True, day=today, late=late,
@@ -3856,9 +3896,6 @@ def _record_riders(sym: str, snap: dict, today: str, late: bool) -> None:
                    reason=("" if bench.get("close") is not None
                            else (bench.get("reason")
                                  or "no benchmark close was available")))
-    rows = ((snap.get("structures") or {}).get("comparison") or {}).get("rows") or []
-    leaps = next((r for r in rows if (r.get("kind") or "").upper() == "LEAPS"),
-                 None)
     obs = []
     if _opts is not None:
         try:
@@ -3871,12 +3908,19 @@ def _record_riders(sym: str, snap: dict, today: str, late: bool) -> None:
                    reason=("" if obs else
                            "no long-dated contracts were observable for this "
                            "ticker today"))
-    contract = (leaps or {}).get("contract") or {}
-    priced = contract.get("debit") is not None or contract.get("mid") is not None
+    # The contract that matters is the one the app actually recommended —
+    # the preferred structure's — not whichever long-dated call happened to
+    # be priced beside it.
+    got = _recommended_contract(snap)
+    contract = got.get("recommended_contract") or {}
+    priced = any(contract.get(k) is not None
+                 for k in ("debit", "credit", "mid", "bid"))
     _health.record(_health.CONTRACT, sym, bool(priced), day=today, late=late,
+                   source=contract.get("structure") or "",
                    reason=("" if priced else
-                           "the app made no priced contract recommendation "
-                           "for this ticker today"))
+                           (got.get("recommended_contract_reason")
+                            or "the app made no priced contract "
+                               "recommendation for this ticker today")))
 
 
 # ── daily recorder ──────────────────────────────────────────────────────────

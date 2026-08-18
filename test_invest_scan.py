@@ -2319,3 +2319,92 @@ class TestPhase7Config(unittest.TestCase):
             for key in inv[group]:
                 self.assertNotIn("fair_multiple", key)
                 self.assertNotIn("target_", key)
+
+
+class TestNoSilentlyLostDays(Phase7Base):
+    """A capture that did not happen must not be recorded as one. The whole
+    point of the capture log is that tomorrow can tell the difference."""
+
+    def with_chain_provider(self):
+        S._CC_CHAIN_FN = lambda sym, dte, n: {"symbol": sym, "source": "test",
+                                              "chains": {"2026-09-18": {}}}
+
+    def test_a_chain_the_store_refused_is_a_failure_not_a_skip(self):
+        self.with_chain_provider()
+        real = _CHAIN.record
+        try:
+            _CHAIN.record = lambda *a, **k: False      # unusable payload
+            got = S.capture_chains([self.SYM])
+        finally:
+            _CHAIN.record = real
+        self.assertEqual(got["captured"], [])
+        self.assertIn(self.SYM, got["failed"])
+        self.assertFalse(CH.captured(CH.CHAIN, self.SYM, S._market_today()))
+
+    def test_a_chain_already_stored_today_is_a_skip_not_a_failure(self):
+        self.with_chain_provider()
+        real = _CHAIN.record, _CHAIN.load
+        try:
+            _CHAIN.record = lambda *a, **k: False
+            _CHAIN.load = lambda sym: {S._market_today(): {"spot": 10.0}}
+            got = S.capture_chains([self.SYM])
+        finally:
+            _CHAIN.record, _CHAIN.load = real
+        self.assertEqual(got["failed"], [])
+        self.assertIn(self.SYM, got["skipped"])
+        self.assertTrue(CH.captured(CH.CHAIN, self.SYM, S._market_today()))
+
+    def test_a_payload_that_says_it_is_unavailable_is_not_a_snapshot(self):
+        real = S.payload
+        try:
+            S.payload = lambda sym, **k: {"symbol": sym, "ok": False,
+                                          "unavailable_reason": "no filings"}
+            got = S.record_daily([self.SYM], day="2026-08-17")
+        finally:
+            S.payload = real
+        self.assertEqual(got["recorded"], [])
+        self.assertIn(self.SYM, got["failed"])
+        self.assertFalse(CH.captured(CH.SNAPSHOT, self.SYM, "2026-08-17"))
+        entry = CH.day_log("2026-08-17")["kinds"][CH.SNAPSHOT][self.SYM]
+        self.assertIn("no filings", entry["reason"])
+
+    def test_the_contract_audited_is_the_one_that_was_recommended(self):
+        self.as_broker()
+        snap = S.payload(self.SYM, force=True)
+        S._record_riders(self.SYM, snap, "2026-08-17", False)
+        entry = CH.day_log("2026-08-17")["kinds"][CH.CONTRACT][self.SYM]
+        got = S._recommended_contract(snap)
+        contract = got.get("recommended_contract") or {}
+        self.assertEqual(entry["ok"], bool(contract))
+        if contract:
+            self.assertEqual(entry["source"], contract["structure"])
+
+
+class TestNotDueYetIsNotAFailure(Phase7Base):
+    def test_before_the_capture_window_today_is_not_a_failure(self):
+        # Yesterday finished cleanly; today is simply not due yet.
+        for kind in CH.KINDS:
+            CH.record(kind, self.SYM, True, day="2026-08-14")
+        real = S.market_now
+        try:
+            S.market_now = lambda now=None: now or datetime(2026, 8, 17, 10, 0)
+            got = S.data_readiness([self.SYM], today="2026-08-17")
+        finally:
+            S.market_now = real
+        self.assertFalse(got["capture_due_yet"])
+        self.assertEqual(got["today"]["state"], "NOT DUE YET")
+        self.assertEqual(got["health"]["state"], CH.HEALTHY)
+        self.assertEqual(got["health_day"],
+                         CH.previous_trading_day("2026-08-17"))
+        self.assertIn("after 17:00 in New York", got["today"]["reason"])
+
+    def test_after_the_capture_window_a_missed_day_is_a_failure(self):
+        real = S.market_now
+        try:
+            S.market_now = lambda now=None: now or datetime(2026, 8, 17, 19, 0)
+            got = S.data_readiness([self.SYM], today="2026-08-17")
+        finally:
+            S.market_now = real
+        self.assertTrue(got["capture_due_yet"])
+        self.assertEqual(got["today"]["state"], CH.MISSED)
+        self.assertEqual(got["health"]["state"], CH.FAILURE)

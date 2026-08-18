@@ -3632,10 +3632,13 @@ const INV_CAPTURE_TIP = {
     "a trading day that goes uncaptured stays uncaptured. That is why a " +
     "missed day is reported here the next morning rather than discovered " +
     "months later in a backtest.",
-  state: "HEALTHY means the last trading day captured everything expected. " +
-    "PARTIAL means some of it was missed. CAPTURE FAILURE means a whole " +
-    "trading day produced nothing, which is the state worth acting on. A " +
-    "weekend or a market holiday is NOT EXPECTED rather than missed.",
+  state: "HEALTHY means the last day whose capture window has passed took " +
+    "everything expected. PARTIAL means some of it was missed. CAPTURE " +
+    "FAILURE means a whole trading day produced nothing, which is the state " +
+    "worth acting on. A weekend or a market holiday is NOT EXPECTED rather " +
+    "than missed, and today before the capture window is NOT DUE YET — " +
+    "nothing has been captured because nothing was due, which is not a " +
+    "failure.",
   snapshots: "Days on which the whole valuation state was recorded for at " +
     "least one followed ticker. This is what forward validation scores " +
     "later, so a day without it is a day that can never be scored.",
@@ -3649,9 +3652,9 @@ const INV_CAPTURE_TIP = {
   coverage: "The share of trading days since capture began that have a real " +
     "chain behind them. Days before the first capture are not counted as " +
     "missed, because nothing was expected of them.",
-  missing: "Followed tickers that were expected today and have not been " +
-    "captured. Before the capture window this is simply everything; after " +
-    "it, it is a list of failures.",
+  missing: "Followed tickers expected today that have not been captured " +
+    "yet. Before the capture window this is simply what is still to come, " +
+    "and the label says so; after it, it is a list of failures.",
   forward: "Forward validation scores a recommendation only once its whole " +
     "horizon has passed. Nothing is scored early and no verdict is given " +
     "until enough observations have completed, so what is shown here is " +
@@ -3664,6 +3667,7 @@ const INV_CAPTURE_TIP = {
 const INV_CAPTURE_CLASS = {
   HEALTHY: "up", PARTIAL: "", "CAPTURE FAILURE": "down",
   COMPLETE: "up", MISSED: "down", "NOT EXPECTED": "muted",
+  "NOT DUE YET": "muted",
 };
 
 function InvCaptureStat({ label, value, tip }) {
@@ -3734,7 +3738,9 @@ function InvDataReadiness({ apiFetch, symbol }) {
           tip={INV_CAPTURE_TIP.state}
           value={d.trading_day ? (today.state || "—")
                  : `Not expected — ${d.not_trading_because || "not a trading day"}`} />
-        <InvCaptureStat label="Symbols missing today"
+        <InvCaptureStat label={d.capture_due_yet === false
+                               ? "Symbols still to capture today"
+                               : "Symbols missing today"}
           tip={INV_CAPTURE_TIP.missing}
           value={(d.symbols_missing_today || []).length
                  ? (d.symbols_missing_today || []).join(", ")

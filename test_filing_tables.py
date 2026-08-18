@@ -519,18 +519,39 @@ class TestUnitProvenance(unittest.TestCase):
 
 
 class TestDocumentSelection(unittest.TestCase):
-    def test_only_the_exhibit_of_an_eight_k_is_read(self):
-        """Realty Income files bond-offering 8-Ks carrying 700KB indentures.
-        The earnings release is always an EX-99."""
+    def _sec(self, names):
         class Sec:
             def _fetch(self, url, limit=None):
                 import json as _j
                 return _j.dumps({"directory": {"item": [
-                    {"name": "tm123_ex4-1.htm", "size": 732310},
-                    {"name": "tm123_8k.htm", "size": 86164},
-                    {"name": "tm123_ex99-1.htm", "size": 21436}]}}).encode()
-        docs = T.documents(Sec(), 726728, "0001-23-000001", "8-K")
+                    {"name": n, "size": z} for n, z in names]}}).encode()
+        return Sec()
+
+    def test_an_indenture_and_a_cover_page_are_not_earnings_releases(self):
+        """Realty Income files bond-offering 8-Ks carrying 700KB indentures."""
+        docs = T.documents(self._sec([("tm123_ex4-1.htm", 732310),
+                                      ("tm123_ex10-1.htm", 313427),
+                                      ("tm123_8k.htm", 86164),
+                                      ("tm123_ex99-1.htm", 21436)]),
+                           726728, "0001-23-000001", "8-K")
         self.assertEqual([d["name"] for d in docs], ["tm123_ex99-1.htm"])
+
+    def test_a_release_whose_filename_never_says_exhibit_is_still_read(self):
+        """T. Rowe Price files its earnings release as
+        earningsreleaseq22026.htm, and the EDGAR directory entry carries only
+        a name and a size — not the exhibit type."""
+        docs = T.documents(self._sec([("earningsreleaseq22026.htm", 220000),
+                                      ("trow_8k.htm", 5000)]),
+                           1113169, "0001-26-000002", "8-K")
+        self.assertEqual([d["name"] for d in docs],
+                         ["earningsreleaseq22026.htm"])
+
+    def test_the_exhibit_number_ninety_nine_survives_every_spelling(self):
+        for name in ("blk-ex99_1.htm", "exhibit991q3fy26.htm",
+                     "a2q26exhibit991.htm", "d153439dex991.htm",
+                     "amgq22026ex991.htm"):
+            docs = T.documents(self._sec([(name, 100)]), 1, "0001-1-1", "8-K")
+            self.assertEqual([d["name"] for d in docs], [name], name)
 
     def test_a_ten_q_reads_its_main_document(self):
         class Sec:

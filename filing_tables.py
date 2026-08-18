@@ -1147,11 +1147,19 @@ TABLE_FORMS = ("8-K", "10-Q", "10-K")
 _SKIP_DOC = re.compile(r"(?i)(-index|index-headers|^R\d+\.htm|FilingSummary"
                        r"|MetaLinks|report\.css|Show\.js)")
 
-# An 8-K's earnings release is always an EX-99 exhibit. Realty Income files
-# three or four 8-Ks between earnings — bond offerings, each carrying a
-# 700KB indenture — and reading the largest document in each of those is
-# both slow and pointless. Only the exhibits are read.
-_EX99 = re.compile(r"(?i)ex[\-_]?99|exhibit\s*99")
+# Realty Income files three or four 8-Ks between earnings — bond offerings,
+# each carrying a 700KB indenture — and reading the largest document in each
+# of those is both slow and pointless. What is dropped is what the filename
+# identifies as something OTHER than the earnings release: an exhibit
+# numbered anything but 99, and the 8-K cover body itself.
+#
+# The filter is written that way round on purpose. An EX-99 exhibit is not
+# obliged to say so in its filename — T. Rowe Price's is
+# "earningsreleaseq22026.htm" — and the EDGAR directory entry carries only a
+# name and a size, not the exhibit type. Keeping everything that is not
+# demonstrably something else costs one fetch and loses nothing.
+_NOT_THE_RELEASE = re.compile(r"(?i)(?:ex|exhibit)[\-_\s]?(?!99)\d+"
+                              r"|[\-_]8k\.htm")
 
 # How many filings back to look, and how many documents inside each. Both
 # are small on purpose: this is one extra fetch per document, throttled by
@@ -1183,7 +1191,7 @@ def documents(sec, cik: int, accession: str, form: str = "") -> list[dict]:
             continue
         if _SKIP_DOC.search(name):
             continue
-        if form == "8-K" and not _EX99.search(name):
+        if form == "8-K" and _NOT_THE_RELEASE.search(name):
             continue
         try:
             size = int(it.get("size") or 0)
