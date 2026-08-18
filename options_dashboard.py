@@ -4757,9 +4757,30 @@ _bt_plans.configure(_STABLE_DIR)
 try:
     import chain_store as _chain_store
     _chain_store.configure(_STABLE_DIR)
+
+    def _record_chain(sym: str, payload: dict) -> bool:
+        """Snapshot a fetched chain, with the provider and the state of the
+        world that day recorded alongside it.
+
+        An option price a week before earnings is a different observation
+        from one a week after, and a snapshot that does not say which is a
+        number without a context. Best-effort: a failure here must never
+        break the live request that produced the chain.
+        """
+        event = None
+        try:
+            nxt = str((_invest_earnings(sym) or {}).get("next") or "")[:10]
+            if nxt:
+                event = {"next_earnings": nxt,
+                         "days_to_earnings":
+                             (date.fromisoformat(nxt) - date.today()).days}
+        except Exception:  # noqa: BLE001
+            event = None
+        return _chain_store.record(sym, payload, source="schwab", event=event)
+
     if _SCHWAB_AVAILABLE:
         import schwab_client as _schwab_client_mod
-        _schwab_client_mod.set_chain_recorder(_chain_store.record)
+        _schwab_client_mod.set_chain_recorder(_record_chain)
 except Exception as _exc:  # noqa: BLE001
     print(f"[chain_store] wiring failed: {_exc}", file=sys.stderr)
 
@@ -5470,6 +5491,34 @@ def _invest_event(symbol: str) -> dict | None:
         return None
 
 
+def _invest_cc_chain(symbol: str, max_dte: int = 50,
+                     strike_count: int = 50) -> dict | None:
+    """The near-dated chain for the covered-call capture, and nothing else.
+
+    One bounded request per followed ticker per day: expirations from today
+    out to about six weeks, and a ring of strikes around the money. That
+    covers every tenor the covered-call simulator sells — weekly, two to
+    three weeks, one to one and a half months — and every strike its rules
+    can choose, including a fair-value-aware strike well above the price.
+
+    Nothing here back-fills. A chain that is not captured today is simply
+    not available for today, ever.
+    """
+    sc = _schwab()
+    if sc is None:
+        return None
+    today = date.today()
+    try:
+        ch = sc.get_option_chain(
+            symbol, expiration=today.isoformat(),
+            to_date=(today + timedelta(days=int(max_dte))).isoformat(),
+            strike_count=int(strike_count))
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/cc-chain", exc)
+        return None
+    return ch if (ch and ch.get("chains")) else None
+
+
 def _invest_chain(symbol: str) -> dict | None:
     """The FULL option chain for the Investment tab, long expirations included.
 
@@ -5589,6 +5638,12 @@ try:
         # credits them on the days they were actually paid rather than
         # spreading a filed annual rate across the year.
         actions_fn=_gap_actions,
+        # The narrow near-dated chain the covered-call capture asks for once
+        # a day per followed ticker. Deliberately NOT the full chain: the
+        # simulator sells calls out to about six weeks and reads nothing
+        # beyond that, so pulling every listed expiration would be a large
+        # request for data nothing uses.
+        cc_chain_fn=_invest_cc_chain,
         data_dir=_STABLE_DIR,
     )
     _INVEST_AVAILABLE = True
@@ -8589,6 +8644,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "covered_call": _invest._cc.COVERED_CALL_VERSION,
                                      "forward_test":
                                          _invest._forward.FORWARD_TEST_VERSION,
+                                     "insurance":
+                                         _invest._ins.INSURANCE_MODEL_VERSION,
+                                     "broker": _invest._brk.BROKER_MODEL_VERSION,
+                                     "chain_store": _invest.chain_store.SCHEMA,
                                      "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:

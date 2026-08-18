@@ -51,6 +51,7 @@ Nothing here ever returns 0 to mean "unknown".
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import time
@@ -67,7 +68,7 @@ SCHEMA_VERSION = "1.0"
 # Bumped whenever the cached company profile gains a field. A profile on
 # disk written under an older version is rebuilt from the filing rather
 # than read with the new field missing.
-PROFILE_VERSION = 2
+PROFILE_VERSION = 3
 
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
@@ -580,6 +581,56 @@ CONCEPTS = {
         ["PreferredStockDividendsIncomeStatementImpact",
          "DividendsPreferredStock",
          "PreferredStockDividendsAndOtherAdjustments"], "USD", "sum"),
+
+    # ── Phase 5 — insurers ─────────────────────────────────────────────
+    # Measured across thirty-six US insurers spanning property-casualty,
+    # life, health, reinsurance and multiline. Premiums earned and claims
+    # incurred are tagged by all thirty-six; reserves by thirty-four; net
+    # investment income by thirty-three. What is NOT there is the expense
+    # side: only five tag `OtherUnderwritingExpense`, which is why the
+    # expense ratio — and with it the combined ratio — is refused for most
+    # insurers rather than assembled out of whatever cost line happens to
+    # be tagged. See insurance_model.py.
+    "premiums_earned": (["PremiumsEarnedNet",
+                         "PremiumsEarnedNetPropertyAndCasualty",
+                         "PremiumsEarnedNetLife"], "USD", "sum"),
+    "premiums_written": (["PremiumsWrittenNet", "PremiumsWrittenGross"],
+                         "USD", "sum"),
+    "losses_incurred": (["PolicyholderBenefitsAndClaimsIncurredNet",
+                         "IncurredClaimsPropertyCasualtyAndLiability",
+                         "PolicyholderBenefitsAndClaimsIncurredHealthCare"],
+                        "USD", "sum"),
+    "policy_acquisition_amortization": (
+        ["DeferredPolicyAcquisitionCostAmortizationExpense",
+         "DeferredPolicyAcquisitionCostsAndPresentValueOfFutureProfitsAmortization1"],
+        "USD", "sum"),
+    "other_underwriting_expense": (["OtherUnderwritingExpense"], "USD", "sum"),
+    "net_investment_income": (["NetInvestmentIncome",
+                               "GrossInvestmentIncomeOperating"],
+                              "USD", "sum"),
+    # Negative means reserves set aside in earlier years turned out to be
+    # more than enough and were released; positive means they were not.
+    "prior_year_reserve_development": (
+        ["SupplementalInformationForPropertyCasualtyInsuranceUnderwritersPriorYearClaimsAndClaimsAdjustmentExpense",
+         "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaimsPriorYears"],
+        "USD", "sum"),
+
+    # ── Phase 5 — brokers ──────────────────────────────────────────────
+    # Measured across twenty-four broker-dealers, exchanges and asset
+    # managers. Employee compensation is tagged by twenty of them under
+    # `LaborAndRelatedExpense`; commissions, principal transactions and
+    # investment banking are each tagged by a handful, and are read as
+    # EVIDENCE THAT THE FILER IS A BROKER as much as for their own sake.
+    "brokerage_commissions": (["BrokerageCommissionsRevenue",
+                               "CommissionsRevenue"], "USD", "sum"),
+    "principal_transactions": (["PrincipalTransactionsRevenue"], "USD", "sum"),
+    "investment_banking_revenue": (["InvestmentBankingRevenue"], "USD", "sum"),
+    "compensation_expense": (["LaborAndRelatedExpense",
+                              "EmployeeBenefitsAndShareBasedCompensation"],
+                             "USD", "sum"),
+    "interest_income_gross": (["InterestAndDividendIncomeOperating",
+                               "InterestIncomeOperating",
+                               "InvestmentIncomeInterest"], "USD", "sum"),
 }
 
 # Balance-sheet facts. These are INSTANTS — a value at a date, with no
@@ -623,6 +674,31 @@ INSTANT_CONCEPTS = {
         "FinancingReceivableExcludingAccruedInterestNonaccrualStatus",
         "FinancingReceivableRecordedInvestmentNonaccrualStatus",
         "NotesReceivableGrossNonaccrualStatus"],
+
+    # ── Phase 5 ────────────────────────────────────────────────────────
+    # Insurance reserves and the investment portfolio that backs them; the
+    # customer receivables and segregated cash that mark a filer out as an
+    # actual broker-dealer rather than an asset manager sharing its
+    # industry code.
+    "insurance_reserves": [
+        "LiabilityForClaimsAndClaimsAdjustmentExpense",
+        "LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseNet",
+        "LiabilityForClaimsAndClaimsAdjustmentExpensePropertyCasualtyLiability"],
+    "investments": ["Investments",
+                    "AvailableForSaleSecuritiesDebtSecurities",
+                    "DebtSecuritiesAvailableForSaleExcludingAccruedInterest"],
+    "future_policy_benefits": [
+        "LiabilityForFuturePolicyBenefitsAndUnpaidClaimsAndClaimsAdjustmentExpense",
+        "LiabilityForFuturePolicyBenefit",
+        "PolicyholderContractDeposits",
+        "PolicyholderAccountBalance"],
+    "customer_receivables": ["ReceivablesFromCustomers",
+                             "BrokerageReceivablesNet"],
+    "segregated_cash": [
+        "CashAndSecuritiesSegregatedUnderFederalAndOtherRegulations",
+        "CashAndSecuritiesSegregatedUnderSecuritiesExchangeCommissionRegulation",
+        "CashSegregatedUnderFederalAndOtherRegulations",
+        "CashSegregatedUnderOtherRegulations"],
 }
 
 # Instants reported as a RATIO rather than in dollars. Same reader, a
@@ -670,7 +746,46 @@ INSTANT_BASIS = {
              "at the latest reported balance-sheet date",
     "nonaccrual_loans": "Loans on non-accrual status at the latest reported "
                         "balance-sheet date",
+    "insurance_reserves": "Liability held for claims already incurred and the "
+                          "cost of settling them, at the latest reported "
+                          "balance-sheet date",
+    "investments": "The investment portfolio at the latest reported "
+                   "balance-sheet date",
+    "future_policy_benefits": "Liability held for benefits promised under "
+                              "policies still in force, at the latest "
+                              "reported balance-sheet date",
+    "customer_receivables": "Amounts owed by customers — chiefly margin "
+                            "lending — at the latest reported balance-sheet "
+                            "date",
+    "segregated_cash": "Cash and securities held apart from the firm's own "
+                       "money for the benefit of customers, as the SEC's "
+                       "customer-protection rule requires, at the latest "
+                       "reported balance-sheet date",
 }
+
+
+# Balance-sheet metrics whose alternative concepts differ in SCOPE rather
+# than being synonyms — the instant-fact twin of STRICT_PRIORITY above.
+#
+# `StockholdersEquity` is the parent company's shareholders' equity;
+# `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest`
+# adds equity that belongs to somebody else. Both are usually filed on the
+# same date, so the old coverage tie-break picked whichever had been tagged
+# for longer — and that was the wrong one for twenty-two of the fifty-three
+# filers measured. Interactive Brokers' book value came out 73% too high,
+# American Tower's 65%, Simon Property Group's 21%: in each case the public
+# company owns a slice of a partnership and the rest was being credited to
+# its shareholders. The same applies to total versus component borrowings
+# (Goldman Sachs' short-term borrowings read 28 times too small), to total
+# versus finite-lived intangibles, and to cash with and without restricted
+# balances. For these, the list order is a statement about scope and
+# outranks coverage; recency still comes first, so a filer that stops
+# tagging its preferred concept still falls back cleanly.
+STRICT_INSTANT_PRIORITY = frozenset({
+    "equity", "preferred_equity", "loans", "cash",
+    "long_term_debt", "short_term_debt", "intangible_assets",
+    "insurance_reserves", "investments", "future_policy_benefits",
+})
 
 # Human-readable basis shown next to every number in the UI.
 BASIS = {
@@ -708,6 +823,34 @@ BASIS = {
     "depreciation_amortization": "Depreciation and amortisation, trailing twelve months",
     "dividends_per_share": "Dividends per common share declared, trailing "
                            "twelve months, as reported to the SEC",
+    "premiums_earned": "Net premiums earned, trailing twelve months, as "
+                       "reported to the SEC",
+    "premiums_written": "Net premiums written, trailing twelve months",
+    "losses_incurred": "Claims and policyholder benefits incurred net of "
+                       "reinsurance, trailing twelve months",
+    "policy_acquisition_amortization": "Amortisation of deferred policy "
+                                       "acquisition costs, trailing twelve "
+                                       "months",
+    "other_underwriting_expense": "Other underwriting expense, trailing "
+                                  "twelve months",
+    "net_investment_income": "Income earned on the investment portfolio, "
+                             "trailing twelve months",
+    "prior_year_reserve_development": "Change during the last twelve months "
+                                      "in the reserves held for claims from "
+                                      "earlier years. Negative means those "
+                                      "reserves proved more than enough and "
+                                      "were released; positive means they "
+                                      "did not.",
+    "brokerage_commissions": "Commissions earned on customer trades, "
+                             "trailing twelve months",
+    "principal_transactions": "Gains on trading the firm's own positions, "
+                              "trailing twelve months",
+    "investment_banking_revenue": "Underwriting and advisory revenue, "
+                                  "trailing twelve months",
+    "compensation_expense": "Employee compensation and benefits, trailing "
+                            "twelve months",
+    "interest_income_gross": "Interest and dividend income before funding "
+                             "costs, trailing twelve months",
 }
 
 
@@ -726,6 +869,17 @@ STRICT_PRIORITY = frozenset({
     "noninterest_expense", "noninterest_income", "real_estate_depreciation",
     "provision_credit_losses", "net_interest_income",
     "gain_on_sale_real_estate", "real_estate_impairment",
+    # Phase 5. Same reasoning: `PremiumsEarnedNet` is the consolidated
+    # figure and `PremiumsEarnedNetPropertyAndCasualty` is one segment of
+    # it; `PolicyholderBenefitsAndClaimsIncurredNet` is all claims and
+    # `IncurredClaimsPropertyCasualtyAndLiability` is the property-casualty
+    # part. Allstate tags a property-casualty premium series that stopped in
+    # 2018 alongside an all-claims series that runs to today, and reading
+    # one against the other put its loss ratio at 123%.
+    "premiums_earned", "losses_incurred", "premiums_written",
+    "policy_acquisition_amortization", "net_investment_income",
+    "prior_year_reserve_development", "compensation_expense",
+    "brokerage_commissions", "interest_income_gross",
 })
 
 
@@ -958,9 +1112,19 @@ def instant_series(entry: dict, unit: str = "USD") -> list[dict]:
     return out
 
 
-def instant(facts: dict, name: str, as_of: str | None = None) -> dict:
-    """The latest balance-sheet value for a metric, with provenance."""
+def instant_pick(facts: dict, name: str,
+                 as_of: str | None = None) -> tuple[str, list[dict]] | None:
+    """(concept, full dated series) for a balance-sheet metric, or None.
+
+    The most recently reported concept wins. Ties are broken by list order
+    for the metrics named in `STRICT_INSTANT_PRIORITY`, where the order is a
+    statement about scope, and by coverage for the rest, where the
+    alternatives are synonyms. Every reader of a balance-sheet series goes
+    through here, so a per-share figure and the ratio built on it can never
+    end up reading two different concepts.
+    """
     gaap = facts.get("facts", {}).get("us-gaap") or {}
+    strict = name in STRICT_INSTANT_PRIORITY
     best = None
     for rank, concept in enumerate(INSTANT_CONCEPTS[name]):
         entry = gaap.get(concept)
@@ -970,13 +1134,20 @@ def instant(facts: dict, name: str, as_of: str | None = None) -> dict:
                 if as_of is None or r["end"] <= as_of]
         if not rows:
             continue
-        score = (rows[-1]["end"], len(rows), -rank)
+        score = ((rows[-1]["end"], -rank, len(rows)) if strict
+                 else (rows[-1]["end"], len(rows), -rank))
         if best is None or score > best[0]:
             best = (score, concept, rows)
+    return (best[1], best[2]) if best else None
+
+
+def instant(facts: dict, name: str, as_of: str | None = None) -> dict:
+    """The latest balance-sheet value for a metric, with provenance."""
+    best = instant_pick(facts, name, as_of)
     if not best:
         return _na("This company does not report that balance-sheet figure "
                    "to the SEC in a machine-readable form.")
-    _score, concept, rows = best
+    concept, rows = best
     last = rows[-1]
     return {"value": last["val"], "concept": concept, "unit": "USD",
             "as_of": last["end"], "filed": last.get("filed"),
@@ -1019,6 +1190,190 @@ def instant_ratio(facts: dict, name: str, as_of: str | None = None) -> dict:
             "label": INSTANT_RATIO_LABELS.get(concept, name),
             "as_of": last["end"], "filed": last.get("filed"),
             "points": len(rows), "basis": INSTANT_RATIO_BASIS[name],
+            "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
+
+
+def net_income_to_common(facts: dict, as_of: str | None = None) -> dict:
+    """Profit belonging to the ordinary shareholder, or the closest the
+    filings get to it.
+
+    Two concepts describe this and neither is reliable alone.
+    `NetIncomeLossAvailableToCommonStockholdersBasic` is the right numerator
+    for a return on common equity — it is after preferred dividends and after
+    the slice belonging to non-controlling interests — and LPL Financial's
+    series stopped in 2012, so reading it blind put LPL's return on equity at
+    2.8% against a real 18.6%. `NetIncomeLoss` is current far more often and
+    at Charles Schwab picks up a series that reads 1.3 billion dollars
+    against a real 9.7.
+
+    So: whichever is CURRENT wins, and where both are equally current the
+    common figure wins, because it is the one that matches the denominator.
+    """
+    common = metric(facts, "net_income_common", as_of)
+    total = metric(facts, "net_income", as_of)
+    c_end = common.get("period_end") or ""
+    t_end = total.get("period_end") or ""
+    if common.get("value") is not None and c_end >= t_end:
+        return {**common, "attributable_to": "common shareholders"}
+    if total.get("value") is not None:
+        note = ""
+        if common.get("value") is not None:
+            note = (f" This filer's net-income-to-common series stops at "
+                    f"{c_end}, so the figure used is total net income to "
+                    f"{t_end} instead. Where the company has preferred stock "
+                    f"or minority interests, that is more than the ordinary "
+                    f"shareholder's share.")
+        return {**total, "attributable_to": "the company as a whole",
+                "basis": (total.get("basis") or "") + note}
+    return common if common.get("reason") else total
+
+
+# How far behind the filer's own newest fact a preferred-stock reading may
+# be and still describe today's balance sheet. Progressive redeemed its
+# preferred in 2025 and its old readings must not go on being deducted.
+_PREF_MAX_LAG = 400.0
+
+
+def total_equity(facts: dict, as_of: str | None = None) -> dict:
+    """All the equity on the balance sheet, non-controlling interests
+    included.
+
+    This is the RIGHT denominator for a leverage ratio and the WRONG one for
+    book value per share, and the difference is not small. Interactive
+    Brokers consolidates a group whose public company owns about a quarter of
+    it: dividing consolidated assets by the public company's own equity puts
+    its leverage at 42 times when the group is levered about 14. Book value
+    per share uses `instant(facts, "equity")` — the parent's own equity —
+    because those are the shares being valued.
+    """
+    gaap = facts.get("facts", {}).get("us-gaap") or {}
+    for concept in ("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                    "StockholdersEquity"):
+        entry = gaap.get(concept)
+        if not entry:
+            continue
+        rows = [r for r in instant_series(entry)
+                if as_of is None or r["end"] <= as_of]
+        if not rows:
+            continue
+        lag = _days_between(rows[-1]["end"], as_of or _newest_period(facts))
+        if lag is not None and lag > _PREF_MAX_LAG:
+            continue
+        return {"value": rows[-1]["val"], "concept": concept, "unit": "USD",
+                "as_of": rows[-1]["end"], "filed": rows[-1].get("filed"),
+                "points": len(rows),
+                "basis": ("All equity on the balance sheet at the latest "
+                          "reported date, including the part belonging to "
+                          "non-controlling interests"),
+                "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
+    return _na("Total equity is not reported in a machine-readable form.")
+
+
+def preferred_equity_series(facts: dict) -> dict:
+    """{period end: the preferred-stock claim on that date}.
+
+    Filers tag preferred stock under three concepts that mean different
+    things. `PreferredStockLiquidationPreferenceValue` is what the preferred
+    holders would actually take; `PreferredStockValue` is often the PAR
+    value, which for MetLife is rounded to zero against a real claim of
+    several billion. Taking the LARGEST figure the filer tags on a date is
+    therefore the conservative reading — it can only reduce what is credited
+    to the common shareholder, never inflate it.
+    """
+    gaap = facts.get("facts", {}).get("us-gaap") or {}
+    out: dict = {}
+    for concept in INSTANT_CONCEPTS["preferred_equity"]:
+        entry = gaap.get(concept)
+        if not entry:
+            continue
+        for r in instant_series(entry):
+            prev = out.get(r["end"])
+            if prev is None or r["val"] > prev["val"]:
+                out[r["end"]] = {**r, "concept": concept}
+    return out
+
+
+def _preferred_evidence(facts: dict, newest: str) -> str:
+    """A reason to believe preferred stock exists even though no balance is
+    tagged, or "" when there is none.
+
+    Bank of America tags no preferred-stock balance at all and pays well over
+    a billion dollars of preferred dividends a year. Treating its preferred
+    as zero would credit the common shareholder with equity that belongs to
+    somebody else. Chubb, Aflac and Progressive tag no balance either — and
+    no preferred dividend and no preferred share count, which is the filings
+    saying there is none rather than failing to say what there is.
+    """
+    div = metric(facts, "preferred_dividends")
+    if div.get("value") and _num_or_none(div["value"]) and abs(div["value"]) > 0:
+        if _days_between(div.get("period_end"), newest) is None \
+                or (_days_between(div.get("period_end"), newest) or 0) <= _PREF_MAX_LAG:
+            return (f"it paid {abs(div['value']) / 1e6:,.0f} million dollars "
+                    f"of preferred dividends over the twelve months to "
+                    f"{div.get('period_end')}")
+    gaap = facts.get("facts", {}).get("us-gaap") or {}
+    entry = gaap.get("PreferredStockSharesOutstanding")
+    if entry:
+        for unit in ("shares", "pure"):
+            rows = instant_series(entry, unit)
+            if not rows:
+                continue
+            lag = _days_between(rows[-1]["end"], newest)
+            if rows[-1]["val"] and (lag is None or lag <= _PREF_MAX_LAG):
+                return (f"it reports {rows[-1]['val']:,.0f} preferred shares "
+                        f"outstanding at {rows[-1]['end']}")
+    return ""
+
+
+def _num_or_none(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def preferred_equity(facts: dict, as_of: str | None = None) -> dict:
+    """The claim preferred holders have on this company's equity.
+
+    Returns zero — with the evidence for it — when the filings say there is
+    no preferred stock, and REFUSES when they tag no balance but show that
+    preferred stock exists. "We could not find the preferred" and "there is
+    no preferred" are different statements and this tells them apart.
+    """
+    newest = _newest_period(facts)
+    series = preferred_equity_series(facts)
+    rows = sorted((r for e, r in series.items()
+                   if as_of is None or e <= as_of), key=lambda r: r["end"])
+    if rows:
+        last = rows[-1]
+        lag = _days_between(last["end"], as_of or newest)
+        if lag is None or lag <= _PREF_MAX_LAG:
+            return {"value": last["val"], "concept": last["concept"],
+                    "unit": "USD", "as_of": last["end"],
+                    "filed": last.get("filed"),
+                    "first_filed": last.get("first_filed"),
+                    "points": len(rows), "basis": INSTANT_BASIS["preferred_equity"],
+                    "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
+    why = _preferred_evidence(facts, as_of or newest)
+    if why:
+        stale = (f" Its most recent preferred-stock balance is from "
+                 f"{rows[-1]['end']}, too old to describe today's balance "
+                 f"sheet." if rows else "")
+        return {"value": None, "concept": None, "unit": "USD",
+                "basis": INSTANT_BASIS["preferred_equity"],
+                "source": "SEC EDGAR Company Facts (XBRL)",
+                "reason": (f"This company does not tag the value of its "
+                           f"preferred stock in a machine-readable form, and "
+                           f"it plainly has some: {why}.{stale} Treating it "
+                           f"as zero would credit the common shareholder with "
+                           f"equity that belongs to the preferred holders.")}
+    return {"value": 0.0, "concept": None, "unit": "USD", "as_of": None,
+            "points": len(rows),
+            "basis": ("No preferred stock. The filings tag no preferred "
+                      "balance, no preferred dividend and no preferred shares "
+                      "outstanding, which is the company saying it has none "
+                      "rather than failing to say what it has."),
             "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
 
 
@@ -1339,10 +1694,15 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
     if not out:
         return None
     ptype, pscores = property_type(body)
+    meta = sic_metadata(sym) or {}
+    isub, iscores = insurer_subtype(body, meta.get("sic"))
+    bsub, bscores = broker_subtype(body)
     profile = {"symbol": sym, "description": out,
                "moat_tags": moat_tags(body),
                "profile_version": PROFILE_VERSION,
                "property_type": ptype, "property_type_scores": pscores,
+               "insurer_subtype": isub, "insurer_subtype_scores": iscores,
+               "broker_subtype": bsub, "broker_subtype_scores": bscores,
                "as_of": row.get("date"), "accession": row.get("accession"),
                "url": row.get("url"), "form": row.get("form"),
                "source": "SEC EDGAR — Item 1, Business, of the latest annual report",
@@ -1357,28 +1717,46 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
     return profile
 
 
+# A candidate this long is the chapter itself rather than a cross-reference
+# with a run of unrelated text behind it. The shortest real Item 1 measured
+# across fifty-three filers is Realty Income's, at 3,485 characters.
+_ITEM1_MIN_CHAPTER = 1500
+
+
 def _item1_body(text: str) -> str:
-    """The text of Item 1, Business — not its table-of-contents entry.
+    """The text of Item 1, Business — not its table-of-contents entry, and
+    not a cross-reference to it from somewhere later in the report.
 
     "Item 1. Business" appears at least twice in every annual report: once in
     the contents list, where the next words are a page number, and once at
-    the chapter itself. The chapter is the last heading that has real prose
-    between it and the Risk Factors heading that follows it.
+    the chapter itself. Filers also point back at it from later sections
+    ("see Part I, Item 1 — Business — Regulation"), and taking the LONGEST
+    candidate picked one of those for Travelers and for CME Group, because
+    the text running from a late cross-reference to the next mention of Risk
+    Factors is longer than the chapter it points at. Travelers' business
+    description read as a paragraph about holding-company liquidity.
+
+    A document is written in order, so the chapter is the FIRST candidate
+    with a chapter's worth of prose behind it. The contents entry fails that
+    test on length, and every cross-reference is by definition later.
     """
-    starts = [m.end() for m in _BUSINESS_HDR.finditer(text)]
-    if not starts:
-        return ""
-    best = ""
-    for s in starts:
+    cands = []
+    for m in _BUSINESS_HDR.finditer(text):
+        s = m.end()
         nxt = _RISK_HDR.search(text, s)
         body = text[s: nxt.start() if nxt else min(len(text), s + 40_000)]
         body = re.sub(r"^[\s​‌‍﻿.:;\-—]*\d{0,4}[\s​‌‍﻿]*", "", body)
         body = _strip_lead_in(body)
         # A contents entry is a page number followed by the next heading;
         # a chapter is thousands of characters of sentences.
-        if len(body) > len(best) and body.count(".") >= 3:
-            best = body
-    return best[:40_000].strip()
+        if body.count(".") >= 3:
+            cands.append(body)
+    if not cands:
+        return ""
+    chapter = next((c for c in cands if len(c) >= _ITEM1_MIN_CHAPTER), None)
+    # Nothing reached chapter length, so this is a short filer rather than a
+    # mis-pick: take the most substantial candidate as before.
+    return (chapter or max(cands, key=len))[:40_000].strip()
 
 
 # Section headings and the "what the pronouns mean" paragraph that opens
@@ -1588,3 +1966,176 @@ def property_type(text: str) -> tuple[str | None, dict]:
     if len(ranked) > 1 and ranked[1][1] > ranked[0][1] / _PROPERTY_MARGIN:
         return None, top
     return ranked[0][0], top
+
+
+# ── insurer subtype ─────────────────────────────────────────────────────────
+#
+# An insurer's industry code says it is an insurer and not much more. The
+# SEC gives Progressive, RenaissanceRe, Chubb and Berkshire Hathaway the
+# same 6331, and those four are a car insurer, a reinsurer, a multiline
+# group and a conglomerate. The distinction matters more here than it does
+# for property trusts, because it decides WHICH NUMBERS ARE VALID: a
+# property-casualty insurer's loss ratio is claims over premiums and means
+# what it says, while the same arithmetic on a life insurer reads 99% for
+# MetLife and 129% for Principal Financial — because a life insurer's
+# premiums exclude fee and spread income while its benefits include
+# interest credited to policyholder accounts. The two are not the same
+# ratio wearing different names; the second one is not a ratio at all.
+#
+# So the subtype is read from the insurer's own annual report and confirmed
+# against its industry code, and where the two cannot agree the answer is a
+# refusal. Measured across forty-two US insurers: twenty-six classified,
+# and the sixteen refusals are the six whose Item 1 could not be read at
+# all plus American International Group, whose annual report does not carry
+# a readable Item 1 heading.
+
+INSURER_SUBTYPES = ("P&C", "LIFE", "HEALTH", "REINSURANCE", "MULTILINE")
+
+INSURER_SUBTYPE_LABELS = {
+    "P&C": "Property and casualty insurer",
+    "LIFE": "Life and annuity insurer",
+    "HEALTH": "Health insurer",
+    "REINSURANCE": "Reinsurer",
+    "MULTILINE": "Multiline insurer, writing both property-casualty and life",
+}
+
+# Which family of measures each subtype supports. UNDERWRITING means the
+# loss ratio and everything built on it are meaningful; SPREAD means they
+# are not, and the insurer is read on premiums, investment income, reserves
+# and book value instead.
+INSURER_METRIC_BASIS = {
+    "P&C": "UNDERWRITING",
+    "REINSURANCE": "UNDERWRITING",
+    "MULTILINE": "UNDERWRITING",
+    "HEALTH": "BENEFIT",
+    "LIFE": "SPREAD",
+}
+
+_INSURER_RULES = (
+    ("life", r"life insurance|annuit|universal life|term life|whole life|"
+             r"policyholder account"),
+    ("health", r"health (?:insurance|plan|benefit)|medical (?:cost|benefit|member)|"
+               r"medicaid|medicare|health care benefits|health benefits|dental"),
+    ("pc", r"property and casualty|property & casualty|property-casualty|"
+           r"casualty insurance|automobile insurance|homeowners|"
+           r"commercial lines|personal lines|underwriting (?:income|profit|result)|"
+           r"workers.? compensation"),
+    ("reins", r"reinsurer|ceding compan|cedants?|retrocession|treaty reinsurance|"
+              r"reinsurance segment|reinsurance business"),
+)
+
+# Below this many mentions the annual report has not said what the insurer
+# writes; it has mentioned it.
+_INSURER_MIN_HITS = 8
+# A health insurer's report is about health cover to the exclusion of
+# everything else. A life insurer that also sells supplemental health cover
+# — Globe Life, Unum, Aflac — mentions both about equally, and is a life
+# insurer. Only the industry code can settle that, so it does.
+_SIC_HEALTH_PLANS = 6324
+
+
+def insurer_subtype(text: str, sic=None) -> tuple[str | None, dict]:
+    """(insurer subtype, the counts behind it) from its own Item 1.
+
+    Returns None whenever the report does not say clearly enough what kind
+    of insurance this is. That refusal is the point: the wrong subtype
+    applies the wrong ratios, and a wrong ratio is worse than a blank.
+    """
+    if not text:
+        return None, {}
+    body = text.lower()
+    hits = {k: len(re.findall(p, body)) for k, p in _INSURER_RULES}
+    code = None
+    try:
+        code = int(str(sic).strip()) if sic not in (None, "") else None
+    except (TypeError, ValueError):
+        code = None
+
+    life, health = hits["life"], hits["health"]
+    pc, reins = hits["pc"], hits["reins"]
+
+    # Health plans, and only health plans. The industry code is the SEC's
+    # own "Hospital & Medical Service Plans", and the report has to agree.
+    if code == _SIC_HEALTH_PLANS:
+        if health >= _INSURER_MIN_HITS and health > life:
+            return "HEALTH", hits
+        return None, hits
+    if health >= _INSURER_MIN_HITS and health >= 3 * max(life, pc, reins, 1):
+        return "HEALTH", hits
+
+    # A reinsurer talks about the companies it reinsures more than about the
+    # policies it writes directly.
+    if reins >= _INSURER_MIN_HITS and reins > pc and reins > life:
+        return "REINSURANCE", hits
+    if life >= _INSURER_MIN_HITS and pc >= _INSURER_MIN_HITS:
+        return "MULTILINE", hits
+    if pc >= _INSURER_MIN_HITS and pc >= 2 * life:
+        return "P&C", hits
+    if life >= _INSURER_MIN_HITS and life >= 2 * pc:
+        return "LIFE", hits
+    return None, hits
+
+
+# ── broker subtype ──────────────────────────────────────────────────────────
+#
+# The broker industry codes are the widest in this app. 6211 holds Charles
+# Schwab, Goldman Sachs AND BlackRock; 6200 holds LPL Financial and the CME;
+# 6282 holds Evercore and T. Rowe Price. An asset manager and an exchange
+# are perfectly good businesses and neither is a broker-dealer, so the
+# question "is this a broker at all" is answered from the BALANCE SHEET
+# rather than from the code or from the prose — see broker_model.py. Only
+# once a filer has cleared that gate does the prose below say what kind.
+#
+# Unlike the insurer subtypes, these do not change which numbers are valid:
+# a retail broker and an institutional one are both read on book value,
+# return on equity and their own history of price to earnings. So where the
+# report cannot separate them, the model still runs and the mix is reported
+# as undetermined rather than the whole filer being refused.
+
+BROKER_SUBTYPES = ("RETAIL", "INSTITUTIONAL", "DIVERSIFIED", "UNDETERMINED")
+
+BROKER_SUBTYPE_LABELS = {
+    "RETAIL": "Retail brokerage",
+    "INSTITUTIONAL": "Institutional broker-dealer",
+    "DIVERSIFIED": "Diversified brokerage, retail and institutional",
+    "UNDETERMINED": "Broker-dealer, retail and institutional mix not "
+                    "determined from its annual report",
+}
+
+_BROKER_RULES = (
+    ("retail", r"retail (?:brokerage|client|investor)|self-directed|"
+               r"individual investors|brokerage account|advisory (?:solution|account)|"
+               r"custody"),
+    ("institutional", r"institutional (?:securities|client|brokerage)|"
+                      r"investment banking|market mak|prime brokerage"),
+    ("exchange", r"clearing house|clearinghouse|derivatives exchange|"
+                 r"listing (?:service|venue)|our exchanges|exchange operat|"
+                 r"securities exchanges we|trading venue"),
+    ("asset_manager", r"assets under management|"
+                      r"investment management (?:business|service)|"
+                      r"mutual funds|exchange-traded funds"),
+)
+
+_BROKER_MIN_HITS = 8
+
+
+def broker_subtype(text: str) -> tuple[str, dict]:
+    """(retail / institutional / diversified / undetermined, the counts).
+
+    Never returns None: a filer that reached this function has already been
+    shown to be a broker-dealer by what is on its balance sheet, and the
+    honest answer to an unreadable annual report is "the mix is not known",
+    not "this is not a broker".
+    """
+    if not text:
+        return "UNDETERMINED", {}
+    body = text.lower()
+    hits = {k: len(re.findall(p, body)) for k, p in _BROKER_RULES}
+    retail, inst = hits["retail"], hits["institutional"]
+    if retail >= _BROKER_MIN_HITS and inst >= _BROKER_MIN_HITS:
+        return "DIVERSIFIED", hits
+    if retail >= _BROKER_MIN_HITS and retail > inst:
+        return "RETAIL", hits
+    if inst >= _BROKER_MIN_HITS and inst > retail:
+        return "INSTITUTIONAL", hits
+    return "UNDETERMINED", hits

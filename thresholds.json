@@ -634,6 +634,32 @@
       "forward_wait_verdicts": [
         "WAIT"
       ]
+    },
+    "_phase5": "Phase 5 adds specialized valuation for insurers and for broker-dealers, and strengthens the prospective capture of real option chains so the covered-call simulator and the forward validation become real with time. Neither of the two new models is applied to everything in its industry code: an insurer whose annual report does not say what kind of insurance it writes is refused, because claims over premiums is a loss ratio for a car insurer and is not a ratio at all for a life insurer, and a filer in a broker's industry code that has no customer money on its balance sheet is an asset manager or an exchange and is refused too.",
+    "insurance": {
+      "_doc": "The insurer model. The combined ratio is reported only where the underwriting expense is actually filed — five of thirty-six insurers tag it — and never assembled out of whatever cost line happens to be tagged. Adverse reserve development holds the fair-value confidence down, which lowers the buy zone rather than printing a warning beside a number it did not change.",
+      "insurance_combined_ratio_alarm": 100.0,
+      "insurance_adverse_development_pct": 1.0,
+      "insurance_min_subtype_peers": 5,
+      "insurance_min_peers_for_regression": 8,
+      "insurance_min_regression_r2": 0.2,
+      "insurance_justified_roe_haircut_pct": 3.0,
+      "insurance_justified_roe_uplift_pct": 2.0
+    },
+    "broker": {
+      "_doc": "The broker model. Whether a filer is a broker-dealer at all is answered from its balance sheet — customer receivables, segregated customer cash, commissions, dealer trading, underwriting revenue — rather than from its industry code, which also covers exchanges and asset managers. Client assets are not in the filings anywhere and stay blank; for a customer-driven brokerage that missing number holds the fair-value confidence down.",
+      "broker_material_deposits_pct": 10.0,
+      "broker_min_subtype_peers": 5,
+      "broker_min_peers_for_regression": 8,
+      "broker_min_regression_r2": 0.2,
+      "broker_justified_roe_haircut_pct": 4.0,
+      "broker_justified_roe_uplift_pct": 3.0,
+      "broker_leverage_alarm": 15.0
+    },
+    "chain_capture": {
+      "_doc": "The daily capture of real option chains for followed tickers. Deliberately narrow: expirations out to about six weeks and a bounded ring of strikes around the money, which is everything the covered-call tenors and strike rules read and nothing more. A day that goes uncaptured is gone — there is no source of historical chains this app can reach, and nothing here is ever back-filled.",
+      "capture_max_dte": 50,
+      "capture_strike_count": 50
     }
   }
 }

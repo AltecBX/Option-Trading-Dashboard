@@ -1063,10 +1063,14 @@ def entry_verdict(snap: dict, fair: dict, comparison: dict, put_block: dict,
                 "version": OPTIONS_VERSION}
 
     # A specialized business is refused only while no model exists for it.
-    # Banks and property trusts now arrive with a fair value built by a model
-    # written for them — `fair.model` names which — so they carry on through
-    # every gate below exactly as any other company does. Insurers and
-    # brokers still stop here, because half a model is worse than none.
+    # Lenders, property trusts, insurers and brokers now arrive with a fair
+    # value built by a model written for them — `fair.model` names which — so
+    # they carry on through every gate below exactly as any other company
+    # does. What still stops here is the individual company the specialized
+    # model itself refused: an insurer whose kind cannot be established, a
+    # filer in a broker's industry code that is not a broker. That refusal
+    # comes from the model, not from the business type, and half a model is
+    # worse than none.
     if btype in ("BANK", "INSURANCE", "BROKER", "REIT") \
             and not (fair or {}).get("model"):
         reasons.append((snap.get("business_type") or {}).get("note") or "")

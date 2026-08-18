@@ -675,6 +675,28 @@ class TestPhase2Verdict(unittest.TestCase):
             v = E.verdict({**self.BASE, "business_type": E.business_type(sic)})
             self.assertEqual(v["verdict"], E.SPECIALIZED, sic)
 
+    def test_a_built_specialized_model_is_pointed_at_not_denied(self):
+        """The generic scorecard still refuses, but it no longer claims the
+        model does not exist when the model has just filled a panel."""
+        for sic, block, panel in (("6021", "bank", "lender measures"),
+                                  ("6798", "reit", "property trust measures"),
+                                  ("6311", "insurance", "insurer measures"),
+                                  ("6211", "broker", "broker measures")):
+            v = E.verdict({**self.BASE, "business_type": E.business_type(sic),
+                           block: {"available": True}})
+            self.assertEqual(v["verdict"], E.SPECIALIZED, sic)
+            said = " ".join(v["what_would_change"])
+            self.assertIn(panel, said, sic)
+            self.assertNotIn("cannot run", said, sic)
+
+    def test_a_specialized_model_that_could_not_run_still_says_so(self):
+        for sic, block in (("6311", "insurance"), ("6211", "broker")):
+            v = E.verdict({**self.BASE, "business_type": E.business_type(sic),
+                           block: {"available": False}})
+            said = " ".join(v["what_would_change"])
+            self.assertIn("cannot run on this company's filings", said, sic)
+            self.assertNotIn("measures above", said, sic)
+
     def test_no_price_or_no_earnings_is_insufficient_data(self):
         self.assertEqual(E.verdict({"price": None})["verdict"],
                          "INSUFFICIENT DATA")

@@ -49,6 +49,8 @@ import fair_value as fv
 import structures as _structs
 import bank_model as _bank
 import reit_model as _reit
+import insurance_model as _ins
+import broker_model as _brk
 import forward_test as _forward
 import covered_call as _cc
 import chain_store
@@ -82,6 +84,7 @@ _CHAIN_FN = None            # (symbol) -> normalized option chain | None
 _RATE_FN = None             # (years) -> {"pct","as_of","source"} | None
 _EARN_MOVES_FN = None       # (symbol) -> {"avg_abs","n"} | None
 _ACTIONS_FN = None          # (symbol) -> {"dividends": {iso: amount}} | None
+_CC_CHAIN_FN = None         # (symbol) -> the near-dated chain, for capture
 
 _LOCK = threading.RLock()
 _SNAP_TTL = 900.0           # 15 minutes; the filings behind it move quarterly
@@ -97,11 +100,12 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
               daily_fn=None, config_fn=None, data_dir=None,
               earnings_fn=None, events_fn=None, benchmark_fn=None,
               chain_fn=None, rate_fn=None, earn_moves_fn=None,
-              actions_fn=None) -> None:
+              actions_fn=None, cc_chain_fn=None) -> None:
     global _QUOTE_FN, _ESTIMATES_FN, _TEN_YEAR_FN, _DAILY_FN, _CFG_FN, _DATA_DIR
     global _EARNINGS_FN, _EVENTS_FN, _BENCHMARK_FN
-    global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN, _ACTIONS_FN
+    global _CHAIN_FN, _RATE_FN, _EARN_MOVES_FN, _ACTIONS_FN, _CC_CHAIN_FN
     _ACTIONS_FN = actions_fn
+    _CC_CHAIN_FN = cc_chain_fn
     _QUOTE_FN = quote_fn
     _ESTIMATES_FN = estimates_fn
     _TEN_YEAR_FN = ten_year_fn
@@ -187,7 +191,8 @@ def config(refresh: bool = False) -> tuple[dict, str]:
 _CFG_GROUPS = ("verdict", "scorecard", "value_trap", "regime", "cycle",
                "fair_value", "expected_return", "implied_expectations",
                "structures", "contracts",
-               "bank", "reit", "covered_call", "forward_test")
+               "bank", "reit", "covered_call", "forward_test",
+               "insurance", "broker", "chain_capture")
 
 
 def _flatten_cfg(cfg: dict) -> dict:
@@ -410,8 +415,120 @@ def _daily_row(snap: dict) -> dict | None:
         row["reit_ffo_complete"] = (reit.get("ffo") or {}).get("complete")
     row["fair_value_model"] = (snap.get("fair_value") or {}).get("model")
 
+    # Phase 5 state. Same discipline a third time: a row written before these
+    # keys existed simply lacks them, nothing already on disk is rewritten,
+    # and a reader treats a missing key as "not recorded that day".
+    ins = snap.get("insurance") or {}
+    if ins:
+        row["insurance_subtype"] = ins.get("subtype")
+        row["insurance_metric_basis"] = ins.get("metric_basis")
+        row["insurance_price_to_book"] = (
+            ins.get("price_to_book") or {}).get("value")
+        row["insurance_price_to_tangible_book"] = (
+            ins.get("price_to_tangible_book") or {}).get("value")
+        row["insurance_roe_pct"] = (
+            ins.get("return_on_equity_pct") or {}).get("value")
+        row["insurance_combined_ratio_pct"] = (
+            ins.get("combined_ratio_pct") or {}).get("value")
+        row["insurance_loss_ratio_pct"] = (
+            ins.get("loss_ratio_pct") or {}).get("value")
+        row["insurance_reserve_development_pct"] = (
+            ins.get("reserve_development_pct_premiums") or {}).get("value")
+        row["insurance_reserve_development_state"] = (
+            ins.get("reserve_development_state") or {}).get("state")
+        row["insurance_premium_growth_pct"] = (
+            ins.get("premium_growth_pct") or {}).get("value")
+    brk = snap.get("broker") or {}
+    if brk:
+        row["broker_subtype"] = brk.get("subtype")
+        row["broker_is_broker_dealer"] = (
+            brk.get("broker_evidence") or {}).get("is_broker")
+        row["broker_price_to_book"] = (
+            brk.get("price_to_book") or {}).get("value")
+        row["broker_price_to_tangible_book"] = (
+            brk.get("price_to_tangible_book") or {}).get("value")
+        row["broker_roe_pct"] = (
+            brk.get("return_on_equity_pct") or {}).get("value")
+        row["broker_assets_to_equity"] = (
+            brk.get("assets_to_equity") or {}).get("value")
+        row["broker_compensation_ratio_pct"] = (
+            brk.get("compensation_ratio_pct") or {}).get("value")
+        row["broker_net_interest_share_pct"] = (
+            brk.get("net_interest_share_of_revenue_pct") or {}).get("value")
+        row["broker_has_banking_operation"] = brk.get("has_banking_operation")
+    row["fair_value_subtype"] = (snap.get("fair_value") or {}).get("subtype")
+    row["risk_flags"] = [a.get("key")
+                         for a in ((snap.get("value_trap") or {})
+                                   .get("active") or [])]
+
+    # The exact contract and the exact quote behind the preferred structure,
+    # so a future scoring pass can settle up against what was actually
+    # recommended rather than against a better contract chosen after the
+    # fact. Recorded prospectively for exactly that reason.
+    row.update(_recommended_contract(snap))
+    bench = snap.get("benchmark") or {}
+    row["benchmark_symbol"] = bench.get("symbol")
+    row["benchmark_close"] = bench.get("close")
+    row["benchmark_as_of"] = bench.get("as_of")
+
     row["config_hash"] = snap.get("config_hash")
     return row
+
+
+# The structure kinds whose recommended contract is recorded in full. A
+# BUY SHARES verdict has no contract, and WAIT and AVOID have nothing to
+# settle up.
+def _recommended_contract(snap: dict) -> dict:
+    """The exact option that was recommended, and what it was quoted at.
+
+    Forward validation has to score the contract the app named on the day it
+    named it. Storing the strike and expiration alone is not enough: without
+    the quote there is no entry price to measure a return from, and picking
+    one up later from a chain that has since moved is the same lookahead the
+    whole validation engine exists to prevent. So the quote goes in the row
+    beside the contract, prospectively, and is never revised.
+    """
+    out: dict = {}
+    structs = snap.get("structures") or {}
+    comp = structs.get("comparison") or {}
+    preferred = comp.get("preferred")
+    entry = snap.get("entry") or {}
+    out["recommended_structure"] = entry.get("verdict") or preferred
+    row = next((r for r in (comp.get("rows") or [])
+                if r.get("kind") == preferred), None)
+    contract = (row or {}).get("contract") or {}
+    if not contract:
+        # A recommendation with no contract is an honest state — BUY SHARES,
+        # WAIT, AVOID — and is recorded as such rather than left ambiguous.
+        out["recommended_contract"] = None
+        out["recommended_contract_reason"] = (
+            "This recommendation names no option contract."
+            if preferred in (None, "", "BUY SHARES") else
+            "No contract was attached to the preferred structure.")
+        return out
+    liq = row.get("liquidity") or {}
+    out["recommended_contract"] = {
+        "structure": preferred,
+        "expiration": row.get("expiration") or contract.get("expiration"),
+        "dte": row.get("dte") or contract.get("dte"),
+        "strike": contract.get("strike"),
+        "call_strike": contract.get("call_strike"),
+        "long_strike": contract.get("long_strike"),
+        "short_strike": contract.get("short_strike"),
+        "credit": contract.get("credit") or contract.get("call_credit"),
+        "debit": contract.get("debit"),
+        "bid": liq.get("bid"), "ask": liq.get("ask"), "mid": liq.get("mid"),
+        "spread_pct": liq.get("spread_pct"),
+        "open_interest": liq.get("open_interest"),
+        "volume": liq.get("volume"),
+        "delta": contract.get("delta"), "iv": contract.get("iv"),
+        "greek_source": contract.get("greek_source"),
+        "quote_source": (structs.get("chain_source") or "unknown"),
+        "quote_as_of": snap.get("as_of"),
+        "underlying_price": snap.get("price"),
+    }
+    out["recommended_contract_reason"] = ""
+    return out
 
 
 # ── providers ───────────────────────────────────────────────────────────────
@@ -838,6 +955,11 @@ VALUATION_MEASURES = ("earnings_yield_pct", "fcf_yield_pct", "trailing_pe")
 # one distribution, one definition of what "point in time" means.
 BANK_MEASURES = ("price_to_tangible_book", "price_to_book")
 REIT_MEASURES = ("price_to_ffo", "dividend_yield_pct")
+# Phase 5. An insurer and a broker are both read against book value, so both
+# reuse the SAME point-in-time per-share series the bank model builds. One
+# engine, one definition of what book value per share was on a given day.
+INSURANCE_MEASURES = ("price_to_book", "price_to_tangible_book")
+BROKER_MEASURES = ("price_to_book", "price_to_tangible_book")
 
 MEASURE_LABEL = {
     "earnings_yield_pct": "Trailing earnings yield",
@@ -860,6 +982,10 @@ def _extra_measures(btype: str | None) -> tuple:
         return BANK_MEASURES
     if btype == "REIT":
         return REIT_MEASURES
+    if btype == "INSURANCE":
+        return INSURANCE_MEASURES
+    if btype == "BROKER":
+        return BROKER_MEASURES
     return ()
 
 
@@ -924,7 +1050,11 @@ def valuation_history(symbol: str, years: int = 5, raw: bool = False,
 
     extra = _extra_measures(business_type)
     per_share_pts = {}
-    if business_type == "BANK":
+    if business_type in ("BANK", "INSURANCE", "BROKER"):
+        # One point-in-time book-value engine for all three. A bank, an
+        # insurer and a broker are read against the same per-share figures,
+        # so building a second copy of the same series would only create a
+        # way for two screens to disagree.
         per_share_pts = {k: _pit_lookup(v) for k, v in
                          (_bank.point_in_time_series(_fund, facts) or {}).items()}
     elif business_type == "REIT":
@@ -1219,8 +1349,38 @@ def revisions_block(snap: dict, estimates: dict | None, cfg: dict) -> dict:
 
 # ── value trap ──────────────────────────────────────────────────────────────
 
+def _prior_reading(symbol: str, keys: tuple) -> dict:
+    """What this app itself recorded for these fields about a year ago.
+
+    Nothing is recomputed and nothing is rewritten: this reads the stored
+    daily rows forward, exactly as the forward-validation engine does. A
+    ticker with no year-old row simply has no year-earlier reading, and the
+    signals that need one report themselves as not measurable rather than
+    quietly comparing today against today.
+    """
+    rows = load_history(symbol)
+    if not rows:
+        return {}
+    target = (date.today() - timedelta(days=365)).isoformat()
+    best = None
+    for r in rows:
+        day = str(r.get("date") or "")[:10]
+        if not day or day > target:
+            continue
+        if best is None or day > str(best.get("date") or "")[:10]:
+            best = r
+    if best is None:
+        return {}
+    out = {k: best.get(k) for k in keys if best.get(k) is not None}
+    if out:
+        out["_as_of"] = best.get("date")
+    return out
+
+
 def value_trap_block(symbol: str, facts: dict, snap: dict, quality: dict,
-                     valuation: dict, revisions: dict, cfg: dict) -> dict:
+                     valuation: dict, revisions: dict, cfg: dict,
+                     insurance: dict | None = None,
+                     broker: dict | None = None) -> dict:
     """Deterioration signals — direction of travel, not levels."""
     signals: dict = {}
 
@@ -1295,7 +1455,29 @@ def value_trap_block(symbol: str, facts: dict, snap: dict, quality: dict,
     if peak is not None:
         signals["cyclical_peak"] = peak
 
-    return engine.value_trap(signals, cfg)
+    # Business-specific deterioration, graded by the SAME engine rather than
+    # in a score of its own. An insurer whose old reserves are proving
+    # inadequate can therefore reach HIGH RISK by the ordinary route — and
+    # HIGH RISK is what stops the entry engine recommending anything bullish,
+    # which is exactly what a cheap insurer with deteriorating reserves needs.
+    extra: dict = {}
+    if (insurance or {}).get("available"):
+        prior = _prior_reading(symbol, ("insurance_roe_pct",))
+        signals.update(_ins.risk_signals(
+            insurance, prior_roe=prior.get("insurance_roe_pct"), cfg=cfg))
+        extra.update(_ins.RISK_SIGNALS)
+    if (broker or {}).get("available"):
+        prior = _prior_reading(symbol, ("broker_roe_pct",
+                                        "broker_assets_to_equity",
+                                        "broker_compensation_ratio_pct"))
+        signals.update(_brk.risk_signals(broker, prior={
+            "return_on_equity_pct": prior.get("broker_roe_pct"),
+            "assets_to_equity": prior.get("broker_assets_to_equity"),
+            "compensation_ratio_pct":
+                prior.get("broker_compensation_ratio_pct")}, cfg=cfg))
+        extra.update(_brk.RISK_SIGNALS)
+
+    return engine.value_trap(signals, cfg, extra_labels=extra or None)
 
 
 def _prior_growth(facts: dict, metric: str):
@@ -1537,6 +1719,24 @@ def reit_block(snap: dict, facts: dict, cfg: dict) -> dict:
                          property_type=profile.get("property_type"), cfg=cfg)
 
 
+def insurance_block(snap: dict, facts: dict, cfg: dict) -> dict:
+    """The insurer measures, for a filer the business-type gate called an
+    insurer — once its own annual report has said what kind."""
+    profile = _fund.business_description(snap.get("symbol") or "") or {}
+    return _ins.metrics(_fund, facts, price=snap.get("price"),
+                        shares_outstanding=snap.get("shares_outstanding"),
+                        subtype=profile.get("insurer_subtype"), cfg=cfg)
+
+
+def broker_block(snap: dict, facts: dict, cfg: dict) -> dict:
+    """The broker measures — after the balance sheet has been asked whether
+    this filer is a broker-dealer at all."""
+    profile = _fund.business_description(snap.get("symbol") or "") or {}
+    return _brk.metrics(_fund, facts, price=snap.get("price"),
+                        shares_outstanding=snap.get("shares_outstanding"),
+                        subtype=profile.get("broker_subtype"), cfg=cfg)
+
+
 def _peer_shares(row: dict, facts: dict):
     """A peer's share count, from the peer row or from its own filings.
 
@@ -1612,16 +1812,94 @@ def _reit_peer_inputs(symbol: str, peer_payload: dict, property_type,
             "reason": narrowed["reason"], "rows": narrowed["rows"]}
 
 
+def _insurance_peer_inputs(symbol: str, peer_payload: dict, subtype,
+                           cfg: dict) -> dict:
+    """Price to book and profitability for each comparable insurer, narrowed
+    to insurers writing the same kind of business where enough exist.
+
+    Each peer is measured by the same module on the same filings the subject
+    is, so a car insurer is never compared against a life insurer's book
+    value computed by somebody else's definition.
+    """
+    rows = []
+    for r in (peer_payload or {}).get("rows") or []:
+        sym = r.get("symbol")
+        if not sym or sym == symbol:
+            continue
+        facts = _fund.company_facts(sym) if _fund is not None else None
+        if not facts:
+            continue
+        prof = _fund.business_description(sym) or {}
+        sub = prof.get("insurer_subtype")
+        if not sub:
+            continue
+        m = _ins.metrics(_fund, facts, price=r.get("price"),
+                         shares_outstanding=_peer_shares(r, facts),
+                         subtype=sub, cfg=cfg)
+        rows.append({
+            "symbol": sym, "subtype": sub,
+            "price_to_book": (m.get("price_to_book") or {}).get("value"),
+            "price_to_tangible_book":
+                (m.get("price_to_tangible_book") or {}).get("value"),
+            "return_on_equity_pct":
+                (m.get("return_on_equity_pct") or {}).get("value")})
+    narrowed = _ins.subtype_peers(rows, subtype, cfg)
+    out = _ins.peer_inputs(narrowed["rows"])
+    out.update({"level": (peer_payload or {}).get("level"),
+                "matched": narrowed["matched"], "subtype": narrowed["subtype"],
+                "reason": narrowed["reason"], "rows": narrowed["rows"]})
+    return out
+
+
+def _broker_peer_inputs(symbol: str, peer_payload: dict, subtype,
+                        cfg: dict) -> dict:
+    """The same for brokers — and every candidate has to clear the
+    broker-dealer test before it counts as a comparable, so an asset manager
+    sharing the industry code never lands in the group."""
+    rows = []
+    for r in (peer_payload or {}).get("rows") or []:
+        sym = r.get("symbol")
+        if not sym or sym == symbol:
+            continue
+        facts = _fund.company_facts(sym) if _fund is not None else None
+        if not facts:
+            continue
+        prof = _fund.business_description(sym) or {}
+        m = _brk.metrics(_fund, facts, price=r.get("price"),
+                         shares_outstanding=_peer_shares(r, facts),
+                         subtype=prof.get("broker_subtype"), cfg=cfg)
+        if not (m.get("broker_evidence") or {}).get("is_broker"):
+            continue
+        rows.append({
+            "symbol": sym, "subtype": m.get("subtype"),
+            "price_to_book": (m.get("price_to_book") or {}).get("value"),
+            "price_to_tangible_book":
+                (m.get("price_to_tangible_book") or {}).get("value"),
+            "return_on_equity_pct":
+                (m.get("return_on_equity_pct") or {}).get("value")})
+    narrowed = _brk.subtype_peers(rows, subtype, cfg)
+    out = _brk.peer_inputs(narrowed["rows"])
+    out.update({"level": (peer_payload or {}).get("level"),
+                "matched": narrowed["matched"], "subtype": narrowed["subtype"],
+                "reason": narrowed["reason"], "rows": narrowed["rows"]})
+    return out
+
+
 def fair_value_block(snap: dict, vhist: dict, peer_payload: dict, facts: dict,
                      cfg: dict, bank: dict | None = None,
-                     reit: dict | None = None) -> dict:
+                     reit: dict | None = None,
+                     insurance: dict | None = None,
+                     broker: dict | None = None) -> dict:
     """Bear / Base / Bull with the methods laid out beside each other.
 
     Which methods depends on what the business is. A bank is valued against
     tangible book and its own profitability, a property trust against funds
-    from operations, and everything else against earnings and cash — and an
-    insurer or a broker against nothing, because no model here is built for
-    one and half a model is worse than an honest refusal.
+    from operations, an insurer and a broker against book value and what
+    they earn on it, and everything else against earnings and cash. A
+    specialized filer whose own model refused — an insurer whose subtype
+    could not be read, a filer in a broker's industry code that is not a
+    broker — falls through to no valuation at all rather than to the generic
+    one, because half a model is worse than an honest refusal.
     """
     btype = (snap.get("business_type") or {}).get("type")
     if btype == "BANK" and bank is not None:
@@ -1644,6 +1922,47 @@ def fair_value_block(snap: dict, vhist: dict, peer_payload: dict, facts: dict,
                             confidence_cap=cap, confidence_cap_reason=why)
         out["model"] = "REIT"
         return out
+    if btype == "INSURANCE" and (insurance or {}).get("available"):
+        cap, why = _ins.confidence_cap(insurance)
+        methods = _ins.methods(
+            {**insurance, "eps_ttm": snap.get("eps_ttm")}, vhist,
+            _insurance_peer_inputs(snap.get("symbol") or "", peer_payload,
+                                   insurance.get("subtype"), cfg),
+            ten_year_pct=snap.get("treasury_10y_pct"), cfg=cfg)
+        out = fv.fair_value(methods, price=snap.get("price"), cfg=cfg,
+                            business_type=snap.get("business_type"),
+                            confidence_cap=cap, confidence_cap_reason=why)
+        out["model"] = "INSURANCE"
+        out["subtype"] = insurance.get("subtype")
+        return out
+    if btype == "BROKER" and (broker or {}).get("available"):
+        cap, why = _brk.confidence_cap(broker)
+        methods = _brk.methods(
+            {**broker, "eps_ttm": snap.get("eps_ttm")}, vhist,
+            _broker_peer_inputs(snap.get("symbol") or "", peer_payload,
+                                broker.get("subtype"), cfg),
+            ten_year_pct=snap.get("treasury_10y_pct"), cfg=cfg)
+        out = fv.fair_value(methods, price=snap.get("price"), cfg=cfg,
+                            business_type=snap.get("business_type"),
+                            confidence_cap=cap, confidence_cap_reason=why)
+        out["model"] = "BROKER"
+        out["subtype"] = broker.get("subtype")
+        return out
+    # A specialized filer whose own model could not run. The generic path
+    # below would be refused anyway — `fair_value` will not accept
+    # earnings-and-cash-flow methods for a bank — but it would explain the
+    # refusal in general terms when this module knows the specific one.
+    specialized = {"INSURANCE": insurance, "BROKER": broker,
+                   "BANK": bank, "REIT": reit}.get(btype)
+    if btype in fv.SPECIALIZED_TYPES and specialized is not None \
+            and not specialized.get("available"):
+        return {"available": False, "verdict": fv.SPECIALIZED,
+                "confidence": {"level": "UNRELIABLE", "spread": None,
+                               "reason": fv.SPECIALIZED},
+                "methods": [], "model": None,
+                "business_type": btype,
+                "reason": specialized.get("reason") or
+                ((snap.get("business_type") or {}).get("note") or "")}
     eps = snap.get("eps_ttm")
     ey = _window_values(vhist, "earnings_yield_pct")
     fy = _window_values(vhist, "fcf_yield_pct")
@@ -1922,6 +2241,16 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
                    if btype.get("type") == "BANK" else None)
     out["reit"] = (reit_block(out, facts, cfg)
                    if btype.get("type") == "REIT" else None)
+    out["insurance"] = (insurance_block(out, facts, cfg)
+                        if btype.get("type") == "INSURANCE" else None)
+    out["broker"] = (broker_block(out, facts, cfg)
+                     if btype.get("type") == "BROKER" else None)
+
+    # The benchmark this ticker will be scored against, recorded on the day
+    # the recommendation is made. Choosing it later — after seeing which
+    # index made the recommendation look best — would be exactly the kind of
+    # after-the-fact selection the forward-validation engine refuses.
+    out["benchmark"] = _benchmark_reference(sym)
 
     # 3. Valuation against its own history.
     vhist = valuation_history(sym, years=5, raw=True,
@@ -1953,7 +2282,9 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
 
     # 6. Is the cheapness real?
     out["value_trap"] = value_trap_block(sym, facts, out, out["quality"],
-                                         out["valuation"], out["revisions"], cfg)
+                                         out["valuation"], out["revisions"],
+                                         cfg, insurance=out.get("insurance"),
+                                         broker=out.get("broker"))
 
     # 7. Context.
     out["earnings_cycle"] = _cycle(sym, cfg)
@@ -1973,7 +2304,9 @@ def payload(symbol: str, force: bool = False, years: int = 3) -> dict:
     out["scenario_probabilities"] = probs
     out["fair_value"] = fair_value_block(out, vhist, peer_payload, facts, cfg,
                                          bank=out.get("bank"),
-                                         reit=out.get("reit"))
+                                         reit=out.get("reit"),
+                                         insurance=out.get("insurance"),
+                                         broker=out.get("broker"))
     out["expected_return"] = expected_return_block(out, vhist, facts,
                                                    peer_payload, cfg, probs,
                                                    reit=out.get("reit"))
@@ -2120,6 +2453,38 @@ def _underreaction(symbol: str, snap: dict, peer_payload: dict) -> dict:
     return out
 
 
+def _benchmark_reference(symbol: str) -> dict:
+    """The sector benchmark for a ticker and its close today.
+
+    Stored in the snapshot rather than looked up at scoring time. A
+    benchmark-relative result is only honest if the benchmark was chosen
+    before the outcome was known.
+    """
+    bench = _benchmark_symbol(symbol)
+    out = {"symbol": bench, "close": None, "as_of": None, "reason": ""}
+    if not bench:
+        out["reason"] = ("No sector benchmark is mapped for this ticker, so "
+                         "its result will be reported on its own rather than "
+                         "against one.")
+        return out
+    if _DAILY_FN is None:
+        out["reason"] = "No daily price history provider is wired."
+        return out
+    try:
+        bars = (_DAILY_FN(bench, 10) or {}).get("bars") or []
+    except Exception:                                # noqa: BLE001
+        bars = []
+    for b in reversed(bars):
+        c = _f(b.get("close") if b.get("close") is not None else b.get("c"))
+        if c and c > 0:
+            out["close"] = c
+            out["as_of"] = str(b.get("date") or b.get("d") or "")[:10]
+            break
+    if out["close"] is None:
+        out["reason"] = f"No usable close is available for {bench}."
+    return out
+
+
 def _relative_90d(symbol: str | None):
     """Stock's 90-day return minus its benchmark's, in points."""
     if not symbol or _DAILY_FN is None:
@@ -2201,9 +2566,24 @@ def _scan_row(sym: str, snap: dict) -> dict:
     # and a property trust appear with a valuation figure of their own
     # rather than with a blank where a price-to-earnings would have gone.
     bank, reit = snap.get("bank") or {}, snap.get("reit") or {}
+    ins, brk = snap.get("insurance") or {}, snap.get("broker") or {}
     row["headline_multiple"] = None
     row["headline_multiple_label"] = ""
-    if bank.get("available"):
+    if ins.get("available"):
+        row["headline_multiple"] = (ins.get("price_to_book") or {}).get("value")
+        row["headline_multiple_label"] = "Price to book"
+        row["insurance_subtype"] = ins.get("subtype")
+        row["insurance_combined_ratio_pct"] = (
+            ins.get("combined_ratio_pct") or {}).get("value")
+        row["insurance_reserve_development_state"] = (
+            ins.get("reserve_development_state") or {}).get("state")
+    elif brk.get("available"):
+        row["headline_multiple"] = (brk.get("price_to_book") or {}).get("value")
+        row["headline_multiple_label"] = "Price to book"
+        row["broker_subtype"] = brk.get("subtype")
+        row["broker_roe_pct"] = (
+            brk.get("return_on_equity_pct") or {}).get("value")
+    elif bank.get("available"):
         row["headline_multiple"] = (bank.get("price_to_tangible_book") or {}).get("value")
         row["headline_multiple_label"] = "Price to tangible book"
         row["bank_rotce_pct"] = (
@@ -2216,6 +2596,135 @@ def _scan_row(sym: str, snap: dict) -> dict:
         row["headline_multiple"] = snap.get("trailing_pe")
         row["headline_multiple_label"] = "Price to earnings, trailing"
     return row
+
+
+# ── Phase 5: how real the option data is ────────────────────────────────────
+
+CAPTURE_DEFAULTS = {
+    # The furthest expiration the covered-call capture asks for. The longest
+    # tenor the simulator sells is thirty to forty-five days, and a roll
+    # window on top of that reaches about fifty.
+    "capture_max_dte": 50,
+    # Strikes around the money to request. Wide enough for a delta target,
+    # a five-percent-above-spot rule and a fair-value-aware strike that can
+    # sit a quarter above the price; narrow enough that a daily capture of a
+    # watchlist is a small request rather than a whole chain.
+    "capture_strike_count": 50,
+}
+
+
+def chain_readiness(symbol: str, store: dict | None = None,
+                    days=None) -> dict:
+    """How much REAL option history exists for this ticker, and what that
+    makes any run built on it.
+
+    Three states and no fourth: a run is a REAL CHAIN BACKTEST, or PART REAL
+    and part model, or a MODEL-BASED ESTIMATE. They are never averaged into
+    a single "accuracy" figure, because a model fill and a real fill are
+    different KINDS of number rather than the same number known to different
+    precisions.
+    """
+    sym = (symbol or "").upper().strip()
+    store = chain_store.load(sym) if store is None else store
+    out = chain_store.readiness(store, days)
+    out["symbol"] = sym
+    cov = out.get("window_coverage_pct")
+    if not out["days"]:
+        out["mode"] = _cc.BASIS_MODEL
+        out["mode_note"] = (
+            "Every option price in this run came from the model, because no "
+            "end-of-day chain has been captured for this ticker yet. The "
+            "shape of the answer is right and the level depends on a "
+            "volatility assumption.")
+    elif cov is not None and cov >= 99.0:
+        out["mode"] = _cc.BASIS_REAL
+        out["mode_note"] = ("Every day this run walked through has a captured "
+                            "chain behind it.")
+    else:
+        out["mode"] = _cc.BASIS_MIXED
+        out["mode_note"] = (
+            f"{out['days']} day{'s' if out['days'] != 1 else ''} of real "
+            f"end-of-day chains have been captured for this ticker, covering "
+            f"{cov:.0f}% of the days this run walks through. The rest are "
+            f"model prices. Real fills and model fills are counted "
+            f"separately below and are never blended into one number."
+            if cov is not None else
+            f"{out['days']} day{'s' if out['days'] != 1 else ''} of real "
+            f"end-of-day chains have been captured for this ticker.")
+    out["grows_only_forward"] = True
+    out["backfill_note"] = (
+        "There is no source of historical option chains this app can reach, "
+        "so this figure can only be raised by letting the app keep running. "
+        "Nothing here is ever back-filled.")
+    return out
+
+
+def capture_chains(symbols, cfg: dict | None = None) -> dict:
+    """Ask for the near-dated chain of each ticker so it lands in the store.
+
+    The capture is deliberately NARROW: expirations out to about fifty days
+    and a bounded ring of strikes around the money. That is exactly what the
+    covered-call tenors need — weekly, two to three weeks, one to one and a
+    half months — with room for a strike a quarter above the price. Pulling
+    a whole chain every day for a watchlist would be a large request for
+    data no part of this app reads.
+
+    Nothing is back-filled and nothing already stored for today is replaced.
+    """
+    cfg = cfg or (config()[0])
+    out = {"captured": [], "skipped": [], "failed": [],
+           "as_of": _now_iso(),
+           "max_dte": int(cfg.get("capture_max_dte",
+                                  CAPTURE_DEFAULTS["capture_max_dte"])),
+           "strike_count": int(cfg.get("capture_strike_count",
+                                       CAPTURE_DEFAULTS["capture_strike_count"]))}
+    if _CC_CHAIN_FN is None:
+        out["reason"] = ("No option-chain provider is wired for capture, so "
+                         "no chains can be recorded today.")
+        return out
+    for sym in symbols or []:
+        s = _safe(sym)
+        if not s:
+            continue
+        try:
+            payload_ = _CC_CHAIN_FN(s, out["max_dte"], out["strike_count"])
+        except Exception:                            # noqa: BLE001
+            payload_ = None
+        if not payload_:
+            out["failed"].append(s)
+            continue
+        # `record` returns False when a snapshot already exists for today,
+        # which is the correct outcome rather than an error: the first
+        # capture of a day is the one that is kept.
+        if chain_store.record(s, payload_, source=payload_.get("source"),
+                              event=_chain_event(s)):
+            out["captured"].append(s)
+        else:
+            out["skipped"].append(s)
+    return out
+
+
+def _chain_event(symbol: str) -> dict | None:
+    """What was going on around this ticker when the chain was captured.
+
+    An option price a week before earnings is not the same observation as
+    one a week after, and a snapshot that does not say which is a number
+    without a context. Kept small — this rides along with every stored day.
+    """
+    if _EARNINGS_FN is None:
+        return None
+    try:
+        e = _EARNINGS_FN(symbol) or {}
+    except Exception:                                # noqa: BLE001
+        return None
+    nxt = str(e.get("next") or "")[:10]
+    if not nxt:
+        return None
+    try:
+        days = (date.fromisoformat(nxt) - date.today()).days
+    except ValueError:
+        return None
+    return {"next_earnings": nxt, "days_to_earnings": days}
 
 
 # ── Phase 4: the covered-call simulator ─────────────────────────────────────
@@ -2280,6 +2789,9 @@ def covered_call(symbol: str, years: int = 3, policies=None) -> dict:
         sym_store=store, dividends=divs, dividend_rate_ttm=dps,
         fair_value_by_day=fv_by_day, rate_pct=rate.get("pct"))
     out.update(runs)
+    out["readiness"] = chain_readiness(
+        sym, store, [str(b.get("date") or b.get("d") or "")[:10]
+                     for b in bars])
     out["fair_value_days_recorded"] = len(fv_by_day)
     out["fair_value_note"] = (
         f"The fair-value-aware rules used the {len(fv_by_day)} day"
@@ -2376,8 +2888,68 @@ def validation(symbols=None, benchmark: str | None = None) -> dict:
     out["benchmark"] = bench
     out["tickers_with_history"] = len(hist)
     out["stored_rows"] = sum(len(v) for v in hist.values())
+    out["recording"] = recording_audit(hist)
     out["available"] = True
     out["reason"] = out["calibration"].get("reason") or ""
+    return out
+
+
+# What every stored day must carry for a future scoring pass to settle up
+# against the recommendation exactly as it was made.
+REQUIRED_FOR_SCORING = (
+    ("price", "the share price on the day"),
+    ("config_hash", "the exact rule version that produced it"),
+    ("entry_verdict", "the recommendation itself"),
+    ("preferred_structure", "which structure was preferred"),
+    ("recommended_contract", "the exact contract and the quote it carried"),
+    ("benchmark_symbol", "the benchmark it will be measured against"),
+    ("fair_value_base", "the fair value behind the recommendation"),
+    ("buy_zone", "the price at which it said to buy"),
+)
+
+
+def recording_audit(hist: dict) -> dict:
+    """Is today's recording complete enough for tomorrow's scoring?
+
+    This looks FORWARD, not backward. Old rows are never rewritten, so a row
+    written before a field existed will always lack it and that is correct.
+    What matters is whether the rows being written NOW carry everything a
+    future exact scoring pass needs — and if one does not, saying so today is
+    the only chance to fix it before another year of rows goes by.
+    """
+    latest = []
+    for sym, rows in (hist or {}).items():
+        if rows:
+            latest.append((sym, rows[-1]))
+    out = {"tickers": len(latest), "complete": 0, "fields": [],
+           "missing_examples": [], "reason": ""}
+    if not latest:
+        out["reason"] = ("Nothing has been recorded yet, so there is nothing "
+                         "to check the recording against.")
+        return out
+    for key, what in REQUIRED_FOR_SCORING:
+        have = [s for s, r in latest if r.get(key) is not None]
+        out["fields"].append({
+            "field": key, "what": what, "n": len(have),
+            "of": len(latest),
+            "complete": len(have) == len(latest),
+            "missing": sorted(s for s, r in latest if r.get(key) is None)[:8]})
+    out["complete"] = sum(1 for f in out["fields"] if f["complete"])
+    gaps = [f for f in out["fields"] if not f["complete"]]
+    if not gaps:
+        out["reason"] = (
+            f"Every one of the {len(latest)} tickers being recorded carries "
+            f"all {len(REQUIRED_FOR_SCORING)} things a future scoring pass "
+            f"needs. Rows already on disk are never revised, so this says "
+            f"what is being written from today onward.")
+    else:
+        out["missing_examples"] = [f["field"] for f in gaps]
+        out["reason"] = (
+            f"{len(gaps)} of {len(REQUIRED_FOR_SCORING)} required fields are "
+            f"not being recorded for every ticker: "
+            + ", ".join(f["field"] for f in gaps) +
+            ". A recommendation missing one of these cannot be scored "
+            "exactly later, and nothing can be filled in after the fact.")
     return out
 
 
@@ -2482,6 +3054,9 @@ _SCHED = {"started": False, "recorded_for": None}
 _STARRED_FN = None
 RECORD_AFTER_ET_HOUR = 17
 MAX_DAILY_SYMBOLS = 60
+# Chain capture is one network request per ticker per day against a
+# rate-limited broker API, so it is bounded separately from the snapshot.
+MAX_CAPTURE_SYMBOLS = 40
 # The industry index behind peer groups is built a slice at a time.
 # A ticker's SIC code never changes, so once a name is in it stays in.
 PEER_INDEX_BUDGET = 120
@@ -2536,4 +3111,12 @@ def tick(now: datetime | None = None) -> dict | None:
                 "as_of": _now_iso()} if warmed else None
     out = record_daily(syms)
     out["peer_index"] = warmed
+    # The option chains for the followed names, captured after the close so
+    # the covered-call simulator and the option backtests become real with
+    # time. This cannot be caught up on later — a day that goes uncaptured
+    # is gone — so it runs on the same beat as the snapshot.
+    try:
+        out["chains"] = capture_chains(syms[:MAX_CAPTURE_SYMBOLS])
+    except Exception:                                # noqa: BLE001
+        out["chains"] = None
     return out
