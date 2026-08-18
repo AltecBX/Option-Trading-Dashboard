@@ -20,8 +20,10 @@ A bank compounding twenty percent on tangible common equity is worth a
 large premium to that equity; one earning six percent, below what its
 shareholders could get elsewhere, is worth a discount. So the cheapest
 price-to-tangible-book in a peer group is not the cheapest bank — it is
-usually the least profitable one. Three of the four valuation methods here
-account for that, one of them by construction:
+usually the least profitable one. Two of the five valuation methods here
+account for that directly: the peer method prices the bank off a fitted
+relationship between profitability and multiple where one holds across the
+group, and one method is nothing but that relationship written out:
 
     Justified price to tangible book = (ROTCE − g) ÷ (Cost of equity − g)
 
