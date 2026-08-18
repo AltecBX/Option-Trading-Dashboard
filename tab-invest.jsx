@@ -2489,6 +2489,18 @@ function InvCoveredCall({ apiFetch, symbol }) {
               </tbody>
             </table>
           </div>
+          {(d.stranded_in_cash || []).length > 0 && (
+            <div className="inv-note down" title="After the shares were called
+              away, the strike they were sold at no longer bought a hundred
+              shares back. The position could not be rebuilt without adding
+              money, so the run finished holding cash — which is arithmetic
+              rather than a decision, and worth knowing before reading the
+              result as a choice the strategy made.">
+              {d.stranded_in_cash.length} of {d.n_policies} policies ended
+              holding cash because the assignment proceeds no longer bought the
+              shares back: {d.stranded_in_cash.join("; ")}.
+            </div>
+          )}
           <div className="inv-note" title="One company over one stretch of one
             market is a single observation. It describes what happened here; it
             is not evidence that any of these rules works in general.">

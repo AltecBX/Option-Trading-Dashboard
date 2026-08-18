@@ -830,8 +830,11 @@ def compare_policies(bars, iv_series, policies, cfg=None, **kw) -> dict:
                    "average_days_in_trade",
                    "average_premium_pct_of_notional",
                    "versus_buy_and_hold", "versus_buy_and_hold_pct",
-                   "fill_basis", "real_fill_pct", "shares_at_end")}
+                   "fill_basis", "real_fill_pct", "shares_at_end",
+                   "could_not_buy_back")}
                  for r in runs],
+        "stranded_in_cash": [r["label"] for r in runs
+                             if r.get("could_not_buy_back")],
         "buy_and_hold": hold,
         "best": runs[0]["label"],
         "n_beat_buy_and_hold": len(beat),

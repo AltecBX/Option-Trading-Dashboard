@@ -393,6 +393,25 @@ class TestComparison(unittest.TestCase):
         self.assertFalse(r["available"])
         self.assertIn("needs a price history", r["reason"])
 
+    def test_policies_stranded_in_cash_are_named_in_the_comparison(self):
+        out = CC.compare_policies(RAMP, [0.3] * len(RAMP),
+                                  [{"tenor": "MONTHLY", "strike_rule": "PERCENT",
+                                    "roll_rule": "HOLD",
+                                    "assignment": "RE_ENTER_ALWAYS"}],
+                                  cfg={"cc_percent_otm": 0.05}, rate_pct=0.0)
+        # A run that ends in cash because the proceeds no longer buy the
+        # shares back must not read as a choice the strategy made.
+        self.assertTrue(out["rows"][0]["could_not_buy_back"])
+        self.assertEqual(len(out["stranded_in_cash"]), 1)
+
+    def test_nothing_is_stranded_when_the_shares_are_never_assigned(self):
+        out = CC.compare_policies(FALL, [0.3] * len(FALL),
+                                  [{"tenor": "MONTHLY", "strike_rule": "PERCENT",
+                                    "roll_rule": "HOLD",
+                                    "assignment": "RE_ENTER_ALWAYS"}],
+                                  cfg={"cc_percent_otm": 0.30}, rate_pct=0.0)
+        self.assertEqual(out["stranded_in_cash"], [])
+
     def test_a_run_with_no_workable_policy_says_so(self):
         out = CC.compare_policies(bars([100.0] * 5), [0.3] * 5,
                                   CC.default_policies())

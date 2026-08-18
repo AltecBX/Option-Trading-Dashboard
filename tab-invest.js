@@ -2365,7 +2365,10 @@ function InvCoveredCall({
     className: "scan-num"
   }, invCount(r.average_days_in_trade)), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, invPct(r.average_premium_pct_of_notional, 2))))))), /*#__PURE__*/React.createElement("div", {
+  }, invPct(r.average_premium_pct_of_notional, 2))))))), (d.stranded_in_cash || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: "After the shares were called away, the strike they were sold at no longer bought a hundred shares back. The position could not be rebuilt without adding money, so the run finished holding cash \u2014 which is arithmetic rather than a decision, and worth knowing before reading the result as a choice the strategy made."
+  }, d.stranded_in_cash.length, " of ", d.n_policies, " policies ended holding cash because the assignment proceeds no longer bought the shares back: ", d.stranded_in_cash.join("; "), "."), /*#__PURE__*/React.createElement("div", {
     className: "inv-note",
     title: "One company over one stretch of one market is a single observation. It describes what happened here; it is not evidence that any of these rules works in general."
   }, d.verdict_note), /*#__PURE__*/React.createElement("div", {
