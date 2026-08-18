@@ -12347,6 +12347,27 @@ a.tabsheet-btn.site { text-decoration: none; }
 .inv-comp-table td, .inv-fv-table td, .inv-grid-table td { white-space: nowrap; }
 .inv-comp-table .inv-contract-line { white-space: normal; }
 
+/* ── Phase 4 ─────────────────────────────────────────────────────────── */
+
+.inv-bank, .inv-reit, .inv-cc, .inv-fwd { display: flex; flex-direction: column;
+  gap: 10px; }
+.inv-note.down { color: var(--down); }
+
+/* The buy-and-hold row is the yardstick every policy above is measured
+   against, so it is marked out rather than left to look like one more row. */
+.inv-row-hold td { border-top: 1px solid var(--line);
+  border-bottom: 2px solid var(--line); background: var(--bg-2); }
+
+.inv-cc-ctrl { margin-left: auto; display: flex; gap: 6px; align-items: center;
+  text-transform: none; letter-spacing: 0; }
+.inv-cc-ctrl select { font: 500 11px/1.6 var(--font-sans); background: var(--bg-2);
+  color: var(--fg); border: 1px solid var(--line); border-radius: 4px;
+  padding: 2px 6px; }
+
+.inv-fwd-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.inv-fwd-tabs .btn.active { border-color: var(--accent); color: var(--fg); }
+.inv-fwd-tabs .btn:disabled { opacity: .4; cursor: default; }
+
 @media (max-width: 620px) {
   /* The decision bar keeps every cell — those six numbers ARE the page — at
      two per row. Everything wider than the screen scrolls inside its own

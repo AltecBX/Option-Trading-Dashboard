@@ -282,6 +282,58 @@ until one confirms load (mobile Safari fires `onError` unreliably).
 | **Finviz Elite** (`elite.finviz.com/news_export.ashx?auth=TOKEN`) | Real-time export API, embedded Elite views | free finviz.com public pages + Google News RSS |
 | CME (via brokers) | FedWatch probabilities, futures OI, when-issued yields | ZQ-implied path; omit OI/WI honestly |
 
+## 9b. What SEC XBRL supports for banks and property trusts (Phase 4)
+
+Measured directly, ticker by ticker, before any of it was built. These are the
+coverage counts that decided what the models compute and what they refuse.
+
+**Banks (15 large and regional US lenders measured):**
+
+| Concept | Coverage | Note |
+|---|---|---|
+| `InterestIncomeExpenseNet` | 14/15 | Net interest income — the core revenue line |
+| `NoninterestIncome` / `NoninterestExpense` | 14/15 | Together give the efficiency ratio |
+| `Goodwill` / `IntangibleAssetsNetExcludingGoodwill` | 14/15 | The tangible-book deductions |
+| `PreferredStockValue` / `…LiquidationPreferenceValue` | 13/15 | **Bank of America tags neither** |
+| `Deposits`, `InterestExpenseDeposits` | 14/15, 13/15 | Funding cost |
+| Loans (four alternative concepts) | 14/15 | |
+| Net charge-offs (three alternatives) | 13/15 | |
+| Non-accrual loans | 9/15 | JPMorgan does not tag it |
+| Capital ratios | 9/15 | And filers tag DIFFERENT ratios — common equity tier one, tier one, or total capital — so which one is named on screen |
+| **Net interest MARGIN, or any earning-asset base** | **0/15** | Reported instead as net interest income over average TOTAL assets, under that name |
+
+**Property trusts (20 large US trusts measured):**
+
+| Concept | Coverage | Note |
+|---|---|---|
+| **`FundsFromOperations`** | **0/20** | Not one trust tags it. Reconstructed from components |
+| `NetIncomeLossAvailableToCommonStockholdersBasic` | 20/20 | |
+| Depreciation and amortisation | 19/20 | AvalonBay tags only `Depreciation` |
+| Gains on property sales | sporadic | Realty Income every quarter, Prologis stopped 2019, Simon Property Group never |
+| Impairments | 20/20 concept present, sporadic quarters | |
+| **Occupancy** | **0/20** | Prose only |
+| **Same-store net operating income** | **0/20** | Press-release tables only |
+| **EBITDAre** | **0/20** | So net debt is shown over funds from operations, under that name |
+| Dividends per share | 19/20 | But only 12/20 tag it for the CURRENT trailing year |
+
+Two gotchas that cost real accuracy and are worth writing down:
+
+- **Concept lists ordered by scope need strict priority.** `pick_concept`
+  breaks a tie on the newest end date by COVERAGE, which is right when every
+  alternative is a synonym. Citigroup tags both `NoninterestExpense` (48
+  quarters, the total) and `OtherNoninterestExpense` (70 quarters, one line
+  inside it), both ending the same day — and coverage alone read Citigroup's
+  cost of running the bank as 7% of revenue rather than 65%. Metrics whose
+  alternatives differ in SCOPE are listed in `fundamentals.STRICT_PRIORITY`.
+- **A filer can stop tagging the cover page and keep filing.** Simon Property
+  Group's newest `dei:EntityCommonStockSharesOutstanding` is dated September
+  2009 against a June 2026 income statement — 6,117 days stale. Taking it at
+  face value understated its market value by 13% and every ratio built on it.
+  A cover-page count more than 200 days behind the latest reported period is
+  now treated as abandoned; staleness is measured against the newest fact in
+  the filer's own record, never against the clock, so the answer does not
+  change with the date the app is run.
+
 ## 10. House rules that made all of this reliable
 
 1. **Cache by cadence**: daily data 15–30 min, monthly (CPI/COT) 6–12 h,

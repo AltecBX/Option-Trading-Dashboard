@@ -49,6 +49,12 @@ FAIR_VALUE_VERSION = "invest-fairvalue-1.0.0"
 
 SPECIALIZED = "SPECIALIZED MODEL REQUIRED"
 
+# Business types whose economics the generic earnings-and-cash-flow methods
+# cannot describe. A type stays on this list forever; what changes is
+# whether a purpose-built model exists to hand in methods for it, which each
+# method declares through its own `specialized_for` field.
+SPECIALIZED_TYPES = ("BANK", "INSURANCE", "BROKER", "REIT")
+
 CONFIDENCE_LEVELS = ("HIGH", "MODERATE", "LOW", "UNRELIABLE")
 
 # Every knob here is exposed in thresholds.json under "investment".
@@ -68,6 +74,12 @@ DEFAULTS = {
     # Method B — percentiles of the peer group's member multiples.
     "peer_bear_percentile": 0.25,
     "peer_bull_percentile": 0.75,
+    # Phase 4 — percentiles of a company's own history of a MULTIPLE rather
+    # than a yield. A low multiple is a cheap price, so the pessimistic end
+    # is the low percentile: the inversion above does not apply here.
+    "self_bear_multiple_percentile": 0.15,
+    "self_base_multiple_percentile": 0.50,
+    "self_bull_multiple_percentile": 0.85,
     # Method C — percentiles of the company's own FREE-CASH-FLOW-YIELD history.
     "fcf_bear_yield_percentile": 0.85,
     "fcf_base_yield_percentile": 0.50,
@@ -162,14 +174,25 @@ def _ordered(bear, base, bull):
 
 
 def _method(key, label, basis, bear=None, base=None, bull=None, n=0,
-            reason="", rank=0.0, detail=None) -> dict:
+            reason="", rank=0.0, detail=None, specialized_for=None) -> dict:
     ok = base is not None and base > 0
     bear, base, bull = _ordered(bear, base, bull) if ok else (bear, base, bull)
     return {"key": key, "label": label, "basis": basis,
             "available": bool(ok), "bear": bear, "base": base, "bull": bull,
             "n": n, "reason": "" if ok else (reason or "Not available."),
             "confidence_rank": rank if ok else 0.0,
+            # Set by a purpose-built model to declare which specialized
+            # business type it was written for. `fair_value` refuses a
+            # specialized business unless one of its methods says this.
+            "specialized_for": specialized_for,
             "detail": detail or {}}
+
+
+def stamp(methods, business_type: str):
+    """Mark methods as purpose-built for one specialized business type."""
+    for m in methods or []:
+        m["specialized_for"] = business_type
+    return methods or []
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -400,6 +423,107 @@ def method_fcf(normalized_fcf, shares_outstanding, fcf_yields_pct,
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# METHOD BUILDERS FOR SPECIALIZED BUSINESSES (Phase 4)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# A bank is valued against tangible book and a property trust against funds
+# from operations, but the SHAPE of the method is the one Phase 3 already
+# uses: a per-share figure the filings support, priced at a distribution of
+# multiples, giving a pessimistic / central / optimistic value that the same
+# combining code then handles.
+#
+# One direction changes and it matters. Phase 3's own-history method works
+# on YIELDS, where a high number is a cheap price, so its pessimistic value
+# comes from the HIGH end. These work on MULTIPLES, where a low number is a
+# cheap price, so the pessimistic value comes from the LOW end. Both are
+# named rather than written as percentiles in-line, for exactly that reason.
+
+MIN_MULTIPLE_OBSERVATIONS = 250
+
+
+def method_multiple_history(key, label, basis, per_share, multiples,
+                            cfg=None, bear_key="self_bear_multiple_percentile",
+                            base_key="self_base_multiple_percentile",
+                            bull_key="self_bull_multiple_percentile",
+                            rank: float = 3.0, min_n: int | None = None,
+                            what: str = "figure", detail=None) -> dict:
+    """A per-share figure priced at this company's OWN history of multiples.
+
+    A LOW multiple is a CHEAP price, so the pessimistic value comes from the
+    low end of the distribution — the opposite end from the yield methods.
+    """
+    cfg = cfg or {}
+    need = MIN_MULTIPLE_OBSERVATIONS if min_n is None else int(min_n)
+    ps = _num(per_share)
+    ms = [m for m in _clean(multiples) if m > 0]
+    if ps is None or ps <= 0:
+        return _method(key, label, basis,
+                       reason=(f"The {what} is zero or negative, so there is "
+                               f"nothing to place against the history."))
+    if len(ms) < need:
+        return _method(key, label, basis, n=len(ms),
+                       reason=(f"Only {len(ms)} daily valuation observations "
+                               f"are available — fewer than the {need} this "
+                               f"method needs before a percentile means "
+                               f"anything."))
+    m_bear = quantile(ms, float(cfg_get(cfg, bear_key)))
+    m_base = quantile(ms, float(cfg_get(cfg, base_key)))
+    m_bull = quantile(ms, float(cfg_get(cfg, bull_key)))
+    if not m_base or m_base <= 0:
+        return _method(key, label, basis, n=len(ms),
+                       reason="The median historical multiple is not positive.")
+    return _method(key, label, basis, bear=ps * m_bear, base=ps * m_base,
+                   bull=ps * m_bull, n=len(ms),
+                   rank=rank + min(1.0, len(ms) / 1250.0),
+                   detail={"multiple_bear": m_bear, "multiple_base": m_base,
+                           "multiple_bull": m_bull, "per_share": ps,
+                           **(detail or {})})
+
+
+def method_peer_multiple(key, label, basis, per_share, peer_multiples,
+                         base_multiple=None, level: str | None = None,
+                         cfg=None, rank: float = 2.0, min_peers: int | None = None,
+                         detail=None) -> dict:
+    """A per-share figure priced at what comparable businesses cost.
+
+    `base_multiple` is whatever the caller has decided the central comparable
+    multiple is — a group median, or a value read off a fitted relationship
+    between the multiple and profitability. When it is absent the median of
+    the members is used.
+    """
+    cfg = cfg or {}
+    need = MIN_PEERS_FOR_VALUE if min_peers is None else int(min_peers)
+    ps = _num(per_share)
+    ms = [m for m in _clean(peer_multiples) if m > 0]
+    base_m = _num(base_multiple)
+    if ps is None or ps <= 0:
+        return _method(key, label, basis,
+                       reason="The per-share figure is zero or negative.")
+    if level in (None, "", "BROAD BENCHMARK"):
+        return _method(key, label, basis, n=len(ms),
+                       reason=("The only group available is a broad market "
+                               "benchmark. Pricing this company off a group "
+                               "that is not in its business would be "
+                               "arithmetic rather than comparison."))
+    if len(ms) < need:
+        return _method(key, label, basis, n=len(ms),
+                       reason=(f"Only {len(ms)} comparable companies have a "
+                               f"positive multiple on this basis — fewer than "
+                               f"the {need} needed for a distribution."))
+    m_bear = quantile(ms, float(cfg_get(cfg, "peer_bear_percentile")))
+    m_bull = quantile(ms, float(cfg_get(cfg, "peer_bull_percentile")))
+    m_base = base_m if (base_m and base_m > 0) else quantile(ms, 0.5)
+    return _method(key, label, basis, bear=ps * m_bear, base=ps * m_base,
+                   bull=ps * m_bull, n=len(ms),
+                   rank=rank + (0.6 if level == "DIRECT PEERS" else
+                                0.3 if level == "INDUSTRY" else 0.0)
+                   + min(0.4, len(ms) / 60.0),
+                   detail={"multiple_bear": m_bear, "multiple_base": m_base,
+                           "multiple_bull": m_bull, "per_share": ps,
+                           "level": level, **(detail or {})})
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # COMBINING THEM
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -446,12 +570,49 @@ def confidence_for(spread, n_methods: int, cfg=None) -> dict:
                        f"not a tested result.")}
 
 
+def cap_confidence(conf: dict, cap: str | None, why: str = "") -> dict:
+    """Lower a confidence level to `cap` when the data behind it is known to
+    be weaker than the agreement between methods suggests. Never raises it.
+
+    Method agreement measures whether the methods point at the same answer.
+    It cannot see that they were all fed the same flawed input — a property
+    trust whose funds from operations had to be reconstructed without the
+    gains on its property sales agrees with itself perfectly and is still
+    working from a figure that reads high. This is where that gets priced in,
+    and because confidence sets how far above the pessimistic case the
+    valuation is credited, a lower confidence directly lowers the buy zone.
+    """
+    if not cap or cap not in CONFIDENCE_LEVELS:
+        return conf
+    order = {lvl: i for i, lvl in enumerate(CONFIDENCE_LEVELS)}
+    cur = conf.get("level")
+    if cur not in order or order[cap] <= order[cur]:
+        return conf
+    out = dict(conf)
+    out["level"] = cap
+    out["capped_from"] = cur
+    out["reason"] = ((conf.get("reason") or "") + " " +
+                     (why or f"Held down to {cap} because the data behind "
+                             f"these methods is weaker than their agreement "
+                             f"suggests.")).strip()
+    return out
+
+
 def fair_value(methods, price=None, cfg=None,
-               business_type: dict | None = None) -> dict:
+               business_type: dict | None = None,
+               confidence_cap: str | None = None,
+               confidence_cap_reason: str = "") -> dict:
     """Bear / Base / Bull, confidence, credited value and the buy zone."""
     cfg = cfg or {}
     btype = (business_type or {}).get("type")
-    if btype in ("BANK", "INSURANCE", "BROKER", "REIT"):
+    # A specialized business is refused unless the methods handed in were
+    # BUILT for it. A bank arriving with bank methods is valued; a bank
+    # arriving with earnings-and-cash-flow methods is still refused, and an
+    # insurer or a broker is refused always, because no module in this app
+    # builds methods for either.
+    specialized_ok = any(m.get("specialized_for") == btype
+                         for m in (methods or []) if m.get("available"))
+    if btype in SPECIALIZED_TYPES and not specialized_ok:
         return {"available": False, "verdict": SPECIALIZED,
                 "confidence": {"level": "UNRELIABLE", "spread": None,
                                "reason": SPECIALIZED},
@@ -471,7 +632,13 @@ def fair_value(methods, price=None, cfg=None,
                            "none to price."),
                 "business_type": btype}
 
-    valid = [m for m in (methods or []) if m.get("available")]
+    # A method marked `context_only` is drawn on screen and takes no part in
+    # the valuation — not the base, not the range, not the disagreement that
+    # sets the confidence. A property trust's distribution history is the
+    # case this exists for: it says what buyers have paid for the income,
+    # which is worth seeing beside a valuation and is not one.
+    valid = [m for m in (methods or [])
+             if m.get("available") and not m.get("context_only")]
     if not valid:
         return {"available": False, "verdict": "INSUFFICIENT DATA",
                 "confidence": confidence_for(None, 0, cfg),
@@ -482,7 +649,8 @@ def fair_value(methods, price=None, cfg=None,
 
     bases = [m["base"] for m in valid]
     spread = disagreement(bases)
-    conf = confidence_for(spread, len(valid), cfg)
+    conf = cap_confidence(confidence_for(spread, len(valid), cfg),
+                          confidence_cap, confidence_cap_reason)
     credit_map = cfg_get(cfg, "confidence_credit") or {}
     credit = float(credit_map.get(conf["level"],
                                   DEFAULTS["confidence_credit"][conf["level"]]))

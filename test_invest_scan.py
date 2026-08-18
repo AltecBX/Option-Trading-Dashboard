@@ -714,6 +714,7 @@ class TestConfigFlattening(InvestBase):
 
 import fair_value as FV                                # noqa: E402
 import invest_options as IO                            # noqa: E402
+import covered_call as _CC                             # noqa: E402
 import structures as ST                                # noqa: E402
 
 
@@ -976,6 +977,304 @@ class TestPhase3Config(Phase3Base):
         for group in ("fair_value", "expected_return", "structures",
                       "contracts", "implied_expectations"):
             self.assertNotIn(group, cfg)
+
+
+# ── Phase 4 ─────────────────────────────────────────────────────────────────
+
+class Phase4Base(Phase3Base):
+    """The sample filer, dressed as whatever kind of business the test needs.
+
+    The business type comes from the SEC's industry code, so the tests reach
+    the bank and property-trust paths by supplying that code the same way the
+    live app does — through `sic_metadata` — rather than by calling the
+    models directly. That is what makes these integration tests.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._real_sic = F.sic_metadata
+        self.sic = {"sic": "3571", "sic_description": "Computers",
+                    "name": "Sample Co", "cik": 42}
+        F.sic_metadata = lambda s: self.sic
+        self._real_desc = F.business_description
+        F.business_description = lambda s, *a, **k: self.profile
+        self.profile = None
+
+    def tearDown(self):
+        F.sic_metadata = self._real_sic
+        F.business_description = self._real_desc
+        super().tearDown()
+
+    def as_bank(self):
+        self.sic = {"sic": "6021", "sic_description": "National Commercial Banks",
+                    "name": "Sample Bank", "cik": 42}
+        f = F.company_facts(self.SYM)
+        gaap = f["facts"]["us-gaap"]
+        rows = gaap["EarningsPerShareDiluted"]["units"]["USD/shares"]
+        inst = [{"end": r["end"], "val": None, "filed": r["filed"]}
+                for r in rows]
+
+        def at(val):
+            return {"units": {"USD": [{"end": r["end"], "val": val,
+                                       "filed": r["filed"]} for r in inst]}}
+
+        gaap["StockholdersEquity"] = at(500.0)
+        gaap["Goodwill"] = at(50.0)
+        gaap["IntangibleAssetsNetExcludingGoodwill"] = at(10.0)
+        gaap["PreferredStockValue"] = at(40.0)
+        gaap["Assets"] = at(6000.0)
+        gaap["Deposits"] = at(4000.0)
+        gaap["FinancingReceivableExcludingAccruedInterestBeforeAllowanceForCreditLoss"] = at(3000.0)
+        gaap["CommonEquityTierOneCapitalToRiskWeightedAssets"] = {
+            "units": {"pure": [{"end": r["end"], "val": 0.118,
+                                "filed": r["filed"]} for r in inst]}}
+        for name, val in (("InterestIncomeExpenseNet", 30.0),
+                          ("NoninterestIncome", 10.0),
+                          ("NoninterestExpense", 22.0),
+                          ("InterestExpenseDeposits", 4.0),
+                          ("FinancingReceivableAllowanceForCreditLossWriteOffs", 2.0)):
+            gaap[name] = {"units": {"USD": [
+                fact(r["start"], r["end"], val, filed=r["filed"]) for r in rows]}}
+        S._MEM.clear()
+        return f
+
+    def as_reit(self, gains=True, property_type="RETAIL"):
+        self.sic = {"sic": "6798", "sic_description":
+                    "Real Estate Investment Trusts", "name": "Sample Trust",
+                    "cik": 42}
+        self.profile = {"symbol": self.SYM, "description": "A trust.",
+                        "moat_tags": [], "property_type": property_type,
+                        "profile_version": F.PROFILE_VERSION}
+        f = F.company_facts(self.SYM)
+        gaap = f["facts"]["us-gaap"]
+        rows = gaap["EarningsPerShareDiluted"]["units"]["USD/shares"]
+
+        def flow(val):
+            return {"units": {"USD": [fact(r["start"], r["end"], val,
+                                           filed=r["filed"]) for r in rows]}}
+
+        gaap["NetIncomeLossAvailableToCommonStockholdersBasic"] = flow(12.0)
+        gaap["DepreciationAndAmortization"] = flow(30.0)
+        gaap["CommonStockDividendsPerShareDeclared"] = {
+            "units": {"USD/shares": [fact(r["start"], r["end"], 0.20,
+                                          filed=r["filed"]) for r in rows]}}
+        if gains:
+            gaap["GainLossOnSaleOfProperties"] = flow(2.0)
+            gaap["ImpairmentOfRealEstate"] = flow(1.0)
+        else:
+            gaap.pop("GainLossOnSaleOfProperties", None)
+            gaap.pop("ImpairmentOfRealEstate", None)
+        S._MEM.clear()
+        return f
+
+
+class TestBankIntegration(Phase4Base):
+    def setUp(self):
+        super().setUp()
+        self.as_bank()
+        self.p = S.payload(self.SYM)
+
+    def test_the_business_type_gate_routes_to_the_bank_model(self):
+        self.assertEqual(self.p["business_type"]["type"], "BANK")
+        self.assertIsNotNone(self.p["bank"])
+        self.assertIsNone(self.p["reit"])
+        self.assertEqual(self.p["fair_value"]["model"], "BANK")
+
+    def test_a_bank_is_no_longer_refused(self):
+        self.assertTrue(self.p["fair_value"]["available"])
+        self.assertNotEqual(self.p["fair_value"].get("verdict"),
+                            "SPECIALIZED MODEL REQUIRED")
+        self.assertNotEqual(self.p["entry"]["verdict"],
+                            "SPECIALIZED MODEL REQUIRED")
+
+    def test_the_valuation_history_gains_the_bank_measures(self):
+        dists = self.p["valuation_history"]["distributions"]
+        self.assertIn("price_to_tangible_book", dists)
+        self.assertIn("price_to_book", dists)
+        self.assertNotIn("price_to_ffo", dists)
+
+    def test_the_reverse_cash_flow_audit_is_refused_for_a_bank(self):
+        imp = self.p["implied_expectations"]
+        self.assertFalse(imp["available"])
+        self.assertIn("neither quantity carries its usual meaning",
+                      imp["reason"])
+
+    def test_the_snapshot_records_the_bank_state(self):
+        row = S._daily_row(self.p)
+        for key in ("bank_price_to_tangible_book", "bank_rotce_pct",
+                    "bank_efficiency_ratio_pct", "fair_value_model"):
+            self.assertIn(key, row)
+        self.assertEqual(row["fair_value_model"], "BANK")
+
+    def test_the_scanner_row_shows_a_banks_own_multiple(self):
+        S.store(self.p)
+        out = S.scan([self.SYM], build_budget=0)
+        row = out["rows"][0]
+        self.assertEqual(row["fair_value_model"], "BANK")
+        self.assertEqual(row["headline_multiple_label"],
+                         "Price to tangible book")
+        self.assertIsNotNone(row["headline_multiple"])
+
+
+class TestReitIntegration(Phase4Base):
+    def setUp(self):
+        super().setUp()
+        self.as_reit()
+        self.p = S.payload(self.SYM)
+
+    def test_the_business_type_gate_routes_to_the_property_trust_model(self):
+        self.assertEqual(self.p["business_type"]["type"], "REIT")
+        self.assertIsNotNone(self.p["reit"])
+        self.assertIsNone(self.p["bank"])
+        self.assertEqual(self.p["fair_value"]["model"], "REIT")
+
+    def test_a_property_trust_is_no_longer_refused(self):
+        self.assertTrue(self.p["fair_value"]["available"])
+        self.assertNotEqual(self.p["entry"]["verdict"],
+                            "SPECIALIZED MODEL REQUIRED")
+
+    def test_the_valuation_history_gains_the_property_measures(self):
+        dists = self.p["valuation_history"]["distributions"]
+        self.assertIn("price_to_ffo", dists)
+        self.assertIn("dividend_yield_pct", dists)
+        self.assertNotIn("price_to_tangible_book", dists)
+
+    def test_the_return_bridge_runs_on_funds_from_operations(self):
+        er = self.p["expected_return"]
+        self.assertIn("funds from operations", er["per_share_basis"])
+        self.assertEqual(self.p["scenario_path"]["eps_ttm"],
+                         self.p["reit"]["ffo_per_share"]["value"])
+
+    def test_a_standard_company_still_uses_earnings(self):
+        p = S.payload(self.SYM) if False else None
+        self.sic = {"sic": "3571", "sic_description": "Computers",
+                    "name": "Sample Co", "cik": 42}
+        S._MEM.clear()
+        p = S.payload(self.SYM)
+        self.assertIn("earnings per share", p["expected_return"]["per_share_basis"])
+
+    def test_an_incomplete_reconstruction_lowers_the_confidence(self):
+        self.as_reit(gains=False)
+        p = S.payload(self.SYM)
+        self.assertFalse(p["reit"]["ffo"]["complete"])
+        self.assertEqual(p["fair_value"]["confidence_level"], "LOW")
+        self.assertIn("capped_from", p["fair_value"]["confidence"])
+
+    def test_the_snapshot_records_the_property_trust_state(self):
+        row = S._daily_row(self.p)
+        for key in ("reit_ffo_per_share", "reit_price_to_ffo",
+                    "reit_property_type", "reit_ffo_complete"):
+            self.assertIn(key, row)
+        self.assertEqual(row["reit_property_type"], "RETAIL")
+
+
+class TestInsurersAndBrokersStayRefused(Phase4Base):
+    def test_an_insurer_is_still_refused(self):
+        self.sic = {"sic": "6311", "sic_description": "Life Insurance",
+                    "name": "Sample Life", "cik": 42}
+        S._MEM.clear()
+        p = S.payload(self.SYM)
+        self.assertEqual(p["business_type"]["type"], "INSURANCE")
+        self.assertIsNone(p["bank"])
+        self.assertIsNone(p["reit"])
+        self.assertFalse(p["fair_value"]["available"])
+        self.assertEqual(p["fair_value"]["verdict"],
+                         "SPECIALIZED MODEL REQUIRED")
+        self.assertEqual(p["entry"]["verdict"], "SPECIALIZED MODEL REQUIRED")
+
+    def test_a_broker_is_still_refused(self):
+        self.sic = {"sic": "6211", "sic_description": "Security Brokers",
+                    "name": "Sample Broker", "cik": 42}
+        S._MEM.clear()
+        p = S.payload(self.SYM)
+        self.assertEqual(p["business_type"]["type"], "BROKER")
+        self.assertEqual(p["fair_value"]["verdict"],
+                         "SPECIALIZED MODEL REQUIRED")
+
+
+class TestCoveredCallEndpoint(Phase4Base):
+    def test_it_runs_over_the_stored_price_history(self):
+        out = S.covered_call(self.SYM, years=3)
+        self.assertTrue(out["available"], out.get("reason"))
+        self.assertTrue(out["rows"])
+        self.assertIn("buy_and_hold", out)
+        self.assertIn("verdict_note", out)
+
+    def test_it_never_applies_todays_fair_value_to_a_past_day(self):
+        out = S.covered_call(self.SYM, years=3)
+        self.assertIn("Nothing here applies today's valuation to a past day",
+                      out["fair_value_note"])
+        # Only the days actually recorded carry one.
+        self.assertLessEqual(out["fair_value_days_recorded"],
+                             len(S.load_history(self.SYM)))
+
+    def test_with_no_chain_store_it_is_labelled_a_model_estimate(self):
+        out = S.covered_call(self.SYM, years=3)
+        self.assertEqual(out["rows"][0]["fill_basis"],
+                         "MODEL-BASED ESTIMATE")
+        self.assertEqual(out["chain_days_stored"], 0)
+
+    def test_no_price_history_refuses(self):
+        self.bars = {"bars": []}
+        out = S.covered_call(self.SYM, years=3)
+        self.assertFalse(out["available"])
+        self.assertIn("needs a price history", out["reason"])
+
+    def test_the_policy_families_are_published_for_the_screen(self):
+        out = S.covered_call(self.SYM, years=1)
+        for key in ("tenors", "strike_rules", "roll_rules",
+                    "assignment_modes"):
+            self.assertTrue(out[key])
+
+
+class TestValidationEndpoint(Phase4Base):
+    def test_a_young_store_refuses_rather_than_reporting(self):
+        S.payload(self.SYM)
+        S._STARRED_FN = lambda: [self.SYM]
+        out = S.validation()
+        self.assertTrue(out["available"])
+        self.assertEqual(out["calibration"]["total_observations"], 0)
+        self.assertIn("aged far enough", out["calibration"]["reason"])
+
+    def test_no_tracked_tickers_says_so(self):
+        S._STARRED_FN = lambda: []
+        out = S.validation()
+        self.assertFalse(out["available"])
+        self.assertIn("no recorded recommendations", out["reason"])
+
+    def test_it_never_rewrites_what_was_stored(self):
+        S.payload(self.SYM)
+        S._STARRED_FN = lambda: [self.SYM]
+        before = list(S.load_history(self.SYM))
+        S.validation()
+        self.assertEqual(S.load_history(self.SYM), before)
+
+
+class TestPhase4Config(Phase4Base):
+    def test_every_phase_4_group_is_flattened(self):
+        cfg, _h = S.config(refresh=True)
+        for key in ("bank_equity_risk_premium_pct", "bank_terminal_growth_pct",
+                    "bank_min_peers_for_regression",
+                    "reit_min_property_type_peers", "reit_high_payout_pct",
+                    "cc_delta_target", "cc_roll_dte", "cc_cash_rate_pct",
+                    "forward_min_sample", "forward_min_sector_peers"):
+            self.assertIn(key, cfg, key)
+        for group in ("bank", "reit", "covered_call", "forward_test"):
+            self.assertNotIn(group, cfg)
+
+    def test_no_universal_covered_call_delta_is_declared_correct(self):
+        cfg, _h = S.config(refresh=True)
+        # The delta target is a configurable setting, and both the module
+        # and the settings file say in words that it is one rather than a
+        # rule anybody here believes in.
+        self.assertIn("cc_delta_target", cfg)
+        self.assertIn("setting to be tested",
+                      _CC.STRIKE_RULES["DELTA"]["note"])
+        with open("thresholds.json", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        doc = raw["investment"]["covered_call"]["_doc"]
+        self.assertIn("SETTING to be tested", doc)
+        self.assertIn("not a rule believed in", doc)
 
 
 if __name__ == "__main__":

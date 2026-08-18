@@ -740,5 +740,143 @@ class TestBasisBreaks(unittest.TestCase):
         self.assertIsNone(out["from"])
 
 
+# ── Phase 4 ─────────────────────────────────────────────────────────────────
+
+class TestAbandonedCoverPageShareCount(unittest.TestCase):
+    """Simon Property Group's newest cover-page share count is dated 2009
+    against a 2026 income statement. Taking it at face value understated its
+    market value by thirteen percent and every ratio built on it."""
+
+    def _facts(self, cover_end, cover_val, period_end="2025-12-31",
+               diluted=325.0):
+        rows = [fact(f"{period_end[:4]}-01-01", period_end, diluted,
+                     form="10-K", filed="2026-02-01")]
+        return facts(
+            us_gaap={"WeightedAverageNumberOfDilutedSharesOutstanding":
+                     concept("shares", rows)},
+            dei={"EntityCommonStockSharesOutstanding":
+                 concept("shares", [{"end": cover_end, "val": cover_val,
+                                     "filed": cover_end}])})
+
+    def test_a_current_cover_page_count_is_used(self):
+        out = F.shares_outstanding(self._facts("2026-01-31", 300.0))
+        self.assertEqual(out["value"], 300.0)
+        self.assertIn("cover page", out["basis"])
+
+    def test_a_count_a_quarter_behind_is_still_current_enough(self):
+        # Robinhood's largest honest gap measured across thirty-eight
+        # tickers was 181 days.
+        out = F.shares_outstanding(self._facts("2025-07-01", 300.0))
+        self.assertEqual(out["value"], 300.0)
+
+    def test_an_abandoned_count_falls_back_and_says_how_stale_it_was(self):
+        out = F.shares_outstanding(self._facts("2009-09-30", 283.0))
+        self.assertEqual(out["value"], 325.0)
+        self.assertIn("2009-09-30", out["basis"])
+        self.assertIn("no longer current", out["basis"])
+
+    def test_staleness_is_measured_against_the_newest_fact_of_any_kind(self):
+        # No diluted share count at all, but the company is plainly still
+        # filing: its newest revenue fact is from 2025. Read from the
+        # filings rather than from the clock, so the answer does not change
+        # with the date the app is run.
+        f = facts(us_gaap={"Revenues": concept(
+                      "USD", [fact("2025-01-01", "2025-12-31", 1000.0,
+                                   form="10-K", filed="2026-02-01")])},
+                  dei={"EntityCommonStockSharesOutstanding":
+                       concept("shares", [{"end": "2009-09-30", "val": 283.0,
+                                           "filed": "2009-11-05"}])})
+        self.assertIsNone(F.shares_outstanding(f)["value"])
+
+    def test_with_nothing_to_compare_against_the_cover_page_still_serves(self):
+        f = facts(us_gaap={},
+                  dei={"EntityCommonStockSharesOutstanding":
+                       concept("shares", [{"end": "2026-01-31", "val": 283.0,
+                                           "filed": "2026-02-05"}])})
+        self.assertEqual(F.shares_outstanding(f)["value"], 283.0)
+
+
+class TestConceptScopeVersusCoverage(unittest.TestCase):
+    """Citigroup tags both `NoninterestExpense` (the total) and
+    `OtherNoninterestExpense` (one line inside it), both ending on the same
+    date, with the component covering MORE quarters. Coverage alone read
+    Citigroup's cost of running the bank as seven percent of revenue."""
+
+    def _facts(self, total_quarters, component_quarters):
+        def rows(n, val):
+            out, y, q = [], 2020, 0
+            months = [("01-01", "03-31"), ("04-01", "06-30"),
+                      ("07-01", "09-30"), ("10-01", "12-31")]
+            for _i in range(n):
+                s, e = months[q]
+                out.append(fact(f"{y}-{s}", f"{y}-{e}", val,
+                                filed=f"{y}-{e[:2]}-20"))
+                q += 1
+                if q == 4:
+                    q, y = 0, y + 1
+            return out
+        # Both series end on the same date; the component covers more.
+        total = rows(total_quarters, 100.0)
+        comp = rows(component_quarters, 10.0)
+        comp = comp[-len(total):] if len(comp) > len(total) else comp
+        extra = rows(component_quarters, 10.0)
+        return facts(us_gaap={
+            "NoninterestExpense": concept("USD", total),
+            "OtherNoninterestExpense": concept("USD", extra)})
+
+    def test_the_wider_concept_wins_even_with_less_coverage(self):
+        f = self._facts(total_quarters=8, component_quarters=8)
+        got = F.metric(f, "noninterest_expense")
+        self.assertEqual(got["concept"], "NoninterestExpense")
+        self.assertAlmostEqual(got["value"], 400.0)
+
+    def test_a_synonym_list_still_prefers_the_longer_history(self):
+        # Revenue's alternatives all name the same thing, so coverage is
+        # still the right tie-break there and nothing changed for it.
+        self.assertNotIn("revenue", F.STRICT_PRIORITY)
+        self.assertIn("noninterest_expense", F.STRICT_PRIORITY)
+
+
+class TestBankAndReitConcepts(unittest.TestCase):
+    def test_every_new_duration_concept_has_a_basis_sentence(self):
+        for name in F.CONCEPTS:
+            self.assertTrue(F.BASIS.get(name), name)
+
+    def test_every_new_instant_concept_has_a_basis_sentence(self):
+        for name in F.INSTANT_CONCEPTS:
+            self.assertTrue(F.INSTANT_BASIS.get(name), name)
+
+    def test_a_missing_instant_reports_a_reason_and_never_a_zero(self):
+        out = F.instant(facts(us_gaap={}), "goodwill")
+        self.assertIsNone(out["value"])
+        self.assertTrue(out["reason"])
+
+    def test_a_missing_ratio_reports_a_reason_and_never_a_zero(self):
+        out = F.instant_ratio(facts(us_gaap={}), "capital_ratio")
+        self.assertIsNone(out["value"])
+        self.assertTrue(out["reason"])
+
+    def test_a_ratio_filed_as_a_decimal_becomes_a_percent(self):
+        f = facts(us_gaap={"CommonEquityTierOneCapitalToRiskWeightedAssets":
+                           concept("pure", [{"end": "2025-12-31", "val": 0.118,
+                                             "filed": "2026-02-01"}])})
+        self.assertAlmostEqual(F.instant_ratio(f, "capital_ratio")["value"],
+                               11.8, places=6)
+
+    def test_a_ratio_filed_as_a_percent_is_left_alone(self):
+        f = facts(us_gaap={"CommonEquityTierOneCapitalToRiskWeightedAssets":
+                           concept("pure", [{"end": "2025-12-31", "val": 11.8,
+                                             "filed": "2026-02-01"}])})
+        self.assertAlmostEqual(F.instant_ratio(f, "capital_ratio")["value"],
+                               11.8, places=6)
+
+    def test_the_ratio_names_which_one_the_filer_actually_tagged(self):
+        f = facts(us_gaap={"TierOneRiskBasedCapitalToRiskWeightedAssets":
+                           concept("pure", [{"end": "2025-12-31", "val": 0.12,
+                                             "filed": "2026-02-01"}])})
+        self.assertEqual(F.instant_ratio(f, "capital_ratio")["label"],
+                         "Tier one capital ratio")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

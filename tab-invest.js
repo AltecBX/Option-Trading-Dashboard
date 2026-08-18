@@ -2060,6 +2060,564 @@ automation, and nothing here fires an alert.`
 
 // ── the watchlist scanner ─────────────────────────────────────────────────
 
+// ── Phase 4: banks ────────────────────────────────────────────────────────
+
+const INV_BANK_TIP = {
+  tbvps: "Shareholders' equity with preferred stock, goodwill and other " + "intangible assets taken out, divided by the shares outstanding. This is " + "the conservative measure of what the common shareholder owns: goodwill " + "paid for an acquisition cannot absorb a loan loss.",
+  ptbv: "Share price divided by tangible book value per share. The single " + "most-used measure of what a bank costs — but the cheapest one in a " + "group is usually the least profitable one, not a bargain, which is why " + "the return below sits beside it.",
+  bvps: "Shareholders' equity less preferred stock, per share. Book value " + "includes goodwill; tangible book value does not.",
+  pb: "Share price divided by book value per share.",
+  roe: "Net income to common shareholders over average shareholders' equity.",
+  rotce: "Net income to common over average TANGIBLE common equity. This is " + "the number that decides what a bank is worth above its book: a bank " + "compounding twenty percent on its tangible equity deserves a large " + "premium to it, and one earning below what shareholders could get " + "elsewhere deserves a discount.",
+  nim: "Net interest income divided by average TOTAL assets. This is NOT net " + "interest margin, which divides by average interest-EARNING assets — no " + "bank measured tags either that ratio or the earning-asset base in " + "machine-readable filings, so what is shown is what the filings support, " + "under the name of what it actually is.",
+  nii_growth: "Growth in net interest income over the last twelve months " + "against the twelve before it. This is the core revenue line of a lender.",
+  efficiency: "Non-interest expense as a share of revenue — what it costs to " + "run the bank per dollar it earns. LOWER IS BETTER, which is the " + "opposite direction from most percentages on this screen.",
+  deposits: "Customer deposits at the latest balance-sheet date. Deposits are " + "a bank's raw material, and cheap sticky ones are the durable advantage.",
+  deposit_growth: "Growth in deposits against a year earlier.",
+  deposit_cost: "Interest paid on deposits over average deposits — what the " + "bank's funding costs it.",
+  loans: "Loans and leases outstanding before the allowance for credit losses.",
+  loan_growth: "Growth in the loan book against a year earlier. Fast growth " + "is not automatically good: loans made quickly are the ones that default " + "later.",
+  nco: "Loans written off net of recoveries over the last twelve months, as a " + "share of average loans. This is realized credit loss — money already gone.",
+  nco_trend: "Whether the charge-off rate is rising, falling or steady " + "against the year before. Direction matters more than the level.",
+  npl: "Loans on non-accrual status as a share of loans outstanding — " + "borrowers who have stopped paying but have not yet been written off. " + "This is the leading indicator that charge-offs follow.",
+  capital: "Regulatory capital as a share of risk-weighted assets. Whichever " + "ratio the bank actually tagged is named: common equity tier one and " + "tier one are different ratios, and tier one includes preferred stock.",
+  shares: "Change in the diluted share count against a year earlier. " + "Negative means the count is shrinking, which raises every per-share " + "figure above."
+};
+function invBankVal(block, fmt) {
+  const v = (block || {}).value;
+  return v == null ? invNA : fmt(v);
+}
+function InvBank({
+  bank
+}) {
+  const b = bank || {};
+  if (!b.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-fv-why",
+      title: "Every measure on this panel is built from the bank's own filings. When a required one is missing it is reported as missing rather than filled in with a zero."
+    }, b.reason || "This bank's book value could not be measured from its filings.");
+  }
+  const stat = (label, block, fmt, tip, tone) => /*#__PURE__*/React.createElement(InvStat, {
+    label: label,
+    value: invBankVal(block, fmt),
+    tip: tip,
+    basis: (block || {}).basis,
+    reason: (block || {}).reason,
+    tone: tone
+  });
+  const trend = b.charge_off_trend || {};
+  const cap = b.capital_ratio || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-bank"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "A bank is valued against what it owns and how much it earns on it, because a lender's borrowing is its raw material rather than its risk. Nothing on this panel is scored or summed."
+  }, "Valued on tangible book value and the return earned on it. The generic free-cash-flow and enterprise-value measures are not shown for a bank because neither means for a lender what it means elsewhere."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Tangible book value per share", b.tangible_book_per_share, invPrice, INV_BANK_TIP.tbvps), stat("Price to tangible book value", b.price_to_tangible_book, v => invRatio(v, 2), INV_BANK_TIP.ptbv), stat("Book value per share", b.book_per_share, invPrice, INV_BANK_TIP.bvps), stat("Price to book value", b.price_to_book, v => invRatio(v, 2), INV_BANK_TIP.pb), stat("Return on tangible common equity", b.return_on_tangible_common_equity_pct, invPct, INV_BANK_TIP.rotce), stat("Return on equity", b.return_on_equity_pct, invPct, INV_BANK_TIP.roe), stat("Net interest income to average assets", b.net_interest_income_to_average_assets_pct, invPct, INV_BANK_TIP.nim), stat("Net interest income growth", b.net_interest_income_growth_pct, invSignedPct, INV_BANK_TIP.nii_growth), stat("Efficiency ratio", b.efficiency_ratio_pct, invPct, INV_BANK_TIP.efficiency), stat("Capital ratio", cap, invPct, `${INV_BANK_TIP.capital}${cap.label ? `\n\nReported as: ${cap.label}.` : ""}`)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: "Where a bank's money comes from and what it costs. Cheap deposits that stay put are the whole advantage."
+  }, "Funding"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Deposits", b.deposits, invMoney, INV_BANK_TIP.deposits), stat("Deposit growth", b.deposit_growth_pct, invSignedPct, INV_BANK_TIP.deposit_growth), stat("Cost of deposits", b.deposit_cost_pct, invPct, INV_BANK_TIP.deposit_cost), stat("Diluted share count change", b.diluted_share_trend_pct, invSignedPct, INV_BANK_TIP.shares)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: "What the loan book is doing and whether it is going wrong. Non-accrual loans lead charge-offs, so the two are read together."
+  }, "Credit"), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Loans outstanding", b.loans, invMoney, INV_BANK_TIP.loans), stat("Loan growth", b.loan_growth_pct, invSignedPct, INV_BANK_TIP.loan_growth), stat("Net charge-off rate", b.charge_off_rate_pct, invPct, INV_BANK_TIP.nco), stat("Non-performing loan rate", b.nonperforming_rate_pct, invPct, INV_BANK_TIP.npl)), trend.state && /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${trend.state === "RISING" ? "down" : ""}`,
+    title: `${INV_BANK_TIP.nco_trend}\n\n${trend.basis || ""}`
+  }, "Charge-offs are ", /*#__PURE__*/React.createElement("b", null, trend.state), trend.change_pct != null && ` — ${invSignedPct(trend.change_pct)} against the year before`, "."));
+}
+
+// ── Phase 4: property trusts ──────────────────────────────────────────────
+
+const INV_REIT_TIP = {
+  ffo: "Funds from operations: net income available to common, plus " + "depreciation and amortisation of property, less gains on property " + "sales, plus impairments. Property depreciation is a schedule rather " + "than a description of what buildings are worth, so removing it is what " + "makes the figure describe the business.\n\nThis is RECONSTRUCTED from " + "the filed components. No property trust publishes funds from operations " + "in machine-readable filings — every headline figure lives only in press " + "releases — and a trust's own headline is usually a further-adjusted " + "'core' number, which is different again.",
+  ffops: "Reconstructed funds from operations divided by average diluted " + "shares, which is the share count the industry definition uses.",
+  pffo: "Share price divided by reconstructed funds from operations per " + "share. This is the property equivalent of a price-to-earnings ratio and " + "is the main way trusts are valued.",
+  affo: "Adjusted funds from operations subtracts recurring maintenance " + "spending, straight-line rent and lease-intangible amortisation from " + "funds from operations. It is not shown here because it cannot be " + "computed honestly — see the reason beside it.",
+  growth: "Growth in reconstructed funds from operations per share over the " + "last twelve months against the twelve before.",
+  dps: "Dividends declared per share over the last twelve months, as " + "reported to the SEC.",
+  yield: "The distribution as a percentage of the share price.",
+  payout: "The distribution as a share of funds from operations. Property " + "trusts must distribute most of their taxable income, so a high payout " + "is normal — what matters is the direction and how much room is left.",
+  nd: "Net borrowings divided by funds from operations. This is NOT net debt " + "to EBITDAre: no trust measured tags EBITDAre in machine-readable form, " + "so the closest measure the filings support is shown under its own name.",
+  ptype: "What kind of property this trust owns, read from its own annual " + "report. The SEC gives every property trust the same industry code, so " + "the code cannot tell a data-centre trust from a shopping-centre trust — " + "and those two have never traded at the same multiple.",
+  shares: "Change in the diluted share count against a year earlier. Property " + "trusts routinely issue shares to buy buildings, so a rising count is " + "ordinary — what matters is whether funds from operations per share rose " + "with it."
+};
+function InvReit({
+  reit
+}) {
+  const r = reit || {};
+  if (!r.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-fv-why",
+      title: "Funds from operations is rebuilt from the filed components. When one of them is missing for part of the year the figure is refused rather than assembled from a partial year."
+    }, r.reason || "Funds from operations could not be reconstructed from this trust's filings.");
+  }
+  const ffo = r.ffo || {};
+  const stat = (label, block, fmt, tip, tone) => /*#__PURE__*/React.createElement(InvStat, {
+    label: label,
+    value: invBankVal(block, fmt),
+    tip: tip,
+    basis: (block || {}).basis,
+    reason: (block || {}).reason,
+    tone: tone
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-reit"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_REIT_TIP.ffo
+  }, "Valued on funds from operations rather than on reported earnings, because a property trust's earnings are mostly a depreciation schedule.", r.property_type ? /*#__PURE__*/React.createElement(React.Fragment, null, " Property type: ", /*#__PURE__*/React.createElement("b", {
+    title: INV_REIT_TIP.ptype
+  }, r.property_type_label || r.property_type), ".") : /*#__PURE__*/React.createElement("span", {
+    title: INV_REIT_TIP.ptype
+  }, " This trust's annual report does not say clearly enough what kind of property it owns for a matched peer comparison.")), !ffo.complete && ffo.caveat && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: "An incomplete reconstruction also holds the fair-value confidence down, which lowers the buy zone \u2014 the warning is priced in rather than only printed."
+  }, ffo.caveat), r.reconstruction_warning && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: "A property portfolio's rents do not move this far in a year. When the reconstruction says they did and the gains component is untagged, the swing is almost certainly a one-off gain that could not be removed."
+  }, r.reconstruction_warning), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, stat("Funds from operations, trailing twelve months", ffo, invMoney, INV_REIT_TIP.ffo), stat("Funds from operations per share", r.ffo_per_share, invPrice, INV_REIT_TIP.ffops), stat("Price to funds from operations", r.price_to_ffo, v => invRatio(v, 1), INV_REIT_TIP.pffo), stat("Funds from operations growth", r.ffo_growth_pct, invSignedPct, INV_REIT_TIP.growth), stat("Distribution per share", r.dividends_per_share, invPrice, INV_REIT_TIP.dps), stat("Distribution yield", r.dividend_yield_pct, invPct, INV_REIT_TIP.yield), stat("Payout of funds from operations", r.payout_of_ffo_pct, invPct, INV_REIT_TIP.payout, (r.payout_flag || {}).level === "HIGH" ? "down" : undefined), stat("Net debt to funds from operations", r.net_debt_to_ffo, v => invRatio(v, 1), INV_REIT_TIP.nd), stat("Diluted share count change", r.diluted_share_trend_pct, invSignedPct, INV_REIT_TIP.shares)), (r.payout_flag || {}).level === "HIGH" && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: INV_REIT_TIP.payout
+  }, r.payout_flag.reason), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: "Measures this app deliberately does not report for property trusts, each with the measurement behind the refusal. An empty box with a reason is worth more than a number with nothing behind it."
+  }, "Not reported, and why"), /*#__PURE__*/React.createElement("ul", {
+    className: "inv-reasons"
+  }, /*#__PURE__*/React.createElement("li", {
+    title: INV_REIT_TIP.affo
+  }, /*#__PURE__*/React.createElement("b", null, "Adjusted funds from operations"), " \u2014 ", (r.affo || {}).reason), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, "Occupancy"), " \u2014 ", (r.occupancy || {}).reason), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("b", null, "Same-store net operating income"), " \u2014", " ", (r.same_store_noi_growth_pct || {}).reason)));
+}
+
+// ── Phase 4: the covered-call simulator ───────────────────────────────────
+
+const INV_CC_TIP = {
+  what: "Owning a hundred shares and selling calls against them, over and " + "over, through the actual lifecycle: sell a call, the call expires or is " + "assigned or is bought back or is rolled, sell the next one. The " + "single-expiration buy-write in the structure comparison answers a " + "different question — which structure to open today — and repeating its " + "result twelve times is not a model of doing this for a year.",
+  tw: "What the account is worth at the end: shares still held, plus cash, " + "less the value of any call still open.",
+  vs: "Terminal wealth against simply owning the same hundred shares over the " + "same days on the same starting capital, with dividends treated " + "identically. THIS is the comparison that decides whether the strategy " + "worked. Everything else on the row is context for it.",
+  cagr: "The compound annual rate that turns the starting capital into the " + "terminal wealth over this run's length.",
+  dd: "The deepest fall from a previous high in account value, marking any " + "open call at what it would cost to close.",
+  premium: "Total credit received from selling calls, before the cost of " + "buying any of them back.",
+  forfeited: "The money left on the table when a call capped a rally: the " + "share price above the strike at expiration, times a hundred. This is the " + "cost of the strategy, and it does not appear anywhere in an option win " + "rate.",
+  win: "The share of individual calls that made money. This is NOT whether " + "the strategy worked. A ninety-five percent win rate on calls that keep " + "capping a rising stock still loses to owning the shares — and that is " + "the exact case this column exists to stop you reading as success.",
+  assigned: "How often the shares were called away at the strike.",
+  rolled: "How often a call was bought back and replaced. A roll never erases " + "a loss here: the loss on the option being closed is realized and stays " + "realized, and the credit on the new one is a separate event.",
+  days: "Average calendar days from selling a call to closing it.",
+  prem_notional: "Each call's credit as a percentage of the FULL value of the " + "hundred shares it was sold against — never of a margin or " + "buying-power figure, which would flatter the number by the money that " + "was not put to work.",
+  basis: "Where the option prices came from. REAL CHAIN BACKTEST means every " + "fill came from an end-of-day chain snapshot this app recorded on that " + "trading day. MODEL-BASED ESTIMATE means there was no snapshot and the " + "price is a Black-Scholes value against a modelled volatility path. " + "Historical option quotes are never invented — where there is no " + "snapshot, the price is a model output and says so.",
+  policy: "The tenor, the strike rule, the roll rule and what happens on " + "assignment. No combination is treated as correct: that is the point of " + "running them side by side."
+};
+function InvCoveredCall({
+  apiFetch,
+  symbol
+}) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [years, setYears] = useState(3);
+  const load = React.useCallback(yrs => {
+    if (!symbol) return;
+    setBusy(true);
+    apiFetch(`/api/invest/covered_call?symbol=${encodeURIComponent(symbol)}&years=${yrs}`).then(r => r.json()).then(j => setData(j)).catch(e => setData({
+      available: false,
+      reason: String(e.message || e)
+    })).finally(() => setBusy(false));
+  }, [apiFetch, symbol]);
+  useEffect(() => {
+    setData(null);
+  }, [symbol]);
+  const d = data || {};
+  const rows = d.rows || [];
+  const hold = d.buy_and_hold || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-cc"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_CC_TIP.what
+  }, "Covered call income simulator", /*#__PURE__*/React.createElement("span", {
+    className: "inv-cc-ctrl"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: years,
+    onChange: e => setYears(Number(e.target.value)),
+    title: "How far back to run the simulation."
+  }, /*#__PURE__*/React.createElement("option", {
+    value: 1
+  }, "1 year"), /*#__PURE__*/React.createElement("option", {
+    value: 2
+  }, "2 years"), /*#__PURE__*/React.createElement("option", {
+    value: 3
+  }, "3 years"), /*#__PURE__*/React.createElement("option", {
+    value: 5
+  }, "5 years")), /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost",
+    onClick: () => load(years),
+    disabled: busy,
+    title: "Walk every policy through this ticker's own price history, day by day."
+  }, busy ? "Running…" : data ? "Run again" : "Run"))), !data && !busy && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_CC_TIP.what
+  }, "Runs ten covered-call policies through ", symbol, "'s own price history \u2014 three tenors, four strike rules, four roll rules \u2014 and compares each one against simply owning the shares. Not run automatically because it walks several years of prices for every policy."), data && !d.available && /*#__PURE__*/React.createElement("div", {
+    className: "inv-fv-why"
+  }, d.reason || "This simulation could not be run."), data && d.available && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_CC_TIP.vs
+  }, "Over ", (d.years || 0).toFixed(1), " years from ", invShortDate(d.from), " to", " ", invShortDate(d.to), ", ", /*#__PURE__*/React.createElement("b", null, d.n_beat_buy_and_hold, " of ", d.n_policies), " ", "policies finished ahead of simply owning the shares, which ended at", " ", /*#__PURE__*/React.createElement("b", null, invMoney(hold.terminal_wealth, 0)), " on", " ", invMoney(hold.starting_capital, 0), " of starting capital."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_CC_TIP.basis
+  }, (rows[0] || {}).fill_basis, " \xB7 ", d.fill_note || ""), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_CC_TIP.policy
+  }, "Policy"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.tw
+  }, "Ends with"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.vs
+  }, "Against owning"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.cagr
+  }, "Yearly rate"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.dd
+  }, "Worst fall"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.premium
+  }, "Premium"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.forfeited
+  }, "Upside given up"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How many calls were sold over the run."
+  }, "Calls"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.win
+  }, "Calls that won"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.assigned
+  }, "Assigned"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.rolled
+  }, "Rolled"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.days
+  }, "Days held"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_CC_TIP.prem_notional
+  }, "Credit of notional"))), /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", {
+    className: "inv-row-hold"
+  }, /*#__PURE__*/React.createElement("td", {
+    title: "The same money in the same shares over the same days, doing nothing. Every row above is measured against this one."
+  }, /*#__PURE__*/React.createElement("b", null, "Owning the shares and doing nothing")), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, /*#__PURE__*/React.createElement("b", null, invMoney(hold.terminal_wealth, 0))), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(hold.cagr_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(hold.max_drawdown_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "0"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, "\u2014")), rows.map((r, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i,
+    title: r.label
+  }, /*#__PURE__*/React.createElement("td", null, r.label), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invMoney(r.terminal_wealth, 0)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${(r.versus_buy_and_hold || 0) >= 0 ? "up" : "down"}`
+  }, r.versus_buy_and_hold == null ? invNA : `${r.versus_buy_and_hold >= 0 ? "+" : "−"}${invMoney(Math.abs(r.versus_buy_and_hold), 0)}`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.cagr_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num down"
+  }, invPct(r.max_drawdown_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invMoney(r.premium_income, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invMoney(r.upside_forfeited, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invCount(r.calls_sold)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.call_win_rate_pct, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.assignment_rate_pct, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.roll_rate_pct, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invCount(r.average_days_in_trade)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, invPct(r.average_premium_pct_of_notional, 2))))))), (d.stranded_in_cash || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note down",
+    title: "After the shares were called away, the strike they were sold at no longer bought a hundred shares back. The position could not be rebuilt without adding money, so the run finished holding cash \u2014 which is arithmetic rather than a decision, and worth knowing before reading the result as a choice the strategy made."
+  }, d.stranded_in_cash.length, " of ", d.n_policies, " policies ended holding cash because the assignment proceeds no longer bought the shares back: ", d.stranded_in_cash.join("; "), "."), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "One company over one stretch of one market is a single observation. It describes what happened here; it is not evidence that any of these rules works in general."
+  }, d.verdict_note), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "The fair-value-aware strike rules need a fair value on each historical day, and the only honest source of one is what this app actually recorded that day. Applying today's valuation to a past day would be exactly the lookahead the validation panel exists to prevent."
+  }, d.fair_value_note)));
+}
+
+// ── Phase 4: forward validation ───────────────────────────────────────────
+
+const INV_FWD_TIP = {
+  what: "Since this tab first ran it has written one snapshot per ticker per " + "day: the price, the verdict, the preferred structure, the Bear/Base/Bull " + "range, the buy zone and the exact contracts it recommended. This panel " + "reads that store FORWARD. Nothing is recomputed and nothing is " + "rewritten — each recommendation is judged exactly as it was written " + "down, against prices that came after it.",
+  sample: "How many completed observations sit behind the row. Sample size " + "comes first here on purpose: below the minimum, the row says " + "INSUFFICIENT SAMPLE and shows nothing else, because a median of eleven " + "things is an anecdote wearing a decimal point.",
+  median: "The middle outcome, not the average — one exceptional result " + "should not move a summary of what usually happened.",
+  hit: "The share of observations that ended higher than where they started.",
+  excess: "The median outcome less the benchmark's return over the same days.",
+  sector: "The median outcome less the median of the OTHER companies in the " + "same industry recorded on the same day. The company is left out of the " + "group it is measured against.",
+  mae: "Maximum adverse excursion: the worst the position got before the " + "horizon ended. A recommendation that finished up ten percent after " + "falling thirty is not the same experience as one that rose steadily.",
+  contained: "How often the actual price at the horizon landed inside the " + "Bear-to-Bull range that was published on the day. Too high means the " + "range is so wide it says nothing; too low means it is too narrow to " + "trust.",
+  horizon: "Only COMPLETED horizons are counted. A ninety-day outcome appears " + "ninety days after the recommendation and not a day sooner — a partial " + "window would quietly favour whatever the market did most recently.",
+  contracts: "The EXACT contract that was recommended, scored at its own " + "expiration: that strike, that expiry, that credit. Never a better one " + "chosen after seeing the outcome, which is the easiest way there is to " + "manufacture a good result.",
+  config: "The hash of the settings that produced each recommendation. " + "Results under materially different rule sets are shown separately rather " + "than combined and called one strategy.",
+  tossup: "How often the structure comparison said the winner was too close " + "to call. A high frequency is information about the structures being " + "genuinely similar, not a fault.",
+  noscore: "There is deliberately no accuracy score. A single number blending " + "a hit rate, a median return and a calibration check is one nobody can " + "act on and everybody can be reassured by."
+};
+function invFwdCell(s) {
+  if (!s || !s.sufficient) return /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, (s || {}).verdict || invNA);
+  return /*#__PURE__*/React.createElement(React.Fragment, null, invSignedPct(s.median_return_pct));
+}
+function InvFwdTable({
+  title,
+  tip,
+  groups
+}) {
+  const keys = Object.keys(groups || {});
+  if (!keys.length) return null;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: tip
+  }, title), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: tip
+  }, title), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_FWD_TIP.sample
+  }, "Observations"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_FWD_TIP.median
+  }, "Median outcome"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_FWD_TIP.hit
+  }, "Ended higher"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_FWD_TIP.excess
+  }, "Against benchmark"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: INV_FWD_TIP.mae
+  }, "Median worst point"))), /*#__PURE__*/React.createElement("tbody", null, keys.map(k => {
+    const s = groups[k] || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: k,
+      title: s.sufficient ? "" : s.reason
+    }, /*#__PURE__*/React.createElement("td", null, k), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invCount(s.n)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invFwdCell(s)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.sufficient ? invPct(s.hit_rate_pct, 0) : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.sufficient && s.median_excess_return_pct != null ? invSignedPct(s.median_excess_return_pct) : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num down"
+    }, s.sufficient ? invPct(s.median_max_adverse_excursion_pct) : "—"));
+  })))));
+}
+function InvValidation({
+  apiFetch
+}) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [horizon, setHorizon] = useState("90");
+  const load = React.useCallback(() => {
+    setBusy(true);
+    apiFetch("/api/invest/validation").then(r => r.json()).then(j => setData(j)).catch(e => setData({
+      available: false,
+      reason: String(e.message || e)
+    })).finally(() => setBusy(false));
+  }, [apiFetch]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const d = data || {};
+  const cal = d.calibration || {};
+  const horizons = cal.horizons || {};
+  const available = Object.keys(horizons);
+  const blk = horizons[horizon] || horizons[available[0]] || {};
+  const overall = blk.overall || {};
+  const contest = blk.attractive_versus_wait || {};
+  const avoid = blk.avoid_versus_rest || {};
+  const structures = (d.structures || {}).structures || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-fwd"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_FWD_TIP.what
+  }, "Forward validation", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " ", "\xB7 ", d.stored_rows || 0, " recorded day", d.stored_rows === 1 ? "" : "s", " across", " ", d.tickers_with_history || 0, " ticker", d.tickers_with_history === 1 ? "" : "s", cal.total_observations != null && ` · ${cal.total_observations} completed observations`), /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost inv-scan-refresh",
+    onClick: load,
+    disabled: busy,
+    title: "Re-read the snapshot store and recompute the outcomes."
+  }, busy ? "Reading…" : "Refresh")), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_FWD_TIP.noscore
+  }, "No accuracy score. Sample size first, then what the sample says, then nothing where it says nothing."), !cal.total_observations && /*#__PURE__*/React.createElement("div", {
+    className: "inv-fv-why",
+    title: INV_FWD_TIP.horizon
+  }, cal.reason || d.reason || "Nothing has aged far enough to score yet."), cal.total_observations > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "inv-fwd-tabs",
+    title: INV_FWD_TIP.horizon
+  }, ["30", "90", "180", "365"].map(h => /*#__PURE__*/React.createElement("button", {
+    key: h,
+    className: `btn ghost ${horizon === h ? "active" : ""}`,
+    disabled: !horizons[h],
+    onClick: () => setHorizon(h),
+    title: horizons[h] ? `${(horizons[h].overall || {}).n || 0} completed ${h}-day observations.` : `No ${h}-day horizon has completed yet.`
+  }, h, " days"))), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, /*#__PURE__*/React.createElement(InvStat, {
+    label: "Observations",
+    value: invCount(overall.n),
+    tip: INV_FWD_TIP.sample
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Median outcome",
+    value: overall.sufficient ? invSignedPct(overall.median_return_pct) : overall.verdict || invNA,
+    tip: INV_FWD_TIP.median,
+    reason: overall.sufficient ? "" : overall.reason
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Ended higher",
+    value: overall.sufficient ? invPct(overall.hit_rate_pct, 0) : invNA,
+    tip: INV_FWD_TIP.hit
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Against benchmark",
+    value: overall.median_excess_return_pct != null ? invSignedPct(overall.median_excess_return_pct) : invNA,
+    tip: INV_FWD_TIP.excess
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Against its own industry",
+    value: overall.median_sector_relative_pct != null ? invSignedPct(overall.median_sector_relative_pct) : invNA,
+    tip: INV_FWD_TIP.sector
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Median worst point",
+    value: overall.sufficient ? invPct(overall.median_max_adverse_excursion_pct) : invNA,
+    tip: INV_FWD_TIP.mae
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Outcome inside Bear to Bull",
+    value: overall.range_contained_pct != null ? invPct(overall.range_contained_pct, 0) : invNA,
+    tip: INV_FWD_TIP.contained
+  }), /*#__PURE__*/React.createElement(InvStat, {
+    label: "Too close to call",
+    value: (blk.toss_up || {}).frequency_pct != null ? invPct(blk.toss_up.frequency_pct, 0) : invNA,
+    tip: INV_FWD_TIP.tossup
+  })), contest.reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "Whether the recommendations to own actually did better than the ones told to wait. This is the question the whole tab is answering about itself."
+  }, /*#__PURE__*/React.createElement("b", null, "Owned against waited: ", contest.verdict), " \u2014 ", contest.reason), avoid.reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: "Whether the names this app told you to avoid actually did worse than everything else."
+  }, /*#__PURE__*/React.createElement("b", null, "Avoided against the rest: ", avoid.verdict), " \u2014 ", avoid.reason), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By verdict",
+    tip: "How each verdict actually did.",
+    groups: blk.by_verdict
+  }), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By preferred structure",
+    tip: "How the outcome differed by which structure won the comparison that day.",
+    groups: blk.by_preferred_structure
+  }), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By valuation percentile",
+    tip: "Whether buying at the cheap end of a company's own history actually worked.",
+    groups: blk.by_valuation_percentile
+  }), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By quality",
+    tip: "Outcomes split by the quality reading on the day.",
+    groups: blk.by_quality
+  }), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By revision state",
+    tip: "Outcomes split by whether analysts were raising or cutting.",
+    groups: blk.by_revisions
+  }), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By value trap risk",
+    tip: "Whether the value-trap check identified the outcomes it was meant to.",
+    groups: blk.by_value_trap
+  }), /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By fair value confidence",
+    tip: "Whether a HIGH-confidence valuation actually produced better outcomes than a LOW one.",
+    groups: blk.by_fair_value_confidence
+  }), blk.by_config && /*#__PURE__*/React.createElement(InvFwdTable, {
+    title: "By configuration",
+    tip: INV_FWD_TIP.config,
+    groups: blk.by_config
+  }), cal.config_note && /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_FWD_TIP.config
+  }, cal.config_note)), /*#__PURE__*/React.createElement("div", {
+    className: "inv-sechead",
+    title: INV_FWD_TIP.contracts
+  }, "The exact contracts that were recommended"), (d.structures || {}).reason && /*#__PURE__*/React.createElement("div", {
+    className: "inv-fv-why"
+  }, d.structures.reason), Object.keys(structures).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_FWD_TIP.contracts
+  }, "Structure"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "Recommended contracts that have reached their expiration."
+  }, "Settled"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "How many of those were the structure that won the comparison that day."
+  }, "Was preferred"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The middle profit or loss per hundred shares of exposure."
+  }, "Median result"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: "The share of settled contracts that finished profitable."
+  }, "Profitable"))), /*#__PURE__*/React.createElement("tbody", null, Object.keys(structures).map(k => {
+    const s = structures[k] || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: k,
+      title: s.sufficient ? "" : s.reason
+    }, /*#__PURE__*/React.createElement("td", null, k), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invCount(s.n)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, invCount(s.n_when_preferred)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.median_profit != null ? invMoney(s.median_profit, 0) : invNA, !s.sufficient && /*#__PURE__*/React.createElement("span", {
+      className: "muted"
+    }, " \xB7  ", s.verdict)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, s.win_rate_pct != null ? invPct(s.win_rate_pct, 0) : invNA));
+  })))));
+}
 function InvScanner({
   apiFetch,
   onPick
@@ -2130,13 +2688,13 @@ by.`
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "inv-peer-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, head("symbol", "Ticker", "Ticker symbol."), head("price", "Price", "Current share price.", true), head("quality_label", "Quality", "How good the business is. Not blended with anything else."), head("growth_label", "Growth", "Revenue and earnings growth."), head("valuation_label", "Valuation", "Cheap or expensive against its own history and its peers. 100 means cheap."), head("revisions_label", "Revisions", "Whether analysts are raising or cutting."), head("value_trap_level", "Trap risk", "Whether the business is deteriorating."), head("fair_value_base", "Base fair value", "The highest-confidence method's value.", true), head("buy_zone", "Buy zone", "The price at which the shares are worth owning.", true), head("premium_to_buy_zone_pct", "To buy zone", "How far the price sits above (positive) or below (negative) the buy zone.", true), head("preferred_structure", "Preferred structure", "Which way of taking the position won on identical capital."), head("entry_verdict", "Verdict", "The Phase 3 entry answer."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, head("symbol", "Ticker", "Ticker symbol."), head("price", "Price", "Current share price.", true), head("quality_label", "Quality", "How good the business is. Not blended with anything else."), head("growth_label", "Growth", "Revenue and earnings growth."), head("valuation_label", "Valuation", "Cheap or expensive against its own history and its peers. 100 means cheap."), head("headline_multiple", "What it costs", "The valuation measure that belongs to this kind of business: price to tangible book for a bank, price to funds from operations for a property trust, price to earnings for everything else. Hover a row to see which one it is — they are not comparable across kinds.", true), head("revisions_label", "Revisions", "Whether analysts are raising or cutting."), head("value_trap_level", "Trap risk", "Whether the business is deteriorating."), head("fair_value_base", "Base fair value", "The highest-confidence method's value.", true), head("buy_zone", "Buy zone", "The price at which the shares are worth owning.", true), head("premium_to_buy_zone_pct", "To buy zone", "How far the price sits above (positive) or below (negative) the buy zone.", true), head("preferred_structure", "Preferred structure", "Which way of taking the position won on identical capital."), head("entry_verdict", "Verdict", "The Phase 3 entry answer."))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => {
     if (r.status !== "recorded") {
       return /*#__PURE__*/React.createElement("tr", {
         key: r.symbol,
         className: "inv-row-off"
       }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
-        colSpan: 11,
+        colSpan: 12,
         className: "inv-fv-why",
         title: r.reason
       }, r.reason));
@@ -2150,7 +2708,10 @@ by.`
       title: r.entry_reason || r.name
     }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol)), /*#__PURE__*/React.createElement("td", {
       className: "scan-num"
-    }, invPrice(r.price)), /*#__PURE__*/React.createElement("td", null, r.quality_label || invNA), /*#__PURE__*/React.createElement("td", null, r.growth_label || invNA), /*#__PURE__*/React.createElement("td", null, r.valuation_label || invNA), /*#__PURE__*/React.createElement("td", null, r.revisions_label || invNA), /*#__PURE__*/React.createElement("td", {
+    }, invPrice(r.price)), /*#__PURE__*/React.createElement("td", null, r.quality_label || invNA), /*#__PURE__*/React.createElement("td", null, r.growth_label || invNA), /*#__PURE__*/React.createElement("td", null, r.valuation_label || invNA), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: r.headline_multiple_label ? `${r.headline_multiple_label}${r.fair_value_model && r.fair_value_model !== "STANDARD" ? ` · valued by the ${r.fair_value_model === "BANK" ? "bank" : "property trust"} model` : ""}` : "No valuation multiple could be built for this company."
+    }, r.headline_multiple == null ? invNA : invRatio(r.headline_multiple, 1)), /*#__PURE__*/React.createElement("td", null, r.revisions_label || invNA), /*#__PURE__*/React.createElement("td", {
       className: INV_TRAP_TONE[r.value_trap_level] === "down" ? "down" : ""
     }, r.value_trap_level || invNA), /*#__PURE__*/React.createElement("td", {
       className: "scan-num"
@@ -2450,7 +3011,11 @@ function InvestTab({
     target: "_blank",
     rel: "noopener noreferrer",
     title: "Open the annual report on EDGAR."
-  }, "read the filing")))), section("fairvalue", "Fair value", "Bear, base and bull from methods that are never averaged, the confidence that comes from how far apart they are, and the price this analysis says the shares are worth.", /*#__PURE__*/React.createElement(InvFairValue, {
+  }, "read the filing")))), d.bank && section("bank", "Bank measures", "What a lender is actually made of: tangible book value, the return earned on it, what its deposits cost and what its loan book is doing.", /*#__PURE__*/React.createElement(InvBank, {
+    bank: d.bank
+  })), d.reit && section("reit", "Property trust measures", "Funds from operations rather than reported earnings, the distribution it supports, and what the filings will not support at all.", /*#__PURE__*/React.createElement(InvReit, {
+    reit: d.reit
+  })), section("fairvalue", "Fair value", "Bear, base and bull from methods that are never averaged, the confidence that comes from how far apart they are, and the price this analysis says the shares are worth.", /*#__PURE__*/React.createElement(InvFairValue, {
     fair: d.fair_value,
     snap: d
   })), section("expected", "Expected return", "Where today's price gets you over the scenario horizon, with dividends handled as cash rather than added to the price return.", /*#__PURE__*/React.createElement(InvExpectedReturn, {
@@ -2494,6 +3059,11 @@ function InvestTab({
     dd: d.drawdowns
   })), section("experimental", "Revision underreaction (experimental)", "An untested idea, recorded daily so it can be tested honestly later. It takes no part in the verdict.", /*#__PURE__*/React.createElement(InvUnderreaction, {
     u: d.underreaction
+  })), section("coveredcall", "Covered call simulator", "Owning a hundred shares and selling calls against them repeatedly, through the real lifecycle, measured against simply owning them.", /*#__PURE__*/React.createElement(InvCoveredCall, {
+    apiFetch: apiFetch,
+    symbol: sym
+  })), section("validation", "Forward validation", "How the recommendations this tab has already recorded actually turned out. Nothing is recomputed and nothing is rewritten.", /*#__PURE__*/React.createElement(InvValidation, {
+    apiFetch: apiFetch
   })), section("scanner", "Watchlist scan", "Every starred name, read from the snapshots already stored. No column here is a total.", /*#__PURE__*/React.createElement(InvScanner, {
     apiFetch: apiFetch,
     onPick: setSym

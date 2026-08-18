@@ -919,6 +919,210 @@ Quality to Growth to Valuation would let one strong reading carry a weak one,
 and it would be sortable — which is worse, because it would become the column
 everybody sorts by.
 
+# Phase 4 — a bank on a bank's terms, a trust on a trust's, and a way to
+# find out whether any of this works
+
+Phase 3 ended with three things it deliberately would not do: value a bank,
+value a property trust, and claim that any of it predicted anything. Phase 4
+does the first two and starts the third.
+
+## The bank model — `bank_model.py`
+
+A lender's borrowing is its raw material rather than its risk, so net debt,
+free cash flow and return on invested capital all measure the wrong thing.
+What a bank owns is mostly financial claims carried near their value, which
+makes book value the natural anchor — and tangible book, with goodwill and
+other intangibles removed, the conservative one, because goodwill paid for an
+acquisition cannot absorb a loan loss.
+
+What a bank is worth ABOVE that book depends on what it earns on it:
+
+    Justified price to tangible book = (ROTCE − g) ÷ (cost of equity − g)
+
+A bank earning exactly its cost of equity is worth exactly its tangible book;
+one earning more is worth a premium and one earning less a discount. The cost
+of equity is the ten-year Treasury plus a stated equity risk premium — the
+same market-wide convention the reverse discounted cash flow uses, never a
+per-company number fitted to make the answer come out.
+
+Four methods, combined by the unchanged Phase 3 machinery:
+
+| Method | What it prices |
+|---|---|
+| `bank_self_ptbv` | Tangible book at this bank's own history of price to tangible book |
+| `bank_self_pb` | Book value at its own history of price to book |
+| `self_history` | Earnings at its own earnings-yield history — unchanged from Phase 3, because a bank's earnings ARE earnings |
+| `bank_peers_ptbv` | Tangible book at what comparable banks cost, adjusted for how profitable this one is against them |
+| `bank_justified` | Tangible book at the multiple its own profitability justifies |
+
+**The cheapest price to tangible book in a group is not the cheapest bank.**
+It is usually the least profitable one. Where enough comparable banks report
+both a return on tangible common equity and a price to tangible book, and
+where profitability actually explains enough of the spread between them, the
+subject is priced off that fitted relationship rather than off the group
+median. Where it does not, the median is used and the reason says so —
+including the coefficient of determination that failed the test.
+
+**One refusal matters more than the rest.** Bank of America tags no
+preferred-equity concept in its machine-readable filings. Treating that as
+zero would credit the common shareholder with equity belonging to the
+preferred holders, so its tangible book value is left unreported rather than
+overstated — and it drops out of every peer comparison for the same reason,
+which is why JPMorgan's bank peer group prices off seven comparable banks
+rather than eight.
+
+**Net interest margin is not reported.** That ratio divides net interest
+income by average interest-EARNING assets, and not one of fifteen banks
+measured tags either the ratio or the earning-asset base. What is shown is net
+interest income over average TOTAL assets, under that name.
+
+Measured live: JPMorgan tangible book $112.63 a share, price to tangible book
+3.22×, return on tangible common equity 20.5%, efficiency ratio 51.4%, capital
+ratio 10.8%, deposits $2.71 trillion at a 1.7% cost, charge-off rate 0.3% and
+FALLING 31.4% against the year before.
+
+## The property-trust model — `reit_model.py`
+
+Buildings are depreciated on a schedule that has nothing to do with whether
+they are worth more or less than last year, and that charge runs straight
+through the income statement. Realty Income earned $1.27 billion last year and
+generated $4.0 billion of funds from operations. Valuing it on the first
+number would be arithmetic performed on the wrong quantity.
+
+    Funds from operations = net income available to common
+                          + depreciation and amortisation of property
+                          − gains on property sales
+                          + impairments of property
+
+**Not one of twenty large US property trusts tags a funds-from-operations
+concept.** Every headline figure these trusts publish lives only in the prose
+of a press release. So this module RECONSTRUCTS it from the four filed
+components and says so everywhere it appears — and a trust's own headline is
+usually a further-adjusted "core" number, which is different again.
+
+**The reconstruction knows when it is incomplete.** Gains on property sales are
+tagged sporadically: Realty Income tags them every quarter, Prologis stopped in
+2019, Simon Property Group does not tag them at all. A quarter with no tagged
+gain and a quarter where nothing was sold produce the same zero and mean
+opposite things, so the tagged quarters are counted. When fewer than four of
+the trailing quarters carry the adjustments, the reconstruction is called
+INCOMPLETE, it is ranked below a complete one as a valuation method, and the
+fair-value confidence is **held down to LOW** — which lowers the buy zone
+rather than decorating the screen with a warning nobody acts on.
+
+Two things make it honest enough to value on anyway. The completeness is
+reported. And the comparison — today's price to funds from operations against
+this trust's OWN history and against its peers — computes all three sides by
+the same reconstruction, so a systematic bias largely cancels.
+
+Measured against published figures: Realty Income $4.40 a share against a
+published ~$4.20, Prologis $6.71, Public Storage $17.11 against ~$16.50, Kimco
+$1.78 against ~$1.70, AvalonBay $11.04 against ~$11.40. Adding the
+all-asset gain concepts moved Digital Realty from $9.45 to $6.59 against a
+published ~$7.00 and Boston Properties from $8.40 to $7.27 against ~$6.80.
+Simon Property Group, whose gains are untagged, reconstructs at $19.37 against
+a published ~$12.60 — is flagged INCOMPLETE, warned about for a +82% swing no
+property portfolio produces, and held at LOW confidence.
+
+**Adjusted funds from operations is refused.** It subtracts recurring
+maintenance spending, straight-line rent and lease-intangible amortisation.
+No trust measured separates recurring maintenance from development spending in
+machine-readable form, and only thirteen of twenty tag a straight-line rent
+adjustment at all. Estimating it would mean inventing the largest of its three
+deductions.
+
+**Property type is read from the trust's own annual report.** The SEC gives
+every property trust industry code 6798, so the code cannot tell a data-centre
+trust from a shopping-centre trust — and those two have never traded at the
+same multiple. Measured against twenty trusts: sixteen classified correctly,
+three declined to answer, one (Iron Mountain, whose Item 1 now leads with data
+centres) came back as a data-centre trust. Declining is the designed outcome:
+an unclassified trust is compared against all property trusts, which is weaker
+than a matched comparison but never a wrong one.
+
+**Insurers and brokers remain refused.** No model here is built for either,
+and half a model reads exactly like a whole one on screen.
+
+## The covered-call simulator — `covered_call.py`
+
+The Phase 3 comparator prices a buy-write at ONE expiration, which is the
+honest answer to "which structure should I open today". It is not the question
+people ask about covered calls. That one is path dependent: a call sold in
+January caps a rally in February, and the shares are then assigned away, or
+bought back at a loss, or rolled into a further-out call whose credit does not
+cover the loss on the one it replaced. So this walks the lifecycle day by day:
+
+    own shares → sell a call → it expires, is assigned, is bought back or is
+    rolled → sell the next one
+
+**A roll never erases a loss.** Rolling is closing one option and opening
+another, and both legs are recorded: the realized loss on the option being
+closed stays in the ledger permanently and the credit on the new one is a
+separate event.
+
+**An option win rate is never presented as a result.** A ninety-five percent
+win rate on calls that repeatedly cap a rising stock loses to owning the
+shares. The comparison reported is terminal wealth against buy and hold on
+identical starting capital, with dividends treated identically; the win rate
+is one line of context inside it.
+
+**No delta, tenor or roll rule is declared best.** Ten policies run side by
+side across three tenors, four strike rules (delta target, percent above spot,
+never below fair value, never below the credited fair value), four roll rules
+and three assignment modes. The fair-value rules only ever RAISE a strike —
+selling the business below what it is judged to be worth in exchange for a
+premium is a decision to make deliberately rather than fall into by a delta
+setting.
+
+**Re-entry after assignment uses the buy zone**, not the next morning's open.
+Where the proceeds no longer buy a hundred shares back, that is recorded once
+as `COULD NOT BUY BACK` — a run that quietly sits in cash from then on looks
+like a decision rather than the arithmetic it is.
+
+**Historical option quotes are never invented.** Fills come from `chain_store`
+where a snapshot exists for that day and from Black-Scholes against a modelled
+volatility path everywhere else, each labelled, and the run reports
+`REAL CHAIN BACKTEST`, `PART REAL CHAIN, PART MODEL-BASED ESTIMATE` or
+`MODEL-BASED ESTIMATE`. Today every run is the last of those; it becomes a real
+backtest as the chain store fills in.
+
+The strongest check on the ledger: with no calls sold at all, terminal wealth
+equals buy and hold **to the cent**.
+
+## Forward validation — `forward_test.py`
+
+Since Phase 1 this tab has written one snapshot per ticker per day. This reads
+that store forward. Nothing is recomputed and nothing is rewritten: a
+recommendation made on a Tuesday is judged exactly as it was written down that
+Tuesday, against what the price then did.
+
+Three rules, enforced rather than promised:
+
+1. **No lookahead.** Every input comes from the stored row; every outcome from
+   bars strictly after it. `lookahead_audit` recomputes each outcome against a
+   price series truncated at the horizon and again with everything before the
+   recommendation removed, and asserts all three agree.
+2. **No incomplete horizons.** A ninety-day outcome appears ninety days after
+   the recommendation, and only if the price series actually reaches it.
+3. **No substitution.** A structure is scored on the EXACT contract that was
+   recommended — that strike, that expiration, that credit. Picking a better
+   one after seeing the outcome is the easiest way there is to manufacture a
+   good result.
+
+Reported at 30, 90, 180 and 365 days: sample size first, then median forward
+return, hit rate, return against the benchmark, return against the median of
+the OTHER companies in the same industry recorded the same day, median maximum
+adverse excursion, how often the published Bear-to-Bull range contained the
+outcome, and how often the comparison called the structures too close to call.
+Broken down by verdict, preferred structure, valuation percentile, quality,
+revision state, trap state and fair-value confidence.
+
+**There is no accuracy score.** A single number blending a hit rate, a median
+return and a calibration check is one nobody can act on and everybody can be
+reassured by. Below the minimum sample every bucket says `INSUFFICIENT SAMPLE`
+and shows nothing else. Results under materially different configuration
+hashes are broken out separately rather than combined and called one strategy.
+
 ## What is unreliable or unavailable, honestly
 
 * **Analyst forward estimates and coverage counts** need Finnhub or yfinance.
@@ -934,16 +1138,36 @@ everybody sorts by.
   series stops in 2018 and only `CashPaid` continues. Exxon tags only two
   quarters and therefore reports N/A with the reason rather than a wrong
   number.
-* **Banks, insurers, brokers and property trusts** remain refused outright.
-  Specialized models for them are Phase 4 work.
+* **Insurers and brokers** remain refused outright. Banks and property trusts
+  are valued by their own models as of Phase 4; no model here is built for an
+  insurer's float or a broker's segregated customer assets, and half a model
+  reads exactly like a whole one on screen.
+* **A bank that does not tag its preferred stock** has its tangible book value
+  refused rather than overstated. Bank of America is that bank, and it drops
+  out of every bank peer comparison for the same reason.
+* **Funds from operations is reconstructed, never quoted.** No property trust
+  publishes it in machine-readable form. Where the gains and impairment
+  components are untagged the reconstruction reads HIGH in a year with
+  disposals, is labelled INCOMPLETE, and has its confidence held at LOW.
+* **Occupancy, same-store net operating income and EBITDAre** are tagged by
+  none of the twenty property trusts measured. They appear only in
+  press-release tables, so they are not reported.
+* **Ex-dividend dates** come from the corporate-actions provider. Where none is
+  available the filed trailing rate is accrued evenly across the days held and
+  the screen says the total is right but the individual dates are not.
+* **Every covered-call run is currently a MODEL-BASED ESTIMATE.** The chain
+  store has no history for these names yet. Each run reports what share of its
+  fills came from real snapshots, and becomes a real backtest as that fills in.
 
-## What is ready for Phase 4
+## What is ready for Phase 5
 
-* Specialized valuation for banks (book value, net interest margin) and
-  property trusts (funds from operations) — the business-type gate is already
-  enforced everywhere, so a model per type slots in behind it.
-* A path-dependent covered-call simulator, which is what the single-expiration
-  buy-write here deliberately is not.
-* Forward testing: the snapshot store now records the entry verdict, the
-  structure that won, the flip trigger and the config hash every day, which is
-  what a test of whether any of this predicted anything actually needs.
+* **Insurers and brokers.** The business-type gate already enforces the
+  refusal everywhere and `fair_value.stamp` is the one hook a purpose-built
+  model needs. An insurer needs book value adjusted for float and reserve
+  development; a broker needs client assets and net interest on cash
+  balances. Neither is half-built here.
+* **Real-chain covered-call backtests.** The simulator already prefers stored
+  chains over model prices and labels every fill. What it needs is time.
+* **A validation panel with something in it.** Every horizon currently reports
+  INSUFFICIENT SAMPLE, which is the correct answer for a store this young. The
+  first thirty-day outcomes land thirty days from now.

@@ -5585,6 +5585,10 @@ try:
         chain_fn=_invest_chain,
         rate_fn=_invest_rate,
         earn_moves_fn=_edge_earn_moves,
+        # Declared dividends by ex-date, so the covered-call simulator
+        # credits them on the days they were actually paid rather than
+        # spreading a filed annual rate across the year.
+        actions_fn=_gap_actions,
         data_dir=_STABLE_DIR,
     )
     _INVEST_AVAILABLE = True
@@ -8556,6 +8560,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         "entry": pay.get("entry"), "plan": pay.get("plan"),
                         "scenario_probabilities": pay.get("scenario_probabilities"),
                     }, no_store=True)
+                elif section == "covered_call":
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    try:
+                        yrs = int(qs.get("years", ["3"])[0] or "3")
+                    except ValueError:
+                        yrs = 3
+                    self._send_json(
+                        _invest.covered_call(symbol, years=max(1, min(10, yrs))),
+                        no_store=True)
+                elif section == "validation":
+                    syms = [s.strip().upper() for s in
+                            (qs.get("symbols", [""])[0] or "").split(",")
+                            if s.strip()]
+                    self._send_json(
+                        _invest.validation(syms[:120] or None), no_store=True)
                 elif section == "config":
                     cfg_i, h = _invest.config()
                     self._send_json({"config": cfg_i, "hash": h,
@@ -8563,6 +8584,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "scorecard": _invest.engine.SCORECARD_VERSION,
                                      "fair_value": _invest.fv.FAIR_VALUE_VERSION,
                                      "comparator": _invest._structs.COMPARATOR_VERSION,
+                                     "bank": _invest._bank.BANK_MODEL_VERSION,
+                                     "reit": _invest._reit.REIT_MODEL_VERSION,
+                                     "covered_call": _invest._cc.COVERED_CALL_VERSION,
+                                     "forward_test":
+                                         _invest._forward.FORWARD_TEST_VERSION,
                                      "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:
