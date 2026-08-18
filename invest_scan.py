@@ -2305,11 +2305,14 @@ def _iv_path(symbol: str, bars: list, earnings_dates=None) -> list:
     volatility, and reusing it as a calibration here would be the same
     mistake wearing a different hat.
     """
+    # The filter has to match the simulator's exactly. One bar kept here and
+    # dropped there shifts every volatility reading after it by a day, which
+    # is the kind of error that produces plausible numbers forever.
     rows = [{"date": str(b.get("date") or b.get("d") or "")[:10],
              "close": _f(b.get("close") if b.get("close") is not None
                          else b.get("c"))}
             for b in bars or []]
-    rows = [r for r in rows if r["date"] and r["close"]]
+    rows = [r for r in rows if r["date"] and r["close"] and r["close"] > 0]
     if not rows:
         return []
     try:
