@@ -140,13 +140,12 @@ function InvStat({
   basis,
   asOf,
   reason,
-  tone,
-  wide
+  tone
 }) {
   const missing = value === invNA || value == null;
   const fullTip = [tip, missing && reason ? `Not available: ${reason}` : null].filter(Boolean).join("\n\n");
   return /*#__PURE__*/React.createElement("div", {
-    className: `inv-stat${wide ? " inv-stat-wide" : ""}`
+    className: "inv-stat"
   }, /*#__PURE__*/React.createElement("span", {
     className: "inv-stat-label",
     title: fullTip

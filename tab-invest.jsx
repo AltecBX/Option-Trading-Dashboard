@@ -128,12 +128,12 @@ function InvSource({ prov, basis, asOf, reason }) {
 }
 
 // One statistic: label, value, provenance. `reason` is why it is N/A.
-function InvStat({ label, value, tip, prov, basis, asOf, reason, tone, wide }) {
+function InvStat({ label, value, tip, prov, basis, asOf, reason, tone }) {
   const missing = value === invNA || value == null;
   const fullTip = [tip, missing && reason ? `Not available: ${reason}` : null]
     .filter(Boolean).join("\n\n");
   return (
-    <div className={`inv-stat${wide ? " inv-stat-wide" : ""}`}>
+    <div className="inv-stat">
       <span className="inv-stat-label" title={fullTip}>{label}</span>
       <b className={`inv-stat-val${tone ? ` ${tone}` : ""}${missing ? " inv-na" : ""}`}
          title={fullTip}>{value}</b>

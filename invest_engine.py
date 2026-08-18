@@ -155,10 +155,6 @@ def _parts(period) -> tuple:
             _num((period or {}).get("shares")))
 
 
-def _eps_of(rev, ni, sh):
-    return safe_div(ni, sh)
-
-
 def log_decomposition(prior: dict, current: dict) -> dict | None:
     """Exact multiplicative attribution of the change in EPS.
 

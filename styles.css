@@ -12002,7 +12002,6 @@ a.tabsheet-btn.site { text-decoration: none; }
   grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
   padding-top: 4px; border-top: 1px dashed var(--line); }
 .inv-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.inv-stat-wide { grid-column: 1 / -1; }
 .inv-stat-label { font: 600 10.5px/1.4 var(--font-mono); text-transform: uppercase;
   letter-spacing: 0.05em; color: var(--fg-3); cursor: help; }
 .inv-stat-val { font: 700 17px/1.25 var(--font-mono); color: var(--fg);
