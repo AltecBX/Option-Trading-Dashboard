@@ -34,7 +34,8 @@ const ORDER = ["config.js", "data.js", "recommendation.js", "weather.js",
                // Lazy chunks (v3.64): loaded on demand AFTER everything else,
                // so linting/loading them last models the real load order.
                "tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js",
-               "tab-recovery.js", "tab-ask.js", "tab-edge.js", "tab-gap.js"];
+               "tab-recovery.js", "tab-ask.js", "tab-edge.js", "tab-gap.js",
+               "tab-invest.js"];
 
 // ── Layer 1: free variable lint ─────────────────────────────────────
 const ENV = new Set(("window document navigator localStorage sessionStorage fetch console " +

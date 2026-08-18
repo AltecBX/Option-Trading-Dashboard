@@ -109,6 +109,7 @@ const TABS = [
   { id: "swst", label: "Simply Wall St" },
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
+  { id: "invest", label: "Investment" },
   { id: "edge", label: "Premium Edge" },
   { id: "gap", label: "Gap Scan" },
   { id: "recovery", label: "Recovery" },

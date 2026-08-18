@@ -461,5 +461,30 @@
       "sector_min_pct": 1.5,
       "isolated_ratio": 3.0
     }
+  },
+  "investment": {
+    "_doc": "Investment tab, Phase 1 (INVESTMENT.md). Answers four questions: is this a strong profitable business, are revenue and earnings growing, is it cheap against its own fundamentals, and at what price would it be worth owning. The verdict is one of ATTRACTIVE / WATCH / WAIT / AVOID / INSUFFICIENT DATA and is reproducible by hand from the numbers printed on the same screen. There is deliberately no 0-100 investment score: the distance between a 61 and a 68 would not mean anything. Repo file = defaults; <data>/thresholds.json overrides key-by-key.",
+    "attractive_spread_pp": 2.0,
+    "watch_spread_pp": 0.0,
+    "min_revenue_growth_pct": 0.0,
+    "min_fcf_yield_pct": 0.0,
+    "estimate_cut_pct": -5.0,
+    "fallback_treasury_pct": 4.0,
+    "_thresholds_doc": {
+      "attractive_spread_pp": "Percentage points of earnings yield ABOVE the live 10-year Treasury yield required for ATTRACTIVE. At a 4.7% 10-year this asks for a 6.7% earnings yield, which is a trailing price/earnings ratio near 15 — a demanding, deliberately old-fashioned value bar. Most large, high-quality companies will read WAIT at it. Raise it to be stricter, lower it to accept growth at a higher multiple.",
+      "watch_spread_pp": "Earnings yield at or above the 10-year Treasury, but below the attractive cushion, reads WATCH rather than WAIT: the business at least out-yields a government bond.",
+      "min_revenue_growth_pct": "Year-over-year trailing revenue growth below this counts as shrinking, which downgrades the verdict no matter how cheap the stock looks.",
+      "min_fcf_yield_pct": "Free cash flow yield below this is flagged: the business consumed cash over the last twelve months rather than producing it.",
+      "estimate_cut_pct": "Revision breadth over the last 30 days below this counts as analysts cutting. Note this is BREADTH — the net share of covering analysts moving up rather than down — because the free estimate provider publishes revision counts, not an estimate history.",
+      "fallback_treasury_pct": "Used only when the live Treasury curve is unreachable. The verdict says out loud when it fell back to this."
+    },
+    "staleness_hours": {
+      "_doc": "How old a stored value may be and still be served as a STALE fallback when its provider fails. Past the limit the field goes to N/A instead: a share price from three weeks ago is not stale, it is wrong.",
+      "price": 24,
+      "estimates": 720,
+      "treasury_10y": 168
+    },
+    "eps_identity_tolerance_pct": 3.0,
+    "_eps_identity_doc": "How far reported diluted EPS may sit from net income divided by diluted shares before the Earnings Drivers panel warns that it is describing a slightly different earnings figure than the headline. Measured across fourteen of this dashboard's tickers: nine land inside 1.5%; Realty Income sits at 5.3% (preferred dividends and minority interests) and loss-makers further out."
   }
 }

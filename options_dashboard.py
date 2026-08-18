@@ -5390,6 +5390,72 @@ except Exception as _exc:  # noqa: BLE001
     _gap = None  # type: ignore
 
 
+# ── Investment tab (v4.41) ──────────────────────────────────────────────────
+# Providers are injected, never re-implemented: the quote comes from the same
+# Schwab-first path everything else uses, the estimates from the analyst
+# client, the 10-year yield from treasury.py's official curve, and the price
+# history from load_daily. Swapping any of them later touches this block
+# alone — invest_scan and the tab keep the same normalized field names.
+
+def _invest_quote(symbol: str) -> dict | None:
+    """Current share price: Schwab first, then the Yahoo chart fallback."""
+    sc = _schwab()
+    if sc is not None:
+        try:
+            q = (sc.get_quotes([symbol]) or {}).get(symbol) or {}
+            last = q.get("last")
+            if last and float(last) > 0:
+                tt = q.get("trade_time_ms")
+                when = (datetime.fromtimestamp(tt / 1000, _ET).isoformat(
+                    timespec="seconds") if tt else None)
+                return {"price": float(last), "source": "Schwab quote",
+                        "as_of": when}
+        except Exception as exc:  # noqa: BLE001
+            _log_warn(symbol, "invest/quote schwab", exc)
+    try:
+        last, _prev, _spark = _yahoo_quote(symbol)
+        if last and float(last) > 0:
+            return {"price": float(last),
+                    "source": "Yahoo Finance quote (delayed)", "as_of": None}
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/quote yahoo", exc)
+    return None
+
+
+def _invest_estimates(symbol: str) -> dict | None:
+    if not _ANALYST_AVAILABLE:
+        return None
+    try:
+        return _analyst_client.get_client().get_eps_estimates(symbol)
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "invest/estimates", exc)
+        return None
+
+
+def _invest_ten_year() -> dict | None:
+    try:
+        return _treasury.ten_year()
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(None, "invest/treasury", exc)
+        return None
+
+
+try:
+    import invest_scan as _invest
+    _invest.configure(
+        quote_fn=_invest_quote,
+        estimates_fn=_invest_estimates,
+        ten_year_fn=_invest_ten_year,
+        daily_fn=_gap_daily,
+        data_dir=_STABLE_DIR,
+    )
+    _INVEST_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[invest_scan] wiring failed: {_exc}", file=sys.stderr)
+    _INVEST_AVAILABLE = False
+    _invest = None  # type: ignore
+
+
 def _juice_rows_passive() -> list:
     """0DTE juice board rows WITHOUT triggering a scan (snapshot() lazily
     starts the worker; the tape's discovery tier must not)."""
@@ -8279,6 +8345,43 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                     status=404)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/gap", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/invest" or parsed.path.startswith("/api/invest/"):
+            if not _INVEST_AVAILABLE:
+                self._send_json({"error": "investment module unavailable"},
+                                status=503)
+                return
+            section = parsed.path[len("/api/invest"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+            try:
+                if section in ("", "history"):
+                    if not symbol or len(symbol) > 8:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    try:
+                        years = int(qs.get("years", ["3"])[0] or "3")
+                    except ValueError:
+                        years = 3
+                    force = (qs.get("force", ["0"])[0] or "0") in ("1", "true")
+                    if section == "history":
+                        self._send_json(_invest.history(symbol, years=years),
+                                        no_store=True)
+                    else:
+                        self._send_json(_invest.payload(symbol, force=force,
+                                                        years=years),
+                                        no_store=True)
+                elif section == "config":
+                    cfg_i, h = _invest.config()
+                    self._send_json({"config": cfg_i, "hash": h,
+                                     "engine": _invest.engine.ENGINE_VERSION},
+                                    no_store=True)
+                else:
+                    self._send_json({"error": f"unknown invest section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol or None, "api/invest", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/reprice/chain":
@@ -12104,6 +12207,12 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _gap.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[gap_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _INVEST_AVAILABLE:
+        try:
+            _invest.start_scheduler(
+                starred_fn=lambda: (_backtest_universe() or {}).get("starred") or [])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[invest_scan] scheduler start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;

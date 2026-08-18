@@ -11936,3 +11936,163 @@ a.tabsheet-btn.site { text-decoration: none; }
   font-size: 12px; line-height: 1.45; color: var(--warn);
   background: color-mix(in oklch, var(--warn), transparent 88%);
   border: 1px solid color-mix(in oklch, var(--warn), transparent 60%); }
+
+/* ══ Investment tab (v4.41) ═════════════════════════════════════════════════
+   Long-horizon view of the business behind the ticker. The layout puts the
+   answer first (verdict + why + what would change it), then the business in
+   its own words, then the numbers, then the two charts. Every number carries
+   a provenance line underneath it — that grey line is the honesty contract,
+   so it is styled to be readable rather than hidden. */
+.inv-card .card-head { align-items: flex-start; }
+.inv-ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inv-sym { width: 90px; padding: 6px 9px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2); background: var(--bg-2); color: var(--fg);
+  font: 700 13px var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; }
+.inv-sym:focus { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+
+.inv-body { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── the answer ── */
+.inv-hero { border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; background: var(--bg-3); }
+.inv-hero-top { display: flex; gap: 12px; align-items: center;
+  justify-content: space-between; flex-wrap: wrap; }
+.inv-hero-name b { font: 700 16px/1.3 var(--font-display); color: var(--fg); }
+.inv-hero-name .muted { font: 600 13px var(--font-mono); }
+.inv-verdict { font: 700 11px/1.6 var(--font-mono); letter-spacing: 0.08em;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line-2);
+  white-space: nowrap; }
+.inv-verdict-up { color: var(--up);
+  border-color: color-mix(in oklch, var(--up) 45%, transparent);
+  background: color-mix(in oklch, var(--up), transparent 90%); }
+.inv-verdict-warn { color: var(--warn);
+  border-color: color-mix(in oklch, var(--warn) 45%, transparent);
+  background: color-mix(in oklch, var(--warn), transparent 90%); }
+.inv-verdict-down { color: var(--down);
+  border-color: color-mix(in oklch, var(--down) 45%, transparent);
+  background: color-mix(in oklch, var(--down), transparent 90%); }
+.inv-verdict-mut { color: var(--fg-3); }
+.inv-reasons { margin: 10px 0 0; padding-left: 18px; display: flex;
+  flex-direction: column; gap: 5px; }
+.inv-reasons li { font-size: 12.5px; line-height: 1.55; color: var(--fg-2); }
+.inv-change { margin-top: 10px; padding: 9px 11px; border-radius: var(--radius-sm);
+  font-size: 12.5px; line-height: 1.55; color: var(--fg);
+  background: color-mix(in oklch, var(--accent), transparent 92%);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 78%); }
+.inv-change div + div { margin-top: 6px; }
+
+.inv-moats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.inv-moat { font: 600 10.5px var(--font-mono); letter-spacing: 0.02em;
+  padding: 3px 8px; border-radius: 999px; color: var(--fg-2);
+  border: 1px dashed var(--line-2); background: var(--bg-2); }
+
+/* ── section heads, shared with the panels below ── */
+.inv-sechead { font: 700 11px/1.5 var(--font-mono); text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--fg-2); display: flex; gap: 8px;
+  align-items: center; flex-wrap: wrap; }
+.inv-sechead .muted { text-transform: none; letter-spacing: 0; font-weight: 500;
+  color: var(--fg-3); }
+
+.inv-desc { font-size: 13px; line-height: 1.6; color: var(--fg-2); }
+
+/* ── the statistic grid ── */
+.inv-grid { display: grid; gap: 14px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); }
+.inv-subgrid { display: grid; gap: 12px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  padding-top: 4px; border-top: 1px dashed var(--line); }
+.inv-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-stat-label { font: 600 10.5px/1.4 var(--font-mono); text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--fg-3); cursor: help; }
+.inv-stat-val { font: 700 17px/1.25 var(--font-mono); color: var(--fg);
+  cursor: help; overflow-wrap: anywhere; }
+.inv-stat-val.up { color: var(--up); }
+.inv-stat-val.down { color: var(--down); }
+/* N/A is deliberately legible, not hidden: "we do not know" is information. */
+.inv-stat-val.inv-na { color: var(--fg-4); font-size: 15px;
+  border-bottom: 1px dotted var(--fg-4); }
+.inv-src { font: 500 10px/1.45 var(--font-body); color: var(--fg-4);
+  cursor: help; overflow-wrap: anywhere; }
+.inv-src a { color: var(--accent); text-decoration: underline; }
+.inv-src-stale { color: var(--warn); }
+.inv-stale-flag { display: inline-block; margin-right: 5px; padding: 0 4px;
+  border-radius: 3px; font: 700 9px var(--font-mono); letter-spacing: 0.06em;
+  color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 45%, transparent); }
+
+/* ── earnings drivers ── */
+.inv-drivers { display: flex; flex-direction: column; gap: 10px; }
+.inv-drivers-sum { font: 700 15px var(--font-mono); color: var(--fg); cursor: help; }
+.inv-drivers-sum .muted { font: 500 12px var(--font-body); color: var(--fg-3); }
+.inv-arrow { color: var(--fg-3); padding: 0 4px; }
+.inv-bars { display: flex; flex-direction: column; gap: 7px; }
+.inv-bar-row { display: grid; grid-template-columns: 140px 1fr 92px;
+  gap: 10px; align-items: center; }
+.inv-bar-label { font-size: 12px; color: var(--fg-2); cursor: help; }
+.inv-bar-track { position: relative; height: 10px; border-radius: 5px;
+  background: color-mix(in oklch, var(--fg-4), transparent 78%); overflow: hidden; }
+.inv-bar-track i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; }
+.inv-bar-track i.up { background: color-mix(in oklch, var(--up) 65%, transparent); }
+.inv-bar-track i.down { background: color-mix(in oklch, var(--down) 60%, transparent); }
+.inv-bar-row b { font: 700 12.5px var(--font-mono); text-align: right; }
+.inv-bar-row b.up { color: var(--up); }
+.inv-bar-row b.down { color: var(--down); }
+.inv-bar-total { border-top: 1px dashed var(--line); padding-top: 7px; }
+.inv-note { font-size: 11.5px; line-height: 1.55; color: var(--fg-3); }
+.inv-warn { padding: 8px 10px; border-radius: var(--radius-sm); font-size: 12px;
+  line-height: 1.5; color: var(--warn);
+  background: color-mix(in oklch, var(--warn), transparent 90%);
+  border: 1px solid color-mix(in oklch, var(--warn), transparent 65%); }
+
+/* ── price against earnings ── */
+.inv-histwrap { display: flex; flex-direction: column; gap: 8px; }
+.inv-yearsel { margin-left: auto; display: flex; gap: 4px; }
+.inv-yearbtn { padding: 3px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2); background: var(--bg-2); color: var(--fg-3);
+  font: 700 10.5px var(--font-mono); cursor: pointer; }
+.inv-yearbtn.on { color: var(--accent); border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent), transparent 92%); }
+.inv-legend { display: flex; flex-wrap: wrap; gap: 14px; }
+.inv-key { font-size: 11.5px; color: var(--fg-2); cursor: help;
+  display: inline-flex; align-items: center; gap: 6px; }
+.inv-key::before { content: ""; width: 16px; height: 2.5px; border-radius: 2px; }
+/* The accent and the "up" colour are both greens in this theme, so price and
+   earnings drawn in them were two nearly identical lines. Three clearly
+   separable hues instead, defined once and used by both the key and the SVG. */
+.inv-histwrap { --inv-price: var(--fg); --inv-eps: var(--accent);
+  --inv-fwd: var(--warn); }
+.inv-key-price::before { background: var(--inv-price); }
+.inv-key-eps::before { background: var(--inv-eps); }
+.inv-key-fwd::before { background: var(--inv-fwd); }
+.inv-chart { width: 100%; height: auto; }
+.inv-chart .inv-grid { stroke: var(--line); stroke-width: 1; }
+.inv-chart .inv-base { stroke: var(--fg-4); stroke-width: 1; stroke-dasharray: 3 3; }
+.inv-chart .inv-axis { font: 500 9.5px var(--font-mono); fill: var(--fg-3); }
+.inv-chart path { fill: none; stroke-width: 2; stroke-linejoin: round;
+  stroke-linecap: round; }
+.inv-chart .inv-line-price { stroke: var(--inv-price); stroke-width: 1.6; }
+.inv-chart .inv-line-eps { stroke: var(--inv-eps); stroke-width: 2.4; }
+.inv-chart .inv-line-fwd { stroke: var(--inv-fwd); stroke-dasharray: 5 4; }
+
+.inv-foot { font-size: 11px; color: var(--fg-4); cursor: help;
+  border-top: 1px dashed var(--line); padding-top: 10px; }
+
+@media (max-width: 900px) {
+  .inv-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px 14px; }
+  .inv-subgrid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); }
+  .inv-stat-val { font-size: 15px; }
+}
+@media (max-width: 620px) {
+  /* Mobile keeps every number — they are the point of the tab — but drops to
+     two columns so nothing truncates, and the driver bars stack their label
+     above the bar instead of squeezing a 140px gutter onto a 360px screen. */
+  .inv-grid, .inv-subgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inv-stat-val { font-size: 14px; }
+  .inv-stat-label { font-size: 9.5px; }
+  .inv-bar-row { grid-template-columns: 1fr 74px; grid-template-areas:
+    "label label" "track value"; }
+  .inv-bar-label { grid-area: label; }
+  .inv-bar-track { grid-area: track; }
+  .inv-bar-row b { grid-area: value; }
+  .inv-hero { padding: 12px; }
+  .inv-drivers-sum { font-size: 13.5px; }
+}
