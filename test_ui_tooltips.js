@@ -167,6 +167,30 @@ check("a headline-derived tag says so on screen, not only in a tooltip",
   /gap-cat-grade/.test(src)
   && /catalyst_evidence === "headline"/.test(src)
   && /read the story/.test(src));
+check("insider and ownership catalysts are named",
+  ['"INSIDER BUYING": "Insider buying"', '"INSIDER SELLING": "Insider selling"',
+   '"ACTIVIST STAKE": "Activist stake"', 'BUYBACK: "Buyback"',
+   '"REVERSE SPLIT": "Reverse split"', '"LATE FILING": "Late filing"']
+    .every((k) => src.includes(k)));
+// Insiders buy for one reason and sell for many — the colors have to say so.
+check("insider buying reads green and selling red", (() => {
+  const tone = (src.match(/const GAP_CATALYST_TONE = \{[\s\S]*?\n\};/) || [""])[0];
+  return /"INSIDER BUYING": "up"/.test(tone) && /"INSIDER SELLING": "down"/.test(tone)
+    && /"REVERSE SPLIT": "warn"/.test(tone);
+})());
+// The two facts that make these tags trustworthy are measurements, and they
+// belong where Jerry can read them rather than buried in a commit message.
+check("the insider tooltips carry the measurement, not just a claim", (() => {
+  const tips = (src.match(/const GAP_CATALYST_TIP = \{[\s\S]*?\n\};/) || [""])[0];
+  return /93%/.test(tips) && /10b5-1/.test(tips)
+    && /Grants, option exercises and shares withheld for tax are ignored/.test(tips);
+})());
+// A reverse split rewrites the price scale, so the fade statistics below it
+// are arithmetic on numbers that no longer exist. Same treatment as a
+// pinned takeover price: said out loud, above the numbers.
+check("a reverse split warns that the history changed scale",
+  /rescales_history/.test(read("options_dashboard.py"))
+  && /_GAP_SPLIT_WARNING/.test(read("options_dashboard.py")));
 // Read the kinds out of the label map instead of listing them here, so a
 // new catalyst cannot ship without a tooltip — the recurring complaint.
 const catalystKinds = (() => {

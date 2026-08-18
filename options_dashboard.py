@@ -5181,6 +5181,14 @@ _GAP_DEAL_WARNING = (
     "trades to that price instead of moving on its own — so its gap history "
     "is not describing the same stock any more."
 )
+# A reverse split is the one catalyst that changes the numbers rather than
+# the company: a 1-for-10 multiplies the quoted price by ten overnight, and
+# every gap percentage below was computed on the old scale.
+_GAP_SPLIT_WARNING = (
+    "This stock just did a reverse split. The share price and share count "
+    "changed by arithmetic, not by trading, so the gap history below was "
+    "measured on a different price scale."
+)
 
 
 def _gap_filing_event(symbol: str, days: tuple) -> dict | None:
@@ -5188,8 +5196,10 @@ def _gap_filing_event(symbol: str, days: tuple) -> dict | None:
 
     Covers what no public feed does: FDA rejections (the FDA never publishes
     a Complete Response Letter — only the company does), buyouts, trial
-    readouts, bankruptcy, delisting notices, restatements. Several come free
-    from the 8-K item codes; the rest are read out of the filing itself."""
+    readouts, bankruptcy, delisting notices, restatements, activist stakes,
+    buybacks, reverse splits, and the insiders' own open-market trades.
+    Several come free from the 8-K item codes and form types; the rest are
+    read out of the filing itself."""
     if not (_SEC_AVAILABLE and _sec_filings is not None):
         return None
     try:
@@ -5205,6 +5215,8 @@ def _gap_filing_event(symbol: str, days: tuple) -> dict | None:
            "url": hit.get("url")}
     if _sec_filings.pins_the_price(hit["kind"]):
         out["warning"] = _GAP_DEAL_WARNING
+    elif _sec_filings.rescales_history(hit["kind"]):
+        out["warning"] = _GAP_SPLIT_WARNING
     return out
 
 

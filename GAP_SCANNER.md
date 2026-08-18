@@ -151,13 +151,19 @@ decides which statistical population the day belongs to.
 | MERGER DEAL | merger agreement whose side could not be proven | one read |
 | RESTATEMENT | 8-K item 4.02 | free |
 | DELISTING NOTICE | 8-K item 3.01 | free |
+| REVERSE SPLIT | 8-K text, with the ratio | one read |
+| ACTIVIST STAKE | first SC 13D (amendments excluded) | free |
 | SHORT REPORT | named short-selling firm in a fresh headline (8-K response where one exists) | news feed |
+| DELISTING NOTICE | 8-K item 3.01 | free |
+| LATE FILING | NT 10-K / NT 10-Q | free |
 | — *below here a share sale explains the morning better* — | | |
 | OFFERING · DILUTION | 424B/S-3/S-1 + cover page, 8-K item 3.02 | one read |
 | GUIDANCE CUT · GUIDANCE RAISED | 8-K text, outside quarterly releases | one read |
 | INDEX ADD · INDEX DROP | fresh headline naming S&P / Russell / Nasdaq-100 | news feed |
 | MERGER VOTE | DEFM14A / PREM14A | free |
 | DEAL CLOSED | 8-K item 2.01 | free |
+| BUYBACK | 8-K text, new authorizations only | one read |
+| INSIDER BUYING · INSIDER SELLING | Form 4 transaction codes, rolled up per session | one read each |
 | IMPAIRMENT · RESTRUCTURING · AUDITOR CHANGE | 8-K items 2.06 / 2.05 / 4.01 | free |
 | UPGRADE · DOWNGRADE · ANALYST ACTION | analyst board + per-symbol feed | free |
 | LEADERSHIP CHANGE | 8-K item 5.02 | free |
@@ -267,6 +273,68 @@ or cut inside a 2.02 release is ignored, because that day is an earnings
 gap and earnings outranks everything anyway. Verified both ways against
 real filings (Trex's mid-July raise tags; AMETEK's quarterly raise does not).
 
+## Insider trading (`sec_filings.latest_insider`)
+
+Form 4 is filed by the insider, not the company, but it lands in the
+company's own submissions feed — measured, not assumed: **5,873 of the
+filings across fifteen tickers were Form 4s**, more than half of every feed.
+
+Which is the first problem: almost none of it means anything. Across 200
+consecutive Form 4s from nine tickers the transaction codes ran
+
+| code | meaning | n |
+| --- | --- | --- |
+| A | stock granted | 101 |
+| S | sold on the open market | 62 |
+| F | shares withheld for tax on a vest | 31 |
+| M | option exercised | 24 |
+| **P** | **bought on the open market** | **9** |
+
+Grants, withholding and exercises are the mechanics of being paid, and are
+dropped entirely. Derivative transactions are ignored for the same reason.
+
+The second measurement decides the whole design. Of those 345 sales, **321
+— 93% — were made under a Rule 10b5-1 plan**: scheduled months ahead,
+non-discretionary by law, silent on what the seller thinks today. Of the ten
+purchases, **zero** were under a plan. Insiders sell for many reasons and
+buy for one; here that is a measurement on this app's own tickers rather
+than a maxim. So buying is reported, selling is reported **only when it was
+discretionary**, and the label says so out loud.
+
+Trades are **rolled up per session**, because insiders move together: four
+CING officers and directors filed separately on the same morning and only
+their total ($167K) says anything — the smallest of them was $9,808 alone.
+Floors apply to the session total, so a cluster of small buys still clears
+while a lone trivial one does not.
+
+**Live-only, for a cost reason.** Buy-versus-sell cannot be read from
+metadata, so tagging history would mean opening thousands of documents per
+symbol. History stays on the free metadata tags.
+
+## Corporate actions
+
+- **REVERSE SPLIT** — the one catalyst that changes the *numbers* rather
+  than the company. A 1-for-10 multiplies the quoted price by ten overnight
+  with no trading involved, so the fade percentages below it were measured
+  on a price scale that no longer exists. It therefore carries a visible
+  warning above the numbers, exactly like a pinned takeover price. The ratio
+  is quoted from the filing (`1-for-5 · …`). Common in small caps defending
+  a $1 minimum listing price, which is why it often lands beside a delisting
+  notice or an offering.
+- **BUYBACK** — new board authorizations only. Two real traps are blocked:
+  a filing that sets up a 10b5-1 plan to *execute* a program approved
+  earlier, and one that reports the *balance remaining* on one. Tyler's June
+  8-K says "we have remaining authorization … to repurchase up to $332.7
+  million", which reads exactly like an authorization and is a balance.
+- **ACTIVIST STAKE** — a *first* Schedule 13D, the form used when a 5%+
+  holder intends to influence the company. Amendments are excluded: 90 of
+  the 121 real 13D filings measured were amendments, which are the same
+  holder adding, trimming or leaving, and the form alone cannot say which.
+  Passive 13Gs never count.
+- **LATE FILING** — NT 10-K / NT 10-Q. Free from the form type, and ranked
+  *above* an offering: a company that cannot produce its own financials
+  explains a gap better than a share sale does.
+
 ## Still missing, on purpose
 
 These move stocks and have **no source wired into this app**. Listed so
@@ -280,6 +348,16 @@ nobody mistakes an UNTAGGED day for a quiet one:
   Power's feed. A tag that wrong would attach a confident, false reason to
   a gap that happened for another one. The detail view's 3-day news list
   already shows launches for the reader to judge.
+- **dividend initiations, raises and cuts** — measured and rejected. Over
+  seven months of 8-Ks there were **2,268** routine "quarterly cash
+  dividend" declarations against **2** findable suspensions and **0**
+  matches for the several ways a cut is normally phrased. The informative
+  half is not reliably findable and the routine half would flood the screen,
+  so neither is tagged. (A cut is a real gap catalyst; this is a sourcing
+  limit, not a judgement that it does not matter.)
+- **Form 144** — notice of a *proposed* sale. Skipped: it is intent rather
+  than execution, it overlaps almost entirely with the 10b5-1 plan sales
+  already discarded, and Form 4 records what actually happened.
 - guidance given verbally at a conference and never filed
 - partnerships and contract wins (8-K item 1.01 is far too broad to tag
   without reading every one, and most are not why a stock gapped)

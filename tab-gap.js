@@ -68,6 +68,12 @@ const GAP_CATALYST_LABEL = {
   "INDEX DROP": "Index drop",
   "GUIDANCE RAISED": "Guidance raised",
   "GUIDANCE CUT": "Guidance cut",
+  "INSIDER BUYING": "Insider buying",
+  "INSIDER SELLING": "Insider selling",
+  "ACTIVIST STAKE": "Activist stake",
+  BUYBACK: "Buyback",
+  "REVERSE SPLIT": "Reverse split",
+  "LATE FILING": "Late filing",
   UNTAGGED: "None tagged"
 };
 // An upgrade behind a gap up confirms the move; a downgrade behind one is a
@@ -98,7 +104,17 @@ const GAP_CATALYST_TONE = {
   "GUIDANCE CUT": "down",
   "INDEX DROP": "down",
   "GUIDANCE RAISED": "up",
-  "INDEX ADD": "up"
+  "INDEX ADD": "up",
+  // Insiders buying with their own money is the cleanest bullish tag here;
+  // a discretionary sale is the mirror of it. An activist arriving and a
+  // buyback are both bids. A reverse split and a late annual report are
+  // not directional on their own — amber, and the warning does the talking.
+  "INSIDER BUYING": "up",
+  BUYBACK: "up",
+  "ACTIVIST STAKE": "up",
+  "INSIDER SELLING": "down",
+  "LATE FILING": "down",
+  "REVERSE SPLIT": "warn"
 };
 const gapCatalyst = k => GAP_CATALYST_LABEL[k] || k || "None tagged";
 const GAP_CATALYST_TIP = {
@@ -129,7 +145,13 @@ const GAP_CATALYST_TIP = {
   "INDEX DROP": "This stock is being removed from an index. Index funds have to sell it. From the news feed rather than a filing — the index provider announces these, not the company.",
   "GUIDANCE RAISED": "The company raised its own forecast OUTSIDE a quarterly report — a preannouncement. Read from its 8-K; guidance inside a quarterly release is not counted here, because that day is an earnings gap and earnings already outranks this.",
   "GUIDANCE CUT": "The company cut, withdrew or suspended its own forecast OUTSIDE a quarterly report. A preannounced cut is one of the harder gaps down there is, because it usually means the quarter went wrong badly enough that they could not wait. Read from the company's 8-K.",
-  UNTAGGED: "No earnings, FDA decision, deal, offering filing, rating change, macro event or catalyst headline was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view."
+  "INSIDER BUYING": "One or more insiders BOUGHT this company's stock on the open market, with their own money, and the Form 4 landed today or last night. The label names who, their role, and the day's total across every insider who filed — four officers each buying separately on one morning only means something added up. Why this tag is trusted: across 200 consecutive Form 4s from nine of these tickers, only 9 were open-market purchases, and NOT ONE was made under a pre-scheduled 10b5-1 plan. An insider buy is always a decision. Grants, option exercises and shares withheld for tax are ignored entirely — that is compensation arriving, not a view. Small totals are dropped. Click through to read the Form 4.",
+  "INSIDER SELLING": "An insider SOLD stock on the open market and — this is the whole point — did NOT do it under a pre-scheduled trading plan. Measured on this app's own tickers: 321 of 345 insider sales (93%) were made under Rule 10b5-1 plans, set up months in advance and non-discretionary by law, so they say nothing about what the seller thinks today. Every one of those is thrown away here. What is left is a person choosing to sell, which is worth seeing. Still the weaker half of the pair: insiders sell to buy houses and pay taxes, and they buy for one reason. Only sizeable sales are shown.",
+  "ACTIVIST STAKE": "An investor crossed 5% of the company and filed a Schedule 13D — the form you use when you intend to INFLUENCE the company, as opposed to the passive 13G. That usually means a push for board seats, a sale of the company, or a strategy change, and the stock often reprices on the filing alone. Free from the form type; no document read needed. Note that only a FIRST 13D is tagged: the amendments behind it are that same holder adding, trimming or leaving, and the form alone cannot say which.",
+  BUYBACK: "The board authorized a NEW share repurchase program — the company bidding for its own stock. The label quotes the filing's own sentence, with the size where it is stated. Only new authorizations count: a filing that sets up a trading plan to execute a program approved months ago, or reports how much is left on one, is deliberately not tagged, because neither is news.",
+  "REVERSE SPLIT": "The company is doing a reverse stock split — the label shows the ratio, read from its own filing. READ THE WARNING ABOVE: this is the one catalyst that changes the numbers rather than the company. A 1-for-10 multiplies the quoted price by ten overnight with no trading involved, so the gap percentages below were measured on a price scale that no longer exists. Common in small caps trying to hold a $1 minimum listing price, which is why it often arrives next to a delisting notice or an offering.",
+  "LATE FILING": "The company told the SEC it cannot file its annual or quarterly report on time (Form NT 10-K or NT 10-Q). Sometimes it is a genuine administrative delay; often it is the first public sign of an accounting problem, an auditor disagreement or a going-concern fight — and a restatement or a delisting notice can follow. Free from the form type. It outranks an offering here, because a company that cannot produce its own financials explains a gap better than a share sale does.",
+  UNTAGGED: "No earnings, FDA decision, deal, offering filing, insider trade, rating change, macro event or catalyst headline was found for this stock. That does NOT mean nothing happened — it means none of the sources this app actually has (earnings calendar, SEC EDGAR filings, analyst feeds, macro schedule) show one. Check the news feed in the detail view."
 };
 // Past gap days carry the same tags, but the wording has to be past tense —
 // and honest that history is tagged from the filing TYPE, without opening
@@ -152,7 +174,13 @@ const GAP_EVENT_CAT_TIP = {
   "AUDITOR CHANGE": "The company changed accountants on this session (8-K item 4.01).",
   RESTRUCTURING: "Exit or disposal costs were recorded on this session (8-K item 2.05).",
   IMPAIRMENT: "A material asset write-down was recorded on this session (8-K item 2.06).",
-  "LEADERSHIP CHANGE": "An officer or director change was filed on this session (8-K item 5.02) — routine appointments included."
+  "LEADERSHIP CHANGE": "An officer or director change was filed on this session (8-K item 5.02) — routine appointments included.",
+  "ACTIVIST STAKE": "An investor filed a Schedule 13D on this session — a 5%-plus stake taken with the intent to influence the company. Read from the form type on EDGAR.",
+  "LATE FILING": "The company notified the SEC on this session that a periodic report would be late (Form NT 10-K or NT 10-Q).",
+  "INSIDER BUYING": "Insiders bought stock on the open market on this session, per their own Form 4s.",
+  "INSIDER SELLING": "An insider sold stock on this session outside any pre-scheduled trading plan, per their own Form 4.",
+  BUYBACK: "The board authorized a new share repurchase program on this session, per the company's own filing.",
+  "REVERSE SPLIT": "A reverse stock split was filed on this session. Prices before and after are on different scales, which makes this day a poor analog."
 };
 const gapTime = s => {
   if (!s) return "—";
