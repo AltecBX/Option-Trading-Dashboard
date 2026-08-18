@@ -883,6 +883,27 @@ class TestCorporateActionClassifier(unittest.TestCase):
         self.assertEqual(sf.classify_filing(BUYBACK_8K, "2.02", "2026-06-02")[0],
                          None)
 
+    def test_a_fractional_ratio_keeps_its_fraction(self):
+        # "1-for-1" would read as no split at all
+        txt = ("On July 30, 2026, the Board authorized a 1-for-1.5 reverse "
+               "stock split.")
+        self.assertTrue(sf.classify_filing(txt, "", "2026-07-31")[1]
+                        .startswith("1-for-1.5 · "))
+
+    def test_a_colon_ratio_is_normalized(self):
+        txt = "On July 30, 2026, the Board authorized a 1:20 reverse stock split."
+        self.assertTrue(sf.classify_filing(txt, "", "2026-07-31")[1]
+                        .startswith("1-for-20 · "))
+
+    def test_money_never_rounds_into_a_unit_it_did_not_reach(self):
+        # $999,999 printed as "$1000K" is the kind of thing that reads as a
+        # typo and costs trust in every other number on the row
+        self.assertEqual(sf._money(999_999), "$1.0M")
+        self.assertEqual(sf._money(999_999_999), "$1.0B")
+        self.assertEqual(sf._money(25_000), "$25K")
+        self.assertEqual(sf._money(9_808), "$10K")
+        self.assertEqual(sf._money(999), "$999")
+
     def test_a_split_that_is_not_happening_is_not_tagged(self):
         txt = ("The Company does not intend to effect a reverse stock split "
                "at this time.")

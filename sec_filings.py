@@ -645,8 +645,10 @@ _REVERSE_SPLIT = [
 ]
 _NOT_SPLIT = ("no reverse", "not effect", "does not intend", "reverse split ratio to be",
               "forward split")
+# The fraction has to stay inside the group: a 1-for-1.5 split reported as
+# "1-for-1" reads as no split at all.
 _SPLIT_RATIO = re.compile(
-    r"(?:1|one)[\s-]*(?:for|:)[\s-]*(\d{1,3})(?:\.\d+)?\s*(?:reverse)?", re.I)
+    r"(?:1|one)[\s-]*(?:for|:)[\s-]*(\d{1,3}(?:\.\d+)?)\s*(?:reverse)?", re.I)
 _MONTHS = ("january|february|march|april|may|june|july|august|september|"
            "october|november|december")
 _DATE_RE = re.compile(rf"({_MONTHS})\s+(\d{{1,2}}),?\s+(\d{{4}})", re.I)
@@ -998,11 +1000,13 @@ def _read_form4(symbol: str, row: dict, allow_read: bool = True) -> dict | None:
 
 
 def _money(v: float) -> str:
-    if v >= 1e9:
+    # Thresholds sit just under each boundary so a value that would ROUND to
+    # the next unit crosses with it — $999,999 is "$1.0M", never "$1000K".
+    if v >= 999.5e6:
         return f"${v / 1e9:.1f}B"
-    if v >= 1e6:
+    if v >= 999.5e3:
         return f"${v / 1e6:.1f}M"
-    if v >= 1e3:
+    if v >= 999.5:
         return f"${v / 1e3:.0f}K"
     return f"${v:,.0f}"
 
