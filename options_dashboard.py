@@ -5675,6 +5675,11 @@ try:
         # through the app's own SEC transport, by accession, and caches every
         # reading forever because a filing never changes.
         tables_fn=_invest_tables,
+        # Phase 7: the capture-health report says so when a trading day did
+        # not finish, through the push this app already has rather than
+        # through one of its own.
+        alert_fn=lambda title, msg: (_push_notify(title, msg, priority=1)
+                                     if _push_configured() else None),
         data_dir=_STABLE_DIR,
     )
     _INVEST_AVAILABLE = True
@@ -8663,6 +8668,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             if s.strip()]
                     self._send_json(
                         _invest.validation(syms[:120] or None), no_store=True)
+                elif section == "readiness":
+                    syms = [s.strip().upper() for s in
+                            (qs.get("symbols", [""])[0] or "").split(",")
+                            if s.strip()]
+                    self._send_json(
+                        _invest.data_readiness(syms[:60] or None),
+                        no_store=True)
                 elif section == "config":
                     cfg_i, h = _invest.config()
                     self._send_json({"config": cfg_i, "hash": h,
@@ -8685,6 +8697,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                          _invest._fund._reader.READER_VERSION,
                                      "filing_tables":
                                          _invest._tables.TABLES_VERSION,
+                                     "filing_units":
+                                         _invest._tables.units.UNITS_VERSION,
+                                     "cross_check":
+                                         _invest._xcheck.CROSS_CHECK_VERSION,
+                                     "capture_health":
+                                         _invest._health.CAPTURE_HEALTH_VERSION,
                                      "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:

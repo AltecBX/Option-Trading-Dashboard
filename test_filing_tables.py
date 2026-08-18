@@ -66,10 +66,10 @@ class TestAmbiguity(unittest.TestCase):
     def test_two_tables_agreeing_are_not_ambiguous(self):
         """Realty Income prints the same figure in millions and in thousands."""
         raw = doc(table([["", "June 30, 2026"],
-                         ["Funds from operations", "$996.6"]],
+                         ["FFO available to common stockholders", "$996.6"]],
                         caption="(dollars in millions)"),
                   table([["", "June 30, 2026"],
-                         ["Funds from operations", "$996,600"]],
+                         ["FFO available to common stockholders", "$996,600"]],
                         caption="(in thousands)"))
         got = T.read(raw, "published_ffo")
         self.assertAlmostEqual(got["value"], 996_600_000.0)
@@ -128,7 +128,8 @@ class TestPeriods(unittest.TestCase):
 
     def test_a_month_and_day_heading_pairs_with_the_year_beside_it(self):
         raw = doc(table([["", "Three Months Ended June 30,"], ["", "2026", "2025"],
-                         ["Funds from operations", "$996.6", "$955.7"]],
+                         ["FFO available to common stockholders",
+                          "$996.6", "$955.7"]],
                         caption="(dollars in millions)"))
         got = T.read(raw, "published_ffo")
         self.assertEqual(got["provenance"]["period"], "2026-06-30")
@@ -175,9 +176,12 @@ class TestPlausibility(unittest.TestCase):
         self.assertFalse(got["ok"])
         self.assertIn("unit error", got["reason"])
 
-    def test_a_balance_that_tripled_in_a_quarter_is_held_back(self):
+    def test_a_balance_that_tripled_in_a_quarter_is_flagged_not_rewritten(self):
+        """Continuity may raise a hand. It may not overrule the filing."""
         got = T.continuity("client_assets", 4e12, 1e12)
-        self.assertFalse(got["ok"])
+        self.assertEqual(got["state"], T.FLAGGED)
+        self.assertTrue(got["ok"])
+        self.assertIn("shown with this note", got["reason"])
 
     def test_an_ordinary_quarter_passes(self):
         self.assertTrue(T.continuity("client_assets", 1.1e12, 1.0e12)["ok"])
@@ -308,3 +312,253 @@ class TestCollect(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Phase 7 ──────────────────────────────────────────────────────────────────
+
+class TestColumnAlignment(unittest.TestCase):
+    """The figure comes from the column its period heads, not from the front
+    of the row. Affiliated Managers prints 2025 before 2026."""
+
+    def test_the_newest_column_wins_even_when_it_is_not_first(self):
+        raw = doc(table([["", "As of and for the Three Months Ended June 30,"],
+                         ["(in billions, except as noted)", "2025", "2026",
+                          "% Change"],
+                         ["Assets under management", "$771.0", "$942.4",
+                          "22 %"]],
+                        caption="key aggregate operating performance measures"))
+        got = T.read(raw, "assets_under_management", not_after="2026-08-07")
+        self.assertAlmostEqual(got["value"], 942.4e9)
+        self.assertTrue(got["provenance"]["columns_aligned"])
+
+    def test_a_heading_row_with_no_stub_still_lines_up(self):
+        """Schwab heads its columns ['2026','2025'] with no label cell, and
+        reading it the other way took the June 2025 figure."""
+        raw = doc(table([["", "Three Months Ended June 30,", "Percent Change"],
+                         ["2026", "2025", "22%"],
+                         ["Client assets (in billions, at quarter end)",
+                          "$13,084.9", "$10,757.3", "22%"]]))
+        got = T.read(raw, "client_assets", not_after="2026-08-07")
+        self.assertAlmostEqual(got["value"], 13_084.9e9)
+
+    def test_a_stub_that_holds_a_label_is_not_a_column(self):
+        """Interactive Brokers puts "Year over Year" in its stub cell."""
+        raw = doc(table([["Year over Year", "2Q2026", "2Q2025", "% Change"],
+                         ["Customer Equity (in billions)", "$930.3", "$664.6",
+                          "40%"]]))
+        got = T.read(raw, "client_assets", not_after="2026-08-06")
+        self.assertAlmostEqual(got["value"], 930.3e9)
+
+    def test_a_change_column_is_not_a_period(self):
+        raw = doc(table([["", "June 30, 2026", "% Change"],
+                         ["Total client assets", "$13,084.9", "22"]],
+                        caption="(in billions)"))
+        got = T.read(raw, "client_assets", not_after="2026-08-07")
+        self.assertAlmostEqual(got["value"], 13_084.9e9)
+
+
+class TestTwoPanelsInOneTable(unittest.TestCase):
+    def test_a_row_with_a_word_in_the_middle_is_refused(self):
+        """BlackRock lays two tables side by side, so its "Total net flows"
+        row reads ['$191,700', '$67,737', 'EMEA', '55', '68']."""
+        raw = doc(table([["(in millions,", "Q2", "Q2", "Q2", "YTD"],
+                         ["except per share data)", "2026", "2025",
+                          "(in billions)", "2026", "2026"],
+                         ["Total net flows", "$191,700", "$67,737", "EMEA",
+                          "55", "68"]]))
+        got = T.read(raw, "net_flows", not_after="2026-07-15")
+        self.assertIsNone(got["value"])
+
+    def test_a_not_meaningful_marker_is_not_a_word(self):
+        raw = doc(table([["", "June 30, 2026", "June 30, 2025"],
+                         ["Net new assets", "$118.7", "n/m"]],
+                        caption="(in billions)"))
+        got = T.read(raw, "net_new_assets", not_after="2026-08-07")
+        self.assertAlmostEqual(got["value"], 118.7e9)
+
+
+class TestSegmentScope(unittest.TestCase):
+    def test_a_consolidated_table_beats_the_segment_ones(self):
+        """Travelers prints a combined ratio five times and heads one of them
+        consolidated."""
+        filler = "<p>" + ("Results of operations continued. " * 40) + "</p>"
+        raw = doc(table([["", "June 30, 2026"], ["Combined ratio", "86.8%"]],
+                        caption="OF OPERATIONS BY SEGMENT Business Insurance"),
+                  filler,
+                  table([["", "June 30, 2026"], ["Combined ratio", "83.6%"]],
+                        caption="CONSOLIDATED OVERVIEW Consolidated Results"),
+                  filler,
+                  table([["", "June 30, 2026"], ["Combined ratio", "79.5%"]],
+                        caption="Personal Insurance segment results"))
+        got = T.read(raw, "published_combined_ratio", not_after="2026-07-17")
+        self.assertAlmostEqual(got["value"], 83.6)
+        self.assertEqual(got["provenance"]["scope"], T.CONSOLIDATED)
+
+    def test_segment_tables_alone_are_not_a_company_figure(self):
+        filler = "<p>" + ("Results of operations continued. " * 40) + "</p>"
+        raw = doc(table([["", "June 30, 2026"], ["Combined ratio", "86.8%"]],
+                        caption="Segment results — Business Insurance"),
+                  filler,
+                  table([["", "June 30, 2026"], ["Combined ratio", "79.5%"]],
+                        caption="Segment results — Personal Insurance"))
+        got = T.read(raw, "published_combined_ratio", not_after="2026-07-17")
+        self.assertIsNone(got["value"])
+        self.assertIn("one segment", got["reason"])
+
+
+class TestTransposedTables(unittest.TestCase):
+    def test_periods_in_rows_with_a_total_column(self):
+        """Invesco publishes assets under management with dates down the side
+        and asset classes across the top."""
+        raw = doc(table([["Total Assets Under Management"],
+                         ["(in billions)", "Total", "ETFs", "Fixed Income"],
+                         ["July 31, 2026", "$2,447.1", "$750.5", "$315.7"],
+                         ["June 30, 2026", "$2,470.3", "$753.5", "$315.5"]]))
+        got = T.read(raw, "assets_under_management", not_after="2026-08-11")
+        self.assertAlmostEqual(got["value"], 2_447.1e9)
+        self.assertEqual(got["provenance"]["period"], "2026-07-31")
+        self.assertIn("total column", got["provenance"]["layout"])
+
+    def test_a_strategy_column_is_never_taken_for_the_company(self):
+        raw = doc(table([["Total Assets Under Management"],
+                         ["(in billions)", "ETFs", "Fixed Income"],
+                         ["July 31, 2026", "$750.5", "$315.7"]]))
+        got = T.read(raw, "assets_under_management", not_after="2026-08-11")
+        self.assertIsNone(got["value"])
+
+
+class TestMorePeriodShapes(unittest.TestCase):
+    def test_a_day_month_year_heading_is_read(self):
+        """Franklin Resources heads every column 30-Jun-26."""
+        self.assertEqual(T.period_of("30-Jun-26")["date"], "2026-06-30")
+        self.assertEqual(T.period_of("31-Mar-2026")["date"], "2026-03-31")
+
+    def test_a_curly_apostrophe_quarter_is_read(self):
+        """Blackstone writes 2Q’26."""
+        self.assertEqual(T.period_of("2Q’26")["date"], "2026-06-30")
+
+    def test_a_bare_quarter_over_a_bare_year_is_paired(self):
+        raw = doc(table([["", "Q2", "Q2"], ["", "2026", "2025"],
+                         ["Total client assets", "$13,084.9", "$10,757.3"]],
+                        caption="(in billions)"))
+        got = T.read(raw, "client_assets", not_after="2026-07-15")
+        self.assertEqual(got["provenance"]["period"], "2026-06-30")
+
+
+class TestFundsFromOperationsBasis(unittest.TestCase):
+    def test_the_common_shareholder_basis_is_the_one_used(self):
+        for label in ("FFO available to common stockholders",
+                      "Funds from operations attributable to common "
+                      "shareholders",
+                      "Dilutive FFO allocable to common stockholders",
+                      "Nareit FFO attributable to American Tower Corporation "
+                      "common stockholders"):
+            self.assertEqual(T.ffo_basis(label), T.FFO_COMMON, label)
+
+    def test_the_operating_partnership_basis_is_refused(self):
+        for label in ("FFO of the Operating Partnership",
+                      "FFO of the Operating Partnership excluding non-cash "
+                      "impacts",
+                      "Diluted FFO allocable to unitholders"):
+            self.assertEqual(T.ffo_basis(label), T.FFO_PARTNERSHIP, label)
+
+    def test_core_normalized_and_adjusted_are_their_own_measures(self):
+        self.assertEqual(T.ffo_basis("Core FFO"), T.FFO_CORE)
+        self.assertEqual(T.ffo_basis("Normalized FFO"), T.FFO_NORMALIZED)
+        self.assertEqual(T.ffo_basis("AFFO"), T.FFO_AFFO)
+        self.assertEqual(T.ffo_basis("Adjusted funds from operations"),
+                         T.FFO_AFFO)
+
+    def test_a_per_share_figure_is_not_a_company_total(self):
+        self.assertEqual(T.ffo_basis("Diluted FFO per share"), T.FFO_PER_SHARE)
+        self.assertEqual(T.ffo_basis("Basic and Diluted FFO per Share (FFOPS)"),
+                         T.FFO_PER_SHARE)
+
+    def test_a_bare_label_does_not_say_whose(self):
+        self.assertEqual(T.ffo_basis("Funds from operations"),
+                         T.FFO_UNQUALIFIED)
+
+    def test_a_row_that_is_not_ffo_at_all_is_not_matched(self):
+        self.assertIsNone(T.ffo_basis("Net income"))
+
+    def test_only_the_common_basis_reaches_the_metric(self):
+        raw = doc(table([["", "June 30, 2026"],
+                         ["FFO of the Operating Partnership", "$1,184,945"],
+                         ["Dilutive FFO allocable to common stockholders",
+                          "$1,010,258"],
+                         ["Real Estate FFO", "$1,248,564"]],
+                        caption="(in thousands)"))
+        got = T.read(raw, "published_ffo", not_after="2026-08-10")
+        self.assertAlmostEqual(got["value"], 1_010_258e3)
+        self.assertEqual(got["provenance"]["basis"], T.FFO_COMMON)
+
+
+class TestUnitProvenance(unittest.TestCase):
+    def test_every_reading_says_where_its_scale_came_from(self):
+        raw = doc(table([["", "June 30, 2026"],
+                         ["Customer Equity (in billions)", "$930.3"]],
+                        caption="(in thousands)"))
+        prov = T.read(raw, "client_assets", not_after="2026-08-06")["provenance"]
+        self.assertEqual(prov["resolved_unit"], "billions")
+        self.assertEqual(prov["unit_source"], "row label")
+        self.assertEqual(prov["unit_confidence"], "HIGH")
+        self.assertAlmostEqual(prov["raw_value"], 930.3)
+        self.assertTrue(prov["unit_overrides_caption"])
+        self.assertEqual(prov["unit_overridden"], "thousands")
+
+    def test_a_section_heading_lifts_a_row_out_of_the_caption(self):
+        """T. Rowe Price's assets under management, recovered."""
+        raw = doc(table([["", "6/30/2026"],
+                         ["Investment advisory fees", "$1,744.8"],
+                         ["Assets under management (in billions) (4)"],
+                         ["Ending assets under management", "$1,893.4"]],
+                        caption="(in millions, except per-share data)"))
+        got = T.read(raw, "assets_under_management", not_after="2026-07-31")
+        self.assertAlmostEqual(got["value"], 1_893.4e9)
+        self.assertEqual(got["provenance"]["unit_source"], "section heading")
+
+
+class TestDocumentSelection(unittest.TestCase):
+    def _sec(self, names):
+        class Sec:
+            def _fetch(self, url, limit=None):
+                import json as _j
+                return _j.dumps({"directory": {"item": [
+                    {"name": n, "size": z} for n, z in names]}}).encode()
+        return Sec()
+
+    def test_an_indenture_and_a_cover_page_are_not_earnings_releases(self):
+        """Realty Income files bond-offering 8-Ks carrying 700KB indentures."""
+        docs = T.documents(self._sec([("tm123_ex4-1.htm", 732310),
+                                      ("tm123_ex10-1.htm", 313427),
+                                      ("tm123_8k.htm", 86164),
+                                      ("tm123_ex99-1.htm", 21436)]),
+                           726728, "0001-23-000001", "8-K")
+        self.assertEqual([d["name"] for d in docs], ["tm123_ex99-1.htm"])
+
+    def test_a_release_whose_filename_never_says_exhibit_is_still_read(self):
+        """T. Rowe Price files its earnings release as
+        earningsreleaseq22026.htm, and the EDGAR directory entry carries only
+        a name and a size — not the exhibit type."""
+        docs = T.documents(self._sec([("earningsreleaseq22026.htm", 220000),
+                                      ("trow_8k.htm", 5000)]),
+                           1113169, "0001-26-000002", "8-K")
+        self.assertEqual([d["name"] for d in docs],
+                         ["earningsreleaseq22026.htm"])
+
+    def test_the_exhibit_number_ninety_nine_survives_every_spelling(self):
+        for name in ("blk-ex99_1.htm", "exhibit991q3fy26.htm",
+                     "a2q26exhibit991.htm", "d153439dex991.htm",
+                     "amgq22026ex991.htm"):
+            docs = T.documents(self._sec([(name, 100)]), 1, "0001-1-1", "8-K")
+            self.assertEqual([d["name"] for d in docs], [name], name)
+
+    def test_a_ten_q_reads_its_main_document(self):
+        class Sec:
+            def _fetch(self, url, limit=None):
+                import json as _j
+                return _j.dumps({"directory": {"item": [
+                    {"name": "o-20260630.htm", "size": 5073501},
+                    {"name": "o-063026ex311.htm", "size": 10834}]}}).encode()
+        docs = T.documents(Sec(), 726728, "0001-23-000002", "10-Q")
+        self.assertEqual(docs[0]["name"], "o-20260630.htm")

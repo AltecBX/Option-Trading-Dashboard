@@ -1231,3 +1231,124 @@ class TestPhase6Concepts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ── Phase 7: insurers whose annual report is organised by segment ────────────
+
+SEGMENT_REPORT = (
+    "American Global Group is a leading insurance organization. "
+    "Operating Structure We report the results of our businesses through "
+    "three segments and Other Operations. The three segments are North "
+    "America Commercial, International Commercial and Global Personal. Our "
+    "General Insurance business consists of our three segments and the net "
+    "investment income related to our insurance operations. General "
+    "Insurance includes the following major operating companies. "
+    "COMMERCIAL LINES PRODUCTS Property and short tail products include "
+    "commercial and industrial property. Casualty products include general "
+    "liability, environmental, commercial automobile liability and workers' "
+    "compensation. Financial Lines products include professional liability. "
+    "Global Specialty products include marine, energy and aviation. "
+    "PERSONAL INSURANCE PRODUCTS Global Accident and Health products "
+    "include group personal accident. Personal Lines products include "
+    "personal auto and homeowners in selected markets. "
+    "COMPETITION General Insurance operates in a highly competitive "
+    "industry against global, national and local insurers. ")
+
+LIFE_SEGMENT_REPORT = (
+    "We report the results of our businesses through three segments: "
+    "Individual Retirement, Group Retirement and Life Insurance. Our Life "
+    "and Retirement business writes fixed annuities, variable annuities and "
+    "term life. GROUP RETIREMENT products include group retirement plans. "
+    "INDIVIDUAL RETIREMENT products include deferred annuities and fixed "
+    "annuities. LIFE INSURANCE products include universal life and term "
+    "life sold through our distribution partners. ")
+
+
+class TestSegmentOrganisedInsurers(unittest.TestCase):
+    """A report that says what it writes gets classified by what it says. A
+    report that describes itself by the segments it is organised into gets
+    classified by those. The second path only runs when the first refuses."""
+
+    def test_the_keyword_path_is_not_loosened(self):
+        got = F.insurer_classification(SEGMENT_REPORT)
+        self.assertEqual(F.insurer_subtype(SEGMENT_REPORT)[0], None)
+        self.assertEqual(got["method"], "segment names in the annual report")
+
+    def test_a_segment_organised_property_casualty_insurer_is_classified(self):
+        got = F.insurer_classification(SEGMENT_REPORT)
+        self.assertEqual(got["primary"], "P&C")
+        self.assertIn(got["confidence"], ("HIGH", "MODERATE"))
+        self.assertIn("segment", got["reason"])
+
+    def test_a_segment_organised_life_insurer_is_classified(self):
+        got = F.insurer_classification(LIFE_SEGMENT_REPORT)
+        self.assertEqual(got["primary"], "LIFE")
+
+    def test_a_report_that_says_it_plainly_still_uses_the_keywords(self):
+        plain = ("We are a property and casualty insurer. Our property and "
+                 "casualty insurance business writes commercial lines and "
+                 "personal lines cover including homeowners and automobile "
+                 "insurance. Our underwriting income comes from property and "
+                 "casualty insurance written through independent agents. "
+                 "Casualty insurance and property-casualty reserves are "
+                 "central to our workers' compensation book. Automobile "
+                 "insurance and homeowners cover round out the property and "
+                 "casualty lines we write. ")
+        got = F.insurer_classification(plain)
+        self.assertEqual(got["primary"], "P&C")
+        self.assertEqual(got["method"], "business keywords")
+
+    def test_both_halves_material_is_multiline_not_a_forced_pick(self):
+        """The segment path never picks whichever family fires first: where a
+        report names property-casualty and life businesses at comparable
+        weight, the answer is that it is both."""
+        sub, ev = F.insurer_segment_subtype(SEGMENT_REPORT
+                                            + LIFE_SEGMENT_REPORT)
+        self.assertEqual(sub, "MULTILINE")
+        self.assertIn("multiline", ev["reason"])
+
+    def test_two_families_too_close_and_neither_is_life_or_pc_is_refused(self):
+        text = ("We report through segments. Reinsurance operations and "
+                "treaty reinsurance and assumed reinsurance and retrocession "
+                "and global reinsurance sit beside our accident and health "
+                "and group health and health benefits and medicare and "
+                "medicaid and dental cover. ")
+        sub, ev = F.insurer_segment_subtype(text)
+        self.assertIsNone(sub)
+        self.assertEqual(ev["confidence"], "FAILED")
+
+    def test_an_ambiguous_report_is_left_unresolved(self):
+        vague = ("We are an insurance holding company. Our subsidiaries "
+                 "provide insurance and related services to customers in "
+                 "many countries through a variety of distribution "
+                 "channels. ")
+        got = F.insurer_classification(vague)
+        self.assertIsNone(got["primary"])
+        self.assertTrue(got["reason"])
+
+    def test_the_evidence_is_reported_rather_than_asserted(self):
+        got = F.insurer_classification(SEGMENT_REPORT)
+        self.assertGreater(got["segment_scores"]["pc"], 12)
+        phrases = (got["evidence"].get("phrases") or {}).get("pc") or []
+        self.assertTrue(any(p["phrase"] == "general insurance" for p in phrases))
+        self.assertTrue(got["evidence"].get("declaration"))
+
+    def test_a_heading_counts_for_more_than_a_mention(self):
+        heading = "COMMERCIAL LINES PRODUCTS " * 3
+        mention = "commercial lines " * 3
+        self.assertGreater(F.segment_evidence(heading)["scores"]["pc"],
+                           F.segment_evidence(mention)["scores"]["pc"])
+
+    def test_a_secondary_exposure_is_reported_without_changing_the_primary(self):
+        got = F.insurer_classification(
+            LIFE_SEGMENT_REPORT + " Medicare and medicaid health benefits "
+            "and group health plans and dental cover and supplemental health "
+            "products are sold alongside. Accident and health products and "
+            "health care benefits round out the group health offering.")
+        self.assertEqual(got["primary"], "LIFE")
+        self.assertIn("HEALTH", got["secondary"])
+
+    def test_nothing_is_classified_from_an_empty_chapter(self):
+        got = F.insurer_classification("")
+        self.assertIsNone(got["primary"])
+        self.assertEqual(got["confidence"], "FAILED")

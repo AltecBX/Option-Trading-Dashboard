@@ -74,7 +74,7 @@ SCHEMA_VERSION = "1.0"
 # Bumped whenever the cached company profile gains a field. A profile on
 # disk written under an older version is rebuilt from the filing rather
 # than read with the new field missing.
-PROFILE_VERSION = 4
+PROFILE_VERSION = 5
 
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
@@ -1733,6 +1733,12 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
                 "profile_version": PROFILE_VERSION,
                 "property_type": None, "property_type_scores": {},
                 "insurer_subtype": None, "insurer_subtype_scores": {},
+                "insurer_classification": {
+                    "primary": None, "secondary": [], "method": "",
+                    "confidence": "FAILED", "keyword_scores": {},
+                    "segment_scores": {}, "evidence": {},
+                    "reason": ("No business chapter of an annual report could "
+                               "be read for this company.")},
                 "broker_subtype": None, "broker_subtype_scores": {},
                 "routing_phrases": {},
                 "as_of": prov.get("filed"), "accession": prov.get("accession"),
@@ -1757,11 +1763,18 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
         head = body[:_reader.CLASSIFY_CHARS]
         ptype, pscores = property_type(head)
         meta = sic_metadata(sym) or {}
-        isub, iscores = insurer_subtype(head, meta.get("sic"))
+        iclass = insurer_classification(head, meta.get("sic"))
+        isub, iscores = iclass["primary"], iclass["keyword_scores"]
         bsub, bscores = broker_subtype(head)
         phrases = _routing.phrase_evidence(head)
     else:
         ptype, pscores = None, {}
+        iclass = {"primary": None, "secondary": [], "method": "",
+                  "confidence": "FAILED", "keyword_scores": {},
+                  "segment_scores": {}, "evidence": {},
+                  "reason": ("The business chapter of this company's annual "
+                             "report could not be read with enough confidence "
+                             "to say what kind of insurer it is.")}
         isub, iscores = None, {}
         bsub, bscores = None, {}
         phrases = {}
@@ -1770,6 +1783,12 @@ def business_description(symbol: str, max_chars: int = 420) -> dict | None:
                "profile_version": PROFILE_VERSION,
                "property_type": ptype, "property_type_scores": pscores,
                "insurer_subtype": isub, "insurer_subtype_scores": iscores,
+               # How that subtype was reached, what else the company is in,
+               # and the evidence behind both. Phase 7: an insurer whose
+               # report is organised by segment rather than by adjective is
+               # classified from the segments, and the mixed-basis rule
+               # reads the secondary exposures from here.
+               "insurer_classification": iclass,
                "broker_subtype": bsub, "broker_subtype_scores": bscores,
                # What kinds of business the chapter describes, reduced to
                # family names once and cached, so routing never has to hold
@@ -2149,6 +2168,223 @@ def insurer_subtype(text: str, sic=None) -> tuple[str | None, dict]:
     if life >= _INSURER_MIN_HITS and life >= 2 * pc:
         return "LIFE", hits
     return None, hits
+
+
+# ── insurer subtype, second path: reports organised by segment ──────────────
+#
+# The rules above count what an insurer SAYS it writes. That works for the
+# forty-three insurers of forty-seven measured whose annual report describes
+# its business in those words, and fails for the ones that describe it by
+# SEGMENT instead. American International Group's Item 1 is read at high
+# confidence and mentions "property and casualty" five times in forty-three
+# thousand characters, because it never needs to: it opens "We report the
+# results of our businesses through three segments", names them, and then
+# heads two chapters COMMERCIAL LINES PRODUCTS and PERSONAL INSURANCE
+# PRODUCTS. That IS the answer, written the way a filer with reportable
+# segments writes it.
+#
+# So a second path reads the segment names rather than the adjectives, and
+# it runs ONLY when the first path has refused. Nothing above is loosened:
+# an insurer the keyword rules can classify is classified by them.
+
+SEGMENT_FAMILIES = {
+    "pc": ("general insurance", "commercial lines", "personal lines",
+           "property casualty", "property and casualty", "property & casualty",
+           "property-casualty", "commercial p&c", "personal p&c",
+           "specialty insurance", "commercial insurance", "personal insurance",
+           "property & short tail", "property and short tail",
+           "financial lines", "global specialty", "excess and surplus",
+           "excess & surplus", "workers compensation", "workers' compensation",
+           "workers’ compensation", "surety", "crop insurance",
+           "agricultural insurance", "mortgage insurance", "auto insurance",
+           "homeowners", "underwriting income", "commercial auto",
+           "personal auto", "general liability"),
+    "life": ("life and retirement", "life & retirement", "life insurance",
+             "annuities", "annuity", "group retirement",
+             "individual retirement", "retirement services",
+             "retirement solutions", "retirement and income",
+             "institutional markets", "group benefits", "universal life",
+             "variable annuit", "fixed annuit", "deferred annuit",
+             "term life", "whole life", "policyholder account",
+             "life and annuity", "life & annuity", "life and health",
+             "life & health"),
+    "health": ("accident and health", "accident & health", "group health",
+               "health benefits", "health care benefits", "medicare",
+               "medicaid", "dental", "vision care", "supplemental health",
+               "specialty benefits", "health plan", "medical cost"),
+    "reins": ("reinsurance segment", "global reinsurance",
+              "property catastrophe reinsurance", "casualty and specialty",
+              "reinsurance operations", "retrocession", "ceding compan",
+              "treaty reinsurance", "assumed reinsurance",
+              "reinsurance business", "life reinsurance"),
+}
+
+# The sentence in which a filer declares its reporting structure, and the
+# text that follows it, where the segments are actually named.
+_SEGMENT_DECL = re.compile(
+    r"(?i)[^.]{0,200}\b(?:report|manage|operat\w*|organiz\w*|conduct\w*|"
+    r"classif\w*)\b[^.]{0,200}?\bsegments?\b[^.]{0,300}\.")
+_DECL_WINDOW = 800
+
+# Filers style chapter headings in capitals, and the plain text keeps them.
+# "COMMERCIAL LINES PRODUCTS" is a heading; "commercial lines" in a sentence
+# is a mention. Both count, and the heading counts for more.
+_UPPER_HEADING = re.compile(r"\b[A-Z][A-Z&'’/\-]{2,}(?:\s+[A-Z][A-Z&'’/\-]{1,}){1,6}\b")
+
+# What a family name is worth where it appears. Measured across forty-seven
+# insurers: the declaration window and the headings are what separate a
+# segment-organised report from one that merely mentions a line of business.
+_W_DECLARATION, _W_HEADING, _W_BODY = 4, 3, 1
+
+# Below this the report has not named a business, it has mentioned one. AIG
+# scores forty on property-casualty against three on health; the thinnest
+# real answer measured is a mortgage insurer at fourteen.
+SEGMENT_MIN_SCORE = 12
+# How far ahead of the runner-up the winner has to be to be called dominant.
+SEGMENT_DOMINANCE = 3.0
+# And how far ahead to call it high confidence rather than moderate.
+SEGMENT_STRONG = 30
+
+_FAMILY_SUBTYPE = {"pc": "P&C", "life": "LIFE", "health": "HEALTH",
+                   "reins": "REINSURANCE"}
+
+
+def segment_evidence(text: str) -> dict:
+    """What businesses this annual report says the company is organised into.
+
+    Returns a score per family with the phrases behind it, so the answer can
+    be shown rather than asserted.
+    """
+    body = text or ""
+    low = body.lower()
+    decl = " ".join(low[m.start():m.end() + _DECL_WINDOW]
+                    for m in _SEGMENT_DECL.finditer(body))
+    heads = " | ".join(u.group(0).lower()
+                       for u in _UPPER_HEADING.finditer(body))
+    scores: dict[str, int] = {}
+    hits: dict[str, list] = {}
+    for family, phrases in SEGMENT_FAMILIES.items():
+        total, found = 0, []
+        for phrase in phrases:
+            b, d, h = low.count(phrase), decl.count(phrase), heads.count(phrase)
+            if b or d or h:
+                total += _W_BODY * b + _W_DECLARATION * d + _W_HEADING * h
+                found.append({"phrase": phrase, "mentions": b,
+                              "in_segment_declaration": d, "in_headings": h})
+        scores[family] = total
+        hits[family] = sorted(found, key=lambda f: -(f["in_segment_declaration"]
+                                                     * 4 + f["in_headings"] * 3
+                                                     + f["mentions"]))[:6]
+    return {"scores": scores, "phrases": hits,
+            "declaration": (decl[:400].strip() or ""),
+            "has_declaration": bool(decl)}
+
+
+def insurer_segment_subtype(text: str) -> tuple[str | None, dict]:
+    """(subtype, evidence) from the way the report divides the company up.
+
+    Property-casualty and life both material and neither dominant is
+    MULTILINE, which is what such a company is. Anything else the evidence
+    cannot separate is left unresolved: a wrong subtype applies the wrong
+    ratios, and a wrong ratio is worse than a blank.
+    """
+    ev = segment_evidence(text)
+    scores = ev["scores"]
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    top, top_score = ranked[0]
+    runner, runner_score = ranked[1]
+    ev["ranked"] = ranked
+    ev["method"] = "segment names in the annual report"
+    if top_score < SEGMENT_MIN_SCORE:
+        ev["confidence"] = "FAILED"
+        ev["reason"] = (
+            "This annual report does not name enough of the businesses it is "
+            "organised into for the kind of insurance to be read off it.")
+        return None, ev
+    if runner_score and top_score < SEGMENT_DOMINANCE * runner_score:
+        if {top, runner} == {"pc", "life"}:
+            ev["confidence"] = "MODERATE"
+            ev["reason"] = (
+                f"The report names property-casualty businesses and life and "
+                f"retirement businesses at comparable weight "
+                f"({scores['pc']} against {scores['life']}), which is what a "
+                f"multiline insurer is.")
+            return "MULTILINE", ev
+        ev["confidence"] = "FAILED"
+        ev["reason"] = (
+            f"The two kinds of business this report names most — "
+            f"{top} and {runner} — are too close together "
+            f"({top_score} against {runner_score}) for either to be called "
+            f"the company's business.")
+        return None, ev
+    ev["confidence"] = ("HIGH" if top_score >= SEGMENT_STRONG else "MODERATE")
+    ev["reason"] = (
+        f"The report is organised by segment, and the segments it names are "
+        f"{top} businesses ({top_score} against {runner_score} for the next).")
+    return _FAMILY_SUBTYPE[top], ev
+
+
+# How much of a family's score, relative to the winner, counts as a real
+# second business rather than a passing mention.
+SECONDARY_SHARE = 0.25
+
+
+def insurer_classification(text: str, sic=None) -> dict:
+    """What kind of insurer this is, by whichever path can answer.
+
+    The keyword rules go first and are unchanged. The segment reading is
+    asked only when they refuse, and it answers in the same vocabulary, so
+    everything downstream sees one subtype and one reason for it.
+    """
+    out = {"primary": None, "secondary": [], "method": "", "confidence":
+           "FAILED", "reason": "", "keyword_scores": {},
+           "segment_scores": {}, "evidence": {}}
+    if not text:
+        out["reason"] = "There is no readable business chapter to classify."
+        return out
+    sub, hits = insurer_subtype(text, sic)
+    out["keyword_scores"] = hits
+    if sub:
+        out.update({"primary": sub, "method": "business keywords",
+                    "confidence": "HIGH",
+                    "reason": ("What this insurer writes is described in its "
+                               "own annual report in so many words.")})
+    else:
+        seg, ev = insurer_segment_subtype(text)
+        out["segment_scores"] = ev.get("scores") or {}
+        out["evidence"] = {"phrases": ev.get("phrases") or {},
+                           "declaration": ev.get("declaration") or "",
+                           "ranked": ev.get("ranked") or []}
+        if seg:
+            out.update({"primary": seg, "method": ev["method"],
+                        "confidence": ev["confidence"],
+                        "reason": ev["reason"]})
+        else:
+            out["reason"] = ev.get("reason") or ""
+            return out
+
+    # Which OTHER businesses the report shows, whichever path answered. This
+    # never changes the primary; it is what the mixed-basis rule reads to
+    # decide whether a company-wide ratio means anything.
+    if not out["segment_scores"]:
+        ev = segment_evidence(text)
+        out["segment_scores"] = ev["scores"]
+        out["evidence"] = {"phrases": ev["phrases"],
+                           "declaration": ev["declaration"],
+                           "ranked": sorted(ev["scores"].items(),
+                                            key=lambda kv: -kv[1])}
+    scores = out["segment_scores"]
+    best = max(scores.values() or [0])
+    primary_family = next((f for f, s in _FAMILY_SUBTYPE.items()
+                           if s == out["primary"]), None)
+    out["secondary"] = [
+        _FAMILY_SUBTYPE[f] for f, v in sorted(scores.items(), key=lambda kv: -kv[1])
+        if f != primary_family and v >= SEGMENT_MIN_SCORE
+        and best and v >= SECONDARY_SHARE * best]
+    if out["primary"] == "MULTILINE":
+        out["secondary"] = [s for s in out["secondary"]
+                            if s not in ("P&C", "LIFE")]
+    return out
 
 
 # ── broker subtype ──────────────────────────────────────────────────────────

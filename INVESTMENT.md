@@ -1829,3 +1829,291 @@ Four, all real and all now fixed:
 * **Real-chain covered-call backtests and forward validation with a sample
   in them.** Unchanged from Phase 5: the capture is prospective, nothing is
   back-filled, and INSUFFICIENT SAMPLE remains the correct answer.
+
+
+# Phase 7 — the weak inputs made production-grade
+
+Phase 7 adds no valuation engine. It takes the four data inputs the earlier
+phases left thinnest and makes them good enough to run on: an annual report
+organised by segment rather than by adjective, the scale a filing table
+prints its numbers on, the comparison between a rebuilt figure and a
+published one, and whether the prospective capture is actually happening.
+
+## Insurers whose report is organised by segment
+
+The Phase 5 classifier counts what an insurer SAYS it writes. Across
+forty-seven US insurers it answers forty-three of them, and the ones it
+cannot answer are the ones that describe themselves by SEGMENT instead.
+American International Group's Item 1 is read at high confidence and
+mentions "property and casualty" five times in forty-three thousand
+characters, because it never needs to. It opens:
+
+> We report the results of our businesses through three segments and Other
+> Operations. The three segments are North America Commercial, International
+> Commercial and Global Personal.
+
+and then heads two chapters COMMERCIAL LINES PRODUCTS and PERSONAL INSURANCE
+PRODUCTS. That is the answer, written the way a filer with reportable
+segments writes it.
+
+So a second path reads the segment names. It runs ONLY when the first path
+has refused — nothing above it is loosened, and an insurer the keyword rules
+can classify is still classified by them. Three channels of evidence, each
+worth a different amount:
+
+| Where a family name appears | Worth |
+|---|---|
+| Inside the sentence declaring the reporting structure, or the 800 characters after it | 4 |
+| Inside an all-capitals heading, which is how filers style chapter titles and how the plain text keeps them | 3 |
+| Anywhere else in the chapter | 1 |
+
+A family needs 12 points to count at all and three times the runner-up to be
+called dominant. Property-casualty and life both material and neither
+dominant is MULTILINE, which is what such a company is. Anything else is
+UNRESOLVED — a wrong subtype applies the wrong ratios, and a wrong ratio is
+worse than a blank.
+
+Measured: AIG scores 40 on property-casualty against 3 on health and 0 on
+life. Essent Group, a mortgage insurer whose chapter never uses the words
+"property and casualty", scores 139 against 1. Both are now classified;
+neither is hard-coded.
+
+Coverage went from 43 of 47 insurers to 45. The two that remain — NMI
+Holdings and MGIC — are refused at the EXTRACTION gate, not by the
+classifier: their business chapters are read at LOW confidence and are not
+allowed to decide anything.
+
+## A company-wide ratio needs a company-wide basis
+
+A multiline insurer files one premium line and one claims line, and each
+covers whatever the company chose to put in it. Where the company is
+genuinely two businesses, the claims include benefits paid by a life book
+whose earnings the premiums leave out, and dividing one by the other
+produces a number that looks like a loss ratio and is a blend.
+
+Two tests, and both have to pass:
+
+1. **The concepts have to describe the same business.** `PremiumsEarnedNet`
+   is company-wide; `PremiumsEarnedNetPropertyAndCasualty` is not.
+   `IncurredClaimsPropertyCasualtyAndLiability` over `PremiumsEarnedNet` is
+   one business's claims over another's premiums.
+2. **For a multiline, the life side has to be immaterial.** Measured as what
+   the company owes policyholders on long-dated contracts, as a share of
+   total assets, from a fact no more than 400 days old.
+
+Measured across today's multiline insurers: Chubb 3.2%, Kemper 4.5%,
+Cincinnati Financial 6.9%, Berkshire Hathaway 1.4% — and Horace Mann at
+32.3%, which is a life company with a car insurer attached. The line is at
+10%, and only Horace Mann is above it.
+
+Where the test fails the answer is `UNDERWRITING METRIC N/A — MIXED BUSINESS
+BASIS`. Book value, returns, reserves, investments, the capital ratio and
+the valuation itself are untouched: it is only the underwriting ratios that
+have no honest basis.
+
+## What scale a number is printed on — `filing_units.py`
+
+A filer captions a table "(in millions, except per-share data)" and then,
+eighteen rows down, prints assets under management in billions under a
+heading of its own. T. Rowe Price does exactly that: **$1,893.4** means $1.9
+TRILLION. BlackRock prints **$15,344,624** in the same kind of table and
+means millions. Both are correct, and the caption is not the whole story.
+
+So the scale comes from the most specific statement that covers the number,
+and the reading records which one that was:
+
+| Precedence | Example | Confidence |
+|---|---|---|
+| 1. The row's own label | `AUM (at period end, in billions)` | HIGH |
+| 2. A section heading above it | `Assets under management (in billions) (4)` | HIGH |
+| 3. The column it sits under | a head cell reading `(in billions)` | HIGH |
+| 4. The table's heading rows | one scale, stated once | MODERATE |
+| 5. The caption before the table | `(in millions, except per share data)` | LOW |
+| 6. Nothing says | UNKNOWN, and the figure is refused | — |
+
+Two rules keep it honest. **No magnitude guessing** — "this looks too big to
+be millions" is not evidence. **A conflict at the same level is ambiguous** —
+two head cells that disagree about a column do not get ranked by luck.
+
+The caption is held to a stricter form than the row and the column are,
+because the text before a table is prose. Invesco's reads "market returns
+which decreased AUM by $59 billion", which is a sentence about a change, not
+a statement about the table.
+
+Every reading now stores the raw number, the raw unit, the resolved unit,
+the normalised value, the unit source and the unit confidence — and refuses
+an impossible unit for its metric: a percentage is not a quantity of
+dollars, and a per-share figure is not a company total.
+
+Continuity against the previous filing changed too. A thousandfold jump is
+still refused, because that IS a unit error. A large but possible move is now
+FLAGGED and still shown, because continuity may raise a hand and may never
+quietly rewrite a number or its unit.
+
+## The number comes from the column its period heads
+
+Reading the first figure in a row is right when the current period is printed
+first and wrong when it is printed last. Affiliated Managers prints:
+
+```
+(in billions, except as noted) | 2025    | 2026    | % Change
+Assets under management        | $771.0  | $942.4  | 22 %
+```
+
+so the first figure is a year out of date. Columns are now lined up with the
+heading row that has as many cells as the data row, or one fewer — Schwab's
+heading row is `['2026', '2025', '2026', '2025']` with no stub cell, and
+reading it the other way took Schwab's client assets from the June 2025
+column and reported $10.8 trillion as this quarter's figure.
+
+Three more shapes now read:
+
+* **Day-month-year headings.** Franklin Resources heads every column
+  `30-Jun-26`, and without it every one of its columns named no period.
+* **Curly-apostrophe quarters.** Blackstone writes `2Q’26`.
+* **A bare quarter over a bare year.** BlackRock heads one column `Q2` and
+  the one below it `2026`; neither cell is a period and the pair is.
+
+And one shape is now refused outright. Filers lay two independent tables side
+by side inside one HTML table, so BlackRock's net-flows row reads
+`['Total net flows', '$191,700', '$67,737', 'EMEA', '55', '68']` — two rows
+glued together, whose columns cannot be lined up with any heading. A word
+sitting where a number should be is the tell.
+
+## Segment figures are not company figures
+
+Travelers prints a combined ratio five times in one filing: once for the
+company and once for each of Business Insurance, Bond & Specialty Insurance,
+Personal Insurance and Personal Automobile. All five rows carry the same
+label. What tells them apart is what the filer wrote above the table —
+"CONSOLIDATED OVERVIEW … Consolidated Results of Operations" against "Segment
+Income by Major Component and Combined Ratio — Business Insurance" — so that
+is what is read. A table the filer heads as one segment is never read for a
+company-wide measure, and Travelers' consolidated 83.6% is now used where
+Phase 6 refused all five as ambiguous.
+
+## Funds from operations, five ways
+
+Simon Property Group prints, in ONE table:
+
+| Row | Amount |
+|---|---|
+| FFO of the Operating Partnership | $1,184,945 |
+| FFO allocable to limited partners | $174,687 |
+| Dilutive FFO allocable to common stockholders | $1,010,258 |
+| Real Estate FFO | $1,248,564 |
+
+Only the third is what a share of Simon is entitled to, and comparing either
+of the others against a reconstruction reports a mismatch that is really a
+definition difference. So the funds-from-operations label is parsed by an
+explicit grammar — operating partnership, core, normalised, adjusted, per
+share, attributable to common shareholders — and only the common-shareholder
+basis is used. This is not a loosening of the exact-label rule; it is a
+stricter rule for a label that names five different measures.
+
+## Published against reconstructed — `cross_check.py`
+
+The Phase 6 check compared whatever it found. That is how a published quarter
+gets compared with a trailing twelve months and reports a 300% disagreement
+about the units of time. The reusable layer has five states and makes a
+comparison only when the basis, the period and the window ALL match:
+
+| State | What it means |
+|---|---|
+| MATCH | The two are the same number. |
+| MINOR DIFFERENCE | They differ by less than the tolerance. |
+| MATERIAL MISMATCH | They do not agree. The reconstruction's confidence is lowered and both are shown. |
+| INCOMPATIBLE BASIS | There is a published figure, on a different basis, period or window. |
+| PUBLISHED UNAVAILABLE | The company does not print it in a readable table. |
+
+In practice that means an ANNUAL published figure against the reconstruction
+**rebuilt as of that same year end** — the model is re-run at the published
+figure's date so the two cover the same twelve months. Neither number ever
+replaces the other.
+
+Alongside it, every asset and flow measure the filings supplied is listed
+with its own period, scope and unit. Client assets, assets under
+administration, advisory assets, assets under management, net new assets and
+net flows are six different things: a custodian's assets under
+administration include money it merely holds, an adviser's advisory assets
+are the part it is paid to advise on, and assets under management are the
+part it actually runs. None of them stands in for another and none is added
+to another.
+
+## Is the capture actually happening? — `capture_health.py`
+
+The biggest risk left is not another formula. It is silently missing
+prospective data, and finding out six months later during a backtest.
+
+Five things are expected once per followed ticker per TRADING day:
+
+| Kind | Recoverable if missed? |
+|---|---|
+| Investment snapshot | Yes, from filings |
+| End-of-day option chain | **No. Gone for good.** |
+| Long-dated contract observation | No |
+| Sector benchmark close | Partly |
+| Recommended contract quote | No |
+
+Every attempt writes down whether it was expected, attempted, successful,
+when, from which source, how many records and why it failed. The next
+morning the day before is COMPLETE, PARTIAL, MISSED or NOT EXPECTED, and the
+system as a whole is HEALTHY, PARTIAL or CAPTURE FAILURE. Where the app
+already has a push configured, an incomplete day uses it — no new
+notification subsystem was built.
+
+**The calendar is computed, not tabulated.** Weekends, and the ten US market
+holidays including Good Friday from the Gregorian computus and the
+observance rules for fixed dates. A hard-coded table of dates is a thing
+that stops being true on a date nobody remembers; these rules have not
+changed in decades, and Juneteenth — the only recent addition — has a start
+year. A Saturday is NOT EXPECTED, never MISSED.
+
+**Nothing is ever back-filled.** A missed option chain stays missed. This
+module reports the hole; it never fills it.
+
+## Bugs found in Phases 1 to 6
+
+1. **The scheduler read the container's clock as though it were New York's.**
+   `RECORD_AFTER_ET_HOUR = 17` against a naive `datetime.now()` on a UTC
+   container fires at one in the afternoon in New York — so the "end of day"
+   chain was captured mid-session and the daily snapshot was taken before the
+   close. Both now read an exchange clock.
+2. **Weekends and market holidays were captured.** With no trading-day gate,
+   a Saturday capture stored Friday's stale quotes under Saturday's date, and
+   a backtest would later fill a Saturday from it.
+3. **The first figure in a row is not always the current one.** Affiliated
+   Managers prints 2025 before 2026, so its assets under management were read
+   a year out of date.
+4. **A heading row without a stub cell was read off by one.** Schwab's client
+   assets came from the June 2025 column: $10.8 trillion reported as this
+   quarter's figure.
+5. **Company-wide net flows were read out of a segment column.** T. Rowe
+   Price's rollforward puts the Equity column first and the Total column
+   last.
+6. **A published quarter was compared against a trailing twelve months** and
+   reported as agreement or mismatch depending on luck.
+7. **A REIT's operating-partnership FFO was eligible for the check.** The
+   difference between it and the common-shareholder measure is the limited
+   partners, not an error.
+
+## What is still not built
+
+* **A published combined ratio for Progressive.** It prints five in one
+  table, one per line of business plus a total, and which row is which
+  cannot be told from the table. Ambiguous, and refused.
+* **Assets under management for Blackstone, KKR and Ares.** Blackstone
+  prints a company total and two segment totals under labels that normalise
+  the same, so all three are ambiguous. Ares prints its AUM inside a chart
+  label rather than a table row. KKR prints none this reader can find.
+* **American Tower's published funds from operations.** Its table states no
+  scale anywhere a reader can attach to the row, and the figure is refused
+  rather than guessed at.
+* **Prologis' published funds from operations.** Its filings carry the
+  definition and not the figure.
+* **NMI Holdings and MGIC.** Their business chapters are read at LOW
+  confidence, so nothing is allowed to be classified from them.
+* **Real-chain covered-call backtests and forward validation with a sample
+  in them.** Unchanged since Phase 5, and unchangeable by writing code: the
+  capture is prospective, nothing is back-filled, and INSUFFICIENT SAMPLE
+  remains the correct answer until the horizons complete.
