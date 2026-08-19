@@ -99,12 +99,24 @@ def data_home(data_dir=None) -> dict:
             f"which is what a mounted volume looks like from inside. A "
             f"redeploy replaces the container and leaves this alone.")
     elif str(p).startswith("/data"):
-        out["state"] = PERSISTENT
+        # A pathname is not a mount. If the volume is detached, Railway
+        # leaves a perfectly ordinary /data directory on the container's own
+        # disk behind — same device as the root, same erasure on the next
+        # deploy. Calling that PERSISTENT because of how it is spelled would
+        # turn this panel green over exactly the failure it exists to catch,
+        # so it stays UNKNOWN and is treated as a blocker until the mount is
+        # confirmed.
+        out["state"] = UNKNOWN
         out["reason"] = (
-            f"{p} is under /data, the mount point this app's deployment "
-            f"notes use for its volume. It could not be confirmed as a "
-            f"separate filesystem from inside the container, so check the "
-            f"volume is actually attached.")
+            f"{p} is spelled like the mount point this app's deployment "
+            f"notes use for its volume, but it is on the SAME filesystem as "
+            f"the container's root — which is what a detached volume also "
+            f"looks like from inside. Either the volume is not attached, or "
+            f"it is attached somewhere else. Until that is settled this is "
+            f"treated as data that will not survive a redeploy, because "
+            f"assuming otherwise is what loses a year of it."
+            + (f" JERRY_DATA_DIR is set to {env!r}." if env else
+               " JERRY_DATA_DIR is not set."))
     else:
         out["state"] = EPHEMERAL
         out["reason"] = (
@@ -130,7 +142,11 @@ def previous_day(expected: dict, today=None, day=None) -> dict:
     """
     ref = health._as_date(today or date.today()).isoformat()  # noqa: SLF001
     d = day or health.previous_trading_day(ref)
+    # `expected` is only a fallback. A day that recorded what it was due is
+    # judged against that: the watchlist as it stands now is not evidence
+    # about a day that has already happened.
     status = health.day_status(d, expected)
+    basis = health.expected_on(d, expected)
     rows = []
     for kind in health.KINDS:
         block = status["kinds"].get(kind) or {}
@@ -149,8 +165,9 @@ def previous_day(expected: dict, today=None, day=None) -> dict:
     return {
         "date": d, "pretty": health._pretty(d),          # noqa: SLF001
         "state": status["state"], "reason": status["reason"],
-        "expected_symbols": sorted({s for v in (expected or {}).values()
+        "expected_symbols": sorted({s for v in basis["expected"].values()
                                     for s in v}),
+        "expected_basis": basis["basis"], "expected_note": basis["note"],
         "components": rows,
         "missing_by_component": {r["kind"]: r["missing"] for r in rows
                                  if r["missing"]},
@@ -355,27 +372,57 @@ def storage(stores: dict, symbols: int = 0, days: int = 0) -> dict:
     """What each store holds now, and what a year of it would come to.
 
     Projected from what is actually on disk rather than from a guess: bytes
-    per symbol per captured day, times the trading days in a year.
+    per ticker per captured day, times the trading days in a year.
+
+    Each store is measured against ITS OWN coverage. They do not grow
+    together: the snapshots may be months older than the first captured
+    chain, the configuration archive does not grow per ticker at all, and
+    dividing every store's bytes by the chain store's day count would
+    understate one and invent a rate for the other. A store that names no
+    coverage of its own falls back to the figures passed in, and a store
+    that has no per-ticker rate projects nothing rather than a guess.
     """
     rows = []
     for name, spec in sorted((stores or {}).items()):
         used = _dir_bytes(spec.get("path"))
-        per_day = (used / (symbols * days)) if (symbols and days) else None
+        per_ticker = spec.get("per_ticker", True)
+        n = spec.get("symbols", symbols) if per_ticker else 1
+        d = spec.get("days", days)
+        per_day = (used / (n * d)) if (n and d and used) else None
         rows.append({
             "store": name, "label": spec.get("label") or name,
             "path": str(spec.get("path") or ""), "bytes": used,
             "megabytes": round(used / 1e6, 2),
+            "per_ticker": bool(per_ticker),
+            "measured_symbols": n, "measured_days": d,
             "bytes_per_symbol_day": round(per_day) if per_day else None,
             "projected_mb_per_year": (
-                round(per_day * TRADING_DAYS_PER_YEAR * symbols / 1e6, 1)
-                if per_day and symbols else None),
+                round(per_day * TRADING_DAYS_PER_YEAR * n / 1e6, 1)
+                if per_day else None),
+            "coverage": (spec.get("coverage")
+                         or (f"measured over {d} captured day"
+                             f"{'' if d == 1 else 's'}"
+                             + (f" across {n} ticker{'' if n == 1 else 's'}"
+                                if per_ticker else "")
+                             if (n and d and used) else
+                             "not enough captured yet to measure a rate")),
             "note": spec.get("note") or "",
         })
     total = sum(r["bytes"] for r in rows)
+    unmeasured = [r["label"] for r in rows
+                  if r["bytes"] and r["projected_mb_per_year"] is None]
     return {
         "stores": rows, "bytes": total, "megabytes": round(total / 1e6, 2),
         "symbols": symbols, "captured_days": days,
+        "unmeasured": unmeasured,
         "projected_mb_per_year": round(
             sum(r["projected_mb_per_year"] or 0 for r in rows), 1),
+        "reason": (
+            "Each store is measured against its own coverage, because they "
+            "do not grow together." + (
+                " No rate could be measured for "
+                + ", ".join(unmeasured) + " yet, so nothing is projected for "
+                "them and the total below is short by that much."
+                if unmeasured else "")),
         "version": AUDIT_VERSION,
     }

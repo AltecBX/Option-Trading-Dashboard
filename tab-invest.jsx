@@ -3862,6 +3862,13 @@ const INV_AUDIT_TIP = {
     "followed tickers each kind of capture actually got, out of how many " +
     "were expected. Yesterday rather than today, because a day whose " +
     "capture window has not passed is not a failure.",
+  basis: "Which list a past day is being judged against. Each capture run " +
+    "writes down what it was due before it starts, and that written record " +
+    "is what the day is scored on. Where a day has no such record — it ran " +
+    "before this was kept, or it never ran at all — the watchlist as it " +
+    "stands today stands in for it, and that is a guess about the past: " +
+    "starring a ticker this morning would make an older day look as though " +
+    "it had missed one.",
   recoverable: "Whether a missed capture of this kind can be obtained " +
     "again later. Prices and filings can. A real end-of-day option chain " +
     "cannot: there is no source this app can reach for a chain as it stood " +
@@ -3974,6 +3981,13 @@ function InvProductionAudit({ apiFetch }) {
             Previous trading day — {prev.pretty || "—"}: {prev.state || "—"}.
             {" "}{prev.reason || ""}
           </div>
+          <div className="inv-note" title={INV_AUDIT_TIP.basis}>
+            {prev.expected_basis === "recorded"
+              ? "Judged against what that day itself wrote down as due."
+              : "Judged against the watchlist as it stands now — that day " +
+                "kept no record of what it was due, so this is a guess " +
+                "about the past rather than a reading of it."}
+          </div>
           <table className="inv-peer-table">
             <thead>
               <tr>
@@ -4051,9 +4065,9 @@ function InvProductionAudit({ apiFetch }) {
         <>
           <div className="inv-note" title={INV_AUDIT_TIP.storage}>
             {store.projected_mb_per_year
-              ? `At ${store.symbols} followed tickers this comes to about ` +
-                `${store.projected_mb_per_year} megabytes a year, measured ` +
-                `from what is on disk rather than estimated.`
+              ? `This comes to about ${store.projected_mb_per_year} ` +
+                `megabytes a year, measured from what is on disk rather ` +
+                `than estimated. ${store.reason || ""}`
               : "Not enough has been captured yet to measure a rate of " +
                 "growth from what is on disk."}
           </div>
@@ -4070,11 +4084,13 @@ function InvProductionAudit({ apiFetch }) {
               {(store.stores || []).map((r) => (
                 <tr key={r.store}>
                   <td title={r.note || r.path}>{r.label}</td>
-                  <td>{r.megabytes} MB</td>
-                  <td>{r.bytes_per_symbol_day == null ? "—"
-                       : r.bytes_per_symbol_day}</td>
-                  <td>{r.projected_mb_per_year == null ? "—"
-                       : r.projected_mb_per_year}</td>
+                  <td title={INV_AUDIT_TIP.storage}>{r.megabytes} MB</td>
+                  <td title={r.coverage || INV_AUDIT_TIP.storage}>
+                    {r.bytes_per_symbol_day == null ? "—"
+                     : r.bytes_per_symbol_day}</td>
+                  <td title={r.coverage || INV_AUDIT_TIP.storage}>
+                    {r.projected_mb_per_year == null ? "—"
+                     : r.projected_mb_per_year}</td>
                 </tr>
               ))}
             </tbody>

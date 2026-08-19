@@ -3873,6 +3873,29 @@ def recording_audit(hist: dict) -> dict:
     return out
 
 
+def _store_coverage(path, pattern: str, count_fn) -> tuple:
+    """How many tickers a store holds, and the most days any one of them has.
+
+    Measured over everything on disk rather than over the tickers being
+    audited: the bytes belong to every ticker ever stored, so dividing them
+    by a filtered subset would report a per-ticker rate several times too
+    large.
+    """
+    try:
+        if path is None or not Path(path).is_dir():
+            return 0, 0
+        syms = [p.name.split(".")[0] for p in Path(path).glob(pattern)]
+    except Exception:                                # pragma: no cover
+        return 0, 0
+    days = 0
+    for s in syms[:200]:
+        try:
+            days = max(days, int(count_fn(s) or 0))
+        except Exception:                            # noqa: BLE001
+            continue
+    return len(syms), days
+
+
 # ── the production audit ────────────────────────────────────────────────────
 #
 # One function, answering whether the next year of data will be worth
@@ -3923,40 +3946,75 @@ def production_audit(symbols=None, today: str | None = None) -> dict:
                                 "which days were captured, not the data."},
     })
 
-    # How much is on disk, and what a year of it comes to.
-    captured_days, per_symbol = 0, []
+    # How much is on disk, and what a year of it comes to. Every store is
+    # measured against ITS OWN coverage — the snapshots may be months older
+    # than the first captured chain, the long-dated observations older still,
+    # and the configuration archive does not grow per ticker at all. One
+    # shared denominator would understate one store and invent a rate for
+    # another.
+    #
+    # These counts are over the tickers being audited. When the audit is
+    # filtered to a handful of them the bytes on disk still belong to every
+    # ticker ever stored, so the per-ticker rate would be inflated — the
+    # store counts are taken over EVERYTHING on disk instead, and the
+    # projection then answers "a year at the size this store already is".
+    per_symbol = []
     for sym in syms:
-        rows = load_history(sym)
-        chain = sorted(chain_store.load(sym) or {})
-        captured_days = max(captured_days, len(chain))
-        per_symbol.append({"symbol": sym, "snapshot_days": len(rows),
-                           "chain_days": len(chain)})
+        per_symbol.append({"symbol": sym, "snapshot_days": len(load_history(sym)),
+                           "chain_days": len(chain_store.load(sym) or {})})
     out["symbol_rows"] = per_symbol
+    snap_n, snap_d = _store_coverage(
+        (_DATA_DIR / "snapshots") if _DATA_DIR else None, "*.jsonl",
+        lambda s: len(load_history(s)))
+    chain_n, chain_d = _store_coverage(
+        (root / "chains") if root else None, "*.json",
+        lambda s: len(chain_store.load(s) or {}))
+    leaps_n, leaps_d = _store_coverage(
+        (_DATA_DIR / "leaps") if _DATA_DIR else None, "*.jsonl",
+        lambda s: len(_opts.load_leaps_observations(s)) if _opts else 0)
+    log_days = len(list((_DATA_DIR / "capture").glob("????-??-??.json"))
+                   ) if (_DATA_DIR and (_DATA_DIR / "capture").is_dir()) else 0
     out["storage"] = _audit.storage({
         "snapshots": {"label": "Investment snapshots",
                       "path": (_DATA_DIR / "snapshots") if _DATA_DIR else None,
-                      "note": "One flat row per ticker per day."},
+                      "symbols": snap_n, "days": snap_d,
+                      "note": "One flat row per ticker per day. Never "
+                              "trimmed, so this is the store that grows "
+                              "without end — and the one that must."},
         "chains": {"label": "End-of-day option chains",
                    "path": (root / "chains") if root else None,
+                   "symbols": chain_n, "days": chain_d,
                    "note": "Bid, ask, implied volatility, delta, open "
-                           "interest and volume for every contract in band."},
+                           "interest and volume for every contract in band. "
+                           "The largest store by far."},
         "leaps": {"label": "Long-dated contract observations",
                   "path": (_DATA_DIR / "leaps") if _DATA_DIR else None,
+                  "symbols": leaps_n, "days": leaps_d,
                   "note": "The contracts around the money a year or more "
                           "out, and what they implied. Small, and the only "
                           "volatility history a long-dated option has of "
                           "its own."},
         "capture_log": {"label": "Capture-health log",
                         "path": (_DATA_DIR / "capture") if _DATA_DIR else None,
+                        "per_ticker": False, "days": log_days,
+                        "coverage": (f"one file per day, over {log_days} day"
+                                     f"{'' if log_days == 1 else 's'}"),
                         "note": "One small file per trading day recording "
-                                "what was attempted and what succeeded. "
-                                "Operational: losing it loses the record of "
-                                "which days were captured, not the data."},
+                                "what was attempted and what succeeded. It "
+                                "does not grow with the number of tickers "
+                                "the way the others do. Operational: losing "
+                                "it loses the record of which days were "
+                                "captured, not the data."},
         "config_archive": {"label": "Configuration archive",
                            "path": (_DATA_DIR / "config") if _DATA_DIR else None,
+                           "per_ticker": False, "days": 0,
+                           "coverage": "does not grow daily — one copy per "
+                                       "distinct rule set, written once",
                            "note": "One copy of each distinct rule set, "
-                                   "written once."},
-    }, symbols=len(syms), days=captured_days)
+                                   "written once. It grows when the rules "
+                                   "change, not when a day passes, so there "
+                                   "is no yearly rate to project."},
+    }, symbols=len(syms), days=chain_d)
 
     # Can a stored recommendation still be traced back to its rules?
     archived = {r["config_hash"] for r in archived_configs()}
@@ -3977,8 +4035,11 @@ def production_audit(symbols=None, today: str | None = None) -> dict:
     # Is what is already stored believable?
     findings = []
     for sym in syms:
+        # `archived` is passed even when it is empty. An empty archive means
+        # NOTHING stored can be traced back to its rules, which is a finding
+        # on every row — passing None instead would silently call that clean.
         findings.extend(_audit.audit_history(sym, load_history(sym), today=day,
-                                             known_hashes=archived or None))
+                                             known_hashes=archived))
         findings.extend(_audit.audit_chains(sym, chain_store.load(sym),
                                             today=day))
     counts: dict = {}
@@ -4009,6 +4070,14 @@ def _audit_state(out: dict) -> tuple:
     blockers = []
     if out["home"]["state"] == _audit.EPHEMERAL:
         blockers.append("the data directory does not survive a redeploy")
+    elif out["home"]["state"] == _audit.UNKNOWN:
+        # A path spelled like the volume's mount point but sitting on the
+        # container's own filesystem is what a DETACHED volume looks like
+        # from inside. Reading that as healthy would put a green line over
+        # the exact failure this report exists to catch.
+        blockers.append("the data directory cannot be confirmed to survive a "
+                        "redeploy, and an unconfirmed volume is one that "
+                        "loses everything when it turns out not to be there")
     if not out["retention"]["ok"]:
         blockers.append("a retention limit would delete a day before it is "
                         "needed")
@@ -4318,6 +4387,14 @@ def tick(now: datetime | None = None) -> dict | None:
     if not syms:
         return {"recorded": [], "failed": [], "peer_index": warmed,
                 "as_of": _now_iso()} if warmed else None
+    # Write down what today is DUE before doing any of it. Judging a past day
+    # against the watchlist as it stands later is not evidence about that
+    # day: starring a ticker tomorrow would report today as having missed it,
+    # and unstarring one would make a real miss disappear.
+    try:
+        _health.expect(expected_today(syms, today), day=today)
+    except Exception:                                # noqa: BLE001
+        pass
     # A restart in the same evening must not redo work that already
     # succeeded, and must do the work that did not.
     pending = [s for s in syms

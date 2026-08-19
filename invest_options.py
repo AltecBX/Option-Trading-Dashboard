@@ -426,9 +426,16 @@ def _leaps_path(symbol: str) -> Path | None:
 
 
 def record_leaps_observation(symbol: str, spot, rows: list,
-                             today: str | None = None) -> bool:
+                             today: str | None = None,
+                             keep: int | None = None) -> bool:
     """One row a day: the near-the-money long-dated contracts and their
-    implied volatility, so a tenor-matched history eventually exists."""
+    implied volatility, so a tenor-matched history eventually exists.
+
+    `keep` is how many days to hold. It was previously read from DEFAULTS
+    regardless of what the configuration said, so `leaps_iv_history_days`
+    was a knob wired to nothing — the readiness audit would report one
+    retention limit while the writer enforced another.
+    """
     p = _leaps_path(symbol)
     if p is None or not rows:
         return False
@@ -444,7 +451,8 @@ def record_leaps_observation(symbol: str, spot, rows: list,
         existing = [x for x in existing if x.get("date") != day]
         existing.append(rec)
         existing.sort(key=lambda x: x.get("date") or "")
-        existing = existing[-int(DEFAULTS["leaps_iv_history_days"]):]
+        limit = int(keep or DEFAULTS["leaps_iv_history_days"])
+        existing = existing[-limit:] if limit > 0 else existing
         try:
             tmp = p.with_suffix(".jsonl.tmp")
             tmp.write_text("\n".join(json.dumps(x, separators=(",", ":"))
@@ -1467,7 +1475,9 @@ def build(symbol: str, snap: dict, fair: dict, path: dict, cfg=None,
                              "open_interest":
                                  (r.get("liquidity") or {}).get("open_interest")})
             if rows:
-                record_leaps_observation(sym, spot, rows, today.isoformat())
+                record_leaps_observation(
+                    sym, spot, rows, today.isoformat(),
+                    keep=int(cfg_get(cfg, "leaps_iv_history_days")))
         except Exception:                            # noqa: BLE001
             pass
     return out

@@ -121,13 +121,21 @@ class TestPersistentDataPath(AuditBase):
         self.assertEqual(got["state"], A.EPHEMERAL)
         self.assertIn("nothing is being stored", got["reason"].lower())
 
-    def test_a_path_under_the_documented_mount_point_is_persistent(self):
-        # /data is the mount point this app's deployment notes use. It could
-        # not be confirmed as a separate filesystem here, and the reason
-        # says so rather than claiming certainty.
+    def test_a_path_spelled_like_the_mount_point_is_not_taken_on_trust(self):
+        # A DETACHED Railway volume leaves an ordinary /data directory on the
+        # container's own disk: same device as the root, erased on the next
+        # deploy. Calling it PERSISTENT because of how it is spelled would
+        # put a green line over the exact failure this report exists for.
         got = A.data_home("/data/invest")
-        self.assertEqual(got["state"], A.PERSISTENT)
-        self.assertIn("check the volume", got["reason"].lower())
+        self.assertEqual(got["state"], A.UNKNOWN)
+        self.assertIn("SAME filesystem", got["reason"])
+
+    def test_an_unconfirmed_volume_is_a_capture_failure_not_a_pass(self):
+        out = S.production_audit([], today="2026-08-18")
+        out["home"] = {"state": A.UNKNOWN}
+        state, reason = S._audit_state(out)
+        self.assertEqual(state, A.FAILURE)
+        self.assertIn("cannot be confirmed", reason)
 
     def test_a_separate_filesystem_is_reported_as_a_mounted_volume(self):
         got = A.data_home("/proc")           # genuinely a different device
@@ -705,6 +713,135 @@ class TestProductionAudit(AuditBase):
         for forbidden in ("write_text(", "open(", "unlink(", "rmtree("):
             self.assertNotIn(forbidden, src, forbidden)
 
+
+
+
+# ── 12. what a past day was actually due ────────────────────────────────────
+
+class TestExpectedOnTheDay(AuditBase):
+    """Judging a past day against the watchlist as it stands NOW is not
+    evidence about that day. Star a ticker this morning and yesterday would
+    be reported as having missed it; unstar one and a real miss vanishes."""
+
+    def setUp(self):
+        super().setUp()
+        H.configure(self.data)
+
+    def test_a_day_that_recorded_what_it_was_due_is_judged_against_that(self):
+        H.expect({H.SNAPSHOT: ["AAA", "BBB"]}, day="2026-08-14")
+        H.record(H.SNAPSHOT, "AAA", True, day="2026-08-14")
+        # CCC was starred this morning. It was never due on the 14th.
+        got = H.day_status("2026-08-14", {H.SNAPSHOT: ["AAA", "BBB", "CCC"]})
+        self.assertEqual(got["expected_basis"], "recorded")
+        self.assertEqual(got["kinds"][H.SNAPSHOT]["missing"], ["BBB"])
+
+    def test_unstarring_a_ticker_does_not_erase_the_day_it_was_missed(self):
+        H.expect({H.SNAPSHOT: ["AAA", "BBB"]}, day="2026-08-14")
+        H.record(H.SNAPSHOT, "AAA", True, day="2026-08-14")
+        got = H.day_status("2026-08-14", {H.SNAPSHOT: ["AAA"]})
+        self.assertEqual(got["kinds"][H.SNAPSHOT]["missing"], ["BBB"])
+        self.assertEqual(got["state"], H.PARTIAL)
+
+    def test_the_expectation_is_unioned_so_a_restart_cannot_shrink_it(self):
+        H.expect({H.SNAPSHOT: ["AAA", "BBB"]}, day="2026-08-14")
+        H.expect({H.SNAPSHOT: ["BBB", "CCC"]}, day="2026-08-14")
+        got = H.expected_on("2026-08-14")
+        self.assertEqual(got["expected"][H.SNAPSHOT], ["AAA", "BBB", "CCC"])
+
+    def test_a_day_that_recorded_nothing_falls_back_and_says_so(self):
+        got = H.expected_on("2026-08-14", {H.SNAPSHOT: ["AAA"]})
+        self.assertEqual(got["basis"], "watchlist now")
+        self.assertIn("standing in for it", got["note"])
+
+    def test_a_run_that_was_abandoned_is_not_called_complete(self):
+        # The trap in deriving expectation from a day's own attempts: a
+        # ticker the run never reached leaves no trace at all, so the day
+        # would look finished. It must not.
+        H.expect({H.SNAPSHOT: ["AAA", "BBB", "CCC"]}, day="2026-08-14")
+        H.record(H.SNAPSHOT, "AAA", True, day="2026-08-14")
+        got = H.day_status("2026-08-14", {})
+        self.assertEqual(got["state"], H.PARTIAL)
+        self.assertEqual(got["kinds"][H.SNAPSHOT]["missing"], ["BBB", "CCC"])
+
+    def test_the_audit_reports_which_basis_it_used(self):
+        H.expect({k: ["AAA"] for k in H.KINDS}, day="2026-08-14")
+        got = A.previous_day({}, today="2026-08-17")
+        self.assertEqual(got["expected_basis"], "recorded")
+        self.assertEqual(got["expected_symbols"], ["AAA"])
+
+
+# ── 13. the archive, the retention limit and the growth rate ────────────────
+
+class TestReviewFindings(AuditBase):
+    def test_an_empty_archive_makes_every_stored_row_unrecoverable(self):
+        # Not "do not check" — "nothing can be traced back to its rules".
+        found = A.audit_history("SMPL", [row("2026-08-18")],
+                                today="2026-08-18", known_hashes=set())
+        self.assertEqual([f["finding"] for f in found],
+                         [A.UNRECOVERABLE_CONFIG])
+
+    def test_the_check_is_skipped_only_when_it_is_explicitly_skipped(self):
+        found = A.audit_history("SMPL", [row("2026-08-18")],
+                                today="2026-08-18", known_hashes=None)
+        self.assertEqual(found, [])
+
+    def test_the_long_dated_store_trims_at_the_limit_it_is_given(self):
+        # The configured limit used to be reported by the audit and ignored
+        # by the writer, so readiness described a retention rule nothing
+        # enforced.
+        import invest_options as O
+        O.configure(data_dir=self.dir)
+        for i in range(6):
+            day = f"2026-06-{i + 1:02d}"
+            O.record_leaps_observation("SMPL", 100.0,
+                                       [{"exp": "2028-01-21", "dte": 600,
+                                         "strike": 100.0, "iv": 0.3}],
+                                       today=day, keep=3)
+        got = O.load_leaps_observations("SMPL")
+        self.assertEqual([r["date"] for r in got],
+                         ["2026-06-04", "2026-06-05", "2026-06-06"])
+        O.configure(data_dir=None)
+
+    def test_each_store_is_measured_against_its_own_coverage(self):
+        a = os.path.join(self.dir, "a")
+        b = os.path.join(self.dir, "b")
+        for d, size in ((a, 10_000), (b, 6_000)):
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "X.json"), "w") as fh:
+                fh.write("x" * size)
+        got = A.storage({
+            "a": {"label": "A", "path": a, "symbols": 2, "days": 5},
+            "b": {"label": "B", "path": b, "symbols": 1, "days": 2},
+        }, symbols=2, days=5)
+        rows = {r["store"]: r for r in got["stores"]}
+        self.assertEqual(rows["a"]["bytes_per_symbol_day"], 1000)
+        self.assertEqual(rows["b"]["bytes_per_symbol_day"], 3000)
+
+    def test_a_store_that_does_not_grow_daily_projects_nothing(self):
+        d = os.path.join(self.dir, "cfg")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "abc.json"), "w") as fh:
+            fh.write("x" * 500)
+        got = A.storage({"config_archive": {
+            "label": "Configuration archive", "path": d,
+            "per_ticker": False, "days": 0,
+            "coverage": "does not grow daily"}}, symbols=4, days=10)
+        r = got["stores"][0]
+        self.assertIsNone(r["projected_mb_per_year"])
+        self.assertIn("Configuration archive", got["unmeasured"])
+        self.assertIn("short by that much", got["reason"])
+
+    def test_a_store_that_does_not_grow_per_ticker_is_not_multiplied(self):
+        d = os.path.join(self.dir, "log")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "2026-08-18.json"), "w") as fh:
+            fh.write("x" * 1000)
+        got = A.storage({"capture_log": {
+            "label": "Capture-health log", "path": d,
+            "per_ticker": False, "days": 1}}, symbols=40, days=1)
+        r = got["stores"][0]
+        self.assertEqual(r["measured_symbols"], 1)
+        self.assertAlmostEqual(r["projected_mb_per_year"], 0.3, places=1)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
