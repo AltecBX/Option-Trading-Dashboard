@@ -842,5 +842,61 @@ check("no insider shorthand in the Phase 6 labels",
     return bad.length === 0 || `shorthand in: ${bad.join(", ")}`;
   })());
 
+
+// ── the production readiness panel ────────────────────────────────────────
+
+check("the production readiness panel leads with where the data lives",
+  (() => {
+    const m = inv.match(/function InvProductionAudit[\s\S]*?\n}\n/);
+    if (!m) return "the production readiness panel is missing";
+    const body = m[0];
+    const home = body.indexOf("Where the data lives");
+    const prev = body.indexOf("Previous trading day");
+    if (home < 0) return "the panel does not say where the data lives";
+    if (prev < 0) return "the panel does not report the previous trading day";
+    // Persistence is the only finding that silently destroys everything the
+    // others are about, so it has to come first on the screen.
+    return home < prev || "persistence is not the first thing shown";
+  })());
+
+check("the persistence tooltip says a redeploy erases an unmounted disk",
+  (() => {
+    const m = inv.match(/home: "([\s\S]*?)",\n  clock:/);
+    if (!m) return "the persistence tooltip is missing";
+    const tip = m[1];
+    return (/redeploy/.test(tip) && /back-filled/.test(tip))
+      || "the tooltip does not say what a redeploy costs";
+  })());
+
+check("the option chain is named as the one capture that cannot be recovered",
+  /a past option chain cannot be bought back/.test(inv)
+  || "the panel does not say which capture is unrecoverable");
+
+check("retention is stated in trading days, not calendar days",
+  (() => {
+    const m = inv.match(/retention: "([\s\S]*?)",\n  storage:/);
+    if (!m) return "the retention tooltip is missing";
+    return /two hundred and fifty-two/.test(m[1])
+      || "the tooltip does not say a year is 252 trading days";
+  })());
+
+check("the integrity tooltip says bad records are listed, never mended",
+  (() => {
+    const m = inv.match(/integrity: "([\s\S]*?)",\n  recording:/);
+    if (!m) return "the integrity tooltip is missing";
+    return /never quietly mended/.test(m[1])
+      || "the tooltip does not say history is left alone";
+  })());
+
+check("every production readiness stat is spelled out",
+  (() => {
+    const m = inv.match(/function InvProductionAudit[\s\S]*?\n}\n/);
+    const labels = (m[0].match(/label="[^"]+"/g) || [])
+      .map((s) => s.slice(7, -1));
+    if (labels.length < 6) return `only ${labels.length} stats`;
+    const bad = labels.filter((l) => /\b(ET|UTC|DTE|IV|AUM|TZ)\b/.test(l));
+    return bad.length === 0 || `shorthand in: ${bad.join(", ")}`;
+  })());
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

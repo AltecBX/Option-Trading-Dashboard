@@ -1605,7 +1605,11 @@ class TestChainCapture(Phase5Base):
 
     def _payload(self, sym, max_dte, strikes):
         self.asked.append((sym, max_dte, strikes))
-        today = date.today()
+        # The exchange's date, not the container's. A server in UTC is
+        # already on tomorrow's date by half past eight in the evening in
+        # New York, and a fixture built on that clock would ask for
+        # expirations one day away from the ones the capture files.
+        today = S.market_now().date()
         chains = {}
         for dte in (7, 17, 38):
             exp = (today + timedelta(days=dte)).isoformat()
@@ -1670,8 +1674,9 @@ class TestChainCapture(Phase5Base):
         S._CC_CHAIN_FN = self._payload
         S.capture_chains([self.SYM])
         store = _CHAIN.load(self.SYM)
-        # Exactly one day, and it is today. A capture never reaches back.
-        self.assertEqual(list(store), [date.today().isoformat()])
+        # Exactly one day, and it is today on the exchange's clock. A
+        # capture never reaches back — and never reaches forward either.
+        self.assertEqual(list(store), [S._market_today()])
 
 
 class TestReadiness(Phase5Base):

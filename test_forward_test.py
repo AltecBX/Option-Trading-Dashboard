@@ -359,13 +359,21 @@ class TestRecordingCompleteness(unittest.TestCase):
     them is history rather than a bug."""
 
     def _row(self, **kw):
+        # Everything a future exact scoring pass needs. The list grew when
+        # the production audit asked what a row would have to carry to be
+        # scored a year later without reading anything else — the verdict
+        # and the price alone cannot say whether the call was right.
         base = {"date": "2026-06-01", "ticker": "AAA", "price": 100.0,
                 "config_hash": "abc123", "entry_verdict": "BUY SHARES",
                 "preferred_structure": "BUY SHARES",
                 "recommended_contract": None,
                 "recommended_contract_reason": "no contract",
-                "benchmark_symbol": "XLF", "fair_value_base": 120.0,
-                "buy_zone": 96.0}
+                "benchmark_symbol": "XLF", "benchmark_close": 42.0,
+                "fair_value_bear": 90.0, "fair_value_base": 120.0,
+                "fair_value_bull": 150.0, "fair_value_confidence": "MEDIUM",
+                "buy_zone": 96.0, "quality_label": "GOOD",
+                "growth_label": "STEADY", "valuation_label": "FAIR",
+                "revisions_label": "IMPROVING", "value_trap_level": "LOW"}
         base.update(kw)
         return base
 

@@ -66,6 +66,8 @@ SCHEMA = 2
 # two-sided market a penny wide and a one-sided market are both "real" and
 # only one of them is a price anybody could have traded at.
 Q_UNKNOWN, Q_TWO_SIDED, Q_WIDE, Q_ONE_SIDED, Q_STALE = 0, 1, 2, 3, 4
+# No bid, no ask and no last trade. Not a thin market — no market at all.
+Q_NO_MARKET = 5
 
 QUALITY_LABEL = {
     Q_UNKNOWN: "NOT RECORDED",
@@ -73,6 +75,7 @@ QUALITY_LABEL = {
     Q_WIDE: "WIDE",
     Q_ONE_SIDED: "ONE SIDED",
     Q_STALE: "STALE",
+    Q_NO_MARKET: "NO MARKET",
 }
 
 QUALITY_NOTE = {
@@ -114,6 +117,12 @@ def _f(v, default=0.0):
 def quality_of(row: dict) -> int:
     """How tradeable the quote in a live chain row actually was."""
     bid, ask = _f(row.get("bid")), _f(row.get("ask"))
+    # A provider that answers with a full chain of zeros has answered
+    # successfully and said nothing. Nothing can be filled from a contract
+    # with no bid, no ask and no last trade, and storing it would give a
+    # backtest a day of coverage it cannot actually price against.
+    if bid <= 0 and ask <= 0 and _f(row.get("last")) <= 0:
+        return Q_NO_MARKET
     if bid <= 0 or ask <= bid:
         return Q_ONE_SIDED
     age = row.get("quote_age_s")
@@ -129,13 +138,17 @@ def quality_of(row: dict) -> int:
 
 
 def record(sym: str, chain_payload: dict, today: str | None = None,
-           source: str | None = None, event: dict | None = None) -> bool:
+           source: str | None = None, event: dict | None = None,
+           at: str | None = None) -> bool:
     """Snapshot a live chain payload (the app's standard shape:
     {underlying:{last}, expirations:[...], chains:{exp:{calls,puts}}}).
 
-    Once per symbol per day; best-effort, never raises. `source` names the
-    provider the chain came from and `event` carries whatever the caller
-    knows about the state of the world that day — an earnings date inside
+    Once per symbol per day; best-effort, never raises. `today` is the
+    TRADING day this quote belongs to and callers are expected to pass it on
+    the exchange's clock — the container's date rolls over at eight in the
+    evening in New York and would file an after-close capture under the next
+    trading day. `source` names the provider the chain came from and `event`
+    carries whatever the caller knows about the state of the world that day — an earnings date inside
     the window, a dividend, an index event — so a fill priced off this
     snapshot can later be read in context rather than as a bare number.
     """
@@ -164,6 +177,9 @@ def record(sym: str, chain_payload: dict, today: str | None = None,
                     k = r.get("strike")
                     if not k or abs(k - spot) / spot > STRIKE_BAND:
                         continue
+                    q = quality_of(r)
+                    if q == Q_NO_MARKET:
+                        continue          # nothing to fill from, ever
                     rows.append([round(float(k), 2),
                                  round(_f(r.get("bid")), 4),
                                  round(_f(r.get("ask")), 4),
@@ -172,7 +188,7 @@ def record(sym: str, chain_payload: dict, today: str | None = None,
                                  int(_f(r.get("openInterest"))),
                                  round(_f(r.get("last")), 4),
                                  int(_f(r.get("volume"))),
-                                 quality_of(r)])
+                                 q])
                 if rows:
                     packed[key] = rows
             if packed:
@@ -182,7 +198,8 @@ def record(sym: str, chain_payload: dict, today: str | None = None,
         day_row = {"spot": round(spot, 4), "exps": exps_out, "v": SCHEMA,
                    "src": (source or chain_payload.get("source")
                            or "unknown"),
-                   "ts": datetime.now().astimezone().isoformat(timespec="seconds")}
+                   "ts": at or datetime.now().astimezone().isoformat(
+                       timespec="seconds")}
         if event:
             day_row["ev"] = event
         with _LOCK:

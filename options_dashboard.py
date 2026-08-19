@@ -8675,6 +8675,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(
                         _invest.data_readiness(syms[:60] or None),
                         no_store=True)
+                elif section == "audit":
+                    syms = [s.strip().upper() for s in
+                            (qs.get("symbols", [""])[0] or "").split(",")
+                            if s.strip()]
+                    self._send_json(
+                        _invest.production_audit(syms[:60] or None),
+                        no_store=True)
                 elif section == "config":
                     cfg_i, h = _invest.config()
                     self._send_json({"config": cfg_i, "hash": h,
@@ -8703,6 +8710,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                          _invest._xcheck.CROSS_CHECK_VERSION,
                                      "capture_health":
                                          _invest._health.CAPTURE_HEALTH_VERSION,
+                                     "audit": _invest._audit.AUDIT_VERSION,
                                      "peer_index": _peers_mod.index_status()},
                                     no_store=True)
                 else:

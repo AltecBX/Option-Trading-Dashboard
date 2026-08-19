@@ -1,5 +1,5 @@
 (function () {
-// tab-invest.jsx — LAZY CHUNK (v4.42), loaded on first Investment open.
+// tab-invest.jsx — LAZY CHUNK (v4.48), loaded on first Investment open.
 //
 // The long-horizon workstation. Six questions now:
 //   1. How good is this business?              -> QUALITY
@@ -3196,6 +3196,237 @@ function InvDataReadiness({
     title: "Re-read the capture log."
   }, busy ? "Loading…" : "Refresh"));
 }
+
+// ── the production audit: will the next year of data be worth having? ──────
+//
+// The capture-health block above answers "did today happen". This one answers
+// the question underneath it: if every day from here is captured perfectly,
+// will any of it still be there in a year, and will it be believable when it
+// is read back. Persistence comes first because it is the only finding that
+// destroys everything else silently.
+
+const INV_AUDIT_TIP = {
+  what: "Whether this app is genuinely set up to accumulate a year of clean " + "prospective data — not whether today's capture ran, but whether what " + "it wrote will survive, stay complete, and still be readable when the " + "thirty, ninety, one hundred and eighty and three hundred and " + "sixty-five day results are finally scored.",
+  state: "HEALTHY means the data survives a redeploy, the previous trading " + "day is complete, no retention limit deletes a day before it is needed, " + "nothing stored contradicts itself, and the rules behind every " + "recommendation can still be read back. CAPTURE FAILURE means something " + "would destroy the history rather than merely dent it.",
+  home: "Where the data is written, and whether a redeploy would erase it. " + "A mounted volume is a different filesystem from the container's root " + "and is left alone when the app is redeployed; the container's own disk " + "is rebuilt from scratch every deploy. None of this data can be " + "back-filled, so storing it on the container's own disk means losing " + "every day of it at the next deploy.",
+  clock: "Market scheduling runs on the exchange's clock, not the " + "container's. A server in UTC is already on tomorrow's date at " + "half past eight in the evening in New York, so a capture stamped with " + "the container's date would land on a trading day that has not " + "happened yet.",
+  prev: "The previous trading day, component by component: how many of the " + "followed tickers each kind of capture actually got, out of how many " + "were expected. Yesterday rather than today, because a day whose " + "capture window has not passed is not a failure.",
+  basis: "Which list a past day is being judged against. Each capture run " + "writes down what it was due before it starts, and that written record " + "is what the day is scored on. Where a day has no such record — it ran " + "before this was kept, or it never ran at all — the watchlist as it " + "stands today stands in for it, and that is a guess about the past: " + "starring a ticker this morning would make an older day look as though " + "it had missed one.",
+  recoverable: "Whether a missed capture of this kind can be obtained " + "again later. Prices and filings can. A real end-of-day option chain " + "cannot: there is no source this app can reach for a chain as it stood " + "on a past date, so a missed day is missed permanently.",
+  retention: "Each store's retention limit against the longest validation " + "horizon. Limits are counted in stored entries, and only trading days " + "are stored, so a three hundred and sixty-five calendar-day horizon " + "needs two hundred and fifty-two entries rather than three hundred and " + "sixty-five.",
+  storage: "What each store holds on disk now, and what a year of it comes " + "to at the current number of followed tickers. Projected from measured " + "bytes per ticker per captured day, not from a guess.",
+  config: "Every distinct set of rules is written once, under its own hash, " + "and never rewritten. That is what lets a recommendation stored today " + "be re-read a year from now against the exact thresholds that produced " + "it, instead of against whatever the rules have since become.",
+  integrity: "Checks on what is already stored: duplicate dates, dates in " + "the future, rows out of order, impossible prices, recommendations " + "naming rules that cannot be found, contracts that do not match the " + "recommendation, and quotes whose bid is above their ask. Bad records " + "are listed, never quietly mended — repairing history in place would " + "destroy the evidence of what actually happened.",
+  recording: "Whether the rows being written NOW carry everything a future " + "scoring pass will need. Rows already on disk are never revised, so a " + "row written before a field existed will always lack it and that is " + "correct. What matters is that today's rows are complete, because this " + "is the only chance to fix them before another year goes by."
+};
+const INV_HOME_CLASS = {
+  PERSISTENT: "up",
+  EPHEMERAL: "down",
+  UNKNOWN: ""
+};
+function InvProductionAudit({
+  apiFetch
+}) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = React.useCallback(() => {
+    setBusy(true);
+    apiFetch("/api/invest/audit").then(r => r.json()).then(j => setData(j)).catch(() => setData({
+      error: true
+    })).finally(() => setBusy(false));
+  }, [apiFetch]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const d = data || {};
+  const home = d.home || {};
+  const prev = d.previous_day || {};
+  const ret = d.retention || {};
+  const store = d.storage || {};
+  const cfg = d.config_archive || {};
+  const integ = d.integrity || {};
+  const rec = d.recording || {};
+  if (d.error) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-note",
+      title: INV_AUDIT_TIP.what
+    }, "The production readiness audit could not be read.");
+  }
+  if (!data) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "inv-note",
+      title: INV_AUDIT_TIP.what
+    }, busy ? "Loading…" : "Not read yet.");
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "inv-bank"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${INV_CAPTURE_CLASS[d.state] || ""}`,
+    title: INV_AUDIT_TIP.state
+  }, d.state || "—", " \u2014 ", d.reason || ""), /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${INV_HOME_CLASS[home.state] || ""}`,
+    title: INV_AUDIT_TIP.home
+  }, "Where the data lives \u2014 ", home.state || "UNKNOWN", ": ", home.reason || ""), /*#__PURE__*/React.createElement("div", {
+    className: "inv-grid"
+  }, /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Data directory",
+    tip: INV_AUDIT_TIP.home,
+    value: home.path || "None configured"
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Survives a redeploy",
+    tip: INV_AUDIT_TIP.home,
+    value: home.state === "PERSISTENT" ? "Yes" : home.state === "EPHEMERAL" ? "No" : "Unconfirmed"
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Market clock",
+    tip: INV_AUDIT_TIP.clock,
+    value: d.market_timezone || "—"
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Capture hour, New York time",
+    tip: INV_AUDIT_TIP.clock,
+    value: d.capture_hour_et == null ? "—" : `${d.capture_hour_et}:00`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Rule sets archived",
+    tip: INV_AUDIT_TIP.config,
+    value: `${cfg.archived || 0}`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Today's rules archived",
+    tip: INV_AUDIT_TIP.config,
+    value: cfg.current_archived ? "Yes" : "Not yet"
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "Stored records that do not hold up",
+    tip: INV_AUDIT_TIP.integrity,
+    value: integ.clean ? "None" : `${integ.n || 0}`
+  }), /*#__PURE__*/React.createElement(InvCaptureStat, {
+    label: "On disk now",
+    tip: INV_AUDIT_TIP.storage,
+    value: `${store.megabytes == null ? "—" : store.megabytes} MB`
+  })), !!(prev.components || []).length && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_AUDIT_TIP.prev
+  }, "Previous trading day \u2014 ", prev.pretty || "—", ": ", prev.state || "—", ".", " ", prev.reason || ""), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_AUDIT_TIP.basis
+  }, prev.expected_basis === "recorded" ? "Judged against what that day itself wrote down as due." : "Judged against the watchlist as it stands now — that day " + "kept no record of what it was due, so this is a guess " + "about the past rather than a reading of it."), /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.prev
+  }, "What was captured"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.prev
+  }, "Captured"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.prev
+  }, "Expected"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.prev
+  }, "Result"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.prev
+  }, "Tickers missed"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.recoverable
+  }, "Can be obtained later"))), /*#__PURE__*/React.createElement("tbody", null, (prev.components || []).map(c => /*#__PURE__*/React.createElement("tr", {
+    key: c.kind
+  }, /*#__PURE__*/React.createElement("td", {
+    title: c.note
+  }, c.label), /*#__PURE__*/React.createElement("td", null, c.captured), /*#__PURE__*/React.createElement("td", null, c.expected), /*#__PURE__*/React.createElement("td", {
+    className: INV_CAPTURE_CLASS[c.state] || ""
+  }, c.state || "—"), /*#__PURE__*/React.createElement("td", {
+    title: (c.missing || []).length > 6 ? `${(c.missing || []).join(", ")} — ` + INV_AUDIT_TIP.prev : INV_AUDIT_TIP.prev
+  }, (c.missing || []).length ? (c.missing || []).slice(0, 6).join(", ") : "None"), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.recoverable
+  }, c.recoverable ? "Yes" : "No — a past option chain cannot be bought back")))))), !!(ret.limits || []).length && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${ret.ok ? "" : "down"}`,
+    title: INV_AUDIT_TIP.retention
+  }, ret.reason || ""), /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.retention
+  }, "Store"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.retention
+  }, "Trading days kept"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.retention
+  }, "Trading days needed"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.retention
+  }, "Spare days"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.retention
+  }, "Clears the longest horizon"))), /*#__PURE__*/React.createElement("tbody", null, (ret.limits || []).map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.store
+  }, /*#__PURE__*/React.createElement("td", {
+    title: r.note
+  }, r.label), /*#__PURE__*/React.createElement("td", null, r.unbounded ? "All of them" : r.keeps), /*#__PURE__*/React.createElement("td", null, ret.trading_days_needed), /*#__PURE__*/React.createElement("td", null, r.unbounded ? "No limit" : r.margin_days), /*#__PURE__*/React.createElement("td", {
+    className: r.covers_longest_horizon ? "up" : "down"
+  }, r.covers_longest_horizon ? "Yes" : "No")))))), !!(store.stores || []).length && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_AUDIT_TIP.storage
+  }, store.projected_mb_per_year ? `This comes to about ${store.projected_mb_per_year} ` + `megabytes a year, measured from what is on disk rather ` + `than estimated. ${store.reason || ""}` : "Not enough has been captured yet to measure a rate of " + "growth from what is on disk."), /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.storage
+  }, "Store"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.storage
+  }, "On disk now"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.storage
+  }, "Bytes per ticker per day"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.storage
+  }, "Projected megabytes a year"))), /*#__PURE__*/React.createElement("tbody", null, (store.stores || []).map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.store
+  }, /*#__PURE__*/React.createElement("td", {
+    title: r.note || r.path
+  }, r.label), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.storage
+  }, r.megabytes, " MB"), /*#__PURE__*/React.createElement("td", {
+    title: r.coverage || INV_AUDIT_TIP.storage
+  }, r.bytes_per_symbol_day == null ? "—" : r.bytes_per_symbol_day), /*#__PURE__*/React.createElement("td", {
+    title: r.coverage || INV_AUDIT_TIP.storage
+  }, r.projected_mb_per_year == null ? "—" : r.projected_mb_per_year)))))), /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${cfg.current_archived ? "" : "down"}`,
+    title: INV_AUDIT_TIP.config
+  }, cfg.reason || ""), /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${integ.clean ? "" : "down"}`,
+    title: INV_AUDIT_TIP.integrity
+  }, integ.reason || ""), !integ.clean && !!(integ.findings || []).length && /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.integrity
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.integrity
+  }, "Day"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.integrity
+  }, "What is wrong"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.integrity
+  }, "Detail"))), /*#__PURE__*/React.createElement("tbody", null, (integ.findings || []).slice(0, 20).map((f, i) => /*#__PURE__*/React.createElement("tr", {
+    key: `${f.symbol}-${f.where}-${i}`
+  }, /*#__PURE__*/React.createElement("td", null, f.symbol), /*#__PURE__*/React.createElement("td", null, /^\d{4}-\d{2}-\d{2}$/.test(f.where || "") ? invShortDate(f.where) : f.where || "—"), /*#__PURE__*/React.createElement("td", {
+    title: f.note
+  }, f.finding), /*#__PURE__*/React.createElement("td", {
+    title: f.note
+  }, f.detail))))), /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${(rec.fields || []).length && rec.complete === (rec.fields || []).length ? "" : "down"}`,
+    title: INV_AUDIT_TIP.recording
+  }, rec.reason || ""), !!(rec.fields || []).length && /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.recording
+  }, "What a later scoring pass needs"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.recording
+  }, "Tickers recording it"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.recording
+  }, "Complete"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.recording
+  }, "Not recording it"))), /*#__PURE__*/React.createElement("tbody", null, (rec.fields || []).map(f => /*#__PURE__*/React.createElement("tr", {
+    key: f.field
+  }, /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.recording
+  }, f.what), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.recording
+  }, f.n, " of ", f.of), /*#__PURE__*/React.createElement("td", {
+    className: f.complete ? "up" : "down",
+    title: INV_AUDIT_TIP.recording
+  }, f.complete ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.recording
+  }, (f.missing || []).length ? (f.missing || []).join(", ") : "None"))))), /*#__PURE__*/React.createElement("button", {
+    className: "btn ghost",
+    onClick: load,
+    disabled: busy,
+    title: "Read the stores again and re-run every check: where the data lives, what the previous trading day captured, what each retention limit clears, and whether anything stored contradicts itself."
+  }, busy ? "Loading…" : "Re-run the audit"));
+}
 function InvScanner({
   apiFetch,
   onPick
@@ -3603,6 +3834,8 @@ function InvestTab({
   })), section("readiness", "Data readiness", "How much real, prospectively captured data this app holds, and whether today added to it. None of it can be back-filled, so a missed trading day is reported here the next morning rather than discovered months later in a backtest.", /*#__PURE__*/React.createElement(InvDataReadiness, {
     apiFetch: apiFetch,
     symbol: d.symbol
+  })), section("production", "Production readiness", "Whether this app is set up to accumulate a year of clean prospective data: where the data is written and whether a redeploy would erase it, whether the market clock is the exchange's rather than the container's, what the previous trading day actually captured, whether any retention limit would delete a day before it is needed, how much a year of it comes to, whether the rules behind a stored recommendation can still be read back, and whether anything already stored contradicts itself.", /*#__PURE__*/React.createElement(InvProductionAudit, {
+    apiFetch: apiFetch
   })), d.bank && section("bank", "Bank measures", "What a lender is actually made of: tangible book value, the return earned on it, what its deposits cost and what its loan book is doing.", /*#__PURE__*/React.createElement(InvBank, {
     bank: d.bank
   })), d.reit && section("reit", "Property trust measures", "Funds from operations rather than reported earnings, the distribution it supports, and what the filings will not support at all.", /*#__PURE__*/React.createElement(InvReit, {

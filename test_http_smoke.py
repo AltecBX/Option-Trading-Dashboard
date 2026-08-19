@@ -241,6 +241,11 @@ for p in [
     "/api/invest/scan?symbols=FAKE&budget=0",
     f"/api/invest/covered_call?symbol={S}&years=1",
     "/api/invest/validation?symbols=FAKE",
+    # The two operational reports. Both must answer 200 on an app that has
+    # captured nothing at all — "nothing has been captured yet" is an
+    # answer, and an audit that 500s is an audit nobody can read.
+    "/api/invest/readiness?symbols=FAKE",
+    "/api/invest/audit?symbols=FAKE",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",

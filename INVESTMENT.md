@@ -2117,3 +2117,176 @@ module reports the hole; it never fills it.
   in them.** Unchanged since Phase 5, and unchangeable by writing code: the
   capture is prospective, nothing is back-filled, and INSUFFICIENT SAMPLE
   remains the correct answer until the horizons complete.
+
+---
+
+# Production data readiness
+
+Phases 1 to 7 built the engine. This part is not an engine — it is the
+answer to one question asked of the finished thing: **if this app runs
+untouched for the next year, will the data it collects be usable?**
+
+Nothing here changes a fair value, a buy zone, a verdict, or any of the
+business models. Two operational bugs were found and fixed; everything else
+is measurement and reporting.
+
+## Bug 1 — three of the five daily captures were stamped with the wrong day
+
+Phase 7 moved the *scheduler* onto the exchange's clock. It did not move
+everything the scheduler calls. The container runs in UTC, so at half past
+eight in the evening in New York `datetime.now()` already returns the next
+date. Three captures were still reading it:
+
+| Where | What it stamped |
+|---|---|
+| `invest_scan._now_iso()` | the "as of" on every capture report |
+| `chain_store.record()`'s default day | the trading day an option chain is filed under |
+| `invest_options._today()` | the day a long-dated observation is filed under |
+
+A probe against the running code confirmed it live: with the market date
+August 18, all three returned August 19. An evening capture would therefore
+have filed a chain, a long-dated observation and a snapshot under **a
+trading day that had not happened yet** — and a forward test reading that
+history would have scored a recommendation against a price from the future.
+
+All three now read `market_now()`. `chain_store.record()` also takes an
+explicit `at=` stamp, so the timestamp inside a stored day is the exchange's
+too, offset and all.
+
+## Bug 2 — a chain of all-zero quotes was stored as a successful capture
+
+A provider can answer, correctly and quickly, with a full chain in which
+every contract has a bid of zero, an ask of zero and a last of zero. Nothing
+in it can ever be priced against. It parsed, it stored, it read back as
+coverage, and a backtest would have found a day with a chain in it and no
+market in the chain.
+
+`chain_store` now has a fifth quality code, `Q_NO_MARKET` — "NO MARKET —
+nothing quoted on either side" — and contracts carrying it are dropped
+rather than stored. A chain in which every contract is unquoted therefore
+stores nothing, `record()` returns False, and the capture is logged as a
+failure with its reason. **A successful API response is not a successful
+capture**, and this is where that is enforced.
+
+## Where the data lives — the finding that matters most
+
+`invest_audit.data_home()` reports one of three states:
+
+* **PERSISTENT** — the data directory sits on a different filesystem from
+  the container's root, which is what a mounted volume looks like from
+  inside. A redeploy replaces the container and leaves it alone.
+* **PERSISTENT, unconfirmed** — the path is under `/data`, the mount point
+  the deployment notes use, but it could not be confirmed as a separate
+  filesystem. Check the volume is actually attached.
+* **EPHEMERAL** — the directory is on the container's own disk. It survives
+  a *restart* and does not survive a *deploy*. Every snapshot, option chain
+  and long-dated observation written there is erased the next time the app
+  is deployed, and **none of it can be back-filled.**
+
+An EPHEMERAL home makes the whole audit a CAPTURE FAILURE regardless of
+what else is healthy, because nothing else matters if the directory is
+thrown away. On Railway the volume is mounted at `/data` and
+`JERRY_DATA_DIR` points at it; the audit says so on the screen rather than
+leaving it to be discovered.
+
+## Restarts
+
+Three things a restart must never do, each enforced by a different
+mechanism rather than by a variable that dies with the process:
+
+* **Never duplicate an immutable observation.** `chain_store` refuses a
+  second write for a day it already holds, and the first capture of a day is
+  the one kept — a later, different quote does not overwrite it.
+* **Never overwrite yesterday and never backdate tomorrow.** Every write
+  takes the trading day explicitly, on the exchange's clock.
+* **Retry today's missing work while it is still valid.** Whether a symbol
+  was already captured is read from the capture log on disk, not from
+  memory, so a container that comes back at eight in the evening takes the
+  symbols that failed and skips the ones that did not.
+
+## The calendar
+
+There is one, in `capture_health.py`, and the audit reuses it rather than
+building a second. Weekends plus ten US market holidays, computed — Good
+Friday from the Gregorian computus, the observance rules, Juneteenth from
+2022. A hard-coded table of dates expires; this does not.
+
+**Early closes need no special handling.** The market shuts at one in the
+afternoon on a handful of days. The capture window is five in the evening,
+four hours later, so an early close is a normal trading day for capture
+purposes. A second calendar of half-days would be a table that goes stale
+for no operational gain, and a test pins the reasoning instead.
+
+## Retention is counted in trading days
+
+A retention limit counts *stored entries*, and only trading days are
+stored. So a 365-calendar-day horizon needs **252** entries, not 365.
+Reading a 400-entry limit as 400 calendar days would be the same mistake in
+the other direction.
+
+| Store | Keeps | Needs | Spare |
+|---|---|---|---|
+| Investment snapshots | everything | 252 | never trimmed |
+| End-of-day option chains | 500 | 252 | 248 |
+| Long-dated observations | 400 | 252 | 148 |
+| Capture-health log | 400 | 252 | 148 |
+
+The recommendation history is the one store that is never trimmed, because
+it is the thing being validated.
+
+## What a year of it costs
+
+Measured, not estimated: bytes on disk divided by tickers times captured
+days, projected over 252 trading days.
+
+* An end-of-day option chain is about **57 KB per ticker per day** — roughly
+  **593 MB a year** at forty followed tickers, and about **1.2 GB** at the
+  500-day cap.
+* A snapshot row is about 5 KB; a long-dated observation about 1.7 KB. Both
+  are noise beside the chains.
+
+## The configuration archive
+
+A stored recommendation carries a config hash so a future scoring pass can
+say which rules produced it. That only works if the rules can still be
+read — and thresholds change; every phase of this work has changed some.
+
+Each distinct configuration is now written **once**, under its own hash, and
+never rewritten. A hash already on disk is left exactly as it is. So a row
+written today can be re-read a year from now against the exact thresholds
+that produced it, rather than against whatever the rules have since become.
+
+## What a row has to carry to be scored later
+
+`REQUIRED_FOR_SCORING` grew from eight fields to nineteen. The question it
+answers is not "is this row well formed" but "could a scoring pass a year
+from now settle this recommendation up without reading anything else":
+the date and ticker, the price, the config hash, the entry verdict, the
+preferred structure and the exact contract, the benchmark symbol *and its
+close*, all three fair values with their confidence, the buy zone, and the
+five labels — quality, growth, valuation, revisions and value-trap level.
+
+This looks **forward only**. Rows already on disk are never rewritten, so a
+row written before a field existed will always lack it and that is correct.
+What is checked is what is being written *now*, because today is the only
+chance to fix it before another year of rows goes by.
+
+## The integrity audit
+
+Twelve checks on what is already stored, in `invest_audit.py`: duplicate
+dates, dates in the future, rows out of order, impossible prices, a row with
+no date, a missing config hash, a hash that is not in the archive, a stored
+contract that is not the recommended structure, a crossed quote in a
+recommendation or inside a chain, a chain with no underlying price, and a
+chain holding an expiration that had already passed.
+
+**Nothing is repaired.** Corrupt records are listed separately, with the
+reason each one cannot be believed. Mending history in place would destroy
+the evidence of what actually happened.
+
+## Where to read it
+
+`/api/invest/audit` and the **Production readiness** panel on the
+Investment tab, beside **Data readiness**. Both are behind expanders: they
+are operational, and they must not crowd the screen the buy-or-wait
+decision is made on.

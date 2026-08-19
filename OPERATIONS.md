@@ -66,6 +66,35 @@ else to do.
 
 ---
 
+## The volume is not optional any more
+
+The Investment tab records something every trading day that **cannot be got
+back**: the end-of-day option chain for each followed ticker, the valuation
+state behind each recommendation, and the long-dated contracts around the
+money. There is no source anywhere this app can reach that sells an option
+chain as it stood on a past date. A trading day that goes uncaptured stays
+uncaptured, and a day that gets erased is gone the same way.
+
+All of it is written under `JERRY_DATA_DIR`. **If the volume is not
+attached, every day of it is erased on the next deploy.**
+
+**How to check, in ten seconds:** open the Investment tab → **Production
+readiness** → the second line.
+
+- *"…sits on a different filesystem from the container's root"* — the volume
+  is attached and working. Nothing to do.
+- *"…is on the container's own filesystem"* — **this is the one to act on.**
+  Attach the volume in Railway and set `JERRY_DATA_DIR` to its mount point,
+  then redeploy. Everything captured before that is already lost, and
+  everything captured after is safe.
+
+The same panel says how much a year of it will cost in disk: about
+**600 megabytes a year** at forty followed tickers, and about **1.2
+gigabytes** once the chain store reaches its 500-day limit. Size the volume
+above that.
+
+---
+
 ## Watch the cost
 
 Railway shows your remaining credit in the top bar. If it runs low and you
@@ -80,6 +109,8 @@ doesn't pause.
 |------------|---------|
 | Open the app | https://dashboard.jerrytrade.com |
 | Check data source | open `…/api/data_source` |
+| Check the Investment data will survive a deploy | Investment tab → **Production readiness** |
+| Check yesterday's capture actually ran | Investment tab → **Data readiness** |
 | Fix Schwab | `jerry auth` → paste token in Railway Console → Restart |
 | Update the app | push to GitHub `main` |
 | Run it locally again | `python options_dashboard.py --serve --port 8765` |

@@ -322,18 +322,77 @@ def captured(kind: str, symbol: str, day=None) -> bool:
 
 # ── what the log says ───────────────────────────────────────────────────────
 
+def expect(expected: dict, day=None) -> dict:
+    """Write down which tickers each kind of capture was DUE for on a day.
+
+    Without this, a past day can only be judged against the watchlist as it
+    stands NOW — so starring a ticker this morning would report yesterday as
+    having missed it, and unstarring one would make a real miss disappear.
+    The list is unioned rather than replaced: a ticker that was due at five
+    was due, whatever the watchlist says by eight.
+    """
+    d = _as_date(day or date.today()).isoformat()
+    with _LOCK:
+        log = dict(day_log(d))
+        was = dict(log.get("expected") or {})
+        for kind, syms in (expected or {}).items():
+            merged = set(was.get(kind) or [])
+            merged |= {(s or "").upper().strip() for s in (syms or []) if s}
+            was[kind] = sorted(merged)
+        log["expected"] = was
+        log["trading_day"] = is_trading_day(d)
+        log["version"] = CAPTURE_HEALTH_VERSION
+        _write(log)
+    return was
+
+
+def expected_on(day, fallback: dict | None = None) -> dict:
+    """What a given day was actually due, and where that answer came from.
+
+    Two answers only: what the day itself recorded as due, and — failing
+    that — the watchlist as it stands now, which is a guess about the past
+    and is labelled as one.
+
+    Deliberately NOT "what the day was seen attempting". A ticker the run
+    never reached leaves no trace at all, so judging a day against its own
+    attempts would call every abandoned run complete — which is the one
+    failure this whole report exists to catch.
+    """
+    d = _as_date(day).isoformat()
+    recorded = day_log(d).get("expected") or {}
+    if any(recorded.get(k) for k in KINDS):
+        return {"expected": {k: list(recorded.get(k) or []) for k in KINDS},
+                "basis": "recorded",
+                "note": ("what this day itself wrote down as due, before it "
+                         "tried to do any of it.")}
+    return {"expected": {k: list((fallback or {}).get(k) or []) for k in KINDS},
+            "basis": "watchlist now",
+            "note": ("the watchlist as it stands now. This day wrote down "
+                     "nothing about what it was due — it predates that being "
+                     "recorded, or it never ran — so the current list is "
+                     "standing in for it. Starring a ticker since then would "
+                     "make this day look as though it missed one.")}
+
+
 def day_status(day, expected: dict | None = None) -> dict:
     """COMPLETE, PARTIAL, MISSED or NOT EXPECTED, per kind and overall.
 
     `expected` maps each kind to the tickers that should have been captured.
+    It is a FALLBACK: a day that recorded what it was due is judged against
+    that instead, because the watchlist as it stands now is not evidence
+    about a day that has already happened.
+
     A weekend or a market holiday expects nothing and is reported as such,
     because calling a Saturday a failure would bury the days that are.
     """
     d = _as_date(day).isoformat()
     log = day_log(d)
     trading = is_trading_day(d)
+    basis = expected_on(d, expected)
+    expected = basis["expected"]
     out = {"date": d, "trading_day": trading, "kinds": {},
            "state": NOT_EXPECTED, "missing": {},
+           "expected_basis": basis["basis"], "expected_note": basis["note"],
            "reason": "", "version": CAPTURE_HEALTH_VERSION}
     if not trading:
         out["reason"] = (

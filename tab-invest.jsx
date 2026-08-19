@@ -1,4 +1,4 @@
-// tab-invest.jsx — LAZY CHUNK (v4.42), loaded on first Investment open.
+// tab-invest.jsx — LAZY CHUNK (v4.48), loaded on first Investment open.
 //
 // The long-horizon workstation. Six questions now:
 //   1. How good is this business?              -> QUALITY
@@ -3828,6 +3828,355 @@ function InvDataReadiness({ apiFetch, symbol }) {
   );
 }
 
+// ── the production audit: will the next year of data be worth having? ──────
+//
+// The capture-health block above answers "did today happen". This one answers
+// the question underneath it: if every day from here is captured perfectly,
+// will any of it still be there in a year, and will it be believable when it
+// is read back. Persistence comes first because it is the only finding that
+// destroys everything else silently.
+
+const INV_AUDIT_TIP = {
+  what: "Whether this app is genuinely set up to accumulate a year of clean " +
+    "prospective data — not whether today's capture ran, but whether what " +
+    "it wrote will survive, stay complete, and still be readable when the " +
+    "thirty, ninety, one hundred and eighty and three hundred and " +
+    "sixty-five day results are finally scored.",
+  state: "HEALTHY means the data survives a redeploy, the previous trading " +
+    "day is complete, no retention limit deletes a day before it is needed, " +
+    "nothing stored contradicts itself, and the rules behind every " +
+    "recommendation can still be read back. CAPTURE FAILURE means something " +
+    "would destroy the history rather than merely dent it.",
+  home: "Where the data is written, and whether a redeploy would erase it. " +
+    "A mounted volume is a different filesystem from the container's root " +
+    "and is left alone when the app is redeployed; the container's own disk " +
+    "is rebuilt from scratch every deploy. None of this data can be " +
+    "back-filled, so storing it on the container's own disk means losing " +
+    "every day of it at the next deploy.",
+  clock: "Market scheduling runs on the exchange's clock, not the " +
+    "container's. A server in UTC is already on tomorrow's date at " +
+    "half past eight in the evening in New York, so a capture stamped with " +
+    "the container's date would land on a trading day that has not " +
+    "happened yet.",
+  prev: "The previous trading day, component by component: how many of the " +
+    "followed tickers each kind of capture actually got, out of how many " +
+    "were expected. Yesterday rather than today, because a day whose " +
+    "capture window has not passed is not a failure.",
+  basis: "Which list a past day is being judged against. Each capture run " +
+    "writes down what it was due before it starts, and that written record " +
+    "is what the day is scored on. Where a day has no such record — it ran " +
+    "before this was kept, or it never ran at all — the watchlist as it " +
+    "stands today stands in for it, and that is a guess about the past: " +
+    "starring a ticker this morning would make an older day look as though " +
+    "it had missed one.",
+  recoverable: "Whether a missed capture of this kind can be obtained " +
+    "again later. Prices and filings can. A real end-of-day option chain " +
+    "cannot: there is no source this app can reach for a chain as it stood " +
+    "on a past date, so a missed day is missed permanently.",
+  retention: "Each store's retention limit against the longest validation " +
+    "horizon. Limits are counted in stored entries, and only trading days " +
+    "are stored, so a three hundred and sixty-five calendar-day horizon " +
+    "needs two hundred and fifty-two entries rather than three hundred and " +
+    "sixty-five.",
+  storage: "What each store holds on disk now, and what a year of it comes " +
+    "to at the current number of followed tickers. Projected from measured " +
+    "bytes per ticker per captured day, not from a guess.",
+  config: "Every distinct set of rules is written once, under its own hash, " +
+    "and never rewritten. That is what lets a recommendation stored today " +
+    "be re-read a year from now against the exact thresholds that produced " +
+    "it, instead of against whatever the rules have since become.",
+  integrity: "Checks on what is already stored: duplicate dates, dates in " +
+    "the future, rows out of order, impossible prices, recommendations " +
+    "naming rules that cannot be found, contracts that do not match the " +
+    "recommendation, and quotes whose bid is above their ask. Bad records " +
+    "are listed, never quietly mended — repairing history in place would " +
+    "destroy the evidence of what actually happened.",
+  recording: "Whether the rows being written NOW carry everything a future " +
+    "scoring pass will need. Rows already on disk are never revised, so a " +
+    "row written before a field existed will always lack it and that is " +
+    "correct. What matters is that today's rows are complete, because this " +
+    "is the only chance to fix them before another year goes by.",
+};
+
+const INV_HOME_CLASS = {
+  PERSISTENT: "up", EPHEMERAL: "down", UNKNOWN: "",
+};
+
+function InvProductionAudit({ apiFetch }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = React.useCallback(() => {
+    setBusy(true);
+    apiFetch("/api/invest/audit")
+      .then((r) => r.json())
+      .then((j) => setData(j))
+      .catch(() => setData({ error: true }))
+      .finally(() => setBusy(false));
+  }, [apiFetch]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const d = data || {};
+  const home = d.home || {};
+  const prev = d.previous_day || {};
+  const ret = d.retention || {};
+  const store = d.storage || {};
+  const cfg = d.config_archive || {};
+  const integ = d.integrity || {};
+  const rec = d.recording || {};
+
+  if (d.error) {
+    return <div className="inv-note" title={INV_AUDIT_TIP.what}>
+      The production readiness audit could not be read.
+    </div>;
+  }
+  if (!data) {
+    return <div className="inv-note" title={INV_AUDIT_TIP.what}>
+      {busy ? "Loading…" : "Not read yet."}
+    </div>;
+  }
+  return (
+    <div className="inv-bank">
+      <div className={`inv-note ${INV_CAPTURE_CLASS[d.state] || ""}`}
+           title={INV_AUDIT_TIP.state}>
+        {d.state || "—"} — {d.reason || ""}
+      </div>
+
+      {/* Persistence first: it is the only finding that silently destroys
+          everything the other findings are about. */}
+      <div className={`inv-note ${INV_HOME_CLASS[home.state] || ""}`}
+           title={INV_AUDIT_TIP.home}>
+        Where the data lives — {home.state || "UNKNOWN"}: {home.reason || ""}
+      </div>
+
+      <div className="inv-grid">
+        <InvCaptureStat label="Data directory" tip={INV_AUDIT_TIP.home}
+          value={home.path || "None configured"} />
+        <InvCaptureStat label="Survives a redeploy" tip={INV_AUDIT_TIP.home}
+          value={home.state === "PERSISTENT" ? "Yes"
+                 : home.state === "EPHEMERAL" ? "No" : "Unconfirmed"} />
+        <InvCaptureStat label="Market clock" tip={INV_AUDIT_TIP.clock}
+          value={d.market_timezone || "—"} />
+        <InvCaptureStat label="Capture hour, New York time"
+          tip={INV_AUDIT_TIP.clock}
+          value={d.capture_hour_et == null ? "—"
+                 : `${d.capture_hour_et}:00`} />
+        <InvCaptureStat label="Rule sets archived" tip={INV_AUDIT_TIP.config}
+          value={`${cfg.archived || 0}`} />
+        <InvCaptureStat label="Today's rules archived"
+          tip={INV_AUDIT_TIP.config}
+          value={cfg.current_archived ? "Yes" : "Not yet"} />
+        <InvCaptureStat label="Stored records that do not hold up"
+          tip={INV_AUDIT_TIP.integrity}
+          value={integ.clean ? "None" : `${integ.n || 0}`} />
+        <InvCaptureStat label="On disk now" tip={INV_AUDIT_TIP.storage}
+          value={`${store.megabytes == null ? "—" : store.megabytes} MB`} />
+      </div>
+
+      {/* Yesterday, component by component. */}
+      {!!(prev.components || []).length && (
+        <>
+          <div className="inv-note" title={INV_AUDIT_TIP.prev}>
+            Previous trading day — {prev.pretty || "—"}: {prev.state || "—"}.
+            {" "}{prev.reason || ""}
+          </div>
+          <div className="inv-note" title={INV_AUDIT_TIP.basis}>
+            {prev.expected_basis === "recorded"
+              ? "Judged against what that day itself wrote down as due."
+              : "Judged against the watchlist as it stands now — that day " +
+                "kept no record of what it was due, so this is a guess " +
+                "about the past rather than a reading of it."}
+          </div>
+          <table className="inv-peer-table">
+            <thead>
+              <tr>
+                <th title={INV_AUDIT_TIP.prev}>What was captured</th>
+                <th title={INV_AUDIT_TIP.prev}>Captured</th>
+                <th title={INV_AUDIT_TIP.prev}>Expected</th>
+                <th title={INV_AUDIT_TIP.prev}>Result</th>
+                <th title={INV_AUDIT_TIP.prev}>Tickers missed</th>
+                <th title={INV_AUDIT_TIP.recoverable}>Can be obtained later</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(prev.components || []).map((c) => (
+                <tr key={c.kind}>
+                  <td title={c.note}>{c.label}</td>
+                  <td>{c.captured}</td>
+                  <td>{c.expected}</td>
+                  <td className={INV_CAPTURE_CLASS[c.state] || ""}>
+                    {c.state || "—"}
+                  </td>
+                  <td title={(c.missing || []).length > 6
+                             ? `${(c.missing || []).join(", ")} — ` +
+                               INV_AUDIT_TIP.prev
+                             : INV_AUDIT_TIP.prev}>
+                    {(c.missing || []).length
+                      ? (c.missing || []).slice(0, 6).join(", ") : "None"}
+                  </td>
+                  <td title={INV_AUDIT_TIP.recoverable}>
+                    {c.recoverable ? "Yes"
+                     : "No — a past option chain cannot be bought back"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* Retention against the horizon it has to clear. */}
+      {!!(ret.limits || []).length && (
+        <>
+          <div className={`inv-note ${ret.ok ? "" : "down"}`}
+               title={INV_AUDIT_TIP.retention}>
+            {ret.reason || ""}
+          </div>
+          <table className="inv-peer-table">
+            <thead>
+              <tr>
+                <th title={INV_AUDIT_TIP.retention}>Store</th>
+                <th title={INV_AUDIT_TIP.retention}>Trading days kept</th>
+                <th title={INV_AUDIT_TIP.retention}>Trading days needed</th>
+                <th title={INV_AUDIT_TIP.retention}>Spare days</th>
+                <th title={INV_AUDIT_TIP.retention}>Clears the longest horizon</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(ret.limits || []).map((r) => (
+                <tr key={r.store}>
+                  <td title={r.note}>{r.label}</td>
+                  <td>{r.unbounded ? "All of them" : r.keeps}</td>
+                  <td>{ret.trading_days_needed}</td>
+                  <td>{r.unbounded ? "No limit" : r.margin_days}</td>
+                  <td className={r.covers_longest_horizon ? "up" : "down"}>
+                    {r.covers_longest_horizon ? "Yes" : "No"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* What a year of this comes to. */}
+      {!!(store.stores || []).length && (
+        <>
+          <div className="inv-note" title={INV_AUDIT_TIP.storage}>
+            {store.projected_mb_per_year
+              ? `This comes to about ${store.projected_mb_per_year} ` +
+                `megabytes a year, measured from what is on disk rather ` +
+                `than estimated. ${store.reason || ""}`
+              : "Not enough has been captured yet to measure a rate of " +
+                "growth from what is on disk."}
+          </div>
+          <table className="inv-peer-table">
+            <thead>
+              <tr>
+                <th title={INV_AUDIT_TIP.storage}>Store</th>
+                <th title={INV_AUDIT_TIP.storage}>On disk now</th>
+                <th title={INV_AUDIT_TIP.storage}>Bytes per ticker per day</th>
+                <th title={INV_AUDIT_TIP.storage}>Projected megabytes a year</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(store.stores || []).map((r) => (
+                <tr key={r.store}>
+                  <td title={r.note || r.path}>{r.label}</td>
+                  <td title={INV_AUDIT_TIP.storage}>{r.megabytes} MB</td>
+                  <td title={r.coverage || INV_AUDIT_TIP.storage}>
+                    {r.bytes_per_symbol_day == null ? "—"
+                     : r.bytes_per_symbol_day}</td>
+                  <td title={r.coverage || INV_AUDIT_TIP.storage}>
+                    {r.projected_mb_per_year == null ? "—"
+                     : r.projected_mb_per_year}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* Can a stored recommendation still be traced back to its rules? */}
+      <div className={`inv-note ${cfg.current_archived ? "" : "down"}`}
+           title={INV_AUDIT_TIP.config}>
+        {cfg.reason || ""}
+      </div>
+
+      {/* Is what is already stored believable? */}
+      <div className={`inv-note ${integ.clean ? "" : "down"}`}
+           title={INV_AUDIT_TIP.integrity}>
+        {integ.reason || ""}
+      </div>
+      {!integ.clean && !!(integ.findings || []).length && (
+        <table className="inv-peer-table">
+          <thead>
+            <tr>
+              <th title={INV_AUDIT_TIP.integrity}>Ticker</th>
+              <th title={INV_AUDIT_TIP.integrity}>Day</th>
+              <th title={INV_AUDIT_TIP.integrity}>What is wrong</th>
+              <th title={INV_AUDIT_TIP.integrity}>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(integ.findings || []).slice(0, 20).map((f, i) => (
+              <tr key={`${f.symbol}-${f.where}-${i}`}>
+                <td>{f.symbol}</td>
+                <td>{/^\d{4}-\d{2}-\d{2}$/.test(f.where || "")
+                     ? invShortDate(f.where) : (f.where || "—")}</td>
+                <td title={f.note}>{f.finding}</td>
+                <td title={f.note}>{f.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* Is what is being written NOW enough to score later? */}
+      <div className={`inv-note ${(rec.fields || []).length
+                                  && rec.complete === (rec.fields || []).length
+                                  ? "" : "down"}`}
+           title={INV_AUDIT_TIP.recording}>
+        {rec.reason || ""}
+      </div>
+      {!!(rec.fields || []).length && (
+        <table className="inv-peer-table">
+          <thead>
+            <tr>
+              <th title={INV_AUDIT_TIP.recording}>What a later scoring pass needs</th>
+              <th title={INV_AUDIT_TIP.recording}>Tickers recording it</th>
+              <th title={INV_AUDIT_TIP.recording}>Complete</th>
+              <th title={INV_AUDIT_TIP.recording}>Not recording it</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(rec.fields || []).map((f) => (
+              <tr key={f.field}>
+                <td title={INV_AUDIT_TIP.recording}>{f.what}</td>
+                <td title={INV_AUDIT_TIP.recording}>{f.n} of {f.of}</td>
+                <td className={f.complete ? "up" : "down"}
+                    title={INV_AUDIT_TIP.recording}>
+                  {f.complete ? "Yes" : "No"}
+                </td>
+                <td title={INV_AUDIT_TIP.recording}>
+                  {(f.missing || []).length
+                    ? (f.missing || []).join(", ") : "None"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <button className="btn ghost" onClick={load} disabled={busy}
+              title="Read the stores again and re-run every check: where the data lives, what the previous trading day captured, what each retention limit clears, and whether anything stored contradicts itself.">
+        {busy ? "Loading…" : "Re-run the audit"}
+      </button>
+    </div>
+  );
+}
+
 function InvScanner({ apiFetch, onPick }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -4275,6 +4624,12 @@ function InvestTab({ apiFetch, ticker, onOpenTicker }) {
           {section("readiness", "Data readiness",
             "How much real, prospectively captured data this app holds, and whether today added to it. None of it can be back-filled, so a missed trading day is reported here the next morning rather than discovered months later in a backtest.",
             <InvDataReadiness apiFetch={apiFetch} symbol={d.symbol} />)}
+
+          {/* ── Whether the next year of that data will still be there, and
+              still be believable, when it is finally scored. ── */}
+          {section("production", "Production readiness",
+            "Whether this app is set up to accumulate a year of clean prospective data: where the data is written and whether a redeploy would erase it, whether the market clock is the exchange's rather than the container's, what the previous trading day actually captured, whether any retention limit would delete a day before it is needed, how much a year of it comes to, whether the rules behind a stored recommendation can still be read back, and whether anything already stored contradicts itself.",
+            <InvProductionAudit apiFetch={apiFetch} />)}
 
           {/* ── Phase 4: the measures that belong to this kind of business.
               Shown only for the kind they belong to, so a software company's
