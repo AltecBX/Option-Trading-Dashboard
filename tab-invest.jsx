@@ -3854,6 +3854,11 @@ const INV_AUDIT_TIP = {
     "could not be confirmed — and an unconfirmed volume is treated as no " +
     "volume, because assuming otherwise is what loses a year of work that " +
     "cannot be collected twice.",
+  written: "How many files each store actually holds. Not whether the " +
+    "directory exists: the app creates these directories when it starts, " +
+    "so an empty one would otherwise read as though it had been written " +
+    "to. An empty store and a store with a year of captures in it are the " +
+    "two answers this column exists to tell apart.",
   paths: "Every directory holding something this app records going forward, " +
     "and whether anything has been written to it yet. All of them sit " +
     "under the persistent data directory, so all of them share its fate: " +
@@ -3991,7 +3996,7 @@ function InvProductionAudit({ apiFetch }) {
             <tr>
               <th title={INV_AUDIT_TIP.paths}>What is stored</th>
               <th title={INV_AUDIT_TIP.paths}>Where it is written</th>
-              <th title={INV_AUDIT_TIP.paths}>Written yet</th>
+              <th title={INV_AUDIT_TIP.written}>Anything in it yet</th>
               <th title={INV_AUDIT_TIP.recoverable}>Can be obtained later</th>
             </tr>
           </thead>
@@ -4002,7 +4007,11 @@ function InvProductionAudit({ apiFetch }) {
                 <td title={r.path || INV_AUDIT_TIP.paths}>
                   {r.path || "Not configured"}
                 </td>
-                <td title={INV_AUDIT_TIP.paths}>{r.exists ? "Yes" : "Not yet"}</td>
+                <td title={INV_AUDIT_TIP.written}>
+                  {r.files == null ? (r.written ? "Yes" : "Not yet")
+                   : r.files ? `${r.files} file${r.files === 1 ? "" : "s"}`
+                   : "Nothing yet"}
+                </td>
                 <td title={INV_AUDIT_TIP.recoverable}>
                   {r.recoverable ? "Yes"
                    : "No — a past option chain cannot be bought back"}

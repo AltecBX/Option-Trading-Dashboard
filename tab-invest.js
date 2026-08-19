@@ -3209,6 +3209,7 @@ const INV_AUDIT_TIP = {
   what: "Whether this app is genuinely set up to accumulate a year of clean " + "prospective data — not whether today's capture ran, but whether what " + "it wrote will survive, stay complete, and still be readable when the " + "thirty, ninety, one hundred and eighty and three hundred and " + "sixty-five day results are finally scored.",
   state: "HEALTHY means the data survives a redeploy, the previous trading " + "day is complete, no retention limit deletes a day before it is needed, " + "nothing stored contradicts itself, and the rules behind every " + "recommendation can still be read back. CAPTURE FAILURE means something " + "would destroy the history rather than merely dent it.",
   status: "The one line that answers whether this app can be left alone to " + "collect. It is a question about storage and nothing else: READY means " + "the data directory is a confirmed persistent volume, so a redeploy " + "leaves everything written so far alone. BLOCKED means it is not, or " + "could not be confirmed — and an unconfirmed volume is treated as no " + "volume, because assuming otherwise is what loses a year of work that " + "cannot be collected twice.",
+  written: "How many files each store actually holds. Not whether the " + "directory exists: the app creates these directories when it starts, " + "so an empty one would otherwise read as though it had been written " + "to. An empty store and a store with a year of captures in it are the " + "two answers this column exists to tell apart.",
   paths: "Every directory holding something this app records going forward, " + "and whether anything has been written to it yet. All of them sit " + "under the persistent data directory, so all of them share its fate: " + "if that directory does not survive a redeploy, none of these do.",
   home: "Where the data is written, and whether a redeploy would erase it. " + "A mounted volume is a different filesystem from the container's root " + "and is left alone when the app is redeployed; the container's own disk " + "is rebuilt from scratch every deploy. None of this data can be " + "back-filled, so storing it on the container's own disk means losing " + "every day of it at the next deploy.",
   clock: "Market scheduling runs on the exchange's clock, not the " + "container's. A server in UTC is already on tomorrow's date at " + "half past eight in the evening in New York, so a capture stamped with " + "the container's date would land on a trading day that has not " + "happened yet.",
@@ -3299,8 +3300,8 @@ function InvProductionAudit({
   }, "What is stored"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.paths
   }, "Where it is written"), /*#__PURE__*/React.createElement("th", {
-    title: INV_AUDIT_TIP.paths
-  }, "Written yet"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.written
+  }, "Anything in it yet"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.recoverable
   }, "Can be obtained later"))), /*#__PURE__*/React.createElement("tbody", null, stores.map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.key
@@ -3309,8 +3310,8 @@ function InvProductionAudit({
   }, r.label), /*#__PURE__*/React.createElement("td", {
     title: r.path || INV_AUDIT_TIP.paths
   }, r.path || "Not configured"), /*#__PURE__*/React.createElement("td", {
-    title: INV_AUDIT_TIP.paths
-  }, r.exists ? "Yes" : "Not yet"), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.written
+  }, r.files == null ? r.written ? "Yes" : "Not yet" : r.files ? `${r.files} file${r.files === 1 ? "" : "s"}` : "Nothing yet"), /*#__PURE__*/React.createElement("td", {
     title: INV_AUDIT_TIP.recoverable
   }, r.recoverable ? "Yes" : "No — a past option chain cannot be bought back"))))), /*#__PURE__*/React.createElement("div", {
     className: `inv-note ${INV_CAPTURE_CLASS[d.state] || ""}`,

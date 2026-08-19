@@ -152,18 +152,38 @@ STORAGE_LABEL = {PERSISTENT: "PERSISTENT", EPHEMERAL: "NOT PERSISTENT",
                  UNKNOWN: "UNKNOWN"}
 
 
+UNWRITABLE = ("The data directory is a confirmed persistent volume and "
+              "cannot be written to. Nothing is being stored at all: a "
+              "volume mounted read-only, or one whose permissions have been "
+              "revoked, loses every capture at the moment it is taken "
+              "rather than at the next redeploy.")
+MISSING_DIR = ("The data directory does not exist. Nothing is being stored "
+               "at all — the path is configured and there is no directory "
+               "at the end of it.")
+
+
 def collection_status(home: dict) -> tuple:
     """Can this app be left to accumulate data? Storage alone decides.
 
-    Anything short of a confirmed persistent volume is BLOCKED. Not because
-    nothing is being written — it is — but because a redeploy would take it
-    all, and the capture is prospective: what is lost cannot be re-collected
-    from any source this app can reach.
+    Two questions, and both have to be yes. Will what is written survive a
+    redeploy, and can anything be written in the first place. A volume that
+    is mounted read-only passes the first and fails the second, and saying
+    READY over it would certify a directory that loses every capture at the
+    moment it is taken rather than at the next deploy.
+
+    Anything short of both is BLOCKED. Not because nothing is being
+    attempted — it is — but because the capture is prospective: what is lost
+    cannot be re-collected from any source this app can reach.
     """
-    state = (home or {}).get("state")
-    if state == PERSISTENT:
-        return READY, FINDING[PERSISTENT]
-    return BLOCKED, FINDING.get(state, FINDING[UNKNOWN])
+    home = home or {}
+    state = home.get("state")
+    if state != PERSISTENT:
+        return BLOCKED, FINDING.get(state, FINDING[UNKNOWN])
+    if not home.get("exists"):
+        return BLOCKED, MISSING_DIR
+    if not home.get("writable"):
+        return BLOCKED, UNWRITABLE
+    return READY, FINDING[PERSISTENT]
 
 
 # The stores that hold something the app cannot get back, and what each one
@@ -195,15 +215,40 @@ PATH_LABEL = (
 )
 
 
+def _holds(p) -> int:
+    """How many files a store actually holds.
+
+    Not whether the directory is there: `configure()` creates the snapshot,
+    long-dated and capture directories eagerly at startup, so an empty app
+    would otherwise report every one of them as written to. An empty
+    directory and a directory with a year of captures in it are the two
+    answers this column exists to tell apart.
+    """
+    try:
+        root = Path(p)
+        if not root.is_dir():
+            return 0
+        return sum(1 for f in root.rglob("*")
+                   if f.is_file() and not f.name.endswith(".tmp"))
+    except Exception:                                # pragma: no cover
+        return 0
+
+
 def paths(where: dict) -> list:
-    """Each store's path, whether it exists yet, and what it holds."""
+    """Each store's path, what is actually in it, and what it holds."""
     out = []
     for key, label, what in PATH_LABEL:
         p = (where or {}).get(key)
+        # The root is the directory everything else sits under; counting its
+        # files would just re-count the children.
+        files = None if key == "root" else (_holds(p) if p else 0)
         out.append({
             "key": key, "label": label, "what": what,
             "path": str(p) if p else "",
             "exists": bool(p) and Path(p).is_dir(),
+            "files": files,
+            "written": (bool(p) and Path(p).is_dir()) if files is None
+                       else files > 0,
             "recoverable": key != "chains",
         })
     return out

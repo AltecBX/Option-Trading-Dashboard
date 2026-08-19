@@ -848,8 +848,9 @@ class TestReviewFindings(AuditBase):
 # ── 14. the panel's own contract ────────────────────────────────────────────
 
 class TestCollectionStatus(AuditBase):
-    def test_a_confirmed_volume_is_ready_to_accumulate(self):
-        status, reason = A.collection_status({"state": A.PERSISTENT})
+    def test_a_confirmed_writable_volume_is_ready_to_accumulate(self):
+        status, reason = A.collection_status(
+            {"state": A.PERSISTENT, "exists": True, "writable": True})
         self.assertEqual(status, A.READY)
         self.assertIn("Persistent volume confirmed", reason)
 
@@ -884,6 +885,53 @@ class TestCollectionStatus(AuditBase):
         out = S.production_audit([], today="2026-08-18")
         self.assertIn(out["collection_status"], (A.READY, A.BLOCKED))
         self.assertIn(out["collection_reason"], A.FINDING.values())
+
+    def test_a_volume_that_cannot_be_written_to_is_not_ready(self):
+        # A read-only mount survives a redeploy and stores nothing. Saying
+        # READY over it would certify a directory that loses every capture
+        # at the moment it is taken rather than at the next deploy.
+        status, reason = A.collection_status(
+            {"state": A.PERSISTENT, "exists": True, "writable": False})
+        self.assertEqual(status, A.BLOCKED)
+        self.assertIn("cannot be written to", reason)
+
+    def test_a_configured_path_with_no_directory_is_not_ready(self):
+        status, reason = A.collection_status(
+            {"state": A.PERSISTENT, "exists": False, "writable": False})
+        self.assertEqual(status, A.BLOCKED)
+        self.assertIn("does not exist", reason)
+
+    def test_a_writable_confirmed_volume_is_the_only_ready_case(self):
+        status, _ = A.collection_status(
+            {"state": A.PERSISTENT, "exists": True, "writable": True})
+        self.assertEqual(status, A.READY)
+
+    def test_a_directory_the_app_created_is_not_a_store_with_data_in_it(self):
+        # configure() makes these directories at startup, so existence alone
+        # would report every one of them as written to on an empty install.
+        out = S.production_audit([], today="2026-08-18")
+        got = {r["key"]: r for r in out["paths"]}
+        self.assertTrue(got["snapshots"]["exists"])
+        self.assertEqual(got["snapshots"]["files"], 0)
+        self.assertFalse(got["snapshots"]["written"])
+
+    def test_a_store_with_something_in_it_says_how_much(self):
+        # The configuration archive is written the first time the config is
+        # read, so it is the one store with a file in it on a fresh install.
+        out = S.production_audit([], today="2026-08-18")
+        got = {r["key"]: r for r in out["paths"]}
+        self.assertGreater(got["config"]["files"], 0)
+        self.assertTrue(got["config"]["written"])
+
+    def test_a_half_written_temporary_file_is_not_counted(self):
+        d = os.path.join(self.dir, "store")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "x.json.tmp"), "w") as fh:
+            fh.write("{}")
+        self.assertEqual(A._holds(d), 0)
+        with open(os.path.join(d, "x.json"), "w") as fh:
+            fh.write("{}")
+        self.assertEqual(A._holds(d), 1)
 
     def test_the_screen_says_not_persistent_rather_than_ephemeral(self):
         self.assertEqual(A.STORAGE_LABEL[A.EPHEMERAL], "NOT PERSISTENT")
