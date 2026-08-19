@@ -55,6 +55,7 @@ import business_routing as _route
 import filing_tables as _tables
 import cross_check as _xcheck
 import capture_health as _health
+import invest_audit as _audit
 import forward_test as _forward
 import covered_call as _cc
 import chain_store
@@ -151,7 +152,11 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
     if _opts is not None:
         _opts.configure(chain_fn=chain_fn, bars_fn=daily_fn, rate_fn=rate_fn,
                         earnings_fn=earnings_fn, earn_moves_fn=earn_moves_fn,
-                        data_dir=data_dir)
+                        data_dir=data_dir,
+                        # Long-dated observations are dated by the same
+                        # exchange clock as everything else, so an evening
+                        # capture cannot land on tomorrow.
+                        today_fn=lambda: market_now().date())
 
 
 _CFG_CACHE = {"cfg": None, "hash": None, "ts": 0.0}
@@ -199,8 +204,85 @@ def config(refresh: bool = False) -> tuple[dict, str]:
                                       separators=(",", ":")).encode()
                            ).hexdigest()[:16]
         cfg = _flatten_cfg(full.get("investment") or {})
+        # The hash goes onto every stored recommendation. On its own it is a
+        # fingerprint of rules nobody kept — so the rules themselves are
+        # written down beside it, once, under that hash.
+        archive_config(full, h)
         _CFG_CACHE.update({"cfg": cfg, "hash": h, "ts": time.time()})
         return cfg, h
+
+
+# ── the configuration archive ───────────────────────────────────────────────
+#
+# A stored recommendation carries a config hash so a future scoring pass can
+# tell which rules produced it. That only works if the rules can still be
+# read. Thresholds change — every phase of this work has changed some — and
+# once they do, a hash on a year-old row identifies a configuration that
+# exists nowhere.
+#
+# So each distinct configuration is written once, under its own hash, and
+# never rewritten. A hash already on disk is left exactly as it is: the
+# whole point is that what generated an old recommendation is recoverable
+# unchanged.
+
+def _config_dir() -> Path | None:
+    return (_DATA_DIR / "config") if _DATA_DIR is not None else None
+
+
+def archive_config(full: dict, cfg_hash: str) -> bool:
+    """Write one configuration under its hash. Returns True if it was new."""
+    d = _config_dir()
+    if d is None or not cfg_hash or not full:
+        return False
+    p = d / f"{cfg_hash}.json"
+    if p.exists():
+        return False
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        payload = {"config_hash": cfg_hash, "first_seen": _now_iso(),
+                   "thresholds": full}
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=1, sort_keys=True))
+        # Never clobber: another worker may have written it a moment ago,
+        # and the first writer's copy is the one that matters.
+        if p.exists():
+            tmp.unlink(missing_ok=True)
+            return False
+        tmp.replace(p)
+    except Exception:                                # pragma: no cover
+        return False
+    return True
+
+
+def load_config_archive(cfg_hash: str) -> dict | None:
+    """The exact configuration behind a stored recommendation, or None."""
+    d = _config_dir()
+    if d is None or not cfg_hash:
+        return None
+    p = d / f"{re.sub(r'[^0-9a-f]', '', cfg_hash.lower())}.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:                                # pragma: no cover
+        return None
+
+
+def archived_configs() -> list:
+    """Every configuration ever archived, oldest first."""
+    d = _config_dir()
+    if d is None or not d.is_dir():
+        return []
+    out = []
+    for p in sorted(d.glob("*.json")):
+        try:
+            got = json.loads(p.read_text())
+        except Exception:                            # pragma: no cover
+            continue
+        out.append({"config_hash": got.get("config_hash") or p.stem,
+                    "first_seen": got.get("first_seen"),
+                    "bytes": p.stat().st_size})
+    return sorted(out, key=lambda r: r.get("first_seen") or "")
 
 
 # thresholds.json groups the Phase 2 knobs under headings so the file stays
@@ -638,7 +720,19 @@ def _recommended_contract(snap: dict) -> dict:
 # ── providers ───────────────────────────────────────────────────────────────
 
 def _now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    """Now, on the exchange's clock.
+
+    This stamp becomes the DATE OF A STORED RECOMMENDATION, so it decides
+    which trading day a snapshot belongs to. Read from the container's clock
+    it was wrong every evening: this app runs on a UTC container, and at
+    eight in the evening in New York the container's date is already
+    tomorrow. Every snapshot, chain and long-dated observation taken after
+    the close was filed under the NEXT trading day — a day that had not
+    happened yet — and the capture log, which already used the exchange
+    clock, called the real day complete while its data sat under the wrong
+    date.
+    """
+    return market_now().isoformat(timespec="seconds")
 
 
 def _age_hours(iso: str | None) -> float | None:
@@ -3340,7 +3434,9 @@ def capture_chains(symbols, cfg: dict | None = None) -> dict:
         # store itself is asked which happened — marking the second as a
         # success would make tomorrow skip the symbol for a chain that does
         # not exist, and a day that goes uncaptured cannot be recovered.
-        wrote = chain_store.record(s, payload_, source=payload_.get("source"),
+        wrote = chain_store.record(s, payload_, today=today,
+                                   at=_now_iso(),
+                                   source=payload_.get("source"),
                                    event=_chain_event(s))
         stored = wrote or today in (chain_store.load(s) or {})
         (out["captured"] if wrote else
@@ -3692,7 +3788,7 @@ def validation(symbols=None, benchmark: str | None = None) -> dict:
         except Exception:                             # noqa: BLE001
             bench_bars = []
 
-    today = date.today().isoformat()
+    today = _market_today()
     obs = _forward.observations(hist, bars, today, bench_bars, cfg=cfg)
     out["observations"] = {k: obs[k] for k in
                            ("n", "skipped", "benchmark_available")}
@@ -3710,14 +3806,25 @@ def validation(symbols=None, benchmark: str | None = None) -> dict:
 # What every stored day must carry for a future scoring pass to settle up
 # against the recommendation exactly as it was made.
 REQUIRED_FOR_SCORING = (
+    ("date", "the trading day it belongs to"),
+    ("ticker", "which company"),
     ("price", "the share price on the day"),
     ("config_hash", "the exact rule version that produced it"),
     ("entry_verdict", "the recommendation itself"),
     ("preferred_structure", "which structure was preferred"),
     ("recommended_contract", "the exact contract and the quote it carried"),
     ("benchmark_symbol", "the benchmark it will be measured against"),
+    ("benchmark_close", "what that benchmark was worth on the day"),
+    ("fair_value_bear", "the bear case behind the recommendation"),
     ("fair_value_base", "the fair value behind the recommendation"),
+    ("fair_value_bull", "the bull case behind the recommendation"),
+    ("fair_value_confidence", "how sure that fair value was"),
     ("buy_zone", "the price at which it said to buy"),
+    ("quality_label", "the quality reading on the day"),
+    ("growth_label", "the growth reading on the day"),
+    ("valuation_label", "the valuation reading on the day"),
+    ("revisions_label", "the analyst-revision reading on the day"),
+    ("value_trap_level", "the value-trap reading on the day"),
 )
 
 
@@ -3764,6 +3871,169 @@ def recording_audit(hist: dict) -> dict:
             ". A recommendation missing one of these cannot be scored "
             "exactly later, and nothing can be filled in after the fact.")
     return out
+
+
+# ── the production audit ────────────────────────────────────────────────────
+#
+# One function, answering whether the next year of data will be worth
+# having. It reads the stores and reports; it repairs nothing.
+
+def production_audit(symbols=None, today: str | None = None) -> dict:
+    """Is production genuinely collecting clean data every trading day?"""
+    day = today or _market_today()
+    syms = [_safe(s) for s in (symbols or []) if _safe(s)]
+    if not syms and _STARRED_FN is not None:
+        try:
+            syms = [_safe(s) for s in (_STARRED_FN() or []) if _safe(s)]
+        except Exception:                            # noqa: BLE001
+            syms = []
+    syms = syms[:MAX_DAILY_SYMBOLS]
+    expected = expected_today(syms, day)
+    root = _DATA_DIR.parent if _DATA_DIR is not None else None
+
+    out = {
+        "as_of": _now_iso(), "day": day, "symbols": syms,
+        "market_timezone": str(getattr(market_now(), "tzinfo", "") or
+                               "the container's clock"),
+        "capture_hour_et": _capture_hour(),
+        "home": _audit.data_home(root),
+        "previous_day": _audit.previous_day(expected, today=day),
+        "version": _audit.AUDIT_VERSION,
+    }
+
+    # What each store keeps, measured against the longest horizon.
+    out["retention"] = _audit.retention({
+        "snapshots": {"label": "Investment snapshots", "keeps": None,
+                      "note": "Never trimmed. This is the recommendation "
+                              "history and it is the one thing that must "
+                              "never be thrown away."},
+        "chains": {"label": "End-of-day option chains",
+                   "keeps": chain_store.MAX_DAYS_KEPT,
+                   "note": "The largest store by far, and the one that "
+                           "cannot be recovered if it is lost."},
+        "leaps": {"label": "Long-dated contract observations",
+                  "keeps": int((config()[0] or {}).get(
+                      "leaps_iv_history_days") or 0)
+                  or (_opts.DEFAULTS["leaps_iv_history_days"]
+                      if _opts is not None else 0),
+                  "note": "One small row per ticker per day."},
+        "capture_log": {"label": "Capture-health log",
+                        "keeps": _health.KEEP_DAYS,
+                        "note": "Operational. Losing it loses the record of "
+                                "which days were captured, not the data."},
+    })
+
+    # How much is on disk, and what a year of it comes to.
+    captured_days, per_symbol = 0, []
+    for sym in syms:
+        rows = load_history(sym)
+        chain = sorted(chain_store.load(sym) or {})
+        captured_days = max(captured_days, len(chain))
+        per_symbol.append({"symbol": sym, "snapshot_days": len(rows),
+                           "chain_days": len(chain)})
+    out["symbol_rows"] = per_symbol
+    out["storage"] = _audit.storage({
+        "snapshots": {"label": "Investment snapshots",
+                      "path": (_DATA_DIR / "snapshots") if _DATA_DIR else None,
+                      "note": "One flat row per ticker per day."},
+        "chains": {"label": "End-of-day option chains",
+                   "path": (root / "chains") if root else None,
+                   "note": "Bid, ask, implied volatility, delta, open "
+                           "interest and volume for every contract in band."},
+        "leaps": {"label": "Long-dated contract observations",
+                  "path": (_DATA_DIR / "leaps") if _DATA_DIR else None,
+                  "note": "The contracts around the money a year or more "
+                          "out, and what they implied. Small, and the only "
+                          "volatility history a long-dated option has of "
+                          "its own."},
+        "capture_log": {"label": "Capture-health log",
+                        "path": (_DATA_DIR / "capture") if _DATA_DIR else None,
+                        "note": "One small file per trading day recording "
+                                "what was attempted and what succeeded. "
+                                "Operational: losing it loses the record of "
+                                "which days were captured, not the data."},
+        "config_archive": {"label": "Configuration archive",
+                           "path": (_DATA_DIR / "config") if _DATA_DIR else None,
+                           "note": "One copy of each distinct rule set, "
+                                   "written once."},
+    }, symbols=len(syms), days=captured_days)
+
+    # Can a stored recommendation still be traced back to its rules?
+    archived = {r["config_hash"] for r in archived_configs()}
+    out["config_archive"] = {
+        "archived": len(archived),
+        "current_hash": config()[1],
+        "current_archived": config()[1] in archived,
+        "configs": archived_configs()[-8:],
+        "reason": ("Each distinct rule set is written once, under its hash, "
+                   "and never rewritten — so the rules behind a stored "
+                   "recommendation can still be read back exactly."
+                   if archived else
+                   "No configuration has been archived yet. It is written "
+                   "the first time the config is read with a data directory "
+                   "attached."),
+    }
+
+    # Is what is already stored believable?
+    findings = []
+    for sym in syms:
+        findings.extend(_audit.audit_history(sym, load_history(sym), today=day,
+                                             known_hashes=archived or None))
+        findings.extend(_audit.audit_chains(sym, chain_store.load(sym),
+                                            today=day))
+    counts: dict = {}
+    for f in findings:
+        counts[f["finding"]] = counts.get(f["finding"], 0) + 1
+    out["integrity"] = {
+        "findings": findings[:60], "n": len(findings), "by_kind": counts,
+        "clean": not findings,
+        "reason": ("Nothing stored contradicts itself: no duplicate or "
+                   "future-dated rows, no impossible prices, no crossed "
+                   "quotes, and every recommendation names the rules behind "
+                   "it." if not findings else
+                   f"{len(findings)} stored records do not hold up. They are "
+                   f"listed rather than mended: repairing history in place "
+                   f"would destroy the evidence of what actually happened."),
+    }
+
+    # Is what is being written NOW enough to score later?
+    hist = {s: load_history(s) for s in syms}
+    out["recording"] = recording_audit({k: v for k, v in hist.items() if v})
+
+    out["state"], out["reason"] = _audit_state(out)
+    return out
+
+
+def _audit_state(out: dict) -> tuple:
+    """One word for the whole thing, and the sentence behind it."""
+    blockers = []
+    if out["home"]["state"] == _audit.EPHEMERAL:
+        blockers.append("the data directory does not survive a redeploy")
+    if not out["retention"]["ok"]:
+        blockers.append("a retention limit would delete a day before it is "
+                        "needed")
+    if blockers:
+        return _audit.FAILURE, (
+            "Production is NOT ready to accumulate data that can be relied "
+            "on: " + "; and ".join(blockers) + ".")
+    soft = []
+    if out["previous_day"]["state"] in (_health.MISSED, _health.PARTIAL):
+        soft.append(f"the previous trading day was "
+                    f"{out['previous_day']['state'].lower()}")
+    if not out["integrity"]["clean"]:
+        soft.append(f"{out['integrity']['n']} stored records do not hold up")
+    if not out["config_archive"]["current_archived"]:
+        soft.append("the configuration behind today's recommendations is not "
+                    "archived")
+    if soft:
+        return _audit.PARTIAL, (
+            "Production is storing data that will survive, with something to "
+            "look at: " + "; and ".join(soft) + ".")
+    return _audit.HEALTHY, (
+        "Production is collecting cleanly: the data survives a redeploy, "
+        "the previous trading day is complete, every retention limit clears "
+        "the longest validation horizon, nothing stored contradicts itself, "
+        "and the rules behind every recommendation can still be read back.")
 
 
 def _benchmark_symbol(sym):
