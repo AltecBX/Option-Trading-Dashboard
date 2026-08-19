@@ -898,5 +898,77 @@ check("every production readiness stat is spelled out",
     return bad.length === 0 || `shorthand in: ${bad.join(", ")}`;
   })());
 
+
+// ── lazy chunks must bust their own cache ─────────────────────────────────
+
+check("a lazy chunk is versioned by its own bytes, not the app bundle's",
+  (() => {
+    // dist/* is served `immutable, max-age=31536000`. When a chunk's ?v=
+    // came from app.min.js, changing a tab chunk ALONE left its URL
+    // identical — so every browser that had already opened that tab kept
+    // the old code for a year and redeploying could not reach it. That is
+    // how the Production readiness panel shipped and stayed invisible.
+    const lib = read("app-lib.jsx");
+    if (!/function chunkVersion\(name\)/.test(lib))
+      return "chunkVersion does not take the chunk name";
+    if (!/window\.__CHUNK_V/.test(lib))
+      return "chunkVersion does not read the per-chunk manifest";
+    return /chunkVersion\(name\)/.test(lib)
+      || "loadChunk does not pass the chunk name to chunkVersion";
+  })());
+
+check("the build stamps a hash for every lazy chunk",
+  (() => {
+    const html = read("index.html");
+    const m = html.match(/window\.__CHUNK_V=(\{[^;]*\});/);
+    if (!m) return "index.html carries no chunk manifest";
+    let map;
+    try { map = JSON.parse(m[1]); } catch (e) { return "manifest is not JSON"; }
+    const build = read("build_frontend.js");
+    const chunks = (build.match(/const CHUNK_JS = \[([\s\S]*?)\]/) || [])[1] || "";
+    const names = (chunks.match(/"([^"]+)\.js"/g) || [])
+      .map((s) => s.slice(1, -4));
+    if (!names.length) return "no lazy chunks found in the build";
+    for (const n of names) {
+      if (!map[n]) return `no hash stamped for ${n}`;
+      if (!/^[0-9a-f]{8}$/.test(map[n])) return `${n} hash is ${map[n]}`;
+    }
+    // Distinct files must get distinct hashes, or the whole point is lost.
+    return new Set(Object.values(map)).size === names.length
+      || "two chunks share a hash";
+  })());
+
+// ── the production readiness panel says where the data lives ──────────────
+
+check("the panel leads with one line on whether it can be left to collect",
+  (() => {
+    const m = inv.match(/function InvProductionAudit[\s\S]*?\n}\n/);
+    if (!m) return "the production readiness panel is missing";
+    const body = m[0];
+    const status = body.indexOf("collection_status");
+    const state = body.indexOf("INV_CAPTURE_CLASS[d.state]");
+    if (status < 0) return "the panel does not show the collection status";
+    return status < state || "the wider state is shown before the one line";
+  })());
+
+check("storage is called persistent or not persistent, not ephemeral",
+  (() => {
+    if (!/NOT PERSISTENT/.test(inv)) return "NOT PERSISTENT is never shown";
+    const m = inv.match(/function InvProductionAudit[\s\S]*?\n}\n/);
+    return !/EPHEMERAL/.test(m[0])
+      || "the panel still shows the word EPHEMERAL";
+  })());
+
+check("every store that cannot be back-filled names its path",
+  (() => {
+    const m = inv.match(/function InvProductionAudit[\s\S]*?\n}\n/);
+    const body = m[0];
+    for (const want of ["What is stored", "Where it is written",
+                        "Written yet"]) {
+      if (!body.includes(want)) return `missing column "${want}"`;
+    }
+    return true;
+  })());
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

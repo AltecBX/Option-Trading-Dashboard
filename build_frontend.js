@@ -40,8 +40,12 @@ const JSX_FILES = ["strategies.jsx", "tweaks-panel.jsx", "tooltips.jsx", "charts
 const SERVED_JS = ["data.js", "recommendation.js", "weather.js", "journal.js",
   "strategies.js", "tweaks-panel.js", "tooltips.js", "charts.js",
   "app-lib.js", "timing.js", "app-cards.js", "app.js"];
-// On-demand chunks: emitted to dist/ (immutable, ?v= comes from the app tag)
-// but never stamped into index.html.
+// On-demand chunks: emitted to dist/ and injected by LazyTab. Each is
+// versioned by its OWN bytes through the __CHUNK_V manifest stamped into
+// index.html — see stage 3. They used to take their ?v= from the app tag,
+// which meant a change to a chunk alone never changed its URL, and dist/* is
+// served `immutable, max-age=31536000`: every browser that had already
+// opened that tab kept the cached copy for a year and never saw the change.
 const CHUNK_JS = ["tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js",
   "tab-recovery.js", "tab-ask.js", "tab-edge.js", "tab-gap.js",
   "tab-invest.js"];
@@ -148,6 +152,19 @@ html = html.replace(/(?:src|href)="([^"?]+)\?v=[^"]*"/g, (m, asset) => {
   const h = hashOf(path.join(HERE, asset)) || VER;
   return m.replace(/\?v=[^"]*"/, `?v=${h}"`);
 });
+
+// The lazy chunks are not <script> tags in index.html — LazyTab injects them
+// at runtime — so they get a manifest of their own. Same rule as everything
+// above: a file's URL changes when its bytes change, and only then. Without
+// this a chunk-only change was invisible to every browser that had already
+// cached it, which is a silent, unfixable-by-redeploying failure.
+const chunkV = {};
+for (const f of CHUNK_JS) {
+  const base = f.replace(/\.js$/, "");
+  chunkV[base] = hashOf(path.join(DIST, `${base}.min.js`)) || VER;
+}
+html = html.replace(/window\.__CHUNK_V=\{[^}]*\};/,
+                    `window.__CHUNK_V=${JSON.stringify(chunkV)};`);
 
 fs.writeFileSync(path.join(HERE, "index.html"), html);
 console.log(`index.html stamped with content hashes (app v${VER}), local assets -> dist/*.min.*`);

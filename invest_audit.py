@@ -131,6 +131,129 @@ def data_home(data_dir=None) -> dict:
     return out
 
 
+READY = "READY TO ACCUMULATE DATA"
+BLOCKED = "BLOCKED — PERSISTENT STORAGE NOT CONFIRMED"
+
+# The exact sentence for each storage state. Deliberately three sentences and
+# not a template: the one in the middle is the one that costs a year of work,
+# and it should read like it.
+FINDING = {
+    PERSISTENT: ("Data directory sits on a different filesystem from the "
+                 "container root. Persistent volume confirmed."),
+    EPHEMERAL: ("Data directory is on the container's own filesystem. "
+                "Prospective history will be lost on redeploy."),
+    UNKNOWN: ("Persistent volume could not be confirmed. Treating production "
+              "collection as NOT READY."),
+}
+
+# What the state is called on screen. EPHEMERAL is a word about containers;
+# NOT PERSISTENT is a word about whether the data is still there tomorrow.
+STORAGE_LABEL = {PERSISTENT: "PERSISTENT", EPHEMERAL: "NOT PERSISTENT",
+                 UNKNOWN: "UNKNOWN"}
+
+
+UNWRITABLE = ("The data directory is a confirmed persistent volume and "
+              "cannot be written to. Nothing is being stored at all: a "
+              "volume mounted read-only, or one whose permissions have been "
+              "revoked, loses every capture at the moment it is taken "
+              "rather than at the next redeploy.")
+MISSING_DIR = ("The data directory does not exist. Nothing is being stored "
+               "at all — the path is configured and there is no directory "
+               "at the end of it.")
+
+
+def collection_status(home: dict) -> tuple:
+    """Can this app be left to accumulate data? Storage alone decides.
+
+    Two questions, and both have to be yes. Will what is written survive a
+    redeploy, and can anything be written in the first place. A volume that
+    is mounted read-only passes the first and fails the second, and saying
+    READY over it would certify a directory that loses every capture at the
+    moment it is taken rather than at the next deploy.
+
+    Anything short of both is BLOCKED. Not because nothing is being
+    attempted — it is — but because the capture is prospective: what is lost
+    cannot be re-collected from any source this app can reach.
+    """
+    home = home or {}
+    state = home.get("state")
+    if state != PERSISTENT:
+        return BLOCKED, FINDING.get(state, FINDING[UNKNOWN])
+    if not home.get("exists"):
+        return BLOCKED, MISSING_DIR
+    if not home.get("writable"):
+        return BLOCKED, UNWRITABLE
+    return READY, FINDING[PERSISTENT]
+
+
+# The stores that hold something the app cannot get back, and what each one
+# is for in words rather than in directory names.
+PATH_LABEL = (
+    ("root", "Persistent data directory",
+     "Everything below lives under this. It is what JERRY_DATA_DIR points "
+     "at, and it is the directory a redeploy either keeps or destroys."),
+    ("snapshots", "Investment history",
+     "One row per followed ticker per trading day: the price, the fair "
+     "value, the verdict, the structure and the exact contract recommended. "
+     "This is what forward validation scores, and it is never trimmed."),
+    ("chains", "Option chain history",
+     "The end-of-day option chain for each followed ticker. The one store "
+     "that can never be recovered: no source this app can reach sells a "
+     "chain as it stood on a past date."),
+    ("leaps", "Long-dated contract history",
+     "The contracts around the money a year or more out and what they "
+     "implied, so a long-dated option eventually has a volatility history "
+     "of its own instead of a borrowed one."),
+    ("capture", "Capture-health history",
+     "One small file per trading day recording what was attempted and what "
+     "succeeded. Losing it loses the record of which days were captured, "
+     "not the days themselves."),
+    ("config", "Configuration archive",
+     "One copy of each distinct rule set, written once under its hash, so "
+     "the thresholds behind a stored recommendation can still be read back "
+     "exactly a year later."),
+)
+
+
+def _holds(p) -> int:
+    """How many files a store actually holds.
+
+    Not whether the directory is there: `configure()` creates the snapshot,
+    long-dated and capture directories eagerly at startup, so an empty app
+    would otherwise report every one of them as written to. An empty
+    directory and a directory with a year of captures in it are the two
+    answers this column exists to tell apart.
+    """
+    try:
+        root = Path(p)
+        if not root.is_dir():
+            return 0
+        return sum(1 for f in root.rglob("*")
+                   if f.is_file() and not f.name.endswith(".tmp"))
+    except Exception:                                # pragma: no cover
+        return 0
+
+
+def paths(where: dict) -> list:
+    """Each store's path, what is actually in it, and what it holds."""
+    out = []
+    for key, label, what in PATH_LABEL:
+        p = (where or {}).get(key)
+        # The root is the directory everything else sits under; counting its
+        # files would just re-count the children.
+        files = None if key == "root" else (_holds(p) if p else 0)
+        out.append({
+            "key": key, "label": label, "what": what,
+            "path": str(p) if p else "",
+            "exists": bool(p) and Path(p).is_dir(),
+            "files": files,
+            "written": (bool(p) and Path(p).is_dir()) if files is None
+                       else files > 0,
+            "recoverable": key != "chains",
+        })
+    return out
+
+
 # ── did yesterday land ──────────────────────────────────────────────────────
 
 def previous_day(expected: dict, today=None, day=None) -> dict:

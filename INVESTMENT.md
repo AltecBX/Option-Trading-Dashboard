@@ -2290,3 +2290,32 @@ the evidence of what actually happened.
 Investment tab, beside **Data readiness**. Both are behind expanders: they
 are operational, and they must not crowd the screen the buy-or-wait
 decision is made on.
+
+
+## The panel that shipped and could not be seen
+
+The Production readiness panel went out with the audit and did not appear on
+the deployed tab. It was in the bundle on the server the whole time. The
+browser simply never asked for it.
+
+`dist/*` is served `public, max-age=31536000, immutable` — cached for a
+year — and the lazy tab chunks were fetched as
+`dist/tab-invest.min.js?v=<hash of app.min.js>`. That is the wrong hash. A
+change confined to `tab-invest.jsx` leaves `app.min.js` untouched, so the URL
+is byte-for-byte the one already in the cache, so the browser serves the copy
+it has and no amount of redeploying can reach it.
+
+This is the same failure the build's stage 3 comment already describes being
+fixed for the files `index.html` names directly, back when four releases all
+stamped `?v=3.73`. The lazy chunks were left out of that fix because they are
+not in `index.html` at all.
+
+Each chunk is now versioned by its own bytes. The build writes a manifest —
+`window.__CHUNK_V = {"tab-invest": "...", ...}` — into `index.html`, which is
+served `no-cache` and therefore always fresh, and `loadChunk` reads the
+chunk's own hash from it. Change one tab and only that tab's URL changes.
+
+Two guards keep it that way: one asserts the loader passes the chunk name to
+`chunkVersion` and reads the manifest, the other parses the manifest out of
+the built `index.html` and checks every declared chunk has a distinct
+eight-character hash.

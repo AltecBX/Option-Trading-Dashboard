@@ -3924,6 +3924,23 @@ def production_audit(symbols=None, today: str | None = None) -> dict:
         "version": _audit.AUDIT_VERSION,
     }
 
+    # Every path that holds something the app cannot get back, named, so the
+    # question "where would I look for it" has an answer on the screen rather
+    # than in a source file.
+    out["paths"] = _audit.paths({
+        "root": root,
+        "snapshots": (_DATA_DIR / "snapshots") if _DATA_DIR else None,
+        "chains": (root / "chains") if root else None,
+        "leaps": (_DATA_DIR / "leaps") if _DATA_DIR else None,
+        "capture": (_DATA_DIR / "capture") if _DATA_DIR else None,
+        "config": (_DATA_DIR / "config") if _DATA_DIR else None,
+    })
+    # One line answering only "can this app be left to accumulate data", which
+    # is a question about storage alone. The fuller state below it takes in
+    # yesterday's capture, the retention limits and the stored records too.
+    out["collection_status"], out["collection_reason"] = _audit.collection_status(
+        out["home"])
+
     # What each store keeps, measured against the longest horizon.
     out["retention"] = _audit.retention({
         "snapshots": {"label": "Investment snapshots", "keeps": None,

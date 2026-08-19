@@ -3847,6 +3847,22 @@ const INV_AUDIT_TIP = {
     "nothing stored contradicts itself, and the rules behind every " +
     "recommendation can still be read back. CAPTURE FAILURE means something " +
     "would destroy the history rather than merely dent it.",
+  status: "The one line that answers whether this app can be left alone to " +
+    "collect. It is a question about storage and nothing else: READY means " +
+    "the data directory is a confirmed persistent volume, so a redeploy " +
+    "leaves everything written so far alone. BLOCKED means it is not, or " +
+    "could not be confirmed — and an unconfirmed volume is treated as no " +
+    "volume, because assuming otherwise is what loses a year of work that " +
+    "cannot be collected twice.",
+  written: "How many files each store actually holds. Not whether the " +
+    "directory exists: the app creates these directories when it starts, " +
+    "so an empty one would otherwise read as though it had been written " +
+    "to. An empty store and a store with a year of captures in it are the " +
+    "two answers this column exists to tell apart.",
+  paths: "Every directory holding something this app records going forward, " +
+    "and whether anything has been written to it yet. All of them sit " +
+    "under the persistent data directory, so all of them share its fate: " +
+    "if that directory does not survive a redeploy, none of these do.",
   home: "Where the data is written, and whether a redeploy would erase it. " +
     "A mounted volume is a different filesystem from the container's root " +
     "and is left alone when the app is redeployed; the container's own disk " +
@@ -3899,7 +3915,13 @@ const INV_AUDIT_TIP = {
 };
 
 const INV_HOME_CLASS = {
-  PERSISTENT: "up", EPHEMERAL: "down", UNKNOWN: "",
+  PERSISTENT: "up", EPHEMERAL: "down", UNKNOWN: "down",
+};
+
+// EPHEMERAL is a word about containers. NOT PERSISTENT is a word about
+// whether the data is still there tomorrow, which is the question being asked.
+const INV_STORAGE_LABEL = {
+  PERSISTENT: "PERSISTENT", EPHEMERAL: "NOT PERSISTENT", UNKNOWN: "UNKNOWN",
 };
 
 function InvProductionAudit({ apiFetch }) {
@@ -3936,26 +3958,78 @@ function InvProductionAudit({ apiFetch }) {
       {busy ? "Loading…" : "Not read yet."}
     </div>;
   }
+  const stores = d.paths || [];
+  const rootPath = (stores.find((r) => r.key === "root") || {}).path;
+  const ready = d.collection_status === "READY TO ACCUMULATE DATA";
   return (
     <div className="inv-bank">
+      {/* The one line that answers "can this be left alone to collect". It is
+          a question about storage and nothing else: a redeploy against an
+          unmounted disk takes everything, and none of it can be re-collected
+          from any source this app can reach. */}
+      <div className={`inv-note ${ready ? "up" : "down"}`}
+           title={INV_AUDIT_TIP.status}>
+        {d.collection_status || "—"}
+      </div>
+
+      {/* Persistence first: it is the only finding that silently destroys
+          everything the other findings are about. */}
+      <div className="inv-grid">
+        <InvCaptureStat label="Persistent data directory"
+          tip={INV_AUDIT_TIP.home}
+          value={rootPath || home.path || "None configured"} />
+        <InvCaptureStat label="Storage status" tip={INV_AUDIT_TIP.home}
+          value={INV_STORAGE_LABEL[home.state] || "UNKNOWN"} />
+      </div>
+      <div className={`inv-note ${INV_HOME_CLASS[home.state] || ""}`}
+           title={INV_AUDIT_TIP.home}>
+        {d.collection_reason || ""}
+      </div>
+      <div className="inv-note" title={INV_AUDIT_TIP.home}>
+        {home.reason || ""}
+      </div>
+
+      {/* Where each thing that cannot be got back is written. */}
+      {!!stores.length && (
+        <table className="inv-peer-table">
+          <thead>
+            <tr>
+              <th title={INV_AUDIT_TIP.paths}>What is stored</th>
+              <th title={INV_AUDIT_TIP.paths}>Where it is written</th>
+              <th title={INV_AUDIT_TIP.written}>Anything in it yet</th>
+              <th title={INV_AUDIT_TIP.recoverable}>Can be obtained later</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stores.map((r) => (
+              <tr key={r.key}>
+                <td title={r.what}>{r.label}</td>
+                <td title={r.path || INV_AUDIT_TIP.paths}>
+                  {r.path || "Not configured"}
+                </td>
+                <td title={INV_AUDIT_TIP.written}>
+                  {r.files == null ? (r.written ? "Yes" : "Not yet")
+                   : r.files ? `${r.files} file${r.files === 1 ? "" : "s"}`
+                   : "Nothing yet"}
+                </td>
+                <td title={INV_AUDIT_TIP.recoverable}>
+                  {r.recoverable ? "Yes"
+                   : "No — a past option chain cannot be bought back"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* The wider state: yesterday's capture, the retention limits and the
+          stored records, not just the disk. */}
       <div className={`inv-note ${INV_CAPTURE_CLASS[d.state] || ""}`}
            title={INV_AUDIT_TIP.state}>
         {d.state || "—"} — {d.reason || ""}
       </div>
 
-      {/* Persistence first: it is the only finding that silently destroys
-          everything the other findings are about. */}
-      <div className={`inv-note ${INV_HOME_CLASS[home.state] || ""}`}
-           title={INV_AUDIT_TIP.home}>
-        Where the data lives — {home.state || "UNKNOWN"}: {home.reason || ""}
-      </div>
-
       <div className="inv-grid">
-        <InvCaptureStat label="Data directory" tip={INV_AUDIT_TIP.home}
-          value={home.path || "None configured"} />
-        <InvCaptureStat label="Survives a redeploy" tip={INV_AUDIT_TIP.home}
-          value={home.state === "PERSISTENT" ? "Yes"
-                 : home.state === "EPHEMERAL" ? "No" : "Unconfirmed"} />
         <InvCaptureStat label="Market clock" tip={INV_AUDIT_TIP.clock}
           value={d.market_timezone || "—"} />
         <InvCaptureStat label="Capture hour, New York time"
@@ -4627,7 +4701,7 @@ function InvestTab({ apiFetch, ticker, onOpenTicker }) {
 
           {/* ── Whether the next year of that data will still be there, and
               still be believable, when it is finally scored. ── */}
-          {section("production", "Production readiness",
+          {section("production", "PRODUCTION READINESS",
             "Whether this app is set up to accumulate a year of clean prospective data: where the data is written and whether a redeploy would erase it, whether the market clock is the exchange's rather than the container's, what the previous trading day actually captured, whether any retention limit would delete a day before it is needed, how much a year of it comes to, whether the rules behind a stored recommendation can still be read back, and whether anything already stored contradicts itself.",
             <InvProductionAudit apiFetch={apiFetch} />)}
 
