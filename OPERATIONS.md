@@ -78,15 +78,29 @@ uncaptured, and a day that gets erased is gone the same way.
 All of it is written under `JERRY_DATA_DIR`. **If the volume is not
 attached, every day of it is erased on the next deploy.**
 
-**How to check, in ten seconds:** open the Investment tab → **Production
-readiness** → the second line.
+**How to check, in ten seconds:** open the Investment tab → **PRODUCTION
+READINESS** → read the first line.
 
-- *"…sits on a different filesystem from the container's root"* — the volume
-  is attached and working. Nothing to do.
-- *"…is on the container's own filesystem"* — **this is the one to act on.**
-  Attach the volume in Railway and set `JERRY_DATA_DIR` to its mount point,
-  then redeploy. Everything captured before that is already lost, and
+- **READY TO ACCUMULATE DATA** — *"Data directory sits on a different
+  filesystem from the container root. Persistent volume confirmed."* The
+  volume is attached and working. Nothing to do.
+- **BLOCKED — PERSISTENT STORAGE NOT CONFIRMED**, with either
+  *"Data directory is on the container's own filesystem. Prospective history
+  will be lost on redeploy."* or *"Persistent volume could not be confirmed.
+  Treating production collection as NOT READY."* — **this is the one to act
+  on.** Attach the volume in Railway and set `JERRY_DATA_DIR` to its mount
+  point, then redeploy. Everything captured before that is already lost, and
   everything captured after is safe.
+
+An unconfirmed volume is treated the same as no volume. A detached Railway
+volume leaves an ordinary `/data` directory on the container's own disk
+behind, which looks right and is not, so the panel will not call it safe
+until it can see the mount.
+
+The same panel lists the exact directory each thing is written to — the
+investment history, the option chains, the long-dated contracts, the
+capture-health log and the configuration archive — so there is never a
+question of where to look.
 
 The same panel says how much a year of it will cost in disk: about
 **600 megabytes a year** at forty followed tickers, and about **1.2
@@ -109,7 +123,7 @@ doesn't pause.
 |------------|---------|
 | Open the app | https://dashboard.jerrytrade.com |
 | Check data source | open `…/api/data_source` |
-| Check the Investment data will survive a deploy | Investment tab → **Production readiness** |
+| Check the Investment data will survive a deploy | Investment tab → **PRODUCTION READINESS** |
 | Check yesterday's capture actually ran | Investment tab → **Data readiness** |
 | Fix Schwab | `jerry auth` → paste token in Railway Console → Restart |
 | Update the app | push to GitHub `main` |

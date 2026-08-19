@@ -131,6 +131,84 @@ def data_home(data_dir=None) -> dict:
     return out
 
 
+READY = "READY TO ACCUMULATE DATA"
+BLOCKED = "BLOCKED — PERSISTENT STORAGE NOT CONFIRMED"
+
+# The exact sentence for each storage state. Deliberately three sentences and
+# not a template: the one in the middle is the one that costs a year of work,
+# and it should read like it.
+FINDING = {
+    PERSISTENT: ("Data directory sits on a different filesystem from the "
+                 "container root. Persistent volume confirmed."),
+    EPHEMERAL: ("Data directory is on the container's own filesystem. "
+                "Prospective history will be lost on redeploy."),
+    UNKNOWN: ("Persistent volume could not be confirmed. Treating production "
+              "collection as NOT READY."),
+}
+
+# What the state is called on screen. EPHEMERAL is a word about containers;
+# NOT PERSISTENT is a word about whether the data is still there tomorrow.
+STORAGE_LABEL = {PERSISTENT: "PERSISTENT", EPHEMERAL: "NOT PERSISTENT",
+                 UNKNOWN: "UNKNOWN"}
+
+
+def collection_status(home: dict) -> tuple:
+    """Can this app be left to accumulate data? Storage alone decides.
+
+    Anything short of a confirmed persistent volume is BLOCKED. Not because
+    nothing is being written — it is — but because a redeploy would take it
+    all, and the capture is prospective: what is lost cannot be re-collected
+    from any source this app can reach.
+    """
+    state = (home or {}).get("state")
+    if state == PERSISTENT:
+        return READY, FINDING[PERSISTENT]
+    return BLOCKED, FINDING.get(state, FINDING[UNKNOWN])
+
+
+# The stores that hold something the app cannot get back, and what each one
+# is for in words rather than in directory names.
+PATH_LABEL = (
+    ("root", "Persistent data directory",
+     "Everything below lives under this. It is what JERRY_DATA_DIR points "
+     "at, and it is the directory a redeploy either keeps or destroys."),
+    ("snapshots", "Investment history",
+     "One row per followed ticker per trading day: the price, the fair "
+     "value, the verdict, the structure and the exact contract recommended. "
+     "This is what forward validation scores, and it is never trimmed."),
+    ("chains", "Option chain history",
+     "The end-of-day option chain for each followed ticker. The one store "
+     "that can never be recovered: no source this app can reach sells a "
+     "chain as it stood on a past date."),
+    ("leaps", "Long-dated contract history",
+     "The contracts around the money a year or more out and what they "
+     "implied, so a long-dated option eventually has a volatility history "
+     "of its own instead of a borrowed one."),
+    ("capture", "Capture-health history",
+     "One small file per trading day recording what was attempted and what "
+     "succeeded. Losing it loses the record of which days were captured, "
+     "not the days themselves."),
+    ("config", "Configuration archive",
+     "One copy of each distinct rule set, written once under its hash, so "
+     "the thresholds behind a stored recommendation can still be read back "
+     "exactly a year later."),
+)
+
+
+def paths(where: dict) -> list:
+    """Each store's path, whether it exists yet, and what it holds."""
+    out = []
+    for key, label, what in PATH_LABEL:
+        p = (where or {}).get(key)
+        out.append({
+            "key": key, "label": label, "what": what,
+            "path": str(p) if p else "",
+            "exists": bool(p) and Path(p).is_dir(),
+            "recoverable": key != "chains",
+        })
+    return out
+
+
 # ── did yesterday land ──────────────────────────────────────────────────────
 
 def previous_day(expected: dict, today=None, day=None) -> dict:

@@ -225,8 +225,17 @@ function useBoundedList(items, initial = 150, step = 300) {
 // Version comes from the app.min.js tag so chunk URLs bust caches in
 // lock-step with the main bundle.
 const _CHUNKS = new Map();   // chunk name -> load promise
-function chunkVersion() {
+// A chunk's version is a hash of the CHUNK's own bytes, stamped into
+// index.html by the build. It used to be the app bundle's hash, which meant
+// changing a tab chunk alone left its URL identical — and dist/* is served
+// `immutable, max-age=31536000`, so every browser that had already opened
+// that tab kept the old code for a year and no amount of redeploying could
+// reach it. The app hash remains only as a fallback for a page served before
+// the manifest existed.
+function chunkVersion(name) {
   try {
+    const own = (window.__CHUNK_V || {})[name];
+    if (own) return own;
     const s = document.querySelector('script[src*="dist/app.min.js"]');
     const m = s && /[?&]v=([^&]+)/.exec(s.src);
     return m ? m[1] : null;
@@ -234,7 +243,7 @@ function chunkVersion() {
 }
 function loadChunk(name) {
   if (_CHUNKS.has(name)) return _CHUNKS.get(name);
-  const v = chunkVersion();
+  const v = chunkVersion(name);
   const p = new Promise((resolve, reject) => {
     const s = document.createElement("script");
     s.src = `dist/${name}.min.js${v ? `?v=${v}` : ""}`;

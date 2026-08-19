@@ -843,5 +843,52 @@ class TestReviewFindings(AuditBase):
         self.assertEqual(r["measured_symbols"], 1)
         self.assertAlmostEqual(r["projected_mb_per_year"], 0.3, places=1)
 
+
+
+# ── 14. the panel's own contract ────────────────────────────────────────────
+
+class TestCollectionStatus(AuditBase):
+    def test_a_confirmed_volume_is_ready_to_accumulate(self):
+        status, reason = A.collection_status({"state": A.PERSISTENT})
+        self.assertEqual(status, A.READY)
+        self.assertIn("Persistent volume confirmed", reason)
+
+    def test_the_container_disk_is_blocked_and_says_what_is_lost(self):
+        status, reason = A.collection_status({"state": A.EPHEMERAL})
+        self.assertEqual(status, A.BLOCKED)
+        self.assertIn("lost on redeploy", reason)
+
+    def test_an_unconfirmed_volume_is_blocked_rather_than_assumed_good(self):
+        status, reason = A.collection_status({"state": A.UNKNOWN})
+        self.assertEqual(status, A.BLOCKED)
+        self.assertIn("could not be confirmed", reason)
+
+    def test_a_missing_home_is_blocked(self):
+        self.assertEqual(A.collection_status({})[0], A.BLOCKED)
+
+    def test_every_store_that_matters_names_a_path(self):
+        out = S.production_audit([], today="2026-08-18")
+        got = {r["key"]: r for r in out["paths"]}
+        for key in ("root", "snapshots", "chains", "leaps", "capture",
+                    "config"):
+            self.assertIn(key, got, key)
+            self.assertTrue(got[key]["path"], key)
+            self.assertGreater(len(got[key]["what"]), 40, key)
+
+    def test_only_the_option_chain_is_named_unrecoverable(self):
+        out = S.production_audit([], today="2026-08-18")
+        gone = [r["key"] for r in out["paths"] if not r["recoverable"]]
+        self.assertEqual(gone, ["chains"])
+
+    def test_the_audit_carries_the_status_line_and_its_reason(self):
+        out = S.production_audit([], today="2026-08-18")
+        self.assertIn(out["collection_status"], (A.READY, A.BLOCKED))
+        self.assertIn(out["collection_reason"], A.FINDING.values())
+
+    def test_the_screen_says_not_persistent_rather_than_ephemeral(self):
+        self.assertEqual(A.STORAGE_LABEL[A.EPHEMERAL], "NOT PERSISTENT")
+        self.assertEqual(A.STORAGE_LABEL[A.PERSISTENT], "PERSISTENT")
+        self.assertEqual(A.STORAGE_LABEL[A.UNKNOWN], "UNKNOWN")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
