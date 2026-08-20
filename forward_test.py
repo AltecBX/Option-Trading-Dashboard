@@ -131,6 +131,236 @@ def _close_on_or_before(series: list, day: str):
 
 # ── one observation ─────────────────────────────────────────────────────────
 
+# ── is this row scorable at all ─────────────────────────────────────────────
+#
+# A stored recommendation is immutable. When something it needed was never
+# written down, the row is not repaired and not deleted — it is marked as not
+# eligible, with the reason, and left exactly as it is. Excluding it is how
+# the calibration stays honest; rewriting it would destroy the evidence of
+# what was actually recorded that day.
+#
+# The requirements are CONDITIONAL. BUY SHARES names no option and needs
+# none; a bull call spread needs both of its legs. Marking a row corrupt for
+# missing a field its own recommendation never had any use for would throw
+# away good days to satisfy a checklist.
+
+ELIGIBLE = "ELIGIBLE"
+NOT_ELIGIBLE = "NOT ELIGIBLE FOR FORWARD VALIDATION"
+
+NO_DATE = "NO TRADING DAY RECORDED"
+NO_PRICE = "NO SHARE PRICE RECORDED"
+NO_VERDICT = "NO RECOMMENDATION RECORDED"
+UNRECOVERABLE_CONFIG = "CONFIG NOT ARCHIVED"
+NO_CONTRACT = "THE RECOMMENDED CONTRACT WAS NOT RECORDED"
+NO_QUOTE = "THE RECOMMENDED CONTRACT CARRIES NO QUOTE"
+WRONG_CONTRACT = "THE STORED CONTRACT IS NOT THE ONE RECOMMENDED"
+NO_BENCHMARK = "NO BENCHMARK CLOSE RECORDED"
+
+ELIGIBILITY_NOTE = {
+    NO_DATE: "Without the day it was made, there is nothing to measure from.",
+    NO_PRICE: "Without the share price on the day, there is no entry to "
+              "measure a return against.",
+    NO_VERDICT: "Without the recommendation, there is nothing being scored.",
+    UNRECOVERABLE_CONFIG: "The rules that produced this recommendation are "
+                          "not in the archive and cannot be read back, so "
+                          "what it meant cannot be established. Rows written "
+                          "from the archive onward can be.",
+    NO_CONTRACT: "This recommendation names an option, and the exact "
+                 "contract was not recorded. Choosing one now from a chain "
+                 "that has since moved would be the lookahead this engine "
+                 "exists to prevent.",
+    NO_QUOTE: "The contract was recorded without a price, so there is no "
+              "entry to settle it against.",
+    WRONG_CONTRACT: "The stored contract belongs to a different structure "
+                    "from the one recommended. Settling up against it would "
+                    "score a trade nobody was told to make, and its shape "
+                    "alone cannot tell the two apart — a long-dated call and "
+                    "a short put both carry a strike and a price.",
+    NO_BENCHMARK: "No benchmark close was recorded on the day, so this row "
+                  "can still be scored on its own return but not against "
+                  "the market.",
+}
+
+# What each recommendation needs from its own contract, and nothing more.
+# An empty tuple means the recommendation names no option at all, which is a
+# complete answer rather than a missing one.
+# Two vocabularies reach this map and both are stored. `entry_verdict` is
+# what the app RECOMMENDED ("BUY SHARES", "SELL PORTFOLIO SECURED PUT");
+# `preferred_structure` is what the equal-capital comparator ranked first
+# ("SHARES", "PORTFOLIO SECURED PUT", "LEAPS"). They are not always the same
+# — a row can prefer a buy-write on the comparator and still say WAIT — and
+# the recommendation is what is being validated, so it decides.
+CONTRACT_REQUIRED = {
+    # Recommendations that name no option, and need none.
+    "BUY SHARES": (),
+    "SHARES": (),
+    "WAIT": (),
+    "AVOID": (),
+    "TOSS UP": (),
+    "ATTRACTIVE": (),
+    "WATCH": (),
+    "SPECIALIZED MODEL REQUIRED": (),
+    "HYBRID — VALUATION UNRELIABLE": (),
+    "INSUFFICIENT DATA": (),
+    # Recommendations that name one, and are scored on it.
+    "SELL PORTFOLIO SECURED PUT": ("strike",),
+    "PORTFOLIO SECURED PUT": ("strike",),
+    "BUY LEAPS": ("strike",),
+    "LEAPS": ("strike",),
+    "BUY-WRITE": ("call_strike",),
+    "BULL CALL SPREAD": ("long_strike", "short_strike"),
+}
+
+# The recommendation and the comparator name the same structures in two
+# vocabularies, and the stored contract is stamped with the comparator's.
+# Checking the numbers alone is not enough to tell a put from a long-dated
+# call: both carry a strike and a price.
+_SAME_STRUCTURE = {
+    "BUY SHARES": "SHARES",
+    "SELL PORTFOLIO SECURED PUT": "PORTFOLIO SECURED PUT",
+    "BUY LEAPS": "LEAPS",
+    "BUY-WRITE": "BUY-WRITE",
+    "BULL CALL SPREAD": "BULL CALL SPREAD",
+}
+
+
+def _structures_agree(recommended, stored) -> bool:
+    a = str(recommended or "").strip().upper()
+    b = str(stored or "").strip().upper()
+    if not b:
+        return False              # unstamped: cannot be confirmed, so is not
+    return b in (a, _SAME_STRUCTURE.get(a, a))
+
+
+# The price the structure was entered at. A put is sold for a credit; a
+# long-dated call and a spread are bought for a debit; a buy-write collects a
+# credit for the call it writes. Any of the quoted sides will also do.
+_QUOTE_KEYS = ("credit", "debit", "mid", "bid", "ask")
+
+
+def contract_required_for(structure) -> tuple:
+    """Which strikes a recommendation has to name to be scorable.
+
+    An unknown structure is required to name a strike rather than waved
+    through: a new structure that quietly needed no contract would be scored
+    against nothing at all.
+    """
+    key = str(structure or "").strip().upper()
+    return CONTRACT_REQUIRED.get(key, ("strike",))
+
+
+def eligibility(row: dict, known_hashes=None) -> dict:
+    """Can this stored row be scored exactly, and if not, what is missing.
+
+    `known_hashes` is the set of configurations in the immutable archive.
+    Pass it and a row naming rules that cannot be read back is excluded; pass
+    None and the question is not asked at all, which is only right for a
+    caller that has no archive to check against.
+    """
+    reasons = []
+    day = str(row.get("date") or "")[:10]
+    if not day:
+        reasons.append(NO_DATE)
+    if _num(row.get("price")) is None or (_num(row.get("price")) or 0) <= 0:
+        reasons.append(NO_PRICE)
+
+    # What was RECOMMENDED decides what has to have been recorded. A row
+    # that said WAIT is not incomplete for lacking the put its comparator
+    # happened to rank first — nobody was told to sell one.
+    structure = (row.get("entry_verdict") or row.get("preferred_structure")
+                 or row.get("verdict"))
+    if not structure:
+        reasons.append(NO_VERDICT)
+
+    # `known_hashes is None` means the caller has no archive to check
+    # against and is not asking the question — so a row with no hash at all
+    # is not condemned on a question nobody asked. Production always passes
+    # the archive, and there a hash that is missing and a hash that is
+    # absent from the archive are the same answer: the rules cannot be read
+    # back, so what the verdict meant cannot be established.
+    cfg_hash = row.get("config_hash")
+    if known_hashes is not None and (not cfg_hash
+                                     or cfg_hash not in known_hashes):
+        reasons.append(UNRECOVERABLE_CONFIG)
+
+    # The contract, only where the recommendation actually names one.
+    needs = contract_required_for(structure) if structure else ()
+    contract = row.get("recommended_contract") or {}
+    if needs:
+        if not contract:
+            reasons.append(NO_CONTRACT)
+        else:
+            if any(_num(contract.get(k)) is None for k in needs):
+                reasons.append(NO_CONTRACT)
+            if all(_num(contract.get(k)) is None for k in _QUOTE_KEYS):
+                reasons.append(NO_QUOTE)
+            # The comparator's preferred structure and the recommendation are
+            # not always the same, and the stored contract is the
+            # comparator's. A long-dated call standing in for a put has a
+            # strike and a debit and would otherwise pass every field check.
+            if not _structures_agree(structure, contract.get("structure")):
+                reasons.append(WRONG_CONTRACT)
+
+    # The benchmark gates only the comparison against the market. A row
+    # without one is still a real recommendation with a real return.
+    bench_ok = bool(row.get("benchmark_symbol")
+                    and _num(row.get("benchmark_close")) is not None
+                    and (_num(row.get("benchmark_close")) or 0) > 0)
+
+    eligible = not reasons
+    return {
+        "eligible": eligible,
+        "state": ELIGIBLE if eligible else NOT_ELIGIBLE,
+        "reasons": reasons,
+        "notes": [ELIGIBILITY_NOTE[r] for r in reasons],
+        "structure": structure,
+        "contract_required": list(needs),
+        "benchmark_relative": bench_ok,
+        "benchmark_reason": ("" if bench_ok else ELIGIBILITY_NOTE[NO_BENCHMARK]),
+        "config_hash": cfg_hash,
+        "date": day,
+        "ticker": row.get("ticker"),
+        "version": FORWARD_TEST_VERSION,
+    }
+
+
+def eligibility_report(history_by_symbol: dict, known_hashes=None) -> dict:
+    """Every stored row, sorted into what can be scored and what cannot."""
+    rows, by_reason, days = [], {}, {}
+    for sym, hist in sorted((history_by_symbol or {}).items()):
+        for row in hist or []:
+            got = eligibility(row, known_hashes)
+            got["ticker"] = got["ticker"] or sym
+            rows.append(got)
+            for r in got["reasons"]:
+                by_reason[r] = by_reason.get(r, 0) + 1
+            d = days.setdefault(got["date"] or "(no date)",
+                                {"day": got["date"], "eligible": 0,
+                                 "not_eligible": 0, "reasons": {}})
+            d["eligible" if got["eligible"] else "not_eligible"] += 1
+            for r in got["reasons"]:
+                d["reasons"][r] = d["reasons"].get(r, 0) + 1
+    ok = [r for r in rows if r["eligible"]]
+    return {
+        "rows": rows, "n": len(rows), "eligible": len(ok),
+        "not_eligible": len(rows) - len(ok),
+        "benchmark_relative": sum(1 for r in ok if r["benchmark_relative"]),
+        "by_reason": by_reason,
+        "by_day": [days[k] for k in sorted(days)],
+        "reason": (
+            f"{len(ok)} of {len(rows)} stored recommendations can be scored "
+            f"exactly." + (
+                " The rest are excluded and left exactly as they are: "
+                + ", ".join(f"{n} for {r.lower()}"
+                            for r, n in sorted(by_reason.items()))
+                + ". Nothing is repaired — a row that did not record what it "
+                  "needed cannot be made to have recorded it."
+                if by_reason else
+                " Nothing is excluded.")),
+        "version": FORWARD_TEST_VERSION,
+    }
+
+
 def outcome(row: dict, series: list, horizon: int, today: str,
             benchmark: list | None = None) -> dict | None:
     """What happened to one recommendation over one horizon, or None when
@@ -166,12 +396,37 @@ def outcome(row: dict, series: list, horizon: int, today: str,
     mfe = (max(highs) / entry - 1.0) * 100.0
     mae = (min(lows) / entry - 1.0) * 100.0
 
+    # The comparison against the market needs what the benchmark was worth
+    # on the day the call was made, recorded on that day. Without it the row
+    # is still perfectly scorable on its own return — it simply cannot be
+    # measured against anything, and says so rather than borrowing a close
+    # from a series fetched later.
+    # The baseline is the close RECORDED ON THE DAY, not the one a series
+    # fetched later reports for that date. They can differ — a provider
+    # correction, a distribution adjustment — and taking the later one would
+    # measure the entry against a number that did not exist when the call
+    # was made. That is the lookahead this engine exists to refuse, and it
+    # is the whole reason the close is written into the row prospectively.
+    # The series is used only for the far end of the window, which had not
+    # happened yet and could not have been recorded.
     bench_ret = None
-    if benchmark:
-        b0 = _close_on_or_before(benchmark, day)
+    bench_note = ""
+    b_entry = _num(row.get("benchmark_close"))
+    has_bench = bool(row.get("benchmark_symbol")
+                     and b_entry is not None and b_entry > 0)
+    if not has_bench:
+        bench_note = ELIGIBILITY_NOTE[NO_BENCHMARK]
+    elif benchmark:
         b1 = _close_on_or_before(benchmark, target)
-        if b0 and b1 and b0[1] > 0 and b1[0] > b0[0]:
-            bench_ret = (b1[1] / b0[1] - 1.0) * 100.0
+        if b1 and b1[0] > day:
+            bench_ret = (b1[1] / b_entry - 1.0) * 100.0
+            bench_note = ("Measured from the benchmark close recorded on the "
+                          "day, not from a price fetched afterwards.")
+        else:
+            bench_note = ("The benchmark series does not reach the end of "
+                          "this window.")
+    else:
+        bench_note = "No benchmark price series was available to compare to."
 
     bear = _num(row.get("fair_value_bear"))
     base = _num(row.get("fair_value_base"))
@@ -211,7 +466,11 @@ def outcome(row: dict, series: list, horizon: int, today: str,
         "return_pct": ret,
         "max_adverse_excursion_pct": mae,
         "max_favorable_excursion_pct": mfe,
+        "benchmark_symbol": row.get("benchmark_symbol"),
+        "benchmark_close_on_the_day": _num(row.get("benchmark_close")),
         "benchmark_return_pct": bench_ret,
+        "benchmark_relative_eligible": bench_ret is not None,
+        "benchmark_note": bench_note,
         "excess_return_pct": (None if bench_ret is None else ret - bench_ret),
         "range_contained_outcome": contained,
         "distance_from_base_pct": distance,
@@ -221,13 +480,20 @@ def outcome(row: dict, series: list, horizon: int, today: str,
 
 def observations(history_by_symbol: dict, bars_by_symbol: dict, today: str,
                  benchmark_bars: list | None = None,
-                 horizons=HORIZONS, cfg=None) -> dict:
-    """Every completed (snapshot, horizon) pair the store can support."""
+                 horizons=HORIZONS, cfg=None, known_hashes=None) -> dict:
+    """Every completed (snapshot, horizon) pair the store can support.
+
+    Rows that cannot be scored exactly are excluded here rather than scored
+    approximately — chiefly a recommendation whose rules are not in the
+    immutable archive, because what its verdict MEANT cannot be established.
+    Pass `known_hashes` to enforce that; pass None and the archive is not
+    consulted. Nothing is ever rewritten to make a row pass.
+    """
     cfg = cfg or {}
     bench = index_bars(benchmark_bars or [])
     rows, skipped = [], {"incomplete_horizon": 0, "no_prices": 0,
-                         "no_price_recorded": 0}
-    series_cache = {}
+                         "no_price_recorded": 0, "not_eligible": 0}
+    excluded, series_cache = {}, {}
     for sym, hist in (history_by_symbol or {}).items():
         bars = bars_by_symbol.get(sym)
         if not bars:
@@ -241,6 +507,12 @@ def observations(history_by_symbol: dict, bars_by_symbol: dict, today: str,
             if _num(row.get("price")) is None:
                 skipped["no_price_recorded"] += len(horizons)
                 continue
+            fit = eligibility(row, known_hashes)
+            if not fit["eligible"]:
+                skipped["not_eligible"] += len(horizons)
+                for r in fit["reasons"]:
+                    excluded[r] = excluded.get(r, 0) + 1
+                continue
             for h in horizons:
                 o = outcome(row, series, h, today, bench)
                 if o is None:
@@ -249,6 +521,14 @@ def observations(history_by_symbol: dict, bars_by_symbol: dict, today: str,
                     rows.append(o)
     _attach_sector_relative(rows, cfg)
     return {"rows": rows, "n": len(rows), "skipped": skipped,
+            "excluded_by_reason": excluded,
+            "excluded_note": (
+                "Rows that could not be scored exactly were left out and left "
+                "alone: " + ", ".join(f"{n} for {r.lower()}"
+                                      for r, n in sorted(excluded.items()))
+                + "." if excluded else
+                "No stored row had to be excluded."),
+            "config_archive_checked": known_hashes is not None,
             "benchmark_available": bool(bench),
             "version": FORWARD_TEST_VERSION}
 
@@ -578,18 +858,26 @@ def structure_outcome(row: dict, series: list, today: str) -> dict:
 
 
 def structure_report(history_by_symbol: dict, bars_by_symbol: dict,
-                     today: str, cfg=None) -> dict:
+                     today: str, cfg=None, known_hashes=None) -> dict:
     """Every recommended contract that has reached its expiration, grouped
-    by structure."""
+    by structure.
+
+    Same exclusion as `observations`: a row whose rules cannot be read back
+    from the archive is not settled up, because the thresholds that chose
+    the contract are part of what is being validated.
+    """
     cfg = cfg or {}
     per: dict = {}
-    n_rows = 0
+    n_rows, excluded = 0, 0
     for sym, hist in (history_by_symbol or {}).items():
         bars = bars_by_symbol.get(sym)
         if not bars:
             continue
         series = index_bars(bars)
         for row in hist or []:
+            if not eligibility(row, known_hashes)["eligible"]:
+                excluded += 1
+                continue
             res = structure_outcome(row, series, today)
             if not res.get("results"):
                 continue
@@ -601,7 +889,13 @@ def structure_report(history_by_symbol: dict, bars_by_symbol: dict,
                      "was_preferred": res["preferred_structure"] == kind})
     need = int(cfg_get(cfg, "forward_min_sample"))
     out = {"version": FORWARD_TEST_VERSION, "settled_recommendations": n_rows,
-           "structures": {}, "min_sample": need}
+           "structures": {}, "min_sample": need,
+           "excluded_rows": excluded,
+           "excluded_note": (
+               f"{excluded} stored recommendation"
+               f"{'' if excluded == 1 else 's'} could not be settled up "
+               f"exactly and were left out, and left alone."
+               if excluded else "No stored recommendation had to be left out.")}
     for kind, rows in sorted(per.items()):
         profits = [r["profit"] for r in rows if r.get("profit") is not None]
         pref = [r for r in rows if r["was_preferred"]]

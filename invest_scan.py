@@ -41,7 +41,8 @@ import json
 import re
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import (date, datetime, time as dtime, timedelta,
+                      timezone, tzinfo)
 from pathlib import Path
 
 import invest_engine as engine
@@ -3590,6 +3591,12 @@ def _iv_path(symbol: str, bars: list, earnings_dates=None) -> list:
 
 # ── Phase 7: is the prospective capture actually happening? ─────────────────
 
+# Today, before its capture window. Not a failure and not a success: the
+# fifth state the panel can be in, and the only one that is allowed to
+# disappear on its own as the clock moves.
+NOT_DUE_YET = "NOT DUE YET"
+
+
 def data_readiness(symbols=None, today: str | None = None) -> dict:
     """How much real, prospectively captured data exists — and whether it is
     still being captured.
@@ -3621,6 +3628,12 @@ def data_readiness(symbols=None, today: str | None = None) -> dict:
         _health.previous_trading_day(day)
     out = {
         "as_of": _now_iso(), "day": day, "symbols": syms,
+        # When this answer was computed, on the exchange's clock, and which
+        # clock that is. The panel is a snapshot of a moment; without the
+        # moment on it a reader cannot tell a healthy day from a page that
+        # has been open since lunchtime.
+        "calculated_at": _now_iso(),
+        "market_clock": market_clock(),
         "trading_day": _health.is_trading_day(day),
         "not_trading_because": _health.why_not_trading(day),
         "capture_due_yet": bool(due or day != _market_today()),
@@ -3684,13 +3697,25 @@ def data_readiness(symbols=None, today: str | None = None) -> dict:
     out["symbols_missing_today"] = sorted(
         {s for v in (out["today"].get("missing") or {}).values() for s in v})
     if not out["capture_due_yet"]:
-        out["today"]["state"] = "NOT DUE YET"
+        out["today"]["state"] = NOT_DUE_YET
         out["today"]["reason"] = (
             f"Today's capture runs after {_capture_hour()}:00 in New York. "
             f"Nothing is missing yet; what is listed below is simply what is "
             f"still to come. The state above describes "
             f"{_pretty(settled)}, the last day whose capture window has "
-            f"passed.")
+            f"passed. Read at "
+            f"{market_now().strftime('%-I:%M %p')} New York time.")
+    elif out["today"]["state"] == _health.MISSED:
+        # Past the window on a trading day with nothing captured is not
+        # "missed one of several" — it is the whole day gone, and the option
+        # chain for it cannot be bought back. It gets the word that means so.
+        out["today"]["state"] = _health.FAILURE
+    # After the capture window, today has an answer. NOT DUE YET past the
+    # hour meant the clock was wrong, and that symptom is never allowed to
+    # stand in for a state again.
+    if out["capture_due_yet"] and out["today"]["state"] == NOT_DUE_YET:
+        raise AssertionError(                        # pragma: no cover
+            "today's capture window has passed and the state is NOT DUE YET")
 
     # Real-chain coverage over the trading days since capture began. Days
     # before the first capture are not counted as missed, because nothing
@@ -3789,11 +3814,20 @@ def validation(symbols=None, benchmark: str | None = None) -> dict:
             bench_bars = []
 
     today = _market_today()
-    obs = _forward.observations(hist, bars, today, bench_bars, cfg=cfg)
+    # The archive is what makes a stored verdict mean something a year on.
+    # A row naming rules that are not in it is excluded from scoring and left
+    # exactly as it is — see forward_test.eligibility.
+    archived = {r["config_hash"] for r in archived_configs()}
+    obs = _forward.observations(hist, bars, today, bench_bars, cfg=cfg,
+                                known_hashes=archived)
     out["observations"] = {k: obs[k] for k in
-                           ("n", "skipped", "benchmark_available")}
+                           ("n", "skipped", "benchmark_available",
+                            "excluded_by_reason", "excluded_note",
+                            "config_archive_checked")}
+    out["eligibility"] = _forward.eligibility_report(hist, archived)
     out["calibration"] = _forward.calibration(obs, cfg)
-    out["structures"] = _forward.structure_report(hist, bars, today, cfg)
+    out["structures"] = _forward.structure_report(hist, bars, today, cfg,
+                                                  known_hashes=archived)
     out["benchmark"] = bench
     out["tickers_with_history"] = len(hist)
     out["stored_rows"] = sum(len(v) for v in hist.values())
@@ -3894,6 +3928,96 @@ def _store_coverage(path, pattern: str, count_fn) -> tuple:
         except Exception:                            # noqa: BLE001
             continue
     return len(syms), days
+
+
+def day_report(symbols=None, day: str | None = None) -> dict:
+    """One trading day, one row per followed ticker, component by component.
+
+    The question this answers is not "did something run" but "is this day
+    usable" — which is a different and stricter thing. A day with a snapshot
+    and no chain is a day the covered-call work can never use; a day whose
+    recommendation names a put and did not record the put is a day that
+    cannot be settled up. Both look fine in a capture log.
+    """
+    d = day or _market_today()
+    syms = [_safe(s) for s in (symbols or []) if _safe(s)]
+    if not syms and _STARRED_FN is not None:
+        try:
+            syms = [_safe(s) for s in (_STARRED_FN() or []) if _safe(s)]
+        except Exception:                            # noqa: BLE001
+            syms = []
+    syms = syms[:MAX_DAILY_SYMBOLS]
+    archived = {r["config_hash"] for r in archived_configs()}
+
+    rows = []
+    for sym in syms:
+        row = next((r for r in reversed(load_history(sym))
+                    if (r.get("date") or "")[:10] == d), None)
+        chain = d in (chain_store.load(sym) or {})
+        leaps = False
+        if _opts is not None:
+            try:
+                leaps = any((o.get("date") or "")[:10] == d
+                            for o in _opts.load_leaps_observations(sym))
+            except Exception:                        # noqa: BLE001
+                leaps = False
+        fit = _forward.eligibility(row or {}, archived) if row else None
+        needs = (fit or {}).get("contract_required") or []
+        contract = (row or {}).get("recommended_contract") or {}
+        rows.append({
+            "symbol": sym,
+            "snapshot": bool(row),
+            "option_chain": chain,
+            "leaps_observation": leaps,
+            "benchmark_close": (row or {}).get("benchmark_close") is not None,
+            "benchmark_symbol": (row or {}).get("benchmark_symbol") or "",
+            "recommendation": (row or {}).get("entry_verdict") or "",
+            "structure": (row or {}).get("preferred_structure") or "",
+            "contract_required": bool(needs),
+            "contract_recorded": (True if not needs else bool(contract)),
+            "contract_note": ("This recommendation names no option contract, "
+                              "and needs none." if row and not needs else
+                              "The exact contract and its quote were recorded."
+                              if row and contract else
+                              "The recommendation names an option and the "
+                              "contract was not recorded." if row else
+                              "No snapshot was recorded for this ticker."),
+            "config_archived": bool(row and (row.get("config_hash") in archived)),
+            "forward_test_eligible": bool(fit and fit["eligible"]),
+            "benchmark_relative_eligible": bool(fit and fit["benchmark_relative"]),
+            "why_not": (fit or {}).get("reasons") or
+                       ([] if row else ["NO SNAPSHOT RECORDED"]),
+        })
+
+    usable = [r for r in rows if r["forward_test_eligible"]]
+    complete = [r for r in usable
+                if r["option_chain"] and r["leaps_observation"]
+                and r["benchmark_close"]]
+    return {
+        "day": d, "pretty": _pretty(d),
+        "trading_day": _health.is_trading_day(d),
+        "not_trading_because": _health.why_not_trading(d),
+        "calculated_at": _now_iso(),
+        "market_clock": market_clock(),
+        "symbols": syms, "rows": rows,
+        "expected": len(rows),
+        "forward_test_eligible": len(usable),
+        "fully_complete": len(complete),
+        "first_fully_usable_day": len(rows) > 0 and len(complete) == len(rows),
+        "reason": (
+            f"All {len(rows)} followed tickers recorded everything this day "
+            f"needed to be scored later: the valuation state, a real option "
+            f"chain, a long-dated observation, the benchmark close, and the "
+            f"exact contract wherever the recommendation named one."
+            if rows and len(complete) == len(rows) else
+            f"{len(complete)} of {len(rows)} followed tickers have a "
+            f"complete, scorable record for {_pretty(d)}. "
+            f"{len(usable)} can be scored on their own return. Nothing here "
+            f"is repaired: a day records what it records."
+            if rows else
+            "No tickers are being followed, so there is nothing to report."),
+        "version": _audit.AUDIT_VERSION,
+    }
 
 
 # ── the production audit ────────────────────────────────────────────────────
@@ -4295,11 +4419,102 @@ RECORD_AFTER_ET_HOUR = 17
 # one in the afternoon in New York, so the "end of day" chain was captured
 # in the middle of the session and the daily snapshot was taken before the
 # close. Both are read on an exchange clock now.
+#
+# The fallback matters as much as the lookup. `zoneinfo` reads the operating
+# system's time-zone database, and a slim container may not carry one — the
+# `tzdata` package in requirements.txt is there so it always does. But if the
+# lookup fails anyway, falling back to `datetime.now()` would silently put
+# the whole app back on the container's UTC clock: captures filed under
+# tomorrow's date after eight in the evening, the "end of day" chain taken at
+# one in the afternoon, and a readiness panel reporting NOT DUE YET at half
+# past nine at night. That failure is invisible and it corrupts the dates on
+# data that cannot be collected twice.
+#
+# So there is no container-clock fallback. Eastern time is computed instead,
+# from the rule Congress fixed in 2007: daylight saving runs from the second
+# Sunday in March to the first Sunday in November, changing at two in the
+# morning local time. Same principle as the market calendar in
+# capture_health, which computes its holidays rather than tabulating them.
 try:                                                 # pragma: no cover
     from zoneinfo import ZoneInfo as _ZoneInfo
     _MARKET_TZ = _ZoneInfo("America/New_York")
+    _TZ_SOURCE = "the operating system's time-zone database"
 except Exception:                                    # pragma: no cover
     _MARKET_TZ = None
+    _TZ_SOURCE = ("Eastern time computed from the United States daylight "
+                  "saving rule, because no time-zone database was found")
+
+
+def _nth_sunday(year: int, month: int, nth: int) -> date:
+    """The nth Sunday of a month."""
+    d = date(year, month, 1)
+    d += timedelta(days=(6 - d.weekday()) % 7)       # first Sunday
+    return d + timedelta(days=7 * (nth - 1))
+
+
+_EDT, _EST = timedelta(hours=-4), timedelta(hours=-5)
+
+
+def _eastern_offset(utc: datetime) -> timedelta:
+    """Eastern time's offset from UTC at a given INSTANT.
+
+    Daylight saving begins at two in the morning local standard time on the
+    second Sunday in March — 07:00 UTC — and ends at two in the morning local
+    daylight time on the first Sunday in November, which is 06:00 UTC.
+    """
+    y = utc.year
+    start = datetime.combine(_nth_sunday(y, 3, 2), dtime(7, 0))
+    end = datetime.combine(_nth_sunday(y, 11, 1), dtime(6, 0))
+    naive = utc.replace(tzinfo=None)
+    return _EDT if start <= naive < end else _EST
+
+
+class _EasternAt(tzinfo):
+    """Eastern time at ONE instant, as a fixed offset.
+
+    Deliberately fixed rather than a zone that transitions. A transitioning
+    zone has to answer `utcoffset()` from a local wall reading, and one wall
+    reading an hour before the November change is two different instants —
+    01:30 daylight and 01:30 standard. Resolving that needs `fold`, whose
+    handling has moved between Python versions, and a clock that stamps the
+    wrong hour on a stored observation is not something to leave to the
+    interpreter.
+
+    The offset is decided once, from the instant, where there is no
+    ambiguity at all. Nothing in this app does arithmetic across a change on
+    one of these; it reads the hour, the date, and stamps them.
+    """
+
+    def __init__(self, offset: timedelta):
+        self._offset = offset
+
+    def utcoffset(self, dt):
+        return self._offset
+
+    def dst(self, dt):
+        return timedelta(hours=1) if self._offset == _EDT else timedelta(0)
+
+    def tzname(self, dt):
+        return "EDT" if self._offset == _EDT else "EST"
+
+    def __str__(self):
+        return "America/New_York"
+
+    def __repr__(self):                              # pragma: no cover
+        return f"America/New_York ({self.tzname(None)}, computed)"
+
+    def __eq__(self, other):                         # pragma: no cover
+        return isinstance(other, _EasternAt) and other._offset == self._offset
+
+    def __hash__(self):                              # pragma: no cover
+        return hash(("eastern", self._offset))
+
+
+def eastern(utc: datetime) -> datetime:
+    """One UTC instant, read on the exchange's clock."""
+    off = _eastern_offset(utc)
+    return (utc.replace(tzinfo=None) + off).replace(tzinfo=_EasternAt(off))
+
 MAX_DAILY_SYMBOLS = 60
 # Chain capture is one network request per ticker per day against a
 # rate-limited broker API, so it is bounded separately from the snapshot.
@@ -4332,12 +4547,44 @@ def _tick_loop() -> None:                            # pragma: no cover
 
 
 def market_now(now: datetime | None = None) -> datetime:
-    """The time in New York, which is the only clock the market keeps."""
+    """The time in New York, which is the only clock the market keeps.
+
+    Never the container's clock. If the time-zone database is missing the
+    offset is computed instead — see the note beside _MARKET_TZ. A naive
+    `datetime.now()` here would be wrong by four or five hours and wrong
+    silently, which on this app's data means wrong for good.
+    """
     if now is not None:
         return now
     if _MARKET_TZ is not None:
         return datetime.now(_MARKET_TZ)
-    return datetime.now()                            # pragma: no cover
+    return eastern(datetime.now(timezone.utc))
+
+
+def market_clock() -> dict:
+    """Which clock the market side of this app is actually reading.
+
+    On screen, because the difference between the exchange's clock and the
+    container's is four or five hours and every symptom of getting it wrong
+    looks like something else.
+    """
+    now = market_now()
+    return {"now": now.isoformat(timespec="seconds"),
+            "pretty": now.strftime("%B %-d, %Y at %-I:%M %p"),
+            "zone": str(getattr(now, "tzinfo", "") or "unknown"),
+            "abbreviation": now.strftime("%Z") or "",
+            "utc_offset_hours": (now.utcoffset().total_seconds() / 3600.0
+                                 if now.utcoffset() else None),
+            "source": _TZ_SOURCE,
+            "database_found": _MARKET_TZ is not None,
+            "capture_hour_et": _capture_hour(),
+            "container_now": datetime.now().isoformat(timespec="seconds"),
+            "note": ("Market scheduling reads this clock, never the "
+                     "container's. A server in coordinated universal time is "
+                     "already on tomorrow's date by eight in the evening in "
+                     "New York, so a capture stamped with the container's "
+                     "date would land on a trading day that has not "
+                     "happened.")}
 
 
 def _market_today() -> str:

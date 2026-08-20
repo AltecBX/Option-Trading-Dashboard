@@ -2319,3 +2319,97 @@ Two guards keep it that way: one asserts the loader passes the chunk name to
 `chunkVersion` and reads the manifest, the other parses the manifest out of
 the built `index.html` and checks every declared chunk has a distinct
 eight-character hash.
+
+
+## NOT DUE YET at half past nine at night
+
+The readiness panel said today's capture was not due yet, at 9:22 in the
+evening in New York, with a capture hour of five. Every followed ticker was
+listed as "still to come".
+
+The panel was right about what it had been told. `zoneinfo` reads the
+operating system's time-zone database, and a container that carries none
+raises — at which point the code fell back to `datetime.now()`. On a server
+in coordinated universal time, 9:22 PM on the 19th in New York is 01:22 on
+the 20th, and one o'clock is indeed before five. So the window had not
+opened, the date had already rolled over, and nothing about the display was
+inconsistent with the clock it was reading. The clock was the container's.
+
+That is the same bug the production audit fixed once already, arriving by a
+different route: the fix put every caller onto `market_now()`, and
+`market_now()` had a fallback that quietly undid it.
+
+Two changes, because either alone would leave it to chance:
+
+* `tzdata` is a declared dependency, so the database is always present.
+* There is no container-clock fallback at all any more. If the database
+  cannot be loaded, Eastern time is **computed** — second Sunday in March to
+  first Sunday in November, changing at two in the morning local time, the
+  rule fixed in 2007. Same principle as the market calendar in
+  `capture_health`, which computes its holidays rather than tabulating them.
+
+The offset is decided from the **instant** and then stamped as a fixed
+offset, rather than by a zone that transitions. A transitioning zone has to
+answer `utcoffset()` from a local wall reading, and one wall reading an hour
+before the November change is two different instants — 01:30 daylight and
+01:30 standard. Resolving that needs `fold`, whose handling has moved
+between Python versions; a clock that stamps the wrong hour on a stored
+observation is not something to leave to the interpreter. From the instant
+there is no ambiguity at all.
+
+Pinned at 01:22 UTC, where the computed clock returns 21:22 on the previous
+day and the window is open, on both sides of both transitions, and over
+every half hour of a year — 17,520 instants, each converted and converted
+back.
+
+**A state, not a placeholder.** After the capture hour on a trading day the
+answer is COMPLETE, PARTIAL or CAPTURE FAILURE — never NOT DUE YET, which is
+now asserted rather than assumed. A trading day past its window with nothing
+captured is CAPTURE FAILURE rather than MISSED: the whole day is gone and
+the option chain for it cannot be bought back.
+
+**And the panel dates itself.** It was fetched once on mount, so a tab left
+open since the morning reported the morning indefinitely — a stale reading
+that looks exactly like a broken scheduler. It now re-reads every five
+minutes and whenever the tab comes back to the front, and prints **LAST
+READINESS CALCULATED AT** with the market clock's own wall time, read from
+the timestamp's offset rather than converted into the browser's zone.
+
+## What makes a stored recommendation scorable
+
+A row is immutable. When something it needed was never written down it is
+excluded from validation with a reason, and left exactly as it is. Repairing
+it would destroy the evidence of what was actually recorded that day.
+
+`forward_test.eligibility()` decides, and the requirements are
+**conditional on what was recommended**:
+
+| Recommendation | What it has to have recorded |
+|---|---|
+| BUY SHARES, WAIT, AVOID, TOSS UP | no contract at all |
+| SELL PORTFOLIO SECURED PUT | the put's strike and its quote |
+| BUY LEAPS | the call's strike and its quote |
+| BUY-WRITE | the written call's strike and its quote |
+| BULL CALL SPREAD | both legs and the quote |
+
+A row is never called incomplete for lacking a field its own recommendation
+had no use for. An unrecognised structure is required to name a strike
+rather than waved through, so a new structure cannot be scored against
+nothing by default.
+
+The requirement follows `entry_verdict` — what the app **recommended** —
+not `preferred_structure`, which is what the equal-capital comparator ranked
+first. A row can prefer a buy-write on the comparator and still say WAIT;
+nobody was told to write a call, so no call is required.
+
+**The archive is the hard gate.** A recommendation whose `config_hash` is
+not in the immutable configuration archive is excluded, because the
+thresholds that produced it cannot be read back and what its verdict MEANT
+cannot be established. Passing no archive at all means the question is not
+asked — which is right for a caller that has none, and never happens in
+production, where `validation()` always passes it.
+
+**The benchmark gates only the comparison against the market.** A row
+without a recorded benchmark close is still scored on its own return; it
+simply cannot be measured against anything, and says so rather than
+borrowing a close from a price series fetched later.

@@ -246,6 +246,7 @@ for p in [
     # answer, and an audit that 500s is an audit nobody can read.
     "/api/invest/readiness?symbols=FAKE",
     "/api/invest/audit?symbols=FAKE",
+    "/api/invest/day?symbols=FAKE",
     "/api/recovery/research",
     f"/api/recovery/detail?symbol={S}",
     f"/api/earnings_iv_crush?symbol={S}",

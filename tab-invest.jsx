@@ -159,6 +159,18 @@ function invShortDate(s) {
   return Number.isNaN(d.getTime()) ? String(s)
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+// The wall-clock time out of a timestamp that already carries the exchange's
+// offset — read from the string, NOT through Date, which would convert it to
+// whatever zone the browser happens to be in. The whole point of printing it
+// is to show what the MARKET clock said.
+function invClockTime(iso) {
+  const m = /T(\d{2}):(\d{2})/.exec(String(iso || ""));
+  if (!m) return invNA;
+  const h = Number(m[1]);
+  const suffix = h < 12 ? "AM" : "PM";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${m[2]} ${suffix}`;
+}
 // 21 -> "21st". "21th percentile" undercuts every careful sentence near it.
 function invOrdinal(v) {
   if (v == null || !isFinite(v)) return invNA;
@@ -3659,6 +3671,12 @@ const INV_CAPTURE_TIP = {
     "horizon has passed. Nothing is scored early and no verdict is given " +
     "until enough observations have completed, so what is shown here is " +
     "when the first result can exist — not a result.",
+  calculated: "When this panel was last read, on the exchange's clock, and " +
+    "what that clock currently says. A capture state describes a moment, " +
+    "so a panel left open since the morning would still be reporting the " +
+    "morning. This one re-reads every five minutes and whenever the tab is " +
+    "brought back to the front, and it prints the time it was read so a " +
+    "stale reading can never be mistaken for a broken scheduler.",
   symbol: "Per ticker: how many days of each kind exist, when the real " +
     "chain history starts and ends, and which expected trading days have no " +
     "chain. Weekends and market holidays are not counted as missed.",
@@ -3692,7 +3710,23 @@ function InvDataReadiness({ apiFetch, symbol }) {
       .finally(() => setBusy(false));
   }, [apiFetch]);
 
-  useEffect(() => { load(); }, [load]);
+  // A capture state is a statement about a moment. Fetched once on mount, a
+  // tab left open since lunchtime would still say NOT DUE YET at ten at
+  // night — which is exactly how a stale panel gets mistaken for a broken
+  // scheduler. So it re-reads every five minutes and whenever the tab is
+  // brought back to the front, and it prints the time it was read.
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 300000);
+    const wake = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, [load]);
 
   const d = data || {};
   const today = d.today || {};
@@ -3714,6 +3748,14 @@ function InvDataReadiness({ apiFetch, symbol }) {
            title={INV_CAPTURE_TIP.state}>
         {busy && !data ? "Loading…"
           : `${health.state || "—"} — ${health.reason || ""}`}
+      </div>
+      <div className="inv-note" title={INV_CAPTURE_TIP.calculated}>
+        {d.market_clock
+          ? `Last readiness calculated at ${invClockTime(d.calculated_at)} ` +
+            `${d.market_clock.abbreviation || ""} — the market clock reads ` +
+            `${d.market_clock.pretty || "—"}, and today's capture runs after ` +
+            `${d.capture_hour_et}:00 in New York.`
+          : ""}
       </div>
       {!!health.alert && (
         <div className="inv-note down" title={INV_CAPTURE_TIP.state}>
@@ -3859,6 +3901,27 @@ const INV_AUDIT_TIP = {
     "so an empty one would otherwise read as though it had been written " +
     "to. An empty store and a store with a year of captures in it are the " +
     "two answers this column exists to tell apart.",
+  day: "One trading day, ticker by ticker. Not whether something ran, but " +
+    "whether the day is usable — a day with a snapshot and no option chain " +
+    "is a day the covered-call work can never use, and a day whose " +
+    "recommendation names a put without recording the put cannot be " +
+    "settled up. Both of those look perfectly healthy in a capture log.",
+  benchmark: "The benchmark's close on the day the call was made, recorded " +
+    "on that day. It gates only the comparison against the market: a row " +
+    "without one is still scored on its own return, but it cannot be " +
+    "measured against anything, and borrowing a close from a price series " +
+    "fetched later would be exactly the lookahead this engine refuses.",
+  contract: "Whether the exact option and its quote were recorded — asked " +
+    "only where the recommendation actually names one. BUY SHARES, WAIT " +
+    "and AVOID name no contract and need none; a portfolio secured put " +
+    "needs its put, a long-dated call needs its call, and a bull call " +
+    "spread needs both legs. A row is never called incomplete for lacking " +
+    "a field its own recommendation had no use for.",
+  eligible: "Whether this recommendation can be scored exactly when its " +
+    "horizon completes. A row that cannot is excluded from validation and " +
+    "left exactly as it is — never repaired, never deleted. The commonest " +
+    "reason is rules that are not in the archive: without them, what the " +
+    "verdict MEANT that day cannot be established.",
   paths: "Every directory holding something this app records going forward, " +
     "and whether anything has been written to it yet. All of them sit " +
     "under the persistent data directory, so all of them share its fate: " +
@@ -3928,11 +3991,15 @@ function InvProductionAudit({ apiFetch }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const [day, setDay] = useState(null);
+
   const load = React.useCallback(() => {
     setBusy(true);
-    apiFetch("/api/invest/audit")
-      .then((r) => r.json())
-      .then((j) => setData(j))
+    Promise.all([
+      apiFetch("/api/invest/audit").then((r) => r.json()),
+      apiFetch("/api/invest/day").then((r) => r.json()).catch(() => null),
+    ])
+      .then(([a, d]) => { setData(a); setDay(d); })
       .catch(() => setData({ error: true }))
       .finally(() => setBusy(false));
   }, [apiFetch]);
@@ -3988,6 +4055,59 @@ function InvProductionAudit({ apiFetch }) {
       <div className="inv-note" title={INV_AUDIT_TIP.home}>
         {home.reason || ""}
       </div>
+
+      {/* Today, ticker by ticker: not "did something run" but "is this day
+          usable", which is a different and stricter question. */}
+      {!!(day && (day.rows || []).length) && (
+        <>
+          <div className={`inv-note ${day.first_fully_usable_day ? "up" : ""}`}
+               title={INV_AUDIT_TIP.day}>
+            {day.pretty} — {day.reason}
+          </div>
+          <table className="inv-peer-table">
+            <thead>
+              <tr>
+                <th title={INV_AUDIT_TIP.day}>Ticker</th>
+                <th title={INV_CAPTURE_TIP.snapshots}>Snapshot</th>
+                <th title={INV_CAPTURE_TIP.chains}>Option chain</th>
+                <th title={INV_CAPTURE_TIP.leaps}>Long-dated observation</th>
+                <th title={INV_AUDIT_TIP.benchmark}>Benchmark close</th>
+                <th title={INV_AUDIT_TIP.day}>Recommendation</th>
+                <th title={INV_AUDIT_TIP.contract}>Exact contract</th>
+                <th title={INV_AUDIT_TIP.config}>Rules archived</th>
+                <th title={INV_AUDIT_TIP.eligible}>Can be scored later</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(day.rows || []).map((r) => (
+                <tr key={r.symbol}>
+                  <td>{r.symbol}</td>
+                  <td className={r.snapshot ? "up" : "down"}>
+                    {r.snapshot ? "Yes" : "No"}</td>
+                  <td className={r.option_chain ? "up" : "down"}>
+                    {r.option_chain ? "Yes" : "No"}</td>
+                  <td className={r.leaps_observation ? "up" : "down"}>
+                    {r.leaps_observation ? "Yes" : "No"}</td>
+                  <td className={r.benchmark_close ? "up" : "down"}
+                      title={r.benchmark_symbol || INV_AUDIT_TIP.benchmark}>
+                    {r.benchmark_close ? "Yes" : "No"}</td>
+                  <td title={INV_AUDIT_TIP.day}>{r.recommendation || "—"}</td>
+                  <td title={r.contract_note}>
+                    {!r.contract_required ? "Not needed"
+                     : r.contract_recorded ? "Recorded" : "Missing"}</td>
+                  <td className={r.config_archived ? "up" : "down"}>
+                    {r.config_archived ? "Yes" : "No"}</td>
+                  <td className={r.forward_test_eligible ? "up" : "down"}
+                      title={(r.why_not || []).length
+                             ? (r.why_not || []).join("; ")
+                             : INV_AUDIT_TIP.eligible}>
+                    {r.forward_test_eligible ? "Yes" : "No"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
 
       {/* Where each thing that cannot be got back is written. */}
       {!!stores.length && (
