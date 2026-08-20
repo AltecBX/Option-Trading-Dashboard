@@ -717,6 +717,21 @@
       "moderate_lo_pct": 53.0,
       "strong_corr": 0.30,
       "strong_lo_pct": 57.0
+    },
+    "research": {
+      "_doc": "The V2 research layer (korea_research.py). These decide when a statistic is refused for want of data, never what it says. Nothing in this section is ever applied to the panel's own numbers \u2014 the research layer measures, and promotion of any model to a production signal is a decision a person makes after reading the comparison, not a side effect of a model scoring well.",
+      "min_regression_n": 60,
+      "_min_regression_n_doc": "Below this many matched sessions a regression is refused rather than fitted. Not a statistical law \u2014 a floor chosen so a slope is never reported from a sample where one quarter of unusual weather would dominate it.",
+      "min_train_n": 250,
+      "_min_train_n_doc": "Roughly one trading year. A walk-forward fold is only scored after the model has seen at least this much history, and a point-in-time residual is left empty until then rather than produced by a model with nothing to learn from.",
+      "walk_step": 21,
+      "_walk_step_doc": "Sessions between re-fits in the expanding-window evaluation \u2014 about monthly.",
+      "regime_window": 20,
+      "_regime_window_doc": "Trailing realised-volatility window for the regime split, computed through the PRIOR close so it is knowable before the open it labels. Same-day VIX is deliberately not used: at 9:30 it is a future value.",
+      "fdr_alpha": 0.05,
+      "_fdr_alpha_doc": "False-discovery rate for the Benjamini-Hochberg correction across the pair matrix. With dozens of cells some look significant by luck; the q-value is what decides, not the raw p-value.",
+      "estimate_disagreement_pct": 0.75,
+      "_estimate_disagreement_pct_doc": "How far the bucket estimate and the fitted-line estimate may differ before the panel says MODEL DISAGREEMENT. They are never averaged \u2014 the midpoint of two estimates that disagree is a third number nothing supports."
     }
   }
 }

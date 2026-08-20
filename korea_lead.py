@@ -48,6 +48,7 @@ from datetime import date, datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
 import korea_lead_engine as kle
+import korea_research_engine as _kre
 
 try:
     from zoneinfo import ZoneInfo
@@ -554,6 +555,24 @@ def korea_today(force: bool = False) -> dict:
             "timezone": (pack.get("meta") or {}).get("timezone"),
             "n_bars": len(bars),
         }
+        # How unusual today's move is against THIS index's own trailing
+        # year. A fixed "KOSPI above one and a half percent is major" ages
+        # badly — it fires constantly in a calm year and never in a violent
+        # one — where a percentile carries the volatility regime with it.
+        days = sorted(rows)
+        if len(days) >= 60 and pct is not None:
+            hist = [abs(rows[d]) for d in days[-253:-1]]
+            share = _kre.percentile_of(abs(pct), hist)
+            out["series"][name]["abs_percentile"] = (
+                None if share is None else round(share, 1))
+            out["series"][name]["trailing_n"] = len(hist)
+            out["series"][name]["unusual"] = bool(
+                share is not None and share >= 90.0
+                and name in SIGNAL_SERIES)
+        else:
+            out["series"][name]["abs_percentile"] = None
+            out["series"][name]["trailing_n"] = 0
+            out["series"][name]["unusual"] = False
         out["sources"][name] = {"symbol": KOREA_SYMBOLS[name],
                                 "source": pack.get("source"),
                                 "fetched": pack.get("fetched"),
@@ -606,6 +625,20 @@ def korea_today(force: bool = False) -> dict:
 
     out["chip_confirmation"] = kle.chip_confirmation(
         out["signal"]["pct"], _same_day(SAMSUNG), _same_day(HYNIX))
+
+    hot = [out["series"][n] for n in SIGNAL_SERIES
+           if out["series"][n].get("unusual")]
+    out["unusual"] = {
+        "any": bool(hot),
+        "headline": (None if not hot else "UNUSUAL KOREA MOVE"),
+        # Phrased as "larger than 91% of" rather than "at the 91st
+        # percentile": same number, and it does not need the reader to
+        # know what a percentile is.
+        "detail": (None if not hot else " · ".join(
+            f"{v['label']} {v['pct']:+.2f}% is larger than "
+            f"{v['abs_percentile']:.0f}% of its own trailing year"
+            for v in hot)),
+    }
     return out
 
 
@@ -861,6 +894,49 @@ def study(symbol: str, window: str = DEFAULT_WINDOW, force: bool = False) -> dic
     return dict(out)
 
 
+def relationship(symbol: str, force: bool = False) -> dict:
+    """How strong the Korea/this-ticker relationship is NOW, against how
+    strong it has been.
+
+    A five-year average can hold a relationship that has since halved, or
+    inverted, and read as healthy the whole way down. So the recent window
+    and the long window are both computed and both shown, and when they
+    disagree about which way the relationship even runs the answer is
+    UNSTABLE rather than an average of the two.
+    """
+    base = observations(symbol, force=force)
+    out = {"symbol": symbol.upper(), "ok": False, "recent": None,
+           "long": None, "health": None, "spark": [], "reason": None}
+    if not base["ok"]:
+        out["reason"] = base["error"]
+        return out
+    rows = base["observations"]
+    # Only the tail is needed: the current value of each window, plus
+    # enough 60-session points behind it to draw the trail. Rolling the
+    # whole ten years to throw away all but the end of it was costing
+    # seconds on a panel that reloads whenever the target changes.
+    SPARK = 120
+    recent = _kre.rolling_correlation(rows[-(60 + SPARK):], "korea",
+                                      "opening_gap", 60)
+    longer = _kre.rolling_correlation(rows[-(252 + 1):], "korea",
+                                      "opening_gap", 252)
+    r_now = recent[-1] if recent else None
+    l_now = longer[-1] if longer else None
+    out.update({
+        "ok": bool(r_now or l_now),
+        "recent": r_now and {"window": "60 sessions", **r_now},
+        "long": l_now and {"window": "1 year", **l_now},
+        # A short trail of the 60-session correlation, for a sparkline. The
+        # shape is the point: a number that has been sliding for months is
+        # a different thing from the same number holding steady.
+        "spark": [x["r"] for x in recent[-SPARK:]],
+        "health": _kre.relationship_health(
+            r_now["r"] if r_now else None, l_now["r"] if l_now else None,
+            r_now["n"] if r_now else 0, l_now["n"] if l_now else 0),
+    })
+    return out
+
+
 def window_comparison(symbol: str, force: bool = False) -> list:
     """The same opening-gap measurement across every lookback, side by side.
 
@@ -937,10 +1013,47 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
         # session on file is August 19".
         implied["reason"] = sig["reason"]
     live = us_today(sym)
+    bucket_med = (implied.get("distribution") or {}).get("median_pct")
     cmp_ = kle.premarket_comparison(
-        (implied.get("distribution") or {}).get("median_pct"),
-        live.get("gap_pct") if live.get("ok") else None,
+        bucket_med, live.get("gap_pct") if live.get("ok") else None,
         near_zero_pct=float(cfg["near_zero_expected_pct"]))
+
+    # A SECOND, independent estimate of today's gap: a line fitted through
+    # every matched session, rather than the median of the sessions that
+    # landed in today's bucket. Two methods that disagree are reported as
+    # disagreeing — never averaged into a third number nothing supports.
+    reg = _kre.regression_estimate(obs, "korea", "opening_gap", kospi_pct)
+    import korea_research as _kres     # local: research imports korea_lead
+    _lim = _kres.limits()
+    estimates = _kre.compare_estimates(
+        bucket_med, reg.get("expected_pct") if reg.get("ok") else None,
+        tolerance_pct=float(_lim["estimate_disagreement_pct"]))
+
+    # Today's residual against every residual this pair has produced before,
+    # so "two points light" is judged against what two points light has
+    # historically meant HERE rather than against a round number.
+    # Built from the FULL matched history, never from the chosen lookback.
+    # How unusual today's distance is, is a property of the PAIR — and a
+    # one-year window holds fewer sessions than the point-in-time residual
+    # needs to warm up at all, so windowing it here meant the label simply
+    # never appeared on the lookback the panel opens with.
+    # Built with the SAME estimator the headline residual uses — the bucket
+    # median, not the fitted line. The two estimators disagree by a
+    # meaningful amount on any given day, so ranking a bucket residual
+    # against a history of line residuals would be measuring the gap
+    # between the two methods as much as anything about this morning.
+    pit = [dict(o) for o in observations(sym)["observations"]]
+    _kre.expanding_bucket_residual(pit, "opening_gap", "korea",
+                                   kle.bucket_key,
+                                   min_train=_kre.MIN_TRAIN_N,
+                                   min_bucket=int(cfg["implied_min_n"]),
+                                   out_key="_r")
+    hist_resid = [o["_r"] for o in pit if o.get("_r") is not None]
+    residual = _kre.residual_context(
+        cmp_.get("residual_pct"), hist_resid,
+        estimator="bucket median",
+        expected_pct=bucket_med,
+        actual_pct=live.get("gap_pct") if live.get("ok") else None)
     out.update({
         "ok": True,
         "target": {
@@ -958,6 +1071,13 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
             "buckets_down": [b for b in st["buckets"] if b["sign"] == "down"],
         },
         "premarket_comparison": cmp_,
+        "residual": residual,
+        "estimates": {
+            "bucket_pct": bucket_med,
+            "regression": reg,
+            "agreement": estimates,
+        },
+        "relationship": relationship(sym, force=force),
         "after_open": {
             "edge": st["after_open_edge"],
             "stats": st["measures"]["open_to_close"],
