@@ -153,6 +153,7 @@ NO_VERDICT = "NO RECOMMENDATION RECORDED"
 UNRECOVERABLE_CONFIG = "CONFIG NOT ARCHIVED"
 NO_CONTRACT = "THE RECOMMENDED CONTRACT WAS NOT RECORDED"
 NO_QUOTE = "THE RECOMMENDED CONTRACT CARRIES NO QUOTE"
+WRONG_CONTRACT = "THE STORED CONTRACT IS NOT THE ONE RECOMMENDED"
 NO_BENCHMARK = "NO BENCHMARK CLOSE RECORDED"
 
 ELIGIBILITY_NOTE = {
@@ -170,6 +171,11 @@ ELIGIBILITY_NOTE = {
                  "exists to prevent.",
     NO_QUOTE: "The contract was recorded without a price, so there is no "
               "entry to settle it against.",
+    WRONG_CONTRACT: "The stored contract belongs to a different structure "
+                    "from the one recommended. Settling up against it would "
+                    "score a trade nobody was told to make, and its shape "
+                    "alone cannot tell the two apart — a long-dated call and "
+                    "a short put both carry a strike and a price.",
     NO_BENCHMARK: "No benchmark close was recorded on the day, so this row "
                   "can still be scored on its own return but not against "
                   "the market.",
@@ -204,6 +210,27 @@ CONTRACT_REQUIRED = {
     "BUY-WRITE": ("call_strike",),
     "BULL CALL SPREAD": ("long_strike", "short_strike"),
 }
+
+# The recommendation and the comparator name the same structures in two
+# vocabularies, and the stored contract is stamped with the comparator's.
+# Checking the numbers alone is not enough to tell a put from a long-dated
+# call: both carry a strike and a price.
+_SAME_STRUCTURE = {
+    "BUY SHARES": "SHARES",
+    "SELL PORTFOLIO SECURED PUT": "PORTFOLIO SECURED PUT",
+    "BUY LEAPS": "LEAPS",
+    "BUY-WRITE": "BUY-WRITE",
+    "BULL CALL SPREAD": "BULL CALL SPREAD",
+}
+
+
+def _structures_agree(recommended, stored) -> bool:
+    a = str(recommended or "").strip().upper()
+    b = str(stored or "").strip().upper()
+    if not b:
+        return False              # unstamped: cannot be confirmed, so is not
+    return b in (a, _SAME_STRUCTURE.get(a, a))
+
 
 # The price the structure was entered at. A put is sold for a credit; a
 # long-dated call and a spread are bought for a debit; a buy-write collects a
@@ -267,6 +294,12 @@ def eligibility(row: dict, known_hashes=None) -> dict:
                 reasons.append(NO_CONTRACT)
             if all(_num(contract.get(k)) is None for k in _QUOTE_KEYS):
                 reasons.append(NO_QUOTE)
+            # The comparator's preferred structure and the recommendation are
+            # not always the same, and the stored contract is the
+            # comparator's. A long-dated call standing in for a put has a
+            # strike and a debit and would otherwise pass every field check.
+            if not _structures_agree(structure, contract.get("structure")):
+                reasons.append(WRONG_CONTRACT)
 
     # The benchmark gates only the comparison against the market. A row
     # without one is still a real recommendation with a real return.
@@ -368,20 +401,29 @@ def outcome(row: dict, series: list, horizon: int, today: str,
     # is still perfectly scorable on its own return — it simply cannot be
     # measured against anything, and says so rather than borrowing a close
     # from a series fetched later.
+    # The baseline is the close RECORDED ON THE DAY, not the one a series
+    # fetched later reports for that date. They can differ — a provider
+    # correction, a distribution adjustment — and taking the later one would
+    # measure the entry against a number that did not exist when the call
+    # was made. That is the lookahead this engine exists to refuse, and it
+    # is the whole reason the close is written into the row prospectively.
+    # The series is used only for the far end of the window, which had not
+    # happened yet and could not have been recorded.
     bench_ret = None
     bench_note = ""
+    b_entry = _num(row.get("benchmark_close"))
     has_bench = bool(row.get("benchmark_symbol")
-                     and _num(row.get("benchmark_close")) is not None
-                     and (_num(row.get("benchmark_close")) or 0) > 0)
+                     and b_entry is not None and b_entry > 0)
     if not has_bench:
         bench_note = ELIGIBILITY_NOTE[NO_BENCHMARK]
     elif benchmark:
-        b0 = _close_on_or_before(benchmark, day)
         b1 = _close_on_or_before(benchmark, target)
-        if b0 and b1 and b0[1] > 0 and b1[0] > b0[0]:
-            bench_ret = (b1[1] / b0[1] - 1.0) * 100.0
+        if b1 and b1[0] > day:
+            bench_ret = (b1[1] / b_entry - 1.0) * 100.0
+            bench_note = ("Measured from the benchmark close recorded on the "
+                          "day, not from a price fetched afterwards.")
         else:
-            bench_note = ("The benchmark series does not reach both ends of "
+            bench_note = ("The benchmark series does not reach the end of "
                           "this window.")
     else:
         bench_note = "No benchmark price series was available to compare to."

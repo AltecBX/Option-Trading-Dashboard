@@ -4452,8 +4452,11 @@ def _nth_sunday(year: int, month: int, nth: int) -> date:
     return d + timedelta(days=7 * (nth - 1))
 
 
+_EDT, _EST = timedelta(hours=-4), timedelta(hours=-5)
+
+
 def _eastern_offset(utc: datetime) -> timedelta:
-    """Eastern time's offset from UTC at a given instant.
+    """Eastern time's offset from UTC at a given INSTANT.
 
     Daylight saving begins at two in the morning local standard time on the
     second Sunday in March — 07:00 UTC — and ends at two in the morning local
@@ -4463,22 +4466,64 @@ def _eastern_offset(utc: datetime) -> timedelta:
     start = datetime.combine(_nth_sunday(y, 3, 2), dtime(7, 0))
     end = datetime.combine(_nth_sunday(y, 11, 1), dtime(6, 0))
     naive = utc.replace(tzinfo=None)
-    return timedelta(hours=-4) if start <= naive < end else timedelta(hours=-5)
+    return _EDT if start <= naive < end else _EST
+
+
+def _eastern_offset_local(local: datetime) -> timedelta:
+    """Eastern time's offset for a LOCAL wall-clock reading.
+
+    A different question from the one above, and it has to be asked
+    differently. `tzinfo.utcoffset()` is handed the local fields, not the
+    instant — so comparing them against the UTC transition times would put
+    the hours right after a change on the wrong side of it. Read as UTC,
+    07:30 on the March Sunday is 03:30 Eastern Daylight Time; read as local,
+    03:30 is after the 02:00 spring-forward and is daylight time too. Using
+    the UTC rule on the local reading returned standard time, and stamped
+    the moment an hour off.
+
+    In local terms the clock jumps forward at 02:00 on the second Sunday in
+    March and back at 02:00 on the first Sunday in November.
+
+    The hour before the November change happens twice — 01:30 is a valid
+    reading of two instants an hour apart — and there is no way to tell them
+    apart from the wall clock alone. `fold` is how Python says which: 0 for
+    the first pass, in daylight time, 1 for the second, in standard time.
+    """
+    y = local.year
+    start = datetime.combine(_nth_sunday(y, 3, 2), dtime(2, 0))
+    end = datetime.combine(_nth_sunday(y, 11, 1), dtime(2, 0))
+    naive = local.replace(tzinfo=None)
+    if end - timedelta(hours=1) <= naive < end:
+        return _EST if getattr(local, "fold", 0) else _EDT
+    return _EDT if start <= naive < end else _EST
 
 
 class _Eastern(tzinfo):
     """Eastern time without a time-zone database. Last resort only."""
 
     def utcoffset(self, dt):
-        base = dt.replace(tzinfo=None) if dt is not None else datetime.utcnow()
-        return _eastern_offset(base.replace(tzinfo=None))
+        if dt is None:                               # pragma: no cover
+            return _eastern_offset(datetime.now(timezone.utc))
+        return _eastern_offset_local(dt)
 
     def dst(self, dt):
-        return (timedelta(hours=1) if self.utcoffset(dt) == timedelta(hours=-4)
-                else timedelta(0))
+        return timedelta(hours=1) if self.utcoffset(dt) == _EDT else timedelta(0)
 
     def tzname(self, dt):
-        return ("EDT" if self.utcoffset(dt) == timedelta(hours=-4) else "EST")
+        return "EDT" if self.utcoffset(dt) == _EDT else "EST"
+
+    def fromutc(self, dt):
+        # The instant is what is known here, so the instant's rule applies.
+        # Left to the default implementation this would go back through
+        # utcoffset() with UTC fields and land an hour out around a change.
+        offset = _eastern_offset(dt.replace(tzinfo=timezone.utc))
+        local = dt.replace(tzinfo=self) + offset
+        # The second pass through a repeated hour has to say so, or it reads
+        # back as the first one and the instant moves.
+        if offset == _EST and _eastern_offset_local(
+                local.replace(fold=0)) == _EDT:
+            local = local.replace(fold=1)
+        return local
 
     def __str__(self):
         return "America/New_York"
@@ -4529,8 +4574,9 @@ def market_now(now: datetime | None = None) -> datetime:
         return now
     if _MARKET_TZ is not None:
         return datetime.now(_MARKET_TZ)
-    utc = datetime.now(timezone.utc)
-    return (utc + _eastern_offset(utc)).replace(tzinfo=_Eastern())
+    # Through fromutc, so the offset is decided by the instant and the
+    # stamped tzinfo agrees with it.
+    return datetime.now(timezone.utc).astimezone(_Eastern())
 
 
 def market_clock() -> dict:

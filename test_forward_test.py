@@ -54,7 +54,7 @@ def row(day="2025-01-01", **kw):
             # Benchmark-relative scoring needs the benchmark's close on the
             # day, recorded on the day. Rows without it are still scored on
             # their own return; these fixtures exercise the comparison.
-            "benchmark_symbol": "SPY", "benchmark_close": 500.0}
+            "benchmark_symbol": "SPY", "benchmark_close": 100.0}
     base.update(kw)
     return base
 
@@ -433,7 +433,7 @@ class TestEligibility(unittest.TestCase):
         base = {"date": "2026-08-19", "ticker": "AAA", "price": 100.0,
                 "config_hash": "abc123", "entry_verdict": "BUY SHARES",
                 "preferred_structure": "BUY SHARES",
-                "benchmark_symbol": "SPY", "benchmark_close": 500.0}
+                "benchmark_symbol": "SPY", "benchmark_close": 100.0}
         base.update(kw)
         return base
 
@@ -484,7 +484,8 @@ class TestEligibility(unittest.TestCase):
     def test_a_put_with_its_strike_and_credit_is_scorable(self):
         got = FT.eligibility(
             self._row(entry_verdict="SELL PORTFOLIO SECURED PUT",
-                      recommended_contract={"strike": 95.0, "credit": 2.1,
+                      recommended_contract={"structure": "PORTFOLIO SECURED PUT",
+                                            "strike": 95.0, "credit": 2.1,
                                             "expiration": "2026-10-16"}),
             {"abc123"})
         self.assertTrue(got["eligible"], got["reasons"])
@@ -498,7 +499,8 @@ class TestEligibility(unittest.TestCase):
     def test_a_buy_write_needs_the_call_it_writes(self):
         got = FT.eligibility(
             self._row(entry_verdict="BUY-WRITE",
-                      recommended_contract={"call_strike": 110.0,
+                      recommended_contract={"structure": "BUY-WRITE",
+                                            "call_strike": 110.0,
                                             "credit": 1.4}), {"abc123"})
         self.assertTrue(got["eligible"], got["reasons"])
 
@@ -510,7 +512,8 @@ class TestEligibility(unittest.TestCase):
         self.assertIn(FT.NO_CONTRACT, one["reasons"])
         both = FT.eligibility(
             self._row(entry_verdict="BULL CALL SPREAD",
-                      recommended_contract={"long_strike": 100.0,
+                      recommended_contract={"structure": "BULL CALL SPREAD",
+                                            "long_strike": 100.0,
                                             "short_strike": 110.0,
                                             "debit": 4.0}), {"abc123"})
         self.assertTrue(both["eligible"], both["reasons"])
@@ -553,6 +556,60 @@ class TestEligibility(unittest.TestCase):
         self.assertIsNone(got["benchmark_return_pct"])
         self.assertFalse(got["benchmark_relative_eligible"])
         self.assertIn("not against the market", got["benchmark_note"])
+
+
+    # ── the stored contract has to BE the recommended one ──
+    def test_a_contract_from_another_structure_is_refused(self):
+        # The comparator's preferred structure and the recommendation are not
+        # always the same, and the stored contract is stamped with the
+        # comparator's. A long-dated call has a strike and a price, exactly
+        # like a short put, so the numbers alone cannot tell them apart.
+        got = FT.eligibility(
+            self._row(entry_verdict="SELL PORTFOLIO SECURED PUT",
+                      recommended_contract={"structure": "LEAPS",
+                                            "strike": 90.0, "debit": 20.0}),
+            {"abc123"})
+        self.assertIn(FT.WRONG_CONTRACT, got["reasons"])
+
+    def test_an_unstamped_contract_cannot_be_confirmed_so_is_refused(self):
+        got = FT.eligibility(
+            self._row(entry_verdict="BUY LEAPS",
+                      recommended_contract={"strike": 90.0, "debit": 20.0}),
+            {"abc123"})
+        self.assertIn(FT.WRONG_CONTRACT, got["reasons"])
+
+    def test_the_two_vocabularies_are_treated_as_the_same_structure(self):
+        # The verdict says SELL PORTFOLIO SECURED PUT; the comparator stamps
+        # the contract PORTFOLIO SECURED PUT. Same thing.
+        for verdict, stored in (("SELL PORTFOLIO SECURED PUT",
+                                 "PORTFOLIO SECURED PUT"),
+                                ("BUY LEAPS", "LEAPS"),
+                                ("BUY-WRITE", "BUY-WRITE"),
+                                ("BULL CALL SPREAD", "BULL CALL SPREAD")):
+            self.assertTrue(FT._structures_agree(verdict, stored),
+                            f"{verdict} vs {stored}")
+
+    # ── the benchmark baseline is the one recorded on the day ──
+    def test_the_benchmark_return_starts_from_the_recorded_close(self):
+        # The series says the benchmark was at 100 that day; the row recorded
+        # 50. The row wins — that is the number that existed when the call
+        # was made, and it is why it is written down prospectively.
+        bars = FT.index_bars(series([100.0] * 400))
+        r = row(day="2025-01-01", benchmark_close=50.0)
+        got = FT.outcome(r, UP, 90, TODAY, bars)
+        self.assertAlmostEqual(got["benchmark_return_pct"], 100.0, places=6)
+        self.assertIn("recorded on the day", got["benchmark_note"])
+
+    def test_a_later_correction_to_the_benchmark_cannot_move_the_entry(self):
+        bars_a = FT.index_bars(series([100.0] * 400))
+        bars_b = FT.index_bars(series([120.0] * 400))   # the same days, revised
+        r = row(day="2025-01-01", benchmark_close=100.0)
+        a = FT.outcome(r, UP, 90, TODAY, bars_a)["benchmark_return_pct"]
+        b = FT.outcome(r, UP, 90, TODAY, bars_b)["benchmark_return_pct"]
+        # Both ends move with the series, but the ENTRY never does: the
+        # difference here is the far end only, not a shifted baseline.
+        self.assertAlmostEqual(a, 0.0, places=6)
+        self.assertAlmostEqual(b, 20.0, places=6)
 
     # ── the report over a whole store ──
     def test_the_report_separates_what_can_be_scored_from_what_cannot(self):

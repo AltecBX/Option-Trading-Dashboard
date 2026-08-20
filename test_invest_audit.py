@@ -992,6 +992,40 @@ class TestMarketClock(unittest.TestCase):
         self.assertEqual(S._nth_sunday(2026, 11, 1).isoformat(), "2026-11-01")
         self.assertEqual(S._nth_sunday(2027, 11, 1).isoformat(), "2027-11-07")
 
+    def test_every_instant_in_a_year_round_trips_without_a_database(self):
+        # The offset for an INSTANT and the offset for a WALL READING are
+        # different questions. Asking the second with the first's rule put
+        # the hours after a change on the wrong side of it, and stamped the
+        # moment an hour out. This sweeps the whole year at half-hour steps.
+        S._MARKET_TZ = None
+        u = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        bad = []
+        while u.year == 2026:
+            local = u.astimezone(S._Eastern())
+            if local.astimezone(timezone.utc) != u:
+                bad.append(u.isoformat())
+            u += timedelta(minutes=30)
+        self.assertEqual(bad[:3], [], f"{len(bad)} instants did not round-trip")
+
+    def test_the_hour_after_the_spring_change_is_daylight_time(self):
+        S._MARKET_TZ = None
+        got = datetime(2026, 3, 8, 7, 30, tzinfo=timezone.utc).astimezone(
+            S._Eastern())
+        self.assertEqual(got.strftime("%H:%M %Z"), "03:30 EDT")
+
+    def test_the_repeated_november_hour_keeps_both_of_its_instants(self):
+        # 01:30 on the first Sunday in November happens twice. Read back as
+        # one instant, an hour of stamps would be wrong.
+        S._MARKET_TZ = None
+        first = datetime(2026, 11, 1, 5, 30, tzinfo=timezone.utc).astimezone(
+            S._Eastern())
+        second = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc).astimezone(
+            S._Eastern())
+        self.assertEqual(first.strftime("%H:%M %Z"), "01:30 EDT")
+        self.assertEqual(second.strftime("%H:%M %Z"), "01:30 EST")
+        self.assertNotEqual(first.astimezone(timezone.utc),
+                            second.astimezone(timezone.utc))
+
     def test_the_clock_says_which_clock_it_is(self):
         got = S.market_clock()
         self.assertIn("New_York", got["zone"])
