@@ -681,6 +681,622 @@ function GapDetail({
   }))));
 }
 
+// ── KOREA LEAD ──────────────────────────────────────────────────────────────
+// The overnight context layer above the individual-stock scanner. Korea has
+// already finished trading by the time a U.S. chip stock has to pick an
+// opening price, so the panel answers, in order: what did Korea do, did the
+// Korean chip names confirm it, what has historically happened to THIS
+// ticker's OPEN after a Korean move like this, what is the U.S. premarket
+// actually doing about it, and — separately, always separately — whether
+// Korea has ever said anything useful about what happens after 9:30.
+//
+// Every number here is computed server-side. This file renders results; it
+// does not reproduce the research.
+
+const KL_STORE_KEY = "jerry_korea_target";
+const KL_WINDOW_KEY = "jerry_korea_window";
+const klRate = (v, d = 1) => v == null ? "—" : `${Number(v).toFixed(d)}%`;
+const klCorr = v => v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}`;
+const KL_BIAS_TONE = {
+  UP: "up",
+  DOWN: "down",
+  MIXED: "warn",
+  "NO DATA": "mut"
+};
+const KL_EDGE_TONE = {
+  STRONG: "up",
+  MODERATE: "warn",
+  "WEAK HISTORICAL EDGE": "mut",
+  "NO EDGE": "mut",
+  "NOT MEASURED": "mut"
+};
+const KL_CONFIRM_TONE = {
+  STRONG: "up",
+  MIXED: "warn",
+  DIVERGENCE: "down",
+  UNAVAILABLE: "mut"
+};
+const KL_CMP_TONE = {
+  CONFIRMING: "up",
+  DIVERGING: "down",
+  UNAVAILABLE: "mut"
+};
+const KL_TIP = {
+  panel: "KOREA LEAD — what the Korean market did overnight, and what has historically happened to this U.S. ticker's OPENING PRICE after a Korean session like it. Korea finishes trading hours before New York opens, so today's Korean result is a completed, published fact by the time a U.S. chip stock has to choose an opening price. This panel measures whether that fact has ever told us anything. It is history, not a forecast, and it says how many sessions each number rests on.",
+  session: "Where Seoul is in its own trading day right now, on Seoul's clock. Korea's regular session runs 09:00 to 15:30 Korea time. SESSION IN PROGRESS means today's Korean numbers are still moving and are shown as provisional. CLOSED means Korea is finished and today's figure is the final overnight signal for this U.S. session. NOT A TRADING DAY means it is a weekend in Seoul.",
+  kospi: "The KOSPI Composite Index — the whole South Korean market — measured from yesterday's Korean close to today's Korean close. This is the signal every statistic in this panel is built on. If it cannot be read, there is no opening-gap bias and the panel says so rather than substituting something else.",
+  samsung: "Samsung Electronics, the world's largest memory maker, from its previous Korean close to today's. Shown next to KOSPI rather than blended into it: the index is broad and this is not, and when they disagree that disagreement is the information.",
+  hynix: "SK Hynix, the other Korean memory maker and the most direct listed comparison to Micron. Same measurement as Samsung — close to close on Korea's calendar.",
+  usdkrw: "The US dollar against the Korean won, shown as CONTEXT ONLY. It is deliberately excluded from every statistic in this panel. The reason is honest and unglamorous: this app's currency source stamps the USD/KRW daily bar on a London day, and London is still open when New York opens — so that 'close' may have been set hours AFTER the U.S. opening price it would be used to predict. Using it would be reading the future. There is no intraday currency history reaching back years to sample it properly instead, so it stays out of the model until there is.",
+  confirm: "Whether Korea's two memory names went the same way the KOSPI index went today. STRONG = both agreed with the index. MIXED = one agreed and one did not, or one of them could not be read. DIVERGENCE = neither went with the index. This is descriptive only — there is no weighting behind it and it is not a score. It exists because KOSPI is a broad index and the stocks traded here are not: an index that rose while both memory makers fell is worth seeing plainly instead of being averaged into something that reads as mild.",
+  target: "Which U.S. ticker the history below is measured on. The preset buttons are the semiconductor, memory and storage names this relationship was researched on; SPY and IGV are controls, not trades. Any ticker with enough matched history works, and opening a stock's row in the scanner below points this panel at it.",
+  control: "A CONTROL, not a trade idea. SPY is the whole U.S. market — if Korea predicts SPY's open about as well as it predicts a chip stock's, then what is being measured is broad risk appetite rather than anything about semiconductors. IGV is technology SOFTWARE, which buys no memory from Korea at all — if Korea predicts IGV as well as it predicts SMH, the semiconductor story is weaker than it looks. Compare them against the chip names before trusting the chip names.",
+  window: "How far back the history is measured. A 60-session result and a three-year result are not the same claim, and the sample size next to every number is there so they never get read as though they were. Longer windows are more stable; shorter ones describe the market as it is behaving now. Look at both in Details before believing either.",
+  bias: "OPENING GAP BIAS — which way the historical sessions that looked like today's Korean move opened this ticker. UP or DOWN means the conservative end of the match rate cleared a coin flip and the matched sessions leaned that way at the median. MIXED means they did not lean enough to say. NO DATA means there were not enough matched sessions to say anything. This describes the OPEN ONLY. It says nothing about the rest of the day — that is the separate box to its right, and on the evidence so far it says something much weaker.",
+  match: "HISTORICAL MATCH RATE — of the past sessions whose Korean move fell in the same bucket as today's, the share where this ticker's OPENING GAP went the same direction Korea did. It is deliberately NOT called a probability: nothing here has been calibrated against out-of-sample outcomes, so calling it a probability would claim an accuracy that has never been tested. The number after n is how many past sessions it rests on, and the range beside it is the conservative (Wilson) interval — the honest span the true rate could sit in given that sample size.",
+  implied: "KOREA IMPLIED GAP — what this ticker's opening gap ACTUALLY DID on the past sessions whose Korean move looked like today's. It is a lookup into history, not a prediction: find today's Korean bucket, take every past session in it, and report the distribution of what followed. The median is the middle outcome — half the matched sessions opened better, half worse. The typical range is the middle half of them (the 25th to the 75th percentile), so a quarter of past sessions opened outside it in each direction.",
+  premarket: "What this U.S. ticker is doing RIGHT NOW against yesterday's closing price. Before 9:30 that is the real premarket gap, which is what this whole panel is about. From 9:30 onward the honest comparison becomes the OFFICIAL opening gap — the price it actually opened at — because the last trade has stopped being an opening price. The label under the number always says which of the two you are looking at.",
+  residual: "The difference between what the U.S. premarket is doing and the middle outcome of the matched Korean sessions, in percentage points. This is an OBSERVATION, not a trade. A premarket that has moved less than history suggests may be about to move further — or history may simply not apply this morning, and nothing in this panel can tell those two apart. It is here so the discrepancy is visible instead of being felt.",
+  cmp: "Whether the U.S. premarket is moving the same way the matched Korean sessions moved this ticker's open (CONFIRMING) or the opposite way (DIVERGING). When the two signs disagree, no 'share already priced in' figure is shown — a share of a move in the other direction is not a quantity, and printing one would be a made-up number.",
+  share: "How much of the matched historical opening gap the premarket has already covered. Shown only when both are moving the same way AND the historical gap is big enough for a ratio to mean something — dividing by an expectation near zero turns a rounding difference into a dramatic percentage. Over 100% means the premarket has moved further than the matched sessions typically opened.",
+  afteropen: "AFTER OPEN EDGE — a completely separate measurement, from the 9:30 opening price to the 4:00 close. This is the question 'does Korea tell me what happens during the day', and it is judged by exactly the same standard as the opening-gap box, from exactly the same kind of evidence. Whatever difference you see between the two boxes is the data speaking, not a softer test applied to one of them. The research this feature was built on found the Korea relationship was materially stronger for where a stock OPENS than for what it does after — which is why these two are never combined into one bullish-or-bearish word.",
+  pearson: "How closely the two moved together in a straight line, from −1 to +1. Zero means no linear relationship at all. It is reported next to the rank correlation on purpose: when the two disagree, a handful of extreme days are usually carrying the result.",
+  spearman: "The same relationship measured on RANKS instead of raw sizes — did bigger Korean moves go with bigger U.S. gaps, whatever the shape of the relationship. It cannot be dominated by one crash the way an ordinary correlation can, so it is the more robust of the two.",
+  buckets: "Every past session sorted by how big the Korean move was, with UP sessions and DOWN sessions kept strictly apart. They are never combined, because there is no reason to assume a 3% Korean fall does the same thing to a U.S. open that a 3% Korean rise does — and in the measured history they often do not. Each row shows how many sessions it holds, how often the U.S. open went the same way as Korea, and what the opening gaps actually looked like.",
+  sources: "Which provider answered for each series, how many daily bars came back, and when it was last fetched. A series marked stale is being served from the cache because a refresh failed — the numbers are still real, they are just older than they should be.",
+  skipped: "Sessions that could NOT become observations. 'Korea traded, U.S. closed' are U.S. holidays: those Korean sessions are skipped, never rolled forward onto a later U.S. session, because a Korean move on Thursday does not describe a U.S. open the following Tuesday. 'U.S. traded, Korea closed' are Korean holidays, of which there are many.",
+  through: "The most recent COMPLETED U.S. session in the history. Today is deliberately not in its own history: before the open today's U.S. bar does not exist, and after the open it is unfinished, so scoring today against a set that contained today would not be a measurement.",
+  nodata: "Korea Lead cannot produce an opening-gap bias without the KOSPI series. It does not fall back to Samsung, to SK Hynix, or to yesterday's reading — the panel says NO DATA instead, because a substituted signal would be a different measurement wearing this one's name."
+};
+
+// A stacked label-over-value pair. The boxes are narrow and several of the
+// values are long ("78.6% · n=14 · 52.4%–92.4%"), so a label and a value on
+// one line collide the moment the label wraps. Stacking removes the failure
+// mode entirely and reads better in a column on a phone.
+function KlStat({
+  label,
+  tip,
+  children,
+  tone
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-stat",
+    title: tip
+  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("b", {
+    className: tone || ""
+  }, children));
+}
+function KlPill({
+  text,
+  tone,
+  tip
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    className: `gap-sig gap-sig-${tone || "mut"}`,
+    title: tip
+  }, text || "—");
+}
+
+// One Korean series line: name, move, and — when it matters — a marker
+// saying the value is provisional, stale, or context only.
+//
+// The session date is deliberately NOT repeated on every row. All four
+// series normally belong to the same Korean session, which is named once
+// in the line above; four identical dates would be noise. A date that
+// DIFFERS is the opposite of noise — it means that series is showing an
+// older session than the rest — so that is the only case it appears, in
+// the warning colour.
+function KlSeries({
+  s,
+  tip,
+  sessionDate
+}) {
+  if (!s) return null;
+  const bad = !s.ok;
+  const odd = s.session_date && sessionDate && s.session_date !== sessionDate;
+  const provTip = `${s.name_from_provider || s.label}${s.symbol ? ` (${s.symbol})` : ""}` + ` · Korean session of ${gapDate(s.session_date)}`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-srow",
+    title: `${tip}\n\n${provTip}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "kl-srow-name"
+  }, /*#__PURE__*/React.createElement("span", null, s.label), !s.in_model && /*#__PURE__*/React.createElement("em", {
+    className: "kl-ctx",
+    title: KL_TIP.usdkrw
+  }, "context"), s.provisional && /*#__PURE__*/React.createElement("em", {
+    className: "kl-prov",
+    title: "Seoul is still trading, so this number is not final for today."
+  }, "provisional"), s.stale && /*#__PURE__*/React.createElement("em", {
+    className: "kl-prov",
+    title: "Served from the stored copy \u2014 the last refresh of this series failed."
+  }, "stale")), bad ? /*#__PURE__*/React.createElement("b", {
+    className: "muted",
+    title: s.error ? `Unavailable: ${s.error}` : "This series could not be read. It is left blank rather than filled with a zero — a missing move is not a flat move."
+  }, "UNAVAILABLE") : /*#__PURE__*/React.createElement("b", {
+    className: s.pct >= 0 ? "up" : "down"
+  }, gapPct(s.pct, 2)), odd && /*#__PURE__*/React.createElement("span", {
+    className: "kl-srow-when",
+    title: `This series is showing the Korean session of ${gapDate(s.session_date)}, which is NOT the session the rest of the panel is reading. Treat it as older data, not as today's move.`
+  }, "\u26A0 showing ", gapDate(s.session_date)));
+}
+
+// "72.4% · n=58 · 60% to 83%" — a match rate never renders alone.
+function KlMatch({
+  sd,
+  tip
+}) {
+  if (!sd || sd.rate_pct == null) return /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\u2014");
+  return /*#__PURE__*/React.createElement("span", {
+    title: tip || `${sd.k} of ${sd.n} matched sessions went the same way as Korea. Conservative range ${klRate(sd.lo_pct)} to ${klRate(sd.hi_pct)}.`
+  }, /*#__PURE__*/React.createElement("b", null, klRate(sd.rate_pct)), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 n=", sd.n, " \xB7 ", klRate(sd.lo_pct), "\u2013", klRate(sd.hi_pct)));
+}
+function KlBucketTable({
+  rows,
+  title,
+  tip
+}) {
+  if (!rows || !rows.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-buckets"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: tip || KL_TIP.buckets
+  }, title), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-bucket-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "How big the Korean move was that day. Upside and downside are kept in separate tables and never merged."
+  }, "Korean move"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "How many past sessions fall in this bucket. A rate from a handful of sessions is not a rate."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.match
+  }, "Match rate"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The conservative (Wilson) range around the match rate, given how few or how many sessions it rests on."
+  }, "Honest range"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The middle outcome: half of the sessions in this bucket opened better than this, half worse."
+  }, "Median gap"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The average opening gap in this bucket. Read it next to the median \u2014 when they disagree, a few extreme mornings are pulling the average."
+  }, "Average gap"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The middle half of the outcomes, from the 25th to the 75th percentile. A quarter of past sessions opened outside this range on each side."
+  }, "Typical range"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(b => /*#__PURE__*/React.createElement("tr", {
+    key: b.bucket
+  }, /*#__PURE__*/React.createElement("td", {
+    title: `${b.label} — ${b.n} matched session${b.n === 1 ? "" : "s"}`
+  }, b.label), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, b.n), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, b.same_direction ? klRate(b.same_direction.rate_pct) : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, b.same_direction ? `${klRate(b.same_direction.lo_pct)}–${klRate(b.same_direction.hi_pct)}` : "—"), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${b.distribution && b.distribution.median_pct >= 0 ? "up" : "down"}`
+  }, gapPct(b.distribution && b.distribution.median_pct, 2)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, gapPct(b.distribution && b.distribution.avg_pct, 2)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, b.distribution ? `${gapPct(b.distribution.p25_pct, 2)} to ${gapPct(b.distribution.p75_pct, 2)}` : "—")))))));
+}
+function KlDetails({
+  d
+}) {
+  const dg = d.diagnostics || {};
+  const m = dg.measures || {};
+  const chips = dg.chip_signals || {};
+  const srcs = d.sources || {};
+  const measureRow = (key, label, tip) => {
+    const s = m[key] || {};
+    return /*#__PURE__*/React.createElement("tr", {
+      key: key
+    }, /*#__PURE__*/React.createElement("td", {
+      title: tip
+    }, label), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num muted"
+    }, s.n ?? "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: KL_TIP.pearson
+    }, klCorr(s.pearson)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num",
+      title: KL_TIP.spearman
+    }, klCorr(s.spearman)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, /*#__PURE__*/React.createElement(KlMatch, {
+      sd: s.same_direction
+    })));
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-details"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: "How KOSPI relates to each of the three U.S. measurements. They are different questions and are never mixed: the opening gap and the full day differ by exactly the move after 9:30."
+  }, "KOSPI against each U.S. measurement ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\xB7 ", d.window_label)), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-diag-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which U.S. measurement is being predicted."
+  }, "U.S. measurement"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Matched sessions behind the row."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.pearson
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.spearman
+  }, "Rank correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.match
+  }, "Same direction"))), /*#__PURE__*/React.createElement("tbody", null, measureRow("opening_gap", "Opening gap (9:30 open vs prior close)", "Today's regular-session opening price against yesterday's regular-session close. This is what Korea Lead is about."), measureRow("open_to_close", "Open to close (9:30 to 4:00)", "From the opening price to the closing price on the same day — everything that happens after the open, with the gap itself removed."), measureRow("full_day", "Full day (close to close)", "Yesterday's close to today's close. It contains the opening gap AND the move after it, which is exactly why it is a poor way to judge either one on its own.")))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: "The same measurement, run with Samsung Electronics and with SK Hynix in place of KOSPI. Nothing is combined \u2014 this is here so you can see whether the Korean chip names carry more information about this ticker's open than the broad index does."
+  }, "Korean chip names, measured the same way ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\xB7 against the opening gap \xB7 not combined with anything")), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-diag-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which Korean series is used as the signal in this row."
+  }, "Korean signal"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Matched sessions behind the row."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.pearson
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.spearman
+  }, "Rank correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.match
+  }, "Same direction"))), /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    title: KL_TIP.kospi
+  }, "KOSPI (the index)"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, (m.opening_gap || {}).n ?? "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr((m.opening_gap || {}).pearson)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr((m.opening_gap || {}).spearman)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, /*#__PURE__*/React.createElement(KlMatch, {
+    sd: (m.opening_gap || {}).same_direction
+  }))), ["samsung", "hynix"].map(k => /*#__PURE__*/React.createElement("tr", {
+    key: k
+  }, /*#__PURE__*/React.createElement("td", {
+    title: k === "samsung" ? KL_TIP.samsung : KL_TIP.hynix
+  }, k === "samsung" ? "Samsung Electronics" : "SK Hynix"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, (chips[k] || {}).n ?? "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr((chips[k] || {}).pearson)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr((chips[k] || {}).spearman)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, /*#__PURE__*/React.createElement(KlMatch, {
+    sd: (chips[k] || {}).same_direction
+  }))))))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.window
+  }, "The same measurement over every lookback ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\xB7 opening gap \xB7 sample size is the point")), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-diag-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "How far back this row looks."
+  }, "Lookback"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Matched sessions in this lookback \u2014 never assume a 60-session result carries the confidence of a three-year one."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    title: "The first matched session in this lookback."
+  }, "Starting"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.pearson
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.spearman
+  }, "Rank correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.match
+  }, "Same direction"))), /*#__PURE__*/React.createElement("tbody", null, (dg.windows || []).map(w => /*#__PURE__*/React.createElement("tr", {
+    key: w.window,
+    className: w.window === d.window ? "kl-row-on" : ""
+  }, /*#__PURE__*/React.createElement("td", null, w.label, w.window === d.window ? " ·" : ""), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, w.n), /*#__PURE__*/React.createElement("td", {
+    className: "muted"
+  }, gapDate(w.first_date)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr(w.pearson)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr(w.spearman)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, /*#__PURE__*/React.createElement(KlMatch, {
+    sd: w.same_direction
+  }))))))), /*#__PURE__*/React.createElement(KlBucketTable, {
+    rows: (d.opening_gap || {}).buckets_down,
+    title: "After a Korean session DOWN by\u2026",
+    tip: KL_TIP.buckets
+  }), /*#__PURE__*/React.createElement(KlBucketTable, {
+    rows: (d.opening_gap || {}).buckets_up,
+    title: "After a Korean session UP by\u2026",
+    tip: KL_TIP.buckets
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.sources
+  }, "Where the data came from"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-srcs"
+  }, Object.keys(srcs).map(k => {
+    const s = srcs[k] || {};
+    return /*#__PURE__*/React.createElement("div", {
+      key: k,
+      className: "gap-kv",
+      title: `${s.bars || 0} daily bars${s.fetched ? `, last fetched ${gapWhen(s.fetched)}` : ""}${s.stale ? " — served from the stored copy after a failed refresh" : ""}`
+    }, /*#__PURE__*/React.createElement("span", null, k === "us" ? "U.S. target" : k === "korea" ? "KOSPI" : k === "samsung" ? "Samsung Electronics" : k === "hynix" ? "SK Hynix" : k, " ", "(", s.symbol, ")"), /*#__PURE__*/React.createElement("b", null, s.source || "unavailable", /*#__PURE__*/React.createElement("small", {
+      className: "muted"
+    }, " \xB7 ", s.bars || 0, " bars")));
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "gap-kv",
+    title: KL_TIP.skipped
+  }, /*#__PURE__*/React.createElement("span", null, "Sessions skipped"), /*#__PURE__*/React.createElement("b", null, (dg.skipped || {}).korea_only || 0, " Korea traded, U.S. closed", " · ", (dg.skipped || {}).us_only || 0, " U.S. traded, Korea closed")), /*#__PURE__*/React.createElement("div", {
+    className: "gap-kv",
+    title: KL_TIP.through
+  }, /*#__PURE__*/React.createElement("span", null, "History runs through"), /*#__PURE__*/React.createElement("b", null, gapDate(dg.through))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-kv",
+    title: "A daily series adjusted for splits and spinoffs should never print an overnight move this large, so any day that does is left out of the statistics and counted rather than explained away. It is not a split detector and does not claim to be."
+  }, /*#__PURE__*/React.createElement("span", null, "Days excluded as not credible"), /*#__PURE__*/React.createElement("b", null, "beyond \xB1", dg.max_credible_move_pct, "% overnight")), /*#__PURE__*/React.createElement("div", {
+    className: "gap-kv",
+    title: "The exact definition these statistics were built under, and the version of the mathematics that built them. If either ever changes, cached results stop being served for today's question."
+  }, /*#__PURE__*/React.createElement("span", null, "Signal definition"), /*#__PURE__*/React.createElement("b", {
+    className: "kl-defn"
+  }, d.signal_definition))));
+}
+function KoreaLead({
+  apiFetch,
+  symbol,
+  onSymbol
+}) {
+  const [win, setWin] = useState(() => {
+    try {
+      return localStorage.getItem(KL_WINDOW_KEY) || "1y";
+    } catch (e) {
+      return "1y";
+    }
+  });
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let dead = false;
+    if (!symbol) return undefined;
+    setD(null);
+    setErr(null);
+    apiFetch(`/api/korea_lead?symbol=${encodeURIComponent(symbol)}&window=${win}`, {
+      noCache: true
+    }).then(r => r.json()).then(x => {
+      if (!dead) x && x.session ? setD(x) : setErr(x && x.error || "unavailable");
+    }).catch(e => !dead && setErr(String(e)));
+    return () => {
+      dead = true;
+    };
+  }, [symbol, win]);
+  const pickWin = w => {
+    setWin(w);
+    try {
+      localStorage.setItem(KL_WINDOW_KEY, w);
+    } catch (e) {/* private mode */}
+  };
+  const pickSym = s => {
+    onSymbol && onSymbol(s);
+    try {
+      localStorage.setItem(KL_STORE_KEY, s);
+    } catch (e) {/* private mode */}
+  };
+  const sess = d && d.session;
+  const K = d && d.korea && d.korea.series || {};
+  const conf = d && d.korea && d.korea.chip_confirmation || null;
+  const og = d && d.opening_gap || null;
+  const impl = og && og.implied;
+  const dist = impl && impl.distribution;
+  const pm = d && d.target && d.target.premarket;
+  const cmp = d && d.premarket_comparison;
+  const ao = d && d.after_open;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kl-head"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kl-title",
+    title: KL_TIP.panel
+  }, "KOREA LEAD", /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 overnight context for U.S. chips")), /*#__PURE__*/React.createElement("div", {
+    className: "kl-controls"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "kl-ctl-label",
+    title: KL_TIP.target
+  }, "Target"), /*#__PURE__*/React.createElement("select", {
+    className: "kl-select",
+    value: symbol || "",
+    title: KL_TIP.target,
+    onChange: e => pickSym(e.target.value)
+  }, (d && d.presets || []).map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s)), /*#__PURE__*/React.createElement("optgroup", {
+    label: "Controls \u2014 not trade ideas"
+  }, (d && d.controls || []).map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, s))), symbol && !(d && d.presets || []).includes(symbol) && !(d && d.controls || []).includes(symbol) && /*#__PURE__*/React.createElement("option", {
+    value: symbol
+  }, symbol)), /*#__PURE__*/React.createElement("span", {
+    className: "kl-ctl-label",
+    title: KL_TIP.window
+  }, "Lookback"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-wins"
+  }, (d && d.windows || [{
+    key: "60d",
+    label: "60D"
+  }, {
+    key: "1y",
+    label: "1Y"
+  }, {
+    key: "3y",
+    label: "3Y"
+  }, {
+    key: "max",
+    label: "MAX"
+  }]).map(w => /*#__PURE__*/React.createElement("button", {
+    key: w.key,
+    className: `kl-win${w.key === win ? " on" : ""}`,
+    title: `${w.label} — ${KL_TIP.window}`,
+    onClick: () => pickWin(w.key)
+  }, w.label))))), err && /*#__PURE__*/React.createElement("div", {
+    className: "card-error"
+  }, "Korea Lead unavailable: ", err), !d && !err && /*#__PURE__*/React.createElement("div", {
+    className: "card-loading"
+  }, "Reading Korea\u2026"), d && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kl-ctxline muted",
+    title: KL_TIP.session
+  }, "Seoul ", sess && sess.seoul_time, " \xB7", " ", /*#__PURE__*/React.createElement("b", {
+    className: sess && sess.state === "SESSION IN PROGRESS" ? "warn" : ""
+  }, sess && sess.state), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), /*#__PURE__*/React.createElement("div", {
+    className: "kl-grid"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kl-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-bt",
+    title: KL_TIP.session
+  }, "What Korea did"), [["kospi", KL_TIP.kospi], ["samsung", KL_TIP.samsung], ["hynix", KL_TIP.hynix], ["usdkrw", KL_TIP.usdkrw]].map(([k, tip]) => /*#__PURE__*/React.createElement(KlSeries, {
+    key: k,
+    s: K[k],
+    tip: tip,
+    sessionDate: d.korea && d.korea.as_of
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "kl-confirm",
+    title: KL_TIP.confirm
+  }, /*#__PURE__*/React.createElement("span", null, "Chip confirmation"), /*#__PURE__*/React.createElement(KlPill, {
+    text: conf && conf.state,
+    tone: conf && KL_CONFIRM_TONE[conf.state],
+    tip: conf && conf.detail || KL_TIP.confirm
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "kl-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-bt",
+    title: KL_TIP.bias
+  }, "Opening gap bias", /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 ", symbol)), !og || !og.bias ? /*#__PURE__*/React.createElement("div", {
+    className: "research-empty",
+    title: KL_TIP.nodata
+  }, d.error || "No opening-gap history for this ticker yet.") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(KlPill, {
+    text: og.bias.state,
+    tone: KL_BIAS_TONE[og.bias.state],
+    tip: og.bias.detail || KL_TIP.bias
+  }), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Historical match rate",
+    tip: KL_TIP.match
+  }, /*#__PURE__*/React.createElement(KlMatch, {
+    sd: impl && impl.same_direction
+  })), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Matched bucket",
+    tip: impl && impl.label ? `Today's Korean move falls in the bucket "${impl.label}". ${KL_TIP.implied}` : KL_TIP.implied
+  }, impl && impl.label || "—"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Korea implied gap \xB7 median",
+    tip: KL_TIP.implied,
+    tone: dist && dist.median_pct >= 0 ? "up" : "down"
+  }, gapPct(dist && dist.median_pct, 2)), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Typical range",
+    tip: KL_TIP.implied
+  }, dist ? `${gapPct(dist.p25_pct, 2)} to ${gapPct(dist.p75_pct, 2)}` : "—"), impl && !impl.usable && impl.reason && /*#__PURE__*/React.createElement("div", {
+    className: "gap-note",
+    title: KL_TIP.match
+  }, impl.reason), og.edge && /*#__PURE__*/React.createElement("div", {
+    className: "gap-note",
+    title: og.edge.detail || KL_TIP.bias
+  }, "Evidence: ", og.edge.state))), /*#__PURE__*/React.createElement("div", {
+    className: "kl-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-bt",
+    title: KL_TIP.premarket
+  }, "U.S. premarket vs Korea"), /*#__PURE__*/React.createElement(KlStat, {
+    label: `${symbol} ${pm && pm.basis === "official_open" ? "opening gap" : "premarket"}`,
+    tip: pm && pm.basis_label ? `This is the ${pm.basis_label}. ${KL_TIP.premarket}` : KL_TIP.premarket,
+    tone: pm && pm.gap_pct >= 0 ? "up" : "down"
+  }, pm && pm.ok ? gapPct(pm.gap_pct, 2) : /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    title: pm && pm.error || "No live quote."
+  }, "\u2014")), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Residual",
+    tip: KL_TIP.residual
+  }, cmp && cmp.residual_pct != null ? `${gapPct(cmp.residual_pct, 2)} pts` : "—"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Confirming or diverging",
+    tip: cmp && cmp.detail || KL_TIP.cmp
+  }, /*#__PURE__*/React.createElement(KlPill, {
+    text: cmp && cmp.state,
+    tone: cmp && KL_CMP_TONE[cmp.state],
+    tip: cmp && cmp.detail || KL_TIP.cmp
+  })), cmp && cmp.share_shown && /*#__PURE__*/React.createElement(KlStat, {
+    label: "Share of the matched gap already covered",
+    tip: KL_TIP.share
+  }, klRate(cmp.share_pct)), cmp && !cmp.share_shown && cmp.state !== "UNAVAILABLE" && /*#__PURE__*/React.createElement("div", {
+    className: "gap-note",
+    title: KL_TIP.cmp
+  }, cmp.detail)), /*#__PURE__*/React.createElement("div", {
+    className: "kl-box kl-box-after"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-bt",
+    title: KL_TIP.afteropen
+  }, "After open edge", /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 9:30 to 4:00")), /*#__PURE__*/React.createElement(KlPill, {
+    text: ao && ao.edge && ao.edge.state,
+    tone: ao && ao.edge && KL_EDGE_TONE[ao.edge.state],
+    tip: ao && ao.edge && ao.edge.detail || KL_TIP.afteropen
+  }), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Correlation",
+    tip: KL_TIP.pearson
+  }, klCorr(ao && ao.stats && ao.stats.pearson)), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Rank correlation",
+    tip: KL_TIP.spearman
+  }, klCorr(ao && ao.stats && ao.stats.spearman)), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Same direction",
+    tip: KL_TIP.match
+  }, /*#__PURE__*/React.createElement(KlMatch, {
+    sd: ao && ao.stats && ao.stats.same_direction
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "gap-note",
+    title: KL_TIP.afteropen
+  }, ao && ao.note))), /*#__PURE__*/React.createElement("div", {
+    className: "kl-footline"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "rr-btn kl-more",
+    onClick: () => setOpen(!open),
+    title: "Open the full statistics: every lookback, both correlations, the Korean chip names measured separately, the bucket tables, and where each series came from."
+  }, open ? "Hide details" : "Details"), /*#__PURE__*/React.createElement("span", {
+    className: "gap-note kl-inline-note",
+    title: "Korea Lead measures a historical relationship. A relationship is not a cause and a match rate is not a probability \u2014 both are stated with the number of sessions behind them so they can be judged."
+  }, d.target && d.target.n || 0, " matched sessions \xB7", " ", d.window_label, " \xB7 ", d.target && d.target.is_control ? "CONTROL TICKER — read the tooltip before trading it" : "history, not a forecast")), open && /*#__PURE__*/React.createElement(KlDetails, {
+    d: d
+  })));
+}
+
 // ── main tab ────────────────────────────────────────────────────────────────
 
 function GapTab({
@@ -695,6 +1311,19 @@ function GapTab({
   const [live, setLive] = useState({});
   const [liveAt, setLiveAt] = useState(null);
   const pollRef = useRef(null);
+  // Which ticker the Korea Lead panel is measuring. It remembers the last
+  // choice, and opening a stock's evidence below points it at that stock —
+  // the intended reading order is Korea first, then this morning's movers.
+  const [klSym, setKlSym] = useState(() => {
+    try {
+      return localStorage.getItem(KL_STORE_KEY) || "SMH";
+    } catch (e) {
+      return "SMH";
+    }
+  });
+  useEffect(() => {
+    if (gapSym) setKlSym(gapSym);
+  }, [gapSym]);
   const load = async () => {
     try {
       const r = await apiFetch("/api/gap", {
@@ -812,7 +1441,11 @@ function GapTab({
   const ctx = board && board.context || {};
   return /*#__PURE__*/React.createElement("div", {
     className: "card gap-card"
-  }, gapSym ? /*#__PURE__*/React.createElement(GapDetail, {
+  }, /*#__PURE__*/React.createElement(KoreaLead, {
+    apiFetch: apiFetch,
+    symbol: klSym,
+    onSymbol: setKlSym
+  }), gapSym ? /*#__PURE__*/React.createElement(GapDetail, {
     apiFetch: apiFetch,
     sym: gapSym,
     liveQ: live[gapSym],

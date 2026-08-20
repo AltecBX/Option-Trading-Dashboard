@@ -12395,3 +12395,134 @@ a.tabsheet-btn.site { text-decoration: none; }
 @media (max-width: 620px) {
   .inv-vpair { align-items: flex-start; }
 }
+
+
+/* ── KOREA LEAD (top of Gap Scan) ────────────────────────────────────────
+   Prefix: .kl-  ·  one compact overnight-context panel above the scanner.
+   Deliberately NOT another dashboard: four boxes on desktop, one column on
+   a phone, and every deeper statistic behind the Details button.
+
+   Uses the app's real tokens (--fg/--fg-2/--fg-3, --bg-2/--bg-3, --line,
+   --up/--down/--warn) rather than the invented names with dark fallbacks
+   that the older Gap Scan rules carry, so the panel follows the light and
+   dark themes instead of pinning itself to one of them. */
+.kl-panel { border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 14px; background: var(--bg-3); }
+.kl-head { display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 8px 14px; }
+.kl-title { font: 800 12px/1.3 var(--font-display); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--fg); }
+.kl-title small { text-transform: none; letter-spacing: 0; font-weight: 500;
+  color: var(--fg-3); }
+.kl-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.kl-ctl-label { font-size: 11px; color: var(--fg-3); }
+.kl-select { background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+  padding: 3px 8px; font: 700 12px/1.4 var(--font-mono); }
+.kl-wins { display: inline-flex; border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-2); }
+.kl-win { background: none; border: 0; color: var(--fg-3);
+  padding: 3px 9px; font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+.kl-win + .kl-win { border-left: 1px solid var(--line-2); }
+.kl-win:hover { color: var(--fg); }
+.kl-win.on { background: var(--accent); color: var(--accent-text); font-weight: 700; }
+.kl-ctxline { font-size: 11.5px; margin: 6px 0 10px; color: var(--fg-3); }
+.kl-ctxline b { color: var(--fg-2); }
+.kl-ctxline .warn { color: var(--warn); }
+/* Four boxes, then two, then one. Explicit counts rather than auto-fit:
+   auto-fit was landing on three-plus-one at the width this panel actually
+   gets beside the sidebar, which leaves a hole where the fourth box should
+   be and reads as a rendering fault. */
+.kl-grid { display: grid; gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1240px) {
+  .kl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.kl-box { border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 12px; background: var(--bg-2); min-width: 0; color: var(--fg); }
+.kl-box .gap-bt { color: var(--fg-3); }
+/* Label above value, never beside it. Several of these values are long
+   ("78.6% · n=14 · 52.4%–92.4%") and the boxes are narrow, so a row that
+   put them side by side collided the moment the label wrapped. */
+.kl-stat { display: flex; flex-direction: column; gap: 1px; margin: 7px 0;
+  min-width: 0; font-size: 12.5px; }
+.kl-stat > span { color: var(--fg-3); font-size: 11.5px; line-height: 1.3; }
+.kl-stat > b { color: var(--fg); font-family: var(--font-mono);
+  font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.kl-stat > b.up { color: var(--up); }
+.kl-stat > b.down { color: var(--down); }
+.kl-stat > b small { font-family: var(--font-body); }
+.kl-stat .gap-sig { margin: 1px 0 0; }
+.kl-box .gap-note { color: var(--fg-3); }
+.kl-box .gap-sig { margin-bottom: 6px; max-width: 100%; white-space: normal; }
+/* The after-open box is visually separated on purpose: it answers a
+   different question from the three to its left, and the research it was
+   built on says it answers it much more weakly. */
+.kl-box-after { border-style: dashed; }
+.kl-srow { display: grid; grid-template-columns: 1fr auto;
+  align-items: baseline; gap: 10px; margin: 5px 0; font-size: 12.5px; }
+/* The name may be clipped; the badge beside it may not. A "context only"
+   marker that ellipsises into "CONTEXT O…" is worse than no marker, since
+   the whole point of it is that the reader knows the row is excluded. */
+.kl-srow-name { color: var(--fg-3); min-width: 0; display: flex;
+  align-items: baseline; gap: 0; }
+/* Wrap rather than clip. "US Dollar / Korean Won" does not fit beside its
+   badge and its value in a quarter-width box, and a currency named
+   "US Dollar / ..." is a worse outcome than a name on two lines. */
+.kl-srow-name > span { min-width: 0; overflow-wrap: anywhere;
+  line-height: 1.25; }
+.kl-srow > b { font-family: var(--font-mono); white-space: nowrap; }
+.kl-srow > b.up { color: var(--up); }
+.kl-srow > b.down { color: var(--down); }
+/* The session date only appears when it is NOT the one named in the line
+   above — four identical dates would be noise, one that differs is news. */
+.kl-srow-when { grid-column: 1 / -1; font-size: 10.5px; color: var(--warn);
+  margin: -3px 0 2px; }
+.kl-ctx, .kl-prov { flex: 0 0 auto; font-style: normal; font-size: 9px; margin-left: 5px;
+  padding: 1px 5px; border-radius: 6px; letter-spacing: .04em;
+  text-transform: uppercase; white-space: nowrap; vertical-align: 1px;
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.kl-ctx { color: var(--fg-4);
+  border-color: color-mix(in srgb, var(--fg-4) 45%, transparent); }
+.kl-confirm { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 8px; padding-top: 8px; font-size: 12.5px;
+  border-top: 1px solid var(--line); }
+.kl-confirm > span { color: var(--fg-3); }
+.kl-footline { display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px 12px; margin-top: 10px; }
+.kl-inline-note { margin: 0; color: var(--fg-3); }
+.kl-details { margin-top: 6px; border-top: 1px solid var(--line);
+  padding-top: 4px; }
+.kl-details .gap-sechead { color: var(--fg-3); }
+.kl-diag-table, .kl-bucket-table { min-width: 620px; }
+.kl-diag-table th, .kl-bucket-table th { white-space: nowrap; }
+.kl-diag-table td, .kl-bucket-table td { white-space: nowrap; }
+/* A right-aligned count sitting flush against a left-aligned date reads as
+   one token ("60May 20, 2026"). Give every cell air on its right. */
+.kl-diag-table td, .kl-diag-table th,
+.kl-bucket-table td, .kl-bucket-table th { padding-right: 20px; }
+.kl-diag-table td:last-child, .kl-diag-table th:last-child,
+.kl-bucket-table td:last-child, .kl-bucket-table th:last-child { padding-right: 10px; }
+.kl-diag-table td.scan-num.up, .kl-bucket-table td.scan-num.up { color: var(--up); }
+.kl-diag-table td.scan-num.down, .kl-bucket-table td.scan-num.down { color: var(--down); }
+.kl-row-on td { background: color-mix(in oklch, var(--accent), transparent 90%); }
+.kl-srcs { margin-top: 4px; }
+.kl-srcs .gap-kv span { color: var(--fg-3); }
+.kl-srcs .gap-kv b { color: var(--fg-2); font-weight: 600; }
+.kl-defn { font-family: var(--font-mono); font-size: 10px;
+  color: var(--fg-3); word-break: break-all; }
+@media (max-width: 900px) {
+  .kl-diag-table, .kl-bucket-table { min-width: 560px; font-size: 11.5px; }
+}
+@media (max-width: 760px) {
+  /* Phone: one box per row, in reading order — Korea, then the bias, then
+     what the U.S. is actually doing, then the separate after-open answer.
+     Nothing is hidden on mobile; the panel is short enough to scroll, and
+     the wide statistics tables scroll inside their own boxes. */
+  .kl-panel { padding: 10px; }
+  .kl-grid { grid-template-columns: 1fr; }
+  .kl-head { align-items: flex-start; }
+  .kl-controls { width: 100%; }
+  .kl-title small { display: block; }
+}

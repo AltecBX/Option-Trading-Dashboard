@@ -1,4 +1,5 @@
 # Premarket Gap Fade & Rebound Scanner (v4.30)
+### with KOREA LEAD — overnight context above the scanner (v4.48)
 
 One screen, premarket: which gap ups historically fade, which gap downs
 historically rebound — with the measured evidence one click away. The board
@@ -373,6 +374,157 @@ symbol's measured paths, splits events chronologically, and marks a pair
 worst outcomes, never win rate. The 2%/3% defaults in the scanner columns
 are starting rules; the grid exists to challenge them per ticker.
 
+## KOREA LEAD — the overnight context layer
+
+Sits at the TOP of the Gap Scan tab, above the individual-stock scanner,
+because that is the order the morning happens in. Korea finishes trading
+hours before New York opens, so whatever Seoul decided about memory and
+semiconductors today is a completed, published fact by the time a U.S. chip
+stock has to choose an opening price. The panel measures whether that fact
+has ever told us anything, and refuses to say more than the measurement
+supports.
+
+Reading order: **what Korea did → did the Korean chip names confirm it →
+what has historically happened to this ticker's OPEN after a move like this
+→ what the U.S. premarket is actually doing → the movers below.**
+
+### Files
+
+- **`korea_lead_engine.py`** — pure math (stdlib, no I/O, no clock, no
+  persistence): session alignment, the four return definitions, signed
+  magnitude buckets, Pearson and Spearman, same-direction rates, Wilson
+  intervals via `metrics.wilson_interval`, percentiles via
+  `metrics.percentile`, the implied-gap lookup, chip confirmation, the
+  premarket comparison, and how strongly each edge is described.
+- **`korea_lead.py`** — the stateful side: the Korean series from Yahoo's
+  chart endpoint (stdlib `urllib`, no new dependency), U.S. bars through
+  the loader the rest of the app already uses, Seoul session state from
+  `zoneinfo`, disk cache for bars, in-memory cache for statistics, and the
+  assembled payload.
+- **`tab-gap.jsx`** — the `KoreaLead` panel: four boxes on desktop, one
+  column on a phone, every deeper statistic behind **Details**.
+- **Config**: `thresholds.json → korea_lead` (data-dir overlay, hashed into
+  every payload).
+
+### Return definitions — exact, and never mixed
+
+| Measurement | Definition |
+| --- | --- |
+| Korea signal | close ÷ prior close − 1, per Korean symbol |
+| **U.S. opening gap** | open ÷ prior close − 1 — **the predictive target** |
+| U.S. open to close | close ÷ same-day open − 1 — diagnostic |
+| U.S. full day | close ÷ prior close − 1 — diagnostic |
+
+The gap and the full day differ by exactly the move after 9:30. Treating
+any two of them as interchangeable is how a signal that only predicts the
+open gets sold as a signal that predicts the day, so the engine computes
+all three from the same two bars and a test asserts they compose.
+
+### Alignment
+
+Korean session **D** maps to U.S. session **D** — nothing is shifted,
+because Korea closed first. A date becomes an observation only when BOTH
+markets actually traded it, read from the dates in each market's own bars
+rather than from a calendar. When Korea traded and the U.S. did not, that
+Korean session is **skipped and counted**, never rolled forward onto a
+later U.S. session. Today is excluded from its own history: before the open
+today's U.S. bar does not exist, and after it the bar is unfinished.
+
+The alignment is protected by construction rather than by inspection. The
+test fixtures make the U.S. gap a deterministic function of ONE specific
+day's Korean move; the correct pairing recovers a perfect correlation and
+both mis-pairings must not. On real data the same shape holds — correct
+alignment is the strongest of the three, and pairing Korea one session late
+turns the relationship NEGATIVE.
+
+### What it will not do
+
+- **No composite score, no weights.** There is no "Korea 87/100" and no
+  40/30/20/10 split across KOSPI, Samsung, SK Hynix and the currency. No
+  weighting has been validated out of sample, so none is applied. The
+  inputs are shown side by side and the reader does the combining.
+- **No probability.** The conditional figure is a **HISTORICAL MATCH
+  RATE**, in the product and in the code. Nothing here has been calibrated
+  against out-of-sample outcomes.
+- **USD/KRW is context only, never a statistic.** Yahoo stamps the USD/KRW
+  daily bar on a LONDON day — verified: its bars carry a 3600-second offset
+  and land at London midnight, so the bar for a given day closes around 7pm
+  in New York, hours AFTER the 9:30 open it would be used to predict. Using
+  it would be reading the future, and no intraday FX history reaches back
+  years to sample it honestly instead. It is displayed, labelled `context`,
+  and excluded from every statistic; a test changes the currency and
+  asserts that not one number moves.
+- **No sign-blind buckets.** Upside and downside Korean moves are separate
+  tables. On measured data they are genuinely asymmetric — for SMH over one
+  year, KOSPI up 1–2% preceded a same-direction open 83% of the time while
+  KOSPI down 1–2% managed 38%.
+- **No made-up "percentage priced in".** The share-already-covered figure
+  is refused outright when the two signs disagree, and when the expected
+  gap sits near zero. A share of a move in the other direction is not a
+  quantity.
+- **No silent granularity swap.** Asked for its longest daily range, the
+  Yahoo chart endpoint answers 200 with MONTHLY bars — about twelve a year
+  instead of two hundred and forty-five — and says nothing. That range is
+  never requested, and `is_daily_series()` measures the median spacing of
+  BOTH series and refuses the study by name if either is not daily.
+- **No implausible day.** A split- and spinoff-adjusted series should never
+  print a ±50% overnight move, so a day that does is excluded and counted
+  rather than explained. It is deliberately not called a split detector.
+
+### The two edges are separate, and judged identically
+
+**OPENING GAP BIAS** and **AFTER OPEN EDGE** are computed by the same
+function, from the same kind of evidence, against the same gates — so
+whatever separates them on screen is the data, not a softer standard
+applied to one of them. There is no single bullish/bearish word for the
+whole day. Every gate reads the CONSERVATIVE (lower Wilson) end of the
+same-direction rate and requires the linear and rank correlations to agree
+in sign; the bias is MIXED whenever the interval straddles a coin flip, and
+reports a lean AGAINST Korea when the interval sits entirely below one.
+
+### Independent sanity check
+
+Measured live, SMH against KOSPI over one year: opening gap **+0.41**
+Pearson / **+0.38** Spearman / **65.8%** same direction; open-to-close
+**−0.04** / **−0.03** / **49.2%**; full day **+0.26** / **+0.23**. Stable
+across lookbacks (60 sessions +0.47, 1 year +0.41, 3 years +0.37, all
+available +0.36). That reproduces the shape of the independently-run study
+this feature was specified from — materially stronger for where a stock
+OPENS than for what it does afterwards — without any of those numbers
+being hardcoded anywhere.
+
+The controls do their job: over the same window IGV (technology software,
+which buys no Korean memory) reads WEAK where SMH reads STRONG, and SPY
+sits between them.
+
+### Endpoint
+
+- `GET /api/korea_lead?symbol=MU&window=1y` — one target, one lookback,
+  every statistic already decided server-side. Windows: `60d` `1y` `3y`
+  `max`. Sections: `as_of` `session` `sources` `korea` `target`
+  `opening_gap` `premarket_comparison` `after_open` `diagnostics`.
+  Offline it answers 200 with a stated reason — the panel renders that.
+
+Caching: Korean bars persist to `<data>/korea/bars/`, refreshed every five
+minutes while Seoul is trading and hourly once it has closed; a failed
+refresh serves the stored copy and marks it `stale`. Statistics cache in
+memory against the target, the lookback, the signal definition, the engine
+version and the exact span of sessions measured, so a cached answer can
+only be served for the question it answered.
+
+### Prepared for, not built
+
+The engine already takes the signal series as a parameter and the
+observations already carry Samsung and SK Hynix columns, so a **Korea
+memory signal** or **Korea semiconductor signal** is a different argument
+rather than new machinery — the Details drawer already shows both measured
+separately, and on current data SK Hynix (+0.43) edges KOSPI (+0.41) for
+SMH. A **Korea surprise/residual** signal (what Korea did minus what the
+prior U.S. semiconductor session would have implied) needs one more column
+on the same observations. Taiwan would be a sibling symbol map. None of
+those is in V1, and no weighting will be applied to any of them until it
+has been validated out of sample.
+
 ## Endpoints
 
 - `GET /api/gap` — board (status contract: scanning/scanned/total/…)
@@ -381,6 +533,7 @@ are starting rules; the grid exists to challenge them per ticker.
 - `GET /api/gap/events?symbol=` — the analog population, inspectable
 - `GET /api/gap/backtest?symbol=` — walk-forward target/stop grid
 - `GET /api/gap/config` — active config + hash
+- `GET /api/korea_lead?symbol=&window=` — the overnight Korea panel
 
 Scheduler: weekdays 07:00–09:40 ET every 5 min (quote sweep ≈3 calls;
 ~20 candidates × 1 minute-history call + a small backfill budget, deferred

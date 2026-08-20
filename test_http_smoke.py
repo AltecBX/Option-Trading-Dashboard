@@ -229,6 +229,12 @@ for p in [
     f"/api/gap/events?symbol={S}",
     f"/api/gap/backtest?symbol={S}",
     "/api/gap/scan",
+    # Korea Lead sits above the Gap Scan board. Offline it must still answer
+    # 200 with a stated reason — "the Korean series could not be read" is an
+    # answer, and the panel renders it. A 500 here would take the whole Gap
+    # Scan tab down with it.
+    f"/api/korea_lead?symbol={S}",
+    f"/api/korea_lead?symbol={S}&window=3y",
     "/api/invest/config",
     f"/api/invest?symbol={S}",
     f"/api/invest/history?symbol={S}&years=5",
