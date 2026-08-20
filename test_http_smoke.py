@@ -235,6 +235,11 @@ for p in [
     # Scan tab down with it.
     f"/api/korea_lead?symbol={S}",
     f"/api/korea_lead?symbol={S}&window=3y",
+    # The research layer. Offline these must still answer 200 with a stated
+    # reason — the Details drawer renders that.
+    f"/api/korea_research?symbol={S}",
+    "/api/korea_research/matrix",
+    "/api/korea_research/coverage",
     "/api/invest/config",
     f"/api/invest?symbol={S}",
     f"/api/invest/history?symbol={S}&years=5",

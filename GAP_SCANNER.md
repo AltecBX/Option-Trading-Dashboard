@@ -1,5 +1,6 @@
 # Premarket Gap Fade & Rebound Scanner (v4.30)
-### with KOREA LEAD — overnight context above the scanner (v4.48)
+### with KOREA LEAD — overnight context above the scanner (v4.49)
+### V2 adds the research layer that tests whether it deserves trust
 
 One screen, premarket: which gap ups historically fade, which gap downs
 historically rebound — with the measured evidence one click away. The board
@@ -508,6 +509,118 @@ The controls do their job: over the same window IGV (technology software,
 which buys no Korean memory) reads WEAK where SMH reads STRONG, and SPY
 sits between them.
 
+### V2 — the research layer
+
+V1 answered "what usually followed a Korean session like this one". V2 adds
+the questions that decide whether that answer deserves to be trusted, in
+`korea_research_engine.py` (pure statistics) and `korea_research.py` (data
+and report). It has its own endpoint and its own cache and is never on the
+path that renders the panel.
+
+**What it measures.** Regression with HC1 heteroskedasticity-robust standard
+errors — daily returns are violently heteroskedastic and classical errors
+understate the uncertainty in exactly the months that matter. A real
+Student's t distribution rather than a normal approximation. Incremental R²,
+which is the number that separates a signal from an echo. Benjamini-Hochberg
+FDR across the pair matrix. Empirical residual bands rather than multiples
+of a standard deviation, because gap residuals have fat tails and a sigma
+band is too narrow precisely when being wrong is expensive.
+
+**Walk-forward, never a random split.** Folds are expanding windows and
+every prediction comes from a model fitted only on sessions strictly earlier
+than the one it scores. The regression test for this is a fixture whose
+relationship REVERSES halfway: a model that could see the future would look
+harmless, and a model restricted to the past is actively wrong afterwards,
+so its out-of-sample direction accuracy must fall BELOW a coin flip. Any
+future change that leaks future data into a fold pushes that number up and
+fails the test.
+
+**Korea Surprise, built point-in-time.** Raw KOSPI is partly an echo of the
+previous U.S. semiconductor session. The surprise is the residual from an
+echo model fitted only on sessions before each row — computed with running
+sums so the expanding re-fit is exact rather than approximated for speed.
+Fitting that model once on the whole sample would have made every residual
+informed by sessions that had not happened yet.
+
+**Taiwan and Japan are research and control, never signal.** Taipei closes
+at 13:30 and Tokyo at 15:00 local, both before New York opens, so both are
+eligible on the same reasoning Korea is. The Nikkei is there to test the one
+alternative that would make this feature a mirage — that Korea is merely a
+thermometer for overnight Asian risk appetite — and it is never promoted.
+
+**On the main card**, V2 adds only: the 60-session and 1-year relationship
+with a sparkline of the recent trend, a RELATIONSHIP UNSTABLE flag when the
+two disagree in sign, an evidence-based health label with all four of its
+inputs printed beside it, an UNUSUAL KOREA MOVE banner driven by a
+percentile against the index's own trailing year rather than a fixed
+percentage, a second fitted-line gap estimate beside the bucket one with
+MODEL DISAGREEMENT when they differ, and the residual judged against this
+pair's own residual history. Everything else is behind Details.
+
+**Endpoints**
+
+- `GET /api/korea_research?symbol=&window=` — the full report for one target
+- `GET /api/korea_research/matrix?window=` — every Asian input against every
+  U.S. target, with q-values
+- `GET /api/korea_research/validation` — the long-run reproduction against
+  live provider data
+- `GET /api/korea_research/coverage` — what the minute store can and cannot
+  answer
+
+**Tests use frozen fixtures only.** Not one assertion depends on what a
+provider returned this morning; a test whose expected value is a live
+correlation is a tripwire that fires on a vendor revision and trains whoever
+sees it red to stop reading it. Live numbers live in
+`korea_research.validation()`, which is a report to read rather than an
+assertion to satisfy.
+
+### What V2 found
+
+Measured over the full common history (about ten years, ~2,360 matched
+sessions), and reproducing the independently-run second research pass:
+
+| | KOSPI → SMH | KOSPI → QQQ | SK Hynix → MU |
+| --- | --- | --- | --- |
+| Opening gap | **+0.34** | **+0.31** | **+0.40** |
+| Open to close | −0.03 | −0.05 | +0.03 |
+| Full day | +0.19 | +0.15 | +0.28 |
+
+**Korea is not an echo.** The previous U.S. session explains essentially
+nothing about the next U.S. OPENING GAP — baseline R² is 0.000 to 0.007 —
+because the previous day's full-day return is already inside the prior
+close, which the gap is measured from. Adding Korea takes R² to 0.13–0.19
+with robust t of +8.8 to +14.6. Practically all of the gap's explainable
+variance is Korea's.
+
+**But information flows both ways, and mostly the other way.** Prior SMH →
+KOSPI is +0.37, larger than KOSPI → SMH gap at +0.30. Korea echoes the
+previous U.S. session more strongly than it leads the next open. Note that
+legs A and D of the lead/lag map are close to the same measurement indexed
+two ways, and are shown together rather than counted as two findings.
+
+**It is Korea, not just Asia — and the evidence discriminates cleanly.**
+With the Nikkei in the same regression on identical sessions, KOSPI survives
+on every semiconductor target (t +4.2 to +5.5). The discriminating result is
+what happens as the target changes: for MU, Korea t=+5.5 against Japan
+t=+2.2; for IGV — technology software, which buys no Korean memory — Japan
+t=+5.8 BEATS Korea t=+3.3. TSMC adds for broad semiconductors (SMH t=+3.6)
+and nothing at all for MU (t=+0.40), which is what a logic-versus-memory
+story predicts. A large part of Korea and Japan does overlap; the part that
+does not tracks memory exposure.
+
+**The relationship is structural, not one cycle.** Positive in every
+calendar year from 2017 to 2026, ranging +0.17 to +0.50.
+
+**No volatility-regime effect.** Split at the median of trailing realised
+volatility computed through the prior close: calm +0.34, volatile +0.34.
+
+**Which Korean input predicts which ticker**, measured directly rather than
+inferred through a sector proxy: SK Hynix wins on the memory names — MU
+(+0.40), SNDK (+0.38), WDC (+0.31) — and KOSPI wins on everything else,
+including the broad ETFs and the equipment names. With samples this large
+the FDR correction is not the binding constraint; the size of the
+relationship is.
+
 ### Endpoint
 
 - `GET /api/korea_lead?symbol=MU&window=1y` — one target, one lookback,
@@ -548,6 +661,7 @@ has been validated out of sample.
 - `GET /api/gap/backtest?symbol=` — walk-forward target/stop grid
 - `GET /api/gap/config` — active config + hash
 - `GET /api/korea_lead?symbol=&window=` — the overnight Korea panel
+- `GET /api/korea_research…` — the V2 research layer (see below)
 
 Scheduler: weekdays 07:00–09:40 ET every 5 min (quote sweep ≈3 calls;
 ~20 candidates × 1 minute-history call + a small backfill budget, deferred

@@ -643,6 +643,26 @@ const KL_TIP = {
   sources: "Which provider answered for each series, how many daily bars came back, and when it was last fetched. A series marked stale is being served from the cache because a refresh failed — the numbers are still real, they are just older than they should be.",
   skipped: "Sessions that could NOT become observations. 'Korea traded, U.S. closed' are U.S. holidays: those Korean sessions are skipped, never rolled forward onto a later U.S. session, because a Korean move on Thursday does not describe a U.S. open the following Tuesday. 'U.S. traded, Korea closed' are Korean holidays, of which there are many.",
   through: "The most recent COMPLETED U.S. session in the history. Today is deliberately not in its own history: before the open today's U.S. bar does not exist, and after the open it is unfinished, so scoring today against a set that contained today would not be a measurement.",
+  relationship: "How strong the Korea-to-this-ticker relationship is RIGHT NOW, next to how strong it has been over a year. Both are shown because a one-year average can hold a relationship that has since halved — or inverted — and still read as healthy the whole way down. The little line is the last 120 sessions of the 60-session reading: its SHAPE is the point, because a number that has been sliding for months is a different thing from the same number holding steady.",
+  unstable: "RELATIONSHIP UNSTABLE means the recent window and the one-year window disagree about which way this relationship even runs. When that happens neither number should be traded on, and no average of the two is offered — averaging a positive and a negative into something mild would hide exactly the thing you need to see.",
+  health: "A plain-language summary of the four numbers printed beside it — nothing is hidden behind the label, and there is deliberately no score out of a hundred. STRONG and STABLE both mean the recent and long windows agree in direction and differ only in size. UNSTABLE means they disagree in direction. INSUFFICIENT DATA means there are not enough sessions to describe anything yet.",
+  unusual: "Today's Korean move is larger than the great majority of that index's own moves over the past year. This adapts on its own: a fixed rule like 'KOSPI above 1.5% is major' fires constantly in a calm year and never in a violent one, where a comparison against the index's own recent history carries the volatility regime with it. It flags size, not direction — an unusually large move is not automatically a good one.",
+  regression: "A SECOND, independent estimate of today's opening gap: a straight line fitted through every matched session, rather than the median of just the sessions that landed in today's bucket. The two are shown side by side and are never averaged.",
+  disagree: "MODEL DISAGREEMENT means the two independent estimates do not agree — either they point opposite ways, or they are far enough apart to matter. They are deliberately NOT averaged: the midpoint of two estimates that disagree is a third number nothing supports, stated with more confidence than either of the two it came from. When they disagree, treat today's expected gap as genuinely uncertain.",
+  band: "The range the fitted line's own past errors actually fell in — the middle 50% and the middle 80% of them. NOT a multiple of a standard deviation: gap errors have fat tails, so a 'plus or minus one sigma is 68%' band would be too narrow in exactly the sessions where being wrong costs the most.",
+  residualPct: "Where today's gap between the implied and the actual sits among every such gap this pair has produced before. This is why the label is not a fixed percentage: two points light means something completely different for MU than for SPY, and different again in a calm month than a violent one. A percentile against this pair's own history carries all of that automatically. IN LINE is an ordinary distance. UNDERREACTION and OVERREACTION mean today is in the most extreme tenth either way. DIVERGENCE means the premarket is moving the OPPOSITE way, which is a different thing from moving a different amount.",
+  research: "The full research layer: whether Korea adds anything the previous U.S. session did not already say, which way the information actually travels, whether the relationship survives an Asian control, how it has behaved year by year, which Korean input best predicts which U.S. ticker, and whether any model beats the simple KOSPI baseline OUT OF SAMPLE. This is measurement, not a trading rule — nothing here is wired into the panel above.",
+  incremental: "The number that decides whether Korea is a signal or an echo. It is not how well Korea explains the U.S. open — it is how much Korea ADDS once the previous U.S. session is already in the model. A variable that only repeats what is already known shows a large correlation and adds nothing. The t-statistic uses robust standard errors, because daily market returns are far more volatile in some months than others and ordinary standard errors understate the uncertainty exactly then.",
+  leadlag: "Which direction the information is actually travelling. Korea partly ECHOES the previous U.S. session and partly LEADS the next U.S. open, and both are measured here so the balance is visible instead of assumed. Note that rows A and D are close to the same measurement indexed two ways — the U.S. session before a Korean session is usually the one the previous Korean session followed — so they are shown together rather than counted as two separate findings.",
+  asiacontrol: "The test for the one explanation that would make this whole feature a mirage: that what looks like Korea leading U.S. chips is really overnight ASIAN risk appetite, with Korea just being a convenient thermometer for it. The Nikkei has far less semiconductor weight, so if it did the same job in the same regression, the semiconductor story would be wrong. All three inputs are fitted on ONE identical set of sessions, because a horse race run on different rows is not a horse race.",
+  walkforward: "Out-of-sample testing on time-series data, done the only way that is honest: expanding windows. Every prediction comes from a model fitted ONLY on sessions strictly earlier than the one it is scoring. There is no random train/test split anywhere — a random split on market data trains on the future and scores the past, and every model looks brilliant when it does. A model counts as beating the baseline only when it is better on BOTH the size of the error and the direction; winning one while losing the other shows nothing.",
+  placebo: "A deliberate sanity check against the failure that would otherwise be invisible: an off-by-one in the date alignment that still produces a plausible-looking number. The correct same-day pairing is compared against pairing Korea one session early, one session late, and against 200 random shuffles of Korea's own dates. If the correct alignment did not clearly beat all of them, the relationship would not be real.",
+  fdr: "Test dozens of pairs and a couple will look significant purely by luck. The q-value is the Benjamini-Hochberg false-discovery rate across the whole matrix — the share of the discoveries at that cut-off expected to be false. Read the q-value, not the raw p-value; a striking correlation that fails this correction has not earned attention.",
+  matrix: "Every Asian input against every U.S. target, measured DIRECTLY on each ticker's own history rather than inferred through a sector proxy. Sorted by the strength of the relationship. The role column matters: signal inputs are the Korean series the panel actually uses, research inputs are Taiwan, and the Nikkei is a control that is never promoted into a signal.",
+  byyear: "The same relationship split by calendar year — how a signal that only worked during one semiconductor cycle gives itself away. A relationship that shows up in every year is a structural one; a relationship that lives in two of them is a story about those two years.",
+  regime: "Whether Korea matters more when markets are violent. The split is at the MEDIAN of trailing volatility rather than at a round number, and — this is the part that matters — the volatility is computed through the PRIOR close. Using the same day's VIX would be a future value at 9:30, and every regime finding built on it would be an artefact of that.",
+  surprise: "Raw KOSPI is partly an echo of the previous U.S. semiconductor session. KOREA SURPRISE is what is left after subtracting what that session predicted — an attempt to isolate genuinely NEW overnight information. The echo model behind it is fitted only on sessions before each row, so it contains no hindsight. Whether it is actually better is settled by the out-of-sample comparison, not by these two correlations.",
+  convergence: "If a stock has not moved as far as Korea implies, does it make up the difference after 9:30? This box exists to answer that question honestly, including when the answer is no. Note the basis: this app holds no historical premarket prices for ordinary sessions, so this is measured from the OFFICIAL OPEN — whether a stock that opened further from the implied gap than usual closes the difference during the day.",
   nodata: "Korea Lead cannot produce an opening-gap bias without the KOSPI series. It does not fall back to Samsung, to SK Hynix, or to yesterday's reading — the panel says NO DATA instead, because a substituted signal would be a different measurement wearing this one's name.",
 };
 
@@ -752,6 +772,38 @@ function KlBucketTable({ rows, title, tip }) {
     </div>
   );
 }
+
+// A 120-session trail of the 60-session correlation. Drawn rather than
+// tabulated because the SHAPE is the information: a relationship sliding
+// for months and one holding steady can share today's number exactly.
+function KlSpark({ points, tip }) {
+  const pts = (points || []).filter((v) => v != null);
+  if (pts.length < 8) return null;
+  const lo = Math.min(...pts, 0), hi = Math.max(...pts, 0);
+  const span = hi - lo || 1;
+  const W = 74, H = 20;
+  const d = pts.map((v, i) => {
+    const x = (i / (pts.length - 1)) * W;
+    const y = H - ((v - lo) / span) * H;
+    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join("");
+  const zero = H - ((0 - lo) / span) * H;
+  const last = pts[pts.length - 1];
+  return (
+    <svg className="kl-spark" width={W} height={H} viewBox={`0 0 ${W} ${H}`}
+      role="img" aria-label="recent relationship trend"
+      title={tip || `The 60-session correlation over the last ${pts.length} sessions: from ${pts[0].toFixed(2)} to ${last.toFixed(2)}. The dashed line is zero.`}>
+      {zero >= 0 && zero <= H &&
+        <line x1="0" y1={zero} x2={W} y2={zero} className="kl-spark-zero" />}
+      <path d={d} className={`kl-spark-line ${last >= 0 ? "up" : "down"}`} />
+    </svg>
+  );
+}
+
+const KL_HEALTH_TONE = {
+  STRONG: "up", STABLE: "up", WEAK: "mut", UNSTABLE: "down",
+  "INSUFFICIENT DATA": "mut",
+};
 
 function KlDetails({ d }) {
   const dg = d.diagnostics || {};
@@ -892,6 +944,391 @@ function KlDetails({ d }) {
   );
 }
 
+// ── the research drawer ─────────────────────────────────────────────────────
+// Loaded on demand: the walk-forward alone re-fits every candidate model once
+// per fold, so it is never on the path that renders the panel above.
+
+const KL_VERDICT_TONE = {
+  PASSED: "good", CONVERGES: "good", "KOREA-SPECIFIC": "good",
+  "NO MEASURABLE EDGE": "mut", "NOT MEASURABLE": "mut",
+  "SHARED WITH BROAD ASIA": "warn", "DIVERGES FURTHER": "warn",
+  "EXPLAINED BY BROAD ASIA": "bad", FAILED: "bad",
+};
+const klVerdictTone = (v) => KL_VERDICT_TONE[v]
+  || (typeof v === "string" && v.startsWith("WEAK") ? "warn" : "mut");
+
+// Spelled out rather than derived from the key — a naive underscore
+// replace turned "kospi_only" into "kospi + alone".
+const KL_ASIA_MODEL = {
+  kospi_only: "KOSPI alone",
+  nikkei_only: "Nikkei alone",
+  kospi_plus_nikkei: "KOSPI + Nikkei",
+  kospi_nikkei_tsmc: "KOSPI + Nikkei + TSMC",
+};
+const KL_ASIA_MODEL_TIP = {
+  kospi_only: "KOSPI on its own, on the shared sample.",
+  nikkei_only: "The Nikkei on its own, on the very same sessions — the control.",
+  kospi_plus_nikkei: "Both together. If Korea were only a thermometer for Asian risk appetite, its t-statistic would collapse here.",
+  kospi_nikkei_tsmc: "Both plus Taiwan, to see whether Taipei carries anything the other two do not.",
+};
+
+function KlVerdict({ value, tip }) {
+  if (!value) return null;
+  return <span className={`kl-verdict ${klVerdictTone(value)}`} title={tip}>{value}</span>;
+}
+
+function KlResearch({ apiFetch, symbol, window: win }) {
+  const [r, setR] = useState(null);
+  const [m, setM] = useState(null);
+  const [err, setErr] = useState(null);
+  const [asked, setAsked] = useState(false);
+
+  const load = () => {
+    setAsked(true); setErr(null);
+    apiFetch(`/api/korea_research?symbol=${encodeURIComponent(symbol)}&window=max`,
+      { noCache: true }).then((x) => x.json())
+      .then((x) => (x && x.ok ? setR(x) : setErr((x && x.error) || "unavailable")))
+      .catch((e) => setErr(String(e)));
+    apiFetch("/api/korea_research/matrix?window=max", { noCache: true })
+      .then((x) => x.json()).then(setM).catch(() => {});
+  };
+
+  if (!asked) {
+    return (
+      <div className="kl-research">
+        <div className="gap-sechead" title={KL_TIP.research}>
+          Research — does Korea actually add anything?</div>
+        <div className="kl-research-note" title={KL_TIP.research}>
+          Whether Korea tells us anything the previous U.S. session did not,
+          which way the information travels, whether it survives an Asian
+          control, and whether any model beats plain KOSPI out of sample.
+          Loaded on request because it re-fits every candidate model once per
+          fold and takes a few seconds.
+        </div>
+        <button className="rr-btn kl-loadbtn" onClick={load}
+          title="Run the research layer for this ticker. It measures rather than recommends — nothing here is wired into the panel above.">
+          Run the research</button>
+      </div>
+    );
+  }
+  if (err) return <div className="kl-research"><div className="card-error">Research unavailable: {err}</div></div>;
+  if (!r) return <div className="kl-research"><div className="card-loading">Measuring {symbol} against ten years of Asian sessions…</div></div>;
+
+  const inc = r.incremental || {};
+  const ac = r.asia_control || {};
+  const mc = r.model_comparison || {};
+  const pl = r.placebo || {};
+  return (
+    <div className="kl-research">
+      <div className="gap-sechead" title={KL_TIP.research}>
+        Research · {r.symbol} · {r.n} matched sessions
+        <span className="muted"> · {gapDate(r.first_date)} to {gapDate(r.last_date)}</span>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.incremental}>
+        Does Korea add anything the previous U.S. session did not?</div>
+      <div className="kl-research-note" title={KL_TIP.incremental}>
+        The baseline model knows only what the U.S. did yesterday. The full
+        model adds one Asian input. What matters is the CHANGE in R², not its
+        level — a variable that only repeats what is already known scores a
+        large correlation and adds nothing.
+      </div>
+      <div className="scan-table-wrap">
+        <table className="scan-table kl-research-table">
+          <thead><tr>
+            <th title="Which Asian series is being added to the baseline.">Asian input</th>
+            <th title="Signal inputs are what the panel uses. Research is Taiwan. The Nikkei is a control and is never promoted into a signal.">Role</th>
+            <th className="scan-th-num" title="Matched sessions behind the row.">Sessions</th>
+            <th className="scan-th-num" title="How much the U.S. opening gap moves per 1% of this Asian input, holding yesterday's U.S. session fixed.">Slope</th>
+            <th className="scan-th-num" title={KL_TIP.incremental}>Robust t</th>
+            <th className="scan-th-num" title="R² of the baseline: the previous U.S. session alone.">R² baseline</th>
+            <th className="scan-th-num" title="R² once the Asian input is added.">R² with Asia</th>
+            <th className="scan-th-num" title="The number that decides whether this is a signal or an echo.">R² added</th>
+          </tr></thead>
+          <tbody>
+            {["kospi", "samsung", "hynix", "tsmc", "nikkei"].map((k) => {
+              const v = inc[k]; if (!v) return null;
+              const a = (v.added || []).find((x) => x.name === k);
+              return (
+                <tr key={k}>
+                  <td title={v.label}>{v.label}</td>
+                  <td className="muted">{v.role}</td>
+                  <td className="scan-num muted">{v.ok ? v.base.n : "—"}</td>
+                  <td className="scan-num">{a ? a.beta.toFixed(3) : "—"}</td>
+                  <td className="scan-num">{a && a.t != null ? a.t.toFixed(2) : "—"}</td>
+                  <td className="scan-num muted">{v.ok ? v.r2_base.toFixed(4) : "—"}</td>
+                  <td className="scan-num">{v.ok ? v.r2_full.toFixed(4) : "—"}</td>
+                  <td className="scan-num up">{v.ok ? `+${v.delta_r2.toFixed(4)}` : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.asiacontrol}>
+        Is it Korea, or is it Asia? <KlVerdict value={ac.verdict} tip={ac.detail} /></div>
+      <div className="kl-research-note" title={KL_TIP.asiacontrol}>
+        {ac.detail || KL_TIP.asiacontrol}
+      </div>
+      {ac.ok && (
+        <div className="scan-table-wrap">
+          <table className="scan-table kl-research-table">
+            <thead><tr>
+              <th title="Which inputs are in the regression. All are fitted on one identical set of sessions.">Model</th>
+              <th className="scan-th-num" title="Share of the opening gap's variation the model accounts for.">R²</th>
+              <th title="Each input's robust t-statistic inside that model.">Inputs</th>
+            </tr></thead>
+            <tbody>
+              {Object.keys(ac.models || {}).map((k) => (
+                <tr key={k}>
+                  <td title={KL_ASIA_MODEL_TIP[k] || ""}>{KL_ASIA_MODEL[k] || k}</td>
+                  <td className="scan-num">{ac.models[k].r2.toFixed(4)}</td>
+                  <td className="muted">{ac.models[k].params.map(
+                    (pp) => `${pp.name} t=${pp.t == null ? "—" : pp.t.toFixed(2)}`).join(" · ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="gap-sechead" title={KL_TIP.leadlag}>Lead and lag</div>
+      <div className="kl-research-note" title={KL_TIP.leadlag}>
+        {(r.lead_lag && r.lead_lag.kospi && r.lead_lag.kospi.note) || ""}
+      </div>
+      <div className="scan-table-wrap">
+        <table className="scan-table kl-research-table">
+          <thead><tr>
+            <th title="Which direction is being measured.">Direction</th>
+            <th className="scan-th-num" title="Correlation over the matched sessions.">Correlation</th>
+            <th title="What that leg means.">What it means</th>
+          </tr></thead>
+          <tbody>
+            {["kospi", "hynix"].map((k) => {
+              const ll = (r.lead_lag || {})[k];
+              if (!ll || !ll.ok) return null;
+              return (ll.legs || []).map((leg) => (
+                <tr key={k + leg.key}>
+                  <td>{leg.label}</td>
+                  <td className={`scan-num ${leg.r >= 0 ? "up" : "down"}`}>{klCorr(leg.r)}</td>
+                  <td className="muted">{leg.meaning}</td>
+                </tr>
+              ));
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.walkforward}>
+        Out of sample — did anything beat plain KOSPI?</div>
+      <div className="kl-research-note" title={KL_TIP.walkforward}>
+        {mc.note || KL_TIP.walkforward}
+        {" "}Beat the baseline on both error and direction:{" "}
+        <b>{(mc.beats_baseline && mc.beats_baseline.length)
+          ? mc.beats_baseline.join(", ") : "nothing"}</b>.
+      </div>
+      <div className="scan-table-wrap">
+        <table className="scan-table kl-research-table">
+          <thead><tr>
+            <th title="Which inputs the model uses. Coefficients are re-fitted inside every fold on that fold's training data alone.">Model</th>
+            <th className="scan-th-num" title="Out-of-sample predictions scored.">Scored</th>
+            <th className="scan-th-num" title="Share of sessions where the predicted direction of the open was right.">Direction</th>
+            <th className="scan-th-num" title="Average size of the miss, in percentage points. Lower is better.">Average miss</th>
+            <th className="scan-th-num" title="Brier score for the up/down call — lower is better, and 0.25 is a coin flip.">Brier</th>
+            <th className="scan-th-num" title="Correlation between what the model predicted and what actually happened, out of sample.">Predicted vs actual</th>
+          </tr></thead>
+          <tbody>
+            {(mc.rows || []).map((row) => (
+              <tr key={row.model} className={row.model === mc.baseline ? "kl-row-on" : ""}>
+                <td>{row.model}{row.model === mc.baseline ? " · baseline" : ""}</td>
+                <td className="scan-num muted">{row.n}</td>
+                <td className="scan-num">{row.direction_pct == null ? "—" : klRate(row.direction_pct)}</td>
+                <td className="scan-num">{row.mae_pct.toFixed(4)}</td>
+                <td className="scan-num">{row.brier.toFixed(4)}</td>
+                <td className="scan-num">{klCorr(row.pred_actual_corr)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.placebo}>
+        Alignment placebo <KlVerdict value={pl.verdict} tip={KL_TIP.placebo} /></div>
+      <div className="kl-research-note" title={KL_TIP.placebo}>
+        Correct same-day pairing <b>{klCorr(pl.correct)}</b>
+        {(pl.placebos || []).map((x) => (
+          <span key={x.shift}> · {x.label}: <b>{klCorr(x.pearson)}</b></span>
+        ))}
+        {pl.shuffled && (
+          <span> · {pl.shuffled.draws} random shuffles of Korea's own dates
+            reached at most <b>{klCorr(pl.shuffled.max_abs)}</b>, and{" "}
+            {klRate(pl.shuffled.share_beating_correct_pct)} of them beat the real
+            alignment.</span>
+        )}
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.surprise}>Korea surprise</div>
+      <div className="kl-research-note" title={KL_TIP.surprise}>
+        {KL_TIP.surprise}
+      </div>
+      <div className="scan-table-wrap">
+        <table className="scan-table kl-research-table">
+          <thead><tr>
+            <th title="Which Korean series.">Input</th>
+            <th className="scan-th-num" title="Sessions with a point-in-time surprise value.">Sessions</th>
+            <th className="scan-th-num" title="The raw series against this ticker's opening gap.">Raw</th>
+            <th className="scan-th-num" title="The same series with the previous U.S. semiconductor session subtracted out.">Surprise</th>
+          </tr></thead>
+          <tbody>
+            {Object.keys(r.surprise || {}).map((k) => {
+              const v = r.surprise[k];
+              if (!v || !v.ok) return (
+                <tr key={k}><td>{k}</td><td className="scan-num muted" colSpan={3}>{v && v.reason}</td></tr>);
+              return (
+                <tr key={k}>
+                  <td>{v.label}</td>
+                  <td className="scan-num muted">{v.n}</td>
+                  <td className="scan-num">{klCorr(v.raw_pearson)}</td>
+                  <td className="scan-num">{klCorr(v.surprise_pearson)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.convergence}>
+        Do gaps converge after the open?{" "}
+        <KlVerdict value={(r.convergence || {}).verdict} tip={KL_TIP.convergence} /></div>
+      <div className="kl-research-note" title={KL_TIP.convergence}>
+        {(r.convergence || {}).basis}
+        {r.convergence && r.convergence.ok && (
+          <span> Correlation <b>{klCorr(r.convergence.pearson)}</b>, robust
+            t <b>{r.convergence.slope_t}</b> over {r.convergence.n} sessions.</span>
+        )}
+      </div>
+      {r.convergence && r.convergence.extremes && (
+        <div className="scan-table-wrap">
+          <table className="scan-table kl-research-table">
+            <thead><tr>
+              <th title="Which extreme of the residual distribution.">Group</th>
+              <th className="scan-th-num" title="Sessions in that extreme fifth.">Sessions</th>
+              <th className="scan-th-num" title="Middle open-to-close outcome for that group.">Median after the open</th>
+              <th className="scan-th-num" title="Share of that group that closed above its open.">Closed higher</th>
+            </tr></thead>
+            <tbody>
+              {r.convergence.extremes.map((g) => (
+                <tr key={g.group}>
+                  <td>{g.group}</td>
+                  <td className="scan-num muted">{g.n}</td>
+                  <td className="scan-num">{gapPct(g.median_outcome_pct, 3)}</td>
+                  <td className="scan-num">{klRate(g.share_positive_pct)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="gap-sechead" title={KL_TIP.byyear}>Year by year</div>
+      <div className="scan-table-wrap">
+        <table className="scan-table kl-research-table">
+          <thead><tr>
+            <th title="Calendar year.">Year</th>
+            <th className="scan-th-num" title="Matched sessions in that year.">Sessions</th>
+            <th className="scan-th-num" title="KOSPI against this ticker's opening gap, that year alone.">Correlation</th>
+            <th className="scan-th-num" title="Share of that year's sessions that opened the same way Korea moved.">Same direction</th>
+            <th className="scan-th-num" title="Average opening gap that year.">Average gap</th>
+          </tr></thead>
+          <tbody>
+            {(r.by_year || []).map((y) => (
+              <tr key={y.year}>
+                <td>{y.year}</td>
+                <td className="scan-num muted">{y.n}</td>
+                <td className={`scan-num ${y.pearson >= 0 ? "up" : "down"}`}>{klCorr(y.pearson)}</td>
+                <td className="scan-num">{klRate(y.same_direction_pct)}</td>
+                <td className="scan-num">{gapPct(y.avg_y_pct, 2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.regime}>Volatility regime</div>
+      <div className="kl-research-note" title={KL_TIP.regime}>
+        {(r.regime || {}).basis}
+      </div>
+      {r.regime && r.regime.ok && (
+        <div className="scan-table-wrap">
+          <table className="scan-table kl-research-table">
+            <thead><tr>
+              <th title="Which half of the trailing-volatility split.">Regime</th>
+              <th className="scan-th-num" title="Sessions in that half.">Sessions</th>
+              <th className="scan-th-num" title="KOSPI against the opening gap within that half.">Correlation</th>
+              <th className="scan-th-num" title="Same-direction rate within that half.">Same direction</th>
+              <th className="scan-th-num" title="Middle opening gap within that half.">Median gap</th>
+            </tr></thead>
+            <tbody>
+              {r.regime.groups.map((g) => (
+                <tr key={g.label}>
+                  <td>{g.label === "calm" ? "Calmer half" : "More volatile half"}</td>
+                  <td className="scan-num muted">{g.n}</td>
+                  <td className="scan-num">{klCorr(g.pearson)}</td>
+                  <td className="scan-num">{klRate(g.same_direction_pct)}</td>
+                  <td className="scan-num">{gapPct(g.median_y_pct ?? g.median_gap_pct, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {m && m.cells && (
+        <div>
+          <div className="gap-sechead" title={KL_TIP.matrix}>
+            Which Asian input predicts which U.S. ticker
+            <span className="muted"> · {m.n_significant} of {m.n_cells} cells survive
+              the multiple-testing correction</span></div>
+          <div className="kl-research-note" title={KL_TIP.fdr}>{m.note}</div>
+          <div className="scan-table-wrap">
+            <table className="scan-table kl-research-table">
+              <thead><tr>
+                <th title="Which Asian series.">Asian input</th>
+                <th title="Signal, research, or control.">Role</th>
+                <th title="Which U.S. ticker's opening gap.">U.S. target</th>
+                <th className="scan-th-num" title="Matched sessions.">Sessions</th>
+                <th className="scan-th-num" title={KL_TIP.pearson}>Correlation</th>
+                <th className="scan-th-num" title={KL_TIP.spearman}>Rank</th>
+                <th className="scan-th-num" title={KL_TIP.match}>Same direction</th>
+                <th className="scan-th-num" title={KL_TIP.fdr}>q-value</th>
+              </tr></thead>
+              <tbody>
+                {m.cells.slice(0, 40).map((c) => (
+                  <tr key={c.input + c.target} className={c.significant ? "kl-sig" : ""}>
+                    <td>{c.input_label}</td>
+                    <td className="muted">{c.role}</td>
+                    <td><b>{c.target}</b></td>
+                    <td className="scan-num muted">{c.n}</td>
+                    <td className={`scan-num ${c.pearson >= 0 ? "up" : "down"}`}>{klCorr(c.pearson)}</td>
+                    <td className="scan-num">{klCorr(c.spearman)}</td>
+                    <td className="scan-num">{klRate(c.same_direction_pct)}</td>
+                    <td className="scan-num muted">{c.q == null ? "—" : c.q < 0.0001 ? "<0.0001" : c.q.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="kl-research-note" title="What produced these numbers.">
+        Engine {r.engine} · settings {r.config_hash} · {r.adjustment}
+      </div>
+    </div>
+  );
+}
+
 function KoreaLead({ apiFetch, symbol, onSymbol }) {
   const [win, setWin] = useState(() => {
     try { return localStorage.getItem(KL_WINDOW_KEY) || "1y"; } catch (e) { return "1y"; }
@@ -930,6 +1367,9 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
   const pm = d && d.target && d.target.premarket;
   const cmp = d && d.premarket_comparison;
   const ao = d && d.after_open;
+  const rel = d && d.relationship;
+  const est = d && d.estimates;
+  const res = d && d.residual;
 
   return (
     <div className="kl-panel">
@@ -976,6 +1416,11 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
               the panel looks unusual — each row shows a real number and the
               dates all agree with each other. Say it in one line instead of
               leaving it to be inferred from a NO DATA further down. */}
+          {d.korea && d.korea.unusual && d.korea.unusual.any && (
+            <div className="kl-unusual" title={KL_TIP.unusual}>
+              ⚡ {d.korea.unusual.headline} — {d.korea.unusual.detail}
+            </div>
+          )}
           {d.korea && d.korea.signal && !d.korea.signal.ok && (
             <div className="kl-nosignal" title={KL_TIP.nodata}>
               ⚠ No Korean signal for this session. {d.korea.signal.reason}
@@ -1018,6 +1463,23 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
                     {gapPct(dist && dist.median_pct, 2)}</KlStat>
                   <KlStat label="Typical range" tip={KL_TIP.implied}>
                     {dist ? `${gapPct(dist.p25_pct, 2)} to ${gapPct(dist.p75_pct, 2)}` : "—"}</KlStat>
+                  {est && est.regression && est.regression.ok && (
+                    <KlStat label="Fitted-line estimate" tip={KL_TIP.regression}
+                      tone={est.regression.expected_pct >= 0 ? "up" : "down"}>
+                      {gapPct(est.regression.expected_pct, 2)}
+                      <small className="muted"> · n={est.regression.n}</small>
+                    </KlStat>
+                  )}
+                  {est && est.regression && est.regression.band50 && (
+                    <KlStat label="Where its errors usually landed" tip={KL_TIP.band}>
+                      {gapPct(est.regression.band50[0], 2)} to {gapPct(est.regression.band50[1], 2)}
+                      <small className="muted"> · half the time</small>
+                    </KlStat>
+                  )}
+                  {est && est.agreement && est.agreement.state === "MODEL DISAGREEMENT" && (
+                    <div className="kl-flag" title={est.agreement.detail || KL_TIP.disagree}>
+                      ⚠ MODEL DISAGREEMENT</div>
+                  )}
                   {impl && !impl.usable && impl.reason &&
                     <div className="gap-note" title={KL_TIP.match}>{impl.reason}</div>}
                   {og.edge && <div className="gap-note"
@@ -1046,8 +1508,48 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
                 <KlStat label="Share of the matched gap already covered" tip={KL_TIP.share}>
                   {klRate(cmp.share_pct)}</KlStat>
               )}
+              {res && res.ok && (
+                <KlStat label="Against this pair's own residual history"
+                  tip={res.detail || KL_TIP.residualPct}>
+                  {res.label}
+                  <small className="muted"> · bigger than {klRate(res.percentile, 0)} of {res.n}</small>
+                </KlStat>
+              )}
               {cmp && !cmp.share_shown && cmp.state !== "UNAVAILABLE" && (
                 <div className="gap-note" title={KL_TIP.cmp}>{cmp.detail}</div>
+              )}
+            </div>
+
+            <div className="kl-box">
+              <div className="gap-bt" title={KL_TIP.relationship}>
+                Relationship strength</div>
+              {!rel || !rel.ok ? (
+                <div className="research-empty" title={KL_TIP.relationship}>
+                  {(rel && rel.reason) || "Not enough matched history yet."}</div>
+              ) : (
+                <div>
+                  <KlPill text={rel.health && rel.health.state}
+                    tone={rel.health && KL_HEALTH_TONE[rel.health.state]}
+                    tip={(rel.health && rel.health.detail) || KL_TIP.health} />
+                  {rel.health && rel.health.state === "UNSTABLE" && (
+                    <div className="kl-flag" title={KL_TIP.unstable}>
+                      ⚠ RELATIONSHIP UNSTABLE</div>
+                  )}
+                  <KlStat label="Last 60 sessions" tip={KL_TIP.relationship}
+                    tone={rel.recent && rel.recent.r >= 0 ? "up" : "down"}>
+                    {klCorr(rel.recent && rel.recent.r)}
+                    <small className="muted"> · n={(rel.recent || {}).n}</small>
+                  </KlStat>
+                  <KlStat label="Last year" tip={KL_TIP.relationship}
+                    tone={rel.long && rel.long.r >= 0 ? "up" : "down"}>
+                    {klCorr(rel.long && rel.long.r)}
+                    <small className="muted"> · n={(rel.long || {}).n}</small>
+                  </KlStat>
+                  <div className="kl-sparkrow" title={KL_TIP.relationship}>
+                    <span>Recent trend</span>
+                    <KlSpark points={rel.spark} />
+                  </div>
+                </div>
               )}
             </div>
 
@@ -1079,6 +1581,7 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
                 : "history, not a forecast"}</span>
           </div>
           {open && <KlDetails d={d} />}
+          {open && <KlResearch apiFetch={apiFetch} symbol={symbol} window={win} />}
         </div>
       )}
     </div>

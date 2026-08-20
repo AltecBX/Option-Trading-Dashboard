@@ -5497,10 +5497,20 @@ try:
         else datetime.now(timezone.utc),
     )
     _KOREA_AVAILABLE = True
+    try:
+        import korea_research as _korea_research
+        _korea_research.configure(data_dir=_STABLE_DIR)
+    except Exception as _exc2:  # noqa: BLE001
+        # The panel does not need the research layer. If this half fails to
+        # load, Korea Lead itself keeps working and only the Details
+        # research sections go missing.
+        print(f"[korea_research] wiring failed: {_exc2}", file=sys.stderr)
+        _korea_research = None  # type: ignore
 except Exception as _exc:  # noqa: BLE001
     print(f"[korea_lead] wiring failed: {_exc}", file=sys.stderr)
     _KOREA_AVAILABLE = False
     _korea = None  # type: ignore
+    _korea_research = None  # type: ignore
 
 
 # ── Investment tab (v4.41) ──────────────────────────────────────────────────
@@ -8687,6 +8697,45 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                                force=force), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/korea_lead", exc)
+                self._send_json({"error": str(exc), "ok": False}, status=500)
+            return
+        if parsed.path.startswith("/api/korea_research"):
+            # The research layer: expensive by design (walk-forward re-fits
+            # every candidate model once per fold), so it has its own
+            # endpoint and its own cache and never sits on the path that
+            # renders the Gap Scan panel.
+            if not _KOREA_AVAILABLE or _korea_research is None:
+                self._send_json({"error": "Korea research unavailable",
+                                 "ok": False}, status=503)
+                return
+            section = parsed.path[len("/api/korea_research"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", ["SMH"])[0] or "SMH").strip().upper()
+            window = (qs.get("window", ["max"])[0] or "max").strip().lower()
+            force = (qs.get("force", ["0"])[0] or "0") in ("1", "true")
+            if not symbol or len(symbol) > 8 or not symbol.replace(".", "").isalnum():
+                self._send_json({"error": "symbol required", "ok": False},
+                                status=400)
+                return
+            try:
+                if section == "":
+                    self._send_json(_korea_research.report(
+                        symbol, window=window, force=force), no_store=True)
+                elif section == "matrix":
+                    self._send_json(_korea_research.pair_matrix(
+                        window=window, force=force), no_store=True)
+                elif section == "validation":
+                    self._send_json(_korea_research.validation(
+                        window=window, force=force), no_store=True)
+                elif section == "coverage":
+                    self._send_json(_korea_research.minute_coverage(),
+                                    no_store=True)
+                else:
+                    self._send_json(
+                        {"error": f"unknown korea research section {section}"},
+                        status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/korea_research", exc)
                 self._send_json({"error": str(exc), "ok": False}, status=500)
             return
         if parsed.path == "/api/invest" or parsed.path.startswith("/api/invest/"):

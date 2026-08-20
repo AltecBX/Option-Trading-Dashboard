@@ -746,6 +746,26 @@ const KL_TIP = {
   sources: "Which provider answered for each series, how many daily bars came back, and when it was last fetched. A series marked stale is being served from the cache because a refresh failed — the numbers are still real, they are just older than they should be.",
   skipped: "Sessions that could NOT become observations. 'Korea traded, U.S. closed' are U.S. holidays: those Korean sessions are skipped, never rolled forward onto a later U.S. session, because a Korean move on Thursday does not describe a U.S. open the following Tuesday. 'U.S. traded, Korea closed' are Korean holidays, of which there are many.",
   through: "The most recent COMPLETED U.S. session in the history. Today is deliberately not in its own history: before the open today's U.S. bar does not exist, and after the open it is unfinished, so scoring today against a set that contained today would not be a measurement.",
+  relationship: "How strong the Korea-to-this-ticker relationship is RIGHT NOW, next to how strong it has been over a year. Both are shown because a one-year average can hold a relationship that has since halved — or inverted — and still read as healthy the whole way down. The little line is the last 120 sessions of the 60-session reading: its SHAPE is the point, because a number that has been sliding for months is a different thing from the same number holding steady.",
+  unstable: "RELATIONSHIP UNSTABLE means the recent window and the one-year window disagree about which way this relationship even runs. When that happens neither number should be traded on, and no average of the two is offered — averaging a positive and a negative into something mild would hide exactly the thing you need to see.",
+  health: "A plain-language summary of the four numbers printed beside it — nothing is hidden behind the label, and there is deliberately no score out of a hundred. STRONG and STABLE both mean the recent and long windows agree in direction and differ only in size. UNSTABLE means they disagree in direction. INSUFFICIENT DATA means there are not enough sessions to describe anything yet.",
+  unusual: "Today's Korean move is larger than the great majority of that index's own moves over the past year. This adapts on its own: a fixed rule like 'KOSPI above 1.5% is major' fires constantly in a calm year and never in a violent one, where a comparison against the index's own recent history carries the volatility regime with it. It flags size, not direction — an unusually large move is not automatically a good one.",
+  regression: "A SECOND, independent estimate of today's opening gap: a straight line fitted through every matched session, rather than the median of just the sessions that landed in today's bucket. The two are shown side by side and are never averaged.",
+  disagree: "MODEL DISAGREEMENT means the two independent estimates do not agree — either they point opposite ways, or they are far enough apart to matter. They are deliberately NOT averaged: the midpoint of two estimates that disagree is a third number nothing supports, stated with more confidence than either of the two it came from. When they disagree, treat today's expected gap as genuinely uncertain.",
+  band: "The range the fitted line's own past errors actually fell in — the middle 50% and the middle 80% of them. NOT a multiple of a standard deviation: gap errors have fat tails, so a 'plus or minus one sigma is 68%' band would be too narrow in exactly the sessions where being wrong costs the most.",
+  residualPct: "Where today's gap between the implied and the actual sits among every such gap this pair has produced before. This is why the label is not a fixed percentage: two points light means something completely different for MU than for SPY, and different again in a calm month than a violent one. A percentile against this pair's own history carries all of that automatically. IN LINE is an ordinary distance. UNDERREACTION and OVERREACTION mean today is in the most extreme tenth either way. DIVERGENCE means the premarket is moving the OPPOSITE way, which is a different thing from moving a different amount.",
+  research: "The full research layer: whether Korea adds anything the previous U.S. session did not already say, which way the information actually travels, whether the relationship survives an Asian control, how it has behaved year by year, which Korean input best predicts which U.S. ticker, and whether any model beats the simple KOSPI baseline OUT OF SAMPLE. This is measurement, not a trading rule — nothing here is wired into the panel above.",
+  incremental: "The number that decides whether Korea is a signal or an echo. It is not how well Korea explains the U.S. open — it is how much Korea ADDS once the previous U.S. session is already in the model. A variable that only repeats what is already known shows a large correlation and adds nothing. The t-statistic uses robust standard errors, because daily market returns are far more volatile in some months than others and ordinary standard errors understate the uncertainty exactly then.",
+  leadlag: "Which direction the information is actually travelling. Korea partly ECHOES the previous U.S. session and partly LEADS the next U.S. open, and both are measured here so the balance is visible instead of assumed. Note that rows A and D are close to the same measurement indexed two ways — the U.S. session before a Korean session is usually the one the previous Korean session followed — so they are shown together rather than counted as two separate findings.",
+  asiacontrol: "The test for the one explanation that would make this whole feature a mirage: that what looks like Korea leading U.S. chips is really overnight ASIAN risk appetite, with Korea just being a convenient thermometer for it. The Nikkei has far less semiconductor weight, so if it did the same job in the same regression, the semiconductor story would be wrong. All three inputs are fitted on ONE identical set of sessions, because a horse race run on different rows is not a horse race.",
+  walkforward: "Out-of-sample testing on time-series data, done the only way that is honest: expanding windows. Every prediction comes from a model fitted ONLY on sessions strictly earlier than the one it is scoring. There is no random train/test split anywhere — a random split on market data trains on the future and scores the past, and every model looks brilliant when it does. A model counts as beating the baseline only when it is better on BOTH the size of the error and the direction; winning one while losing the other shows nothing.",
+  placebo: "A deliberate sanity check against the failure that would otherwise be invisible: an off-by-one in the date alignment that still produces a plausible-looking number. The correct same-day pairing is compared against pairing Korea one session early, one session late, and against 200 random shuffles of Korea's own dates. If the correct alignment did not clearly beat all of them, the relationship would not be real.",
+  fdr: "Test dozens of pairs and a couple will look significant purely by luck. The q-value is the Benjamini-Hochberg false-discovery rate across the whole matrix — the share of the discoveries at that cut-off expected to be false. Read the q-value, not the raw p-value; a striking correlation that fails this correction has not earned attention.",
+  matrix: "Every Asian input against every U.S. target, measured DIRECTLY on each ticker's own history rather than inferred through a sector proxy. Sorted by the strength of the relationship. The role column matters: signal inputs are the Korean series the panel actually uses, research inputs are Taiwan, and the Nikkei is a control that is never promoted into a signal.",
+  byyear: "The same relationship split by calendar year — how a signal that only worked during one semiconductor cycle gives itself away. A relationship that shows up in every year is a structural one; a relationship that lives in two of them is a story about those two years.",
+  regime: "Whether Korea matters more when markets are violent. The split is at the MEDIAN of trailing volatility rather than at a round number, and — this is the part that matters — the volatility is computed through the PRIOR close. Using the same day's VIX would be a future value at 9:30, and every regime finding built on it would be an artefact of that.",
+  surprise: "Raw KOSPI is partly an echo of the previous U.S. semiconductor session. KOREA SURPRISE is what is left after subtracting what that session predicted — an attempt to isolate genuinely NEW overnight information. The echo model behind it is fitted only on sessions before each row, so it contains no hindsight. Whether it is actually better is settled by the out-of-sample comparison, not by these two correlations.",
+  convergence: "If a stock has not moved as far as Korea implies, does it make up the difference after 9:30? This box exists to answer that question honestly, including when the answer is no. Note the basis: this app holds no historical premarket prices for ordinary sessions, so this is measured from the OFFICIAL OPEN — whether a stock that opened further from the implied gap than usual closes the difference during the day.",
   nodata: "Korea Lead cannot produce an opening-gap bias without the KOSPI series. It does not fall back to Samsung, to SK Hynix, or to yesterday's reading — the panel says NO DATA instead, because a substituted signal would be a different measurement wearing this one's name."
 };
 
@@ -887,6 +907,54 @@ function KlBucketTable({
     className: "scan-num muted"
   }, b.distribution ? `${gapPct(b.distribution.p25_pct, 2)} to ${gapPct(b.distribution.p75_pct, 2)}` : "—")))))));
 }
+
+// A 120-session trail of the 60-session correlation. Drawn rather than
+// tabulated because the SHAPE is the information: a relationship sliding
+// for months and one holding steady can share today's number exactly.
+function KlSpark({
+  points,
+  tip
+}) {
+  const pts = (points || []).filter(v => v != null);
+  if (pts.length < 8) return null;
+  const lo = Math.min(...pts, 0),
+    hi = Math.max(...pts, 0);
+  const span = hi - lo || 1;
+  const W = 74,
+    H = 20;
+  const d = pts.map((v, i) => {
+    const x = i / (pts.length - 1) * W;
+    const y = H - (v - lo) / span * H;
+    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join("");
+  const zero = H - (0 - lo) / span * H;
+  const last = pts[pts.length - 1];
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "kl-spark",
+    width: W,
+    height: H,
+    viewBox: `0 0 ${W} ${H}`,
+    role: "img",
+    "aria-label": "recent relationship trend",
+    title: tip || `The 60-session correlation over the last ${pts.length} sessions: from ${pts[0].toFixed(2)} to ${last.toFixed(2)}. The dashed line is zero.`
+  }, zero >= 0 && zero <= H && /*#__PURE__*/React.createElement("line", {
+    x1: "0",
+    y1: zero,
+    x2: W,
+    y2: zero,
+    className: "kl-spark-zero"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: d,
+    className: `kl-spark-line ${last >= 0 ? "up" : "down"}`
+  }));
+}
+const KL_HEALTH_TONE = {
+  STRONG: "up",
+  STABLE: "up",
+  WEAK: "mut",
+  UNSTABLE: "down",
+  "INSUFFICIENT DATA": "mut"
+};
 function KlDetails({
   d
 }) {
@@ -1066,6 +1134,452 @@ function KlDetails({
     className: "kl-defn"
   }, d.signal_definition))));
 }
+
+// ── the research drawer ─────────────────────────────────────────────────────
+// Loaded on demand: the walk-forward alone re-fits every candidate model once
+// per fold, so it is never on the path that renders the panel above.
+
+const KL_VERDICT_TONE = {
+  PASSED: "good",
+  CONVERGES: "good",
+  "KOREA-SPECIFIC": "good",
+  "NO MEASURABLE EDGE": "mut",
+  "NOT MEASURABLE": "mut",
+  "SHARED WITH BROAD ASIA": "warn",
+  "DIVERGES FURTHER": "warn",
+  "EXPLAINED BY BROAD ASIA": "bad",
+  FAILED: "bad"
+};
+const klVerdictTone = v => KL_VERDICT_TONE[v] || (typeof v === "string" && v.startsWith("WEAK") ? "warn" : "mut");
+
+// Spelled out rather than derived from the key — a naive underscore
+// replace turned "kospi_only" into "kospi + alone".
+const KL_ASIA_MODEL = {
+  kospi_only: "KOSPI alone",
+  nikkei_only: "Nikkei alone",
+  kospi_plus_nikkei: "KOSPI + Nikkei",
+  kospi_nikkei_tsmc: "KOSPI + Nikkei + TSMC"
+};
+const KL_ASIA_MODEL_TIP = {
+  kospi_only: "KOSPI on its own, on the shared sample.",
+  nikkei_only: "The Nikkei on its own, on the very same sessions — the control.",
+  kospi_plus_nikkei: "Both together. If Korea were only a thermometer for Asian risk appetite, its t-statistic would collapse here.",
+  kospi_nikkei_tsmc: "Both plus Taiwan, to see whether Taipei carries anything the other two do not."
+};
+function KlVerdict({
+  value,
+  tip
+}) {
+  if (!value) return null;
+  return /*#__PURE__*/React.createElement("span", {
+    className: `kl-verdict ${klVerdictTone(value)}`,
+    title: tip
+  }, value);
+}
+function KlResearch({
+  apiFetch,
+  symbol,
+  window: win
+}) {
+  const [r, setR] = useState(null);
+  const [m, setM] = useState(null);
+  const [err, setErr] = useState(null);
+  const [asked, setAsked] = useState(false);
+  const load = () => {
+    setAsked(true);
+    setErr(null);
+    apiFetch(`/api/korea_research?symbol=${encodeURIComponent(symbol)}&window=max`, {
+      noCache: true
+    }).then(x => x.json()).then(x => x && x.ok ? setR(x) : setErr(x && x.error || "unavailable")).catch(e => setErr(String(e)));
+    apiFetch("/api/korea_research/matrix?window=max", {
+      noCache: true
+    }).then(x => x.json()).then(setM).catch(() => {});
+  };
+  if (!asked) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "kl-research"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "gap-sechead",
+      title: KL_TIP.research
+    }, "Research \u2014 does Korea actually add anything?"), /*#__PURE__*/React.createElement("div", {
+      className: "kl-research-note",
+      title: KL_TIP.research
+    }, "Whether Korea tells us anything the previous U.S. session did not, which way the information travels, whether it survives an Asian control, and whether any model beats plain KOSPI out of sample. Loaded on request because it re-fits every candidate model once per fold and takes a few seconds."), /*#__PURE__*/React.createElement("button", {
+      className: "rr-btn kl-loadbtn",
+      onClick: load,
+      title: "Run the research layer for this ticker. It measures rather than recommends \u2014 nothing here is wired into the panel above."
+    }, "Run the research"));
+  }
+  if (err) return /*#__PURE__*/React.createElement("div", {
+    className: "kl-research"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-error"
+  }, "Research unavailable: ", err));
+  if (!r) return /*#__PURE__*/React.createElement("div", {
+    className: "kl-research"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-loading"
+  }, "Measuring ", symbol, " against ten years of Asian sessions\u2026"));
+  const inc = r.incremental || {};
+  const ac = r.asia_control || {};
+  const mc = r.model_comparison || {};
+  const pl = r.placebo || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-research"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.research
+  }, "Research \xB7 ", r.symbol, " \xB7 ", r.n, " matched sessions", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", gapDate(r.first_date), " to ", gapDate(r.last_date))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.incremental
+  }, "Does Korea add anything the previous U.S. session did not?"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.incremental
+  }, "The baseline model knows only what the U.S. did yesterday. The full model adds one Asian input. What matters is the CHANGE in R\xB2, not its level \u2014 a variable that only repeats what is already known scores a large correlation and adds nothing."), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which Asian series is being added to the baseline."
+  }, "Asian input"), /*#__PURE__*/React.createElement("th", {
+    title: "Signal inputs are what the panel uses. Research is Taiwan. The Nikkei is a control and is never promoted into a signal."
+  }, "Role"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Matched sessions behind the row."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "How much the U.S. opening gap moves per 1% of this Asian input, holding yesterday's U.S. session fixed."
+  }, "Slope"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.incremental
+  }, "Robust t"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "R\xB2 of the baseline: the previous U.S. session alone."
+  }, "R\xB2 baseline"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "R\xB2 once the Asian input is added."
+  }, "R\xB2 with Asia"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The number that decides whether this is a signal or an echo."
+  }, "R\xB2 added"))), /*#__PURE__*/React.createElement("tbody", null, ["kospi", "samsung", "hynix", "tsmc", "nikkei"].map(k => {
+    const v = inc[k];
+    if (!v) return null;
+    const a = (v.added || []).find(x => x.name === k);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: k
+    }, /*#__PURE__*/React.createElement("td", {
+      title: v.label
+    }, v.label), /*#__PURE__*/React.createElement("td", {
+      className: "muted"
+    }, v.role), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num muted"
+    }, v.ok ? v.base.n : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, a ? a.beta.toFixed(3) : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, a && a.t != null ? a.t.toFixed(2) : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num muted"
+    }, v.ok ? v.r2_base.toFixed(4) : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, v.ok ? v.r2_full.toFixed(4) : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num up"
+    }, v.ok ? `+${v.delta_r2.toFixed(4)}` : "—"));
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.asiacontrol
+  }, "Is it Korea, or is it Asia? ", /*#__PURE__*/React.createElement(KlVerdict, {
+    value: ac.verdict,
+    tip: ac.detail
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.asiacontrol
+  }, ac.detail || KL_TIP.asiacontrol), ac.ok && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which inputs are in the regression. All are fitted on one identical set of sessions."
+  }, "Model"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Share of the opening gap's variation the model accounts for."
+  }, "R\xB2"), /*#__PURE__*/React.createElement("th", {
+    title: "Each input's robust t-statistic inside that model."
+  }, "Inputs"))), /*#__PURE__*/React.createElement("tbody", null, Object.keys(ac.models || {}).map(k => /*#__PURE__*/React.createElement("tr", {
+    key: k
+  }, /*#__PURE__*/React.createElement("td", {
+    title: KL_ASIA_MODEL_TIP[k] || ""
+  }, KL_ASIA_MODEL[k] || k), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, ac.models[k].r2.toFixed(4)), /*#__PURE__*/React.createElement("td", {
+    className: "muted"
+  }, ac.models[k].params.map(pp => `${pp.name} t=${pp.t == null ? "—" : pp.t.toFixed(2)}`).join(" · "))))))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.leadlag
+  }, "Lead and lag"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.leadlag
+  }, r.lead_lag && r.lead_lag.kospi && r.lead_lag.kospi.note || ""), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which direction is being measured."
+  }, "Direction"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Correlation over the matched sessions."
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    title: "What that leg means."
+  }, "What it means"))), /*#__PURE__*/React.createElement("tbody", null, ["kospi", "hynix"].map(k => {
+    const ll = (r.lead_lag || {})[k];
+    if (!ll || !ll.ok) return null;
+    return (ll.legs || []).map(leg => /*#__PURE__*/React.createElement("tr", {
+      key: k + leg.key
+    }, /*#__PURE__*/React.createElement("td", null, leg.label), /*#__PURE__*/React.createElement("td", {
+      className: `scan-num ${leg.r >= 0 ? "up" : "down"}`
+    }, klCorr(leg.r)), /*#__PURE__*/React.createElement("td", {
+      className: "muted"
+    }, leg.meaning)));
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.walkforward
+  }, "Out of sample \u2014 did anything beat plain KOSPI?"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.walkforward
+  }, mc.note || KL_TIP.walkforward, " ", "Beat the baseline on both error and direction:", " ", /*#__PURE__*/React.createElement("b", null, mc.beats_baseline && mc.beats_baseline.length ? mc.beats_baseline.join(", ") : "nothing"), "."), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which inputs the model uses. Coefficients are re-fitted inside every fold on that fold's training data alone."
+  }, "Model"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Out-of-sample predictions scored."
+  }, "Scored"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Share of sessions where the predicted direction of the open was right."
+  }, "Direction"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Average size of the miss, in percentage points. Lower is better."
+  }, "Average miss"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Brier score for the up/down call \u2014 lower is better, and 0.25 is a coin flip."
+  }, "Brier"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Correlation between what the model predicted and what actually happened, out of sample."
+  }, "Predicted vs actual"))), /*#__PURE__*/React.createElement("tbody", null, (mc.rows || []).map(row => /*#__PURE__*/React.createElement("tr", {
+    key: row.model,
+    className: row.model === mc.baseline ? "kl-row-on" : ""
+  }, /*#__PURE__*/React.createElement("td", null, row.model, row.model === mc.baseline ? " · baseline" : ""), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, row.n), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, row.direction_pct == null ? "—" : klRate(row.direction_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, row.mae_pct.toFixed(4)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, row.brier.toFixed(4)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr(row.pred_actual_corr))))))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.placebo
+  }, "Alignment placebo ", /*#__PURE__*/React.createElement(KlVerdict, {
+    value: pl.verdict,
+    tip: KL_TIP.placebo
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.placebo
+  }, "Correct same-day pairing ", /*#__PURE__*/React.createElement("b", null, klCorr(pl.correct)), (pl.placebos || []).map(x => /*#__PURE__*/React.createElement("span", {
+    key: x.shift
+  }, " \xB7 ", x.label, ": ", /*#__PURE__*/React.createElement("b", null, klCorr(x.pearson)))), pl.shuffled && /*#__PURE__*/React.createElement("span", null, " \xB7 ", pl.shuffled.draws, " random shuffles of Korea's own dates reached at most ", /*#__PURE__*/React.createElement("b", null, klCorr(pl.shuffled.max_abs)), ", and", " ", klRate(pl.shuffled.share_beating_correct_pct), " of them beat the real alignment.")), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.surprise
+  }, "Korea surprise"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.surprise
+  }, KL_TIP.surprise), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which Korean series."
+  }, "Input"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Sessions with a point-in-time surprise value."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The raw series against this ticker's opening gap."
+  }, "Raw"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "The same series with the previous U.S. semiconductor session subtracted out."
+  }, "Surprise"))), /*#__PURE__*/React.createElement("tbody", null, Object.keys(r.surprise || {}).map(k => {
+    const v = r.surprise[k];
+    if (!v || !v.ok) return /*#__PURE__*/React.createElement("tr", {
+      key: k
+    }, /*#__PURE__*/React.createElement("td", null, k), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num muted",
+      colSpan: 3
+    }, v && v.reason));
+    return /*#__PURE__*/React.createElement("tr", {
+      key: k
+    }, /*#__PURE__*/React.createElement("td", null, v.label), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num muted"
+    }, v.n), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, klCorr(v.raw_pearson)), /*#__PURE__*/React.createElement("td", {
+      className: "scan-num"
+    }, klCorr(v.surprise_pearson)));
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.convergence
+  }, "Do gaps converge after the open?", " ", /*#__PURE__*/React.createElement(KlVerdict, {
+    value: (r.convergence || {}).verdict,
+    tip: KL_TIP.convergence
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.convergence
+  }, (r.convergence || {}).basis, r.convergence && r.convergence.ok && /*#__PURE__*/React.createElement("span", null, " Correlation ", /*#__PURE__*/React.createElement("b", null, klCorr(r.convergence.pearson)), ", robust t ", /*#__PURE__*/React.createElement("b", null, r.convergence.slope_t), " over ", r.convergence.n, " sessions.")), r.convergence && r.convergence.extremes && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which extreme of the residual distribution."
+  }, "Group"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Sessions in that extreme fifth."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Middle open-to-close outcome for that group."
+  }, "Median after the open"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Share of that group that closed above its open."
+  }, "Closed higher"))), /*#__PURE__*/React.createElement("tbody", null, r.convergence.extremes.map(g => /*#__PURE__*/React.createElement("tr", {
+    key: g.group
+  }, /*#__PURE__*/React.createElement("td", null, g.group), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, g.n), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, gapPct(g.median_outcome_pct, 3)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klRate(g.share_positive_pct))))))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.byyear
+  }, "Year by year"), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Calendar year."
+  }, "Year"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Matched sessions in that year."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "KOSPI against this ticker's opening gap, that year alone."
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Share of that year's sessions that opened the same way Korea moved."
+  }, "Same direction"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Average opening gap that year."
+  }, "Average gap"))), /*#__PURE__*/React.createElement("tbody", null, (r.by_year || []).map(y => /*#__PURE__*/React.createElement("tr", {
+    key: y.year
+  }, /*#__PURE__*/React.createElement("td", null, y.year), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, y.n), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${y.pearson >= 0 ? "up" : "down"}`
+  }, klCorr(y.pearson)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klRate(y.same_direction_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, gapPct(y.avg_y_pct, 2))))))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.regime
+  }, "Volatility regime"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.regime
+  }, (r.regime || {}).basis), r.regime && r.regime.ok && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which half of the trailing-volatility split."
+  }, "Regime"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Sessions in that half."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "KOSPI against the opening gap within that half."
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Same-direction rate within that half."
+  }, "Same direction"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Middle opening gap within that half."
+  }, "Median gap"))), /*#__PURE__*/React.createElement("tbody", null, r.regime.groups.map(g => /*#__PURE__*/React.createElement("tr", {
+    key: g.label
+  }, /*#__PURE__*/React.createElement("td", null, g.label === "calm" ? "Calmer half" : "More volatile half"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, g.n), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr(g.pearson)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klRate(g.same_direction_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, gapPct(g.median_y_pct ?? g.median_gap_pct, 2))))))), m && m.cells && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.matrix
+  }, "Which Asian input predicts which U.S. ticker", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", m.n_significant, " of ", m.n_cells, " cells survive the multiple-testing correction")), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.fdr
+  }, m.note), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-research-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "Which Asian series."
+  }, "Asian input"), /*#__PURE__*/React.createElement("th", {
+    title: "Signal, research, or control."
+  }, "Role"), /*#__PURE__*/React.createElement("th", {
+    title: "Which U.S. ticker's opening gap."
+  }, "U.S. target"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Matched sessions."
+  }, "Sessions"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.pearson
+  }, "Correlation"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.spearman
+  }, "Rank"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.match
+  }, "Same direction"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: KL_TIP.fdr
+  }, "q-value"))), /*#__PURE__*/React.createElement("tbody", null, m.cells.slice(0, 40).map(c => /*#__PURE__*/React.createElement("tr", {
+    key: c.input + c.target,
+    className: c.significant ? "kl-sig" : ""
+  }, /*#__PURE__*/React.createElement("td", null, c.input_label), /*#__PURE__*/React.createElement("td", {
+    className: "muted"
+  }, c.role), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, c.target)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, c.n), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${c.pearson >= 0 ? "up" : "down"}`
+  }, klCorr(c.pearson)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klCorr(c.spearman)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, klRate(c.same_direction_pct)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, c.q == null ? "—" : c.q < 0.0001 ? "<0.0001" : c.q.toFixed(4)))))))), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: "What produced these numbers."
+  }, "Engine ", r.engine, " \xB7 settings ", r.config_hash, " \xB7 ", r.adjustment));
+}
 function KoreaLead({
   apiFetch,
   symbol,
@@ -1116,6 +1630,9 @@ function KoreaLead({
   const pm = d && d.target && d.target.premarket;
   const cmp = d && d.premarket_comparison;
   const ao = d && d.after_open;
+  const rel = d && d.relationship;
+  const est = d && d.estimates;
+  const res = d && d.residual;
   return /*#__PURE__*/React.createElement("div", {
     className: "kl-panel"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1176,7 +1693,10 @@ function KoreaLead({
     title: KL_TIP.session
   }, "Seoul ", sess && sess.seoul_time, " \xB7", " ", /*#__PURE__*/React.createElement("b", {
     className: sess && sess.state === "SESSION IN PROGRESS" ? "warn" : ""
-  }, sess && sess.state), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), d.korea && d.korea.signal && !d.korea.signal.ok && /*#__PURE__*/React.createElement("div", {
+  }, sess && sess.state), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), d.korea && d.korea.unusual && d.korea.unusual.any && /*#__PURE__*/React.createElement("div", {
+    className: "kl-unusual",
+    title: KL_TIP.unusual
+  }, "\u26A1 ", d.korea.unusual.headline, " \u2014 ", d.korea.unusual.detail), d.korea && d.korea.signal && !d.korea.signal.ok && /*#__PURE__*/React.createElement("div", {
     className: "kl-nosignal",
     title: KL_TIP.nodata
   }, "\u26A0 No Korean signal for this session. ", d.korea.signal.reason), /*#__PURE__*/React.createElement("div", {
@@ -1227,7 +1747,21 @@ function KoreaLead({
   }, gapPct(dist && dist.median_pct, 2)), /*#__PURE__*/React.createElement(KlStat, {
     label: "Typical range",
     tip: KL_TIP.implied
-  }, dist ? `${gapPct(dist.p25_pct, 2)} to ${gapPct(dist.p75_pct, 2)}` : "—"), impl && !impl.usable && impl.reason && /*#__PURE__*/React.createElement("div", {
+  }, dist ? `${gapPct(dist.p25_pct, 2)} to ${gapPct(dist.p75_pct, 2)}` : "—"), est && est.regression && est.regression.ok && /*#__PURE__*/React.createElement(KlStat, {
+    label: "Fitted-line estimate",
+    tip: KL_TIP.regression,
+    tone: est.regression.expected_pct >= 0 ? "up" : "down"
+  }, gapPct(est.regression.expected_pct, 2), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 n=", est.regression.n)), est && est.regression && est.regression.band50 && /*#__PURE__*/React.createElement(KlStat, {
+    label: "Where its errors usually landed",
+    tip: KL_TIP.band
+  }, gapPct(est.regression.band50[0], 2), " to ", gapPct(est.regression.band50[1], 2), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 half the time")), est && est.agreement && est.agreement.state === "MODEL DISAGREEMENT" && /*#__PURE__*/React.createElement("div", {
+    className: "kl-flag",
+    title: est.agreement.detail || KL_TIP.disagree
+  }, "\u26A0 MODEL DISAGREEMENT"), impl && !impl.usable && impl.reason && /*#__PURE__*/React.createElement("div", {
     className: "gap-note",
     title: KL_TIP.match
   }, impl.reason), og.edge && /*#__PURE__*/React.createElement("div", {
@@ -1258,10 +1792,47 @@ function KoreaLead({
   })), cmp && cmp.share_shown && /*#__PURE__*/React.createElement(KlStat, {
     label: "Share of the matched gap already covered",
     tip: KL_TIP.share
-  }, klRate(cmp.share_pct)), cmp && !cmp.share_shown && cmp.state !== "UNAVAILABLE" && /*#__PURE__*/React.createElement("div", {
+  }, klRate(cmp.share_pct)), res && res.ok && /*#__PURE__*/React.createElement(KlStat, {
+    label: "Against this pair's own residual history",
+    tip: res.detail || KL_TIP.residualPct
+  }, res.label, /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 bigger than ", klRate(res.percentile, 0), " of ", res.n)), cmp && !cmp.share_shown && cmp.state !== "UNAVAILABLE" && /*#__PURE__*/React.createElement("div", {
     className: "gap-note",
     title: KL_TIP.cmp
   }, cmp.detail)), /*#__PURE__*/React.createElement("div", {
+    className: "kl-box"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-bt",
+    title: KL_TIP.relationship
+  }, "Relationship strength"), !rel || !rel.ok ? /*#__PURE__*/React.createElement("div", {
+    className: "research-empty",
+    title: KL_TIP.relationship
+  }, rel && rel.reason || "Not enough matched history yet.") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(KlPill, {
+    text: rel.health && rel.health.state,
+    tone: rel.health && KL_HEALTH_TONE[rel.health.state],
+    tip: rel.health && rel.health.detail || KL_TIP.health
+  }), rel.health && rel.health.state === "UNSTABLE" && /*#__PURE__*/React.createElement("div", {
+    className: "kl-flag",
+    title: KL_TIP.unstable
+  }, "\u26A0 RELATIONSHIP UNSTABLE"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Last 60 sessions",
+    tip: KL_TIP.relationship,
+    tone: rel.recent && rel.recent.r >= 0 ? "up" : "down"
+  }, klCorr(rel.recent && rel.recent.r), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 n=", (rel.recent || {}).n)), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Last year",
+    tip: KL_TIP.relationship,
+    tone: rel.long && rel.long.r >= 0 ? "up" : "down"
+  }, klCorr(rel.long && rel.long.r), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 n=", (rel.long || {}).n)), /*#__PURE__*/React.createElement("div", {
+    className: "kl-sparkrow",
+    title: KL_TIP.relationship
+  }, /*#__PURE__*/React.createElement("span", null, "Recent trend"), /*#__PURE__*/React.createElement(KlSpark, {
+    points: rel.spark
+  })))), /*#__PURE__*/React.createElement("div", {
     className: "kl-box kl-box-after"
   }, /*#__PURE__*/React.createElement("div", {
     className: "gap-bt",
@@ -1297,6 +1868,10 @@ function KoreaLead({
     title: "Korea Lead measures a historical relationship. A relationship is not a cause and a match rate is not a probability \u2014 both are stated with the number of sessions behind them so they can be judged."
   }, d.target && d.target.n || 0, " matched sessions \xB7", " ", d.window_label, " \xB7 ", d.target && d.target.is_control ? "CONTROL TICKER — read the tooltip before trading it" : "history, not a forecast")), open && /*#__PURE__*/React.createElement(KlDetails, {
     d: d
+  }), open && /*#__PURE__*/React.createElement(KlResearch, {
+    apiFetch: apiFetch,
+    symbol: symbol,
+    window: win
   })));
 }
 
