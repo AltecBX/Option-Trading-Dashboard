@@ -608,24 +608,37 @@ const KL_WINDOW_KEY = "jerry_korea_window";
 const klRate = (v, d = 1) => (v == null ? "—" : `${Number(v).toFixed(d)}%`);
 const klCorr = (v) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}`);
 
-const KL_BIAS_TONE = { UP: "up", DOWN: "down", MIXED: "warn", "NO DATA": "mut" };
+const KL_BIAS_TONE = {
+  UP: "up", DOWN: "down", MIXED: "warn", INCONCLUSIVE: "mut",
+  "RELATIONSHIP UNSTABLE": "down", "NO DATA": "mut",
+};
+const KL_FRESH_TONE = {
+  "CURRENT FOR SOURCE": "up", "SETTLED CLOSE": "up", DELAYED: "warn",
+  STALE: "down", "AGE UNKNOWN": "warn", UNAVAILABLE: "mut",
+};
+const KL_MOVE_TONE = {
+  EXTREME: "down", UNUSUAL: "warn", NORMAL: "mut", "NOT MEASURED": "mut",
+};
+const KL_DRIVER_LABEL = {
+  kospi: "KOSPI", samsung: "Samsung Electronics", hynix: "SK Hynix",
+};
 const KL_EDGE_TONE = {
   STRONG: "up", MODERATE: "warn", "WEAK HISTORICAL EDGE": "mut",
   "NO EDGE": "mut", "NOT MEASURED": "mut",
 };
 const KL_CONFIRM_TONE = {
-  STRONG: "up", MIXED: "warn", DIVERGENCE: "down", UNAVAILABLE: "mut",
+  CONFIRMED: "up", MIXED: "warn", DIVERGENCE: "down", UNAVAILABLE: "mut",
 };
 const KL_CMP_TONE = { CONFIRMING: "up", DIVERGING: "down", UNAVAILABLE: "mut" };
 
 const KL_TIP = {
   panel: "KOREA LEAD — what the Korean market did overnight, and what has historically happened to this U.S. ticker's OPENING PRICE after a Korean session like it. Korea finishes trading hours before New York opens, so today's Korean result is a completed, published fact by the time a U.S. chip stock has to choose an opening price. This panel measures whether that fact has ever told us anything. It is history, not a forecast, and it says how many sessions each number rests on.",
-  session: "Where Seoul is in its own trading day right now, on Seoul's clock. Korea's regular session runs 09:00 to 15:30 Korea time. SESSION IN PROGRESS means today's Korean numbers are still moving and are shown as provisional. CLOSED means Korea is finished and today's figure is the final overnight signal for this U.S. session. NOT A TRADING DAY means it is a weekend in Seoul.",
+  session: "Where Seoul is in its own trading day right now, on Seoul's clock. Korea's regular session runs 09:00 to 15:30 Korea time. SESSION IN PROGRESS means today's Korean numbers are still moving and are shown as provisional. AFTER NORMAL CLOSE means the hours Korea normally trades have passed — which is not the same as the session being over, and the DATA state beside it is what settles that. NOT A TRADING DAY means it is a weekend in Seoul.",
   kospi: "The KOSPI Composite Index — the whole South Korean market — measured from yesterday's Korean close to today's Korean close. This is the signal every statistic in this panel is built on. If it cannot be read, there is no opening-gap bias and the panel says so rather than substituting something else.",
   samsung: "Samsung Electronics, the world's largest memory maker, from its previous Korean close to today's. Shown next to KOSPI rather than blended into it: the index is broad and this is not, and when they disagree that disagreement is the information.",
   hynix: "SK Hynix, the other Korean memory maker and the most direct listed comparison to Micron. Same measurement as Samsung — close to close on Korea's calendar.",
   usdkrw: "The US dollar against the Korean won, shown as CONTEXT ONLY. It is deliberately excluded from every statistic in this panel. The reason is honest and unglamorous: this app's currency source stamps the USD/KRW daily bar on a London day, and London is still open when New York opens — so that 'close' may have been set hours AFTER the U.S. opening price it would be used to predict. Using it would be reading the future. There is no intraday currency history reaching back years to sample it properly instead, so it stays out of the model until there is.",
-  confirm: "Whether Korea's two memory names went the same way the KOSPI index went today. STRONG = both agreed with the index. MIXED = one agreed and one did not, or one of them could not be read. DIVERGENCE = neither went with the index. This is descriptive only — there is no weighting behind it and it is not a score. It exists because KOSPI is a broad index and the stocks traded here are not: an index that rose while both memory makers fell is worth seeing plainly instead of being averaged into something that reads as mild.",
+  confirm: "Whether Korea's two memory names went the same way the KOSPI index went today. CONFIRMED = both agreed with the index AND all three moved far enough for the agreement to mean something — three series within a rounding error of unchanged are on the same side of zero by coin flip, and calling that confirmation would make the strongest label the easiest one to earn on the quietest day of the year. MIXED = they agreed but too weakly, or one agreed and one did not, or one could not be read. DIVERGENCE = a memory name moved materially AGAINST an index that had itself moved enough to be worth disagreeing with. This is descriptive only — there is no weighting behind it and it is not a score. It exists because KOSPI is a broad index and the stocks traded here are not: an index that rose while both memory makers fell is worth seeing plainly instead of being averaged into something that reads as mild.",
   target: "Which U.S. ticker the history below is measured on. The preset buttons are the semiconductor, memory and storage names this relationship was researched on; SPY and IGV are controls, not trades. Any ticker with enough matched history works, and opening a stock's row in the scanner below points this panel at it.",
   control: "A CONTROL, not a trade idea. SPY is the whole U.S. market — if Korea predicts SPY's open about as well as it predicts a chip stock's, then what is being measured is broad risk appetite rather than anything about semiconductors. IGV is technology SOFTWARE, which buys no memory from Korea at all — if Korea predicts IGV as well as it predicts SMH, the semiconductor story is weaker than it looks. Compare them against the chip names before trusting the chip names.",
   window: "How far back the history is measured. A 60-session result and a three-year result are not the same claim, and the sample size next to every number is there so they never get read as though they were. Longer windows are more stable; shorter ones describe the market as it is behaving now. Look at both in Details before believing either.",
@@ -663,6 +676,15 @@ const KL_TIP = {
   regime: "Whether Korea matters more when markets are violent. The split is at the MEDIAN of trailing volatility rather than at a round number, and — this is the part that matters — the volatility is computed through the PRIOR close. Using the same day's VIX would be a future value at 9:30, and every regime finding built on it would be an artefact of that.",
   surprise: "Raw KOSPI is partly an echo of the previous U.S. semiconductor session. KOREA SURPRISE is what is left after subtracting what that session predicted — an attempt to isolate genuinely NEW overnight information. The echo model behind it is fitted only on sessions before each row, so it contains no hindsight. Whether it is actually better is settled by the out-of-sample comparison, not by these two correlations.",
   convergence: "If a stock has not moved as far as Korea implies, does it make up the difference after 9:30? This box exists to answer that question honestly, including when the answer is no. Note the basis: this app holds no historical premarket prices for ordinary sessions, so this is measured from the OFFICIAL OPEN — whether a stock that opened further from the implied gap than usual closes the difference during the day.",
+  inconclusive: "INCONCLUSIVE means the matched history cannot establish a direction — either there were fewer matched sessions than this panel requires before it names one, or the honest range around the match rate contains a coin flip, or the count and the median disagreed with each other. This is NOT the same answer as RELATIONSHIP UNSTABLE. Inconclusive says the evidence is too thin to tell you anything; unstable says the relationship itself has changed underneath evidence that may look perfectly decisive. They call for opposite responses, so they are given different words.",
+  freshness: "How old this reading is, from the PROVIDER'S own timestamp rather than from when this app happened to fetch it. CURRENT FOR SOURCE is the strongest thing this can honestly say, and it is weaker than it sounds — the Korean series here come from a delayed feed, so a two-minute-old print is the freshest thing available and still is not the exchange's live price. DELAYED means visibly behind but usable as context. STALE means too old to describe the current session. SETTLED CLOSE means the Korean session is finished, so this is a final closing price and its age is not a defect. AGE UNKNOWN means the provider did not timestamp it at all, which is treated as unverified rather than as current.",
+  sessiondata: "Two different questions, shown side by side. The SCHEDULED state is what the clock says should be happening in Seoul. The DATA state is what the Korean numbers are actually doing. They usually agree; the case worth seeing is when they do not. Korea moves its trading day — most visibly on the annual national university entrance exam, when the exchange opens and closes an hour later — and no exam-day calendar ships with this app, deliberately, because a hardcoded calendar is silently wrong the first year nobody updates it. So a session is only called final once its value has been watched standing still, never while it is still moving, however late that runs.",
+  moveState: "How far into its own recent history today's move sits. UNUSUAL means larger than the great majority of that index's own moves over the trailing year; EXTREME is the far tail of the same distribution. Percentiles rather than fixed percentages, because a fixed rule like 'KOSPI above 1.5% is major' fires constantly in a calm year and never in a violent one, where a comparison against the index's own recent history carries the volatility regime with it. The percentile and the number of sessions behind it are printed beside the label so you can disagree with the word by looking at the number. It flags SIZE, not direction — an unusually large move is not automatically a good one.",
+  premarketStale: "PREMARKET NOT AVAILABLE YET means the most recent price for this ticker is too old to describe this morning, so no premarket gap, residual, percentile or confirming call is calculated from it. This gate exists because of a measured failure rather than a hypothetical one: when the primary quote source is unavailable, the fallback returns YESTERDAY'S four o'clock close as the last price and the close before that as the previous close — which subtract into yesterday's full-day return wearing this morning's label. It looks entirely plausible and it is completely wrong. Thin premarket names like WDC and STX are where an old print looks most like a live one.",
+  driver: "PRIMARY KOREA DRIVER — which Korean input has actually predicted THIS ticker's open best, measured OUT OF SAMPLE on an expanding walk-forward, never on an in-sample correlation. It changes reluctantly by design: a challenger must clear an absolute quality floor on its own merits, then beat the sitting driver on BOTH direction accuracy and error size by a margin, and hold both advantages across dozens of matched sessions. Without that hysteresis the driver flips on noise and reads SK Hynix on Monday, KOSPI on Tuesday, Samsung on Wednesday — three findings that are one sampling error. NO CLEAR PRIMARY DRIVER is a real answer: if nothing clears the floor, then nothing has been shown to lead this ticker, and promoting the least bad of several weak signals would put a finding on screen that nobody found.",
+  selfcheck: "Everything that has to be true before this panel is allowed to sound confident, checked in one place. When one of them fails the output is degraded — to NO DATA, INCONCLUSIVE, RELATIONSHIP UNSTABLE or PREMARKET NOT AVAILABLE YET — rather than keeping its confident wording while an input has quietly stopped being true.",
+  forward: "FORWARD RECORDED — what this app actually said out loud before the open, scored against what happened afterwards. Completely separate from the historical match rates elsewhere on this panel, and never combined with them: a backtest and a forward record answer different questions, and a single hit rate covering both would be neither of them. Predictions are archived immutably at 9:25am Eastern and scored later as separate records, so a forecast can never be quietly rewritten once the answer is known. Nothing is shown here until enough genuine mornings have accumulated for it to mean something.",
+  checkpoints: "Point-in-time records of the Korean session, archived at fixed Seoul times going forward. They exist to answer a question no amount of daily history can: how early in the Korean session the predictive information stops improving. A daily bar holds one number for the whole session, so the 11:00 state and the closing state are the same bar — the only way to tell them apart is to write them down as they happen. MISSED means a Korean session existed and this app failed to record that checkpoint; it is never filled in later, because a reading taken at 13:47 is not the 13:00 observation. NO KOREA SESSION means the market was shut, which is a fact about Korea rather than a failure here.",
   nodata: "Korea Lead cannot produce an opening-gap bias without the KOSPI series. It does not fall back to Samsung, to SK Hynix, or to yesterday's reading — the panel says NO DATA instead, because a substituted signal would be a different measurement wearing this one's name.",
 };
 
@@ -704,6 +726,11 @@ function KlSeries({ s, tip, sessionDate }) {
         {!s.in_model && <em className="kl-ctx" title={KL_TIP.usdkrw}>context</em>}
         {s.provisional && <em className="kl-prov" title="Seoul is still trading, so this number is not final for today.">provisional</em>}
         {s.stale && <em className="kl-prov" title="Served from the stored copy — the last refresh of this series failed.">stale</em>}
+        {s.move_state && (s.move_state === "UNUSUAL" || s.move_state === "EXTREME") && (
+          <em className={`kl-move ${KL_MOVE_TONE[s.move_state] || "mut"}`}
+            title={`${s.label} ${gapPct(s.pct, 2)} is larger than ${klRate(s.abs_percentile, 0)} of its own trailing ${s.trailing_n} sessions. ${KL_TIP.moveState}`}>
+            {s.move_state.toLowerCase()}</em>
+        )}
       </span>
       {bad ? (
         <b className="muted" title={s.error
@@ -712,6 +739,12 @@ function KlSeries({ s, tip, sessionDate }) {
           UNAVAILABLE</b>
       ) : (
         <b className={s.pct >= 0 ? "up" : "down"}>{gapPct(s.pct, 2)}</b>
+      )}
+      {s.in_model && s.freshness && s.freshness.state && (
+        <span className={`kl-fresh ${KL_FRESH_TONE[s.freshness.state] || "mut"}`}
+          title={`${s.freshness.detail || ""}${s.provider_timestamp
+            ? `\n\nProvider timestamp: ${s.provider_timestamp}` : ""}\n\n${KL_TIP.freshness}`}>
+          {s.freshness.state}</span>
       )}
       {odd && (
         <span className="kl-srow-when"
@@ -822,8 +855,63 @@ function KlDetails({ d }) {
       </tr>
     );
   };
+  const chk = d.self_check || {};
   return (
     <div className="kl-details">
+      <div className="gap-sechead" title={KL_TIP.selfcheck}>
+        Data quality self-check
+        <span className="muted"> · {chk.passed ?? 0} of {chk.n ?? 0} passed</span>
+      </div>
+      <div className="scan-table-wrap">
+        <table className="scan-table kl-diag-table kl-check-table">
+          <thead><tr>
+            <th title="What has to be true.">Check</th>
+            <th title="Whether it holds right now.">Result</th>
+            <th className="kl-check-detail" title="What was found.">Detail</th>
+          </tr></thead>
+          <tbody>
+            {/* The detail travels on the ROW as well as in its own cell,
+                because that cell is hidden on a narrow screen — where a
+                three-column table would push the result out of view and
+                leave a phone reader scrolling sideways to find out whether
+                anything passed. */}
+            {(chk.checks || []).map((c) => (
+              <tr key={c.name} title={c.detail || c.name}>
+                <td>{c.name}</td>
+                <td className={c.ok ? "up" : (c.blocking ? "down" : "warn")}>
+                  {c.ok ? "PASS" : (c.blocking ? "DEGRADED" : "LIMITED")}</td>
+                <td className="muted kl-check-detail">{c.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="gap-sechead" title={KL_TIP.sessiondata}>
+        Korean session — the clock against the data
+      </div>
+      <div className="kl-kv">
+        <KlStat label="Scheduled state" tip={KL_TIP.sessiondata}>
+          {(d.session && d.session.scheduled_state) || "—"}</KlStat>
+        <KlStat label="Data state" tip={(d.session && d.session.final_reason)
+          || KL_TIP.sessiondata}>
+          {(d.session && d.session.data_state) || "—"}</KlStat>
+        <KlStat label="Normal close" tip={KL_TIP.sessiondata}>
+          {(d.session && d.session.scheduled_close) || "—"} Seoul</KlStat>
+        <KlStat label="Latest market timestamp"
+          tip={`The provider's own stamp on the most recent Korean reading: ${
+            (d.session && d.session.latest_market_timestamp) || "not published"
+          }. ${KL_TIP.freshness}`}>
+          {(d.session && d.session.latest_market_timestamp_pretty) || "—"}</KlStat>
+        <KlStat label="Provider market state" tip={(d.session
+          && d.session.provider_market_state_note) || KL_TIP.sessiondata}>
+          {(d.session && d.session.provider_market_state) || "not published"}</KlStat>
+        <KlStat label="Readings of this session" tip={KL_TIP.sessiondata}>
+          {(d.session && d.session.readings_today) ?? "—"}
+          <small className="muted"> · steady {(d.session
+            && d.session.steady_minutes) ?? "—"} min</small></KlStat>
+      </div>
+
       <div className="gap-sechead" title="How KOSPI relates to each of the three U.S. measurements. They are different questions and are never mixed: the opening gap and the full day differ by exactly the move after 9:30.">
         KOSPI against each U.S. measurement <span className="muted">· {d.window_label}</span>
       </div>
@@ -975,6 +1063,85 @@ const KL_ASIA_MODEL_TIP = {
 function KlVerdict({ value, tip }) {
   if (!value) return null;
   return <span className={`kl-verdict ${klVerdictTone(value)}`} title={tip}>{value}</span>;
+}
+
+// The genuine point-in-time record. Deliberately quiet: until enough real
+// mornings have accumulated it shows how many it has and nothing else,
+// because a three-observation scorecard looks like evidence and is not.
+function KlForward({ apiFetch, symbol }) {
+  const [s, setS] = useState(null);
+  const [c, setC] = useState(null);
+
+  useEffect(() => {
+    let dead = false;
+    apiFetch(`/api/korea_forward/scorecard?symbol=${encodeURIComponent(symbol)}`,
+      { noCache: true }).then((x) => x.json())
+      .then((x) => !dead && setS(x)).catch(() => {});
+    apiFetch("/api/korea_forward/coverage", { noCache: true })
+      .then((x) => x.json()).then((x) => !dead && setC(x)).catch(() => {});
+    return () => { dead = true; };
+  }, [symbol]);
+
+  if (!s && !c) return null;
+  const cp = (c && c.per_checkpoint) || {};
+  const rows = Object.keys(cp).sort();
+  return (
+    <div className="kl-forward">
+      <div className="gap-sechead" title={KL_TIP.forward}>
+        Forward recorded <span className="muted">· not a backtest</span>
+      </div>
+      <div className="kl-research-note" title={KL_TIP.forward}>
+        {(s && s.note) || ""}
+      </div>
+      {s && !s.usable && (
+        <div className="research-empty" title={KL_TIP.forward}>{s.reason}</div>
+      )}
+      {s && s.usable && (
+        <div className="kl-kv">
+          <KlStat label="Opening direction" tip={KL_TIP.forward}>
+            {s.direction_correct} of {s.n}
+            <small className="muted"> · {klRate(s.direction_pct)}</small>
+          </KlStat>
+          <KlStat label="Opening gap mean absolute error" tip={KL_TIP.forward}>
+            {s.gap_mae_pct == null ? "—" : `${s.gap_mae_pct} pts`}</KlStat>
+          <KlStat label="Median absolute error" tip={KL_TIP.forward}>
+            {s.gap_median_abs_error_pct == null ? "—"
+              : `${s.gap_median_abs_error_pct} pts`}</KlStat>
+          <KlStat label="Recorded between" tip={KL_TIP.forward}>
+            {gapDate(s.first_date)} and {gapDate(s.last_date)}</KlStat>
+        </div>
+      )}
+      {s && s.mixed_versions_note && (
+        <div className="kl-flag" title={KL_TIP.forward}>
+          ⚠ {s.mixed_versions_note}</div>
+      )}
+      {rows.length > 0 && (
+        <div className="scan-table-wrap">
+          <table className="scan-table kl-diag-table">
+            <thead><tr>
+              <th title={KL_TIP.checkpoints}>Seoul checkpoint</th>
+              <th className="scan-th-num" title="Sessions archived on time.">Captured</th>
+              <th className="scan-th-num" title="Sessions the app failed to record. Never filled in later.">Missed</th>
+              <th className="scan-th-num" title="Dates Korea did not trade. Not a failure.">No Korea session</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((k) => (
+                <tr key={k}>
+                  <td>{k === "final" ? "Confirmed close" : `${k} Seoul`}</td>
+                  <td className="scan-num">{cp[k].captured}</td>
+                  <td className="scan-num">{cp[k].missed}</td>
+                  <td className="scan-num muted">{cp[k].no_session}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {c && c.note && (
+        <div className="gap-note" title={KL_TIP.checkpoints}>{c.note}</div>
+      )}
+    </div>
+  );
 }
 
 function KlResearch({ apiFetch, symbol, window: win }) {
@@ -1370,6 +1537,8 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
   const rel = d && d.relationship;
   const est = d && d.estimates;
   const res = d && d.residual;
+  const drv = d && d.primary_driver;
+  const chk = d && d.self_check;
 
   return (
     <div className="kl-panel">
@@ -1407,11 +1576,30 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
         <div>
           <div className="kl-ctxline muted" title={KL_TIP.session}>
             Seoul {sess && sess.seoul_time} ·{" "}
-            <b className={sess && sess.state === "SESSION IN PROGRESS" ? "warn" : ""}>
-              {sess && sess.state}</b>
+            <b className={sess && sess.scheduled_state === "SESSION IN PROGRESS" ? "warn" : ""}>
+              {sess && sess.scheduled_state}</b>
+            {sess && sess.data_state && (
+              <span title={`${sess.final_reason || ""}\n\n${KL_TIP.sessiondata}`}>
+                {" · Korean data "}
+                <b className={sess.data_state === "SETTLED" ? "up"
+                  : (sess.data_state === "STILL UPDATING" ? "warn" : "")}>
+                  {sess.data_state}</b>
+              </span>
+            )}
             {" "}· Korean session {gapDate(d.korea && d.korea.as_of)}
             {" "}· read {gapWhen(d.as_of)}
           </div>
+          {/* The one case worth interrupting for: the clock thinks Seoul is
+              finished and the numbers say otherwise. That is what an
+              irregular Korean session looks like from here, and it must not
+              resolve itself quietly into a settled-looking answer. */}
+          {sess && sess.scheduled_state === "AFTER NORMAL CLOSE"
+            && sess.data_state === "STILL UPDATING" && (
+            <div className="kl-flag" title={`${sess.final_reason || ""}\n\n${KL_TIP.sessiondata}`}>
+              ⚠ KOREA STILL TRADING PAST ITS NORMAL CLOSE — today's Korean
+              numbers are not final
+            </div>
+          )}
           {/* When every Korean series is a session behind, nothing else on
               the panel looks unusual — each row shows a real number and the
               dates all agree with each other. Say it in one line instead of
@@ -1494,10 +1682,21 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
               <KlStat label={`${symbol} ${pm && pm.basis === "official_open" ? "opening gap" : "premarket"}`}
                 tip={pm && pm.basis_label
                   ? `This is the ${pm.basis_label}. ${KL_TIP.premarket}` : KL_TIP.premarket}
-                tone={pm && pm.gap_pct >= 0 ? "up" : "down"}>
-                {pm && pm.ok ? gapPct(pm.gap_pct, 2)
-                  : <span className="muted" title={(pm && pm.error) || "No live quote."}>—</span>}
+                tone={pm && pm.ok && pm.fresh_enough
+                  ? (pm.gap_pct >= 0 ? "up" : "down") : ""}>
+                {pm && pm.ok && pm.fresh_enough ? gapPct(pm.gap_pct, 2)
+                  : <span className="muted"
+                      title={`${(pm && (pm.not_available_reason || pm.error))
+                        || "No live quote."}\n\n${KL_TIP.premarketStale}`}>
+                      NOT AVAILABLE YET</span>}
               </KlStat>
+              {pm && pm.ok && pm.fresh_enough && pm.mid_gap_pct != null && (
+                <KlStat label="Bid/ask midpoint gap"
+                  tip={`Shown beside the traded gap, never substituted for it. ${KL_TIP.premarket}`}>
+                  {gapPct(pm.mid_gap_pct, 2)}
+                  <small className="muted"> · for comparison</small>
+                </KlStat>
+              )}
               <KlStat label="Residual" tip={KL_TIP.residual}>
                 {cmp && cmp.residual_pct != null
                   ? `${gapPct(cmp.residual_pct, 2)} pts` : "—"}</KlStat>
@@ -1549,6 +1748,17 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
                     <span>Recent trend</span>
                     <KlSpark points={rel.spark} />
                   </div>
+                  {/* Shown only when it has actually been established. An
+                      unevaluated ticker gets the honest sentence rather
+                      than a driver nobody measured. */}
+                  <KlStat label="Primary Korea driver" tip={
+                    `${(drv && drv.detail) || ""}\n\n${KL_TIP.driver}`}>
+                    {drv && drv.driver
+                      ? <span>{KL_DRIVER_LABEL[drv.driver] || drv.driver}
+                          <small className="muted"> · out of sample</small></span>
+                      : <span className="muted">
+                          {(drv && drv.verdict) || "NOT YET EVALUATED"}</span>}
+                  </KlStat>
                 </div>
               )}
             </div>
@@ -1569,6 +1779,12 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
             </div>
           </div>
 
+          {chk && !chk.ok && (
+            <div className="kl-flag" title={KL_TIP.selfcheck}>
+              ⚠ DEGRADED — {chk.detail}
+            </div>
+          )}
+
           <div className="kl-footline">
             <button className="rr-btn kl-more" onClick={() => setOpen(!open)}
               title="Open the full statistics: every lookback, both correlations, the Korean chip names measured separately, the bucket tables, and where each series came from.">
@@ -1581,6 +1797,7 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
                 : "history, not a forecast"}</span>
           </div>
           {open && <KlDetails d={d} />}
+          {open && <KlForward apiFetch={apiFetch} symbol={symbol} />}
           {open && <KlResearch apiFetch={apiFetch} symbol={symbol} window={win} />}
         </div>
       )}

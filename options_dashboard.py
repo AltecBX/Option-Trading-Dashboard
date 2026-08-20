@@ -5467,21 +5467,72 @@ def _korea_target_quote(symbol: str) -> dict | None:
         try:
             q = (sc.get_quotes([symbol]) or {}).get(symbol)
             if q and q.get("last") and q.get("close_prev"):
+                # bid/ask travel with it so Korea Lead can show a midpoint
+                # gap beside the traded one. They do NOT carry their own
+                # timestamp here — `stale_seconds` is derived from the trade
+                # time alone — so a fresh-looking spread can never be used to
+                # argue that an old print is current. Korea Lead knows that
+                # and gates on the trade age only.
                 return {"last": q.get("last"), "close_prev": q.get("close_prev"),
                         "open": q.get("open"),
+                        "bid": q.get("bid"), "ask": q.get("ask"),
+                        "session": q.get("session"),
                         "stale_seconds": q.get("stale_seconds"),
                         "source": "Schwab quote"}
         except Exception as exc:  # noqa: BLE001
             _log_warn(symbol, "korea/quote schwab", exc)
+    # The fallback is honest about what it is. This endpoint's
+    # regularMarketPrice is the last REGULAR-session price, so before 9:30 it
+    # is yesterday's four o'clock close and the "previous close" beside it is
+    # the day before that — which subtract into yesterday's full-day return
+    # wearing this morning's label. Carrying the provider's own timestamp is
+    # what lets Korea Lead catch that: the age comes back at fifteen-odd
+    # hours and the premarket comparison is refused by name instead of
+    # printing a number that looks entirely reasonable.
     try:
-        last, prev, _spark = _yahoo_quote(symbol)
+        last, prev, stamp = _yahoo_quote_timed(symbol)
         if last and prev:
+            age = None
+            if stamp:
+                age = max(0.0, time.time() - float(stamp))
             return {"last": last, "close_prev": prev, "open": None,
-                    "stale_seconds": None,
+                    "bid": None, "ask": None, "session": None,
+                    "stale_seconds": age,
                     "source": "Yahoo Finance quote (delayed)"}
     except Exception as exc:  # noqa: BLE001
         _log_warn(symbol, "korea/quote yahoo", exc)
     return None
+
+
+def _yahoo_quote_timed(sym: str):
+    """(last, prev_close, provider epoch seconds) from the chart endpoint.
+
+    Deliberately a separate reader rather than a change to `_yahoo_quote`,
+    which a dozen callers use for a ticking price and which has no business
+    growing a third return value for one of them. The only addition here is
+    the provider's own `regularMarketTime`: without it there is no way to
+    tell a live print from a sixteen-hour-old one, and the caller above
+    depends on being able to.
+    """
+    u = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+         + urllib.parse.quote(sym) + "?interval=2m&range=1d")
+    req = urllib.request.Request(u, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        data = json.loads(resp.read())
+    res = (data.get("chart", {}).get("result") or [None])[0]
+    if not res:
+        return None, None, None
+    meta = res.get("meta", {}) or {}
+    last = _num(meta.get("regularMarketPrice"))
+    prev = _num(meta.get("chartPreviousClose")) or _num(meta.get("previousClose"))
+    stamp = meta.get("regularMarketTime")
+    try:
+        stamp = int(stamp) if stamp else None
+    except (TypeError, ValueError):
+        stamp = None
+    return last, prev, stamp
 
 
 try:
@@ -5498,6 +5549,16 @@ try:
     )
     _KOREA_AVAILABLE = True
     try:
+        # The forward capture loop. One daemon thread, started once, that
+        # sleeps between checkpoints and fits nothing. It is started here
+        # rather than lazily on first request because the whole point is
+        # to record mornings nobody was watching.
+        import korea_capture as _korea_capture
+        _korea_capture.start()
+    except Exception as _exc3:  # noqa: BLE001
+        print(f"[korea_capture] start failed: {_exc3}", file=sys.stderr)
+        _korea_capture = None  # type: ignore
+    try:
         import korea_research as _korea_research
         _korea_research.configure(data_dir=_STABLE_DIR)
     except Exception as _exc2:  # noqa: BLE001
@@ -5511,6 +5572,7 @@ except Exception as _exc:  # noqa: BLE001
     _KOREA_AVAILABLE = False
     _korea = None  # type: ignore
     _korea_research = None  # type: ignore
+    _korea_capture = None  # type: ignore
 
 
 # ── Investment tab (v4.41) ──────────────────────────────────────────────────
@@ -8697,6 +8759,43 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                                force=force), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/korea_lead", exc)
+                self._send_json({"error": str(exc), "ok": False}, status=500)
+            return
+        if parsed.path.startswith("/api/korea_forward"):
+            # The genuine point-in-time record: what this app said before
+            # each open, and what happened afterwards. Read-only — nothing
+            # here can rewrite an archived prediction, because the store
+            # this reads has no update path at all.
+            if not _KOREA_AVAILABLE or _korea_capture is None:
+                self._send_json({"error": "Korea forward capture unavailable",
+                                 "ok": False}, status=503)
+                return
+            section = parsed.path[len("/api/korea_forward"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").strip().upper() or None
+            days = max(1, min(1200, int((qs.get("days", ["120"])[0] or "120")
+                                        if (qs.get("days", ["120"])[0] or "120"
+                                            ).isdigit() else 120)))
+            if symbol and (len(symbol) > 8 or not symbol.isalnum()):
+                self._send_json({"error": "symbol required", "ok": False},
+                                status=400)
+                return
+            try:
+                if section in ("", "coverage"):
+                    self._send_json(_korea_capture.coverage(days=days),
+                                    no_store=True)
+                elif section == "scorecard":
+                    self._send_json(_korea_capture.scorecard(symbol=symbol,
+                                                             days=days),
+                                    no_store=True)
+                elif section == "status":
+                    self._send_json(_korea_capture.status(), no_store=True)
+                else:
+                    self._send_json(
+                        {"error": f"unknown korea forward section {section}"},
+                        status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol or "-", "api/korea_forward", exc)
                 self._send_json({"error": str(exc), "ok": False}, status=500)
             return
         if parsed.path.startswith("/api/korea_research"):

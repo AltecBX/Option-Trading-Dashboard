@@ -503,31 +503,61 @@ def implied_gap(obs, today_korea_pct, measure: str = "opening_gap",
     return out
 
 
-CONFIRMATION_STRONG = "STRONG"
+CONFIRMATION_CONFIRMED = "CONFIRMED"
 CONFIRMATION_MIXED = "MIXED"
 CONFIRMATION_DIVERGENCE = "DIVERGENCE"
 CONFIRMATION_UNAVAILABLE = "UNAVAILABLE"
 
+# Heuristic starting thresholds — NOT validated, and deliberately not a
+# weighting. korea_lead.py overrides these from the settings file; they live
+# here so the engine has one definition and the settings file has one place
+# to disagree with it.
+CONFIRMATION_GATES = {
+    "min_same_sign_abs_pct": 0.3,        # each of the three must move this far
+    "kospi_divergence_min_abs_pct": 0.5,  # the index must say something first
+    "chip_opposite_min_pct": 1.0,         # how far a chip must go the other way
+}
 
-def chip_confirmation(kospi, samsung, hynix) -> dict:
-    """Did Korea's two memory names go the way the index went?
+
+def chip_confirmation(kospi, samsung, hynix, gates: dict | None = None) -> dict:
+    """Did Korea's two memory names go the way the index went — far enough
+    that going the same way meant anything?
 
     Descriptive only. There is no weighting and no score: this counts how
-    many of the two chip names agree in SIGN with KOSPI and says so. KOSPI
-    is a broad index and the stocks traded here are not, so a session where
-    the index rose while Samsung and SK Hynix fell is worth seeing plainly
-    rather than being averaged into a single number that reads as mild.
+    many of the two chip names agree in SIGN with KOSPI, and then asks
+    whether the moves were large enough for the agreement to be worth a
+    word. KOSPI is a broad index and the stocks traded here are not, so a
+    session where the index rose while Samsung and SK Hynix fell is worth
+    seeing plainly rather than being averaged into a single number that
+    reads as mild.
+
+    WHY MAGNITUDE AND NOT ONLY SIGN. Three series that all closed within
+    five hundredths of a percent of unchanged are on the same side of zero
+    by coin flip, and calling that CONFIRMED would make the strongest label
+    the easiest one to earn on the quietest day of the year. So CONFIRMED
+    additionally requires every one of the three to have travelled at least
+    `min_same_sign_abs_pct`, and DIVERGENCE — a claim about a real
+    disagreement — requires the index to have said something first and a
+    chip name to have gone materially the other way.
 
     A missing name is missing. It is never counted as agreement and never
     assumed flat — with only one chip name readable the answer is at best
     a partial one, and it says which name it is missing.
     """
+    g = dict(CONFIRMATION_GATES)
+    g.update(gates or {})
+    same_floor = abs(float(g["min_same_sign_abs_pct"]))
+    div_floor = abs(float(g["kospi_divergence_min_abs_pct"]))
+    opp_floor = abs(float(g["chip_opposite_min_pct"]))
     k = _num(kospi)
     parts = {"samsung": _num(samsung), "hynix": _num(hynix)}
     have = {n: v for n, v in parts.items() if v is not None and v != 0.0}
     missing = [n for n, v in parts.items() if v is None]
     out = {"state": CONFIRMATION_UNAVAILABLE, "agree": 0,
-           "readable": len(have), "missing": missing, "detail": None}
+           "readable": len(have), "missing": missing, "detail": None,
+           "gates": {"min_same_sign_abs_pct": same_floor,
+                     "kospi_divergence_min_abs_pct": div_floor,
+                     "chip_opposite_min_pct": opp_floor}}
     if k is None or k == 0.0:
         out["detail"] = ("KOSPI has no usable direction, so there is nothing "
                          "for the chip names to confirm.")
@@ -539,25 +569,49 @@ def chip_confirmation(kospi, samsung, hynix) -> dict:
     agree = sum(1 for v in have.values() if (v > 0) == (k > 0))
     out["agree"] = agree
     way = "up" if k > 0 else "down"
-    if agree == len(have) and len(have) == 2:
-        out["state"] = CONFIRMATION_STRONG
-        out["detail"] = (f"KOSPI is {way} and both Samsung Electronics and "
-                         f"SK Hynix went the same way.")
-    elif agree == 0:
+    # Every one of the three big enough to have meant it.
+    big_enough = (abs(k) >= same_floor
+                  and all(abs(v) >= same_floor for v in have.values()))
+    # A chip name that went materially the other way, with the index having
+    # moved far enough for "the other way" to be a direction at all.
+    against = [n for n, v in have.items()
+               if (v > 0) != (k > 0) and abs(v) >= opp_floor]
+    if agree == len(have) and len(have) == 2 and big_enough:
+        out["state"] = CONFIRMATION_CONFIRMED
+        out["detail"] = (f"KOSPI is {way} {abs(k):.2f}% and both Samsung "
+                         f"Electronics and SK Hynix went the same way, each "
+                         f"by at least {same_floor:g}%.")
+    elif agree == len(have) and len(have) == 2:
+        small = [f"{n} {have[n]:+.2f}%" for n in have
+                 if abs(have[n]) < same_floor] or [f"KOSPI {k:+.2f}%"]
+        out["state"] = CONFIRMATION_MIXED
+        out["detail"] = (f"All three closed {way}, but not far enough to call "
+                         f"it confirmation — {', '.join(small)} is inside the "
+                         f"{same_floor:g}% floor, which is close enough to "
+                         f"unchanged that the shared direction is not "
+                         f"evidence of anything.")
+    elif against and abs(k) >= div_floor:
         out["state"] = CONFIRMATION_DIVERGENCE
-        out["detail"] = (f"KOSPI is {way} but "
-                         + ("neither chip name" if len(have) == 2
-                            else "the one readable chip name")
-                         + " went with it.")
+        out["detail"] = (f"KOSPI is {way} {abs(k):.2f}% but "
+                         + " and ".join(f"{n} went {have[n]:+.2f}%"
+                                        for n in against)
+                         + f" — against the index by more than the "
+                           f"{opp_floor:g}% that separates a disagreement "
+                           f"from noise.")
     else:
         out["state"] = CONFIRMATION_MIXED
-        out["detail"] = (f"KOSPI is {way}; {agree} of the {len(have)} readable "
-                         f"chip name{'s' if len(have) != 1 else ''} agreed.")
+        reason = (f"KOSPI is {way}; {agree} of the {len(have)} readable chip "
+                  f"name{'s' if len(have) != 1 else ''} agreed")
+        if against and abs(k) < div_floor:
+            reason += (f", and KOSPI's own {abs(k):.2f}% is under the "
+                       f"{div_floor:g}% needed before disagreeing with it "
+                       f"means anything")
+        out["detail"] = reason + "."
     if missing:
-        # Never STRONG and never DIVERGENCE on one name: both of those words
-        # claim something about a pair. And the reader is always told which
-        # name is absent — an unread name is not a quiet one.
-        if out["state"] in (CONFIRMATION_STRONG, CONFIRMATION_DIVERGENCE):
+        # Never CONFIRMED and never DIVERGENCE on one name: both of those
+        # words claim something about a pair. And the reader is always told
+        # which name is absent — an unread name is not a quiet one.
+        if out["state"] in (CONFIRMATION_CONFIRMED, CONFIRMATION_DIVERGENCE):
             out["state"] = CONFIRMATION_MIXED
         out["detail"] += (" Read as partial: "
                           + " and ".join(missing) + " could not be read.")
@@ -692,45 +746,122 @@ def edge_strength(stats: dict, gates: dict | None = None) -> dict:
 BIAS_UP = "UP"
 BIAS_DOWN = "DOWN"
 BIAS_MIXED = "MIXED"
+BIAS_INCONCLUSIVE = "INCONCLUSIVE"
+BIAS_UNSTABLE = "RELATIONSHIP UNSTABLE"
 BIAS_NONE = "NO DATA"
 
+# What the matched history must show before a direction is named. Overridden
+# from the settings file; unvalidated starting points, not findings.
+BIAS_GATES = {
+    "min_n": 30,               # matched sessions before a direction is named
+    "wilson_lower_min": 0.50,  # the conservative end must clear a coin flip
+}
 
-def opening_gap_bias(today_korea_pct, implied: dict) -> dict:
+
+def opening_gap_bias(today_korea_pct, implied: dict, gates: dict | None = None,
+                     relationship_unstable: bool = False,
+                     relationship_detail: str | None = None) -> dict:
     """Which way the matched history leans for this morning's open.
 
-    The direction comes from the matched sessions, not from Korea's sign.
+    FOUR WAYS OF NOT HAVING AN ANSWER, AND THEY ARE NOT THE SAME THING.
+
+      NO DATA               there is no matched history to read at all.
+      INCONCLUSIVE          there is history, and it cannot establish a
+                            direction — too few sessions, or an interval
+                            that contains a coin flip.
+      MIXED                 the evidence establishes a direction by
+                            counting and then contradicts it by magnitude:
+                            the sessions leaned one way and their median
+                            gap went the other. Both facts are real; they
+                            disagree.
+      RELATIONSHIP UNSTABLE the recent and long-run relationship disagree
+                            about which way this pair even runs. The
+                            matched history may look perfectly decisive and
+                            is describing a regime that has since changed.
+
+    Collapsing INCONCLUSIVE into UNSTABLE — or either into MIXED — would
+    tell a reader that the relationship has broken when in fact nothing is
+    known yet, or that nothing is known when in fact something has broken.
+    Those call for opposite responses, so they get different words.
+
+    THE DIRECTION COMES FROM THE MATCHED SESSIONS, NOT FROM KOREA'S SIGN.
     A ticker whose matched sessions reliably opened the OTHER way from
     Korea is a real finding, not noise, so the test is whether the interval
     around the match rate EXCLUDES a coin flip — on either side. A rate
     whose honest range sits entirely below 50% says just as much as one
     entirely above it; only a range that straddles 50% says nothing.
-
-    MIXED is a real answer and is returned whenever the range does straddle
-    it, however flattering the point estimate looks.
     """
-    out = {"state": BIAS_NONE, "detail": None}
+    g = dict(BIAS_GATES)
+    g.update(gates or {})
+    min_n = int(g["min_n"])
+    lower_min = float(g["wilson_lower_min"]) * 100.0
+    out = {"state": BIAS_NONE, "detail": None, "n": 0,
+           "gates": {"min_n": min_n, "wilson_lower_min": lower_min / 100.0}}
+    # An unstable relationship outranks every other reading. The matched
+    # sessions below may be perfectly decisive about a relationship that no
+    # longer holds, and a confident label drawn from them would be the most
+    # dangerous thing on the panel.
+    if relationship_unstable:
+        out["state"] = BIAS_UNSTABLE
+        out["detail"] = (relationship_detail
+                         or ("The recent and long-run windows disagree about "
+                             "which way this relationship runs, so no "
+                             "direction is named from it."))
+        return out
     if not implied or not implied.get("usable"):
+        # A bucket that exists but is too thin is a different answer from a
+        # bucket that does not exist.
+        if implied and implied.get("n"):
+            out["state"] = BIAS_INCONCLUSIVE
+            out["n"] = int(implied["n"])
         out["detail"] = (implied or {}).get("reason") or \
             "No matched history for today's Korean move."
         return out
     sd = implied.get("same_direction") or {}
     med = (implied.get("distribution") or {}).get("median_pct")
     k = _num(today_korea_pct)
+    n = int(sd.get("n") or implied.get("n") or 0)
+    out["n"] = n
     if med is None or k is None or sd.get("lo_pct") is None \
             or sd.get("hi_pct") is None:
+        out["state"] = BIAS_INCONCLUSIVE
         out["detail"] = "The matched sessions did not produce a usable median."
         return out
-    with_korea = sd["lo_pct"] > 50.0
-    against_korea = sd["hi_pct"] < 50.0
-    if not (with_korea or against_korea):
-        out["state"] = BIAS_MIXED
-        out["detail"] = (f"{sd.get('rate_pct')}% of {sd.get('n')} matched "
-                         f"sessions opened the same way as Korea, but the "
-                         f"honest range around that is {sd['lo_pct']}% to "
-                         f"{sd['hi_pct']}% — a coin flip is inside it, so "
-                         f"there is no lean to report.")
+    if n < min_n:
+        out["state"] = BIAS_INCONCLUSIVE
+        out["detail"] = (f"{n} matched session{'' if n == 1 else 's'} — fewer "
+                         f"than the {min_n} this panel requires before it "
+                         f"names a direction. What they did is shown below; "
+                         f"it is not called a lean.")
         return out
-    out["state"] = BIAS_UP if med > 0 else (BIAS_DOWN if med < 0 else BIAS_MIXED)
+    with_korea = sd["lo_pct"] > lower_min
+    against_korea = sd["hi_pct"] < (100.0 - lower_min)
+    if not (with_korea or against_korea):
+        out["state"] = BIAS_INCONCLUSIVE
+        out["detail"] = (f"{sd.get('rate_pct')}% of {n} matched sessions "
+                         f"opened the same way as Korea, but the honest range "
+                         f"around that is {sd['lo_pct']}% to {sd['hi_pct']}% "
+                         f"— a coin flip is inside it, so the evidence cannot "
+                         f"establish a direction. That is not the same as the "
+                         f"relationship having broken.")
+        return out
+    # The count says one thing. Does the SIZE of what followed agree? If the
+    # sessions leaned with Korea, the median gap should lean Korea's way; if
+    # they leaned against, it should lean the other way. When the two
+    # disagree the honest word is MIXED — one direction established by
+    # counting, contradicted by magnitude.
+    implied_up = (k > 0) if with_korea else (k < 0)
+    if med == 0 or ((med > 0) != implied_up):
+        out["state"] = BIAS_MIXED
+        counted = ("the same way Korea did" if with_korea
+                   else "against the Korean move")
+        out["detail"] = (
+            f"Of {n} matched sessions {sd.get('rate_pct')}% opened "
+            f"{counted}, which points {'higher' if implied_up else 'lower'} "
+            f"— but their median gap was {med:+.2f}%, which points the other "
+            f"way. The count and the size disagree, so no direction is named.")
+        return out
+    out["state"] = BIAS_UP if med > 0 else BIAS_DOWN
     way = "higher" if med > 0 else "lower"
     if with_korea:
         how = (f"{sd.get('rate_pct')}% of them went the same way Korea did")
@@ -739,9 +870,123 @@ def opening_gap_bias(today_korea_pct, implied: dict) -> dict:
                f"did — this ticker's matched sessions opened AGAINST the "
                f"Korean move, consistently enough that the honest range "
                f"stays below a coin flip")
-    out["detail"] = (f"The {sd.get('n')} sessions that matched today's Korean "
+    out["detail"] = (f"The {n} sessions that matched today's Korean "
                      f"move opened {way} at the median ({med:+.2f}%), and "
                      f"{how}.")
+    return out
+
+
+# ── how unusual, and how fresh ──────────────────────────────────────────────
+
+UNUSUAL_NORMAL = "NORMAL"
+UNUSUAL_UNUSUAL = "UNUSUAL"
+UNUSUAL_EXTREME = "EXTREME"
+UNUSUAL_UNKNOWN = "NOT MEASURED"
+
+UNUSUAL_GATES = {"unusual_percentile": 90.0, "extreme_percentile": 97.0}
+
+
+def unusual_state(percentile, gates: dict | None = None) -> dict:
+    """How far into its own trailing distribution today's move sits.
+
+    A percentile rather than a fixed percentage, because a fixed level ages
+    in both directions: "KOSPI above one and a half percent is a big day"
+    fires every week in a violent year and never once in a calm one. The
+    percentile carries the volatility regime with it for free.
+
+    The state is never returned alone — the percentile that produced it,
+    the size of the sample it was ranked against and the lookback are all
+    returned beside it, so a reader can disagree with the word by looking
+    at the number.
+    """
+    g = dict(UNUSUAL_GATES)
+    g.update(gates or {})
+    p = _num(percentile)
+    unusual_at = float(g["unusual_percentile"])
+    extreme_at = float(g["extreme_percentile"])
+    out = {"state": UNUSUAL_UNKNOWN, "percentile": p,
+           "unusual_at": unusual_at, "extreme_at": extreme_at}
+    if p is None:
+        return out
+    if p >= extreme_at:
+        out["state"] = UNUSUAL_EXTREME
+    elif p >= unusual_at:
+        out["state"] = UNUSUAL_UNUSUAL
+    else:
+        out["state"] = UNUSUAL_NORMAL
+    return out
+
+
+FRESH_CURRENT = "CURRENT FOR SOURCE"
+FRESH_DELAYED = "DELAYED"
+FRESH_STALE = "STALE"
+FRESH_UNAVAILABLE = "UNAVAILABLE"
+FRESH_UNKNOWN = "AGE UNKNOWN"
+FRESH_SETTLED = "SETTLED CLOSE"
+
+
+def quote_freshness(age_seconds, current_max_s: float, delayed_max_s: float,
+                    have_value: bool = True, settled: bool = False) -> dict:
+    """How old a reading is, and whether it may be used to describe now.
+
+    CURRENT FOR SOURCE is the strongest thing this can say, and it is
+    deliberately weaker than it sounds. The Korean series here come from a
+    delayed feed; a print from it that is two minutes old is the freshest
+    thing this app can honestly hold, and it is still not the exchange's
+    current price. Calling it "real time" would be describing a provider we
+    do not have.
+
+    AGE UNKNOWN is a separate state from STALE on purpose. A reading with
+    no timestamp might be a second old or a day old, and the two call for
+    the same caution but not the same sentence — "we cannot tell how old
+    this is" is a statement about the provider, not about the market.
+    """
+    out = {"state": FRESH_UNAVAILABLE, "age_s": None, "age_min": None,
+           "fresh_enough": False, "detail": None,
+           "current_max_s": float(current_max_s),
+           "delayed_max_s": float(delayed_max_s)}
+    if not have_value:
+        out["detail"] = "There is no reading to age."
+        return out
+    if settled:
+        # A settled closing price is not stale at nine hours old; it is
+        # finished. Ageing it against a twenty-minute limit would paint
+        # every Korean close red by the time New York wakes up, which would
+        # teach the reader to ignore the freshness row on the one morning it
+        # matters.
+        out.update({"state": FRESH_SETTLED, "fresh_enough": True,
+                    "detail": ("The Korean session is settled, so this is a "
+                               "final closing price rather than a live "
+                               "reading. Its age is not a defect.")})
+        a = _num(age_seconds)
+        if a is not None:
+            out["age_s"] = round(max(0.0, a), 1)
+            out["age_min"] = round(max(0.0, a) / 60.0, 1)
+        return out
+    age = _num(age_seconds)
+    if age is None:
+        out["state"] = FRESH_UNKNOWN
+        out["detail"] = ("The provider did not say when this reading was "
+                         "taken, so its age cannot be checked. It is treated "
+                         "as unverified rather than as current.")
+        return out
+    age = max(0.0, age)
+    out["age_s"] = round(age, 1)
+    out["age_min"] = round(age / 60.0, 1)
+    if age <= float(current_max_s):
+        out["state"] = FRESH_CURRENT
+        out["fresh_enough"] = True
+        out["detail"] = (f"{out['age_min']:g} minutes old — current for this "
+                         f"source, which is a delayed feed and not the "
+                         f"exchange's live price.")
+    elif age <= float(delayed_max_s):
+        out["state"] = FRESH_DELAYED
+        out["detail"] = (f"{out['age_min']:g} minutes old — visibly behind, "
+                         f"still usable as context.")
+    else:
+        out["state"] = FRESH_STALE
+        out["detail"] = (f"{out['age_min']:g} minutes old — too old to "
+                         f"describe the current session.")
     return out
 
 
@@ -764,3 +1009,200 @@ def study(obs, signal: str = "korea", gates: dict | None = None) -> dict:
         "opening_gap_edge": edge_strength(per["opening_gap"], gates),
         "after_open_edge": edge_strength(per["open_to_close"], gates),
     }
+
+
+# ── the clock says what should be happening; the data says what is ──────────
+
+SCHED_BEFORE = "BEFORE OPEN"
+SCHED_LIVE = "SESSION IN PROGRESS"
+SCHED_AFTER = "AFTER NORMAL CLOSE"
+SCHED_NON_TRADING = "NOT A TRADING DAY"
+
+DATA_UPDATING = "STILL UPDATING"
+DATA_SETTLED = "SETTLED"
+DATA_NO_SESSION = "NO KOREA SESSION TODAY"
+DATA_UNKNOWN = "NOT ESTABLISHED"
+
+FINALITY_GATES = {"quiet_minutes": 15, "fallback_final_kst": "18:30"}
+
+
+def _hhmm_minutes(hhmm) -> int | None:
+    try:
+        h, _, m = str(hhmm).partition(":")
+        h, m = int(h), int(m)
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    return h * 60 + m
+
+
+def session_finality(scheduled_state: str, seoul_date: str, seoul_hhmm: str,
+                     bar_date: str | None, steady_minutes=None,
+                     readings: int = 0, observed_change: bool = False,
+                     gates: dict | None = None) -> dict:
+    """Is the Korean session actually over, or is that only what the clock
+    thinks?
+
+    WHY THE CLOCK IS NOT ENOUGH. Korea moves its trading day. The clearest
+    case is the annual College Scholastic Ability Test, when the exchange
+    opens and closes an hour later so the country's commute is quieter
+    during the listening section — and there are others. No exam-day
+    calendar ships with this app, and one should not: a hardcoded calendar
+    is silently wrong the first year nobody updates it, and it would be
+    wrong in the most dangerous direction, declaring a still-moving market
+    final.
+
+    WHY PROVIDER SCHEDULE METADATA IS NOT ENOUGH EITHER. It was checked.
+    The chart endpoint carrying these series exposes no market-state field
+    at all, and the trading-period block it does expose reports the KRX
+    regular session as ending at 15:00 Seoul — which disagrees with the
+    15:30 that the closing single-price auction actually settles at. Two
+    sources disagree about the schedule and neither of them is the market.
+
+    SO THE EVIDENCE IS THE DATA ITSELF. A session is FINAL when its value
+    has stopped moving: observed unchanged across at least two readings for
+    at least `quiet_minutes`. While Korean values are still advancing the
+    session is PRELIMINARY no matter what time it is — 15:31 on an exam day
+    is the middle of the session.
+
+    "STILL MOVING" AND "NOT WATCHED LONG ENOUGH" ARE DIFFERENT ANSWERS, and
+    conflating them was a bug in the first draft of this function. Having
+    seen a value change three minutes ago is evidence that the market is
+    open. Having first seen a value three minutes ago is evidence of
+    nothing at all — the value may have been sitting there since lunchtime.
+    Both block finality, and they say so in different words: the first is
+    STILL UPDATING, the second is NOT ESTABLISHED.
+
+    THE DOCUMENTED FALLBACK. Two readings may never exist: the app can be
+    restarted, or simply not asked, for hours, and then there is nothing to
+    compare. After `fallback_final_kst` a session whose bar exists is
+    accepted as final without observed quiet. That time sits deliberately
+    late — past the regular close, past the end of the provider's
+    post-session window, and hours before the pre-open snapshot that
+    depends on it — so its only cost is that a genuinely irregular session
+    stays preliminary a little longer. Preferring PRELIMINARY is the whole
+    design: a changing market called final is a wrong number presented as a
+    settled one.
+    """
+    g = dict(FINALITY_GATES)
+    g.update(gates or {})
+    quiet_min = float(g["quiet_minutes"])
+    cutoff = _hhmm_minutes(g["fallback_final_kst"])
+    now_min = _hhmm_minutes(seoul_hhmm)
+    steady = _num(steady_minutes)
+    out = {"scheduled_state": scheduled_state, "data_state": DATA_UNKNOWN,
+           "final": False, "seoul_date": seoul_date, "bar_date": bar_date,
+           "steady_minutes": None if steady is None else round(steady, 1),
+           "observed_change": bool(observed_change),
+           "readings": int(readings or 0), "by_fallback": False,
+           "quiet_minutes": quiet_min,
+           "fallback_final_kst": g["fallback_final_kst"], "reason": None}
+    past_cutoff = (cutoff is not None and now_min is not None
+                   and now_min >= cutoff)
+
+    if bar_date != seoul_date:
+        # No bar carrying today's Seoul date. Before the close that is
+        # simply the session not having printed one yet; after it, on a day
+        # the exchange never opened, it is the answer.
+        if scheduled_state == SCHED_NON_TRADING:
+            out["data_state"] = DATA_NO_SESSION
+            out["reason"] = ("Seoul is closed for the weekend, so there is no "
+                             "session today to finalise.")
+        elif scheduled_state == SCHED_AFTER or past_cutoff:
+            out["data_state"] = DATA_NO_SESSION
+            out["reason"] = ("The normal Korean close has passed and no bar "
+                             "carries today's Seoul date. Either Korea did "
+                             "not trade today — a public holiday, which this "
+                             "app does not keep a calendar of — or the data "
+                             "has not arrived. Neither is a finished "
+                             "session, and neither is treated as one.")
+        else:
+            out["data_state"] = DATA_UNKNOWN
+            out["reason"] = ("Today's Korean session has not printed a bar "
+                             "yet.")
+        return out
+
+    if scheduled_state == SCHED_LIVE:
+        out["data_state"] = DATA_UPDATING
+        out["reason"] = ("Seoul is inside its normal trading hours, so "
+                         "today's number is still moving.")
+        return out
+
+    if observed_change and steady is not None and steady < quiet_min:
+        # This is the case the whole function exists for: we WATCHED the
+        # value move after the hour it should have stopped. The clock says
+        # the session is over and the market disagrees, and the market wins.
+        out["data_state"] = DATA_UPDATING
+        out["reason"] = (
+            f"The normal Korean close has passed, but this session's value "
+            f"was seen changing {steady:.0f} minute"
+            f"{'' if round(steady) == 1 else 's'} ago — inside the "
+            f"{quiet_min:g}-minute quiet period. Korea is still trading, so "
+            f"the session is not final however late it runs. Korea "
+            f"occasionally moves its trading day; the clock is not allowed "
+            f"to overrule the data.")
+        return out
+
+    if readings >= 2 and steady is not None and steady >= quiet_min:
+        out["data_state"] = DATA_SETTLED
+        out["final"] = True
+        out["reason"] = (f"Unchanged across {int(readings)} readings over "
+                         f"{steady:.0f} minutes past the normal close — the "
+                         f"market settled it, not the clock.")
+        return out
+
+    if past_cutoff:
+        out["data_state"] = DATA_SETTLED
+        out["final"] = True
+        out["by_fallback"] = True
+        out["reason"] = (
+            f"Past {g['fallback_final_kst']} Seoul with today's bar on file. "
+            f"There were not two readings to compare — the app may have been "
+            f"restarted, or simply not asked — so this is the documented "
+            f"conservative fallback rather than observed quiet.")
+        return out
+
+    out["data_state"] = DATA_UNKNOWN
+    if steady is not None and steady < quiet_min:
+        out["reason"] = (
+            f"Today's bar is on file and the normal close has passed, but "
+            f"this value has only been watched for {steady:.0f} minute"
+            f"{'' if round(steady) == 1 else 's'} of the {quiet_min:g} "
+            f"required. It has not been seen moving — it has not been "
+            f"watched long enough for standing still to mean anything.")
+    else:
+        out["reason"] = ("Today's bar is on file and the normal close has "
+                         "passed, but this is the only reading of it so far. "
+                         "One reading cannot show whether the value is still "
+                         "moving, so the session stays preliminary until a "
+                         "second one does.")
+    return out
+
+
+# ── the self-check that stands between the data and a confident label ───────
+
+def self_check(checks: list) -> dict:
+    """Every condition that must hold before Korea Lead is allowed to sound
+    confident, evaluated together and reported by name.
+
+    The failure mode this exists to prevent is a panel that keeps its
+    confident wording while one of its inputs quietly stops being true —
+    a stale quote, a Korean series a session behind, a bucket that thinned
+    out. Each check is a plain sentence, and the ones that failed are the
+    reason the output was degraded.
+    """
+    rows = []
+    for c in (checks or []):
+        rows.append({"name": c.get("name"), "ok": bool(c.get("ok")),
+                     "detail": c.get("detail"),
+                     "blocking": bool(c.get("blocking", True))})
+    failed = [r for r in rows if not r["ok"]]
+    blocking = [r for r in failed if r["blocking"]]
+    return {"checks": rows, "n": len(rows), "passed": len(rows) - len(failed),
+            "failed": [r["name"] for r in failed],
+            "blocking_failures": [r["name"] for r in blocking],
+            "ok": not blocking,
+            "detail": (None if not blocking else
+                       "Degraded because " + "; ".join(
+                           r["detail"] or r["name"] for r in blocking))}

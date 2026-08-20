@@ -680,6 +680,13 @@ def report(symbol: str, window: str = "max", force: bool = False,
             "scoring. A model counts as beating the baseline only when it is "
             "better on BOTH the size of the error and the direction — winning "
             "one while losing the other shows nothing.")
+        # 11. the primary-driver decision, re-evaluated here because this is
+        # the only place the expensive walk-forward is already being paid
+        # for. The panel reads the persisted answer; it never causes this.
+        try:
+            out["primary_driver"] = primary_driver(sym, force=force)
+        except Exception as exc:      # noqa: BLE001
+            out["primary_driver"] = {"ok": False, "reason": str(exc)[:200]}
     with _LOCK:
         _REPORT_MEM[key] = ((f.get("last_date"), f.get("ok")), out)
         if len(_REPORT_MEM) > 16:
@@ -829,3 +836,153 @@ def minute_coverage(symbols=None) -> dict:
     out["fridays_with_minute_paths"] = total
     out["ok"] = True
     return out
+
+
+# ── which Korean input is this ticker's primary driver ──────────────────────
+# Reading the answer is cheap and reading it is what the panel does. WORKING
+# THE ANSWER OUT is expensive — a walk-forward re-fits every candidate once
+# per fold — so it happens only behind the research endpoint, and the panel
+# never triggers it. That separation is the whole reason this is two
+# functions rather than one.
+
+DRIVER_CANDIDATES = {
+    # The single Korean inputs, plus the two baselines the absolute quality
+    # floor is measured against. Nothing multi-input is a candidate here:
+    # the question is which Korean market leads this ticker, not which
+    # combination of them fits best.
+    "mean": [],
+    "kospi": ["kospi"],
+    "samsung": ["samsung"],
+    "hynix": ["hynix"],
+}
+
+
+def _driver_path(symbol: str) -> Path | None:
+    root = kl._DATA_DIR
+    if not root:
+        return None
+    p = Path(root) / "korea" / "drivers"
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except Exception:                 # pragma: no cover
+        return None
+    safe = "".join(c if c.isalnum() else "_" for c in symbol.upper())
+    return p / f"{safe}.json"
+
+
+def driver_state(symbol: str) -> dict:
+    """The stored answer, read from disk. Cheap enough for the panel.
+
+    Returns NO CLEAR PRIMARY DRIVER when nothing has been decided yet,
+    which is the honest answer rather than a placeholder: until the
+    out-of-sample comparison has actually been run for this ticker, nobody
+    has established that any Korean input leads it.
+    """
+    sym = (symbol or "").strip().upper()
+    p = _driver_path(sym)
+    # NOT YET EVALUATED is a different statement from NO CLEAR PRIMARY
+    # DRIVER, and reporting the second when the first is true would claim a
+    # measurement nobody made. One says the comparison has never been run;
+    # the other says it was run and nothing qualified.
+    blank = {"symbol": sym, "driver": None, "verdict": "NOT YET EVALUATED",
+             "basis": "NOT YET EVALUATED", "since": None, "evidence": None,
+             "detail": ("No out-of-sample comparison has been run for this "
+                        "ticker yet, so no Korean input has been shown to "
+                        "lead it. That is a statement about what has been "
+                        "measured, not about the market.")}
+    if p is None or not p.exists():
+        return blank
+    try:
+        d = json.loads(p.read_text())
+    except Exception:                 # pragma: no cover
+        return blank
+    if not isinstance(d, dict):
+        return blank
+    d.setdefault("symbol", sym)
+    d.setdefault("basis", "OUT OF SAMPLE WALK-FORWARD")
+    return d
+
+
+def primary_driver(symbol: str, force: bool = False) -> dict:
+    """Work out — and persist — which Korean input leads this ticker.
+
+    EVERY GATE IS OUT OF SAMPLE. Candidates are scored by expanding-window
+    walk-forward on one shared evaluation set, then filtered by an absolute
+    quality floor before any of them is compared to the incumbent. A
+    difference in in-sample correlation, however large, cannot move the
+    driver; that is exactly the mechanism that produces Hynix on Monday and
+    Samsung on Wednesday.
+
+    THE DECISION IS ARCHIVED, NOT JUST APPLIED. Every evaluation appends to
+    a log carrying the incumbent, the challenger, both sets of evidence,
+    whether the switch was accepted or refused, why, and the settings hash
+    it was decided under. Without that a changing driver is unexplainable
+    after the fact, and an unexplainable driver is one nobody can trust.
+    """
+    sym = (symbol or "").strip().upper()
+    f = frame(sym, force=force)
+    prior = driver_state(sym)
+    if not f["ok"]:
+        return dict(prior, ok=False, reason=f["error"])
+    lim = limits()
+    walk = kre.walk_forward(f["rows"], DRIVER_CANDIDATES, "gap",
+                            min_train=int(lim["min_train_n"]),
+                            step=int(lim["walk_step"]))
+    if not walk.get("ok"):
+        return dict(prior, ok=False, reason=walk.get("reason"),
+                    walk_forward=walk)
+    scores = {k: v for k, v in (walk.get("models") or {}).items()
+              if k not in ("mean", "zero")}
+    gates = kl._section("driver_selection")
+    today = f.get("last_date")
+    decision = kre.driver_decision(scores, incumbent=prior, gates=gates,
+                                   today=today)
+    entry = {
+        "at": today, "verdict": decision["verdict"],
+        "incumbent": decision["incumbent"], "challenger": decision["challenger"],
+        "chosen": decision["driver"], "changed": bool(decision["changed"]),
+        "detail": decision["detail"],
+        "direction_gain_points": decision.get("direction_gain_points"),
+        "mae_relative_gain": decision.get("mae_relative_gain"),
+        "evidence": {r["model"]: {k: r[k] for k in
+                                  ("n", "direction_pct", "mae_pct",
+                                   "rmse_ratio", "eligible", "fails")}
+                     for r in decision["eligibility"]["rows"]},
+        "gates": decision["gates"],
+        "config_hash": kl.config()[1],
+        "engine": kre.ENGINE_VERSION,
+        "walk_forward_n": walk.get("n"),
+        "folds": walk.get("folds"),
+    }
+    log = list(prior.get("log") or [])[-49:]
+    log.append(entry)
+    state = {
+        "symbol": sym, "ok": True,
+        "driver": decision["driver"], "verdict": decision["verdict"],
+        "basis": "OUT OF SAMPLE WALK-FORWARD",
+        "detail": decision["detail"],
+        "since": (today if decision["changed"] or not prior.get("since")
+                  else prior.get("since")),
+        "evidence": entry["evidence"],
+        "streak": decision.get("streak"),
+        "eligibility": decision["eligibility"],
+        "evaluated_at": today,
+        "config_hash": kl.config()[1],
+        "log": log,
+    }
+    p = _driver_path(sym)
+    if p is not None:
+        try:
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, separators=(",", ":")))
+            tmp.replace(p)
+        except Exception as exc:      # pragma: no cover
+            print(f"[korea-research] driver state write failed {sym}: {exc}")
+    if decision["changed"]:
+        # A state transition, and one of the few things in this feature
+        # worth a log line. A driver that changes silently is the thing
+        # §21 exists to prevent.
+        print(f"[korea-research] primary driver for {sym}: "
+              f"{decision['incumbent']} -> {decision['driver']} "
+              f"({decision['verdict']})")
+    return state

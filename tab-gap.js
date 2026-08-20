@@ -701,7 +701,28 @@ const KL_BIAS_TONE = {
   UP: "up",
   DOWN: "down",
   MIXED: "warn",
+  INCONCLUSIVE: "mut",
+  "RELATIONSHIP UNSTABLE": "down",
   "NO DATA": "mut"
+};
+const KL_FRESH_TONE = {
+  "CURRENT FOR SOURCE": "up",
+  "SETTLED CLOSE": "up",
+  DELAYED: "warn",
+  STALE: "down",
+  "AGE UNKNOWN": "warn",
+  UNAVAILABLE: "mut"
+};
+const KL_MOVE_TONE = {
+  EXTREME: "down",
+  UNUSUAL: "warn",
+  NORMAL: "mut",
+  "NOT MEASURED": "mut"
+};
+const KL_DRIVER_LABEL = {
+  kospi: "KOSPI",
+  samsung: "Samsung Electronics",
+  hynix: "SK Hynix"
 };
 const KL_EDGE_TONE = {
   STRONG: "up",
@@ -711,7 +732,7 @@ const KL_EDGE_TONE = {
   "NOT MEASURED": "mut"
 };
 const KL_CONFIRM_TONE = {
-  STRONG: "up",
+  CONFIRMED: "up",
   MIXED: "warn",
   DIVERGENCE: "down",
   UNAVAILABLE: "mut"
@@ -723,12 +744,12 @@ const KL_CMP_TONE = {
 };
 const KL_TIP = {
   panel: "KOREA LEAD — what the Korean market did overnight, and what has historically happened to this U.S. ticker's OPENING PRICE after a Korean session like it. Korea finishes trading hours before New York opens, so today's Korean result is a completed, published fact by the time a U.S. chip stock has to choose an opening price. This panel measures whether that fact has ever told us anything. It is history, not a forecast, and it says how many sessions each number rests on.",
-  session: "Where Seoul is in its own trading day right now, on Seoul's clock. Korea's regular session runs 09:00 to 15:30 Korea time. SESSION IN PROGRESS means today's Korean numbers are still moving and are shown as provisional. CLOSED means Korea is finished and today's figure is the final overnight signal for this U.S. session. NOT A TRADING DAY means it is a weekend in Seoul.",
+  session: "Where Seoul is in its own trading day right now, on Seoul's clock. Korea's regular session runs 09:00 to 15:30 Korea time. SESSION IN PROGRESS means today's Korean numbers are still moving and are shown as provisional. AFTER NORMAL CLOSE means the hours Korea normally trades have passed — which is not the same as the session being over, and the DATA state beside it is what settles that. NOT A TRADING DAY means it is a weekend in Seoul.",
   kospi: "The KOSPI Composite Index — the whole South Korean market — measured from yesterday's Korean close to today's Korean close. This is the signal every statistic in this panel is built on. If it cannot be read, there is no opening-gap bias and the panel says so rather than substituting something else.",
   samsung: "Samsung Electronics, the world's largest memory maker, from its previous Korean close to today's. Shown next to KOSPI rather than blended into it: the index is broad and this is not, and when they disagree that disagreement is the information.",
   hynix: "SK Hynix, the other Korean memory maker and the most direct listed comparison to Micron. Same measurement as Samsung — close to close on Korea's calendar.",
   usdkrw: "The US dollar against the Korean won, shown as CONTEXT ONLY. It is deliberately excluded from every statistic in this panel. The reason is honest and unglamorous: this app's currency source stamps the USD/KRW daily bar on a London day, and London is still open when New York opens — so that 'close' may have been set hours AFTER the U.S. opening price it would be used to predict. Using it would be reading the future. There is no intraday currency history reaching back years to sample it properly instead, so it stays out of the model until there is.",
-  confirm: "Whether Korea's two memory names went the same way the KOSPI index went today. STRONG = both agreed with the index. MIXED = one agreed and one did not, or one of them could not be read. DIVERGENCE = neither went with the index. This is descriptive only — there is no weighting behind it and it is not a score. It exists because KOSPI is a broad index and the stocks traded here are not: an index that rose while both memory makers fell is worth seeing plainly instead of being averaged into something that reads as mild.",
+  confirm: "Whether Korea's two memory names went the same way the KOSPI index went today. CONFIRMED = both agreed with the index AND all three moved far enough for the agreement to mean something — three series within a rounding error of unchanged are on the same side of zero by coin flip, and calling that confirmation would make the strongest label the easiest one to earn on the quietest day of the year. MIXED = they agreed but too weakly, or one agreed and one did not, or one could not be read. DIVERGENCE = a memory name moved materially AGAINST an index that had itself moved enough to be worth disagreeing with. This is descriptive only — there is no weighting behind it and it is not a score. It exists because KOSPI is a broad index and the stocks traded here are not: an index that rose while both memory makers fell is worth seeing plainly instead of being averaged into something that reads as mild.",
   target: "Which U.S. ticker the history below is measured on. The preset buttons are the semiconductor, memory and storage names this relationship was researched on; SPY and IGV are controls, not trades. Any ticker with enough matched history works, and opening a stock's row in the scanner below points this panel at it.",
   control: "A CONTROL, not a trade idea. SPY is the whole U.S. market — if Korea predicts SPY's open about as well as it predicts a chip stock's, then what is being measured is broad risk appetite rather than anything about semiconductors. IGV is technology SOFTWARE, which buys no memory from Korea at all — if Korea predicts IGV as well as it predicts SMH, the semiconductor story is weaker than it looks. Compare them against the chip names before trusting the chip names.",
   window: "How far back the history is measured. A 60-session result and a three-year result are not the same claim, and the sample size next to every number is there so they never get read as though they were. Longer windows are more stable; shorter ones describe the market as it is behaving now. Look at both in Details before believing either.",
@@ -766,6 +787,15 @@ const KL_TIP = {
   regime: "Whether Korea matters more when markets are violent. The split is at the MEDIAN of trailing volatility rather than at a round number, and — this is the part that matters — the volatility is computed through the PRIOR close. Using the same day's VIX would be a future value at 9:30, and every regime finding built on it would be an artefact of that.",
   surprise: "Raw KOSPI is partly an echo of the previous U.S. semiconductor session. KOREA SURPRISE is what is left after subtracting what that session predicted — an attempt to isolate genuinely NEW overnight information. The echo model behind it is fitted only on sessions before each row, so it contains no hindsight. Whether it is actually better is settled by the out-of-sample comparison, not by these two correlations.",
   convergence: "If a stock has not moved as far as Korea implies, does it make up the difference after 9:30? This box exists to answer that question honestly, including when the answer is no. Note the basis: this app holds no historical premarket prices for ordinary sessions, so this is measured from the OFFICIAL OPEN — whether a stock that opened further from the implied gap than usual closes the difference during the day.",
+  inconclusive: "INCONCLUSIVE means the matched history cannot establish a direction — either there were fewer matched sessions than this panel requires before it names one, or the honest range around the match rate contains a coin flip, or the count and the median disagreed with each other. This is NOT the same answer as RELATIONSHIP UNSTABLE. Inconclusive says the evidence is too thin to tell you anything; unstable says the relationship itself has changed underneath evidence that may look perfectly decisive. They call for opposite responses, so they are given different words.",
+  freshness: "How old this reading is, from the PROVIDER'S own timestamp rather than from when this app happened to fetch it. CURRENT FOR SOURCE is the strongest thing this can honestly say, and it is weaker than it sounds — the Korean series here come from a delayed feed, so a two-minute-old print is the freshest thing available and still is not the exchange's live price. DELAYED means visibly behind but usable as context. STALE means too old to describe the current session. SETTLED CLOSE means the Korean session is finished, so this is a final closing price and its age is not a defect. AGE UNKNOWN means the provider did not timestamp it at all, which is treated as unverified rather than as current.",
+  sessiondata: "Two different questions, shown side by side. The SCHEDULED state is what the clock says should be happening in Seoul. The DATA state is what the Korean numbers are actually doing. They usually agree; the case worth seeing is when they do not. Korea moves its trading day — most visibly on the annual national university entrance exam, when the exchange opens and closes an hour later — and no exam-day calendar ships with this app, deliberately, because a hardcoded calendar is silently wrong the first year nobody updates it. So a session is only called final once its value has been watched standing still, never while it is still moving, however late that runs.",
+  moveState: "How far into its own recent history today's move sits. UNUSUAL means larger than the great majority of that index's own moves over the trailing year; EXTREME is the far tail of the same distribution. Percentiles rather than fixed percentages, because a fixed rule like 'KOSPI above 1.5% is major' fires constantly in a calm year and never in a violent one, where a comparison against the index's own recent history carries the volatility regime with it. The percentile and the number of sessions behind it are printed beside the label so you can disagree with the word by looking at the number. It flags SIZE, not direction — an unusually large move is not automatically a good one.",
+  premarketStale: "PREMARKET NOT AVAILABLE YET means the most recent price for this ticker is too old to describe this morning, so no premarket gap, residual, percentile or confirming call is calculated from it. This gate exists because of a measured failure rather than a hypothetical one: when the primary quote source is unavailable, the fallback returns YESTERDAY'S four o'clock close as the last price and the close before that as the previous close — which subtract into yesterday's full-day return wearing this morning's label. It looks entirely plausible and it is completely wrong. Thin premarket names like WDC and STX are where an old print looks most like a live one.",
+  driver: "PRIMARY KOREA DRIVER — which Korean input has actually predicted THIS ticker's open best, measured OUT OF SAMPLE on an expanding walk-forward, never on an in-sample correlation. It changes reluctantly by design: a challenger must clear an absolute quality floor on its own merits, then beat the sitting driver on BOTH direction accuracy and error size by a margin, and hold both advantages across dozens of matched sessions. Without that hysteresis the driver flips on noise and reads SK Hynix on Monday, KOSPI on Tuesday, Samsung on Wednesday — three findings that are one sampling error. NO CLEAR PRIMARY DRIVER is a real answer: if nothing clears the floor, then nothing has been shown to lead this ticker, and promoting the least bad of several weak signals would put a finding on screen that nobody found.",
+  selfcheck: "Everything that has to be true before this panel is allowed to sound confident, checked in one place. When one of them fails the output is degraded — to NO DATA, INCONCLUSIVE, RELATIONSHIP UNSTABLE or PREMARKET NOT AVAILABLE YET — rather than keeping its confident wording while an input has quietly stopped being true.",
+  forward: "FORWARD RECORDED — what this app actually said out loud before the open, scored against what happened afterwards. Completely separate from the historical match rates elsewhere on this panel, and never combined with them: a backtest and a forward record answer different questions, and a single hit rate covering both would be neither of them. Predictions are archived immutably at 9:25am Eastern and scored later as separate records, so a forecast can never be quietly rewritten once the answer is known. Nothing is shown here until enough genuine mornings have accumulated for it to mean something.",
+  checkpoints: "Point-in-time records of the Korean session, archived at fixed Seoul times going forward. They exist to answer a question no amount of daily history can: how early in the Korean session the predictive information stops improving. A daily bar holds one number for the whole session, so the 11:00 state and the closing state are the same bar — the only way to tell them apart is to write them down as they happen. MISSED means a Korean session existed and this app failed to record that checkpoint; it is never filled in later, because a reading taken at 13:47 is not the 13:00 observation. NO KOREA SESSION means the market was shut, which is a fact about Korea rather than a failure here.",
   nodata: "Korea Lead cannot produce an opening-gap bias without the KOSPI series. It does not fall back to Samsung, to SK Hynix, or to yesterday's reading — the panel says NO DATA instead, because a substituted signal would be a different measurement wearing this one's name."
 };
 
@@ -829,12 +859,18 @@ function KlSeries({
   }, "provisional"), s.stale && /*#__PURE__*/React.createElement("em", {
     className: "kl-prov",
     title: "Served from the stored copy \u2014 the last refresh of this series failed."
-  }, "stale")), bad ? /*#__PURE__*/React.createElement("b", {
+  }, "stale"), s.move_state && (s.move_state === "UNUSUAL" || s.move_state === "EXTREME") && /*#__PURE__*/React.createElement("em", {
+    className: `kl-move ${KL_MOVE_TONE[s.move_state] || "mut"}`,
+    title: `${s.label} ${gapPct(s.pct, 2)} is larger than ${klRate(s.abs_percentile, 0)} of its own trailing ${s.trailing_n} sessions. ${KL_TIP.moveState}`
+  }, s.move_state.toLowerCase())), bad ? /*#__PURE__*/React.createElement("b", {
     className: "muted",
     title: s.error ? `Unavailable: ${s.error}` : "This series could not be read. It is left blank rather than filled with a zero — a missing move is not a flat move."
   }, "UNAVAILABLE") : /*#__PURE__*/React.createElement("b", {
     className: s.pct >= 0 ? "up" : "down"
-  }, gapPct(s.pct, 2)), odd && /*#__PURE__*/React.createElement("span", {
+  }, gapPct(s.pct, 2)), s.in_model && s.freshness && s.freshness.state && /*#__PURE__*/React.createElement("span", {
+    className: `kl-fresh ${KL_FRESH_TONE[s.freshness.state] || "mut"}`,
+    title: `${s.freshness.detail || ""}${s.provider_timestamp ? `\n\nProvider timestamp: ${s.provider_timestamp}` : ""}\n\n${KL_TIP.freshness}`
+  }, s.freshness.state), odd && /*#__PURE__*/React.createElement("span", {
     className: "kl-srow-when",
     title: s.off_session ? `This series last traded on ${gapDate(s.session_date)}, which is NOT the session the rest of the panel is reading. Its move is shown, but it is NOT counted as confirming or diverging from KOSPI — comparing two different trading days would not mean anything.` : `This series is showing the Korean session of ${gapDate(s.session_date)}, which is NOT the session the rest of the panel is reading. Treat it as older data, not as today's move.`
   }, "\u26A0 ", gapDate(s.session_date), s.off_session ? " · not counted" : ""));
@@ -982,9 +1018,58 @@ function KlDetails({
       sd: s.same_direction
     })));
   };
+  const chk = d.self_check || {};
   return /*#__PURE__*/React.createElement("div", {
     className: "kl-details"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.selfcheck
+  }, "Data quality self-check", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, " \xB7 ", chk.passed ?? 0, " of ", chk.n ?? 0, " passed")), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-diag-table kl-check-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: "What has to be true."
+  }, "Check"), /*#__PURE__*/React.createElement("th", {
+    title: "Whether it holds right now."
+  }, "Result"), /*#__PURE__*/React.createElement("th", {
+    className: "kl-check-detail",
+    title: "What was found."
+  }, "Detail"))), /*#__PURE__*/React.createElement("tbody", null, (chk.checks || []).map(c => /*#__PURE__*/React.createElement("tr", {
+    key: c.name,
+    title: c.detail || c.name
+  }, /*#__PURE__*/React.createElement("td", null, c.name), /*#__PURE__*/React.createElement("td", {
+    className: c.ok ? "up" : c.blocking ? "down" : "warn"
+  }, c.ok ? "PASS" : c.blocking ? "DEGRADED" : "LIMITED"), /*#__PURE__*/React.createElement("td", {
+    className: "muted kl-check-detail"
+  }, c.detail)))))), /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.sessiondata
+  }, "Korean session \u2014 the clock against the data"), /*#__PURE__*/React.createElement("div", {
+    className: "kl-kv"
+  }, /*#__PURE__*/React.createElement(KlStat, {
+    label: "Scheduled state",
+    tip: KL_TIP.sessiondata
+  }, d.session && d.session.scheduled_state || "—"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Data state",
+    tip: d.session && d.session.final_reason || KL_TIP.sessiondata
+  }, d.session && d.session.data_state || "—"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Normal close",
+    tip: KL_TIP.sessiondata
+  }, d.session && d.session.scheduled_close || "—", " Seoul"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Latest market timestamp",
+    tip: `The provider's own stamp on the most recent Korean reading: ${d.session && d.session.latest_market_timestamp || "not published"}. ${KL_TIP.freshness}`
+  }, d.session && d.session.latest_market_timestamp_pretty || "—"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Provider market state",
+    tip: d.session && d.session.provider_market_state_note || KL_TIP.sessiondata
+  }, d.session && d.session.provider_market_state || "not published"), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Readings of this session",
+    tip: KL_TIP.sessiondata
+  }, (d.session && d.session.readings_today) ?? "—", /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 steady ", (d.session && d.session.steady_minutes) ?? "—", " min"))), /*#__PURE__*/React.createElement("div", {
     className: "gap-sechead",
     title: "How KOSPI relates to each of the three U.S. measurements. They are different questions and are never mixed: the opening gap and the full day differ by exactly the move after 9:30."
   }, "KOSPI against each U.S. measurement ", /*#__PURE__*/React.createElement("span", {
@@ -1175,6 +1260,91 @@ function KlVerdict({
     className: `kl-verdict ${klVerdictTone(value)}`,
     title: tip
   }, value);
+}
+
+// The genuine point-in-time record. Deliberately quiet: until enough real
+// mornings have accumulated it shows how many it has and nothing else,
+// because a three-observation scorecard looks like evidence and is not.
+function KlForward({
+  apiFetch,
+  symbol
+}) {
+  const [s, setS] = useState(null);
+  const [c, setC] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    apiFetch(`/api/korea_forward/scorecard?symbol=${encodeURIComponent(symbol)}`, {
+      noCache: true
+    }).then(x => x.json()).then(x => !dead && setS(x)).catch(() => {});
+    apiFetch("/api/korea_forward/coverage", {
+      noCache: true
+    }).then(x => x.json()).then(x => !dead && setC(x)).catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, [symbol]);
+  if (!s && !c) return null;
+  const cp = c && c.per_checkpoint || {};
+  const rows = Object.keys(cp).sort();
+  return /*#__PURE__*/React.createElement("div", {
+    className: "kl-forward"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gap-sechead",
+    title: KL_TIP.forward
+  }, "Forward recorded ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\xB7 not a backtest")), /*#__PURE__*/React.createElement("div", {
+    className: "kl-research-note",
+    title: KL_TIP.forward
+  }, s && s.note || ""), s && !s.usable && /*#__PURE__*/React.createElement("div", {
+    className: "research-empty",
+    title: KL_TIP.forward
+  }, s.reason), s && s.usable && /*#__PURE__*/React.createElement("div", {
+    className: "kl-kv"
+  }, /*#__PURE__*/React.createElement(KlStat, {
+    label: "Opening direction",
+    tip: KL_TIP.forward
+  }, s.direction_correct, " of ", s.n, /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 ", klRate(s.direction_pct))), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Opening gap mean absolute error",
+    tip: KL_TIP.forward
+  }, s.gap_mae_pct == null ? "—" : `${s.gap_mae_pct} pts`), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Median absolute error",
+    tip: KL_TIP.forward
+  }, s.gap_median_abs_error_pct == null ? "—" : `${s.gap_median_abs_error_pct} pts`), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Recorded between",
+    tip: KL_TIP.forward
+  }, gapDate(s.first_date), " and ", gapDate(s.last_date))), s && s.mixed_versions_note && /*#__PURE__*/React.createElement("div", {
+    className: "kl-flag",
+    title: KL_TIP.forward
+  }, "\u26A0 ", s.mixed_versions_note), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table kl-diag-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: KL_TIP.checkpoints
+  }, "Seoul checkpoint"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Sessions archived on time."
+  }, "Captured"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Sessions the app failed to record. Never filled in later."
+  }, "Missed"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-th-num",
+    title: "Dates Korea did not trade. Not a failure."
+  }, "No Korea session"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(k => /*#__PURE__*/React.createElement("tr", {
+    key: k
+  }, /*#__PURE__*/React.createElement("td", null, k === "final" ? "Confirmed close" : `${k} Seoul`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, cp[k].captured), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, cp[k].missed), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num muted"
+  }, cp[k].no_session)))))), c && c.note && /*#__PURE__*/React.createElement("div", {
+    className: "gap-note",
+    title: KL_TIP.checkpoints
+  }, c.note));
 }
 function KlResearch({
   apiFetch,
@@ -1633,6 +1803,8 @@ function KoreaLead({
   const rel = d && d.relationship;
   const est = d && d.estimates;
   const res = d && d.residual;
+  const drv = d && d.primary_driver;
+  const chk = d && d.self_check;
   return /*#__PURE__*/React.createElement("div", {
     className: "kl-panel"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1692,8 +1864,15 @@ function KoreaLead({
     className: "kl-ctxline muted",
     title: KL_TIP.session
   }, "Seoul ", sess && sess.seoul_time, " \xB7", " ", /*#__PURE__*/React.createElement("b", {
-    className: sess && sess.state === "SESSION IN PROGRESS" ? "warn" : ""
-  }, sess && sess.state), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), d.korea && d.korea.unusual && d.korea.unusual.any && /*#__PURE__*/React.createElement("div", {
+    className: sess && sess.scheduled_state === "SESSION IN PROGRESS" ? "warn" : ""
+  }, sess && sess.scheduled_state), sess && sess.data_state && /*#__PURE__*/React.createElement("span", {
+    title: `${sess.final_reason || ""}\n\n${KL_TIP.sessiondata}`
+  }, " · Korean data ", /*#__PURE__*/React.createElement("b", {
+    className: sess.data_state === "SETTLED" ? "up" : sess.data_state === "STILL UPDATING" ? "warn" : ""
+  }, sess.data_state)), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), sess && sess.scheduled_state === "AFTER NORMAL CLOSE" && sess.data_state === "STILL UPDATING" && /*#__PURE__*/React.createElement("div", {
+    className: "kl-flag",
+    title: `${sess.final_reason || ""}\n\n${KL_TIP.sessiondata}`
+  }, "\u26A0 KOREA STILL TRADING PAST ITS NORMAL CLOSE \u2014 today's Korean numbers are not final"), d.korea && d.korea.unusual && d.korea.unusual.any && /*#__PURE__*/React.createElement("div", {
     className: "kl-unusual",
     title: KL_TIP.unusual
   }, "\u26A1 ", d.korea.unusual.headline, " \u2014 ", d.korea.unusual.detail), d.korea && d.korea.signal && !d.korea.signal.ok && /*#__PURE__*/React.createElement("div", {
@@ -1775,11 +1954,16 @@ function KoreaLead({
   }, "U.S. premarket vs Korea"), /*#__PURE__*/React.createElement(KlStat, {
     label: `${symbol} ${pm && pm.basis === "official_open" ? "opening gap" : "premarket"}`,
     tip: pm && pm.basis_label ? `This is the ${pm.basis_label}. ${KL_TIP.premarket}` : KL_TIP.premarket,
-    tone: pm && pm.gap_pct >= 0 ? "up" : "down"
-  }, pm && pm.ok ? gapPct(pm.gap_pct, 2) : /*#__PURE__*/React.createElement("span", {
+    tone: pm && pm.ok && pm.fresh_enough ? pm.gap_pct >= 0 ? "up" : "down" : ""
+  }, pm && pm.ok && pm.fresh_enough ? gapPct(pm.gap_pct, 2) : /*#__PURE__*/React.createElement("span", {
     className: "muted",
-    title: pm && pm.error || "No live quote."
-  }, "\u2014")), /*#__PURE__*/React.createElement(KlStat, {
+    title: `${pm && (pm.not_available_reason || pm.error) || "No live quote."}\n\n${KL_TIP.premarketStale}`
+  }, "NOT AVAILABLE YET")), pm && pm.ok && pm.fresh_enough && pm.mid_gap_pct != null && /*#__PURE__*/React.createElement(KlStat, {
+    label: "Bid/ask midpoint gap",
+    tip: `Shown beside the traded gap, never substituted for it. ${KL_TIP.premarket}`
+  }, gapPct(pm.mid_gap_pct, 2), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 for comparison")), /*#__PURE__*/React.createElement(KlStat, {
     label: "Residual",
     tip: KL_TIP.residual
   }, cmp && cmp.residual_pct != null ? `${gapPct(cmp.residual_pct, 2)} pts` : "—"), /*#__PURE__*/React.createElement(KlStat, {
@@ -1832,7 +2016,14 @@ function KoreaLead({
     title: KL_TIP.relationship
   }, /*#__PURE__*/React.createElement("span", null, "Recent trend"), /*#__PURE__*/React.createElement(KlSpark, {
     points: rel.spark
-  })))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement(KlStat, {
+    label: "Primary Korea driver",
+    tip: `${drv && drv.detail || ""}\n\n${KL_TIP.driver}`
+  }, drv && drv.driver ? /*#__PURE__*/React.createElement("span", null, KL_DRIVER_LABEL[drv.driver] || drv.driver, /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 out of sample")) : /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, drv && drv.verdict || "NOT YET EVALUATED")))), /*#__PURE__*/React.createElement("div", {
     className: "kl-box kl-box-after"
   }, /*#__PURE__*/React.createElement("div", {
     className: "gap-bt",
@@ -1857,7 +2048,10 @@ function KoreaLead({
   })), /*#__PURE__*/React.createElement("div", {
     className: "gap-note",
     title: KL_TIP.afteropen
-  }, ao && ao.note))), /*#__PURE__*/React.createElement("div", {
+  }, ao && ao.note))), chk && !chk.ok && /*#__PURE__*/React.createElement("div", {
+    className: "kl-flag",
+    title: KL_TIP.selfcheck
+  }, "\u26A0 DEGRADED \u2014 ", chk.detail), /*#__PURE__*/React.createElement("div", {
     className: "kl-footline"
   }, /*#__PURE__*/React.createElement("button", {
     className: "rr-btn kl-more",
@@ -1868,6 +2062,9 @@ function KoreaLead({
     title: "Korea Lead measures a historical relationship. A relationship is not a cause and a match rate is not a probability \u2014 both are stated with the number of sessions behind them so they can be judged."
   }, d.target && d.target.n || 0, " matched sessions \xB7", " ", d.window_label, " \xB7 ", d.target && d.target.is_control ? "CONTROL TICKER — read the tooltip before trading it" : "history, not a forecast")), open && /*#__PURE__*/React.createElement(KlDetails, {
     d: d
+  }), open && /*#__PURE__*/React.createElement(KlForward, {
+    apiFetch: apiFetch,
+    symbol: symbol
   }), open && /*#__PURE__*/React.createElement(KlResearch, {
     apiFetch: apiFetch,
     symbol: symbol,

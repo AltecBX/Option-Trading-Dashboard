@@ -430,17 +430,20 @@ class TestImpliedGap(unittest.TestCase):
 
 class TestChipConfirmation(unittest.TestCase):
 
-    def test_both_agreeing_is_strong(self):
+    def test_both_agreeing_and_all_three_large_enough_is_confirmed(self):
         got = kle.chip_confirmation(1.0, 2.0, 3.0)
-        self.assertEqual(got["state"], kle.CONFIRMATION_STRONG)
+        self.assertEqual(got["state"], kle.CONFIRMATION_CONFIRMED)
 
     def test_neither_agreeing_is_divergence(self):
         got = kle.chip_confirmation(1.0, -2.0, -3.0)
         self.assertEqual(got["state"], kle.CONFIRMATION_DIVERGENCE)
 
-    def test_one_each_way_is_mixed(self):
+    def test_one_chip_far_enough_the_other_way_is_divergence(self):
+        """One name agreeing and one moving 3% against a 1% index is a
+        disagreement, not a shrug. Sign alone used to call this MIXED; the
+        magnitude gates make it what it is."""
         got = kle.chip_confirmation(1.0, 2.0, -3.0)
-        self.assertEqual(got["state"], kle.CONFIRMATION_MIXED)
+        self.assertEqual(got["state"], kle.CONFIRMATION_DIVERGENCE)
         self.assertEqual(got["agree"], 1)
 
     def test_a_missing_chip_name_is_never_counted_as_agreement(self):
@@ -553,11 +556,16 @@ class TestEdgeAndBias(unittest.TestCase):
         got = kle.opening_gap_bias(3.5, kle.implied_gap(obs, 3.5))
         self.assertEqual(got["state"], kle.BIAS_DOWN)
 
-    def test_a_rate_that_does_not_clear_a_coin_flip_is_mixed(self):
+    def test_a_rate_that_does_not_clear_a_coin_flip_is_inconclusive(self):
+        """A twelve-session even split cannot establish a direction. That is
+        INCONCLUSIVE — the evidence is too thin to say — and not the same
+        answer as MIXED, which means the evidence said two things that
+        contradict each other, nor UNSTABLE, which means the relationship
+        itself has changed."""
         obs = ([{"korea": 3.5, "opening_gap": 2.0}] * 6
                + [{"korea": 3.5, "opening_gap": -2.0}] * 6)
         got = kle.opening_gap_bias(3.5, kle.implied_gap(obs, 3.5))
-        self.assertEqual(got["state"], kle.BIAS_MIXED)
+        self.assertEqual(got["state"], kle.BIAS_INCONCLUSIVE)
 
     def test_no_matched_history_is_no_data(self):
         got = kle.opening_gap_bias(3.5, kle.implied_gap([], 3.5))
@@ -610,17 +618,20 @@ class TestSessionState(KoreaLeadCase):
     def test_seoul_before_the_open(self):
         got = kl.session_state(datetime(2026, 3, 4, 8, 30, tzinfo=KST))
         self.assertEqual(got["state"], kl.SESSION_BEFORE)
-        self.assertFalse(got["final"])
+        self.assertFalse(got["scheduled_final"])
 
     def test_seoul_still_trading(self):
         got = kl.session_state(datetime(2026, 3, 4, 13, 0, tzinfo=KST))
         self.assertEqual(got["state"], kl.SESSION_LIVE)
-        self.assertFalse(got["final"])
+        self.assertFalse(got["scheduled_final"])
 
     def test_seoul_closed_at_half_past_three(self):
         got = kl.session_state(datetime(2026, 3, 4, 15, 30, tzinfo=KST))
         self.assertEqual(got["state"], kl.SESSION_CLOSED)
-        self.assertTrue(got["final"])
+        # The SCHEDULE says the session should be over. Whether it actually
+        # is, is session_view()'s answer and the market's to give.
+        self.assertTrue(got["scheduled_final"])
+        self.assertNotIn("final", got)
 
     def test_a_weekend_is_not_a_trading_day_rather_than_closed(self):
         got = kl.session_state(datetime(2026, 3, 7, 12, 0, tzinfo=KST))
@@ -693,7 +704,7 @@ class TestKoreaToday(KoreaLeadCase):
         self.korea["005930.KS"] = []
         got = kl.korea_today()["chip_confirmation"]
         self.assertIn("samsung", got["missing"])
-        self.assertNotEqual(got["state"], kle.CONFIRMATION_STRONG)
+        self.assertNotEqual(got["state"], kle.CONFIRMATION_CONFIRMED)
 
 
 class TestAnOlderKoreanSessionIsNotTodaysSignal(KoreaLeadCase):
@@ -775,7 +786,7 @@ class TestChipConfirmationComparesOneSessionAgainstItself(KoreaLeadCase):
     def test_a_chip_name_from_an_earlier_session_is_not_confirmation(self):
         self.korea["005930.KS"] = kbars([m * 1.4 for m in self.KOREA_MOVES])[:-1]
         got = kl.korea_today()["chip_confirmation"]
-        self.assertNotEqual(got["state"], kle.CONFIRMATION_STRONG)
+        self.assertNotEqual(got["state"], kle.CONFIRMATION_CONFIRMED)
         self.assertIn("samsung", got["missing"])
         self.assertIn("samsung", got["detail"])
 
@@ -800,7 +811,7 @@ class TestChipConfirmationComparesOneSessionAgainstItself(KoreaLeadCase):
 
     def test_same_session_chip_names_confirm_normally(self):
         got = kl.korea_today()["chip_confirmation"]
-        self.assertEqual(got["state"], kle.CONFIRMATION_STRONG)
+        self.assertEqual(got["state"], kle.CONFIRMATION_CONFIRMED)
         self.assertEqual(got["missing"], [])
 
 
