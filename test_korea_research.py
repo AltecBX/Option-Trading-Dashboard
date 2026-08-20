@@ -347,6 +347,187 @@ class TestWalkForward(unittest.TestCase):
         self.assertAlmostEqual(kre._emp_up(-5.0, [-2.0, -1.0, 1.0, 2.0]), 0.0)
 
 
+class TestEveryModelIsScoredOnTheSameSessions(unittest.TestCase):
+    """A model whose input is missing on some session would otherwise skip
+    that session while the baseline still scored it — and then the two are
+    ranked over different days. Taiwan holidays are the concrete case: they
+    cluster around Lunar New Year, so the sessions a Taiwan model drops are
+    not a random sample of anything."""
+
+    def _rows(self, n=600, holes=None):
+        xs = noise(n, seed=401, scale=2.0)
+        zs = noise(n, seed=402, scale=2.0)
+        eps = noise(n, seed=403, scale=0.5)
+        rows = rows_from(xs, [0.7 * x + e for x, e in zip(xs, eps)],
+                         extra={"sparse": zs})
+        for i in (holes or []):
+            rows[i]["sparse"] = None
+        return rows
+
+    def test_a_sparse_input_shrinks_every_model_not_just_its_own(self):
+        rows = self._rows(holes=range(300, 360))
+        got = kre.walk_forward(rows, {"korea": ["korea"],
+                                      "sparse": ["korea", "sparse"]},
+                               "gap", min_train=250, step=25)
+        counts = {m["n"] for m in got["models"].values() if m["n"]}
+        self.assertEqual(len(counts), 1, f"scored different rows: {counts}")
+        self.assertTrue(got["all_models_scored_same_rows"])
+        self.assertEqual(got["rows_dropped_for_missing_inputs"], 60)
+        self.assertEqual(got["dropped_by_input"]["sparse"], 60)
+
+    def test_the_shared_set_is_declared_in_the_payload(self):
+        got = kre.walk_forward(self._rows(), {"korea": ["korea"]}, "gap",
+                               min_train=250, step=25)
+        self.assertTrue(got["shared_evaluation_set"])
+        self.assertIn("no model can win by skipping", got["shared_set_note"])
+
+    def test_models_ranked_over_different_rows_are_refused(self):
+        walk = {"all_models_scored_same_rows": False,
+                "reason": "different sessions",
+                "models": {"kospi": {"n": 100, "mae_pct": 1.0,
+                                     "direction_pct": 60.0, "brier": 0.24},
+                           "other": {"n": 80, "mae_pct": 0.5,
+                                     "direction_pct": 70.0, "brier": 0.20}}}
+        got = kre.compare_models(walk, "kospi")
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["beats_baseline"], [])
+
+
+class TestTheResidualHistoryUsesTheSameEstimator(unittest.TestCase):
+    """Today's residual and the history it is ranked against must come from
+    ONE estimator. The bucket median and a fitted line disagree by a
+    meaningful amount on any given day, so mixing them would make the
+    percentile measure the difference between two methods."""
+
+    def _rows(self, n=800):
+        xs = noise(n, seed=411, scale=2.5)
+        eps = noise(n, seed=412, scale=0.8)
+        return rows_from(xs, [0.7 * x + e for x, e in zip(xs, eps)])
+
+    def test_the_bucket_residual_uses_only_earlier_sessions(self):
+        rows = self._rows()
+        kre.expanding_bucket_residual(rows, "gap", "korea", kle.bucket_key,
+                                      min_train=250, min_bucket=8)
+        i = next(i for i, r in enumerate(rows)
+                 if r["bucket_residual"] is not None and i > 300)
+        key = kle.bucket_key(rows[i]["korea"])
+        prior = [r["gap"] for r in rows[:i] if kle.bucket_key(r["korea"]) == key]
+        self.assertAlmostEqual(rows[i]["bucket_residual"],
+                               rows[i]["gap"] - kre.median(prior), places=9)
+
+    def test_a_later_session_cannot_change_an_earlier_residual(self):
+        a = self._rows()
+        kre.expanding_bucket_residual(a, "gap", "korea", kle.bucket_key,
+                                      min_train=250, min_bucket=8)
+        before = [r["bucket_residual"] for r in a[:500]]
+        b = self._rows()
+        for r in b[600:]:
+            r["gap"] = 99.0
+        kre.expanding_bucket_residual(b, "gap", "korea", kle.bucket_key,
+                                      min_train=250, min_bucket=8)
+        for x, y in zip(before, [r["bucket_residual"] for r in b[:500]]):
+            if x is None or y is None:
+                self.assertEqual(x, y)
+            else:
+                self.assertAlmostEqual(x, y, places=9)
+
+    def test_a_thin_bucket_gets_no_residual_rather_than_a_guess(self):
+        rows = self._rows()
+        kre.expanding_bucket_residual(rows, "gap", "korea", kle.bucket_key,
+                                      min_train=250, min_bucket=10_000)
+        self.assertTrue(all(r["bucket_residual"] is None for r in rows))
+
+    def test_the_context_names_the_estimator_it_used(self):
+        got = kre.residual_context(0.0, noise(200, seed=421),
+                                   expected_pct=1.0, actual_pct=1.0,
+                                   estimator="bucket median")
+        self.assertEqual(got["estimator"], "bucket median")
+
+
+class TestTheAsiaControlJudgesStrengthNotDirection(unittest.TestCase):
+
+    def _fit(self, k_beta, n_beta, n=800):
+        """A world where KOSPI carries k_beta and the Nikkei n_beta."""
+        kx = noise(n, seed=431, scale=2.0)
+        nx = noise(n, seed=432, scale=2.0)
+        tx = noise(n, seed=433, scale=2.0)
+        eps = noise(n, seed=434, scale=0.5)
+        return [{"kospi": a, "nikkei": b, "tsmc": c,
+                 "gap": k_beta * a + n_beta * b + e}
+                for a, b, c, e in zip(kx, nx, tx, eps)]
+
+    def test_a_strong_negative_korea_coefficient_still_survives(self):
+        """The bug this replaces: any negative t failed `kt >= 2.0` and got
+        filed under EXPLAINED BY BROAD ASIA, which is the opposite of what a
+        strong independent negative coefficient means."""
+        got = kr._asia_control(self._fit(-0.8, 0.1), "TEST")
+        self.assertTrue(got["ok"])
+        self.assertEqual(got["verdict"], "KOREA-SPECIFIC")
+        self.assertEqual(got["kospi_sign"], "negative")
+        self.assertIn("NEGATIVE", got["detail"])
+
+    def test_a_strong_positive_korea_coefficient_survives_too(self):
+        got = kr._asia_control(self._fit(0.8, 0.1), "TEST")
+        self.assertEqual(got["verdict"], "KOREA-SPECIFIC")
+        self.assertEqual(got["kospi_sign"], "positive")
+        self.assertNotIn("NEGATIVE", got["detail"])
+
+    def test_korea_losing_to_japan_is_said_to_be_shared(self):
+        got = kr._asia_control(self._fit(0.2, 0.9), "TEST")
+        self.assertEqual(got["verdict"], "SHARED WITH BROAD ASIA")
+
+    def test_korea_carrying_nothing_is_explained_by_asia(self):
+        got = kr._asia_control(self._fit(0.0, 0.9), "TEST")
+        self.assertEqual(got["verdict"], "EXPLAINED BY BROAD ASIA")
+
+    def test_too_little_history_refuses_rather_than_crashing(self):
+        got = kr._asia_control(self._fit(0.5, 0.5, n=20), "TEST")
+        self.assertFalse(got["ok"])
+        self.assertIn("needs at least", got["reason"])
+
+
+class TestTheResearchSettingsAreActuallyRead(unittest.TestCase):
+    """A settings block nothing reads is worse than none: it changes the
+    reported configuration hash without changing a number."""
+
+    def test_the_defaults_load(self):
+        lim = kr.limits()
+        for key in ("min_regression_n", "min_train_n", "walk_step",
+                    "regime_window", "fdr_alpha", "estimate_disagreement_pct"):
+            self.assertIn(key, lim)
+
+    def test_a_data_dir_override_changes_the_research_floors(self):
+        import json as _json
+        from pathlib import Path as _P
+        with tempfile.TemporaryDirectory() as tmp:
+            (_P(tmp) / "thresholds.json").write_text(_json.dumps(
+                {"korea_lead": {"research": {"min_regression_n": 999,
+                                             "walk_step": 7,
+                                             "fdr_alpha": 0.5}}}))
+            kl.configure(data_dir=tmp)
+            try:
+                kl.config(refresh=True)
+                lim = kr.limits()
+                self.assertEqual(lim["min_regression_n"], 999)
+                self.assertEqual(lim["walk_step"], 7)
+                self.assertAlmostEqual(lim["fdr_alpha"], 0.5)
+                self.assertEqual(lim["min_train_n"], kre.MIN_TRAIN_N)
+            finally:
+                kl.configure()
+                kl.config(refresh=True)
+
+    def test_the_floor_actually_gates_a_regression(self):
+        n = 200
+        y = noise(n, seed=441)
+        X = [[v] for v in noise(n, seed=442)]
+        self.assertIsNotNone(kre.ols(y, X, min_n=60))
+        self.assertIsNone(kre.ols(y, X, min_n=999))
+
+    def test_documentation_keys_are_not_treated_as_settings(self):
+        lim = kr.limits()
+        self.assertFalse([k for k in lim if k.startswith("_")])
+
+
 class TestExpandingResidual(unittest.TestCase):
 
     def test_early_rows_get_nothing_rather_than_a_guess(self):

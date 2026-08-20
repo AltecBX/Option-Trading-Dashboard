@@ -1023,8 +1023,11 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
     # landed in today's bucket. Two methods that disagree are reported as
     # disagreeing — never averaged into a third number nothing supports.
     reg = _kre.regression_estimate(obs, "korea", "opening_gap", kospi_pct)
+    import korea_research as _kres     # local: research imports korea_lead
+    _lim = _kres.limits()
     estimates = _kre.compare_estimates(
-        bucket_med, reg.get("expected_pct") if reg.get("ok") else None)
+        bucket_med, reg.get("expected_pct") if reg.get("ok") else None,
+        tolerance_pct=float(_lim["estimate_disagreement_pct"]))
 
     # Today's residual against every residual this pair has produced before,
     # so "two points light" is judged against what two points light has
@@ -1034,14 +1037,21 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
     # one-year window holds fewer sessions than the point-in-time residual
     # needs to warm up at all, so windowing it here meant the label simply
     # never appeared on the lookback the panel opens with.
-    hist_resid = []
-    if reg.get("ok"):
-        pit = [dict(o) for o in observations(sym)["observations"]]
-        _kre.expanding_residual(pit, "opening_gap", "korea",
-                                min_train=_kre.MIN_TRAIN_N, out_key="_r")
-        hist_resid = [o["_r"] for o in pit if o.get("_r") is not None]
+    # Built with the SAME estimator the headline residual uses — the bucket
+    # median, not the fitted line. The two estimators disagree by a
+    # meaningful amount on any given day, so ranking a bucket residual
+    # against a history of line residuals would be measuring the gap
+    # between the two methods as much as anything about this morning.
+    pit = [dict(o) for o in observations(sym)["observations"]]
+    _kre.expanding_bucket_residual(pit, "opening_gap", "korea",
+                                   kle.bucket_key,
+                                   min_train=_kre.MIN_TRAIN_N,
+                                   min_bucket=int(cfg["implied_min_n"]),
+                                   out_key="_r")
+    hist_resid = [o["_r"] for o in pit if o.get("_r") is not None]
     residual = _kre.residual_context(
         cmp_.get("residual_pct"), hist_resid,
+        estimator="bucket median",
         expected_pct=bucket_med,
         actual_pct=live.get("gap_pct") if live.get("ok") else None)
     out.update({

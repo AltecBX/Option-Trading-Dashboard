@@ -211,7 +211,7 @@ def correlation_p(r, n) -> float | None:
 
 # ── regression ──────────────────────────────────────────────────────────────
 
-def ols(y, X, names=None) -> dict | None:
+def ols(y, X, names=None, min_n: int = MIN_REGRESSION_N) -> dict | None:
     """Least squares with HC1 heteroskedasticity-robust standard errors.
 
     `X` is a list of rows WITHOUT an intercept column; one is added. Daily
@@ -226,7 +226,7 @@ def ols(y, X, names=None) -> dict | None:
     rows = [[_num(v) for v in row] for row in (X or [])]
     keep = [i for i in range(len(ys))
             if ys[i] is not None and all(v is not None for v in rows[i])]
-    if len(keep) < MIN_REGRESSION_N:
+    if len(keep) < min_n:
         return None
     ys = [ys[i] for i in keep]
     rows = [rows[i] for i in keep]
@@ -283,20 +283,21 @@ def predict(model: dict, row) -> float | None:
     return b[0] + sum(b[i + 1] * vals[i] for i in range(len(vals)))
 
 
-def incremental(y, base_X, full_X, names=None) -> dict:
+def incremental(y, base_X, full_X, names=None,
+                min_n: int = MIN_REGRESSION_N) -> dict:
     """How much the extra columns add once the baseline is already there.
 
     This is the question that separates a signal from an echo. A variable
     that merely restates what the baseline already knows has a large
     correlation with the outcome and an incremental R² of nothing.
     """
-    base = ols(y, base_X)
-    full = ols(y, full_X, names=names)
+    base = ols(y, base_X, min_n=min_n)
+    full = ols(y, full_X, names=names, min_n=min_n)
     out = {"ok": bool(base and full), "base": None, "full": None,
            "r2_base": None, "r2_full": None, "delta_r2": None,
            "added": [], "reason": None}
     if not base or not full:
-        out["reason"] = (f"Needs at least {MIN_REGRESSION_N} matched sessions "
+        out["reason"] = (f"Needs at least {min_n} matched sessions "
                          f"with every column present.")
         return out
     if base["n"] != full["n"]:
@@ -394,7 +395,7 @@ def by_year(rows, x_key: str, y_key: str) -> list:
 
 
 def split_by_regime(rows, regime_key: str, x_key: str, y_key: str,
-                    cut=None) -> dict:
+                    cut=None, min_n: int = MIN_REGRESSION_N) -> dict:
     """The relationship in calm markets against the relationship in violent
     ones, split at the MEDIAN of the regime variable rather than at a round
     number somebody liked the look of.
@@ -408,9 +409,9 @@ def split_by_regime(rows, regime_key: str, x_key: str, y_key: str,
     usable = [v for v in (_num(v) for v in vals) if v is not None]
     # A median split makes two groups, and each of them has to stand on its
     # own — so the requirement is twice the single-sample floor, not once.
-    if len(usable) < 2 * MIN_REGRESSION_N:
+    if len(usable) < 2 * min_n:
         return {"ok": False, "n": len(usable),
-                "reason": (f"needs at least {2 * MIN_REGRESSION_N} sessions "
+                "reason": (f"needs at least {2 * min_n} sessions "
                            f"carrying the regime variable so that both halves "
                            f"of the split stand on their own; have "
                            f"{len(usable)}")}
@@ -440,7 +441,8 @@ def split_by_regime(rows, regime_key: str, x_key: str, y_key: str,
 # ── placebo ─────────────────────────────────────────────────────────────────
 
 def placebo_table(rows, x_key: str, y_key: str, shuffles: int = 200,
-                  seed: int = 20260820) -> dict:
+                  seed: int = 20260820,
+                  min_n: int = MIN_REGRESSION_N) -> dict:
     """The correct alignment against deliberately wrong ones.
 
     If Korean session D really does inform the U.S. open on D, then pairing
@@ -459,7 +461,7 @@ def placebo_table(rows, x_key: str, y_key: str, shuffles: int = 200,
     n = len(xs)
     out = {"ok": False, "correct": None, "placebos": [], "shuffled": None,
            "n": n, "verdict": None, "reason": None}
-    if n < MIN_REGRESSION_N:
+    if n < min_n:
         out["reason"] = "not enough matched sessions for a placebo test"
         return out
     correct = pearson(xs, ys)
@@ -565,6 +567,49 @@ def expanding_residual(rows, y_key: str, x_key: str,
     return n_written
 
 
+def expanding_bucket_residual(rows, y_key: str, x_key: str, bucket_fn,
+                              min_train: int = MIN_TRAIN_N,
+                              min_bucket: int = 8,
+                              out_key: str = "bucket_residual") -> int:
+    """Point-in-time residuals from the BUCKET estimator, in place.
+
+    The panel's headline residual is the actual gap minus the MEDIAN of the
+    matched bucket. Ranking that against a history of residuals produced by
+    a fitted LINE would compare two different estimators — the line and the
+    bucket median disagree by a meaningful amount on any given day, so the
+    percentile would be measuring the difference between the two methods as
+    much as anything about today.
+
+    So this builds the history with the same estimator the headline uses:
+    for each session, the median outcome of the earlier sessions that fell
+    in the SAME bucket, and the residual against it. Earlier sessions only —
+    a bucket median that included today would flatter every residual.
+
+    Each bucket keeps its own sorted list, so the median is a lookup rather
+    than a re-sort, and the whole pass is O(n log n).
+    """
+    import bisect
+    seen: dict = {}
+    total = 0
+    written = 0
+    for r in rows or []:
+        x, y = _num(r.get(x_key)), _num(r.get(y_key))
+        key = bucket_fn(x) if x is not None else None
+        r[out_key] = None
+        if key is not None and total >= min_train:
+            prior = seen.get(key) or []
+            if len(prior) >= min_bucket and y is not None:
+                k = len(prior)
+                med = (prior[k // 2] if k % 2
+                       else (prior[k // 2 - 1] + prior[k // 2]) / 2.0)
+                r[out_key] = y - med
+                written += 1
+        if key is not None and y is not None:
+            bisect.insort(seen.setdefault(key, []), y)
+            total += 1
+    return written
+
+
 # ── walk-forward evaluation ─────────────────────────────────────────────────
 
 def walk_forward(rows, models: dict, y_key: str,
@@ -586,12 +631,38 @@ def walk_forward(rows, models: dict, y_key: str,
     score honest about fat tails instead of quietly assuming they are not
     there.
     """
-    usable = [r for r in (rows or []) if _num(r.get(y_key)) is not None]
+    # ONE evaluation set for every candidate. A model whose input is
+    # missing on some session would otherwise skip that session while the
+    # baseline still scored it, and the comparison would then be between
+    # different sets of days — which lets a richer model win by quietly
+    # omitting the hard ones. Taiwan holidays are the concrete case here:
+    # they cluster around Lunar New Year, so the sessions dropped are not a
+    # random sample of anything.
+    every_feature = sorted({f for feats in (models or {}).values()
+                            for f in (feats or [])})
+    dated = [r for r in (rows or []) if _num(r.get(y_key)) is not None]
+    usable = [r for r in dated
+              if all(_num(r.get(f)) is not None for f in every_feature)]
+    dropped: dict = {}
+    for r in dated:
+        for f in every_feature:
+            if _num(r.get(f)) is None:
+                dropped[f] = dropped.get(f, 0) + 1
     out = {"ok": False, "y_key": y_key, "n": len(usable), "folds": 0,
-           "min_train": min_train, "step": step, "models": {}, "reason": None}
+           "min_train": min_train, "step": step, "models": {}, "reason": None,
+           "shared_evaluation_set": True,
+           "rows_with_outcome": len(dated),
+           "rows_dropped_for_missing_inputs": len(dated) - len(usable),
+           "dropped_by_input": dropped,
+           "shared_set_note": (
+               "Every model is scored on exactly these sessions. Sessions "
+               "where ANY candidate's input was missing are excluded from ALL "
+               "of them, so no model can win by skipping the days it could "
+               "not answer.")}
     if len(usable) < min_train + step:
         out["reason"] = (f"Needs more than {min_train + step} matched sessions "
-                         f"to score even one out-of-sample fold; have "
+                         f"where every candidate's inputs are present, to "
+                         f"score even one out-of-sample fold; have "
                          f"{len(usable)}.")
         return out
     preds: dict = {name: [] for name in models}
@@ -627,7 +698,18 @@ def walk_forward(rows, models: dict, y_key: str,
     out["folds"] = folds
     for name, rows_ in preds.items():
         out["models"][name] = _score(rows_, models.get(name))
-    out["ok"] = any(v.get("n") for v in out["models"].values())
+    scored = {v["n"] for v in out["models"].values() if v.get("n")}
+    # If this ever fires, two models were compared over different days and
+    # the ranking beneath it means nothing — so it is stated in the payload
+    # rather than left for a reader to notice.
+    out["all_models_scored_same_rows"] = (len(scored) <= 1)
+    if not out["all_models_scored_same_rows"]:
+        out["reason"] = ("Models were scored over different numbers of "
+                         "sessions, so their errors are not comparable: "
+                         + ", ".join(f"{k}={v['n']}" for k, v in
+                                     sorted(out["models"].items())
+                                     if v.get("n")))
+    out["ok"] = bool(scored) and out["all_models_scored_same_rows"]
     return out
 
 
@@ -682,6 +764,11 @@ def compare_models(walk: dict, baseline: str = "kospi") -> dict:
     if not out["ok"]:
         out["reason"] = f"the {baseline} baseline produced no out-of-sample rows"
         return out
+    if walk.get("all_models_scored_same_rows") is False:
+        out["ok"] = False
+        out["reason"] = (walk.get("reason") or "models were scored over "
+                         "different sessions, so they cannot be ranked")
+        return out
     for name, m in models.items():
         if not m.get("n"):
             continue
@@ -716,7 +803,8 @@ def compare_models(walk: dict, baseline: str = "kospi") -> dict:
 
 # ── the gap estimate, from a regression rather than a bucket ────────────────
 
-def regression_estimate(rows, x_key: str, y_key: str, x_today) -> dict:
+def regression_estimate(rows, x_key: str, y_key: str, x_today,
+                        min_n: int = MIN_REGRESSION_N) -> dict:
     """A second, independent estimate of today's opening gap.
 
     The bucket estimate asks what happened on the sessions that looked like
@@ -734,9 +822,9 @@ def regression_estimate(rows, x_key: str, y_key: str, x_today) -> dict:
     v = _num(x_today)
     ys = [r.get(y_key) for r in rows or []]
     Xs = [[r.get(x_key)] for r in rows or []]
-    fit = ols(ys, Xs, names=[x_key])
+    fit = ols(ys, Xs, names=[x_key], min_n=min_n)
     if not fit:
-        out["reason"] = (f"Needs at least {MIN_REGRESSION_N} matched sessions "
+        out["reason"] = (f"Needs at least {min_n} matched sessions "
                          f"to fit a line.")
         return out
     if v is None:
@@ -801,7 +889,8 @@ RESIDUAL_LABELS = ("IN LINE", "UNDERREACTION", "OVERREACTION", "DIVERGENCE")
 
 
 def residual_context(today_residual, history, expected_pct=None,
-                     actual_pct=None) -> dict:
+                     actual_pct=None, estimator: str = "the same estimator",
+                     min_n: int = MIN_REGRESSION_N) -> dict:
     """Where today's premarket-versus-implied gap sits in the distribution
     of every residual this pair has produced before.
 
@@ -812,12 +901,16 @@ def residual_context(today_residual, history, expected_pct=None,
     against this pair's own history carries all of that automatically.
     """
     out = {"ok": False, "residual_pct": _num(today_residual), "percentile": None,
-           "robust_z": None, "n": 0, "label": None, "detail": None}
+           "robust_z": None, "n": 0, "label": None, "detail": None,
+           # Today's residual and the history it is ranked against must come
+           # from ONE estimator, or the percentile measures the difference
+           # between two methods rather than anything about today.
+           "estimator": estimator}
     xs = [v for v in (_num(v) for v in (history or [])) if v is not None]
     r = _num(today_residual)
     out["n"] = len(xs)
-    if r is None or len(xs) < MIN_REGRESSION_N:
-        out["detail"] = (f"Needs at least {MIN_REGRESSION_N} past residuals to "
+    if r is None or len(xs) < min_n:
+        out["detail"] = (f"Needs at least {min_n} past residuals to "
                          f"say whether today's is unusual; have {len(xs)}.")
         return out
     out["ok"] = True
@@ -856,7 +949,8 @@ def residual_context(today_residual, history, expected_pct=None,
 # ── does the residual predict anything after the open? ──────────────────────
 
 def convergence_test(rows, residual_key: str, outcome_key: str,
-                     extreme_pct: float = 20.0) -> dict:
+                     extreme_pct: float = 20.0,
+                     min_n: int = MIN_REGRESSION_N) -> dict:
     """Do premarket residuals predict the move AFTER the open?
 
     The hopeful story is that a stock which has not yet moved as far as
@@ -875,8 +969,8 @@ def convergence_test(rows, residual_key: str, outcome_key: str,
     out = {"ok": False, "n": len(pairs), "pearson": None, "p": None,
            "slope": None, "slope_t": None, "verdict": None, "extremes": None,
            "outcome": outcome_key, "reason": None}
-    if len(pairs) < MIN_REGRESSION_N:
-        out["reason"] = (f"Needs at least {MIN_REGRESSION_N} sessions carrying "
+    if len(pairs) < min_n:
+        out["reason"] = (f"Needs at least {min_n} sessions carrying "
                          f"both a residual and {outcome_key}; have {len(pairs)}.")
         return out
     # Convergence means the outcome runs OPPOSITE to the residual: if the
@@ -885,7 +979,7 @@ def convergence_test(rows, residual_key: str, outcome_key: str,
     xs = [-a for a, _ in pairs]
     ys = [b for _, b in pairs]
     r = pearson(xs, ys)
-    fit = ols(ys, [[x] for x in xs], names=["negative_residual"])
+    fit = ols(ys, [[x] for x in xs], names=["negative_residual"], min_n=min_n)
     slope = next((p for p in (fit or {}).get("params", [])
                   if p["name"] == "negative_residual"), None)
     out.update({

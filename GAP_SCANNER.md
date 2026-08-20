@@ -621,6 +621,17 @@ including the broad ETFs and the equipment names. With samples this large
 the FDR correction is not the binding constraint; the size of the
 relationship is.
 
+**Out of sample, on one shared evaluation set**, Korea Surprise is the
+strongest single candidate for the SMH opening gap — 64.4% direction
+against plain KOSPI's 63.6%, with lower error and a better Brier score. The
+shared set matters: every candidate is scored on exactly the sessions where
+EVERY candidate's inputs were present, because a model whose input is
+missing on a Taiwan holiday would otherwise skip those sessions while the
+baseline still scored them, and Lunar New Year is not a random sample of
+anything. Restricting to the shared set removed a model that had appeared
+to win by omitting the days it could not answer. Nothing was promoted to a
+production signal.
+
 ### Endpoint
 
 - `GET /api/korea_lead?symbol=MU&window=1y` — one target, one lookback,

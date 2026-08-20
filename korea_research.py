@@ -102,6 +102,37 @@ _FRAME_MEM: dict = {}       # symbol -> (identity, rows)
 _REPORT_MEM: dict = {}      # key -> (built_ts, report)
 
 
+def limits() -> dict:
+    """The research section of thresholds.json, merged over the engine's
+    own defaults.
+
+    This exists because a settings block nothing reads is worse than no
+    settings block: it changes the reported configuration hash without
+    changing a single number, which is a documented contract that quietly
+    is not one. Every value here is passed into the computation it names.
+    """
+    try:
+        cfg = kl.config()[0].get("research") or {}
+    except Exception:               # pragma: no cover
+        cfg = {}
+    out = {
+        "min_regression_n": kre.MIN_REGRESSION_N,
+        "min_train_n": kre.MIN_TRAIN_N,
+        "walk_step": kre.WALK_STEP,
+        "regime_window": REGIME_WINDOW,
+        "fdr_alpha": 0.05,
+        "estimate_disagreement_pct": 0.75,
+    }
+    for k, v in cfg.items():
+        if k.startswith("_") or k not in out:
+            continue
+        try:
+            out[k] = type(out[k])(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def configure(data_dir=None) -> None:
     """Research shares korea_lead's providers and caches; this only clears
     the derived memo so a reconfigure cannot serve a stale frame."""
@@ -213,7 +244,8 @@ def frame(symbol: str, force: bool = False) -> dict:
                         "can be built.")
         return out
 
-    vol = _trailing_vol(us["bars"])
+    lim = limits()
+    vol = _trailing_vol(us["bars"], window=int(lim["regime_window"]))
     us_days = sorted(measures)
     prev_us = {us_days[i]: us_days[i - 1] for i in range(1, len(us_days))}
     ref_days = sorted(ref_measures)
@@ -253,7 +285,7 @@ def frame(symbol: str, force: bool = False) -> dict:
     for name, key in (("kospi", "kospi_surprise"), ("hynix", "hynix_surprise"),
                       ("samsung", "samsung_surprise")):
         kre.expanding_residual(rows, name, "ref_prev",
-                               min_train=kre.MIN_TRAIN_N, out_key=key)
+                               min_train=int(lim["min_train_n"]), out_key=key)
 
     out.update({
         "rows": rows, "ok": True, "through": through,
@@ -290,6 +322,7 @@ def pair_matrix(window: str = "max", targets=None, inputs=None,
     """
     targets = list(targets or US_TARGETS)
     inputs = list(inputs or ASIAN_INPUTS)
+    lim = limits()
     out = {"window": window, "cells": [], "targets": targets,
            "inputs": [{"key": k, **ASIAN_INPUTS[k]} for k in inputs],
            "skipped": [], "engine": kre.ENGINE_VERSION,
@@ -306,7 +339,7 @@ def pair_matrix(window: str = "max", targets=None, inputs=None,
         for name in inputs:
             pairs = [(r.get(name), r.get("gap")) for r in rows]
             pairs = [(a, b) for a, b in pairs if a is not None and b is not None]
-            if len(pairs) < kre.MIN_REGRESSION_N:
+            if len(pairs) < int(lim["min_regression_n"]):
                 out["skipped"].append(
                     {"symbol": sym, "input": name,
                      "reason": f"only {len(pairs)} matched sessions"})
@@ -332,10 +365,11 @@ def pair_matrix(window: str = "max", targets=None, inputs=None,
     for c, q in zip(out["cells"], qs):
         c["q"] = None if q is None else round(q, 5)
         c["p"] = None if c["p"] is None else round(c["p"], 6)
-        c["significant"] = bool(q is not None and q < 0.05)
+        c["significant"] = bool(q is not None and q < float(lim["fdr_alpha"]))
     out["cells"].sort(key=lambda c: -(abs(c["pearson"] or 0.0)))
     out["n_cells"] = len(out["cells"])
     out["n_significant"] = sum(1 for c in out["cells"] if c["significant"])
+    out["fdr_alpha"] = float(lim["fdr_alpha"])
     return out
 
 
@@ -426,12 +460,13 @@ def _asia_control(rows, symbol: str) -> dict:
     input is present — because a horse race run on different rows is not a
     horse race.
     """
+    lim = limits()
     usable = [r for r in rows
               if all(r.get(k) is not None for k in ("kospi", "nikkei", "tsmc", "gap"))]
     out = {"ok": False, "symbol": symbol, "n": len(usable), "models": {},
            "verdict": None, "detail": None, "reason": None}
-    if len(usable) < kre.MIN_REGRESSION_N:
-        out["reason"] = (f"needs at least {kre.MIN_REGRESSION_N} sessions "
+    if len(usable) < int(lim["min_regression_n"]):
+        out["reason"] = (f"needs at least {int(lim['min_regression_n'])} sessions "
                          f"carrying KOSPI, the Nikkei and TSMC together; "
                          f"have {len(usable)}")
         return out
@@ -457,27 +492,44 @@ def _asia_control(rows, symbol: str) -> dict:
                         "p": p["p"]}
                        for p in fit["params"] if p["name"] != "intercept"]}
     both = fits["kospi_plus_nikkei"]
-    kt = next(p["t"] for p in both["params"] if p["name"] == "kospi")
-    nt = next(p["t"] for p in both["params"] if p["name"] == "nikkei")
+    kp = next(p for p in both["params"] if p["name"] == "kospi")
+    npar = next(p for p in both["params"] if p["name"] == "nikkei")
+    kt, nt = kp["t"], npar["t"]
     out["ok"] = True
-    out["kospi_t_with_control"] = round(kt, 2)
-    out["nikkei_t_with_control"] = round(nt, 2)
     if kt is None or nt is None:
         out["verdict"] = "NOT MEASURABLE"
-    elif kt >= 2.0 and kt > nt:
+        out["detail"] = ("One of the control coefficients had no usable "
+                         "standard error, so the comparison cannot be made.")
+        return out
+    out["kospi_t_with_control"] = round(kt, 2)
+    out["nikkei_t_with_control"] = round(nt, 2)
+    # Significance and relative strength are judged on the MAGNITUDE of the
+    # t-statistic; the SIGN is reported separately rather than folded into
+    # the test. A KOSPI coefficient that came out strongly NEGATIVE after
+    # controlling for Japan would still be independent information — an
+    # important one — and a signed comparison would have filed it under
+    # "explained by broad Asia", which is the opposite of what it means.
+    out["kospi_sign"] = "positive" if kp["beta"] >= 0 else "negative"
+    out["nikkei_sign"] = "positive" if npar["beta"] >= 0 else "negative"
+    ka, na = abs(kt), abs(nt)
+    sign_note = ("" if kp["beta"] >= 0 else
+                 " Note the KOSPI coefficient is NEGATIVE here — independent "
+                 "information, but running the opposite way to the usual "
+                 "relationship, which is worth understanding before using.")
+    if ka >= 2.0 and ka > na:
         out["verdict"] = "KOREA-SPECIFIC"
         out["detail"] = (
             f"With the Nikkei in the same regression on the same sessions, "
             f"KOSPI still carries t={kt:+.2f} against Japan's {nt:+.2f}. What "
             f"Korea is saying about {symbol} is not merely overnight Asian "
-            f"risk appetite — though a large part of the two overlaps.")
-    elif kt >= 2.0:
+            f"risk appetite — though a large part of the two overlaps." + sign_note)
+    elif ka >= 2.0:
         out["verdict"] = "SHARED WITH BROAD ASIA"
         out["detail"] = (
             f"KOSPI survives at t={kt:+.2f} but the Nikkei is stronger at "
             f"{nt:+.2f} on the same sessions. For {symbol} this reads mostly "
             f"as broad Asian risk appetite rather than anything specific to "
-            f"Korean memory.")
+            f"Korean memory." + sign_note)
     else:
         out["verdict"] = "EXPLAINED BY BROAD ASIA"
         out["detail"] = (
@@ -512,8 +564,9 @@ def report(symbol: str, window: str = "max", force: bool = False,
         out["error"] = f["error"]
         return out
     rows = _window_rows(f["rows"], win)
+    lim = limits()
     out.update({
-        "ok": True, "n": len(rows),
+        "ok": True, "n": len(rows), "limits": lim,
         "first_date": rows[0]["date"], "last_date": rows[-1]["date"],
         "through": f.get("through"), "sources": f["sources"],
         "coverage": f["coverage"],
@@ -536,7 +589,7 @@ def report(symbol: str, window: str = "max", force: bool = False,
             [r["gap"] for r in usable],
             [[r["us_prev"]] for r in usable],
             [[r[name], r["us_prev"]] for r in usable],
-            names=[name, "us_prev"])
+            names=[name, "us_prev"], min_n=int(lim["min_regression_n"]))
         inc[name]["label"] = ASIAN_INPUTS[name]["label"]
         inc[name]["role"] = ASIAN_INPUTS[name]["role"]
     out["incremental"] = inc
@@ -550,7 +603,8 @@ def report(symbol: str, window: str = "max", force: bool = False,
     out["lead_lag"] = {n: _leadlag(sym, n, win) for n in ("kospi", "hynix")}
 
     # 4. placebo — the alignment guard
-    out["placebo"] = kre.placebo_table(rows, "kospi", "gap")
+    out["placebo"] = kre.placebo_table(rows, "kospi", "gap",
+                                       min_n=int(lim["min_regression_n"]))
 
     # 5. rolling relationship strength — the whole series, not just today's
     #    number, so a relationship that is fading can be seen fading
@@ -567,7 +621,8 @@ def report(symbol: str, window: str = "max", force: bool = False,
     out["by_year"] = kre.by_year(rows, "kospi", "gap")
 
     # 7. volatility regime, point-in-time
-    out["regime"] = kre.split_by_regime(rows, "vol20", "kospi", "gap")
+    out["regime"] = kre.split_by_regime(rows, "vol20", "kospi", "gap",
+                                        min_n=int(lim["min_regression_n"]))
     out["regime"]["basis"] = (
         f"{REGIME_WINDOW}-session realised volatility of {sym}, computed "
         f"through the PRIOR close. Same-day VIX is deliberately not used: at "
@@ -579,7 +634,7 @@ def report(symbol: str, window: str = "max", force: bool = False,
     for raw, s_key in (("kospi", "kospi_surprise"), ("hynix", "hynix_surprise"),
                        ("samsung", "samsung_surprise")):
         usable = [r for r in rows if r.get(s_key) is not None]
-        if len(usable) < kre.MIN_REGRESSION_N:
+        if len(usable) < int(lim["min_regression_n"]):
             sur[raw] = {"ok": False,
                         "reason": (f"only {len(usable)} sessions have a "
                                    f"point-in-time surprise value")}
@@ -600,9 +655,11 @@ def report(symbol: str, window: str = "max", force: bool = False,
     # 9. does the gap residual converge after the open?
     conv_rows = [dict(r) for r in rows]
     kre.expanding_residual(conv_rows, "gap", "kospi",
-                           min_train=kre.MIN_TRAIN_N, out_key="gap_residual")
+                           min_train=int(lim["min_train_n"]),
+                           out_key="gap_residual")
     usable = [r for r in conv_rows if r.get("gap_residual") is not None]
-    out["convergence"] = kre.convergence_test(usable, "gap_residual", "o2c")
+    out["convergence"] = kre.convergence_test(usable, "gap_residual", "o2c",
+                                              min_n=int(lim["min_regression_n"]))
     out["convergence"]["basis"] = (
         "Measured from the OFFICIAL OPEN, not from the premarket tape: this "
         "app holds no historical premarket prices for ordinary sessions, so "
@@ -612,7 +669,9 @@ def report(symbol: str, window: str = "max", force: bool = False,
 
     # 10. walk-forward model comparison
     if heavy:
-        wf = kre.walk_forward(rows, CANDIDATE_MODELS, "gap")
+        wf = kre.walk_forward(rows, CANDIDATE_MODELS, "gap",
+                              min_train=int(lim["min_train_n"]),
+                              step=int(lim["walk_step"]))
         out["walk_forward"] = wf
         out["model_comparison"] = kre.compare_models(wf, BASELINE_MODEL)
         out["model_comparison"]["note"] = (
@@ -660,7 +719,7 @@ def validation(window: str = "max", force: bool = False) -> dict:
             continue
         rows = [r for r in _window_rows(f["rows"], window)
                 if r.get(name) is not None]
-        if len(rows) < kre.MIN_REGRESSION_N:
+        if len(rows) < int(limits()["min_regression_n"]):
             out["pairs"].append({"input": name, "target": sym, "ok": False,
                                  "reason": f"only {len(rows)} matched sessions"})
             continue
@@ -679,7 +738,8 @@ def validation(window: str = "max", force: bool = False) -> dict:
         i = kre.incremental([r["gap"] for r in usable],
                             [[r["us_prev"]] for r in usable],
                             [[r[name], r["us_prev"]] for r in usable],
-                            names=[name, "us_prev"])
+                            names=[name, "us_prev"],
+                            min_n=int(limits()["min_regression_n"]))
         if i["ok"]:
             add = next((p for p in i["added"] if p["name"] == name), None)
             row["incremental"] = {
@@ -768,46 +828,4 @@ def minute_coverage(symbols=None) -> dict:
                                "fridays_with_minute_paths": fridays})
     out["fridays_with_minute_paths"] = total
     out["ok"] = True
-    return out
-
-
-# ── extremeness, for the alert that adapts ──────────────────────────────────
-
-def move_percentiles(lookback_days: int = 252) -> dict:
-    """Where today's Asian moves sit against their own trailing year.
-
-    A fixed "KOSPI above one and a half percent is major" ages badly: in a
-    calm year it fires constantly and in a violent one it never fires at
-    all. A percentile against the same index's own recent history carries
-    the volatility regime with it automatically.
-    """
-    out = {"lookback_sessions": lookback_days, "series": {}}
-    for name, spec in ASIAN_INPUTS.items():
-        pack = kl.korea_bars(name if name in kl.KOREA_SYMBOLS else spec["symbol"])
-        bars = pack.get("bars") or []
-        rets = kle.close_to_close(bars, max_move_pct=kl._max_move())
-        days = sorted(rets)
-        if len(days) < 60:
-            out["series"][name] = {"ok": False, "label": spec["label"],
-                                   "reason": "not enough history"}
-            continue
-        today = days[-1]
-        hist = [abs(rets[d]) for d in days[-(lookback_days + 1):-1]]
-        pct = kre.percentile_of(abs(rets[today]), hist)
-        out["series"][name] = {
-            "ok": True, "label": spec["label"], "role": spec["role"],
-            "session_date": today, "pct_move": round(rets[today], 3),
-            "abs_percentile": None if pct is None else round(pct, 1),
-            "n": len(hist),
-            "unusual": bool(pct is not None and pct >= 90.0),
-        }
-    sig = [v for k, v in out["series"].items()
-           if v.get("ok") and ASIAN_INPUTS[k]["role"] == "signal"]
-    hot = [v for v in sig if v.get("unusual")]
-    out["unusual"] = bool(hot)
-    out["headline"] = (
-        None if not hot else
-        "UNUSUAL KOREA MOVE — " + ", ".join(
-            f"{v['label']} at the {v['abs_percentile']:.0f}th percentile of "
-            f"its own trailing year" for v in hot))
     return out
