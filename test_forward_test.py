@@ -719,6 +719,13 @@ class TestBenchmarkIdentity(unittest.TestCase):
             # sector the row belongs to.
             self.assertAlmostEqual(r["excess_return_pct"], 0.0)
 
+    def test_the_map_is_matched_case_insensitively(self):
+        # A row may have recorded its benchmark in either case; the index is
+        # the same index either way.
+        r = row(benchmark_symbol="xlk", benchmark_close=230.0)
+        o = FT.outcome(r, FLAT, 30, TODAY, {"XLK": self.XLK})
+        self.assertTrue(o["benchmark_relative_eligible"])
+
     def test_a_single_series_still_works_for_a_one_benchmark_caller(self):
         o = FT.outcome(self._row(), FLAT, 30, TODAY, self.XLK)
         self.assertTrue(o["benchmark_relative_eligible"])
@@ -756,6 +763,49 @@ class TestPriceBasisChanged(unittest.TestCase):
         r = row(price=5.0)
         self.assertIsNone(
             FT.outcome(r, FT.index_bars(series([50.0] * 500)), 30, TODAY))
+
+    def test_a_five_for_four_split_is_caught_inside_the_drift_band(self):
+        """The case a tolerance band alone waves through.
+
+        A five-for-four gives a ratio of exactly 1.25 and a four-for-five
+        reverse gives 0.8 — both inside any drift band wide enough to allow
+        an early capture — and a flat holding would then report a twenty-five
+        percent return. The ratio is checked against the ones a corporate
+        action actually produces, so the size of the split does not matter.
+        """
+        r = row(price=100.0)
+        five_for_four = FT.index_bars(series([80.0] * 500))
+        self.assertIsNone(FT.outcome(r, five_for_four, 30, TODAY))
+        got = FT.basis_change(100.0, 80.0)
+        self.assertEqual(got["what"], "a 5-for-4 split")
+
+    def test_a_four_for_five_reverse_is_caught_inside_the_band(self):
+        r = row(price=100.0)
+        reverse = FT.index_bars(series([125.0] * 500))
+        self.assertIsNone(FT.outcome(r, reverse, 30, TODAY))
+        self.assertEqual(FT.basis_change(100.0, 125.0)["what"],
+                         "a 5-for-4 reverse split")
+
+    def test_a_four_for_three_and_a_three_for_two_are_caught(self):
+        for close, name in ((75.0, "a 4-for-3 split"),
+                            (200.0 / 3.0, "a 3-for-2 split")):
+            got = FT.basis_change(100.0, close)
+            self.assertIsNotNone(got, name)
+            self.assertEqual(got["what"], name)
+
+    def test_a_split_is_named_the_way_a_company_declares_one(self):
+        # "a 1.25-for-1 split" is not a phrase anybody uses.
+        for rec, close, want in ((100.0, 80.0, "a 5-for-4 split"),
+                                 (500.0, 50.0, "a 10-for-1 split"),
+                                 (5.0, 50.0, "a 10-for-1 reverse split"),
+                                 (100.0, 40.0, "a 5-for-2 split")):
+            self.assertEqual(FT.basis_change(rec, close)["what"], want)
+
+    def test_drift_that_is_not_a_split_ratio_is_still_scored(self):
+        """The band still does its job for an ordinary early capture."""
+        for close in (99.6, 98.0, 92.0, 87.0, 83.0):
+            self.assertIsNone(FT.basis_change(100.0, close),
+                              f"{close} refused as a basis change")
 
     def test_no_split_is_scored_normally(self):
         r = row(price=100.0)

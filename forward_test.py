@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from fractions import Fraction
 from datetime import date, timedelta
 
 FORWARD_TEST_VERSION = "invest-forward-1.0.0"
@@ -159,18 +160,31 @@ def _close_on(series: list, day: str):
 # split arithmetic, so a row whose basis moved is refused and left alone.
 
 # How far the recorded price and that same day's close may differ and still
-# be the same share. Intraday drift between a capture and the close is
-# comfortably inside this; the smallest split in common use is three-for-two,
-# which is not.
+# be treated as ordinary drift between the capture and the official close.
+#
+# It is a band, not the whole test. A small split lands INSIDE it — a
+# five-for-four gives a ratio of exactly 1.25 and a four-for-five reverse
+# gives 0.8 — so a band on its own would wave both through and then report
+# a twenty-five percent return on a holding that had not moved. Every ratio
+# is therefore also checked against the ratios a corporate action actually
+# produces, and one that lands on one of those is refused however small it
+# is.
 BASIS_TOLERANCE = 0.25
 
-# Ratios a corporate action produces, for naming what happened. A ratio that
-# lands on none of them is still refused — an unexplained re-basing is not
+# Ratios a corporate action produces. Used to catch a small split inside the
+# drift band and to name what happened; a ratio outside the band that lands
+# on none of them is still refused, because an unexplained re-basing is not
 # more trustworthy than an explained one.
+#
+# The fractional splits are here for exactly the case above: five-for-four,
+# four-for-three and three-for-two are the ones companies actually declare
+# when they want a modest adjustment, and two of the three are inside the
+# band.
 _SPLIT_RATIOS = sorted(
     {float(k) for k in (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 30, 50, 100)}
     | {1.0 / k for k in (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 30, 50, 100)}
-    | {1.5, 2.0 / 3.0})
+    | {1.5, 2.0 / 3.0, 4.0 / 3.0, 3.0 / 4.0, 5.0 / 4.0, 4.0 / 5.0,
+       5.0 / 3.0, 3.0 / 5.0, 5.0 / 2.0, 2.0 / 5.0})
 _SPLIT_TOLERANCE = 0.02
 
 
@@ -179,6 +193,22 @@ def _snap_split(ratio):
         if abs(ratio / cand - 1.0) <= _SPLIT_TOLERANCE:
             return cand
     return None
+
+
+def _describe_split(split) -> str:
+    """"a 5-for-4 split", in the terms a company declares one in.
+
+    Written as the whole-number ratio rather than as a decimal, because a
+    five-for-four split is what the filing says and "a 1.25-for-1 split" is
+    not a phrase anybody uses.
+    """
+    if split is None:
+        return "a restated price series"
+    frac = Fraction(split).limit_denominator(100)
+    n, d = frac.numerator, frac.denominator
+    if n > d:
+        return f"a {n}-for-{d} split"
+    return f"a {d}-for-{n} reverse split"
 
 
 def basis_change(recorded_price, series_close,
@@ -191,16 +221,12 @@ def basis_change(recorded_price, series_close,
     if a is None or b is None or a <= 0 or b <= 0:
         return None
     ratio = a / b
-    if abs(ratio - 1.0) <= tolerance:
-        return None
     split = _snap_split(ratio)
-    if split is not None and split > 1:
-        what = (f"a {split:.0f}-for-1 split" if abs(split - round(split)) < 1e-9
-                else f"a {split:.4g}-for-1 split")
-    elif split is not None:
-        what = f"a 1-for-{1.0 / split:.0f} reverse split"
-    else:
-        what = "a restated price series"
+    # Inside the drift band AND not a ratio any corporate action produces:
+    # the same share, read a few minutes apart.
+    if abs(ratio - 1.0) <= tolerance and split is None:
+        return None
+    what = _describe_split(split)
     return {"recorded": a, "series_close": b, "ratio": ratio, "split": split,
             "what": what,
             "reason": (f"The recommendation was written at ${a:,.2f} and the "
@@ -528,7 +554,8 @@ def outcome(row: dict, series: list, horizon: int, today: str,
     # against XLK is never settled up using XLE.
     if isinstance(benchmark, dict):
         benchmark_symbol = row_bench
-        benchmark = benchmark.get(row_bench)
+        benchmark = (benchmark.get(row_bench)
+                     or benchmark.get(str(row_bench or "").upper()))
     mismatch = bool(has_bench and benchmark_symbol
                     and str(benchmark_symbol).upper() != str(row_bench).upper())
     if mismatch:

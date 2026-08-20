@@ -2508,11 +2508,19 @@ a split by construction: both numbers describe one day, so a stock that fell
 forty percent fell forty percent in each of them, and only a re-basing can
 separate the two.
 
+A tolerance band alone is not enough, and review caught it: a five-for-four
+gives a ratio of exactly 1.25 and a four-for-five reverse gives 0.8, both
+inside any band wide enough to allow an early capture, and a flat holding
+would then have reported a twenty-five percent return. Every ratio is also
+checked against the ones a corporate action actually produces, so the size
+of the split does not matter.
+
 Nothing is adjusted. An option's terms after a corporate action are set by
 the clearing corporation and do not always equal simple split arithmetic, so
-a row whose basis moved is refused, named, and left exactly as it was
-written. An unexplained re-basing is refused on the same terms — it is not
-more trustworthy for being unexplained.
+a row whose basis moved is refused, named — in the terms a company declares
+one in, "a 5-for-4 split" rather than "a 1.25-for-1 split" — and left
+exactly as it was written. An unexplained re-basing is refused on the same
+terms; it is not more trustworthy for being unexplained.
 
 ### One thing added, and only one
 
