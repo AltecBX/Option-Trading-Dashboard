@@ -5444,6 +5444,65 @@ except Exception as _exc:  # noqa: BLE001
     _gap = None  # type: ignore
 
 
+# ── Korea Lead wiring (overnight context above the Gap Scan) ────────────────
+# Korea closes before New York opens, so what Seoul did today is a completed
+# fact by the time a U.S. chip stock has to pick an opening price. The
+# Korean series come from Yahoo — Schwab does not carry the KOSPI, Samsung
+# or SK Hynix — and everything on the U.S. side reuses the loaders already
+# wired above rather than growing a second copy.
+
+
+def _korea_target_quote(symbol: str) -> dict | None:
+    """The live quote for a Korea Lead target, in the shape the gap math
+    already speaks: last, prior regular close, today's official open once
+    there is one, and how old the print is.
+
+    Schwab first, because it is the only source here that carries a real
+    premarket print AND today's official opening price. The Yahoo fallback
+    can supply the premarket comparison but not the official open, so it
+    says which it is rather than passing off one as the other.
+    """
+    sc = _schwab()
+    if sc is not None:
+        try:
+            q = (sc.get_quotes([symbol]) or {}).get(symbol)
+            if q and q.get("last") and q.get("close_prev"):
+                return {"last": q.get("last"), "close_prev": q.get("close_prev"),
+                        "open": q.get("open"),
+                        "stale_seconds": q.get("stale_seconds"),
+                        "source": "Schwab quote"}
+        except Exception as exc:  # noqa: BLE001
+            _log_warn(symbol, "korea/quote schwab", exc)
+    try:
+        last, prev, _spark = _yahoo_quote(symbol)
+        if last and prev:
+            return {"last": last, "close_prev": prev, "open": None,
+                    "stale_seconds": None,
+                    "source": "Yahoo Finance quote (delayed)"}
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "korea/quote yahoo", exc)
+    return None
+
+
+try:
+    import korea_lead as _korea
+    _korea.configure(
+        daily_fn=_gap_daily,
+        quote_fn=_korea_target_quote,
+        data_dir=_STABLE_DIR,
+        # The market clock, never the container's. Seoul and New York are
+        # both derived from it, and a container drifting in UTC would date
+        # every Korean session a day off.
+        now_fn=lambda: datetime.now(_ET) if _ET is not None
+        else datetime.now(timezone.utc),
+    )
+    _KOREA_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[korea_lead] wiring failed: {_exc}", file=sys.stderr)
+    _KOREA_AVAILABLE = False
+    _korea = None  # type: ignore
+
+
 # ── Investment tab (v4.41) ──────────────────────────────────────────────────
 # Providers are injected, never re-implemented: the quote comes from the same
 # Schwab-first path everything else uses, the estimates from the analyst
@@ -8605,6 +8664,30 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/gap", exc)
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/korea_lead":
+            # Overnight Korea context for the Gap Scan. One endpoint, one
+            # target, one lookback; every statistic is already decided
+            # server-side so the panel renders results rather than
+            # reproducing the research.
+            if not _KOREA_AVAILABLE:
+                self._send_json({"error": "Korea Lead unavailable", "ok": False},
+                                status=503)
+                return
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+            window = (qs.get("window", ["1y"])[0] or "1y").strip().lower()
+            force = (qs.get("force", ["0"])[0] or "0") in ("1", "true")
+            if not symbol or len(symbol) > 8 or not symbol.replace(".", "").isalnum():
+                self._send_json({"error": "symbol required", "ok": False},
+                                status=400)
+                return
+            try:
+                self._send_json(_korea.payload(symbol, window=window,
+                                               force=force), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "api/korea_lead", exc)
+                self._send_json({"error": str(exc), "ok": False}, status=500)
             return
         if parsed.path == "/api/invest" or parsed.path.startswith("/api/invest/"):
             if not _INVEST_AVAILABLE:

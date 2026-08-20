@@ -699,5 +699,24 @@
       "capture_late_after_hours": 2,
       "capture_keep_days": 400
     }
+  },
+  "korea_lead": {
+    "_doc": "KOREA LEAD \u2014 overnight Korean context above the Gap Scan. Korea closes before New York opens, so a Korean session dated D is matched to the U.S. session dated D and nothing is shifted. Every number below decides how conservative the WORDING is, or where a price series stops being believable; none of them is a finding, and none of them is a weight. There is deliberately no composite Korea score and no weighting of KOSPI against Samsung or SK Hynix, because no weighting has been validated out of sample. USD/KRW is excluded from every statistic: its daily bar is stamped on a London day, which closes after the U.S. opens, so using it would be reading the future. Repo file = defaults; <data>/thresholds.json overrides key by key.",
+    "max_credible_move_pct": 50.0,
+    "_max_credible_move_pct_doc": "A split- and spinoff-adjusted daily series should never print an overnight move this large, so a day that does is excluded and counted rather than explained. Set clear of the real moves measured across the target list (the largest was about +37% on an earnings day) and below the move an unadjusted 3-for-2 split would fake (-33%). This is NOT a split detector: it does not claim to know what happened, only that no adjusted series should print it.",
+    "implied_min_n": 8,
+    "_implied_min_n_doc": "Matched sessions required before the Korea Implied Gap shows a rate at all. Below it the panel says how many sessions it found and shows nothing else \u2014 a match rate from three sessions is not a match rate.",
+    "near_zero_expected_pct": 0.15,
+    "_near_zero_expected_pct_doc": "Below this expected gap magnitude the 'share already covered' figure is refused, because dividing by an expectation near zero turns a rounding difference into a headline percentage. It is also always refused when the two signs disagree.",
+    "edge_gates": {
+      "_doc": "Where one description of strength stops and the next begins. Both the OPENING GAP BIAS and the AFTER OPEN EDGE are judged by these same gates from the same kind of evidence, on purpose: whatever separates them on screen is the data, not a softer standard applied to one of them. Every gate reads the CONSERVATIVE (lower Wilson) end of the same-direction rate, never the point estimate, and requires the linear and the rank correlation to agree in sign before either counts.",
+      "min_n": 30,
+      "floor_corr": 0.10,
+      "none_corr": 0.05,
+      "moderate_corr": 0.18,
+      "moderate_lo_pct": 53.0,
+      "strong_corr": 0.30,
+      "strong_lo_pct": 57.0
+    }
   }
 }
