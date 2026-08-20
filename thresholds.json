@@ -718,6 +718,97 @@
       "strong_corr": 0.30,
       "strong_lo_pct": 57.0
     },
+    "freshness": {
+      "_doc": "UNVALIDATED / TUNABLE. How old a reading may be before the panel stops treating it as describing right now. None of these was fitted to anything; they are starting hypotheses chosen so that a number on screen is never older than the decision it is being used for.",
+      "korea_current_max_age_min": 20,
+      "_korea_current_max_age_min_doc": "At or under this age a Korean reading is called CURRENT FOR SOURCE — never 'real time'. The provider carrying KOSPI, Samsung and SK Hynix here is a delayed feed, and a twenty-minute-old print from a delayed feed is the freshest thing this app can honestly claim to have. Saying 'real time' would be describing the provider we wish we had.",
+      "korea_delayed_max_age_min": 60,
+      "_korea_delayed_max_age_min_doc": "Between the two limits the reading is DELAYED: still usable, visibly behind. Past it the reading is STALE and is not used to describe the current session.",
+      "us_premarket_max_quote_age_s": 300,
+      "_us_premarket_max_quote_age_s_doc": "Before 9:30 ET a target quote older than this cannot produce a premarket gap, a residual, a residual percentile, or a confirming/diverging call. This gate exists because of a measured failure, not a hypothetical one: when the primary quote source is unavailable the fallback returns YESTERDAY'S 4pm close as 'last' and the close before that as 'previous', which reads as a perfectly plausible premarket gap and is actually yesterday's full-day return. Thin premarket names — WDC, STX — are where an old print looks most like a current one."
+    },
+    "chip_confirmation": {
+      "_doc": "UNVALIDATED / TUNABLE heuristic starting thresholds. These decide when Samsung and SK Hynix are said to CONFIRM the index rather than merely to have closed on the same side of zero. They are not a score and they are not weights: the two names are counted, never blended. Nothing here has been validated out of sample — they encode the judgement that a 0.05% move is not a direction.",
+      "min_same_sign_abs_pct": 0.3,
+      "_min_same_sign_abs_pct_doc": "Every one of the three has to have moved at least this far for CONFIRMED. Below it a name is drifting, not agreeing, and calling that confirmation would make the strongest label the easiest one to earn on a quiet day.",
+      "kospi_divergence_min_abs_pct": 0.5,
+      "_kospi_divergence_min_abs_pct_doc": "DIVERGENCE is a claim about a real disagreement, so the index has to have said something first. Below this the index has no direction worth diverging from.",
+      "chip_opposite_min_pct": 1.0,
+      "_chip_opposite_min_pct_doc": "How far a chip name must travel AGAINST the index before that counts as divergence rather than noise. In percentage points of its own move."
+    },
+    "bias": {
+      "_doc": "UNVALIDATED / TUNABLE. What the matched history must show before the panel names a direction at all. Three separate conditions, all required, because each one fails differently: too few sessions, an interval that cannot exclude a coin flip, and a median that disagrees with the directional count.",
+      "min_n": 30,
+      "_min_n_doc": "Matched sessions required before a direction is named. Deliberately higher than implied_min_n (which governs whether the bucket table is shown at all): showing a reader what eight sessions did is honest, telling them it is a lean is not.",
+      "wilson_lower_min": 0.5,
+      "_wilson_lower_min_doc": "The CONSERVATIVE end of the same-direction interval must clear this before a direction is named — on either side. A rate whose honest range sits entirely BELOW a coin flip is a real finding about a ticker that opens against Korea, not a failure. Only a range straddling this value says nothing, and that case is INCONCLUSIVE."
+    },
+    "relationship": {
+      "_doc": "UNVALIDATED / TUNABLE. When the recent and long windows are treated as describing the same relationship, and when they are not. INCONCLUSIVE and UNSTABLE are deliberately different answers: the first says the evidence cannot establish a direction, the second says the relationship itself has changed underneath the evidence.",
+      "unstable_on_60d_1y_sign_conflict": true,
+      "_unstable_on_60d_1y_sign_conflict_doc": "When the rolling 60-session correlation and the rolling 1-year correlation disagree about which way the relationship even runs, say RELATIONSHIP UNSTABLE and name no direction. Turning this off does not make the conflict go away; it only stops the panel mentioning it.",
+      "min_recent_n": 40,
+      "min_long_n": 150,
+      "_min_n_doc": "Sessions required in each window before the relationship is described at all.",
+      "strong_r": 0.3,
+      "weak_r": 0.12,
+      "_r_doc": "Where STRONG stops and STABLE begins, and where STABLE stops and WEAK begins. Judged on the WEAKER of the two windows, so a healthy long window cannot cover for a recent one that has faded."
+    },
+    "unusual": {
+      "_doc": "UNVALIDATED / TUNABLE. How unusual today's Korean move is, measured against that index's OWN trailing year rather than against a fixed percentage. A fixed level ages badly in both directions — it fires constantly in a violent year and never in a calm one — where a percentile carries the volatility regime with it.",
+      "unusual_percentile": 90,
+      "extreme_percentile": 97,
+      "_percentile_doc": "Percentile of trailing absolute daily moves. The percentile itself, the sample size behind it and the lookback are all shown next to the label, so the reader can disagree with the label by looking at what produced it.",
+      "min_history_n": 60,
+      "_min_history_n_doc": "Trailing sessions required before any percentile is computed. Below it there is no percentile rather than a percentile from a handful of days.",
+      "lookback_sessions": 252,
+      "_lookback_sessions_doc": "The trailing window, in sessions, ending the session BEFORE today — today's own move is never part of the distribution it is being ranked against."
+    },
+    "driver_selection": {
+      "_doc": "UNVALIDATED / TUNABLE. When the primary Korean driver for a target may change. Every gate here is measured OUT OF SAMPLE on an expanding-window walk-forward; a difference in in-sample correlation, however large, can never move the driver. The gates are conjunctive on purpose: a challenger that wins one metric and loses the other has not shown it is better, it has shown it is different.",
+      "direction_improvement_points": 3.0,
+      "_direction_improvement_points_doc": "Percentage POINTS of out-of-sample direction accuracy the challenger must add.",
+      "mae_relative_improvement": 0.1,
+      "_mae_relative_improvement_doc": "Relative reduction in out-of-sample mean absolute gap error, as a fraction. 0.10 means ten percent better, not ten points.",
+      "confirmation_sessions": 60,
+      "_confirmation_sessions_doc": "How long the challenger must hold BOTH advantages before the switch is made. Hysteresis: without it the driver flips on noise and the audit log reads Hynix, KOSPI, Samsung on three consecutive mornings.",
+      "min_oos_n": 250,
+      "_min_oos_n_doc": "ABSOLUTE QUALITY FLOOR, not a relative one. Out-of-sample scored sessions required before any candidate is eligible to be primary at all.",
+      "min_direction_pct": 52.0,
+      "_min_direction_pct_doc": "ABSOLUTE QUALITY FLOOR. A candidate below this is not promoted no matter how badly the alternatives do. A driver must be good, not merely least bad — without this floor, a universe of worthless signals still elects a winner.",
+      "max_rmse_ratio": 1.0,
+      "_max_rmse_ratio_doc": "ABSOLUTE QUALITY FLOOR. Out-of-sample error relative to simply predicting the training mean. At or above 1.0 the candidate is not beating a constant, so it is not a driver."
+    },
+    "premium_context": {
+      "_doc": "UNVALIDATED / TUNABLE. Korea Lead has no opinion about strike selection and must never grow a second one. This is a FALLBACK only — used when the application has no currently selected target delta of its own to borrow.",
+      "fallback_target_delta": 0.2,
+      "_fallback_target_delta_doc": "Used only when nothing else in the app has expressed a preference. When the app does have a selected target delta, that value is used and this one is ignored."
+    },
+    "finality": {
+      "_doc": "UNVALIDATED / TUNABLE. When a Korean session may be called FINAL. The wall clock says what SHOULD be happening; only the data says what IS. South Korea moves the session on College Scholastic Ability Test day, and no exam-day calendar ships with this app — nor should one, because a hardcoded calendar is wrong the first year it is not updated. Instead the session stays PRELIMINARY while Korean values are still advancing, however late that runs.",
+      "quiet_minutes": 15,
+      "_quiet_minutes_doc": "The Korean close must have been observed unchanged for at least this long, across at least two separate readings, before the session is called FINAL. A market that is still moving is never final, whatever the clock says.",
+      "fallback_final_kst": "18:30",
+      "_fallback_final_kst_doc": "DOCUMENTED CONSERVATIVE FALLBACK. The app may be restarted, or simply not asked, for hours — in which case there are no two readings to compare and the quiet test can never be satisfied. After this Seoul time a session whose bar exists is accepted as final without observed quiet. It sits deliberately late: past the 15:30 regular close, past the 18:00 end of the provider's post-session window, and far enough before the 9:25am ET forward snapshot (22:25 Seoul) that nothing downstream is affected. Its only cost is that a genuinely irregular session stays PRELIMINARY a few hours longer.",
+      "provider_close_disagrees_note": "The provider's own trading-period metadata reports the KRX regular session as 09:00–15:00 Seoul, which disagrees with the 15:30 close that the closing single-price auction actually settles at. That is one more reason finality is not read from provider schedule metadata: two sources disagree about the schedule, and neither of them is the market."
+    },
+    "forward": {
+      "_doc": "UNVALIDATED / TUNABLE. The genuine point-in-time record captured going forward. Nothing here is ever backfilled: a checkpoint the app was not running for is MISSED, and MISSED is a permanent fact about that morning. Backfilling one would destroy the only property that makes this data worth having.",
+      "checkpoints_kst": ["11:00", "13:00", "14:00", "15:00"],
+      "_checkpoints_kst_doc": "Seoul times at which the Korean state is archived, plus the confirmed final close. These exist to answer a question no amount of daily history can: how early in the Korean session the signal becomes useful.",
+      "checkpoint_grace_min": 12,
+      "_checkpoint_grace_min_doc": "How late a capture may run and still be recorded AS that checkpoint. Past it the checkpoint is MISSED and is never captured retrospectively — a 13:47 reading is not the 13:00 observation, and calling it one would silently poison every future study of when the signal matures. The actual capture time is stored on every record either way.",
+      "snapshot_et": "09:25",
+      "_snapshot_et_doc": "The forward prediction record, taken before the U.S. opens over a fixed server-side universe. Deliberately not driven by whichever ticker happens to be selected in someone's browser — a client selection is not server state, and a prediction that only exists when somebody was watching is not a record.",
+      "snapshot_grace_min": 4,
+      "_snapshot_grace_min_doc": "The 9:25 snapshot must be taken before the open. Past this it is MISSED rather than taken late, because a 9:31 'pre-open' record is not one.",
+      "poll_seconds": 30,
+      "_poll_seconds_doc": "How often the single capture thread wakes to see whether a checkpoint is due. It sleeps otherwise and fits no models.",
+      "min_forward_n": 40,
+      "_min_forward_n_doc": "TRUE FORWARD records required before a forward scorecard is shown at all. A scorecard built on three mornings is worse than no scorecard, because it looks like evidence. Forward-recorded results are never combined with backtested ones into a single rate.",
+      "retain_days": 1100,
+      "_retain_days_doc": "How long forward records are kept, in days. About four years — long enough that the question this data exists to answer becomes answerable."
+    },
     "research": {
       "_doc": "The V2 research layer (korea_research.py). These decide when a statistic is refused for want of data, never what it says. Nothing in this section is ever applied to the panel's own numbers \u2014 the research layer measures, and promotion of any model to a production signal is a decision a person makes after reading the comparison, not a side effect of a model scoring well.",
       "min_regression_n": 60,

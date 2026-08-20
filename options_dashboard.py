@@ -5467,21 +5467,72 @@ def _korea_target_quote(symbol: str) -> dict | None:
         try:
             q = (sc.get_quotes([symbol]) or {}).get(symbol)
             if q and q.get("last") and q.get("close_prev"):
+                # bid/ask travel with it so Korea Lead can show a midpoint
+                # gap beside the traded one. They do NOT carry their own
+                # timestamp here — `stale_seconds` is derived from the trade
+                # time alone — so a fresh-looking spread can never be used to
+                # argue that an old print is current. Korea Lead knows that
+                # and gates on the trade age only.
                 return {"last": q.get("last"), "close_prev": q.get("close_prev"),
                         "open": q.get("open"),
+                        "bid": q.get("bid"), "ask": q.get("ask"),
+                        "session": q.get("session"),
                         "stale_seconds": q.get("stale_seconds"),
                         "source": "Schwab quote"}
         except Exception as exc:  # noqa: BLE001
             _log_warn(symbol, "korea/quote schwab", exc)
+    # The fallback is honest about what it is. This endpoint's
+    # regularMarketPrice is the last REGULAR-session price, so before 9:30 it
+    # is yesterday's four o'clock close and the "previous close" beside it is
+    # the day before that — which subtract into yesterday's full-day return
+    # wearing this morning's label. Carrying the provider's own timestamp is
+    # what lets Korea Lead catch that: the age comes back at fifteen-odd
+    # hours and the premarket comparison is refused by name instead of
+    # printing a number that looks entirely reasonable.
     try:
-        last, prev, _spark = _yahoo_quote(symbol)
+        last, prev, stamp = _yahoo_quote_timed(symbol)
         if last and prev:
+            age = None
+            if stamp:
+                age = max(0.0, time.time() - float(stamp))
             return {"last": last, "close_prev": prev, "open": None,
-                    "stale_seconds": None,
+                    "bid": None, "ask": None, "session": None,
+                    "stale_seconds": age,
                     "source": "Yahoo Finance quote (delayed)"}
     except Exception as exc:  # noqa: BLE001
         _log_warn(symbol, "korea/quote yahoo", exc)
     return None
+
+
+def _yahoo_quote_timed(sym: str):
+    """(last, prev_close, provider epoch seconds) from the chart endpoint.
+
+    Deliberately a separate reader rather than a change to `_yahoo_quote`,
+    which a dozen callers use for a ticking price and which has no business
+    growing a third return value for one of them. The only addition here is
+    the provider's own `regularMarketTime`: without it there is no way to
+    tell a live print from a sixteen-hour-old one, and the caller above
+    depends on being able to.
+    """
+    u = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+         + urllib.parse.quote(sym) + "?interval=2m&range=1d")
+    req = urllib.request.Request(u, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        data = json.loads(resp.read())
+    res = (data.get("chart", {}).get("result") or [None])[0]
+    if not res:
+        return None, None, None
+    meta = res.get("meta", {}) or {}
+    last = _num(meta.get("regularMarketPrice"))
+    prev = _num(meta.get("chartPreviousClose")) or _num(meta.get("previousClose"))
+    stamp = meta.get("regularMarketTime")
+    try:
+        stamp = int(stamp) if stamp else None
+    except (TypeError, ValueError):
+        stamp = None
+    return last, prev, stamp
 
 
 try:

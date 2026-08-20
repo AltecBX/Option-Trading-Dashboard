@@ -111,10 +111,13 @@ DEFAULT_WINDOW = "1y"
 KOREA_OPEN = dtime(9, 0)
 KOREA_CLOSE = dtime(15, 30)
 
-SESSION_BEFORE = "BEFORE OPEN"
-SESSION_LIVE = "SESSION IN PROGRESS"
-SESSION_CLOSED = "CLOSED"
-SESSION_NON_TRADING = "NOT A TRADING DAY"
+# The SCHEDULED states — what the clock says should be happening. Whether
+# the session is actually over is a separate question answered by the data;
+# see session_view() below.
+SESSION_BEFORE = kle.SCHED_BEFORE
+SESSION_LIVE = kle.SCHED_LIVE
+SESSION_CLOSED = kle.SCHED_AFTER
+SESSION_NON_TRADING = kle.SCHED_NON_TRADING
 
 # How far back to ask each loader for. Korea's own history reaches the late
 # 1990s; the U.S. loader is asked for the same span so MAX means the same
@@ -163,6 +166,7 @@ def configure(daily_fn=None, korea_fn=None, quote_fn=None, data_dir=None,
         _OBS_MEM.clear()
         _STATS_MEM.clear()
         _QUOTE_MEM.clear()
+        _FINAL_MEM.clear()
 
 
 # ── configuration ───────────────────────────────────────────────────────────
@@ -180,7 +184,72 @@ _CFG_DEFAULTS = {
     "implied_min_n": 8,
     "near_zero_expected_pct": 0.15,
     "edge_gates": dict(kle.EDGE_GATES),
+    # Every judgement below decides how confident the WORDING is allowed to
+    # be. They are defaults, not findings, and each one is documented in the
+    # settings file as unvalidated. The engine holds the same numbers so the
+    # mathematics has a definition when nobody has configured anything; this
+    # dictionary is what makes them arguable, and the settings hash is what
+    # makes an argument traceable.
+    "freshness": {
+        "korea_current_max_age_min": 20,
+        "korea_delayed_max_age_min": 60,
+        "us_premarket_max_quote_age_s": 300,
+    },
+    "chip_confirmation": dict(kle.CONFIRMATION_GATES),
+    "bias": dict(kle.BIAS_GATES),
+    "relationship": {
+        "unstable_on_60d_1y_sign_conflict": True,
+        "min_recent_n": 40, "min_long_n": 150,
+        "strong_r": 0.30, "weak_r": 0.12,
+    },
+    "unusual": dict(kle.UNUSUAL_GATES,
+                    min_history_n=60, lookback_sessions=252),
+    "driver_selection": {
+        "direction_improvement_points": 3.0,
+        "mae_relative_improvement": 0.10,
+        "confirmation_sessions": 60,
+        "min_oos_n": 250,
+        "min_direction_pct": 52.0,
+        "max_rmse_ratio": 1.0,
+    },
+    "premium_context": {"fallback_target_delta": 0.20},
+    "finality": dict(kle.FINALITY_GATES),
+    "forward": {
+        "checkpoints_kst": ["11:00", "13:00", "14:00", "15:00"],
+        "checkpoint_grace_min": 12,
+        "snapshot_et": "09:25",
+        "snapshot_grace_min": 4,
+        "poll_seconds": 30,
+        "min_forward_n": 40,
+        "retain_days": 1100,
+    },
 }
+
+
+def _section(name: str) -> dict:
+    """One settings block, merged over its defaults.
+
+    Always goes through the merged configuration rather than reading the
+    file directly, so an overlay that supplies three of a block's six keys
+    leaves the other three at their documented defaults instead of deleting
+    them.
+    """
+    got = config()[0].get(name)
+    base = dict(_CFG_DEFAULTS.get(name) or {})
+    if isinstance(got, dict):
+        for k, v in got.items():
+            if not str(k).startswith("_"):
+                base[k] = v
+    return base
+
+
+def _num_cfg(section: str, key: str, cast=float):
+    """One configured number, coerced, falling back to the default when the
+    overlay holds something that is not a number."""
+    try:
+        return cast((_section(section) or {})[key])
+    except (KeyError, TypeError, ValueError):
+        return cast((_CFG_DEFAULTS.get(section) or {})[key])
 
 
 def config(refresh: bool = False) -> tuple[dict, str]:
@@ -359,6 +428,32 @@ def _write_disk(symbol: str, pack: dict) -> None:
         print(f"[korea] bar cache write failed {symbol}: {exc}")
 
 
+def _seoul_may_be_moving() -> bool:
+    """Should today's Korean bar be re-read on the fast cadence?
+
+    Inside normal hours, obviously yes. But also for a while AFTER the
+    normal close when the value was last seen changing recently — that is
+    what an irregular Korean session looks like from here, and refreshing
+    it hourly would mean discovering the late close an hour late. Reads the
+    finality tracker only; it never fetches, so korea_bars can call it
+    without asking itself for bars.
+    """
+    st = session_state()["state"]
+    if st == SESSION_LIVE:
+        return True
+    if st != SESSION_CLOSED:
+        return False
+    tr = _load_tracker(KOREA_SYMBOLS[KOSPI])
+    if tr.get("session_date") != session_state()["seoul_date"]:
+        return False
+    quiet = _num_cfg("finality", "quiet_minutes")
+    try:
+        since_min = (time.time() - float(tr["last_change_ts"])) / 60.0
+    except (KeyError, TypeError, ValueError):
+        return False
+    return since_min < quiet
+
+
 def korea_bars(name: str, force: bool = False) -> dict:
     """Cached daily bars for one Korean series.
 
@@ -369,8 +464,7 @@ def korea_bars(name: str, force: bool = False) -> dict:
     honest data beats a blank panel, provided the staleness is visible.
     """
     symbol = KOREA_SYMBOLS.get(name, name)
-    ttl = _BARS_TTL_LIVE_S if session_state()["state"] == SESSION_LIVE \
-        else _BARS_TTL_CLOSED_S
+    ttl = _BARS_TTL_LIVE_S if _seoul_may_be_moving() else _BARS_TTL_CLOSED_S
     with _LOCK:
         hit = _BARS_MEM.get(symbol)
     if hit and not force and time.time() - hit[0] < ttl:
@@ -452,11 +546,16 @@ def us_bars(symbol: str, force: bool = False) -> dict:
 # ── where Seoul is right now ────────────────────────────────────────────────
 
 def session_state(now=None) -> dict:
-    """Seoul's position in its own trading day, on Seoul's clock.
+    """Seoul's position in its NORMAL trading day, on Seoul's clock.
 
-    A weekend is NOT A TRADING DAY rather than CLOSED, because the two mean
-    different things to the reader: closed says today's number is final,
-    not-a-trading-day says there is no today's number. Korean public
+    This function knows the schedule and nothing else. It cannot tell you
+    whether the session is over — only whether the hours it is normally
+    over by have passed, which on an irregular day is a different thing.
+    `session_view()` answers the real question by asking the data.
+
+    A weekend is NOT A TRADING DAY rather than AFTER NORMAL CLOSE, because
+    the two mean different things to the reader: one says today's number is
+    settled, the other says there is no today's number. Korean public
     holidays are not enumerated here — no calendar for them ships with this
     app, and inventing one would be worse than saying so. What is used
     instead is the fact of the data: if Seoul's latest bar is not today's
@@ -475,7 +574,10 @@ def session_state(now=None) -> dict:
         state = SESSION_CLOSED
     return {
         "state": state,
-        "final": state in (SESSION_CLOSED, SESSION_NON_TRADING),
+        # Kept as a SCHEDULE fact and named as one. Nothing should read this
+        # to decide whether today's Korean number can be relied on; that is
+        # session_view()["final"], which the market decides.
+        "scheduled_final": state in (SESSION_CLOSED, SESSION_NON_TRADING),
         "seoul_date": today.isoformat(),
         "seoul_time": n.strftime("%H:%M"),
         "seoul_now": n.isoformat(timespec="seconds"),
@@ -483,6 +585,163 @@ def session_state(now=None) -> dict:
         "closes": KOREA_CLOSE.strftime("%H:%M"),
         "zone": "Asia/Seoul",
     }
+
+
+# ── has Korea actually stopped moving? ──────────────────────────────────────
+# The clock cannot answer this. Korea shifts its trading day — most visibly
+# on the annual College Scholastic Ability Test, when the exchange opens and
+# closes an hour late — and no exam-day calendar ships with this app,
+# deliberately: a hardcoded calendar is silently wrong the first year nobody
+# updates it, and wrong in the worst direction, calling a live market final.
+#
+# So finality is evidence, and the evidence is that the value has stopped
+# changing. This tracker is the memory that makes "stopped" observable: what
+# today's Korean close was the last few times we looked, and when it last
+# moved. It is deliberately tiny and it survives a restart, because a
+# restart is exactly when there is nothing to compare against.
+
+_FINAL_MEM: dict = {}           # yahoo symbol -> tracker dict
+
+
+def _tracker_path(symbol: str) -> Path | None:
+    if not _DATA_DIR:
+        return None
+    safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in symbol)
+    return _DATA_DIR / "korea" / "state" / f"{safe}.json"
+
+
+def _load_tracker(symbol: str) -> dict:
+    with _LOCK:
+        hit = _FINAL_MEM.get(symbol)
+    if hit is not None:
+        return dict(hit)
+    p = _tracker_path(symbol)
+    if p and p.exists():
+        try:
+            d = json.loads(p.read_text())
+            if isinstance(d, dict):
+                with _LOCK:
+                    _FINAL_MEM[symbol] = d
+                return dict(d)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_tracker(symbol: str, tr: dict) -> None:
+    with _LOCK:
+        _FINAL_MEM[symbol] = dict(tr)
+    p = _tracker_path(symbol)
+    if not p:
+        return
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(tr, separators=(",", ":")))
+        tmp.replace(p)
+    except Exception as exc:      # pragma: no cover
+        print(f"[korea] finality state write failed {symbol}: {exc}")
+
+
+def observe_session(symbol: str, session_date, close, market_time=None) -> dict:
+    """Record one reading of a Korean series and report how long its value
+    has been standing still.
+
+    The comparison is over the whole reading — session date, close, and the
+    provider's own timestamp — because any one of the three moving means the
+    session moved. A new session date resets everything: yesterday having
+    been quiet for sixteen hours says nothing about today.
+    """
+    now = time.time()
+    tr = _load_tracker(symbol)
+    sig = [str(session_date or ""), None if close is None else round(float(close), 6),
+           None if market_time is None else int(market_time)]
+    same_day = tr.get("session_date") == sig[0]
+    if not same_day:
+        # A new session date resets everything. Yesterday having been quiet
+        # for sixteen hours says nothing about today.
+        tr = {"session_date": sig[0], "signature": sig, "steady_since": now,
+              "readings": 1, "first_seen_ts": now, "observed_change": False}
+    elif tr.get("signature") != sig:
+        # We watched the value MOVE. That is the one observation that proves
+        # the market is still open, and it is recorded as such.
+        tr = {"session_date": sig[0], "signature": sig, "steady_since": now,
+              "readings": int(tr.get("readings") or 0) + 1,
+              "first_seen_ts": tr.get("first_seen_ts") or now,
+              "observed_change": True}
+    else:
+        tr["readings"] = int(tr.get("readings") or 0) + 1
+    tr["last_seen_ts"] = now
+    _save_tracker(symbol, tr)
+    # How long this exact value has been STANDING STILL in front of us —
+    # measured from when we first saw it, because quiet cannot be claimed
+    # for a stretch nobody was watching.
+    steady = (now - float(tr.get("steady_since") or now)) / 60.0
+    return {"readings": int(tr.get("readings") or 0),
+            "steady_minutes": steady,
+            "observed_change": bool(tr.get("observed_change")),
+            "steady_since": tr.get("steady_since")}
+
+
+def session_view(korea=None, now=None) -> dict:
+    """The scheduled state and the data state, side by side, plus the one
+    boolean anything downstream should actually trust.
+
+    Both halves are reported even when they agree, because the case worth
+    debugging is the one where they do not: AFTER NORMAL CLOSE beside STILL
+    UPDATING is an irregular Korean session, and it should read as an
+    obvious conflict rather than quietly resolving itself into a wrong
+    answer.
+    """
+    sched = session_state(now=now)
+    pack = korea_bars(KOSPI) if korea is None else korea
+    bars = pack.get("bars") or []
+    last = bars[-1] if bars else {}
+    bdate = kle.bar_date(last) if bars else None
+    meta = pack.get("meta") or {}
+    seen = observe_session(KOREA_SYMBOLS[KOSPI], bdate, last.get("close"),
+                           meta.get("market_time"))
+    fin = kle.session_finality(
+        sched["state"], sched["seoul_date"], sched["seoul_time"], bdate,
+        steady_minutes=seen["steady_minutes"], readings=seen["readings"],
+        observed_change=seen["observed_change"],
+        gates=_section("finality"))
+    out = dict(sched)
+    out.update({
+        "scheduled_state": sched["state"],
+        "data_state": fin["data_state"],
+        "final": fin["final"],
+        "final_by_fallback": fin["by_fallback"],
+        "final_reason": fin["reason"],
+        "scheduled_close": sched["closes"],
+        # There is no market-state field on the provider carrying these
+        # series — that was checked, not assumed — so this says so rather
+        # than leaving a null to be read as "closed".
+        "provider_market_state": None,
+        "provider_market_state_note": (
+            "This provider exposes no market-state field for the Korean "
+            "series, so finality is established from whether the values are "
+            "still advancing rather than from a flag."),
+        "latest_market_timestamp": _kst_stamp(meta.get("market_time")),
+        "readings_today": seen["readings"],
+        "steady_minutes": round(seen["steady_minutes"], 1),
+        "observed_change_today": seen["observed_change"],
+        "bar_date": bdate,
+    })
+    return out
+
+
+def _kst_stamp(epoch) -> str | None:
+    """A provider epoch as a readable Seoul wall-clock time."""
+    try:
+        e = int(epoch)
+    except (TypeError, ValueError):
+        return None
+    try:
+        return datetime.fromtimestamp(e, timezone.utc).astimezone(
+            _KST).isoformat(timespec="seconds") if _KST else None
+    except (OverflowError, OSError, ValueError):     # pragma: no cover
+        return None
 
 
 def _us_session(now=None) -> dict:
@@ -525,18 +784,36 @@ def korea_today(force: bool = False) -> dict:
     confirmation logic already reports by name and already refuses to call
     STRONG.
     """
-    sess = session_state()
+    kospi_pack = korea_bars(KOSPI, force=force)
+    sess = session_view(korea=kospi_pack)
+    fresh_cfg = _section("freshness")
+    cur_s = float(fresh_cfg["korea_current_max_age_min"]) * 60.0
+    del_s = float(fresh_cfg["korea_delayed_max_age_min"]) * 60.0
+    ucfg = _section("unusual")
+    now_epoch = _now_kst().timestamp()
     out = {"session": sess, "series": {}, "as_of": None, "sources": {}}
     newest = None
     for name in (KOSPI, SAMSUNG, HYNIX, USDKRW):
-        pack = korea_bars(name, force=force)
+        pack = kospi_pack if name == KOSPI else korea_bars(name, force=force)
         bars = pack.get("bars") or []
         rows = kle.close_to_close(bars, max_move_pct=_max_move())
         last_date = kle.bar_date(bars[-1]) if bars else None
         pct = rows.get(last_date) if last_date else None
         last_close = bars[-1].get("close") if bars else None
+        # PRELIMINARY is now a data fact, not a clock fact: a value is
+        # provisional whenever today's session has not been established as
+        # settled, including the irregular afternoons when the clock thinks
+        # it is over and Seoul is still trading.
         provisional = bool(last_date and last_date == sess["seoul_date"]
-                           and sess["state"] == SESSION_LIVE)
+                           and not sess["final"])
+        # The provider's OWN timestamp, not when we happened to read it.
+        # "We fetched this two seconds ago" says nothing about the age of
+        # what we fetched.
+        mtime = (pack.get("meta") or {}).get("market_time")
+        try:
+            age_s = None if mtime is None else max(0.0, now_epoch - float(mtime))
+        except (TypeError, ValueError):
+            age_s = None
         out["series"][name] = {
             "key": name,
             "label": KOREA_LABEL[name],
@@ -554,28 +831,49 @@ def korea_today(force: bool = False) -> dict:
             "name_from_provider": (pack.get("meta") or {}).get("name"),
             "timezone": (pack.get("meta") or {}).get("timezone"),
             "n_bars": len(bars),
+            "provider_timestamp": _kst_stamp(mtime),
+            "received": pack.get("fetched"),
+            "freshness": kle.quote_freshness(
+                age_s, cur_s, del_s, have_value=pct is not None,
+                settled=bool(sess["final"]
+                             and last_date == sess["seoul_date"])),
         }
         # How unusual today's move is against THIS index's own trailing
         # year. A fixed "KOSPI above one and a half percent is major" ages
         # badly — it fires constantly in a calm year and never in a violent
         # one — where a percentile carries the volatility regime with it.
+        # The lookback ENDS the session before today: today's own move is
+        # never part of the distribution it is being ranked against.
         days = sorted(rows)
-        if len(days) >= 60 and pct is not None:
-            hist = [abs(rows[d]) for d in days[-253:-1]]
+        look = int(ucfg["lookback_sessions"])
+        min_hist = int(ucfg["min_history_n"])
+        if len(days) >= min_hist and pct is not None:
+            hist = [abs(rows[d]) for d in days[-(look + 1):-1]]
             share = _kre.percentile_of(abs(pct), hist)
-            out["series"][name]["abs_percentile"] = (
-                None if share is None else round(share, 1))
-            out["series"][name]["trailing_n"] = len(hist)
-            out["series"][name]["unusual"] = bool(
-                share is not None and share >= 90.0
-                and name in SIGNAL_SERIES)
+            state = kle.unusual_state(share, ucfg)
+            out["series"][name].update({
+                "abs_percentile": None if share is None else round(share, 1),
+                "trailing_n": len(hist),
+                "lookback_sessions": look,
+                "move_state": (state["state"] if name in SIGNAL_SERIES
+                               else kle.UNUSUAL_UNKNOWN),
+                "unusual": bool(name in SIGNAL_SERIES and state["state"] in
+                                (kle.UNUSUAL_UNUSUAL, kle.UNUSUAL_EXTREME)),
+                "extreme": bool(name in SIGNAL_SERIES
+                                and state["state"] == kle.UNUSUAL_EXTREME),
+            })
         else:
-            out["series"][name]["abs_percentile"] = None
-            out["series"][name]["trailing_n"] = 0
-            out["series"][name]["unusual"] = False
+            out["series"][name].update({
+                "abs_percentile": None, "trailing_n": 0,
+                "lookback_sessions": look,
+                "move_state": kle.UNUSUAL_UNKNOWN,
+                "unusual": False, "extreme": False})
         out["sources"][name] = {"symbol": KOREA_SYMBOLS[name],
                                 "source": pack.get("source"),
                                 "fetched": pack.get("fetched"),
+                                "provider_timestamp": _kst_stamp(mtime),
+                                "freshness":
+                                    out["series"][name]["freshness"]["state"],
                                 "bars": len(bars)}
         if last_date and (newest is None or last_date > newest):
             newest = last_date
@@ -624,20 +922,30 @@ def korea_today(force: bool = False) -> dict:
         return s["pct"]
 
     out["chip_confirmation"] = kle.chip_confirmation(
-        out["signal"]["pct"], _same_day(SAMSUNG), _same_day(HYNIX))
+        out["signal"]["pct"], _same_day(SAMSUNG), _same_day(HYNIX),
+        gates=_section("chip_confirmation"))
 
     hot = [out["series"][n] for n in SIGNAL_SERIES
            if out["series"][n].get("unusual")]
+    extreme = [v for v in hot if v.get("extreme")]
     out["unusual"] = {
         "any": bool(hot),
-        "headline": (None if not hot else "UNUSUAL KOREA MOVE"),
+        "extreme": bool(extreme),
+        "headline": (None if not hot else
+                     ("EXTREME KOREA MOVE" if extreme
+                      else "UNUSUAL KOREA MOVE")),
         # Phrased as "larger than 91% of" rather than "at the 91st
         # percentile": same number, and it does not need the reader to
-        # know what a percentile is.
+        # know what a percentile is. The sample it was ranked against is
+        # named too, because "larger than 97%" of forty sessions and of two
+        # hundred and fifty are not the same claim.
         "detail": (None if not hot else " · ".join(
             f"{v['label']} {v['pct']:+.2f}% is larger than "
-            f"{v['abs_percentile']:.0f}% of its own trailing year"
+            f"{v['abs_percentile']:.0f}% of its own trailing "
+            f"{v['trailing_n']} sessions ({v['move_state'].lower()})"
             for v in hot)),
+        "gates": {"unusual_percentile": float(ucfg["unusual_percentile"]),
+                  "extreme_percentile": float(ucfg["extreme_percentile"])},
     }
     return out
 
@@ -670,7 +978,8 @@ def us_today(symbol: str) -> dict:
     out = {"symbol": symbol.upper(), "ok": False, "gap_pct": None,
            "basis": None, "basis_label": None, "price": None,
            "prev_close": None, "open": None, "quote_age_s": None,
-           "as_of": None, "error": None}
+           "as_of": None, "error": None, "freshness": None,
+           "fresh_enough": False, "not_available_reason": None}
     us = _us_session()
     out["us_session"] = us
     if not _QUOTE_FN:
@@ -695,25 +1004,81 @@ def us_today(symbol: str) -> dict:
     prev = _f(q.get("close_prev"))
     last = _f(q.get("last"))
     opened = _f(q.get("open"))
+    bid, ask = _f(q.get("bid")), _f(q.get("ask"))
+    age = _f(q.get("stale_seconds"))
+    max_age = _num_cfg("freshness", "us_premarket_max_quote_age_s")
     out.update({"price": last, "prev_close": prev, "open": opened,
-                "quote_age_s": _f(q.get("stale_seconds"))})
+                "bid": bid, "ask": ask, "quote_age_s": age,
+                "quote_source": q.get("source"),
+                "quote_session": q.get("session")})
     if not prev or prev <= 0:
         out["error"] = f"no prior close for {key}"
         return out
+
     if us["opened"] and opened and opened > 0:
+        # The official opening print. It is a published fact rather than a
+        # live reading, so no age gate applies to it — an opening price is
+        # not less true at eleven o'clock.
         out.update({"ok": True, "basis": "official_open",
                     "basis_label": "official opening gap",
-                    "gap_pct": round((opened / prev - 1.0) * 100.0, 3)})
-    elif last and last > 0:
-        out.update({"ok": True,
-                    "basis": "premarket" if not us["opened"] else "last_trade",
-                    "basis_label": ("premarket gap" if not us["opened"]
-                                    else "last trade against yesterday's close "
-                                         "— the session has opened, so this is "
-                                         "no longer an opening gap"),
-                    "gap_pct": round((last / prev - 1.0) * 100.0, 3)})
-    else:
+                    "fresh_enough": True,
+                    "gap_pct": round((opened / prev - 1.0) * 100.0, 3),
+                    "freshness": {"state": kle.FRESH_SETTLED,
+                                  "fresh_enough": True,
+                                  "detail": ("The official opening price is a "
+                                             "published fact, not a live "
+                                             "reading.")}})
+        out["as_of"] = _now_et().isoformat(timespec="seconds")
+        return out
+
+    # Before the open, everything below is a claim about RIGHT NOW, and an
+    # old print is not a current gap. This gate exists because of a measured
+    # failure rather than a hypothetical one: when the primary quote source
+    # is unavailable the fallback returns yesterday's four o'clock close as
+    # "last" and the close before that as "previous". That is a perfectly
+    # plausible-looking premarket gap and it is actually yesterday's
+    # full-day return — measured on this app's own targets, SMH read −1.55%
+    # that way on a morning it had not traded at all. Thin premarket names
+    # such as WDC and STX are where an old print looks most like a live one.
+    fresh = kle.quote_freshness(age, max_age, max_age,
+                                have_value=bool(last and last > 0))
+    out["freshness"] = fresh
+    out["fresh_enough"] = bool(fresh["fresh_enough"])
+    if not (last and last > 0):
         out["error"] = f"no usable price for {key}"
+        out["not_available_reason"] = "No trade or quote has been returned."
+        return out
+    if not fresh["fresh_enough"]:
+        out["not_available_reason"] = (
+            ("The last print is "
+             + (f"{fresh['age_min']:g} minutes old"
+                if fresh.get("age_min") is not None
+                else "of unknown age — this source does not timestamp it")
+             + f", past the {max_age / 60.0:g}-minute limit. An old print is "
+               f"not a current gap, so no premarket gap, residual or "
+               f"confirming call is calculated from it."))
+        return out
+    # Basis is never mixed silently. A last-trade gap and a bid/ask midpoint
+    # gap are different measurements of different things, and which one
+    # produced the number on screen is stated rather than inferred.
+    mid = None
+    if bid and ask and ask >= bid > 0:
+        mid = (bid + ask) / 2.0
+    out.update({"ok": True,
+                "basis": "premarket" if not us["opened"] else "last_trade",
+                "basis_label": ("premarket gap, from the last trade"
+                                if not us["opened"]
+                                else "last trade against yesterday's close "
+                                     "— the session has opened, so this is "
+                                     "no longer an opening gap"),
+                "gap_pct": round((last / prev - 1.0) * 100.0, 3)})
+    if mid:
+        # Shown beside the traded gap, never substituted for it. The app's
+        # quote conventions are built on the last trade, and quietly
+        # swapping in a midpoint would change what the number means without
+        # changing what it is called.
+        out["mid_gap_pct"] = round((mid / prev - 1.0) * 100.0, 3)
+        out["mid_basis_label"] = "bid/ask midpoint gap, shown for comparison"
     out["as_of"] = _now_et().isoformat(timespec="seconds")
     return out
 
@@ -922,6 +1287,19 @@ def relationship(symbol: str, force: bool = False) -> dict:
                                       "opening_gap", 252)
     r_now = recent[-1] if recent else None
     l_now = longer[-1] if longer else None
+    rcfg = _section("relationship")
+    health = _kre.relationship_health(
+        r_now["r"] if r_now else None, l_now["r"] if l_now else None,
+        r_now["n"] if r_now else 0, l_now["n"] if l_now else 0,
+        min_recent=int(rcfg["min_recent_n"]), min_long=int(rcfg["min_long_n"]),
+        strong=float(rcfg["strong_r"]), weak=float(rcfg["weak_r"]))
+    # A sign conflict between the two windows is the one case where the
+    # panel refuses to name a direction from history that looks decisive.
+    # Turning the setting off does not make the conflict go away; it only
+    # stops the panel acting on it, and the two windows are printed either
+    # way so the reader can see what was disagreed about.
+    unstable = bool(health["state"] == _kre.HEALTH_UNSTABLE
+                    and rcfg.get("unstable_on_60d_1y_sign_conflict", True))
     out.update({
         "ok": bool(r_now or l_now),
         "recent": r_now and {"window": "60 sessions", **r_now},
@@ -930,9 +1308,13 @@ def relationship(symbol: str, force: bool = False) -> dict:
         # shape is the point: a number that has been sliding for months is
         # a different thing from the same number holding steady.
         "spark": [x["r"] for x in recent[-SPARK:]],
-        "health": _kre.relationship_health(
-            r_now["r"] if r_now else None, l_now["r"] if l_now else None,
-            r_now["n"] if r_now else 0, l_now["n"] if l_now else 0),
+        "health": health,
+        "unstable": unstable,
+        "windows_compared": {
+            "recent": "60 sessions", "long": "1 year",
+            "recent_first": (recent[-1].get("first_date") if recent else None),
+            "long_first": (longer[-1].get("first_date") if longer else None),
+        },
     })
     return out
 
@@ -1014,9 +1396,17 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
         implied["reason"] = sig["reason"]
     live = us_today(sym)
     bucket_med = (implied.get("distribution") or {}).get("median_pct")
+    # A premarket comparison is a claim about right now, so it is only made
+    # from a quote fresh enough to be about right now. `us_today` has
+    # already refused a stale one; this reads its verdict rather than
+    # re-deciding it, so there is exactly one place where the rule lives.
+    live_gap = live.get("gap_pct") if (live.get("ok")
+                                       and live.get("fresh_enough")) else None
     cmp_ = kle.premarket_comparison(
-        bucket_med, live.get("gap_pct") if live.get("ok") else None,
+        bucket_med, live_gap,
         near_zero_pct=float(cfg["near_zero_expected_pct"]))
+    if live_gap is None and live.get("not_available_reason"):
+        cmp_["detail"] = live["not_available_reason"]
 
     # A SECOND, independent estimate of today's gap: a line fitted through
     # every matched session, rather than the median of the sessions that
@@ -1053,9 +1443,50 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
         cmp_.get("residual_pct"), hist_resid,
         estimator="bucket median",
         expected_pct=bucket_med,
-        actual_pct=live.get("gap_pct") if live.get("ok") else None)
+        actual_pct=live_gap)
+
+    rel = relationship(sym, force=force)
+    # Everything that has to be true before this panel is allowed to sound
+    # confident, checked in one place and reported by name. A degraded
+    # answer says which check failed; it does not quietly keep its wording.
+    checks = kle.self_check([
+        {"name": "Korean session is today's",
+         "ok": bool(sig["ok"]),
+         "detail": sig.get("reason") or "KOSPI's newest session is today's."},
+        {"name": "Korean series are daily",
+         "ok": bool((st.get("sources") or {}).get("korea", {})
+                    .get("spacing_days") is not None
+                    or st.get("ok")),
+         "detail": "The Korean history is a genuine daily series.",
+         "blocking": False},
+        {"name": "U.S. history is usable",
+         "ok": bool(st.get("ok")),
+         "detail": st.get("error") or f"{sym} has matched daily history."},
+        {"name": "Matched bucket has enough sessions",
+         "ok": bool(implied.get("usable")),
+         "detail": implied.get("reason")
+         or f"{implied.get('n')} sessions matched today's Korean move."},
+        {"name": "Premarket quote is fresh enough",
+         "ok": bool(live.get("fresh_enough")),
+         "detail": (live.get("not_available_reason") or live.get("error")
+                    or "The target quote is current enough to compare."),
+         # Not blocking: a stale quote removes the premarket comparison, it
+         # does not invalidate the historical relationship above it.
+         "blocking": False},
+        {"name": "Relationship is stable",
+         "ok": not rel.get("unstable"),
+         "detail": ((rel.get("health") or {}).get("detail")
+                    or "The recent and long-run windows agree in sign.")},
+        {"name": "Every Korean input is from one session",
+         "ok": not any(out["korea"]["series"][n].get("off_session")
+                       for n in SIGNAL_SERIES),
+         "detail": ("All readable Korean inputs carry the same session "
+                    "date."),
+         "blocking": False},
+    ])
     out.update({
         "ok": True,
+        "self_check": checks,
         "target": {
             "symbol": sym, "n": st["n"], "window": win,
             "first_date": st["first_date"], "last_date": st["last_date"],
@@ -1063,7 +1494,10 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
             "premarket": live,
         },
         "opening_gap": {
-            "bias": kle.opening_gap_bias(kospi_pct, implied),
+            "bias": kle.opening_gap_bias(
+                kospi_pct, implied, gates=_section("bias"),
+                relationship_unstable=bool(rel.get("unstable")),
+                relationship_detail=(rel.get("health") or {}).get("detail")),
             "implied": implied,
             "stats": st["measures"]["opening_gap"],
             "edge": st["opening_gap_edge"],
@@ -1077,7 +1511,7 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
             "regression": reg,
             "agreement": estimates,
         },
-        "relationship": relationship(sym, force=force),
+        "relationship": rel,
         "after_open": {
             "edge": st["after_open_edge"],
             "stats": st["measures"]["open_to_close"],
@@ -1094,6 +1528,14 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
             "through": st.get("through"),
             "cached": st.get("cached"),
             "max_credible_move_pct": kle.MAX_CREDIBLE_MOVE_PCT,
+            # The settings that produced everything above, resolved. A
+            # number on screen and the threshold that decided how it was
+            # worded travel together, so a reader who disagrees with a
+            # label can see exactly what to change.
+            "limits": {k: _section(k) for k in
+                       ("freshness", "chip_confirmation", "bias",
+                        "relationship", "unusual", "finality",
+                        "driver_selection", "premium_context")},
         },
     })
     return out

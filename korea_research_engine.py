@@ -359,8 +359,13 @@ def rolling_correlation(rows, x_key: str, y_key: str, window: int) -> list:
         ys = [r.get(y_key) for r in chunk]
         r = pearson(xs, ys)
         if r is not None:
+            # The span travels with the number. A 60-session correlation and
+            # a 1-year one are not comparable claims unless the reader can
+            # see which stretch of history each of them covers, and the two
+            # are printed side by side.
             out.append({"date": chunk[-1].get("date"), "r": round(r, 4),
-                        "n": len(chunk)})
+                        "n": len(chunk),
+                        "first_date": chunk[0].get("date")})
     return out
 
 
