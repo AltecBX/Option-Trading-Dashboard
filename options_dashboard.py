@@ -8675,6 +8675,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(
                         _invest.data_readiness(syms[:60] or None),
                         no_store=True)
+                elif section == "day":
+                    syms = [s.strip().upper() for s in
+                            (qs.get("symbols", [""])[0] or "").split(",")
+                            if s.strip()]
+                    self._send_json(
+                        _invest.day_report(syms[:60] or None,
+                                           (qs.get("day", [""])[0] or "")
+                                           [:10] or None),
+                        no_store=True)
                 elif section == "audit":
                     syms = [s.strip().upper() for s in
                             (qs.get("symbols", [""])[0] or "").split(",")

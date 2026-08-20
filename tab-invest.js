@@ -132,6 +132,18 @@ function invShortDate(s) {
     year: "numeric"
   });
 }
+// The wall-clock time out of a timestamp that already carries the exchange's
+// offset — read from the string, NOT through Date, which would convert it to
+// whatever zone the browser happens to be in. The whole point of printing it
+// is to show what the MARKET clock said.
+function invClockTime(iso) {
+  const m = /T(\d{2}):(\d{2})/.exec(String(iso || ""));
+  if (!m) return invNA;
+  const h = Number(m[1]);
+  const suffix = h < 12 ? "AM" : "PM";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${m[2]} ${suffix}`;
+}
 // 21 -> "21st". "21th percentile" undercuts every careful sentence near it.
 function invOrdinal(v) {
   if (v == null || !isFinite(v)) return invNA;
@@ -3052,6 +3064,7 @@ const INV_CAPTURE_TIP = {
   coverage: "The share of trading days since capture began that have a real " + "chain behind them. Days before the first capture are not counted as " + "missed, because nothing was expected of them.",
   missing: "Followed tickers expected today that have not been captured " + "yet. Before the capture window this is simply what is still to come, " + "and the label says so; after it, it is a list of failures.",
   forward: "Forward validation scores a recommendation only once its whole " + "horizon has passed. Nothing is scored early and no verdict is given " + "until enough observations have completed, so what is shown here is " + "when the first result can exist — not a result.",
+  calculated: "When this panel was last read, on the exchange's clock, and " + "what that clock currently says. A capture state describes a moment, " + "so a panel left open since the morning would still be reporting the " + "morning. This one re-reads every five minutes and whenever the tab is " + "brought back to the front, and it prints the time it was read so a " + "stale reading can never be mistaken for a broken scheduler.",
   symbol: "Per ticker: how many days of each kind exist, when the real " + "chain history starts and ends, and which expected trading days have no " + "chain. Weekends and market holidays are not counted as missed."
 };
 const INV_CAPTURE_CLASS = {
@@ -3090,8 +3103,25 @@ function InvDataReadiness({
       error: true
     })).finally(() => setBusy(false));
   }, [apiFetch]);
+
+  // A capture state is a statement about a moment. Fetched once on mount, a
+  // tab left open since lunchtime would still say NOT DUE YET at ten at
+  // night — which is exactly how a stale panel gets mistaken for a broken
+  // scheduler. So it re-reads every five minutes and whenever the tab is
+  // brought back to the front, and it prints the time it was read.
   useEffect(() => {
     load();
+    const t = setInterval(load, 300000);
+    const wake = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
   }, [load]);
   const d = data || {};
   const today = d.today || {};
@@ -3111,7 +3141,10 @@ function InvDataReadiness({
   }, /*#__PURE__*/React.createElement("div", {
     className: `inv-note ${INV_CAPTURE_CLASS[health.state] || ""}`,
     title: INV_CAPTURE_TIP.state
-  }, busy && !data ? "Loading…" : `${health.state || "—"} — ${health.reason || ""}`), !!health.alert && /*#__PURE__*/React.createElement("div", {
+  }, busy && !data ? "Loading…" : `${health.state || "—"} — ${health.reason || ""}`), /*#__PURE__*/React.createElement("div", {
+    className: "inv-note",
+    title: INV_CAPTURE_TIP.calculated
+  }, d.market_clock ? `Last readiness calculated at ${invClockTime(d.calculated_at)} ` + `${d.market_clock.abbreviation || ""} — the market clock reads ` + `${d.market_clock.pretty || "—"}, and today's capture runs after ` + `${d.capture_hour_et}:00 in New York.` : ""), !!health.alert && /*#__PURE__*/React.createElement("div", {
     className: "inv-note down",
     title: INV_CAPTURE_TIP.state
   }, health.alert), /*#__PURE__*/React.createElement("div", {
@@ -3210,6 +3243,10 @@ const INV_AUDIT_TIP = {
   state: "HEALTHY means the data survives a redeploy, the previous trading " + "day is complete, no retention limit deletes a day before it is needed, " + "nothing stored contradicts itself, and the rules behind every " + "recommendation can still be read back. CAPTURE FAILURE means something " + "would destroy the history rather than merely dent it.",
   status: "The one line that answers whether this app can be left alone to " + "collect. It is a question about storage and nothing else: READY means " + "the data directory is a confirmed persistent volume, so a redeploy " + "leaves everything written so far alone. BLOCKED means it is not, or " + "could not be confirmed — and an unconfirmed volume is treated as no " + "volume, because assuming otherwise is what loses a year of work that " + "cannot be collected twice.",
   written: "How many files each store actually holds. Not whether the " + "directory exists: the app creates these directories when it starts, " + "so an empty one would otherwise read as though it had been written " + "to. An empty store and a store with a year of captures in it are the " + "two answers this column exists to tell apart.",
+  day: "One trading day, ticker by ticker. Not whether something ran, but " + "whether the day is usable — a day with a snapshot and no option chain " + "is a day the covered-call work can never use, and a day whose " + "recommendation names a put without recording the put cannot be " + "settled up. Both of those look perfectly healthy in a capture log.",
+  benchmark: "The benchmark's close on the day the call was made, recorded " + "on that day. It gates only the comparison against the market: a row " + "without one is still scored on its own return, but it cannot be " + "measured against anything, and borrowing a close from a price series " + "fetched later would be exactly the lookahead this engine refuses.",
+  contract: "Whether the exact option and its quote were recorded — asked " + "only where the recommendation actually names one. BUY SHARES, WAIT " + "and AVOID name no contract and need none; a portfolio secured put " + "needs its put, a long-dated call needs its call, and a bull call " + "spread needs both legs. A row is never called incomplete for lacking " + "a field its own recommendation had no use for.",
+  eligible: "Whether this recommendation can be scored exactly when its " + "horizon completes. A row that cannot is excluded from validation and " + "left exactly as it is — never repaired, never deleted. The commonest " + "reason is rules that are not in the archive: without them, what the " + "verdict MEANT that day cannot be established.",
   paths: "Every directory holding something this app records going forward, " + "and whether anything has been written to it yet. All of them sit " + "under the persistent data directory, so all of them share its fate: " + "if that directory does not survive a redeploy, none of these do.",
   home: "Where the data is written, and whether a redeploy would erase it. " + "A mounted volume is a different filesystem from the container's root " + "and is left alone when the app is redeployed; the container's own disk " + "is rebuilt from scratch every deploy. None of this data can be " + "back-filled, so storing it on the container's own disk means losing " + "every day of it at the next deploy.",
   clock: "Market scheduling runs on the exchange's clock, not the " + "container's. A server in UTC is already on tomorrow's date at " + "half past eight in the evening in New York, so a capture stamped with " + "the container's date would land on a trading day that has not " + "happened yet.",
@@ -3240,9 +3277,13 @@ function InvProductionAudit({
 }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [day, setDay] = useState(null);
   const load = React.useCallback(() => {
     setBusy(true);
-    apiFetch("/api/invest/audit").then(r => r.json()).then(j => setData(j)).catch(() => setData({
+    Promise.all([apiFetch("/api/invest/audit").then(r => r.json()), apiFetch("/api/invest/day").then(r => r.json()).catch(() => null)]).then(([a, d]) => {
+      setData(a);
+      setDay(d);
+    }).catch(() => setData({
       error: true
     })).finally(() => setBusy(false));
   }, [apiFetch]);
@@ -3293,7 +3334,50 @@ function InvProductionAudit({
   }, d.collection_reason || ""), /*#__PURE__*/React.createElement("div", {
     className: "inv-note",
     title: INV_AUDIT_TIP.home
-  }, home.reason || ""), !!stores.length && /*#__PURE__*/React.createElement("table", {
+  }, home.reason || ""), !!(day && (day.rows || []).length) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: `inv-note ${day.first_fully_usable_day ? "up" : ""}`,
+    title: INV_AUDIT_TIP.day
+  }, day.pretty, " \u2014 ", day.reason), /*#__PURE__*/React.createElement("table", {
+    className: "inv-peer-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.day
+  }, "Ticker"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.snapshots
+  }, "Snapshot"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.chains
+  }, "Option chain"), /*#__PURE__*/React.createElement("th", {
+    title: INV_CAPTURE_TIP.leaps
+  }, "Long-dated observation"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.benchmark
+  }, "Benchmark close"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.day
+  }, "Recommendation"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.contract
+  }, "Exact contract"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.config
+  }, "Rules archived"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.eligible
+  }, "Can be scored later"))), /*#__PURE__*/React.createElement("tbody", null, (day.rows || []).map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol
+  }, /*#__PURE__*/React.createElement("td", null, r.symbol), /*#__PURE__*/React.createElement("td", {
+    className: r.snapshot ? "up" : "down"
+  }, r.snapshot ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    className: r.option_chain ? "up" : "down"
+  }, r.option_chain ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    className: r.leaps_observation ? "up" : "down"
+  }, r.leaps_observation ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    className: r.benchmark_close ? "up" : "down",
+    title: r.benchmark_symbol || INV_AUDIT_TIP.benchmark
+  }, r.benchmark_close ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.day
+  }, r.recommendation || "—"), /*#__PURE__*/React.createElement("td", {
+    title: r.contract_note
+  }, !r.contract_required ? "Not needed" : r.contract_recorded ? "Recorded" : "Missing"), /*#__PURE__*/React.createElement("td", {
+    className: r.config_archived ? "up" : "down"
+  }, r.config_archived ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    className: r.forward_test_eligible ? "up" : "down",
+    title: (r.why_not || []).length ? (r.why_not || []).join("; ") : INV_AUDIT_TIP.eligible
+  }, r.forward_test_eligible ? "Yes" : "No")))))), !!stores.length && /*#__PURE__*/React.createElement("table", {
     className: "inv-peer-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.paths

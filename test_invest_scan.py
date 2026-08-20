@@ -2234,7 +2234,11 @@ class TestDataReadiness(Phase7Base):
 
     def test_a_missed_trading_day_is_visible_the_next_morning(self):
         got = S.data_readiness([self.SYM], today="2026-08-17")
-        self.assertEqual(got["today"]["state"], CH.MISSED)
+        # Past the window on a trading day with nothing captured is the
+        # whole day gone, and the option chain for it cannot be bought back.
+        # It gets the word that means so, not the one that means "missed a
+        # few of several".
+        self.assertEqual(got["today"]["state"], CH.FAILURE)
         self.assertEqual(got["health"]["state"], CH.FAILURE)
 
     def test_the_per_symbol_rows_distinguish_a_weekend_from_a_failure(self):
@@ -2411,5 +2415,9 @@ class TestNotDueYetIsNotAFailure(Phase7Base):
         finally:
             S.market_now = real
         self.assertTrue(got["capture_due_yet"])
-        self.assertEqual(got["today"]["state"], CH.MISSED)
+        # Past the window on a trading day with nothing captured is the
+        # whole day gone, and the option chain for it cannot be bought back.
+        # It gets the word that means so, not the one that means "missed a
+        # few of several".
+        self.assertEqual(got["today"]["state"], CH.FAILURE)
         self.assertEqual(got["health"]["state"], CH.FAILURE)

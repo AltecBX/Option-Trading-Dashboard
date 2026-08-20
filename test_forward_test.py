@@ -16,6 +16,7 @@ And the one thing it refuses to do: draw a conclusion from a small sample.
 """
 
 import os
+import json
 import unittest
 from datetime import date, timedelta
 
@@ -49,7 +50,11 @@ def row(day="2025-01-01", **kw):
             "valuation_label": "CHEAP", "valuation_self_percentile": 70.0,
             "revisions_label": "RISING", "value_trap_level": "LOW",
             "fair_value_confidence": "HIGH", "business_type": "STANDARD",
-            "sic": "3571", "config_hash": "cfg1"}
+            "sic": "3571", "config_hash": "cfg1",
+            # Benchmark-relative scoring needs the benchmark's close on the
+            # day, recorded on the day. Rows without it are still scored on
+            # their own return; these fixtures exercise the comparison.
+            "benchmark_symbol": "SPY", "benchmark_close": 500.0}
     base.update(kw)
     return base
 
@@ -415,6 +420,174 @@ class TestRecordingCompleteness(unittest.TestCase):
         what = dict(S.REQUIRED_FOR_SCORING)["recommended_contract"]
         self.assertIn("quote", what)
 
+
+
+
+class TestEligibility(unittest.TestCase):
+    """A stored recommendation is immutable. When something it needed was
+    never written down it is excluded with a reason, never repaired and
+    never deleted — and the requirements are conditional on what the
+    recommendation actually was."""
+
+    def _row(self, **kw):
+        base = {"date": "2026-08-19", "ticker": "AAA", "price": 100.0,
+                "config_hash": "abc123", "entry_verdict": "BUY SHARES",
+                "preferred_structure": "BUY SHARES",
+                "benchmark_symbol": "SPY", "benchmark_close": 500.0}
+        base.update(kw)
+        return base
+
+    # ── the archive ──
+    def test_rules_in_the_archive_make_a_row_scorable(self):
+        got = FT.eligibility(self._row(), {"abc123"})
+        self.assertTrue(got["eligible"])
+        self.assertEqual(got["state"], FT.ELIGIBLE)
+
+    def test_rules_missing_from_the_archive_exclude_the_row(self):
+        got = FT.eligibility(self._row(), {"something else"})
+        self.assertFalse(got["eligible"])
+        self.assertEqual(got["state"], "NOT ELIGIBLE FOR FORWARD VALIDATION")
+        self.assertEqual(got["reasons"], [FT.UNRECOVERABLE_CONFIG])
+        self.assertIn("cannot be read back", got["notes"][0])
+
+    def test_an_empty_archive_excludes_every_row(self):
+        self.assertFalse(FT.eligibility(self._row(), set())["eligible"])
+
+    def test_no_archive_means_the_question_is_not_asked(self):
+        self.assertTrue(FT.eligibility(self._row(), None)["eligible"])
+
+    def test_a_row_with_no_rules_at_all_is_excluded_when_an_archive_exists(self):
+        got = FT.eligibility(self._row(config_hash=None), {"abc123"})
+        self.assertEqual(got["reasons"], [FT.UNRECOVERABLE_CONFIG])
+
+    def test_a_row_with_no_rules_is_not_condemned_when_nobody_asked(self):
+        # `known_hashes=None` means the caller has no archive and is not
+        # asking. Production always passes one.
+        self.assertTrue(FT.eligibility(self._row(config_hash=None), None)
+                        ["eligible"])
+
+    # ── contracts, conditional on the structure ──
+    def test_buy_shares_needs_no_contract(self):
+        for verdict in ("BUY SHARES", "WAIT", "AVOID", "TOSS UP"):
+            got = FT.eligibility(self._row(entry_verdict=verdict),
+                                {"abc123"})
+            self.assertTrue(got["eligible"], verdict)
+            self.assertEqual(got["contract_required"], [], verdict)
+
+    def test_a_put_needs_its_own_put(self):
+        got = FT.eligibility(
+            self._row(entry_verdict="SELL PORTFOLIO SECURED PUT"),
+            {"abc123"})
+        self.assertFalse(got["eligible"])
+        self.assertIn(FT.NO_CONTRACT, got["reasons"])
+
+    def test_a_put_with_its_strike_and_credit_is_scorable(self):
+        got = FT.eligibility(
+            self._row(entry_verdict="SELL PORTFOLIO SECURED PUT",
+                      recommended_contract={"strike": 95.0, "credit": 2.1,
+                                            "expiration": "2026-10-16"}),
+            {"abc123"})
+        self.assertTrue(got["eligible"], got["reasons"])
+
+    def test_a_long_dated_call_needs_its_strike(self):
+        got = FT.eligibility(
+            self._row(entry_verdict="BUY LEAPS",
+                      recommended_contract={"debit": 20.0}), {"abc123"})
+        self.assertIn(FT.NO_CONTRACT, got["reasons"])
+
+    def test_a_buy_write_needs_the_call_it_writes(self):
+        got = FT.eligibility(
+            self._row(entry_verdict="BUY-WRITE",
+                      recommended_contract={"call_strike": 110.0,
+                                            "credit": 1.4}), {"abc123"})
+        self.assertTrue(got["eligible"], got["reasons"])
+
+    def test_a_spread_needs_both_legs(self):
+        one = FT.eligibility(
+            self._row(entry_verdict="BULL CALL SPREAD",
+                      recommended_contract={"long_strike": 100.0,
+                                            "debit": 4.0}), {"abc123"})
+        self.assertIn(FT.NO_CONTRACT, one["reasons"])
+        both = FT.eligibility(
+            self._row(entry_verdict="BULL CALL SPREAD",
+                      recommended_contract={"long_strike": 100.0,
+                                            "short_strike": 110.0,
+                                            "debit": 4.0}), {"abc123"})
+        self.assertTrue(both["eligible"], both["reasons"])
+
+    def test_a_contract_with_no_price_cannot_be_settled(self):
+        got = FT.eligibility(
+            self._row(entry_verdict="BUY LEAPS",
+                      recommended_contract={"strike": 100.0}), {"abc123"})
+        self.assertIn(FT.NO_QUOTE, got["reasons"])
+
+    def test_an_unknown_structure_is_asked_for_a_contract_not_waved_through(self):
+        self.assertEqual(FT.contract_required_for("SOME NEW THING"),
+                         ("strike",))
+
+    def test_an_irrelevant_missing_field_does_not_condemn_a_row(self):
+        # A BUY SHARES row has no put, no call and no legs. None of that is
+        # a defect, and calling it one would throw away good days.
+        got = FT.eligibility(self._row(recommended_contract=None), {"abc123"})
+        self.assertTrue(got["eligible"])
+
+    # ── the benchmark gates only the market comparison ──
+    def test_a_missing_benchmark_does_not_exclude_the_row(self):
+        got = FT.eligibility(self._row(benchmark_close=None), {"abc123"})
+        self.assertTrue(got["eligible"])
+        self.assertFalse(got["benchmark_relative"])
+        self.assertIn("not against the market", got["benchmark_reason"])
+
+    def test_a_recorded_benchmark_enables_the_market_comparison(self):
+        self.assertTrue(FT.eligibility(self._row(), {"abc123"})
+                        ["benchmark_relative"])
+
+    def test_an_outcome_without_a_recorded_benchmark_is_not_compared(self):
+        series = [(f"2026-0{6 + i // 30}-{(i % 30) + 1:02d}", 100.0 + i,
+                   101.0 + i, 99.0 + i) for i in range(120)]
+        series = FT.index_bars([{"date": d, "close": c, "high": h, "low": lo}
+                               for d, c, h, lo in series])
+        row = self._row(date=series[0][0], benchmark_close=None)
+        got = FT.outcome(row, series, 30, series[-1][0], benchmark=series)
+        self.assertIsNotNone(got)
+        self.assertIsNone(got["benchmark_return_pct"])
+        self.assertFalse(got["benchmark_relative_eligible"])
+        self.assertIn("not against the market", got["benchmark_note"])
+
+    # ── the report over a whole store ──
+    def test_the_report_separates_what_can_be_scored_from_what_cannot(self):
+        hist = {"AAA": [self._row(), self._row(date="2026-08-18",
+                                               config_hash="gone")]}
+        got = FT.eligibility_report(hist, {"abc123"})
+        self.assertEqual((got["eligible"], got["not_eligible"]), (1, 1))
+        self.assertEqual(got["by_reason"], {FT.UNRECOVERABLE_CONFIG: 1})
+        self.assertIn("Nothing is repaired", got["reason"])
+
+    def test_the_report_leaves_the_rows_untouched(self):
+        hist = {"AAA": [self._row(config_hash="gone")]}
+        before = json.dumps(hist, sort_keys=True)
+        FT.eligibility_report(hist, {"abc123"})
+        self.assertEqual(json.dumps(hist, sort_keys=True), before)
+
+    def test_observations_exclude_unscorable_rows_and_count_them(self):
+        bars = [{"date": f"2026-0{4 + i // 28}-{(i % 28) + 1:02d}",
+                 "close": 100.0, "high": 101.0, "low": 99.0} for i in range(120)]
+        hist = {"AAA": [self._row(date=bars[0]["date"], config_hash="gone")]}
+        got = FT.observations(hist, {"AAA": bars}, bars[-1]["date"],
+                             known_hashes={"abc123"})
+        self.assertEqual(got["n"], 0)
+        self.assertEqual(got["excluded_by_reason"],
+                         {FT.UNRECOVERABLE_CONFIG: 1})
+        self.assertTrue(got["config_archive_checked"])
+        self.assertIn("left alone", got["excluded_note"])
+
+    def test_observations_without_an_archive_score_everything(self):
+        bars = [{"date": f"2026-0{4 + i // 28}-{(i % 28) + 1:02d}",
+                 "close": 100.0, "high": 101.0, "low": 99.0} for i in range(120)]
+        hist = {"AAA": [self._row(date=bars[0]["date"], config_hash="gone")]}
+        got = FT.observations(hist, {"AAA": bars}, bars[-1]["date"])
+        self.assertGreater(got["n"], 0)
+        self.assertFalse(got["config_archive_checked"])
 
 if __name__ == "__main__":                            # pragma: no cover
     unittest.main()

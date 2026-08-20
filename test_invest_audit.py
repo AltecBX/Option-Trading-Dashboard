@@ -26,7 +26,8 @@ import shutil
 import tempfile
 import time
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 os.environ.setdefault("JERRY_NO_NET", "1")
 
@@ -937,6 +938,149 @@ class TestCollectionStatus(AuditBase):
         self.assertEqual(A.STORAGE_LABEL[A.EPHEMERAL], "NOT PERSISTENT")
         self.assertEqual(A.STORAGE_LABEL[A.PERSISTENT], "PERSISTENT")
         self.assertEqual(A.STORAGE_LABEL[A.UNKNOWN], "UNKNOWN")
+
+
+
+# ── 15. the market clock, which is never the container's ────────────────────
+
+class TestMarketClock(unittest.TestCase):
+    """The bug this class exists for: at 9:22 in the evening in New York the
+    readiness panel said NOT DUE YET and listed all twelve tickers as still
+    to come. A container in coordinated universal time was already on the
+    next day at 01:22, and 1 is less than the 17:00 capture hour — so the
+    window had 'not opened'. The clock has no container fallback now."""
+
+    def setUp(self):
+        self.tz, self.src = S._MARKET_TZ, S._TZ_SOURCE
+
+    def tearDown(self):
+        S._MARKET_TZ, S._TZ_SOURCE = self.tz, self.src
+
+    def test_with_no_time_zone_database_the_clock_is_still_new_york(self):
+        S._MARKET_TZ = None
+        now = S.market_now()
+        self.assertIsNotNone(now.utcoffset())
+        self.assertIn(now.utcoffset(), (timedelta(hours=-4),
+                                        timedelta(hours=-5)))
+
+    def test_the_evening_capture_window_opens_without_a_database(self):
+        # 21:22 in New York is 01:22 the next day in coordinated universal
+        # time. Read on the container's clock the window looks shut.
+        S._MARKET_TZ = None
+        utc = datetime(2026, 8, 20, 1, 22, tzinfo=timezone.utc)
+        eastern = (utc + S._eastern_offset(utc)).replace(tzinfo=None)
+        self.assertEqual(eastern.date().isoformat(), "2026-08-19")
+        self.assertEqual(eastern.hour, 21)
+        self.assertGreaterEqual(eastern.hour, S.RECORD_AFTER_ET_HOUR)
+
+    def test_the_offset_is_right_on_both_sides_of_both_changes(self):
+        for iso, want in (
+                ("2026-01-15T18:00:00+00:00", -5),   # deep winter
+                ("2026-08-19T18:00:00+00:00", -4),   # deep summer
+                ("2026-03-08T06:59:00+00:00", -5),   # a minute before spring
+                ("2026-03-08T07:00:00+00:00", -4),   # the moment it changes
+                ("2026-11-01T05:59:00+00:00", -4),   # a minute before autumn
+                ("2026-11-01T06:00:00+00:00", -5)):  # the moment it changes
+            got = S._eastern_offset(datetime.fromisoformat(iso))
+            self.assertEqual(got, timedelta(hours=want), iso)
+
+    def test_daylight_saving_starts_on_the_second_sunday_in_march(self):
+        self.assertEqual(S._nth_sunday(2026, 3, 2).isoformat(), "2026-03-08")
+        self.assertEqual(S._nth_sunday(2027, 3, 2).isoformat(), "2027-03-14")
+
+    def test_daylight_saving_ends_on_the_first_sunday_in_november(self):
+        self.assertEqual(S._nth_sunday(2026, 11, 1).isoformat(), "2026-11-01")
+        self.assertEqual(S._nth_sunday(2027, 11, 1).isoformat(), "2027-11-07")
+
+    def test_the_clock_says_which_clock_it_is(self):
+        got = S.market_clock()
+        self.assertIn("New_York", got["zone"])
+        self.assertIn(got["abbreviation"], ("EST", "EDT"))
+        self.assertIn(got["utc_offset_hours"], (-4.0, -5.0))
+        self.assertGreater(len(got["source"]), 20)
+
+    def test_the_time_zone_database_is_a_declared_dependency(self):
+        # zoneinfo reads the operating system's database, and a slim
+        # container may carry none. Without this line the app silently
+        # computes its own Eastern time instead, which works — but the
+        # database is the better answer and it should not be left to chance.
+        reqs = Path("requirements.txt").read_text()
+        self.assertIn("tzdata", reqs)
+
+
+# ── 16. readiness dates itself, and resolves after the window ───────────────
+
+class TestReadinessIsNeverStale(AuditBase):
+    def setUp(self):
+        super().setUp()
+        H.configure(self.data)
+
+    def test_it_says_when_it_was_calculated_on_the_exchange_clock(self):
+        out = S.data_readiness(["AAA"])
+        self.assertTrue(out["calculated_at"])
+        # An offset, not a naive timestamp: the reader has to be able to see
+        # which clock produced it.
+        self.assertTrue(out["calculated_at"].endswith(("-04:00", "-05:00")))
+        self.assertIn(out["market_clock"]["abbreviation"], ("EST", "EDT"))
+
+    def test_after_the_capture_hour_today_has_a_real_state(self):
+        # Whatever the answer is, it is one of the three. NOT DUE YET past
+        # the window was the symptom of a wrong clock and is not a state the
+        # panel is allowed to rest in.
+        out = S.data_readiness(["AAA"])
+        if out["capture_due_yet"] and out["trading_day"]:
+            self.assertIn(out["today"]["state"],
+                          (H.COMPLETE, H.PARTIAL, H.FAILURE))
+            self.assertNotEqual(out["today"]["state"], S.NOT_DUE_YET)
+
+    def test_a_trading_day_with_nothing_captured_is_a_capture_failure(self):
+        day = "2026-08-19"
+        if not H.is_trading_day(day):                # pragma: no cover
+            self.skipTest("fixture day is not a trading day")
+        out = S.data_readiness(["AAA"], today=day)
+        self.assertEqual(out["today"]["state"], H.FAILURE)
+
+    def test_before_the_capture_hour_not_due_yet_is_still_allowed(self):
+        # The state is not banned — only banned from surviving the window.
+        self.assertEqual(S.NOT_DUE_YET, "NOT DUE YET")
+
+
+# ── 17. today, ticker by ticker ─────────────────────────────────────────────
+
+class TestDayReport(AuditBase):
+    def setUp(self):
+        super().setUp()
+        H.configure(self.data)
+        CS.configure(self.dir)
+
+    def _store(self, sym, day, **over):
+        S.store({"symbol": sym, "as_of": day + "T17:05:00-04:00",
+                 **{k: v for k, v in row(day, **over).items()
+                    if k not in ("date", "ticker")}})
+
+    def test_a_ticker_with_nothing_recorded_says_so(self):
+        out = S.day_report(["AAA"], day="2026-08-19")
+        r = out["rows"][0]
+        self.assertFalse(r["snapshot"])
+        self.assertFalse(r["forward_test_eligible"])
+        self.assertEqual(r["why_not"], ["NO SNAPSHOT RECORDED"])
+
+    def test_the_report_names_every_component_of_a_usable_day(self):
+        out = S.day_report(["AAA"], day="2026-08-19")
+        for key in ("snapshot", "option_chain", "leaps_observation",
+                    "benchmark_close", "recommendation", "contract_required",
+                    "config_archived", "forward_test_eligible"):
+            self.assertIn(key, out["rows"][0], key)
+
+    def test_it_is_dated_on_the_exchange_clock(self):
+        out = S.day_report(["AAA"], day="2026-08-19")
+        self.assertTrue(out["calculated_at"].endswith(("-04:00", "-05:00")))
+        self.assertEqual(out["pretty"], "August 19, 2026")
+
+    def test_a_day_is_only_fully_usable_when_every_ticker_is(self):
+        out = S.day_report(["AAA", "BBB"], day="2026-08-19")
+        self.assertFalse(out["first_fully_usable_day"])
+        self.assertEqual(out["expected"], 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
