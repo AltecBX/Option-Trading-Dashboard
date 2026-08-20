@@ -1176,7 +1176,10 @@ function KoreaLead({
     title: KL_TIP.session
   }, "Seoul ", sess && sess.seoul_time, " \xB7", " ", /*#__PURE__*/React.createElement("b", {
     className: sess && sess.state === "SESSION IN PROGRESS" ? "warn" : ""
-  }, sess && sess.state), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), /*#__PURE__*/React.createElement("div", {
+  }, sess && sess.state), " ", "\xB7 Korean session ", gapDate(d.korea && d.korea.as_of), " ", "\xB7 read ", gapWhen(d.as_of)), d.korea && d.korea.signal && !d.korea.signal.ok && /*#__PURE__*/React.createElement("div", {
+    className: "kl-nosignal",
+    title: KL_TIP.nodata
+  }, "\u26A0 No Korean signal for this session. ", d.korea.signal.reason), /*#__PURE__*/React.createElement("div", {
     className: "kl-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "kl-box"

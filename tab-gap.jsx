@@ -972,6 +972,15 @@ function KoreaLead({ apiFetch, symbol, onSymbol }) {
             {" "}· Korean session {gapDate(d.korea && d.korea.as_of)}
             {" "}· read {gapWhen(d.as_of)}
           </div>
+          {/* When every Korean series is a session behind, nothing else on
+              the panel looks unusual — each row shows a real number and the
+              dates all agree with each other. Say it in one line instead of
+              leaving it to be inferred from a NO DATA further down. */}
+          {d.korea && d.korea.signal && !d.korea.signal.ok && (
+            <div className="kl-nosignal" title={KL_TIP.nodata}>
+              ⚠ No Korean signal for this session. {d.korea.signal.reason}
+            </div>
+          )}
 
           <div className="kl-grid">
             <div className="kl-box">

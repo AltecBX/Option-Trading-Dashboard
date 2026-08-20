@@ -12433,6 +12433,13 @@ a.tabsheet-btn.site { text-decoration: none; }
    auto-fit was landing on three-plus-one at the width this panel actually
    gets beside the sidebar, which leaves a hole where the fourth box should
    be and reads as a rendering fault. */
+/* Every Korean series a session behind looks like nothing at all: each row
+   carries a real number and the dates agree with each other. One line says
+   it outright rather than leaving it to be inferred from a NO DATA below. */
+.kl-nosignal { font-size: 12px; line-height: 1.45; margin: 0 0 10px;
+  padding: 7px 10px; border-radius: var(--radius-sm); color: var(--fg-2);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
 .kl-grid { display: grid; gap: 10px;
   grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 1240px) {
