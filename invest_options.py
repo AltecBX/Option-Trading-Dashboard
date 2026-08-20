@@ -873,6 +873,14 @@ def best_short_put(symbol, ch, spot, buy_zone, path, probs, cfg=None,
     got = _num(best.get("weighted_annualized_pct"))
     out["hurdle_pct"] = hurdle
     out["clears_hurdle"] = bool(got is not None and got >= hurdle)
+    # Does this put sit through a report? Information, not a rule: the
+    # recommendation is not changed by it and no strike is rejected for it.
+    # It belongs on the action line because a seller deciding whether to
+    # take the obligation wants to know whether the company reports before
+    # the contract expires, and both dates are already in hand.
+    out["crosses_earnings"] = _crosses_earnings(
+        best.get("expiration"), (market or {}).get("earnings_date"),
+        (today or _today()).isoformat())
     obl = _expected_obligation(best, probs)
     capital = st.comparison_capital(spot)
     need = required_put_bid(capital, (best.get("contract") or {}).get("strike"),
@@ -891,6 +899,50 @@ def best_short_put(symbol, ch, spot, buy_zone, path, probs, cfg=None,
             + (f" Reconsider if the bid rises above ${need:,.2f}."
                if need is not None else ""))
     return out
+
+
+def _crosses_earnings(expiration, next_earnings, today_iso) -> dict:
+    """Does a report fall between today and this contract's expiration?
+
+    Stated rather than acted on. A put that sits through earnings is not
+    automatically worse — the premium is richer for the same reason — but it
+    is a different position from one that does not, and a seller deciding
+    whether to take the obligation should not have to work that out from two
+    dates in two different panels.
+    """
+    exp = str(expiration or "")[:10]
+    nxt = str(next_earnings or "")[:10]
+    if not exp:
+        return {"known": False, "crosses": None,
+                "reason": "This contract has no expiration date."}
+    if not nxt:
+        return {"known": False, "crosses": None, "expiration": exp,
+                "reason": ("The next earnings date is not available for this "
+                           "ticker, so whether the contract sits through a "
+                           "report is not known.")}
+    if nxt < str(today_iso)[:10]:
+        # The provider's "next" report is in the past, so it has not been
+        # updated since the company last reported. The real next date is
+        # about a quarter away and unknown, which is not the same as knowing
+        # no report falls inside the contract.
+        return {"known": False, "crosses": None, "expiration": exp,
+                "earnings_date": nxt,
+                "reason": (f"The only earnings date on file, {_pretty(nxt)}, "
+                           f"has already passed, so the next one is not "
+                           f"known and whether this contract sits through a "
+                           f"report cannot be said.")}
+    crosses = bool(nxt <= exp)
+    return {"known": True, "crosses": crosses, "expiration": exp,
+            "earnings_date": nxt,
+            "label": "crosses earnings" if crosses else "no earnings before expiry",
+            "reason": (f"{_pretty(nxt)} falls before this contract expires on "
+                       f"{_pretty(exp)}. The premium is richer for that "
+                       f"reason, and so is the chance of being put the "
+                       f"shares. It is stated here rather than acted on: no "
+                       f"strike is rejected for crossing a report."
+                       if crosses else
+                       f"The next report, {_pretty(nxt)}, is after this "
+                       f"contract expires on {_pretty(exp)}.")}
 
 
 def best_leaps_expirations(ch, cfg=None, today=None) -> list:
@@ -1202,12 +1254,19 @@ def entry_verdict(snap: dict, fair: dict, comparison: dict, put_block: dict,
     if best_put and (put_block or {}).get("clears_hurdle"):
         k = _num((best_put.get("contract") or {}).get("strike"))
         cr = _num((best_put.get("contract") or {}).get("credit"))
+        crosses = (put_block or {}).get("crosses_earnings") or {}
+        earnings_note = ""
+        if crosses.get("crosses"):
+            earnings_note = (f" It sits through the {_pretty(crosses.get('earnings_date'))} "
+                             f"earnings report.")
+        elif crosses.get("known"):
+            earnings_note = " No earnings report falls before it expires."
         reasons.append(
             f"The price is {gap:.1f}% above the buy zone, so the shares are "
             f"not a buy here. The ${k:,.2f} put expiring "
             f"{_pretty(best_put.get('expiration'))} sits at or below the buy "
             f"zone and pays ${cr:,.2f}, an effective purchase price of "
-            f"${k - cr:,.2f} if it is assigned.")
+            f"${k - cr:,.2f} if it is assigned.{earnings_note}")
         changes.append(
             f"This becomes BUY SHARES if the price falls to ${zone:,.2f}. It "
             f"becomes WAIT if the bid on that strike falls below "

@@ -4765,6 +4765,23 @@ try:
     except Exception:                                # pragma: no cover
         pass
 
+    def _market_day():
+        """Today on the EXCHANGE's clock, or None when it cannot be read.
+
+        `date.today()` is the container's, and this app runs on a UTC
+        container: at nine in the evening in New York it is already tomorrow.
+        A chain dated that way is filed under a day that has not happened,
+        and the next day's real capture is then refused as a duplicate.
+
+        There is deliberately no fallback. A snapshot nobody can date is not
+        stored, because a wrongly dated one cannot be told from a right one
+        afterwards and there is no source to repair it from.
+        """
+        try:
+            return _invest.market_now().date()
+        except Exception:  # noqa: BLE001
+            return None
+
     def _record_chain(sym: str, payload: dict) -> bool:
         """Snapshot a fetched chain, with the provider and the state of the
         world that day recorded alongside it.
@@ -4773,17 +4790,26 @@ try:
         from one a week after, and a snapshot that does not say which is a
         number without a context. Best-effort: a failure here must never
         break the live request that produced the chain.
+
+        The trading day is stated explicitly. This is the passive path —
+        every chain any tab fetches arrives here — so an evening browse used
+        to write tomorrow's date and cost the store the following day's real
+        capture. The store refuses a non-trading day of its own accord.
         """
+        today = _market_day()
+        if today is None:
+            return False
         event = None
         try:
             nxt = str((_invest_earnings(sym) or {}).get("next") or "")[:10]
             if nxt:
                 event = {"next_earnings": nxt,
                          "days_to_earnings":
-                             (date.fromisoformat(nxt) - date.today()).days}
+                             (date.fromisoformat(nxt) - today).days}
         except Exception:  # noqa: BLE001
             event = None
-        return _chain_store.record(sym, payload, source="schwab", event=event)
+        return _chain_store.record(sym, payload, today=today.isoformat(),
+                                   source="schwab", event=event)
 
     if _SCHWAB_AVAILABLE:
         import schwab_client as _schwab_client_mod

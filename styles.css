@@ -11985,6 +11985,11 @@ a.tabsheet-btn.site { text-decoration: none; }
 .inv-moat { font: 600 10.5px var(--font-mono); letter-spacing: 0.02em;
   padding: 3px 8px; border-radius: 999px; color: var(--fg-2);
   border: 1px dashed var(--line-2); background: var(--bg-2); }
+/* A fact worth noticing on an action line — a put that sits through an
+   earnings report. It is information, not a rejection: nothing is gated on
+   it, so it is marked rather than alarmed. */
+.inv-moat-warn { color: var(--warn); border-style: solid;
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
 /* ── section heads, shared with the panels below ── */
 .inv-sechead { font: 700 11px/1.5 var(--font-mono); text-transform: uppercase;

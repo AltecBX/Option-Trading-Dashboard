@@ -129,6 +129,89 @@ def _close_on_or_before(series: list, day: str):
     return got
 
 
+def _close_on(series: list, day: str):
+    """The close for exactly this day, or None if the series has no such day."""
+    for r in series:
+        if r[0] == day:
+            return r[1]
+        if r[0] > day:
+            break
+    return None
+
+
+# ── has the price basis changed under a stored recommendation? ──────────────
+#
+# A recommendation records the share price it was made at. Price history
+# providers return SPLIT-ADJUSTED series, so after a ten-for-one split the
+# same day reads at a tenth of what was recorded, and a flat stock scores
+# −90%. The recommended option is worse: a $480 put settled against a $48
+# underlying looks catastrophically assigned.
+#
+# The test is safe against a real price move BY CONSTRUCTION, because both
+# numbers describe THE SAME DAY. A stock that fell forty percent that day
+# fell forty percent in the recorded price and in the close alike; only a
+# re-basing of the series can make the two disagree. What is left is
+# ordinary drift — the recorded price is the last trade when the snapshot
+# was taken and the close is the official one — which is small.
+#
+# Nothing is repaired. An option contract especially is never re-struck:
+# the Options Clearing Corporation's adjustments do not always equal simple
+# split arithmetic, so a row whose basis moved is refused and left alone.
+
+# How far the recorded price and that same day's close may differ and still
+# be the same share. Intraday drift between a capture and the close is
+# comfortably inside this; the smallest split in common use is three-for-two,
+# which is not.
+BASIS_TOLERANCE = 0.25
+
+# Ratios a corporate action produces, for naming what happened. A ratio that
+# lands on none of them is still refused — an unexplained re-basing is not
+# more trustworthy than an explained one.
+_SPLIT_RATIOS = sorted(
+    {float(k) for k in (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 30, 50, 100)}
+    | {1.0 / k for k in (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 30, 50, 100)}
+    | {1.5, 2.0 / 3.0})
+_SPLIT_TOLERANCE = 0.02
+
+
+def _snap_split(ratio):
+    for cand in _SPLIT_RATIOS:
+        if abs(ratio / cand - 1.0) <= _SPLIT_TOLERANCE:
+            return cand
+    return None
+
+
+def basis_change(recorded_price, series_close,
+                 tolerance: float = BASIS_TOLERANCE) -> dict | None:
+    """Do the recorded price and that same day's close describe one share?
+
+    Returns None when they do, and the evidence when they do not.
+    """
+    a, b = _num(recorded_price), _num(series_close)
+    if a is None or b is None or a <= 0 or b <= 0:
+        return None
+    ratio = a / b
+    if abs(ratio - 1.0) <= tolerance:
+        return None
+    split = _snap_split(ratio)
+    if split is not None and split > 1:
+        what = (f"a {split:.0f}-for-1 split" if abs(split - round(split)) < 1e-9
+                else f"a {split:.4g}-for-1 split")
+    elif split is not None:
+        what = f"a 1-for-{1.0 / split:.0f} reverse split"
+    else:
+        what = "a restated price series"
+    return {"recorded": a, "series_close": b, "ratio": ratio, "split": split,
+            "what": what,
+            "reason": (f"The recommendation was written at ${a:,.2f} and the "
+                       f"price history now reports ${b:,.2f} for that same "
+                       f"day — consistent with {what}. Nothing is adjusted: "
+                       f"an option's terms after a corporate action are set "
+                       f"by the clearing corporation and do not always equal "
+                       f"simple split arithmetic, so this row is left as it "
+                       f"was written and not scored.")}
+
+
 # ── one observation ─────────────────────────────────────────────────────────
 
 # ── is this row scorable at all ─────────────────────────────────────────────
@@ -155,6 +238,8 @@ NO_CONTRACT = "THE RECOMMENDED CONTRACT WAS NOT RECORDED"
 NO_QUOTE = "THE RECOMMENDED CONTRACT CARRIES NO QUOTE"
 WRONG_CONTRACT = "THE STORED CONTRACT IS NOT THE ONE RECOMMENDED"
 NO_BENCHMARK = "NO BENCHMARK CLOSE RECORDED"
+BENCHMARK_MISMATCH = "BENCHMARK MISMATCH"
+PRICE_BASIS_CHANGED = "PRICE BASIS CHANGED"
 
 ELIGIBILITY_NOTE = {
     NO_DATE: "Without the day it was made, there is nothing to measure from.",
@@ -179,6 +264,18 @@ ELIGIBILITY_NOTE = {
     NO_BENCHMARK: "No benchmark close was recorded on the day, so this row "
                   "can still be scored on its own return but not against "
                   "the market.",
+    BENCHMARK_MISMATCH:
+        "The future price series offered for the comparison belongs to a "
+        "different index from the one recorded against this recommendation. "
+        "Dividing one index's later close by another's starting close is not "
+        "a relative return, so the row is scored on its own and not against "
+        "the market.",
+    PRICE_BASIS_CHANGED:
+        "The share price recorded on the day and the price the history now "
+        "reports for that same day are not on the same basis — a split or a "
+        "restated series. The recommendation is left exactly as it was "
+        "written; it simply cannot be settled up against a series measuring "
+        "a different share.",
 }
 
 # What each recommendation needs from its own contract, and nothing more.
@@ -362,13 +459,19 @@ def eligibility_report(history_by_symbol: dict, known_hashes=None) -> dict:
 
 
 def outcome(row: dict, series: list, horizon: int, today: str,
-            benchmark: list | None = None) -> dict | None:
+            benchmark: list | None = None,
+            benchmark_symbol: str | None = None) -> dict | None:
     """What happened to one recommendation over one horizon, or None when
     the horizon has not completed.
 
     `row` is a stored daily snapshot. `series` is that ticker's price
     history. Nothing is read from `row` that was not written on its own day,
     and nothing is read from `series` before that day.
+
+    `benchmark` is the future series of the index this row was recorded
+    against, and `benchmark_symbol` names it. Where the name is given and
+    does not match what the row recorded, the comparison against the market
+    is refused rather than computed from two different indexes.
     """
     day = str(row.get("date") or "")[:10]
     d0 = _d(day)
@@ -376,6 +479,11 @@ def outcome(row: dict, series: list, horizon: int, today: str,
         return None
     entry = _num(row.get("price"))
     if entry is None or entry <= 0:
+        return None
+    # The series must still be measuring the same share this was written
+    # against. A split re-bases it, and a flat stock then scores −90%.
+    basis = basis_change(entry, _close_on(series, day))
+    if basis is not None:
         return None
     target = (d0 + timedelta(days=int(horizon))).isoformat()
     # Rule 2: the horizon must have completed in calendar time AND the price
@@ -412,10 +520,23 @@ def outcome(row: dict, series: list, horizon: int, today: str,
     bench_ret = None
     bench_note = ""
     b_entry = _num(row.get("benchmark_close"))
-    has_bench = bool(row.get("benchmark_symbol")
-                     and b_entry is not None and b_entry > 0)
+    row_bench = row.get("benchmark_symbol")
+    has_bench = bool(row_bench and b_entry is not None and b_entry > 0)
+    # The series offered has to be the index this row was recorded against.
+    # A dict is resolved by name; a bare series is checked against the name
+    # the caller gives for it. Either way a technology holding recorded
+    # against XLK is never settled up using XLE.
+    if isinstance(benchmark, dict):
+        benchmark_symbol = row_bench
+        benchmark = benchmark.get(row_bench)
+    mismatch = bool(has_bench and benchmark_symbol
+                    and str(benchmark_symbol).upper() != str(row_bench).upper())
+    if mismatch:
+        benchmark = None
     if not has_bench:
         bench_note = ELIGIBILITY_NOTE[NO_BENCHMARK]
+    elif mismatch:
+        bench_note = ELIGIBILITY_NOTE[BENCHMARK_MISMATCH]
     elif benchmark:
         b1 = _close_on_or_before(benchmark, target)
         if b1 and b1[0] > day:
@@ -479,7 +600,7 @@ def outcome(row: dict, series: list, horizon: int, today: str,
 
 
 def observations(history_by_symbol: dict, bars_by_symbol: dict, today: str,
-                 benchmark_bars: list | None = None,
+                 benchmark_bars=None,
                  horizons=HORIZONS, cfg=None, known_hashes=None) -> dict:
     """Every completed (snapshot, horizon) pair the store can support.
 
@@ -488,11 +609,22 @@ def observations(history_by_symbol: dict, bars_by_symbol: dict, today: str,
     immutable archive, because what its verdict MEANT cannot be established.
     Pass `known_hashes` to enforce that; pass None and the archive is not
     consulted. Nothing is ever rewritten to make a row pass.
+
+    `benchmark_bars` is a MAP of benchmark symbol to that index's daily bars.
+    Each row is compared only against the index it was recorded against —
+    watchlists span sectors, so one index cannot stand in for all of them.
+    A single list is still accepted for a caller with one benchmark and is
+    used for every row, which is only correct when they all share it.
     """
     cfg = cfg or {}
-    bench = index_bars(benchmark_bars or [])
+    if isinstance(benchmark_bars, dict):
+        bench = {str(k).upper(): index_bars(v or [])
+                 for k, v in benchmark_bars.items() if v}
+    else:
+        bench = index_bars(benchmark_bars or [])
     rows, skipped = [], {"incomplete_horizon": 0, "no_prices": 0,
-                         "no_price_recorded": 0, "not_eligible": 0}
+                         "no_price_recorded": 0, "not_eligible": 0,
+                         "price_basis_changed": 0}
     excluded, series_cache = {}, {}
     for sym, hist in (history_by_symbol or {}).items():
         bars = bars_by_symbol.get(sym)
@@ -512,6 +644,16 @@ def observations(history_by_symbol: dict, bars_by_symbol: dict, today: str,
                 skipped["not_eligible"] += len(horizons)
                 for r in fit["reasons"]:
                     excluded[r] = excluded.get(r, 0) + 1
+                continue
+            # A row the price history no longer measures on the same basis
+            # is reported as such rather than counted among the horizons that
+            # simply have not finished yet. The two mean opposite things: one
+            # arrives with time, the other never will.
+            day = str(row.get("date") or "")[:10]
+            if basis_change(row.get("price"), _close_on(series, day)):
+                skipped["price_basis_changed"] += len(horizons)
+                excluded[PRICE_BASIS_CHANGED] = \
+                    excluded.get(PRICE_BASIS_CHANGED, 0) + 1
                 continue
             for h in horizons:
                 o = outcome(row, series, h, today, bench)
@@ -777,6 +919,16 @@ def structure_outcome(row: dict, series: list, today: str) -> dict:
            "config_hash": row.get("config_hash"), "results": {}}
     if spot0 is None or spot0 <= 0 or not series:
         out["reason"] = "No price was recorded on that day."
+        return out
+    # A recorded strike against a re-based series is the worst case of all:
+    # a $480 put settled against a $48 underlying reads as a total loss on a
+    # position that was never in trouble. The contract's real terms after a
+    # corporate action come from the clearing corporation, not from
+    # arithmetic, so nothing is settled here.
+    basis = basis_change(spot0, _close_on(series, day))
+    if basis is not None:
+        out["reason"] = basis["reason"]
+        out["price_basis_changed"] = basis
         return out
 
     def settle(exp):

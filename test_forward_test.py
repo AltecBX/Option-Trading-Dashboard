@@ -93,11 +93,19 @@ class TestNoLookahead(unittest.TestCase):
 
     def test_the_entry_price_is_the_one_that_was_recorded(self):
         # Not the close on that day — the price the recommendation was
-        # actually written against.
-        o = FT.outcome(row(price=50.0), UP, 90, TODAY)
-        self.assertEqual(o["price"], 50.0)
+        # actually written against. The snapshot is taken at the capture
+        # hour and the close is the official one, so the two differ a
+        # little and the recorded one wins.
+        #
+        # The gap here is one percent rather than the fifty it used to be:
+        # a recorded price at half that day's close is not a capture taken a
+        # few minutes early, it is a two-for-one split re-basing the series,
+        # and a row whose basis moved is now refused rather than scored. See
+        # TestPriceBasisChanged.
+        o = FT.outcome(row(price=99.0), UP, 90, TODAY)
+        self.assertEqual(o["price"], 99.0)
         self.assertAlmostEqual(o["return_pct"],
-                               (o["end_price"] / 50.0 - 1.0) * 100.0)
+                               (o["end_price"] / 99.0 - 1.0) * 100.0)
 
 
 class TestIncompleteHorizons(unittest.TestCase):
@@ -648,3 +656,309 @@ class TestEligibility(unittest.TestCase):
 
 if __name__ == "__main__":                            # pragma: no cover
     unittest.main()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE CORRECTNESS PASS — benchmark identity and price basis
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class TestBenchmarkIdentity(unittest.TestCase):
+    """A row is measured against the index it was RECORDED against.
+
+    Each stored recommendation names its own sector benchmark. The validation
+    run used to fetch one series — the first watchlist symbol's — and hand it
+    to every row, so a technology holding recorded against XLK was settled up
+    using XLE's later close divided by XLK's starting close. Both series
+    being flat, that reported a sixty-point excess return on a stock that had
+    not moved.
+    """
+
+    XLK = FT.index_bars(series([230.0] * 500))
+    XLE = FT.index_bars(series([90.0] * 500))
+
+    def _row(self):
+        return row(benchmark_symbol="XLK", benchmark_close=230.0)
+
+    def test_the_wrong_index_by_name_is_refused_not_computed(self):
+        o = FT.outcome(self._row(), FLAT, 30, TODAY, self.XLE,
+                       benchmark_symbol="XLE")
+        self.assertIsNone(o["benchmark_return_pct"])
+        self.assertIsNone(o["excess_return_pct"])
+        self.assertFalse(o["benchmark_relative_eligible"])
+        self.assertIn("different index", o["benchmark_note"])
+
+    def test_a_map_resolves_each_row_to_its_own_index(self):
+        both = {"XLK": self.XLK, "XLE": self.XLE}
+        o = FT.outcome(self._row(), FLAT, 30, TODAY, both)
+        self.assertTrue(o["benchmark_relative_eligible"])
+        self.assertAlmostEqual(o["benchmark_return_pct"], 0.0)
+        self.assertAlmostEqual(o["excess_return_pct"], 0.0)
+
+    def test_an_index_absent_from_the_map_is_not_substituted(self):
+        o = FT.outcome(self._row(), FLAT, 30, TODAY, {"XLE": self.XLE})
+        self.assertIsNone(o["benchmark_return_pct"])
+        self.assertFalse(o["benchmark_relative_eligible"])
+
+    def test_two_stocks_on_two_benchmarks_in_one_run(self):
+        """The case the single-series run got wrong, end to end."""
+        tech = row(day="2025-01-01", ticker="MSFT",
+                   benchmark_symbol="XLK", benchmark_close=230.0)
+        energy = row(day="2025-01-01", ticker="XOM",
+                     benchmark_symbol="XLE", benchmark_close=90.0)
+        obs = FT.observations(
+            {"MSFT": [tech], "XOM": [energy]},
+            {"MSFT": series([100.0] * 500), "XOM": series([100.0] * 500)},
+            TODAY,
+            {"XLK": series([230.0] * 500), "XLE": series([90.0] * 500)},
+            horizons=(30,))
+        self.assertEqual(obs["n"], 2)
+        for r in obs["rows"]:
+            self.assertTrue(r["benchmark_relative_eligible"], r["ticker"])
+            # Flat stock against a flat benchmark is zero excess, whichever
+            # sector the row belongs to.
+            self.assertAlmostEqual(r["excess_return_pct"], 0.0)
+
+    def test_a_single_series_still_works_for_a_one_benchmark_caller(self):
+        o = FT.outcome(self._row(), FLAT, 30, TODAY, self.XLK)
+        self.assertTrue(o["benchmark_relative_eligible"])
+
+
+class TestPriceBasisChanged(unittest.TestCase):
+    """A split re-bases the price series under a stored recommendation.
+
+    The row keeps the price it was written at. The provider returns
+    split-adjusted history, so the same day now reads at a tenth of it and a
+    flat stock scores −90%. Worse, the recommended put is settled against an
+    underlying a tenth of its strike and reads as a total loss.
+
+    Nothing is repaired. An option's terms after a corporate action are set
+    by the clearing corporation and do not always equal simple split
+    arithmetic, so the row is refused and left exactly as it was written.
+    """
+
+    def _split_series(self, factor):
+        return FT.index_bars(series([500.0 / factor] * 500))
+
+    def test_ten_for_one(self):
+        r = row(price=500.0)
+        self.assertIsNone(FT.outcome(r, self._split_series(10), 30, TODAY))
+
+    def test_four_for_one(self):
+        r = row(price=500.0)
+        self.assertIsNone(FT.outcome(r, self._split_series(4), 30, TODAY))
+
+    def test_two_for_one(self):
+        r = row(price=500.0)
+        self.assertIsNone(FT.outcome(r, self._split_series(2), 30, TODAY))
+
+    def test_a_reverse_split(self):
+        r = row(price=5.0)
+        self.assertIsNone(
+            FT.outcome(r, FT.index_bars(series([50.0] * 500)), 30, TODAY))
+
+    def test_no_split_is_scored_normally(self):
+        r = row(price=100.0)
+        o = FT.outcome(r, FLAT, 30, TODAY)
+        self.assertIsNotNone(o)
+        self.assertAlmostEqual(o["return_pct"], 0.0)
+
+    def test_a_capture_taken_before_the_close_is_not_a_split(self):
+        # The snapshot is the last trade at the capture hour and the series
+        # carries the official close. A couple of percent apart is ordinary.
+        o = FT.outcome(row(price=98.0), FLAT, 30, TODAY)
+        self.assertIsNotNone(o)
+        self.assertEqual(o["price"], 98.0)
+
+    def test_a_real_crash_is_not_mistaken_for_a_split(self):
+        """The test that matters most: a genuine collapse must still score.
+
+        A stock that fell sixty percent that day fell sixty percent in the
+        recorded price AND in that day's close — they describe the same day.
+        Only a re-basing can separate them.
+        """
+        crashed = FT.index_bars(
+            series([100.0] * 10 + [40.0] * 490))
+        recommended_on = series([0] * 500)[10]["date"]
+        o = FT.outcome(row(day=recommended_on, price=40.0), crashed, 30, TODAY)
+        self.assertIsNotNone(o, "a real crash was refused as a split")
+        self.assertAlmostEqual(o["return_pct"], 0.0)
+
+    def test_the_recommended_contract_is_not_settled_against_a_new_basis(self):
+        r = row(price=500.0, csp_strike=480.0, csp_credit=9.0,
+                csp_expiration="2025-03-20",
+                comparison_expiration="2025-03-20")
+        got = FT.structure_outcome(r, self._split_series(10), TODAY)
+        self.assertEqual(got["results"], {})
+        self.assertIn("split", got["reason"])
+        self.assertEqual(got["price_basis_changed"]["split"], 10.0)
+
+    def test_the_run_reports_the_refusal_rather_than_hiding_it(self):
+        obs = FT.observations(
+            {"NVDA": [row(price=500.0)]},
+            {"NVDA": series([50.0] * 500)}, TODAY, horizons=(30,))
+        self.assertEqual(obs["n"], 0)
+        self.assertEqual(obs["skipped"]["price_basis_changed"], 1)
+        self.assertIn(FT.PRICE_BASIS_CHANGED, obs["excluded_by_reason"])
+
+    def test_the_split_is_named_in_the_reason(self):
+        got = FT.basis_change(500.0, 50.0)
+        self.assertEqual(got["split"], 10.0)
+        self.assertIn("10-for-1 split", got["what"])
+        got = FT.basis_change(5.0, 50.0)
+        self.assertIn("reverse split", got["what"])
+
+    def test_an_unexplained_rebasing_is_refused_too(self):
+        # A ratio that lands on no known split is still a basis change, and
+        # an unexplained one is not more trustworthy than an explained one.
+        got = FT.basis_change(500.0, 137.0)
+        self.assertIsNotNone(got)
+        self.assertIsNone(got["split"])
+        self.assertIn("restated price series", got["what"])
+
+
+class TestTheStoredContractIsTheRecommendedOne(unittest.TestCase):
+    """Every actionable verdict records the contract IT named.
+
+    The contract used to come from whichever structure the equal-capital
+    comparator ranked first. Above the buy zone the recommendation is SELL
+    PORTFOLIO SECURED PUT — the short-dated optimizer's pick — while the
+    comparator has usually ranked SHARES or a long-dated call, so the row
+    stored a contract belonging to a different structure at a different
+    expiration. Forward validation rightly refused it, and the put the app
+    had actually recommended was sitting unused in the same snapshot.
+    """
+
+    def _snap(self, verdict, preferred="SHARES"):
+        return {
+            "symbol": "AAPL", "as_of": "2026-08-19T17:00:00-04:00",
+            "price": 240.0, "config_hash": "cfg1",
+            "entry": {"verdict": verdict},
+            "structures": {
+                "chain_source": "schwab",
+                "comparison": {
+                    "preferred": preferred, "expiration": "2027-06-18",
+                    "toss_up": False,
+                    "rows": [
+                        {"kind": "SHARES", "eligible": True,
+                         "expiration": "2027-06-18", "dte": 303,
+                         "contract": {"shares": 100, "entry": 240.0},
+                         "liquidity": {}},
+                        {"kind": "LEAPS", "eligible": True,
+                         "expiration": "2027-06-18", "dte": 303,
+                         "contract": {"strike": 230.0, "debit": 38.5,
+                                      "delta": 0.62, "iv": 0.26},
+                         "liquidity": {"bid": 38.0, "ask": 39.0, "mid": 38.5,
+                                       "spread_pct": 2.6,
+                                       "open_interest": 1200, "volume": 45}},
+                        {"kind": "BUY-WRITE", "eligible": True,
+                         "expiration": "2027-06-18", "dte": 303,
+                         "contract": {"call_strike": 270.0,
+                                      "call_credit": 12.4, "delta": 0.35},
+                         "liquidity": {"bid": 12.4, "ask": 12.8, "mid": 12.6,
+                                       "open_interest": 800}},
+                        {"kind": "BULL CALL SPREAD", "eligible": True,
+                         "expiration": "2027-06-18", "dte": 303,
+                         "contract": {"long_strike": 240.0, "long_debit": 30.0,
+                                      "short_strike": 280.0,
+                                      "short_credit": 14.0, "net_debit": 16.0},
+                         "liquidity": {
+                             "long": {"bid": 29.5, "ask": 30.0, "mid": 29.75,
+                                      "open_interest": 900, "volume": 20},
+                             "short": {"bid": 14.0, "ask": 14.4, "mid": 14.2,
+                                       "open_interest": 700, "volume": 15}}},
+                    ]},
+                "put": {"available": True, "clears_hurdle": True, "best": {
+                    "kind": "PORTFOLIO SECURED PUT", "eligible": True,
+                    "expiration": "2026-10-16", "dte": 58,
+                    "contract": {"strike": 215.0, "credit": 4.30,
+                                 "delta": -0.27, "iv": 0.28},
+                    "liquidity": {"bid": 4.30, "ask": 4.45, "mid": 4.375,
+                                  "spread_pct": 3.4, "open_interest": 4200,
+                                  "volume": 310}}}},
+            "benchmark": {"symbol": "XLK", "close": 230.0}}
+
+    def _stored(self, verdict, preferred="SHARES"):
+        return S._recommended_contract(self._snap(verdict, preferred))
+
+    def _eligible(self, verdict, preferred="SHARES"):
+        got = self._stored(verdict, preferred)
+        return FT.eligibility(
+            {"date": "2026-08-19", "ticker": "AAPL", "price": 240.0,
+             "config_hash": "cfg1", "entry_verdict": verdict,
+             "preferred_structure": preferred,
+             "recommended_contract": got["recommended_contract"],
+             "benchmark_symbol": "XLK", "benchmark_close": 230.0},
+            known_hashes={"cfg1"})
+
+    def test_a_secured_put_stores_the_optimizers_own_put(self):
+        c = self._stored("SELL PORTFOLIO SECURED PUT")["recommended_contract"]
+        self.assertEqual(c["structure"], "PORTFOLIO SECURED PUT")
+        self.assertEqual(c["strike"], 215.0)
+        self.assertEqual(c["expiration"], "2026-10-16")
+        self.assertEqual(c["credit"], 4.30)
+        self.assertEqual(c["dte"], 58)
+        # The quote it was chosen on, not one fetched later.
+        self.assertEqual(c["bid"], 4.30)
+        self.assertEqual(c["ask"], 4.45)
+        self.assertEqual(c["open_interest"], 4200)
+        self.assertEqual(c["delta"], -0.27)
+        self.assertEqual(c["iv"], 0.28)
+
+    def test_a_secured_put_row_is_forward_test_eligible(self):
+        """The whole point: this strategy can now accumulate evidence."""
+        fit = self._eligible("SELL PORTFOLIO SECURED PUT")
+        self.assertTrue(fit["eligible"], fit["reasons"])
+
+    def test_leaps_stores_the_exact_long_dated_call(self):
+        c = self._stored("BUY LEAPS")["recommended_contract"]
+        self.assertEqual(c["structure"], "LEAPS")
+        self.assertEqual(c["strike"], 230.0)
+        self.assertEqual(c["debit"], 38.5)
+        self.assertTrue(self._eligible("BUY LEAPS")["eligible"])
+
+    def test_a_buy_write_stores_the_exact_call_it_writes(self):
+        c = self._stored("BUY-WRITE")["recommended_contract"]
+        self.assertEqual(c["structure"], "BUY-WRITE")
+        self.assertEqual(c["call_strike"], 270.0)
+        self.assertEqual(c["credit"], 12.4)
+        self.assertTrue(self._eligible("BUY-WRITE")["eligible"])
+
+    def test_a_spread_stores_both_legs_and_both_quotes(self):
+        c = self._stored("BULL CALL SPREAD")["recommended_contract"]
+        self.assertEqual(c["structure"], "BULL CALL SPREAD")
+        self.assertEqual(c["long_strike"], 240.0)
+        self.assertEqual(c["short_strike"], 280.0)
+        # Entered for the NET debit; neither leg alone is what was paid.
+        self.assertEqual(c["debit"], 16.0)
+        self.assertEqual(c["legs"]["long"]["bid"], 29.5)
+        self.assertEqual(c["legs"]["short"]["bid"], 14.0)
+        self.assertEqual(c["legs"]["long"]["debit"], 30.0)
+        self.assertEqual(c["legs"]["short"]["credit"], 14.0)
+        self.assertTrue(self._eligible("BULL CALL SPREAD")["eligible"])
+
+    def test_verdicts_that_name_no_option_store_none(self):
+        for v in ("BUY SHARES", "WAIT", "AVOID", "TOSS UP"):
+            got = self._stored(v)
+            self.assertIsNone(got["recommended_contract"], v)
+            self.assertIn("no option contract", got["recommended_contract_reason"])
+            self.assertTrue(self._eligible(v)["eligible"], v)
+
+    def test_the_structure_is_stamped_from_the_verdict_not_the_comparator(self):
+        """A contract's fields cannot identify it.
+
+        A long-dated call and a short put both carry a strike and a price, so
+        the stamp has to come from the decision rather than from the shape.
+        """
+        for verdict, preferred, expect in (
+                ("SELL PORTFOLIO SECURED PUT", "LEAPS", "PORTFOLIO SECURED PUT"),
+                ("BUY LEAPS", "SHARES", "LEAPS"),
+                ("BUY-WRITE", "LEAPS", "BUY-WRITE")):
+            c = self._stored(verdict, preferred)["recommended_contract"]
+            self.assertEqual(c["structure"], expect,
+                             f"{verdict} preferred={preferred}")
+
+    def test_the_recommended_structure_is_the_verdict(self):
+        got = self._stored("SELL PORTFOLIO SECURED PUT", preferred="SHARES")
+        self.assertEqual(got["recommended_structure"],
+                         "SELL PORTFOLIO SECURED PUT")

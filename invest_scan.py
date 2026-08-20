@@ -150,6 +150,17 @@ def configure(quote_fn=None, estimates_fn=None, ten_year_fn=None,
         _health.configure(data_dir)
     if _fund is not None:
         _fund.configure(data_dir=data_dir)
+    # The chain store dates every snapshot by the EXCHANGE's clock. It is
+    # given that clock here rather than reading one of its own, because this
+    # module already owns `market_now` and a second definition of what day it
+    # is would be a second chance to get it wrong. Without this the store
+    # refuses to date a snapshot at all — deliberately, since the container's
+    # date is already tomorrow by nine in the evening in New York.
+    try:
+        chain_store.configure(data_dir,
+                              today_fn=lambda: market_now().date())
+    except Exception:                                # pragma: no cover
+        pass
     if _opts is not None:
         _opts.configure(chain_fn=chain_fn, bars_fn=daily_fn, rate_fn=rate_fn,
                         earnings_fn=earnings_fn, earn_moves_fn=earn_moves_fn,
@@ -662,9 +673,31 @@ def _daily_row(snap: dict) -> dict | None:
     return row
 
 
-# The structure kinds whose recommended contract is recorded in full. A
-# BUY SHARES verdict has no contract, and WAIT and AVOID have nothing to
-# settle up.
+# Which block holds the contract each RECOMMENDATION names, and what that
+# structure is called in the comparator's vocabulary.
+#
+# The recommendation and the comparator do not always agree, and when they
+# disagree the recommendation is the thing being validated. Above the buy
+# zone the entry verdict is SELL PORTFOLIO SECURED PUT — chosen by the
+# short-dated put optimizer — while the long-dated comparator has usually
+# ranked SHARES or a call first. Recording the comparator's row then stored a
+# contract belonging to a different structure at a different expiration, and
+# forward validation rightly refused the row: the exact put the app had
+# actually named was sitting unused in the same snapshot.
+_VERDICT_CONTRACT = {
+    "SELL PORTFOLIO SECURED PUT": ("put", _structs.PUT),
+    "BUY LEAPS": ("comparison", _structs.LEAPS),
+    "BUY-WRITE": ("comparison", _structs.BUY_WRITE),
+    "BULL CALL SPREAD": ("comparison", _structs.SPREAD),
+}
+
+# Recommendations that name no option at all. A complete answer, not a
+# missing one.
+_VERDICT_NO_CONTRACT = ("BUY SHARES", "WAIT", "AVOID", "TOSS UP",
+                        "SPECIALIZED MODEL REQUIRED", "INSUFFICIENT DATA",
+                        "HYBRID — VALUATION UNRELIABLE")
+
+
 def _recommended_contract(snap: dict) -> dict:
     """The exact option that was recommended, and what it was quoted at.
 
@@ -674,28 +707,53 @@ def _recommended_contract(snap: dict) -> dict:
     one up later from a chain that has since moved is the same lookahead the
     whole validation engine exists to prevent. So the quote goes in the row
     beside the contract, prospectively, and is never revised.
+
+    WHICH contract is decided by the RECOMMENDATION, not by whatever the
+    equal-capital comparator happened to rank first. The structure is stamped
+    from that same decision rather than read off the row, because a
+    contract's fields cannot identify it: a long-dated call and a short put
+    both carry a strike and a price.
     """
     out: dict = {}
     structs = snap.get("structures") or {}
     comp = structs.get("comparison") or {}
     preferred = comp.get("preferred")
     entry = snap.get("entry") or {}
-    out["recommended_structure"] = entry.get("verdict") or preferred
-    row = next((r for r in (comp.get("rows") or [])
-                if r.get("kind") == preferred), None)
-    contract = (row or {}).get("contract") or {}
+    verdict = entry.get("verdict")
+    out["recommended_structure"] = verdict or preferred
+
+    source, kind = _VERDICT_CONTRACT.get(verdict or "", (None, None))
+    if source is None and verdict in _VERDICT_NO_CONTRACT:
+        out["recommended_contract"] = None
+        out["recommended_contract_reason"] = (
+            f"{verdict} names no option contract.")
+        return out
+    if source is None:
+        # No verdict yet, or one this map does not know. Fall back to the
+        # comparator's preferred row, which is what was recorded before the
+        # recommendation decided — and stamp it with the comparator's own
+        # kind so it can never be mistaken for something else.
+        source, kind = "comparison", preferred
+
+    if source == "put":
+        row = ((structs.get("put") or {}).get("best")) or {}
+    else:
+        row = next((r for r in (comp.get("rows") or [])
+                    if r.get("kind") == kind), None) or {}
+    contract = row.get("contract") or {}
     if not contract:
         # A recommendation with no contract is an honest state — BUY SHARES,
         # WAIT, AVOID — and is recorded as such rather than left ambiguous.
         out["recommended_contract"] = None
         out["recommended_contract_reason"] = (
             "This recommendation names no option contract."
-            if preferred in (None, "", "BUY SHARES") else
-            "No contract was attached to the preferred structure.")
+            if kind in (None, "", _structs.SHARES) else
+            f"{verdict or preferred} was recommended and no contract was "
+            f"attached to it, so there is nothing to settle up against.")
         return out
     liq = row.get("liquidity") or {}
-    out["recommended_contract"] = {
-        "structure": preferred,
+    got = {
+        "structure": kind,
         "expiration": row.get("expiration") or contract.get("expiration"),
         "dte": row.get("dte") or contract.get("dte"),
         "strike": contract.get("strike"),
@@ -703,7 +761,9 @@ def _recommended_contract(snap: dict) -> dict:
         "long_strike": contract.get("long_strike"),
         "short_strike": contract.get("short_strike"),
         "credit": contract.get("credit") or contract.get("call_credit"),
-        "debit": contract.get("debit"),
+        # A spread is entered for its NET debit; the two legs are quoted
+        # separately and neither of them alone is the price that was paid.
+        "debit": contract.get("debit") or contract.get("net_debit"),
         "bid": liq.get("bid"), "ask": liq.get("ask"), "mid": liq.get("mid"),
         "spread_pct": liq.get("spread_pct"),
         "open_interest": liq.get("open_interest"),
@@ -714,6 +774,24 @@ def _recommended_contract(snap: dict) -> dict:
         "quote_as_of": snap.get("as_of"),
         "underlying_price": snap.get("price"),
     }
+    # A two-legged structure carries a quote per leg. Recording only the net
+    # would settle it up against a number neither leg was ever quoted at.
+    if kind == _structs.SPREAD:
+        long_q, short_q = liq.get("long") or {}, liq.get("short") or {}
+        got["legs"] = {
+            "long": {"strike": contract.get("long_strike"),
+                     "debit": contract.get("long_debit"),
+                     "bid": long_q.get("bid"), "ask": long_q.get("ask"),
+                     "mid": long_q.get("mid"),
+                     "open_interest": long_q.get("open_interest"),
+                     "volume": long_q.get("volume")},
+            "short": {"strike": contract.get("short_strike"),
+                      "credit": contract.get("short_credit"),
+                      "bid": short_q.get("bid"), "ask": short_q.get("ask"),
+                      "mid": short_q.get("mid"),
+                      "open_interest": short_q.get("open_interest"),
+                      "volume": short_q.get("volume")}}
+    out["recommended_contract"] = got
     out["recommended_contract_reason"] = ""
     return out
 
@@ -3473,7 +3551,11 @@ def _chain_event(symbol: str) -> dict | None:
     if not nxt:
         return None
     try:
-        days = (date.fromisoformat(nxt) - date.today()).days
+        # Counted from the EXCHANGE's day, like everything else that is
+        # written into a stored observation. The container's date is already
+        # tomorrow by nine in the evening in New York, which would put this
+        # count a day out for every after-close capture.
+        days = (date.fromisoformat(nxt) - market_now().date()).days
     except ValueError:
         return None
     return {"next_earnings": nxt, "days_to_earnings": days}
@@ -3805,13 +3887,29 @@ def validation(symbols=None, benchmark: str | None = None) -> dict:
             bars[sym] = (_DAILY_FN(sym, 900) or {}).get("bars") or []
         except Exception:                             # noqa: BLE001
             bars[sym] = []
-    bench_bars = []
-    bench = benchmark or _benchmark_symbol(syms[0] if syms else None)
-    if bench:
+    # One benchmark series per benchmark SYMBOL, not one for the whole run.
+    # Each stored row names the index it was recorded against, and a
+    # watchlist spans sectors: settling a technology holding recorded against
+    # XLK using XLE's later close and XLK's starting close is not a relative
+    # return, it is two indexes divided by each other. Each index is fetched
+    # once and reused across every row that named it.
+    wanted: set = set()
+    for rows in hist.values():
+        for row in rows:
+            b = (row.get("benchmark_symbol") or "").upper()
+            if b:
+                wanted.add(b)
+    if benchmark:
+        wanted.add(str(benchmark).upper())
+    bench_bars: dict = {}
+    for b in sorted(wanted):
         try:
-            bench_bars = (_DAILY_FN(bench, 900) or {}).get("bars") or []
+            got = (_DAILY_FN(b, 900) or {}).get("bars") or []
         except Exception:                             # noqa: BLE001
-            bench_bars = []
+            got = []
+        if got:
+            bench_bars[b] = got
+    bench = benchmark or _benchmark_symbol(syms[0] if syms else None)
 
     today = _market_today()
     # The archive is what makes a stored verdict mean something a year on.
@@ -3829,6 +3927,15 @@ def validation(symbols=None, benchmark: str | None = None) -> dict:
     out["structures"] = _forward.structure_report(hist, bars, today, cfg,
                                                   known_hashes=archived)
     out["benchmark"] = bench
+    out["benchmarks"] = sorted(bench_bars)
+    out["benchmarks_note"] = (
+        f"Each recommendation is measured against the index it was recorded "
+        f"against on the day. {len(bench_bars)} of the {len(wanted)} named "
+        f"across the store could be loaded; a row whose index could not be "
+        f"is scored on its own return and says so."
+        if wanted else
+        "No stored recommendation names a benchmark, so none is compared "
+        "against the market.")
     out["tickers_with_history"] = len(hist)
     out["stored_rows"] = sum(len(v) for v in hist.values())
     out["recording"] = recording_audit(hist)
@@ -3953,7 +4060,13 @@ def day_report(symbols=None, day: str | None = None) -> dict:
     for sym in syms:
         row = next((r for r in reversed(load_history(sym))
                     if (r.get("date") or "")[:10] == d), None)
-        chain = d in (chain_store.load(sym) or {})
+        stored_chains = chain_store.load(sym) or {}
+        chain = d in stored_chains
+        # WHICH day the newest chain is filed under, not just whether one
+        # exists for this day. A chain dated tomorrow is the signature of a
+        # snapshot taken on the container's clock rather than the exchange's,
+        # and it would go on to block tomorrow's real capture.
+        newest_chain = max(stored_chains) if stored_chains else ""
         leaps = False
         if _opts is not None:
             try:
@@ -3971,10 +4084,24 @@ def day_report(symbols=None, day: str | None = None) -> dict:
             "leaps_observation": leaps,
             "benchmark_close": (row or {}).get("benchmark_close") is not None,
             "benchmark_symbol": (row or {}).get("benchmark_symbol") or "",
+            "chain_trading_date": newest_chain,
+            "chain_dated_ahead": bool(newest_chain and newest_chain > d),
             "recommendation": (row or {}).get("entry_verdict") or "",
             "structure": (row or {}).get("preferred_structure") or "",
+            # Is the fourth vector actually rated for this ticker today? It
+            # needs a coverage count from the estimates provider, and when
+            # that count went missing the whole dimension read NOT RATED for
+            # every company on every day without anything saying so.
+            "revisions_rated": (row or {}).get("revisions_score") is not None,
+            "revisions_label": (row or {}).get("revisions_label") or "",
             "contract_required": bool(needs),
             "contract_recorded": (True if not needs else bool(contract)),
+            # What the stored contract SAYS it is. The recommendation and the
+            # equal-capital comparator name structures in two vocabularies,
+            # and a contract's fields cannot tell a long-dated call from a
+            # short put — both carry a strike and a price — so the stamp is
+            # what makes the row settleable.
+            "stored_contract_structure": contract.get("structure") or "",
             "contract_note": ("This recommendation names no option contract, "
                               "and needs none." if row and not needs else
                               "The exact contract and its quote were recorded."

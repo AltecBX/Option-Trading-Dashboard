@@ -2413,3 +2413,112 @@ production, where `validation()` always passes it.
 without a recorded benchmark close is still scored on its own return; it
 simply cannot be measured against anything, and says so rather than
 borrowing a close from a price series fetched later.
+
+## The correctness pass
+
+An independent audit of the finished engine raised five defects. All five
+reproduced against the code, and each was a wiring fault rather than a
+mistake in the analysis — which is its own lesson: the arithmetic had tests,
+and the seams between modules did not.
+
+### An evening chain was filed under tomorrow
+
+`chain_store.record` dated a snapshot with `date.today()` when the caller did
+not say which day it belonged to. This app runs on a UTC container, so from
+about eight in the evening in New York that date is already tomorrow.
+
+Every chain any tab fetched went through that path. Browsing a ticker in the
+evening wrote a snapshot under the next trading day, and because the first
+capture of a day is the one kept, the **next day's real scheduled capture was
+then refused as a duplicate**. The genuine day was lost, the capture log
+called it complete, and there is no source of historical chains to repair it
+from. The scheduled capture had been passing the exchange day correctly since
+Phase 7; the passive path had never been looked at.
+
+The store no longer guesses. The trading day is passed in or comes from a
+market-clock function given to `configure`, and a snapshot with neither is
+refused. A day the market did not trade is refused too — a quote taken on a
+Saturday is Friday's quote wearing Saturday's date.
+
+### The Revisions dimension had never been rated
+
+`revisions_block` read `analyst_count`, `up_count` and `down_count` off the
+estimates payload. `analyst_client.get_eps_estimates` had never returned any
+of the three. Revisions read NOT RATED for every company on every day, and
+the value-trap signal that fires when analysts are cutting their numbers
+could not fire at all — so a deteriorating company could reach ATTRACTIVE
+with the check designed to stop it structurally unable to run.
+
+Every test passed, because every test handed the engine `{"analyst_count":
+10}`. A fixture cannot fail in the way a provider can.
+
+The counts were available for free the whole time: `numberOfAnalysts` is a
+column of the same estimate frame the current-year figure is already read
+from, and the thirty-day up and down counts are the ones the revision
+breadth is already computed from. They are read rather than inferred, and
+where the provider does not publish a coverage count the field stays N/A —
+the number of analysts who MOVED is not the number who COVER, and standing
+one in for the other would refuse every well-covered company in a quiet
+month and rate a thin one that happened to be busy.
+
+`test_provider_contract.py` exists so this cannot recur: it drives the
+provider's own normalisation with only the network stubbed, and asserts that
+every field a downstream engine reads is present in what the provider
+actually builds.
+
+### The recommended contract was somebody else's
+
+`recommended_contract` always stored the contract from whichever structure
+the equal-capital comparator ranked first. Above the buy zone the
+recommendation is SELL PORTFOLIO SECURED PUT — the short-dated optimizer's
+pick — while the comparator has usually ranked SHARES or a long-dated call.
+The row therefore stored a contract belonging to a different structure at a
+different expiration, forward validation rightly refused it, and the put the
+app had actually named was sitting unused in the same snapshot.
+
+The contract now follows the **recommendation**, and the structure is
+stamped from that decision rather than read off the row — a contract's
+fields cannot identify it, because a long-dated call and a short put both
+carry a strike and a price. A spread records both legs and both quotes,
+since it is entered for a net debit that neither leg was ever quoted at.
+
+### One benchmark was standing in for all of them
+
+Each stored row names the index it was recorded against. The validation run
+fetched **one** series — the first watchlist symbol's sector fund — and used
+it for every row. A technology holding recorded against XLK was settled up
+using XLE's later close divided by XLK's starting close: both flat, sixty
+points of excess return, reported as a measurement.
+
+Each index is now loaded once and matched to the rows that named it. A
+series that does not match is refused with BENCHMARK MISMATCH; the row is
+still scored on its own return, because that part was never in doubt.
+
+### A split read as a ninety percent loss
+
+A recommendation records the price it was written at. Price providers return
+split-adjusted history, so after a ten-for-one split the same day reads at a
+tenth of it and a flat stock scores −90%. The recommended option is worse: a
+$480 put settled against a $48 underlying reads as a total loss on a
+position that was never in trouble.
+
+Before settling, the recorded price is compared with what the series now
+reports **for that same day**. The test cannot mistake a real price move for
+a split by construction: both numbers describe one day, so a stock that fell
+forty percent fell forty percent in each of them, and only a re-basing can
+separate the two.
+
+Nothing is adjusted. An option's terms after a corporate action are set by
+the clearing corporation and do not always equal simple split arithmetic, so
+a row whose basis moved is refused, named, and left exactly as it was
+written. An unexplained re-basing is refused on the same terms — it is not
+more trustworthy for being unexplained.
+
+### One thing added, and only one
+
+A short put that sits through an earnings report now says so on the action
+line. Both dates were already in hand and in different panels. It is
+information and gates nothing: the premium is richer for precisely the
+reason the risk is higher, and a test asserts that the same chain chooses
+the same strike and reaches the same hurdle verdict whether a report falls
+inside the contract or not.
