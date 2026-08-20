@@ -695,8 +695,10 @@ function KlSeries({ s, tip, sessionDate }) {
       )}
       {odd && (
         <span className="kl-srow-when"
-          title={`This series is showing the Korean session of ${gapDate(s.session_date)}, which is NOT the session the rest of the panel is reading. Treat it as older data, not as today's move.`}>
-          ⚠ showing {gapDate(s.session_date)}</span>
+          title={s.off_session
+            ? `This series last traded on ${gapDate(s.session_date)}, which is NOT the session the rest of the panel is reading. Its move is shown, but it is NOT counted as confirming or diverging from KOSPI — comparing two different trading days would not mean anything.`
+            : `This series is showing the Korean session of ${gapDate(s.session_date)}, which is NOT the session the rest of the panel is reading. Treat it as older data, not as today's move.`}>
+          ⚠ {gapDate(s.session_date)}{s.off_session ? " · not counted" : ""}</span>
       )}
     </div>
   );

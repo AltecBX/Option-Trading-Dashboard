@@ -122,6 +122,7 @@ HISTORY_DAYS = 2600
 
 _BARS_TTL_LIVE_S = 300.0        # Seoul still trading: today's bar moves
 _BARS_TTL_CLOSED_S = 3600.0     # Seoul done: today's bar is settled
+_US_BARS_TTL_S = 300.0          # a ten-year daily series cannot move faster
 _QUOTE_TTL_S = 20.0
 
 # ── injected dependencies ───────────────────────────────────────────────────
@@ -134,6 +135,7 @@ _DATA_DIR: Path | None = None
 
 _LOCK = threading.Lock()
 _BARS_MEM: dict = {}            # yahoo symbol -> (fetched_ts, pack)
+_US_MEM: dict = {}              # symbol -> (fetched_ts, daily bar pack)
 _OBS_MEM: dict = {}             # symbol -> (identity, matched observations)
 _STATS_MEM: dict = {}           # cache key -> (built_ts, study)
 _QUOTE_MEM: dict = {}           # symbol -> (fetched_ts, quote)
@@ -156,6 +158,7 @@ def configure(daily_fn=None, korea_fn=None, quote_fn=None, data_dir=None,
             print(f"[korea] storage init failed: {exc}")
     with _LOCK:
         _BARS_MEM.clear()
+        _US_MEM.clear()
         _OBS_MEM.clear()
         _STATS_MEM.clear()
         _QUOTE_MEM.clear()
@@ -409,19 +412,40 @@ def korea_bars(name: str, force: bool = False) -> dict:
     return pack
 
 
-def us_bars(symbol: str) -> dict:
+def us_bars(symbol: str, force: bool = False) -> dict:
     """Daily bars for the U.S. target, through the injected loader — the
-    same Schwab-first path and cache the rest of the app already uses."""
+    same Schwab-first path the rest of the app already uses.
+
+    Memoised for a few minutes on top of that loader. One panel load asks
+    for this series more than once (the statistics, the matched set, and
+    the lookback comparison all start from it), and while the loader's own
+    network call is cached, everything around it is not: each call re-runs
+    the indicator pass over ten years of bars and asks for a fresh quote to
+    splice today in. None of that can change between two calls a
+    millisecond apart, and a ten-year daily series cannot meaningfully
+    change more than once a session.
+    """
+    key = symbol.upper()
+    with _LOCK:
+        hit = _US_MEM.get(key)
+    if hit and not force and time.time() - hit[0] < _US_BARS_TTL_S:
+        return hit[1]
     if not _DAILY_FN:
         return {"bars": [], "source": None, "ok": False,
                 "error": "no U.S. daily loader is wired"}
     try:
-        pack = _DAILY_FN(symbol, HISTORY_DAYS) or {}
+        pack = _DAILY_FN(key, HISTORY_DAYS) or {}
     except Exception as exc:          # noqa: BLE001
         return {"bars": [], "source": None, "ok": False, "error": str(exc)[:200]}
     bars = pack.get("bars") or []
-    return {"bars": bars, "source": pack.get("source"), "ok": bool(bars),
-            "error": None if bars else f"no daily history for {symbol}"}
+    out = {"bars": bars, "source": pack.get("source"), "ok": bool(bars),
+           "error": None if bars else f"no daily history for {key}"}
+    if bars:
+        with _LOCK:
+            _US_MEM[key] = (time.time(), out)
+            if len(_US_MEM) > 24:
+                _US_MEM.pop(next(iter(_US_MEM)), None)
+    return out
 
 
 # ── where Seoul is right now ────────────────────────────────────────────────
@@ -481,7 +505,25 @@ def _us_session(now=None) -> dict:
 
 def korea_today(force: bool = False) -> dict:
     """The latest close-to-close move for every Korean series, with the
-    session date each one belongs to and whether it is settled."""
+    session date each one belongs to and whether it is settled.
+
+    Two dates have to agree before any of this becomes a signal, and both
+    checks live here rather than at the call sites:
+
+    A SERIES IS ONLY TODAY'S IF ITS OWN SESSION SAYS SO. On a Korean
+    holiday, a provider delay, or a failed refresh serving the stored copy,
+    the newest bar belongs to an EARLIER session. That move already had its
+    U.S. session — the one sharing its date — so handing it to today's open
+    is exactly the roll-forward the historical alignment refuses to do. The
+    signal is withheld and the reason is stated.
+
+    AND THE CHIP NAMES ARE ONLY CONFIRMATION IF THEY TRADED THE SAME DAY.
+    A Samsung reading from yesterday next to a KOSPI reading from today is
+    not agreement or disagreement about anything; it is two different days
+    being compared. Such a name is passed through as unreadable, which the
+    confirmation logic already reports by name and already refuses to call
+    STRONG.
+    """
     sess = session_state()
     out = {"session": sess, "series": {}, "as_of": None, "sources": {}}
     newest = None
@@ -529,10 +571,55 @@ def korea_today(force: bool = False) -> dict:
         "does not reach back far enough to sample it honestly instead, so "
         "the currency stays out of the model until it can be sampled at the "
         "Korean close.")
+    # Is there a Korean signal for the U.S. session this panel is about?
+    # Only when KOSPI's own newest session IS the current Seoul date. That
+    # single test covers every way this goes wrong: a Korean holiday, a
+    # weekend, a provider running a day behind, a failed refresh serving
+    # the stored copy — and it correctly withholds the signal in the
+    # evening, when Seoul's next session has not happened yet.
+    kospi = out["series"][KOSPI]
+    signal_day = kospi["session_date"]
+    if not kospi["ok"]:
+        ok, why = False, ("KOSPI could not be read"
+                          + (f": {kospi['error']}" if kospi.get("error") else "."))
+    elif not kospi["is_today"]:
+        ok, why = False, (
+            f"The newest Korean session on file is {_pretty(signal_day)}, not "
+            f"{_pretty(sess['seoul_date'])}. That move already had its own "
+            f"U.S. session — the one sharing its date — so it is not carried "
+            f"forward onto this one. Korea is either closed today, or the "
+            f"data has not arrived yet.")
+    else:
+        ok, why = True, None
+    out["signal"] = {"ok": ok, "pct": kospi["pct"] if ok else None,
+                     "session_date": signal_day, "reason": why,
+                     "provisional": kospi["provisional"]}
+
+    # Chip confirmation compares one session against itself or not at all.
+    def _same_day(name):
+        s = out["series"][name]
+        if not s["ok"] or s["session_date"] != signal_day:
+            s["off_session"] = bool(s["ok"] and s["session_date"] != signal_day)
+            return None
+        s["off_session"] = False
+        return s["pct"]
+
     out["chip_confirmation"] = kle.chip_confirmation(
-        out["series"][KOSPI]["pct"], out["series"][SAMSUNG]["pct"],
-        out["series"][HYNIX]["pct"])
+        out["signal"]["pct"], _same_day(SAMSUNG), _same_day(HYNIX))
     return out
+
+
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+
+
+def _pretty(iso) -> str:
+    """"August 20, 2026" — the house date format, never ISO on screen."""
+    try:
+        y, m, d = str(iso)[:10].split("-")
+        return f"{_MONTHS[int(m) - 1]} {int(d)}, {y}"
+    except (ValueError, IndexError, TypeError):
+        return str(iso or "an unknown date")
 
 
 # ── the U.S. side, live ─────────────────────────────────────────────────────
@@ -632,7 +719,7 @@ def observations(symbol: str, force: bool = False) -> dict:
     """
     sym = (symbol or "").upper()
     kospi = korea_bars(KOSPI, force=force)
-    us = us_bars(sym)
+    us = us_bars(sym, force=force)
     # Identity of the inputs, not a clock: the same bars always produce the
     # same matched set, so a cached set is reused only while both series
     # end where they ended when it was built.
@@ -715,13 +802,21 @@ def _through_date(measures: dict) -> str | None:
 
 def _stats_key(symbol: str, window: str, obs: list) -> str:
     """Cache identity: the target, the lookback, the signal definition, the
-    engine version and the exact span of sessions being measured. Anything
-    that would change the answer changes the key, so a cached study can
-    only ever be served for the question it answered."""
+    engine version, the hash of the active settings, and the exact span of
+    sessions being measured.
+
+    The settings hash is in here because without it the rest of this
+    sentence was false. Editing the thresholds overlay changes how the
+    edges are worded but does NOT change the observation span, so the old
+    key kept hitting — and kept serving edge wordings, and a config hash,
+    computed under the previous settings — until the next trading day
+    rolled the span over on its own.
+    """
     first = obs[0]["date"] if obs else "-"
     last = obs[-1]["date"] if obs else "-"
     return "|".join((symbol.upper(), window, kle.SIGNAL_DEFINITION,
-                     kle.ENGINE_VERSION, first, last, str(len(obs))))
+                     kle.ENGINE_VERSION, config()[1], first, last,
+                     str(len(obs))))
 
 
 def study(symbol: str, window: str = DEFAULT_WINDOW, force: bool = False) -> dict:
@@ -819,7 +914,11 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
     if not sym or len(sym) > 8:
         out["error"] = "A U.S. ticker is required."
         return out
-    kospi_pct = korea["series"][KOSPI]["pct"]
+    # The gated signal, not the raw series reading. When KOSPI's newest
+    # session is not the current Seoul one there is no signal for this U.S.
+    # open, and the panel says which session it actually has.
+    sig = korea["signal"]
+    kospi_pct = sig["pct"]
     st = study(sym, win, force=force)
     out["sources"] = st.get("sources")
     if not st.get("ok"):
@@ -832,6 +931,11 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
     cfg, cfg_hash = config()
     implied = kle.implied_gap(obs, kospi_pct,
                               min_n=int(cfg["implied_min_n"]))
+    if not sig["ok"]:
+        # Say WHY there is no signal. "Korea has not produced a usable move
+        # for today yet" is true but useless next to "the newest Korean
+        # session on file is August 19".
+        implied["reason"] = sig["reason"]
     live = us_today(sym)
     cmp_ = kle.premarket_comparison(
         (implied.get("distribution") or {}).get("median_pct"),

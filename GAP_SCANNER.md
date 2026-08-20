@@ -454,6 +454,17 @@ turns the relationship NEGATIVE.
   years to sample it honestly instead. It is displayed, labelled `context`,
   and excluded from every statistic; a test changes the currency and
   asserts that not one number moves.
+- **Two dates have to agree before anything is a signal.** KOSPI's own
+  newest session must BE the current Seoul date; on a Korean holiday, a
+  weekend, a provider running a day behind, or a failed refresh serving the
+  stored copy, the bias is withheld and the panel names the session it
+  actually has. That earlier Korean move already had its U.S. session — the
+  one sharing its date — so carrying it forward here would be the same
+  roll-forward the historical alignment refuses to do. And a chip name is
+  only confirmation if it traded the SAME day: a Samsung reading from
+  yesterday beside a KOSPI reading from today is two different days being
+  compared, so it is passed through as unreadable, named, and marked
+  `not counted` on the row.
 - **No sign-blind buckets.** Upside and downside Korean moves are separate
   tables. On measured data they are genuinely asymmetric — for SMH over one
   year, KOSPI up 1–2% preceded a same-direction open 83% of the time while
@@ -509,8 +520,11 @@ Caching: Korean bars persist to `<data>/korea/bars/`, refreshed every five
 minutes while Seoul is trading and hourly once it has closed; a failed
 refresh serves the stored copy and marks it `stale`. Statistics cache in
 memory against the target, the lookback, the signal definition, the engine
-version and the exact span of sessions measured, so a cached answer can
-only be served for the question it answered.
+version, the hash of the active settings, and the exact span of sessions
+measured — the settings hash included because editing the thresholds
+overlay changes the wording of an edge without changing the span, so a key
+built only from the span kept serving the previous settings' answer until
+the next trading day rolled it over.
 
 ### Prepared for, not built
 

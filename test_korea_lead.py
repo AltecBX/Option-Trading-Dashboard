@@ -30,35 +30,48 @@ ET = ZoneInfo("America/New_York")
 
 # ── fixture builders ────────────────────────────────────────────────────────
 
-def kbars(moves, start="2026-01-05", base=1000.0):
+# The fixtures are anchored to their LAST session rather than their first,
+# because what most of these tests turn on is whether the newest bar is the
+# one the clock says it should be. A series built forwards from a fixed
+# start lands wherever the length puts it, which is how the live case —
+# Korea's newest bar IS today's Seoul session — went untested.
+FIXTURE_END = "2026-03-04"          # a Wednesday; Seoul's date at NOW below
+
+
+def weekdays_back(n, end=FIXTURE_END):
+    """`n` weekday sessions ending on `end`, oldest first."""
+    d = date.fromisoformat(end)
+    out = []
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d -= timedelta(days=1)
+    return list(reversed(out))
+
+
+def kbars(moves, base=1000.0, end=FIXTURE_END):
     """Korean daily bars whose close-to-close returns are exactly `moves`
-    (percent), one per weekday starting the session AFTER `start`."""
-    d = date.fromisoformat(start)
-    bars = [{"date": d.isoformat(), "open": base, "high": base,
+    (percent), one per weekday session, ENDING on `end`."""
+    days = weekdays_back(len(moves) + 1, end)
+    bars = [{"date": days[0].isoformat(), "open": base, "high": base,
              "low": base, "close": base}]
     px = base
-    for m in moves:
-        d += timedelta(days=1)
-        while d.weekday() >= 5:
-            d += timedelta(days=1)
+    for d, m in zip(days[1:], moves):
         px = px * (1.0 + m / 100.0)
         bars.append({"date": d.isoformat(), "open": px, "high": px,
                      "low": px, "close": px})
     return bars
 
 
-def ubars(gaps, o2c=None, start="2026-01-05", base=100.0):
+def ubars(gaps, o2c=None, base=100.0, end=FIXTURE_END):
     """U.S. daily bars with exactly the requested opening gaps (percent from
-    the prior close) and, optionally, open-to-close moves."""
+    the prior close) and, optionally, open-to-close moves. Ends on `end`."""
     o2c = o2c or [0.0] * len(gaps)
-    d = date.fromisoformat(start)
-    bars = [{"date": d.isoformat(), "open": base, "high": base,
+    days = weekdays_back(len(gaps) + 1, end)
+    bars = [{"date": days[0].isoformat(), "open": base, "high": base,
              "low": base, "close": base}]
     prev = base
-    for g, c in zip(gaps, o2c):
-        d += timedelta(days=1)
-        while d.weekday() >= 5:
-            d += timedelta(days=1)
+    for d, g, c in zip(days[1:], gaps, o2c):
         op = prev * (1.0 + g / 100.0)
         cl = op * (1.0 + c / 100.0)
         bars.append({"date": d.isoformat(), "open": op,
@@ -575,6 +588,7 @@ class KoreaLeadCase(unittest.TestCase):
         self.quote = {"last": 101.5, "close_prev": 100.0, "open": None,
                       "stale_seconds": 9.0}
         self.korea_calls = []
+        self.daily_calls = []
         kl.configure(daily_fn=self._daily, korea_fn=self._korea,
                      quote_fn=lambda s: dict(self.quote),
                      data_dir=self.tmp.name, now_fn=lambda: self.now)
@@ -587,6 +601,7 @@ class KoreaLeadCase(unittest.TestCase):
                 "meta": {"name": sym, "timezone": "Asia/Seoul"}}
 
     def _daily(self, sym, days):
+        self.daily_calls.append(sym)
         return {"bars": list(self.us), "source": "test"}
 
 
@@ -628,16 +643,19 @@ class TestSessionState(KoreaLeadCase):
         self.assertEqual(got["state"], kl.SESSION_LIVE)
 
     def test_the_live_session_marks_todays_reading_provisional(self):
-        self.now = datetime(2026, 3, 3, 22, 0, tzinfo=ET)    # 12:00 Mar 4 KST
-        self.korea = {k: kbars(self.KOREA_MOVES, start="2026-01-02")
-                      for k in self.korea}
-        # make the last Korean bar land on Seoul's today
-        last = kl.session_state()["seoul_date"]
-        for sym in self.korea:
-            self.korea[sym][-1]["date"] = last
+        # 10pm Tuesday in New York is noon Wednesday in Seoul — mid-session.
+        # The fixtures already end on that Wednesday.
+        self.now = datetime(2026, 3, 3, 22, 0, tzinfo=ET)
+        kl.configure(daily_fn=self._daily, korea_fn=self._korea,
+                     quote_fn=lambda s: dict(self.quote),
+                     data_dir=self.tmp.name, now_fn=lambda: self.now)
         got = kl.korea_today()
         self.assertEqual(got["session"]["state"], kl.SESSION_LIVE)
+        self.assertEqual(got["session"]["seoul_date"], FIXTURE_END)
         self.assertTrue(got["series"]["kospi"]["provisional"])
+        # a session still running is a signal, and it says it is not final
+        self.assertTrue(got["signal"]["ok"])
+        self.assertTrue(got["signal"]["provisional"])
 
     def test_a_closed_session_is_not_provisional(self):
         got = kl.korea_today()
@@ -676,6 +694,141 @@ class TestKoreaToday(KoreaLeadCase):
         got = kl.korea_today()["chip_confirmation"]
         self.assertIn("samsung", got["missing"])
         self.assertNotEqual(got["state"], kle.CONFIRMATION_STRONG)
+
+
+class TestAnOlderKoreanSessionIsNotTodaysSignal(KoreaLeadCase):
+    """A Korean move dated before today already had its own U.S. session —
+    the one sharing its date. Carrying it forward onto this morning's open
+    is exactly the roll-forward the historical alignment refuses to do, so
+    the live panel must refuse it too. This is how it happens in practice:
+    a Korean holiday, a provider running a day behind, or a failed refresh
+    serving the stored copy."""
+
+    def _stale_kospi(self):
+        """KOSPI a session behind; everything else current."""
+        self.korea["^KS11"] = kbars(self.KOREA_MOVES)[:-1]
+
+    def test_the_signal_is_withheld_when_korea_last_traded_earlier(self):
+        self._stale_kospi()
+        got = kl.korea_today()
+        self.assertFalse(got["signal"]["ok"])
+        self.assertIsNone(got["signal"]["pct"])
+
+    def test_the_reason_names_the_session_it_actually_has(self):
+        self._stale_kospi()
+        why = kl.korea_today()["signal"]["reason"]
+        self.assertIn("newest Korean session on file", why)
+        self.assertIn("2026", why)
+        # house rule: dates on screen are Month Day, Year, never ISO
+        self.assertNotRegex(why, r"\d{4}-\d{2}-\d{2}")
+
+    def test_no_bias_is_shown_from_an_older_korean_session(self):
+        self._stale_kospi()
+        got = kl.payload("MU", "1y")
+        self.assertEqual(got["opening_gap"]["bias"]["state"], kle.BIAS_NONE)
+        self.assertFalse(got["opening_gap"]["implied"]["usable"])
+        self.assertIn("newest Korean session on file",
+                      got["opening_gap"]["implied"]["reason"])
+
+    def test_no_premarket_comparison_against_an_older_korean_session(self):
+        self._stale_kospi()
+        got = kl.payload("MU", "1y")
+        self.assertEqual(got["premarket_comparison"]["state"],
+                         kle.COMPARISON_UNAVAILABLE)
+        self.assertIsNone(got["premarket_comparison"]["residual_pct"])
+
+    def test_a_bucket_with_ample_history_is_still_refused(self):
+        """Not an accident of a thin bucket — the value never reaches the
+        lookup at all. This fixture's bucket has plenty of matched
+        sessions and the answer is still NO DATA."""
+        self.korea["^KS11"] = kbars([1.5] * 60)[:-1]     # a session behind
+        self.us = ubars([0.5] * 60)
+        got = kl.payload("MU", "max")
+        self.assertEqual(got["opening_gap"]["bias"]["state"], kle.BIAS_NONE)
+
+    def test_the_current_session_is_of_course_still_a_signal(self):
+        got = kl.korea_today()
+        self.assertTrue(got["signal"]["ok"])
+        self.assertEqual(got["signal"]["pct"], got["series"]["kospi"]["pct"])
+
+    def test_a_weekend_has_no_signal(self):
+        self.now = datetime(2026, 3, 7, 9, 0, tzinfo=ET)   # Saturday in Seoul
+        kl.configure(daily_fn=self._daily, korea_fn=self._korea,
+                     quote_fn=lambda s: dict(self.quote),
+                     data_dir=self.tmp.name, now_fn=lambda: self.now)
+        got = kl.korea_today()
+        self.assertEqual(got["session"]["state"], kl.SESSION_NON_TRADING)
+        self.assertFalse(got["signal"]["ok"])
+
+    def test_an_unreadable_kospi_says_so_rather_than_naming_a_session(self):
+        self.korea["^KS11"] = []
+        got = kl.korea_today()
+        self.assertFalse(got["signal"]["ok"])
+        self.assertIn("KOSPI could not be read", got["signal"]["reason"])
+
+
+class TestChipConfirmationComparesOneSessionAgainstItself(KoreaLeadCase):
+    """A Samsung reading from yesterday beside a KOSPI reading from today is
+    not agreement or disagreement about anything — it is two different days
+    being compared. Before this was gated, that pair reported STRONG."""
+
+    def test_a_chip_name_from_an_earlier_session_is_not_confirmation(self):
+        self.korea["005930.KS"] = kbars([m * 1.4 for m in self.KOREA_MOVES])[:-1]
+        got = kl.korea_today()["chip_confirmation"]
+        self.assertNotEqual(got["state"], kle.CONFIRMATION_STRONG)
+        self.assertIn("samsung", got["missing"])
+        self.assertIn("samsung", got["detail"])
+
+    def test_an_off_session_chip_name_cannot_produce_divergence_either(self):
+        """Both words claim something about a pair that was measured on the
+        same day. Neither may be reached on one."""
+        self.korea["005930.KS"] = kbars([-m for m in self.KOREA_MOVES])[:-1]
+        self.korea["000660.KS"] = kbars([-m for m in self.KOREA_MOVES])[:-1]
+        got = kl.korea_today()["chip_confirmation"]
+        self.assertEqual(got["state"], kle.CONFIRMATION_UNAVAILABLE)
+        self.assertEqual(got["readable"], 0)
+
+    def test_the_row_is_marked_off_session_so_the_reader_can_see_it(self):
+        self.korea["000660.KS"] = kbars([m * 1.6 for m in self.KOREA_MOVES])[:-1]
+        got = kl.korea_today()["series"]
+        self.assertTrue(got["hynix"]["off_session"])
+        self.assertFalse(got["samsung"]["off_session"])
+        # the value itself is still shown, with its own date beside it
+        self.assertIsNotNone(got["hynix"]["pct"])
+        self.assertNotEqual(got["hynix"]["session_date"],
+                            got["kospi"]["session_date"])
+
+    def test_same_session_chip_names_confirm_normally(self):
+        got = kl.korea_today()["chip_confirmation"]
+        self.assertEqual(got["state"], kle.CONFIRMATION_STRONG)
+        self.assertEqual(got["missing"], [])
+
+
+class TestTheStudyCacheKnowsAboutSettings(KoreaLeadCase):
+    """Editing the thresholds overlay changes how the edges are worded but
+    does NOT change the observation span, so a key built only from the span
+    kept hitting and kept serving the previous settings' answer until the
+    next trading day rolled it over."""
+
+    def test_the_settings_hash_is_part_of_the_key(self):
+        obs = [{"date": "2026-01-05"}, {"date": "2026-03-03"}]
+        self.assertIn(kl.config()[1], kl._stats_key("MU", "1y", obs))
+
+    def test_changing_the_settings_changes_the_answer_immediately(self):
+        from pathlib import Path
+        first = kl.study("MU", "1y")
+        self.assertEqual(kl.study("MU", "1y")["cached"], True)
+        (Path(self.tmp.name) / "thresholds.json").write_text(json.dumps(
+            {"korea_lead": {"edge_gates": {"min_n": 100000}}}))
+        kl.config(refresh=True)
+        after = kl.study("MU", "1y")
+        self.assertFalse(after["cached"], "served a study built under the old settings")
+        self.assertNotEqual(first["config_hash"], after["config_hash"])
+        self.assertEqual(after["opening_gap_edge"]["state"], kle.EDGE_UNAVAILABLE)
+
+    def test_the_payload_reports_the_settings_it_actually_used(self):
+        got = kl.payload("MU", "1y")
+        self.assertEqual(got["config_hash"], kl.config()[1])
 
 
 class TestUsdKrwStaysOutOfTheModel(KoreaLeadCase):
@@ -852,6 +1005,30 @@ class TestCaching(KoreaLeadCase):
         kl.payload("NVDA", "1y")
         self.assertEqual(len(self.korea_calls) - before, first,
                          "a second target refetched Korea")
+
+    def test_one_panel_load_reads_the_us_series_once(self):
+        """The statistics, the matched set and the lookback comparison all
+        start from the same daily series. The loader's own network call is
+        cached upstream, but everything around it is not — each call re-runs
+        an indicator pass over ten years of bars and asks for a live quote
+        to splice today in. None of that can change between two calls a
+        millisecond apart."""
+        self.daily_calls.clear()
+        kl.payload("MU", "1y")
+        self.assertEqual(self.daily_calls, ["MU"],
+                         f"read the U.S. series {len(self.daily_calls)} times")
+
+    def test_a_second_target_reads_its_own_series_once(self):
+        kl.payload("MU", "1y")
+        self.daily_calls.clear()
+        kl.payload("NVDA", "1y")
+        self.assertEqual(self.daily_calls, ["NVDA"])
+
+    def test_a_forced_refresh_rereads_the_us_series(self):
+        kl.payload("MU", "1y")
+        self.daily_calls.clear()
+        kl.payload("MU", "1y", force=True)
+        self.assertIn("MU", self.daily_calls)
 
     def test_a_cached_study_is_served_only_for_the_same_question(self):
         a = kl.study("MU", "1y")
