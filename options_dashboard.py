@@ -5549,6 +5549,16 @@ try:
     )
     _KOREA_AVAILABLE = True
     try:
+        # The forward capture loop. One daemon thread, started once, that
+        # sleeps between checkpoints and fits nothing. It is started here
+        # rather than lazily on first request because the whole point is
+        # to record mornings nobody was watching.
+        import korea_capture as _korea_capture
+        _korea_capture.start()
+    except Exception as _exc3:  # noqa: BLE001
+        print(f"[korea_capture] start failed: {_exc3}", file=sys.stderr)
+        _korea_capture = None  # type: ignore
+    try:
         import korea_research as _korea_research
         _korea_research.configure(data_dir=_STABLE_DIR)
     except Exception as _exc2:  # noqa: BLE001
@@ -5562,6 +5572,7 @@ except Exception as _exc:  # noqa: BLE001
     _KOREA_AVAILABLE = False
     _korea = None  # type: ignore
     _korea_research = None  # type: ignore
+    _korea_capture = None  # type: ignore
 
 
 # ── Investment tab (v4.41) ──────────────────────────────────────────────────
@@ -8748,6 +8759,43 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                                force=force), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(symbol, "api/korea_lead", exc)
+                self._send_json({"error": str(exc), "ok": False}, status=500)
+            return
+        if parsed.path.startswith("/api/korea_forward"):
+            # The genuine point-in-time record: what this app said before
+            # each open, and what happened afterwards. Read-only — nothing
+            # here can rewrite an archived prediction, because the store
+            # this reads has no update path at all.
+            if not _KOREA_AVAILABLE or _korea_capture is None:
+                self._send_json({"error": "Korea forward capture unavailable",
+                                 "ok": False}, status=503)
+                return
+            section = parsed.path[len("/api/korea_forward"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol", [""])[0] or "").strip().upper() or None
+            days = max(1, min(1200, int((qs.get("days", ["120"])[0] or "120")
+                                        if (qs.get("days", ["120"])[0] or "120"
+                                            ).isdigit() else 120)))
+            if symbol and (len(symbol) > 8 or not symbol.isalnum()):
+                self._send_json({"error": "symbol required", "ok": False},
+                                status=400)
+                return
+            try:
+                if section in ("", "coverage"):
+                    self._send_json(_korea_capture.coverage(days=days),
+                                    no_store=True)
+                elif section == "scorecard":
+                    self._send_json(_korea_capture.scorecard(symbol=symbol,
+                                                             days=days),
+                                    no_store=True)
+                elif section == "status":
+                    self._send_json(_korea_capture.status(), no_store=True)
+                else:
+                    self._send_json(
+                        {"error": f"unknown korea forward section {section}"},
+                        status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol or "-", "api/korea_forward", exc)
                 self._send_json({"error": str(exc), "ok": False}, status=500)
             return
         if parsed.path.startswith("/api/korea_research"):

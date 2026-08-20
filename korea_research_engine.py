@@ -703,6 +703,19 @@ def walk_forward(rows, models: dict, y_key: str,
     out["folds"] = folds
     for name, rows_ in preds.items():
         out["models"][name] = _score(rows_, models.get(name))
+    # Error relative to simply predicting the training mean. This is the
+    # number that says whether a model is worth anything in absolute terms
+    # rather than merely better than the model beside it: at 1.0 it has
+    # matched a constant, and above 1.0 it has lost to one. Ranking alone
+    # cannot see that, because in a field of worthless models one of them
+    # still comes first.
+    ref = ((out["models"].get("mean") or {}).get("rmse_pct")
+           or (out["models"].get("zero") or {}).get("rmse_pct"))
+    for m in out["models"].values():
+        m["rmse_ratio"] = (round(m["rmse_pct"] / ref, 4)
+                           if (ref and m.get("rmse_pct") is not None) else None)
+    out["rmse_reference"] = ("mean" if (out["models"].get("mean") or {})
+                             .get("rmse_pct") else "zero")
     scored = {v["n"] for v in out["models"].values() if v.get("n")}
     # If this ever fires, two models were compared over different days and
     # the ranking beneath it means nothing — so it is stated in the payload
@@ -749,6 +762,7 @@ def _score(rows, features) -> dict:
         "direction_n": len(directional),
         "mae_pct": round(sum(errs) / n, 4),
         "median_ae_pct": round(median(errs), 4),
+        "rmse_pct": round(math.sqrt(sum(e * e for e in errs) / n), 4),
         "brier": round(brier, 4),
         "pred_actual_corr": None if r is None else round(r, 3),
     }
@@ -1070,4 +1084,202 @@ def relationship_health(recent_r, long_r, recent_n, long_n,
         out["state"] = HEALTH_WEAK
     out["detail"] = (f"Recent {rr:+.2f} over {int(rn)} sessions, long window "
                      f"{lr:+.2f} over {int(ln)}; both point the same way.")
+    return out
+
+
+# ── which Korean input leads this ticker, and when that may change ──────────
+
+DRIVER_NONE = "NO CLEAR PRIMARY DRIVER"
+
+DRIVER_GATES = {
+    # Relative — what a challenger must add to unseat the incumbent.
+    "direction_improvement_points": 3.0,
+    "mae_relative_improvement": 0.10,
+    "confirmation_sessions": 60,
+    # Absolute — the floor every candidate must clear on its own merits.
+    "min_oos_n": 250,
+    "min_direction_pct": 52.0,
+    "max_rmse_ratio": 1.0,
+}
+
+
+def driver_eligibility(scores: dict, gates: dict | None = None) -> dict:
+    """Which candidates are good enough to be anybody's primary driver.
+
+    A QUALITY FLOOR, NOT A RANKING. The failure this prevents is subtle and
+    total: rank three worthless signals against each other and one of them
+    wins, gets promoted, and appears on screen as "the primary Korean
+    driver" — a phrase that reads as a finding. Least bad is not good. If
+    nothing clears the floor the correct answer is that there is no primary
+    driver, and it stays that answer however long the list of candidates
+    grows.
+    """
+    g = dict(DRIVER_GATES)
+    g.update(gates or {})
+    min_n = int(g["min_oos_n"])
+    min_dir = float(g["min_direction_pct"])
+    max_rmse = float(g["max_rmse_ratio"])
+    rows = []
+    for name, m in (scores or {}).items():
+        n = int(m.get("n") or 0)
+        d = _num(m.get("direction_pct"))
+        rr = _num(m.get("rmse_ratio"))
+        fails = []
+        if n < min_n:
+            fails.append(f"only {n} out-of-sample sessions, needs {min_n}")
+        if d is None or d < min_dir:
+            fails.append(f"direction accuracy {('unmeasured' if d is None else f'{d:.1f}%')}"
+                         f", needs {min_dir:g}%")
+        if rr is None or rr >= max_rmse:
+            fails.append(
+                f"out-of-sample error {('unmeasured' if rr is None else f'{rr:.3f}')} "
+                f"relative to predicting the average, needs to be under "
+                f"{max_rmse:g} — at or above it the model is not beating a "
+                f"constant")
+        rows.append({"model": name, "n": n, "direction_pct": d,
+                     "mae_pct": _num(m.get("mae_pct")), "rmse_ratio": rr,
+                     "eligible": not fails, "fails": fails})
+    rows.sort(key=lambda r: (not r["eligible"],
+                             r["mae_pct"] if r["mae_pct"] is not None else 9e9))
+    return {"rows": rows, "gates": dict(g),
+            "eligible": [r["model"] for r in rows if r["eligible"]]}
+
+
+def driver_decision(scores: dict, incumbent: dict | None = None,
+                    gates: dict | None = None, today: str | None = None) -> dict:
+    """Whether the primary Korean driver should change today.
+
+    THE SWITCH IS DELIBERATELY HARD TO EARN, and the reason is a specific
+    failure mode: rank two candidates by correlation and the ordering
+    flips on noise, so the audit log reads SK Hynix on Monday, KOSPI on
+    Tuesday, Samsung on Wednesday — three "findings" that are one sampling
+    error. So a challenger must
+
+      clear the absolute quality floor on its own,
+      beat the incumbent by a margin on BOTH direction accuracy and error,
+      and hold both advantages across `confirmation_sessions` MATCHED
+      SESSIONS — not across that many evaluations, which would mean the
+      answer depended on how often somebody happened to look.
+
+    Conjunctive on purpose. A challenger that wins one metric and loses the
+    other has not shown it is better; it has shown it is different.
+
+    Everything is out of sample. An in-sample correlation, however large,
+    can never move the driver.
+    """
+    g = dict(DRIVER_GATES)
+    g.update(gates or {})
+    elig = driver_eligibility(scores, g)
+    by_name = {r["model"]: r for r in elig["rows"]}
+    inc_name = (incumbent or {}).get("driver")
+    inc = by_name.get(inc_name)
+    out = {"driver": None, "verdict": DRIVER_NONE, "changed": False,
+           "incumbent": inc_name, "challenger": None, "detail": None,
+           "eligibility": elig, "gates": dict(g), "today": today,
+           "streak": dict((incumbent or {}).get("streak") or {}) or None}
+
+    eligible = [r for r in elig["rows"] if r["eligible"]]
+    if not eligible:
+        out["detail"] = (
+            "No candidate clears the absolute quality floor, so there is no "
+            "primary driver. This is the correct answer rather than a "
+            "failure to produce one: promoting the least bad of several "
+            "weak signals would put the words PRIMARY KOREAN DRIVER on "
+            "screen above a model that cannot beat predicting the average.")
+        if inc_name:
+            out["changed"] = True
+            out["detail"] += (f" {inc_name} was primary and no longer "
+                              f"qualifies: "
+                              + "; ".join(inc["fails"] if inc else
+                                          ["it was not scored this time"])
+                              + ".")
+        return out
+
+    leader = eligible[0]
+    if not inc_name or inc is None or not inc["eligible"]:
+        # Nothing to defend. Adoption still requires the floor, which the
+        # leader has just cleared, and it is recorded as an adoption rather
+        # than a switch so the audit log does not read as a reversal.
+        out.update({"driver": leader["model"], "verdict": "ADOPTED",
+                    "changed": bool(inc_name != leader["model"]),
+                    "challenger": leader["model"]})
+        why = ("no driver was set" if not inc_name else
+               f"{inc_name} no longer clears the quality floor")
+        out["detail"] = (
+            f"{leader['model']} becomes the primary driver because {why}. "
+            f"Out of sample it is right about direction "
+            f"{leader['direction_pct']:.1f}% of the time across "
+            f"{leader['n']} sessions, with a mean absolute gap error of "
+            f"{leader['mae_pct']:.3f} points.")
+        out["streak"] = None
+        return out
+
+    # There is a sitting driver that still qualifies. It keeps the job
+    # unless something clearly better has been better for long enough.
+    out["driver"] = inc_name
+    out["verdict"] = "HELD"
+    challenger = next((r for r in eligible if r["model"] != inc_name), None)
+    if challenger is None:
+        out["detail"] = (f"{inc_name} is the only candidate clearing the "
+                         f"quality floor, so it stays.")
+        out["streak"] = None
+        return out
+    out["challenger"] = challenger["model"]
+    dir_gain = ((challenger["direction_pct"] or 0.0)
+                - (inc["direction_pct"] or 0.0))
+    mae_gain = (0.0 if not inc["mae_pct"] else
+                (inc["mae_pct"] - (challenger["mae_pct"] or inc["mae_pct"]))
+                / inc["mae_pct"])
+    need_dir = float(g["direction_improvement_points"])
+    need_mae = float(g["mae_relative_improvement"])
+    beats_dir = dir_gain >= need_dir
+    beats_mae = mae_gain >= need_mae
+    out.update({"direction_gain_points": round(dir_gain, 2),
+                "mae_relative_gain": round(mae_gain, 4),
+                "beats_direction": beats_dir, "beats_mae": beats_mae})
+
+    if not (beats_dir and beats_mae):
+        missed = []
+        if not beats_dir:
+            missed.append(f"direction accuracy by {dir_gain:+.1f} points "
+                          f"against the {need_dir:g} required")
+        if not beats_mae:
+            missed.append(f"error by {mae_gain * 100:+.1f}% against the "
+                          f"{need_mae * 100:g}% required")
+        out["detail"] = (
+            f"{inc_name} stays primary. {challenger['model']} would have to "
+            f"beat it on BOTH measures and it falls short on "
+            + " and ".join(missed) + ". A challenger that wins one and loses "
+            "the other has not been shown to be better, only different.")
+        out["streak"] = None
+        return out
+
+    # It beats both. Now it has to have beaten both for long enough.
+    streak = dict((incumbent or {}).get("streak") or {})
+    n_now = int(challenger["n"] or 0)
+    if streak.get("challenger") != challenger["model"]:
+        streak = {"challenger": challenger["model"], "since_n": n_now,
+                  "since_date": today}
+    held = n_now - int(streak.get("since_n") or n_now)
+    need_hold = int(g["confirmation_sessions"])
+    out["streak"] = dict(streak, sessions_held=held, sessions_required=need_hold)
+    if held < need_hold:
+        out["verdict"] = "HELD"
+        out["detail"] = (
+            f"{challenger['model']} currently beats {inc_name} on both "
+            f"measures, but has done so across {held} matched session"
+            f"{'' if held == 1 else 's'} of the {need_hold} required. "
+            f"{inc_name} stays primary until the advantage has lasted. "
+            f"Switching on the first day it appears is how a driver ends up "
+            f"changing every week on noise.")
+        return out
+
+    out.update({"driver": challenger["model"], "verdict": "SWITCHED",
+                "changed": True})
+    out["detail"] = (
+        f"{challenger['model']} replaces {inc_name}. It has been better on "
+        f"both measures across {held} matched sessions: direction accuracy "
+        f"{dir_gain:+.1f} points and error {mae_gain * 100:+.1f}% relative, "
+        f"both out of sample.")
+    out["streak"] = None
     return out

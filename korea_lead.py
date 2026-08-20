@@ -1446,6 +1446,15 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
         actual_pct=live_gap)
 
     rel = relationship(sym, force=force)
+    # The primary driver is READ here, never computed here. Working it out
+    # is a walk-forward over every candidate and belongs behind the research
+    # endpoint; this is a small file read, and if nothing has been evaluated
+    # for this ticker the answer is that there is no established driver.
+    try:
+        driver = _kres.driver_state(sym)
+    except Exception as exc:          # noqa: BLE001
+        driver = {"driver": None, "verdict": "NOT YET EVALUATED",
+                  "detail": str(exc)[:200]}
     # Everything that has to be true before this panel is allowed to sound
     # confident, checked in one place and reported by name. A degraded
     # answer says which check failed; it does not quietly keep its wording.
@@ -1512,6 +1521,7 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
             "agreement": estimates,
         },
         "relationship": rel,
+        "primary_driver": driver,
         "after_open": {
             "edge": st["after_open_edge"],
             "stats": st["measures"]["open_to_close"],
