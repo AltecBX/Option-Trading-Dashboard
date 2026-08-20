@@ -12517,6 +12517,29 @@ a.tabsheet-btn.site { text-decoration: none; }
 .kl-fresh.down { color: var(--down); }
 .kl-forward { margin-top: 10px; border-top: 1px dashed var(--line-2);
   padding-top: 8px; }
+/* The self-check's third column is a whole sentence. Left to itself the
+   table grows past the drawer and the reader has to scroll sideways to
+   learn that everything passed, so the sentence wraps instead. */
+.kl-check-table td:last-child { white-space: normal; line-height: 1.35;
+  max-width: 46ch; }
+.kl-check-table td:nth-child(2) { white-space: nowrap; }
+/* On a phone the sentence column is dropped entirely rather than pushed
+   off the edge. It stays reachable as the row's tooltip, and Check beside
+   Result is what a reader actually needs to see at a glance. */
+/* Compound selectors on purpose. The numeric diagnostics tables set a wide
+   min-width and nowrap cells further down this file, and a single-class
+   rule here would simply lose to them on source order — which is exactly
+   what happened first time round: the sentence column hid, the minimum
+   stayed, and the RESULT column was pushed off a phone screen, leaving the
+   reader a list of checks and no answers. */
+@media (max-width: 700px) {
+  .kl-check-detail { display: none; }
+  .kl-diag-table.kl-check-table { min-width: 0; width: 100%; }
+  .kl-diag-table.kl-check-table td:first-child,
+  .kl-diag-table.kl-check-table th:first-child {
+    white-space: normal; padding-right: 10px; }
+  .kl-diag-table.kl-check-table td:last-child { max-width: none; }
+}
 .kl-kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px 14px; margin: 6px 0 4px; }
 @media (max-width: 900px) {

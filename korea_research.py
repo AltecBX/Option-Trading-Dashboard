@@ -880,7 +880,11 @@ def driver_state(symbol: str) -> dict:
     """
     sym = (symbol or "").strip().upper()
     p = _driver_path(sym)
-    blank = {"symbol": sym, "driver": None, "verdict": kre.DRIVER_NONE,
+    # NOT YET EVALUATED is a different statement from NO CLEAR PRIMARY
+    # DRIVER, and reporting the second when the first is true would claim a
+    # measurement nobody made. One says the comparison has never been run;
+    # the other says it was run and nothing qualified.
+    blank = {"symbol": sym, "driver": None, "verdict": "NOT YET EVALUATED",
              "basis": "NOT YET EVALUATED", "since": None, "evidence": None,
              "detail": ("No out-of-sample comparison has been run for this "
                         "ticker yet, so no Korean input has been shown to "

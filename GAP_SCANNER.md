@@ -663,6 +663,67 @@ on the same observations. Taiwan would be a sibling symbol map. None of
 those is in V1, and no weighting will be applied to any of them until it
 has been validated out of sample.
 
+## V2.3 — hardening, and the first genuine forward data
+
+V2.3 added no indicator. It closed the ways the feature could lie.
+
+**Finality is evidence now, not a clock reading.** The panel used to call
+the Korean session final at 15:30 Seoul regardless of what the market was
+doing, which on the days Korea moves its trading day — most visibly the
+annual College Scholastic Ability Test — would publish a still-moving
+number as a settled one. No exam-day calendar was added, deliberately: a
+hardcoded calendar is silently wrong the first year nobody updates it, and
+wrong in the worst direction. Provider metadata does not answer it either,
+and that was checked rather than assumed — the endpoint carrying these
+series exposes **no market-state field at all**, and the trading-period
+block it does expose reports the KRX regular session ending at 15:00,
+disagreeing with the 15:30 the closing auction settles at. So the API now
+carries a SCHEDULED state and a DATA state side by side, and a session is
+final only once its value has been watched standing still, with a
+documented conservative fallback for the case where the app was restarted
+and has nothing to compare against. "Still moving" and "not watched long
+enough" are separate answers.
+
+**A stale premarket quote no longer produces a real-looking residual.**
+Measured, not hypothesised: when the primary quote source is unavailable
+the fallback returns yesterday's 4pm close as `last` and the close before
+that as `previous`, which subtract into *yesterday's full-day return*
+wearing this morning's label — SMH read −1.55% that way on a morning it
+had not traded. Before 9:30 a quote past the configured age now produces
+no gap, no residual, no percentile and no confirming call. Thin premarket
+names (WDC, STX) are where an old print looks most like a live one.
+
+**INCONCLUSIVE and RELATIONSHIP UNSTABLE are different answers.** The
+first says the evidence cannot establish a direction; the second says the
+relationship changed underneath evidence that may look decisive. A
+direction is named only with enough matched sessions, an interval that
+excludes a coin flip *on either side*, and a median that agrees with what
+the count implies.
+
+**The primary Korean driver is decided out of sample and moves
+reluctantly.** Candidates are scored by expanding walk-forward on one
+shared evaluation set, filtered by an absolute quality floor — because
+ranking three worthless signals still produces a winner — and a challenger
+must then beat the incumbent on *both* direction accuracy and error, by a
+margin, sustained across matched sessions. Every decision is archived with
+both sets of evidence. On live data it elects SK Hynix for Micron and
+KOSPI for SMH and QQQ, refuses SNDK outright (flattering accuracy on too
+short a history), and holds rather than flipping when KOSPI leads Hynix by
+a tenth of a point.
+
+**And the part that only time can supply.** `korea_capture.py` archives
+the Korean state at 11:00, 13:00, 14:00, 15:00 Seoul and the confirmed
+close, plus an immutable pre-open prediction record at 9:25 ET over a
+fixed server-side universe. It exists to answer a question no amount of
+daily history can — how early in the Korean session the information stops
+improving — because a daily bar holds one number for the whole session.
+Nothing is ever backfilled: a checkpoint the app missed is MISSED
+permanently, a shut market is NO KOREA SESSION, and outcomes are separate
+records scored against the archived prediction rather than against
+today's model re-run over an old date. That last distinction is the whole
+point: re-running the current model historically is a BACKTEST, and it is
+never mixed into the forward rate.
+
 ## Endpoints
 
 - `GET /api/gap` — board (status contract: scanning/scanned/total/…)
@@ -673,6 +734,7 @@ has been validated out of sample.
 - `GET /api/gap/config` — active config + hash
 - `GET /api/korea_lead?symbol=&window=` — the overnight Korea panel
 - `GET /api/korea_research…` — the V2 research layer (see below)
+- `GET /api/korea_forward/coverage|scorecard|status` — the V2.3 forward record
 
 Scheduler: weekdays 07:00–09:40 ET every 5 min (quote sweep ≈3 calls;
 ~20 candidates × 1 minute-history call + a small backfill budget, deferred

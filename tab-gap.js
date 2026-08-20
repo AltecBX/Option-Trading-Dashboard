@@ -1029,19 +1029,21 @@ function KlDetails({
   }, " \xB7 ", chk.passed ?? 0, " of ", chk.n ?? 0, " passed")), /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
-    className: "scan-table kl-diag-table"
+    className: "scan-table kl-diag-table kl-check-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     title: "What has to be true."
   }, "Check"), /*#__PURE__*/React.createElement("th", {
     title: "Whether it holds right now."
   }, "Result"), /*#__PURE__*/React.createElement("th", {
+    className: "kl-check-detail",
     title: "What was found."
   }, "Detail"))), /*#__PURE__*/React.createElement("tbody", null, (chk.checks || []).map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.name
+    key: c.name,
+    title: c.detail || c.name
   }, /*#__PURE__*/React.createElement("td", null, c.name), /*#__PURE__*/React.createElement("td", {
     className: c.ok ? "up" : c.blocking ? "down" : "warn"
   }, c.ok ? "PASS" : c.blocking ? "DEGRADED" : "LIMITED"), /*#__PURE__*/React.createElement("td", {
-    className: "muted"
+    className: "muted kl-check-detail"
   }, c.detail)))))), /*#__PURE__*/React.createElement("div", {
     className: "gap-sechead",
     title: KL_TIP.sessiondata
@@ -1058,8 +1060,8 @@ function KlDetails({
     tip: KL_TIP.sessiondata
   }, d.session && d.session.scheduled_close || "—", " Seoul"), /*#__PURE__*/React.createElement(KlStat, {
     label: "Latest market timestamp",
-    tip: KL_TIP.freshness
-  }, d.session && d.session.latest_market_timestamp || "—"), /*#__PURE__*/React.createElement(KlStat, {
+    tip: `The provider's own stamp on the most recent Korean reading: ${d.session && d.session.latest_market_timestamp || "not published"}. ${KL_TIP.freshness}`
+  }, d.session && d.session.latest_market_timestamp_pretty || "—"), /*#__PURE__*/React.createElement(KlStat, {
     label: "Provider market state",
     tip: d.session && d.session.provider_market_state_note || KL_TIP.sessiondata
   }, d.session && d.session.provider_market_state || "not published"), /*#__PURE__*/React.createElement(KlStat, {

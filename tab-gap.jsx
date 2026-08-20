@@ -863,19 +863,24 @@ function KlDetails({ d }) {
         <span className="muted"> · {chk.passed ?? 0} of {chk.n ?? 0} passed</span>
       </div>
       <div className="scan-table-wrap">
-        <table className="scan-table kl-diag-table">
+        <table className="scan-table kl-diag-table kl-check-table">
           <thead><tr>
             <th title="What has to be true.">Check</th>
             <th title="Whether it holds right now.">Result</th>
-            <th title="What was found.">Detail</th>
+            <th className="kl-check-detail" title="What was found.">Detail</th>
           </tr></thead>
           <tbody>
+            {/* The detail travels on the ROW as well as in its own cell,
+                because that cell is hidden on a narrow screen — where a
+                three-column table would push the result out of view and
+                leave a phone reader scrolling sideways to find out whether
+                anything passed. */}
             {(chk.checks || []).map((c) => (
-              <tr key={c.name}>
+              <tr key={c.name} title={c.detail || c.name}>
                 <td>{c.name}</td>
                 <td className={c.ok ? "up" : (c.blocking ? "down" : "warn")}>
                   {c.ok ? "PASS" : (c.blocking ? "DEGRADED" : "LIMITED")}</td>
-                <td className="muted">{c.detail}</td>
+                <td className="muted kl-check-detail">{c.detail}</td>
               </tr>
             ))}
           </tbody>
@@ -893,8 +898,11 @@ function KlDetails({ d }) {
           {(d.session && d.session.data_state) || "—"}</KlStat>
         <KlStat label="Normal close" tip={KL_TIP.sessiondata}>
           {(d.session && d.session.scheduled_close) || "—"} Seoul</KlStat>
-        <KlStat label="Latest market timestamp" tip={KL_TIP.freshness}>
-          {(d.session && d.session.latest_market_timestamp) || "—"}</KlStat>
+        <KlStat label="Latest market timestamp"
+          tip={`The provider's own stamp on the most recent Korean reading: ${
+            (d.session && d.session.latest_market_timestamp) || "not published"
+          }. ${KL_TIP.freshness}`}>
+          {(d.session && d.session.latest_market_timestamp_pretty) || "—"}</KlStat>
         <KlStat label="Provider market state" tip={(d.session
           && d.session.provider_market_state_note) || KL_TIP.sessiondata}>
           {(d.session && d.session.provider_market_state) || "not published"}</KlStat>

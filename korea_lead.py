@@ -271,14 +271,16 @@ def target_delta() -> dict:
                         full[k] = v
         except Exception:
             pass
-    selected = ((full.get("covered_call") or {}).get("cc_delta_target"))
+    selected = (((full.get("investment") or {}).get("covered_call") or {})
+                .get("cc_delta_target"))
     try:
         selected = float(selected)
     except (TypeError, ValueError):
         selected = None
     fallback = _num_cfg("premium_context", "fallback_target_delta")
     if selected is not None:
-        return {"delta": selected, "source": "covered_call.cc_delta_target",
+        return {"delta": selected,
+                "source": "investment.covered_call.cc_delta_target",
                 "basis": "APPLICATION SELECTION",
                 "detail": ("Korea Lead uses the target delta the application "
                            "has already selected. It does not keep a second "
@@ -770,12 +772,36 @@ def session_view(korea=None, now=None) -> dict:
             "series, so finality is established from whether the values are "
             "still advancing rather than from a flag."),
         "latest_market_timestamp": _kst_stamp(meta.get("market_time")),
+        # The same instant in the house format. The ISO string above stays
+        # in the payload because a machine reading this file wants it; what
+        # goes on screen is never an ISO date.
+        "latest_market_timestamp_pretty":
+            _pretty_stamp(_kst_stamp(meta.get("market_time"))),
         "readings_today": seen["readings"],
         "steady_minutes": round(seen["steady_minutes"], 1),
         "observed_change_today": seen["observed_change"],
         "bar_date": bdate,
     })
     return out
+
+
+def _pretty_stamp(iso) -> str | None:
+    """"August 20, 2026 at 6:05 PM Seoul" — a timestamp in the house format.
+
+    Every date this app puts on screen is spelled out. An ISO string is for
+    machines; it is also the one format where a reader cannot tell at a
+    glance whether they are looking at a date they should be worried about.
+    """
+    if not iso:
+        return None
+    try:
+        d = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return None
+    hour = d.hour % 12 or 12
+    part = "AM" if d.hour < 12 else "PM"
+    return (f"{_MONTHS[d.month - 1]} {d.day}, {d.year} at "
+            f"{hour}:{d.minute:02d} {part} Seoul")
 
 
 def _kst_stamp(epoch) -> str | None:
@@ -1521,7 +1547,14 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
         {"name": "Matched bucket has enough sessions",
          "ok": bool(implied.get("usable")),
          "detail": implied.get("reason")
-         or f"{implied.get('n')} sessions matched today's Korean move."},
+         or f"{implied.get('n')} sessions matched today's Korean move.",
+         # Not blocking. A thin bucket is an ordinary statistical state, not
+         # a data fault — today's Korean move simply landed somewhere rare —
+         # and the bias label already reports it as INCONCLUSIVE. Treating
+         # it as a fault would paint the whole panel DEGRADED on any morning
+         # Korea did something unusual, which is precisely the morning the
+         # reader most needs the rest of the panel to be legible.
+         "blocking": False},
         {"name": "Premarket quote is fresh enough",
          "ok": bool(live.get("fresh_enough")),
          "detail": (live.get("not_available_reason") or live.get("error")

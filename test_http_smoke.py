@@ -240,6 +240,12 @@ for p in [
     f"/api/korea_research?symbol={S}",
     "/api/korea_research/matrix",
     "/api/korea_research/coverage",
+    # The forward record. On a fresh container these read an empty store and
+    # must answer 200 saying so — "no forward records yet" is the correct
+    # answer on day one and stays correct until the mornings accumulate.
+    "/api/korea_forward/coverage",
+    f"/api/korea_forward/scorecard?symbol={S}",
+    "/api/korea_forward/status",
     "/api/invest/config",
     f"/api/invest?symbol={S}",
     f"/api/invest/history?symbol={S}&years=5",
