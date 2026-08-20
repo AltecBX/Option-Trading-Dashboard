@@ -2348,8 +2348,19 @@ Two changes, because either alone would leave it to chance:
   rule fixed in 2007. Same principle as the market calendar in
   `capture_health`, which computes its holidays rather than tabulating them.
 
-Pinned on both sides of both transitions, and at 01:22 UTC, where the
-computed clock returns 21:22 on the previous day and the window is open.
+The offset is decided from the **instant** and then stamped as a fixed
+offset, rather than by a zone that transitions. A transitioning zone has to
+answer `utcoffset()` from a local wall reading, and one wall reading an hour
+before the November change is two different instants — 01:30 daylight and
+01:30 standard. Resolving that needs `fold`, whose handling has moved
+between Python versions; a clock that stamps the wrong hour on a stored
+observation is not something to leave to the interpreter. From the instant
+there is no ambiguity at all.
+
+Pinned at 01:22 UTC, where the computed clock returns 21:22 on the previous
+day and the window is open, on both sides of both transitions, and over
+every half hour of a year — 17,520 instants, each converted and converted
+back.
 
 **A state, not a placeholder.** After the capture hour on a trading day the
 answer is COMPLETE, PARTIAL or CAPTURE FAILURE — never NOT DUE YET, which is

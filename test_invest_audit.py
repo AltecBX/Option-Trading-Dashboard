@@ -1001,7 +1001,7 @@ class TestMarketClock(unittest.TestCase):
         u = datetime(2026, 1, 1, tzinfo=timezone.utc)
         bad = []
         while u.year == 2026:
-            local = u.astimezone(S._Eastern())
+            local = S.eastern(u)
             if local.astimezone(timezone.utc) != u:
                 bad.append(u.isoformat())
             u += timedelta(minutes=30)
@@ -1009,18 +1009,15 @@ class TestMarketClock(unittest.TestCase):
 
     def test_the_hour_after_the_spring_change_is_daylight_time(self):
         S._MARKET_TZ = None
-        got = datetime(2026, 3, 8, 7, 30, tzinfo=timezone.utc).astimezone(
-            S._Eastern())
+        got = S.eastern(datetime(2026, 3, 8, 7, 30, tzinfo=timezone.utc))
         self.assertEqual(got.strftime("%H:%M %Z"), "03:30 EDT")
 
     def test_the_repeated_november_hour_keeps_both_of_its_instants(self):
         # 01:30 on the first Sunday in November happens twice. Read back as
         # one instant, an hour of stamps would be wrong.
         S._MARKET_TZ = None
-        first = datetime(2026, 11, 1, 5, 30, tzinfo=timezone.utc).astimezone(
-            S._Eastern())
-        second = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc).astimezone(
-            S._Eastern())
+        first = S.eastern(datetime(2026, 11, 1, 5, 30, tzinfo=timezone.utc))
+        second = S.eastern(datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc))
         self.assertEqual(first.strftime("%H:%M %Z"), "01:30 EDT")
         self.assertEqual(second.strftime("%H:%M %Z"), "01:30 EST")
         self.assertNotEqual(first.astimezone(timezone.utc),

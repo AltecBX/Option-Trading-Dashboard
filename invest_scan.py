@@ -4469,67 +4469,51 @@ def _eastern_offset(utc: datetime) -> timedelta:
     return _EDT if start <= naive < end else _EST
 
 
-def _eastern_offset_local(local: datetime) -> timedelta:
-    """Eastern time's offset for a LOCAL wall-clock reading.
+class _EasternAt(tzinfo):
+    """Eastern time at ONE instant, as a fixed offset.
 
-    A different question from the one above, and it has to be asked
-    differently. `tzinfo.utcoffset()` is handed the local fields, not the
-    instant — so comparing them against the UTC transition times would put
-    the hours right after a change on the wrong side of it. Read as UTC,
-    07:30 on the March Sunday is 03:30 Eastern Daylight Time; read as local,
-    03:30 is after the 02:00 spring-forward and is daylight time too. Using
-    the UTC rule on the local reading returned standard time, and stamped
-    the moment an hour off.
+    Deliberately fixed rather than a zone that transitions. A transitioning
+    zone has to answer `utcoffset()` from a local wall reading, and one wall
+    reading an hour before the November change is two different instants —
+    01:30 daylight and 01:30 standard. Resolving that needs `fold`, whose
+    handling has moved between Python versions, and a clock that stamps the
+    wrong hour on a stored observation is not something to leave to the
+    interpreter.
 
-    In local terms the clock jumps forward at 02:00 on the second Sunday in
-    March and back at 02:00 on the first Sunday in November.
-
-    The hour before the November change happens twice — 01:30 is a valid
-    reading of two instants an hour apart — and there is no way to tell them
-    apart from the wall clock alone. `fold` is how Python says which: 0 for
-    the first pass, in daylight time, 1 for the second, in standard time.
+    The offset is decided once, from the instant, where there is no
+    ambiguity at all. Nothing in this app does arithmetic across a change on
+    one of these; it reads the hour, the date, and stamps them.
     """
-    y = local.year
-    start = datetime.combine(_nth_sunday(y, 3, 2), dtime(2, 0))
-    end = datetime.combine(_nth_sunday(y, 11, 1), dtime(2, 0))
-    naive = local.replace(tzinfo=None)
-    if end - timedelta(hours=1) <= naive < end:
-        return _EST if getattr(local, "fold", 0) else _EDT
-    return _EDT if start <= naive < end else _EST
 
-
-class _Eastern(tzinfo):
-    """Eastern time without a time-zone database. Last resort only."""
+    def __init__(self, offset: timedelta):
+        self._offset = offset
 
     def utcoffset(self, dt):
-        if dt is None:                               # pragma: no cover
-            return _eastern_offset(datetime.now(timezone.utc))
-        return _eastern_offset_local(dt)
+        return self._offset
 
     def dst(self, dt):
-        return timedelta(hours=1) if self.utcoffset(dt) == _EDT else timedelta(0)
+        return timedelta(hours=1) if self._offset == _EDT else timedelta(0)
 
     def tzname(self, dt):
-        return "EDT" if self.utcoffset(dt) == _EDT else "EST"
-
-    def fromutc(self, dt):
-        # The instant is what is known here, so the instant's rule applies.
-        # Left to the default implementation this would go back through
-        # utcoffset() with UTC fields and land an hour out around a change.
-        offset = _eastern_offset(dt.replace(tzinfo=timezone.utc))
-        local = dt.replace(tzinfo=self) + offset
-        # The second pass through a repeated hour has to say so, or it reads
-        # back as the first one and the instant moves.
-        if offset == _EST and _eastern_offset_local(
-                local.replace(fold=0)) == _EDT:
-            local = local.replace(fold=1)
-        return local
+        return "EDT" if self._offset == _EDT else "EST"
 
     def __str__(self):
         return "America/New_York"
 
     def __repr__(self):                              # pragma: no cover
-        return "America/New_York (computed)"
+        return f"America/New_York ({self.tzname(None)}, computed)"
+
+    def __eq__(self, other):                         # pragma: no cover
+        return isinstance(other, _EasternAt) and other._offset == self._offset
+
+    def __hash__(self):                              # pragma: no cover
+        return hash(("eastern", self._offset))
+
+
+def eastern(utc: datetime) -> datetime:
+    """One UTC instant, read on the exchange's clock."""
+    off = _eastern_offset(utc)
+    return (utc.replace(tzinfo=None) + off).replace(tzinfo=_EasternAt(off))
 
 MAX_DAILY_SYMBOLS = 60
 # Chain capture is one network request per ticker per day against a
@@ -4574,9 +4558,7 @@ def market_now(now: datetime | None = None) -> datetime:
         return now
     if _MARKET_TZ is not None:
         return datetime.now(_MARKET_TZ)
-    # Through fromutc, so the offset is decided by the instant and the
-    # stamped tzinfo agrees with it.
-    return datetime.now(timezone.utc).astimezone(_Eastern())
+    return eastern(datetime.now(timezone.utc))
 
 
 def market_clock() -> dict:
