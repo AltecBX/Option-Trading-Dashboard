@@ -471,6 +471,8 @@ class AnalystClient:
             ticker = yf.Ticker(symbol)
             cur = nxt = None
             trend_30 = trend_90 = None
+            up30 = down30 = None
+            covering = None
             try:
                 est = ticker.get_earnings_estimate()
                 # Index labels: 0q, +1q, 0y, +1y. Only the annual rows are
@@ -478,6 +480,17 @@ class AnalystClient:
                 if est is not None and hasattr(est, "index"):
                     if "0y" in est.index:
                         cur = _f(est.loc["0y"].get("avg"))
+                        # How many analysts stand behind the current-year
+                        # estimate. This is the coverage count the Investment
+                        # tab's revision rating gates on, and it comes off the
+                        # same row the estimate itself does — the provider
+                        # publishes it as `numberOfAnalysts` and it is read
+                        # rather than inferred. Where it is absent it stays
+                        # None: the number of analysts who MOVED is not the
+                        # number who COVER, and standing one in for the other
+                        # would refuse every well-covered company in a quiet
+                        # month and rate a thin one that happened to be busy.
+                        covering = _f(est.loc["0y"].get("numberOfAnalysts"))
                     if "+1y" in est.index:
                         nxt = _f(est.loc["+1y"].get("avg"))
             except Exception:
@@ -507,9 +520,29 @@ class AnalystClient:
                 return None
             return {"current_year_eps": cur, "next_year_eps": nxt,
                     "revision_breadth_30d_pct": trend_30,
-                    "revision_breadth_7d_pct": trend_90}
+                    "revision_breadth_7d_pct": trend_90,
+                    "analyst_count": covering,
+                    "up_count": up30, "down_count": down30}
         except Exception:
             return None
+
+    def _finnhub_analyst_count(self, symbol: str) -> int | None:
+        """How many analysts carry a RATING on this company, from Finnhub.
+
+        A fallback for the coverage count, used only when the estimate
+        provider does not publish one. It is a different question from "how
+        many analysts publish an earnings estimate" and is usually close, so
+        it is used with its source named rather than silently merged.
+        """
+        if not self.is_finnhub_configured():
+            return None
+        recs = self._fetch_finnhub_recommendation(symbol)
+        if not recs:
+            return None
+        latest = recs[0]
+        total = (latest["strong_buy"] + latest["buy"] + latest["hold"]
+                 + latest["sell"] + latest["strong_sell"])
+        return total or None
 
     def get_eps_estimates(self, symbol: str, force_refresh: bool = False) -> dict:
         """Normalized forward-earnings block for the Investment tab.
@@ -535,9 +568,22 @@ class AnalystClient:
                               "unavailable rather than being filled in with "
                               "trailing earnings."),
                    "current_year_eps": None, "next_year_eps": None,
-                   "change_30d_pct": None, "change_90d_pct": None}
+                   "change_30d_pct": None, "change_90d_pct": None,
+                   # Named even when empty. The Investment tab's revision
+                   # rating reads these, and a key that is absent altogether
+                   # is indistinguishable from one that is None — which is
+                   # how the rating came to be permanently unrated.
+                   "analyst_count": None, "analyst_count_source": "",
+                   "up_count": None, "down_count": None}
             self._cache_set(key, out, ttl=600)
             return out
+        count = raw.get("analyst_count")
+        count_source = ("yfinance (analysts behind the current-year estimate)"
+                        if count else "")
+        if not count:
+            count = self._finnhub_analyst_count(sym)
+            count_source = ("Finnhub (analysts carrying a rating)"
+                            if count else "")
         out = {"symbol": sym, "available": True,
                "source": "yfinance (Yahoo Finance analyst estimates)",
                "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -545,6 +591,14 @@ class AnalystClient:
                "reason": "",
                "current_year_eps": raw.get("current_year_eps"),
                "next_year_eps": raw.get("next_year_eps"),
+               # How many analysts cover this company, and how many moved
+               # their estimate in the last thirty days. The coverage count
+               # gates the revision rating; the two move counts are what the
+               # breadth below is computed from and are shown beside it.
+               "analyst_count": count,
+               "analyst_count_source": count_source,
+               "up_count": raw.get("up_count"),
+               "down_count": raw.get("down_count"),
                # Named for what they are. The provider gives revision BREADTH
                # (net share of analysts moving up), not a change in the
                # estimate itself, and the field name says so downstream.

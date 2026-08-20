@@ -1727,7 +1727,10 @@ Risk is sized at strike × 100 — the full notional — never the buying-power
 reduction a broker shows.`
   }, "Best put at or below the buy zone", p.buy_zone != null && /*#__PURE__*/React.createElement("span", {
     className: "muted"
-  }, " \xB7 buy zone ", invPrice(p.buy_zone))), p.headline && /*#__PURE__*/React.createElement("div", {
+  }, " \xB7 buy zone ", invPrice(p.buy_zone)), best && (p.crosses_earnings || {}).known && /*#__PURE__*/React.createElement("span", {
+    className: (p.crosses_earnings || {}).crosses ? "inv-moat inv-moat-warn" : "inv-moat",
+    title: (p.crosses_earnings || {}).reason
+  }, (p.crosses_earnings || {}).crosses ? "crosses earnings" : "no earnings before expiry")), p.headline && /*#__PURE__*/React.createElement("div", {
     className: "inv-warn",
     title: "The strike is never raised to find premium. That would be selling a put above the price this analysis says the shares are worth, which is the opposite of the point."
   }, /*#__PURE__*/React.createElement("b", null, p.headline)), p.reason && /*#__PURE__*/React.createElement("div", {
@@ -3247,6 +3250,8 @@ const INV_AUDIT_TIP = {
   benchmark: "The benchmark's close on the day the call was made, recorded " + "on that day. It gates only the comparison against the market: a row " + "without one is still scored on its own return, but it cannot be " + "measured against anything, and borrowing a close from a price series " + "fetched later would be exactly the lookahead this engine refuses.",
   contract: "Whether the exact option and its quote were recorded — asked " + "only where the recommendation actually names one. BUY SHARES, WAIT " + "and AVOID name no contract and need none; a portfolio secured put " + "needs its put, a long-dated call needs its call, and a bull call " + "spread needs both legs. A row is never called incomplete for lacking " + "a field its own recommendation had no use for.",
   eligible: "Whether this recommendation can be scored exactly when its " + "horizon completes. A row that cannot is excluded from validation and " + "left exactly as it is — never repaired, never deleted. The commonest " + "reason is rules that are not in the archive: without them, what the " + "verdict MEANT that day cannot be established.",
+  revisions: "Whether the analyst-revision dimension is a reading today " + "rather than a blank. It needs the number of analysts covering the " + "company, and the estimate provider does not always publish one. " + "Without it this reads NOT RATED and the signal that fires when " + "analysts are cutting their numbers cannot fire at all — so it is " + "reported per ticker rather than assumed.",
+  stamp: "What the stored contract says it IS. A contract's numbers cannot " + "identify it — a long-dated call and a short put both carry a strike " + "and a price — so the structure is stamped from the recommendation " + "that named it. A stamp that disagrees with the recommendation is why " + "a row cannot be settled up later.",
   paths: "Every directory holding something this app records going forward, " + "and whether anything has been written to it yet. All of them sit " + "under the persistent data directory, so all of them share its fate: " + "if that directory does not survive a redeploy, none of these do.",
   home: "Where the data is written, and whether a redeploy would erase it. " + "A mounted volume is a different filesystem from the container's root " + "and is left alone when the app is redeployed; the container's own disk " + "is rebuilt from scratch every deploy. None of this data can be " + "back-filled, so storing it on the container's own disk means losing " + "every day of it at the next deploy.",
   clock: "Market scheduling runs on the exchange's clock, not the " + "container's. A server in UTC is already on tomorrow's date at " + "half past eight in the evening in New York, so a capture stamped with " + "the container's date would land on a trading day that has not " + "happened yet.",
@@ -3350,10 +3355,14 @@ function InvProductionAudit({
   }, "Long-dated observation"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.benchmark
   }, "Benchmark close"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.revisions
+  }, "Revisions rated"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.day
   }, "Recommendation"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.contract
   }, "Exact contract"), /*#__PURE__*/React.createElement("th", {
+    title: INV_AUDIT_TIP.stamp
+  }, "Contract structure"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.config
   }, "Rules archived"), /*#__PURE__*/React.createElement("th", {
     title: INV_AUDIT_TIP.eligible
@@ -3362,17 +3371,23 @@ function InvProductionAudit({
   }, /*#__PURE__*/React.createElement("td", null, r.symbol), /*#__PURE__*/React.createElement("td", {
     className: r.snapshot ? "up" : "down"
   }, r.snapshot ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
-    className: r.option_chain ? "up" : "down"
+    className: r.option_chain ? "up" : r.chain_dated_ahead ? "down" : "down",
+    title: r.chain_trading_date ? `The newest chain stored for this ticker is dated ` + `${r.chain_trading_date}.` + (r.chain_dated_ahead ? " That is AFTER this trading day, which is what" + " a snapshot taken on the container's clock" + " rather than the exchange's looks like." : "") : INV_CAPTURE_TIP.chains
   }, r.option_chain ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
     className: r.leaps_observation ? "up" : "down"
   }, r.leaps_observation ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
     className: r.benchmark_close ? "up" : "down",
     title: r.benchmark_symbol || INV_AUDIT_TIP.benchmark
   }, r.benchmark_close ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
+    className: r.revisions_rated ? "up" : "",
+    title: r.revisions_rated ? `Rated ${r.revisions_label}. The estimate provider ` + `supplied a coverage count, so the fourth vector ` + `is a reading rather than a blank.` : INV_AUDIT_TIP.revisions
+  }, r.revisions_rated ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
     title: INV_AUDIT_TIP.day
   }, r.recommendation || "—"), /*#__PURE__*/React.createElement("td", {
     title: r.contract_note
   }, !r.contract_required ? "Not needed" : r.contract_recorded ? "Recorded" : "Missing"), /*#__PURE__*/React.createElement("td", {
+    title: INV_AUDIT_TIP.stamp
+  }, r.stored_contract_structure || "—"), /*#__PURE__*/React.createElement("td", {
     className: r.config_archived ? "up" : "down"
   }, r.config_archived ? "Yes" : "No"), /*#__PURE__*/React.createElement("td", {
     className: r.forward_test_eligible ? "up" : "down",

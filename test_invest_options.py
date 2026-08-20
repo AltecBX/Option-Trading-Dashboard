@@ -588,3 +588,77 @@ class TestBuild(OptionsCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestTheCrossingEarningsLine(unittest.TestCase):
+    """A short put that sits through a report says so on the action line.
+
+    Information, not a rule. The premium is richer for exactly the reason
+    the risk is higher, and this dashboard does not decide that trade-off
+    for the reader — it refuses to make them work it out from two dates in
+    two different panels.
+    """
+
+    def setUp(self):
+        self.chain = build_chain()
+
+    def test_a_report_inside_the_contract_is_named(self):
+        got = IO._crosses_earnings("2026-10-16", "2026-09-30", "2026-08-19")
+        self.assertTrue(got["known"])
+        self.assertTrue(got["crosses"])
+        self.assertEqual(got["label"], "crosses earnings")
+        self.assertIn("September 30, 2026", got["reason"])
+        self.assertIn("no strike is rejected", got["reason"])
+
+    def test_a_report_after_expiry_does_not_cross(self):
+        got = IO._crosses_earnings("2026-10-16", "2026-11-05", "2026-08-19")
+        self.assertTrue(got["known"])
+        self.assertFalse(got["crosses"])
+        self.assertEqual(got["label"], "no earnings before expiry")
+
+    def test_no_earnings_date_is_unknown_rather_than_a_clean_bill(self):
+        got = IO._crosses_earnings("2026-10-16", None, "2026-08-19")
+        self.assertFalse(got["known"])
+        self.assertIsNone(got["crosses"])
+
+    def test_a_stale_earnings_date_is_unknown_rather_than_a_clean_bill(self):
+        # A "next" report that has already passed means the provider has not
+        # updated. The real next date is about a quarter out and unknown, and
+        # that is not the same as knowing no report falls inside the contract.
+        got = IO._crosses_earnings("2026-10-16", "2026-08-01", "2026-08-19")
+        self.assertFalse(got["known"])
+        self.assertIsNone(got["crosses"])
+        self.assertIn("already passed", got["reason"])
+
+    def test_the_block_carries_it_for_the_chosen_put(self):
+        out = IO.best_short_put("TEST", self.chain, SPOT, 95.0, path(), PROBS,
+                                {}, market={"earnings_date": "2099-01-01"},
+                                today=TODAY)
+        self.assertIn("crosses_earnings", out)
+        if out.get("best"):
+            self.assertTrue(out["crosses_earnings"]["known"])
+            self.assertFalse(out["crosses_earnings"]["crosses"])
+
+    def test_crossing_a_report_changes_no_recommendation(self):
+        """The rule stated explicitly: this gates nothing.
+
+        The same chain, once with a report inside every contract and once
+        with none, has to choose the same strike and reach the same hurdle
+        verdict. Only the line on screen differs.
+        """
+        soon = IO.best_short_put("TEST", self.chain, SPOT, 95.0, path(), PROBS,
+                                 {}, market={"earnings_date": TODAY.isoformat()},
+                                 today=TODAY)
+        never = IO.best_short_put("TEST", self.chain, SPOT, 95.0, path(), PROBS,
+                                  {}, market={"earnings_date": "2099-01-01"},
+                                  today=TODAY)
+        self.assertEqual(soon["available"], never["available"])
+        self.assertEqual(soon.get("clears_hurdle"), never.get("clears_hurdle"))
+        self.assertEqual(soon.get("headline"), never.get("headline"))
+        self.assertEqual((soon.get("best") or {}).get("contract", {}).get("strike"),
+                         (never.get("best") or {}).get("contract", {}).get("strike"))
+        self.assertEqual(len(soon.get("candidates") or []),
+                         len(never.get("candidates") or []))
+        # And the only difference is the line itself.
+        self.assertNotEqual(soon["crosses_earnings"]["crosses"],
+                            never["crosses_earnings"]["crosses"])

@@ -41,6 +41,22 @@ spot — and keeping it tight is what makes a daily snapshot of a watchlist
 affordable. Long-dated contracts have their own observation path in
 `invest_options.py` and are deliberately not stored here.
 
+WHICH DAY A SNAPSHOT BELONGS TO IS STATED, NEVER GUESSED.
+
+This store used to date a snapshot with `date.today()` when the caller did
+not say. That is the container's clock, and this app runs on a UTC
+container: at nine in the evening in New York the container's date is
+already tomorrow. A chain fetched then was filed under the NEXT trading day,
+and because the first capture of a day is the one kept, the next day's real
+capture was then refused as a duplicate — so the genuine trading day was
+lost and the capture log recorded it as complete. There is no source of
+historical chains to repair that from.
+
+So the trading day is either passed in or comes from a market-clock function
+given to `configure`, and a snapshot with neither is refused rather than
+dated from the container. A day the market did not trade is refused too: a
+quote taken on a Saturday is Friday's quote wearing Saturday's date.
+
 Atomic writes, trimmed to the newest 500 dates, thread-safe.
 """
 from __future__ import annotations
@@ -50,7 +66,10 @@ import threading
 from datetime import date, datetime
 from pathlib import Path
 
+import capture_health as _health
+
 _DIR: Path | None = None
+_TODAY_FN = None                   # () -> date, on the EXCHANGE's clock
 _LOCK = threading.Lock()
 _RECORDED_TODAY: dict = {}         # sym -> date already written this process
 
@@ -96,9 +115,32 @@ WIDE_SPREAD = 0.25
 STALE_SECONDS = 900
 
 
-def configure(data_dir) -> None:
-    global _DIR
+def configure(data_dir, today_fn=None) -> None:
+    """Where snapshots live, and whose clock dates them.
+
+    `today_fn` returns the current TRADING day on the exchange's clock. It is
+    what a caller that has no particular day in mind falls back to, and there
+    is deliberately no fallback behind it — see the note at the top of this
+    module about what the container's clock did to the store.
+    """
+    global _DIR, _TODAY_FN
     _DIR = Path(data_dir) / "chains" if data_dir else None
+    _TODAY_FN = today_fn
+
+
+def _stated_day(today: str | None) -> str | None:
+    """The trading day this snapshot belongs to, or None if nobody said."""
+    if today:
+        return str(today)[:10]
+    if _TODAY_FN is None:
+        return None
+    try:
+        got = _TODAY_FN()
+    except Exception:                                # pragma: no cover
+        return None
+    if got is None:
+        return None
+    return (got.isoformat() if hasattr(got, "isoformat") else str(got))[:10]
 
 
 def _path(sym: str) -> Path | None:
@@ -144,19 +186,32 @@ def record(sym: str, chain_payload: dict, today: str | None = None,
     {underlying:{last}, expirations:[...], chains:{exp:{calls,puts}}}).
 
     Once per symbol per day; best-effort, never raises. `today` is the
-    TRADING day this quote belongs to and callers are expected to pass it on
-    the exchange's clock — the container's date rolls over at eight in the
-    evening in New York and would file an after-close capture under the next
-    trading day. `source` names the provider the chain came from and `event`
-    carries whatever the caller knows about the state of the world that day — an earnings date inside
-    the window, a dividend, an index event — so a fill priced off this
-    snapshot can later be read in context rather than as a bare number.
+    TRADING day this quote belongs to, on the EXCHANGE's clock. When it is
+    not passed, the market-clock function given to `configure` supplies it;
+    when there is neither, the snapshot is REFUSED rather than dated from the
+    container, whose date rolls over at eight in the evening in New York and
+    would file an after-close capture under the next trading day — where it
+    would then block that day's real capture, because the first capture of a
+    day is the one kept.
+
+    A day the market did not trade is refused for the same reason a Saturday
+    quote is Friday's quote: it is not an observation of that day.
+
+    `source` names the provider the chain came from and `event` carries
+    whatever the caller knows about the state of the world that day — an
+    earnings date inside the window, a dividend, an index event — so a fill
+    priced off this snapshot can later be read in context rather than as a
+    bare number.
     """
     try:
         p = _path(sym)
         if p is None or not chain_payload:
             return False
-        d = today or date.today().isoformat()
+        d = _stated_day(today)
+        if not d:
+            return False
+        if not _health.is_trading_day(d):
+            return False
         if _RECORDED_TODAY.get(sym.upper()) == d:
             return False
         spot = _f((chain_payload.get("underlying") or {}).get("last"))

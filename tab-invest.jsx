@@ -1717,6 +1717,14 @@ reduction a broker shows.`}>
         {p.buy_zone != null && (
           <span className="muted"> · buy zone {invPrice(p.buy_zone)}</span>
         )}
+        {best && (p.crosses_earnings || {}).known && (
+          <span className={(p.crosses_earnings || {}).crosses
+            ? "inv-moat inv-moat-warn" : "inv-moat"}
+                title={(p.crosses_earnings || {}).reason}>
+            {(p.crosses_earnings || {}).crosses
+              ? "crosses earnings" : "no earnings before expiry"}
+          </span>
+        )}
       </div>
 
       {p.headline && (
@@ -3922,6 +3930,17 @@ const INV_AUDIT_TIP = {
     "left exactly as it is — never repaired, never deleted. The commonest " +
     "reason is rules that are not in the archive: without them, what the " +
     "verdict MEANT that day cannot be established.",
+  revisions: "Whether the analyst-revision dimension is a reading today " +
+    "rather than a blank. It needs the number of analysts covering the " +
+    "company, and the estimate provider does not always publish one. " +
+    "Without it this reads NOT RATED and the signal that fires when " +
+    "analysts are cutting their numbers cannot fire at all — so it is " +
+    "reported per ticker rather than assumed.",
+  stamp: "What the stored contract says it IS. A contract's numbers cannot " +
+    "identify it — a long-dated call and a short put both carry a strike " +
+    "and a price — so the structure is stamped from the recommendation " +
+    "that named it. A stamp that disagrees with the recommendation is why " +
+    "a row cannot be settled up later.",
   paths: "Every directory holding something this app records going forward, " +
     "and whether anything has been written to it yet. All of them sit " +
     "under the persistent data directory, so all of them share its fate: " +
@@ -4072,8 +4091,10 @@ function InvProductionAudit({ apiFetch }) {
                 <th title={INV_CAPTURE_TIP.chains}>Option chain</th>
                 <th title={INV_CAPTURE_TIP.leaps}>Long-dated observation</th>
                 <th title={INV_AUDIT_TIP.benchmark}>Benchmark close</th>
+                <th title={INV_AUDIT_TIP.revisions}>Revisions rated</th>
                 <th title={INV_AUDIT_TIP.day}>Recommendation</th>
                 <th title={INV_AUDIT_TIP.contract}>Exact contract</th>
+                <th title={INV_AUDIT_TIP.stamp}>Contract structure</th>
                 <th title={INV_AUDIT_TIP.config}>Rules archived</th>
                 <th title={INV_AUDIT_TIP.eligible}>Can be scored later</th>
               </tr>
@@ -4084,17 +4105,36 @@ function InvProductionAudit({ apiFetch }) {
                   <td>{r.symbol}</td>
                   <td className={r.snapshot ? "up" : "down"}>
                     {r.snapshot ? "Yes" : "No"}</td>
-                  <td className={r.option_chain ? "up" : "down"}>
+                  <td className={r.option_chain ? "up"
+                                 : r.chain_dated_ahead ? "down" : "down"}
+                      title={r.chain_trading_date
+                        ? `The newest chain stored for this ticker is dated `
+                          + `${r.chain_trading_date}.`
+                          + (r.chain_dated_ahead
+                             ? " That is AFTER this trading day, which is what"
+                               + " a snapshot taken on the container's clock"
+                               + " rather than the exchange's looks like."
+                             : "")
+                        : INV_CAPTURE_TIP.chains}>
                     {r.option_chain ? "Yes" : "No"}</td>
                   <td className={r.leaps_observation ? "up" : "down"}>
                     {r.leaps_observation ? "Yes" : "No"}</td>
                   <td className={r.benchmark_close ? "up" : "down"}
                       title={r.benchmark_symbol || INV_AUDIT_TIP.benchmark}>
                     {r.benchmark_close ? "Yes" : "No"}</td>
+                  <td className={r.revisions_rated ? "up" : ""}
+                      title={r.revisions_rated
+                        ? `Rated ${r.revisions_label}. The estimate provider `
+                          + `supplied a coverage count, so the fourth vector `
+                          + `is a reading rather than a blank.`
+                        : INV_AUDIT_TIP.revisions}>
+                    {r.revisions_rated ? "Yes" : "No"}</td>
                   <td title={INV_AUDIT_TIP.day}>{r.recommendation || "—"}</td>
                   <td title={r.contract_note}>
                     {!r.contract_required ? "Not needed"
                      : r.contract_recorded ? "Recorded" : "Missing"}</td>
+                  <td title={INV_AUDIT_TIP.stamp}>
+                    {r.stored_contract_structure || "—"}</td>
                   <td className={r.config_archived ? "up" : "down"}>
                     {r.config_archived ? "Yes" : "No"}</td>
                   <td className={r.forward_test_eligible ? "up" : "down"}

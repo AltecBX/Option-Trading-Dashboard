@@ -44,10 +44,13 @@ class TestStore(unittest.TestCase):
         self.assertEqual(len(exps), 2)
 
     def test_once_per_day_throttle(self):
+        # 2026-01-02 is a Friday and 2026-01-05 the next TRADING day. The
+        # Saturday between them is deliberately not used: a weekend quote is
+        # Friday's quote wearing Saturday's date and the store refuses it.
         self.assertTrue(cs.record("TEST", chain_payload(), today="2026-01-02"))
         self.assertFalse(cs.record("TEST", chain_payload(), today="2026-01-02"))
-        self.assertTrue(cs.record("TEST", chain_payload(day="2026-01-03"),
-                                  today="2026-01-03"))
+        self.assertTrue(cs.record("TEST", chain_payload(day="2026-01-05"),
+                                  today="2026-01-05"))
 
     def test_lookup_matches_dte_and_strike(self):
         cs.record("TEST", chain_payload(dtes=(30, 45)), today="2026-01-02")
@@ -248,3 +251,113 @@ class TestEnginePrecedence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# WHICH DAY A SNAPSHOT BELONGS TO
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class TestTheTradingDayIsStatedNotGuessed(unittest.TestCase):
+    """A snapshot is dated by the EXCHANGE's clock or it is not stored.
+
+    This store used to fall back to `date.today()`. The app runs on a UTC
+    container, so from about eight in the evening in New York that date is
+    already tomorrow: a chain fetched while browsing in the evening was filed
+    under the NEXT trading day, and because the first capture of a day is the
+    one kept, the next day's real scheduled capture was then refused as a
+    duplicate. The genuine day was lost and the capture log called it
+    complete. There is no source of historical chains to repair that from.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        cs.configure(self.dir)
+        cs._RECORDED_TODAY.clear()
+
+    def tearDown(self):
+        cs.configure(None)
+        cs._RECORDED_TODAY.clear()
+
+    def _chain(self, day="2026-08-19"):
+        return chain_payload(day=day)
+
+    def test_with_no_clock_and_no_day_nothing_is_stored(self):
+        self.assertFalse(cs.record("ZZZ", self._chain()))
+        self.assertEqual(cs.load("ZZZ"), {})
+
+    def _evening(self, ny_day):
+        """The exchange clock says `ny_day`; the container has rolled over."""
+        cs.configure(self.dir,
+                     today_fn=lambda: date.fromisoformat(ny_day))
+        cs._RECORDED_TODAY.clear()
+
+    def test_seven_pm_eastern_files_under_that_days_date(self):
+        self._evening("2026-08-19")
+        self.assertTrue(cs.record("A", self._chain()))
+        self.assertEqual(sorted(cs.load("A")), ["2026-08-19"])
+
+    def test_nine_pm_eastern_files_under_that_days_date(self):
+        # 21:00 in New York is 01:00 the NEXT day in UTC.
+        self._evening("2026-08-19")
+        self.assertTrue(cs.record("B", self._chain()))
+        self.assertEqual(sorted(cs.load("B")), ["2026-08-19"])
+
+    def test_half_past_eleven_at_night_files_under_that_days_date(self):
+        # 23:30 in New York is 03:30 the next day in UTC.
+        self._evening("2026-08-19")
+        self.assertTrue(cs.record("C", self._chain()))
+        self.assertEqual(sorted(cs.load("C")), ["2026-08-19"])
+
+    def test_an_evening_chain_does_not_block_the_next_days_capture(self):
+        """The consequence that actually cost a trading day."""
+        self._evening("2026-08-19")
+        self.assertTrue(cs.record("D", self._chain("2026-08-19")))
+        # Next morning, a fresh process, the scheduled capture runs.
+        cs._RECORDED_TODAY.clear()
+        self.assertTrue(cs.record("D", self._chain("2026-08-20"),
+                                  today="2026-08-20"))
+        self.assertEqual(sorted(cs.load("D")), ["2026-08-19", "2026-08-20"])
+
+    def test_an_explicit_day_beats_the_clock(self):
+        cs.configure(self.dir, today_fn=lambda: date(2026, 8, 20))
+        self.assertTrue(cs.record("E", self._chain("2026-08-19"),
+                                  today="2026-08-19"))
+        self.assertEqual(sorted(cs.load("E")), ["2026-08-19"])
+
+
+class TestNonTradingDaysAreNotObservations(unittest.TestCase):
+    """A quote taken on a Saturday is Friday's quote wearing Saturday's date."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        cs.configure(self.dir)
+        cs._RECORDED_TODAY.clear()
+
+    def tearDown(self):
+        cs.configure(None)
+        cs._RECORDED_TODAY.clear()
+
+    def test_a_saturday_is_refused(self):
+        self.assertFalse(cs.record("W", chain_payload(day="2026-08-22"),
+                                   today="2026-08-22"))
+        self.assertEqual(cs.load("W"), {})
+
+    def test_a_sunday_is_refused(self):
+        self.assertFalse(cs.record("W", chain_payload(day="2026-08-23"),
+                                   today="2026-08-23"))
+
+    def test_a_market_holiday_is_refused(self):
+        # Independence Day 2026 falls on a Saturday and is observed on the
+        # Friday, which the exchange calendar knows about.
+        self.assertFalse(cs.record("H", chain_payload(day="2026-07-03"),
+                                   today="2026-07-03"))
+        self.assertEqual(cs.load("H"), {})
+
+    def test_christmas_day_is_refused(self):
+        self.assertFalse(cs.record("H", chain_payload(day="2026-12-25"),
+                                   today="2026-12-25"))
+
+    def test_an_ordinary_trading_day_is_kept(self):
+        self.assertTrue(cs.record("T", chain_payload(day="2026-08-19"),
+                                  today="2026-08-19"))
