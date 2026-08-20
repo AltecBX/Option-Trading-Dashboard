@@ -13,9 +13,13 @@ Open http://localhost:8765/ in a browser. The page calls `/api/ticker?symbol=...
 
 ## Architecture
 
-- **Backend.** `options_dashboard.py` — single-file Python. Uses stdlib `http.server` plus `yfinance` for Yahoo data. Exposes `/api/ticker`, `/api/scan`, `/api/search`.
-- **Frontend.** `index.html` + `app.jsx` (~3700 lines) + `charts.jsx` + `strategies.jsx` + supporting modules. Pure static, no build step. Loaded via Babel-standalone in the browser.
-- **Config.** `config.js` sets the API base + key for the deployed environment. Empty values mean local dev.
+**Backend.** `options_dashboard.py` is still the HTTP entry point — stdlib `http.server`, every `/api/*` route — but it is no longer where the work happens. Most features now live in their own Python modules that it imports and wires: `gap_engine.py` / `gap_scan.py`, `invest_engine.py` / `invest_scan.py` / `fair_value.py` / `peers.py`, `korea_lead_engine.py` / `korea_lead.py` / `korea_research*.py` / `korea_capture.py`, `backtest.py`, `patterns.py`, and others. The consistent split is a pure engine (mathematics, no I/O, no clock) beside a stateful module that owns fetching, caching and disk. Market data comes from Schwab first where a real quote is needed, with Yahoo as a fallback. Tunables live in `thresholds.json`, overridable key by key from `<data_dir>/thresholds.json`, and the effective config is hashed onto the results it produced.
+
+**Frontend.** React source in `.jsx`, compiled by `node build_frontend.js` — there is no Babel in the browser. That script compiles the JSX to readable committed `.js`, minifies everything through esbuild into `dist/`, pre-compresses each asset to a `.gz` sibling, and stamps content hashes so a changed file gets a new URL. Several heavy tabs — Gap Scan, Investment, Backtest, Patterns and others — are lazy chunks that are not `<script>` tags in `index.html` at all; `LazyTab` injects them the first time that tab is opened. `config.js` is deliberately left unminified and unversioned because it is edited after deploy. Run the build after any `.jsx` change; deploy machines never run node.
+
+**Korea Lead** is not a tab. It is a quantitative layer that renders at the top of Gap Scan, with its own research endpoints behind it (`/api/korea_lead`, `/api/korea_research/*`, `/api/korea_forward/*`) and a background thread that archives point-in-time Korean state and a pre-open prediction record each session.
+
+**Deployment.** Railway starts the Python server from `Procfile`; it serves both the API and the built frontend out of `dist/`.
 
 ## Deploy to your phone
 
@@ -31,7 +35,8 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 
 | File | Purpose |
 |------|---------|
-| `options_dashboard.py` | Backend server + yfinance integration |
+| `options_dashboard.py` | HTTP entry point; wires the feature modules listed under Architecture |
+| `build_frontend.js` | Compiles JSX, minifies to `dist/`, pre-compresses, stamps versions |
 | `requirements.txt` | Python dependencies (Railway reads this) |
 | `Procfile` | How Railway starts the server |
 | `vercel.json` | Tells Vercel this is pure static |

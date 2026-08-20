@@ -243,6 +243,53 @@ def _section(name: str) -> dict:
     return base
 
 
+def target_delta() -> dict:
+    """The strike preference Korea Lead should defer to, and where it came
+    from.
+
+    Korea Lead has no opinion about strike selection and must never grow
+    one. If it invented its own 0.20 the app would hold two independent
+    preferences that drift apart silently, and a reader would have no way
+    to know which of them produced a number in front of them. So the
+    application's own currently selected target delta wins whenever it
+    exists, and the value in this feature's settings is a fallback used
+    only when nothing else has expressed a preference.
+    """
+    try:
+        full = json.loads((Path(__file__).resolve().parent
+                           / "thresholds.json").read_text())
+    except Exception:
+        full = {}
+    if _DATA_DIR and (_DATA_DIR / "thresholds.json").exists():
+        try:
+            over = json.loads((_DATA_DIR / "thresholds.json").read_text())
+            if isinstance(over, dict):
+                for k, v in over.items():
+                    if isinstance(v, dict) and isinstance(full.get(k), dict):
+                        full[k] = dict(full[k], **v)
+                    else:
+                        full[k] = v
+        except Exception:
+            pass
+    selected = ((full.get("covered_call") or {}).get("cc_delta_target"))
+    try:
+        selected = float(selected)
+    except (TypeError, ValueError):
+        selected = None
+    fallback = _num_cfg("premium_context", "fallback_target_delta")
+    if selected is not None:
+        return {"delta": selected, "source": "covered_call.cc_delta_target",
+                "basis": "APPLICATION SELECTION",
+                "detail": ("Korea Lead uses the target delta the application "
+                           "has already selected. It does not keep a second "
+                           "strike preference of its own.")}
+    return {"delta": fallback, "source": "korea_lead.premium_context",
+            "basis": "FALLBACK",
+            "detail": ("Nothing else in the application has expressed a "
+                       "target delta, so this feature's documented fallback "
+                       "is used. It is a fallback, not a recommendation.")}
+
+
 def _num_cfg(section: str, key: str, cast=float):
     """One configured number, coerced, falling back to the default when the
     overlay holds something that is not a number."""
@@ -1546,6 +1593,7 @@ def payload(symbol: str, window: str = DEFAULT_WINDOW,
                        ("freshness", "chip_confirmation", "bias",
                         "relationship", "unusual", "finality",
                         "driver_selection", "premium_context")},
+            "target_delta": target_delta(),
         },
     })
     return out
