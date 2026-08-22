@@ -610,7 +610,8 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
                     "rz_dist_median_pct": rem.get("to_median_pct"),
                     "rz_days_median": rem.get("days_median"),
                     "rz_in_zone": in_zone,
-                    "rz_beyond_median": bool(rem.get("beyond_median")),
+                    "rz_share_exceeded": cohort.get(
+                        "share_of_history_already_exceeded_pct"),
                 })
             if nxt:
                 out.update({

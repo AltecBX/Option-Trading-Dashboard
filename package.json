@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node build_frontend.js",
     "verify": "node verify_frontend.js",
-    "test": "node test_recommendation.js && node test_journal.js && node test_weather.js && node test_strategy_fixtures.js && node test_helper_cookies.js && node test_helper_swssync.js && node test_swing_paths.js && node test_ui_tooltips.js"
+    "test": "node test_recommendation.js && node test_journal.js && node test_weather.js && node test_strategy_fixtures.js && node test_helper_cookies.js && node test_helper_swssync.js && node test_swing_reversal_ui.js && node test_ui_tooltips.js"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

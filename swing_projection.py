@@ -518,9 +518,11 @@ def project(pivots, dates, highs, lows, closes, *,
         "to_median_dollars": _r(zone["median_price"] - cur_price),
         "to_band_low_pct": _r((lo_px - cur_price) / cur_price * 100.0, 1),
         "to_band_high_pct": _r((hi_px - cur_price) / cur_price * 100.0, 1),
-        "beyond_median": bool(
-            (direction == "down" and cur_price < zone["median_price"]) or
-            (direction == "up" and cur_price > zone["median_price"])),
+        # There is deliberately no "beyond the median" state here: every
+        # cohort member reached at least the current extreme, so the
+        # conditional median is at or beyond it BY CONSTRUCTION and price
+        # can never be past it. Depth relative to history is the
+        # share_of_history_already_exceeded figure on the cohort.
         "more_move_median_pct": _r(med_more, 1),
         "more_move_p25_pct": _r(_quantile(more_move, 0.25), 1),
         "more_move_p75_pct": _r(_quantile(more_move, 0.75), 1),
@@ -692,8 +694,6 @@ def _flags(out, upcoming_earnings_days):
     rem = out.get("remaining") or {}
     if cohort.get("insufficient"):
         flags.append("THIN SAMPLE")
-    if rem and rem.get("beyond_median"):
-        flags.append("BEYOND THE MEDIAN ZONE")
     share = cohort.get("share_of_history_already_exceeded_pct")
     if share is not None and share >= 75:
         flags.append(f"DEEPER THAN {share:.0f}% OF HISTORY")
@@ -752,13 +752,7 @@ def _summary(out, upcoming_earnings_days) -> str:
         f"{'bottom' if d == 'down' else 'top'} near "
         f"${zone['median_price']:,.2f} with a typical zone of "
         f"${zone['band_low_price']:,.2f}–${zone['band_high_price']:,.2f}.")
-    if rem.get("beyond_median"):
-        parts.append(
-            f"Price (${cur['price']:,.2f}) is already "
-            f"{'below' if d == 'down' else 'above'} the median "
-            f"{'bottom' if d == 'down' else 'top'} — this swing has outrun "
-            f"its own median precedent.")
-    elif rem.get("to_median_pct") is not None:
+    if rem.get("to_median_pct") is not None:
         eta = (f" and about {rem['days_median']:.0f} more trading day"
                f"{'' if rem['days_median'] == 1 else 's'}"
                if rem.get("days_median") is not None else "")

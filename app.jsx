@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.49";
+const APP_VERSION = "4.50";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3335,13 +3335,16 @@ function App() {
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="patterns" active={activeTab}>
+          {/* Swing card first (v4.50): the reversal projection is the tab's
+              primary surface — enter a symbol, read where it historically
+              turns, see the chart. Discovery below for deeper digging. */}
+          <CardErrorBoundary label="Swing patterns">
+            <SwingPatternCard apiFetch={apiFetch} ticker={ticker} />
+          </CardErrorBoundary>
           <CardErrorBoundary label="Pattern discovery">
             <LazyTab chunk="tab-patterns" component="PatternDiscoveryCard" label="Pattern discovery"
                      apiFetch={apiFetch} ticker={ticker}
                      onOpenBacktest={() => changeTab("backtest")} />
-          </CardErrorBoundary>
-          <CardErrorBoundary label="Swing patterns">
-            <SwingPatternCard apiFetch={apiFetch} ticker={ticker} />
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="news" active={activeTab}>
