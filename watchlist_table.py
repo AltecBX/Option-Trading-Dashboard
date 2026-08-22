@@ -73,6 +73,11 @@ try:
 except Exception as _exc:  # noqa: BLE001
     print(f"[watchlist_table] swings helpers unavailable: {_exc}", file=sys.stderr)
     _SWINGS_OK = False
+try:
+    import swing_projection as _sproj
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] swing_projection unavailable: {_exc}", file=sys.stderr)
+    _sproj = None
 
 CHUNK = 40
 
@@ -509,7 +514,8 @@ def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
     return out
 
 
-def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12) -> dict:
+def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
+                dates: list | None = None) -> dict:
     """Lightweight active-swing read from the OHLC already downloaded for the
     row — no extra network. Returns the current swing direction (long/short
     bias) and how far along the move is vs the stock's OWN past swings
@@ -571,12 +577,51 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12) -> dic
                     winrate = round(sum(1 for x in mags if x >= med_pct) / len(mags), 2)
         except Exception:
             stage = None
-    return {"swing_dir": direction, "swing_stage": stage,
-            "swing_pct": round(float(cur_move), 1), "swing_days": int(days),
-            "swing_from": round(float(from_p), 2),          # stop reference (swing origin)
-            "swing_med_pct": med_pct,                        # typical full move %
-            "swing_med_days": med_days,                      # typical days a move takes
-            "swing_winrate": winrate}                        # P(reach the median target)
+    out = {"swing_dir": direction, "swing_stage": stage,
+           "swing_pct": round(float(cur_move), 1), "swing_days": int(days),
+           "swing_from": round(float(from_p), 2),          # stop reference (swing origin)
+           "swing_med_pct": med_pct,                        # typical full move %
+           "swing_med_days": med_days,                      # typical days a move takes
+           "swing_winrate": winrate}                        # P(reach the median target)
+
+    # Reversal-zone read (v4.50): where swings that got THIS far have
+    # historically ended, so the scan can surface names approaching their
+    # normal bottom (long candidates) or top (short candidates). Same
+    # engine as the Patterns card; the scan's shorter history means smaller
+    # cohorts, so the sample size travels with every zone number and the
+    # card remains the full read.
+    if _sproj is not None:
+        try:
+            dts = dates if dates and len(dates) == n else [""] * n
+            rev = _sproj.project(pivots, dts, highs, lows, closes,
+                                 min_move_pct=15.0)
+            zone = rev.get("zone") if rev.get("ok") else None
+            rem = rev.get("remaining") if rev.get("ok") else None
+            nxt = rev.get("next") if rev.get("ok") else None
+            cohort = rev.get("cohort") or {}
+            if zone and rem:
+                lo_px, hi_px = zone["band_low_price"], zone["band_high_price"]
+                in_zone = bool(lo_px is not None and hi_px is not None
+                               and lo_px <= cur_price <= hi_px)
+                out.update({
+                    "rz_n": cohort.get("n"),
+                    "rz_median_price": zone.get("median_price"),
+                    "rz_band_low": lo_px, "rz_band_high": hi_px,
+                    "rz_dist_median_pct": rem.get("to_median_pct"),
+                    "rz_days_median": rem.get("days_median"),
+                    "rz_in_zone": in_zone,
+                    "rz_beyond_median": bool(rem.get("beyond_median")),
+                })
+            if nxt:
+                out.update({
+                    "rz_next_pct": nxt.get("pct_median"),
+                    "rz_next_days": nxt.get("days_median"),
+                    "rz_next_target": nxt.get("target_median_price"),
+                    "rz_next_n": nxt.get("n"),
+                })
+        except Exception:
+            pass
+    return out
 
 
 # Options-flow provider, injected once at startup by options_dashboard
@@ -669,11 +714,18 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
             row["industry"] = ov["industry"]
     # Active swing direction + entry timing (free — runs on the OHLC in hand).
     try:
-        H, L, C = [], [], []
-        for hi, lo, cl in zip(sub["High"].tolist(), sub["Low"].tolist(), sub["Close"].tolist()):
+        H, L, C, D = [], [], [], []
+        idx = list(sub.index)
+        for k, (hi, lo, cl) in enumerate(zip(sub["High"].tolist(),
+                                             sub["Low"].tolist(),
+                                             sub["Close"].tolist())):
             if hi == hi and lo == lo and cl == cl:   # drop NaN rows
                 H.append(float(hi)); L.append(float(lo)); C.append(float(cl))
-        sw = _swing_read(H, L, C)
+                try:
+                    D.append(str(idx[k])[:10])
+                except Exception:
+                    D.append("")
+        sw = _swing_read(H, L, C, dates=D)
         if sw:
             row.update(sw)
     except Exception:
@@ -740,7 +792,15 @@ def _scan_worker(symbols: list[str]) -> None:
             part = symbols[i:i + CHUNK]
             df = None
             try:
-                df = yf.download(" ".join(part), period="2y", interval="1d",
+                # 5y (v4.50): the reversal-zone read conditions on swings
+                # that reached at least the current depth, and a 2-year
+                # frame holds too few completed swings for that cohort to
+                # mean anything. Every other consumer of this frame works
+                # on trailing windows (tail slices), so the extra depth
+                # changes nothing for them. The Patterns card itself reads
+                # 10 years; the scan's numbers are the pointer, the card is
+                # the full read.
+                df = yf.download(" ".join(part), period="5y", interval="1d",
                                  progress=False, group_by="ticker", threads=False)
                 multi = isinstance(df.columns, pd.MultiIndex)
                 # Slice each symbol's OHLC from the batch, then enrich the chunk

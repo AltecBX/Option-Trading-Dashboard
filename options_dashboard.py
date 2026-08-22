@@ -197,6 +197,38 @@ except Exception as _exc:  # noqa: BLE001
     _SWINGS_AVAILABLE = False
     _swings = None  # type: ignore
 
+_SWING_PROJ_CFG = {"cfg": None, "ts": 0.0}
+
+
+def _swing_projection_cfg() -> dict:
+    """The swing_projection section of thresholds.json — repo defaults with
+    the data-dir overlay merged key-by-key, cached 60s. Same discipline as
+    every other engine's tunables; the engine holds the fallback values, so
+    an unreadable file degrades to defaults rather than an error."""
+    now = time.time()
+    if _SWING_PROJ_CFG["cfg"] is not None and now - _SWING_PROJ_CFG["ts"] < 60:
+        return _SWING_PROJ_CFG["cfg"]
+    cfg = {}
+    try:
+        repo = json.loads((Path(__file__).resolve().parent
+                           / "thresholds.json").read_text())
+        cfg = dict(repo.get("swing_projection") or {})
+    except Exception:
+        cfg = {}
+    try:
+        over_p = Path(_STABLE_DIR) / "thresholds.json"
+        if over_p.exists():
+            over = (json.loads(over_p.read_text())
+                    .get("swing_projection") or {})
+            for k, v in over.items():
+                if not str(k).startswith("_"):
+                    cfg[k] = v
+    except Exception:
+        pass
+    cfg = {k: v for k, v in cfg.items() if not str(k).startswith("_")}
+    _SWING_PROJ_CFG.update({"cfg": cfg, "ts": now})
+    return cfg
+
 # Weekly range-location scanner — the selling-setup panel's math across
 # the whole watchlist (near-lows → sell puts, near-highs → sell calls).
 try:
@@ -10176,6 +10208,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if not _SWINGS_AVAILABLE:
                 self._send_json({"error": "swings unavailable"}, status=503)
                 return
+            # (helper defined once, cached 60s: the swing_projection section
+            # of thresholds.json, repo defaults + data-dir overlay — the same
+            # discipline every other engine's tunables follow.)
             qs = parse_qs(parsed.query)
             symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
             if not symbol:
@@ -10192,7 +10227,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             period = qs.get("period", ["1y"])[0]
             pctc = max(0.03, min(0.30, pct))
             mmc = max(1.0, min(60.0, mm))
-            skey = (symbol, period, round(pctc, 4), round(mmc, 2))
+            # Optional what-if race (target % vs stop % from the current
+            # swing's depth) — part of the cache identity because it lands
+            # inside the payload.
+            def _qf(name):
+                try:
+                    v = qs.get(name, [None])[0]
+                    return None if v in (None, "") else max(0.5, min(80.0, float(v)))
+                except (TypeError, ValueError):
+                    return None
+            wt, ws = _qf("wt"), _qf("ws")
+            skey = (symbol, period, round(pctc, 4), round(mmc, 2), wt, ws)
             now = time.time()
             with _SWINGS_LOCK:
                 hit = _SWINGS_CACHE.get(skey)
@@ -10214,16 +10259,30 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 # Reuse the app's Schwab-first, cached daily history (already
                 # warm from loading the symbol on Trade) instead of letting
                 # swings do a fresh yfinance download — the slow part of
-                # opening Patterns. 2y = 520 bars (v3.98: deeper pattern
-                # history when zooming out).
+                # opening Patterns. 10y (v4.50) so the reversal projection's
+                # survival cohorts have real membership: a 12% zigzag over
+                # 2 years yields perhaps five completed swings per
+                # direction, and nothing honest is conditional on five.
                 bars = None
-                if period in ("1y", "2y"):
+                depth = {"1y": 260, "2y": 520, "5y": 1260, "10y": 2600}.get(period)
+                if depth:
                     try:
-                        bars = load_daily(symbol, 520 if period == "2y" else 260)
+                        bars = load_daily(symbol, depth)
                     except Exception:
                         bars = None
+                # Declared split dates guard the historical legs; empty
+                # offline — the engine's single-day credibility check still
+                # stands behind it.
+                try:
+                    splits = _gap_actions(symbol).get("splits") or set()
+                except Exception:
+                    splits = set()
                 res = _swings.analyze(symbol, period=period, pct=pctc,
-                                      min_move_pct=mmc, flow=flow, bars=bars)
+                                      min_move_pct=mmc, flow=flow, bars=bars,
+                                      split_dates=splits,
+                                      projection_cfg=_swing_projection_cfg(),
+                                      what_if_target_pct=wt,
+                                      what_if_stop_pct=ws)
                 with _SWINGS_LOCK:
                     _SWINGS_CACHE[skey] = (time.time(), res)
                     if len(_SWINGS_CACHE) > 128:

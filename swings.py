@@ -28,6 +28,11 @@ try:
 except Exception:
     _OK = False
 
+try:
+    import swing_projection as _sproj
+except Exception:                      # pragma: no cover - ships together
+    _sproj = None
+
 
 # ───────────────────────── zig-zag + date helpers ──────────────────────────
 
@@ -1192,9 +1197,42 @@ def _signal_note(direction, hold, maturity, exh, cont, remaining, median_t):
 
 # ─────────────────────────────── entrypoint ────────────────────────────────
 
+def _earnings_iso(earnings: set) -> set:
+    """The earnings set as ISO date strings, for the projection engine's
+    calendar-based tagging."""
+    out = set()
+    for e in (earnings or ()):
+        try:
+            out.add(str(e)[:10])
+        except Exception:
+            pass
+    return out
+
+
+def _days_to_next_earnings(earnings: set, last_date: str):
+    """Trading days from the last bar to the nearest KNOWN future earnings
+    date. None when nothing upcoming is on file — absence of a date is not
+    evidence there is no report coming."""
+    if not earnings:
+        return None
+    try:
+        today = np.datetime64(last_date, "D")
+    except Exception:
+        return None
+    future = [e for e in earnings if e >= today]
+    if not future:
+        return None
+    try:
+        return int(np.busday_count(today, min(future)))
+    except Exception:
+        return None
+
+
 def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
             min_move_pct: float = 15.0, flow: dict | None = None,
-            bars: list | None = None) -> dict:
+            bars: list | None = None, split_dates=None,
+            projection_cfg: dict | None = None,
+            what_if_target_pct=None, what_if_stop_pct=None) -> dict:
     symbol = symbol.upper().strip()
     if bars:
         # Caller supplied OHLC (the app's Schwab-first, cached daily history) —
@@ -1281,6 +1319,34 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
             "to_target_median_pct": round((t_med - current_price) / current_price * 100.0, 1) if current_price else None,
         }
 
+    # The reversal projection: where swings that got THIS far historically
+    # ended, how much longer they took from this exact depth, and what the
+    # opposite swing that followed looked like. Additive — every existing
+    # payload key is untouched, and a failure here degrades to reversal:
+    # None rather than taking the card down.
+    reversal = None
+    if _sproj is not None:
+        try:
+            reversal = _sproj.project(
+                pivots, dates, highs, lows, closes,
+                min_move_pct=min_move_pct,
+                zigzag_pct=pct * 100.0,
+                earnings_dates=_earnings_iso(earnings),
+                split_dates=split_dates,
+                upcoming_earnings_days=_days_to_next_earnings(
+                    earnings, dates[-1] if dates else None),
+                cfg=projection_cfg)
+            if reversal is not None and what_if_target_pct is not None \
+                    and what_if_stop_pct is not None:
+                reversal["what_if"] = _sproj.what_if(
+                    pivots, dates, highs, lows, closes,
+                    target_pct=what_if_target_pct,
+                    stop_pct=what_if_stop_pct,
+                    min_move_pct=min_move_pct,
+                    split_dates=split_dates, cfg=projection_cfg)
+        except Exception:
+            reversal = None
+
     # Strip internal index keys before returning.
     for s in up_swings + down_swings:
         s.pop("_lo_i", None); s.pop("_hi_i", None)
@@ -1296,6 +1362,7 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
         "indicators": ind,
         "analysis": analysis,
         "projection": projection,
+        "reversal": reversal,
         "bars": [{"t": dates[i], "o": round(opens[i], 2), "h": round(highs[i], 2),
                   "l": round(lows[i], 2), "c": round(closes[i], 2),
                   "v": int(vols[i]) if vols[i] == vols[i] else 0}
