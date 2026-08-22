@@ -2470,7 +2470,7 @@ const REV_TIP = {
   touch: "The share of those follow-on swings that reached each level before ending, with the conservative Wilson lower bound in brackets and the chance of the same-size move after ANY random day (same horizon) as the baseline to beat. Levels at or below the chart's sensitivity threshold are not shown: a counter-move smaller than the threshold would not register as a swing at all, so its 'probability' would be 100% by definition and meaningless.",
   reclaim: "How often the follow-on swing got back to the 20-day extreme as it stood at each historical reversal — a level-based read that does not depend on the swing-size definition at all.",
   whatif: "A first-touch race from RIGHT HERE, not from the projected reversal: entry is simulated on the day each comparable historical swing FIRST reached the current depth, at that level. So the extra adverse move before the actual reversal is inside the trade — the real risk of entering before the turn. Both levels inside one daily bar counts as ambiguous (the intraday order is unknowable from daily bars) and is never counted in the trade's favor.",
-  beyond: "The current swing has gone further than the median comparable swing — it is beyond its usual reversal zone, in the tail of its own history. That is a fact about rarity, not a countdown: the reversed-within numbers say how such swings resolved.",
+  beyond: "The current swing has already gone further than most completed swings in its own history, so the comparison set ahead of it is thin by nature — the zone rests on the few swings that went further still. Rarity is not a countdown: the reversed-within numbers say how those deep swings actually resolved.",
   flags: "Conditions that change how much weight the projection deserves — thin samples, earnings ahead, a swing already beyond most of its history.",
   scan: "Every scanned watchlist name with an active swing, placed against ITS OWN historical reversal zone — down-swings as bounce (long) candidates, up-swings as pullback (short) candidates. Ranked by distance to the median zone by default; click any column to re-sort. Numbers here come from the 5-year scan frame; open a symbol on this tab for the full 10-year read."
 };
@@ -2646,16 +2646,16 @@ function SwingReversalBlock({
   }, usd(z.median_price)), /*#__PURE__*/React.createElement(RevStat, {
     label: `Typical ${revWord} zone`,
     tip: REV_TIP.zone
-  }, usd(z.band_low_price), " \u2013 ", usd(z.band_high_price)), rm && rm.beyond_median ? /*#__PURE__*/React.createElement("div", {
-    className: "rev-note warn",
-    title: REV_TIP.beyond
-  }, "Already ", down ? "below" : "above", " the median ", revWord, " \u2014 beyond the usual zone.") : rm && /*#__PURE__*/React.createElement(RevStat, {
+  }, usd(z.band_low_price), " \u2013 ", usd(z.band_high_price)), rm && /*#__PURE__*/React.createElement(RevStat, {
     label: `Remaining to median ${revWord}`,
     tip: REV_TIP.remaining,
     tone: down ? "down" : "up"
   }, sgnp(rm.to_median_pct), " ", /*#__PURE__*/React.createElement("small", {
     className: "muted"
-  }, "(", usd(Math.abs(rm.to_median_dollars)), rm.days_median != null ? ` · ~${rm.days_median} day${rm.days_median === 1 ? "" : "s"}` : "", ")")), rm && (rm.reversed_within || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "(", usd(Math.abs(rm.to_median_dollars)), rm.days_median != null ? ` · ~${rm.days_median} day${rm.days_median === 1 ? "" : "s"}` : "", ")")), co.share_of_history_already_exceeded_pct >= 75 && /*#__PURE__*/React.createElement("div", {
+    className: "rev-note warn",
+    title: REV_TIP.beyond
+  }, "Deeper than ", co.share_of_history_already_exceeded_pct, "% of its own history \u2014 the zone ahead rests on the few swings that went further."), rm && (rm.reversed_within || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "rev-ladder",
     title: REV_TIP.reversedWithin
   }, /*#__PURE__*/React.createElement("span", null, down ? "Bottomed" : "Topped", " within another\u2026"), rm.reversed_within.map(l => /*#__PURE__*/React.createElement("em", {
@@ -2810,8 +2810,8 @@ function SwingReversalScan({
   }, "Earn"))), /*#__PURE__*/React.createElement("tbody", null, sorted.slice(0, 20).map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
     className: r.rz_in_zone ? "rev-inzone" : "",
-    title: r.rz_in_zone ? "Price is INSIDE this name's typical historical reversal zone right now." : r.rz_beyond_median ? "Already beyond the median historical reversal — in the tail of its own history." : ""
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol), r.rz_in_zone ? " ●" : r.rz_beyond_median ? " ⚠" : ""), /*#__PURE__*/React.createElement("td", {
+    title: r.rz_in_zone ? "Price is INSIDE this name's typical historical reversal zone right now." : r.rz_share_exceeded >= 75 ? "Deeper than most of its own history — the zone rests on the few swings that went further." : ""
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol), r.rz_in_zone ? " ●" : r.rz_share_exceeded >= 75 ? " ⚠" : ""), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, Math.abs(r.swing_pct || 0).toFixed(1), "%"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
