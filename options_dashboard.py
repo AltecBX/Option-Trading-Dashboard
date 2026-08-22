@@ -5152,6 +5152,99 @@ def _gap_earn_hist(symbol: str) -> set:
     return dates
 
 
+_DEEP_EARN_CACHE: dict = {}    # symbol -> (ts, payload)
+
+
+def _sec_filing_dates(symbol: str) -> list:
+    """Every 10-Q / 10-K filing date on record for `symbol`, oldest first.
+
+    The SEC Company Facts already cached for the Investment tab carry the
+    `filed` date of each periodic report, which reaches back to the start of
+    XBRL (2009-2010) — roughly four times deeper than the earnings calendar
+    yfinance exposes. `Assets` appears in every balance sheet, so one concept
+    enumerates every filing without walking the whole document.
+
+    A filing date is NOT a report date: the press release lands on or a few
+    days before the filing. It is used here only as an approximate window,
+    and every caller is told which dates are exact and which are proxies.
+    """
+    try:
+        import fundamentals as _fnd
+    except Exception:
+        return []
+    try:
+        facts = _fnd.company_facts(symbol) or {}
+    except Exception:
+        return []
+    gaap = (facts.get("facts") or {}).get("us-gaap") or {}
+    out: set = set()
+    for name in ("Assets", "Liabilities", "StockholdersEquity",
+                 "NetIncomeLoss", "Revenues"):
+        entry = gaap.get(name)
+        if not entry:
+            continue
+        for rows in (entry.get("units") or {}).values():
+            for r in rows or ():
+                if r.get("form") in ("10-Q", "10-K") and r.get("filed"):
+                    out.add(str(r["filed"])[:10])
+        if out:
+            break
+    return sorted(out)
+
+
+def _deep_earn_hist(symbol: str) -> dict:
+    """The deepest point-in-time earnings history the app has, as ISO dates.
+
+    Two sources, never silently mixed:
+
+      REPORTED  yfinance's earnings calendar — the actual report dates, but
+                only about four years deep.
+      FILED     SEC 10-Q/10-K filing dates for everything OLDER than that,
+                expanded into a small window ending on the filing day,
+                because the release precedes the filing by up to a week.
+
+    Ten years of price history with four years of earnings dates would let
+    the projection call every pre-2022 episode "clean" — an absence of data
+    reading as an absence of events. The window is deliberately generous:
+    over-tagging costs sample size and says so on screen, while under-tagging
+    silently teaches the zone that an earnings gap was ordinary.
+    """
+    hit = _DEEP_EARN_CACHE.get(symbol)
+    if hit and time.time() - hit[0] < 12 * 3600:
+        return hit[1]
+    reported = sorted(_gap_earn_hist(symbol) or ())
+    dates = set(reported)
+    earliest_reported = reported[0] if reported else None
+    proxy = 0
+    for f in _sec_filing_dates(symbol):
+        if earliest_reported and f >= earliest_reported:
+            continue                      # the exact date is already known
+        try:
+            d0 = datetime.strptime(f, "%Y-%m-%d").date()
+        except Exception:
+            continue
+        proxy += 1
+        for back in range(0, 8):          # release ≤ 7 calendar days before
+            dates.add((d0 - timedelta(days=back)).strftime("%Y-%m-%d"))
+    src = ("reported dates from the earnings calendar"
+           if not proxy else
+           (f"{len(reported)} exact report dates plus {proxy} older SEC "
+            f"filing windows"))
+    payload = {
+        "dates": dates,
+        "meta": {
+            "source": "yfinance earnings calendar + SEC 10-Q/10-K filings",
+            "label": src,
+            "n_reported": len(reported),
+            "n_proxy_filings": proxy,
+            "earliest_exact": earliest_reported,
+            "proxy_window_days": 7,
+        },
+    }
+    _DEEP_EARN_CACHE[symbol] = (time.time(), payload)
+    return payload
+
+
 def _gap_analyst_action(symbol: str, days: tuple) -> dict | None:
     """The freshest rating change for `symbol` dated within `days`, as a gap
     catalyst. Upgrades and downgrades get their own kinds — a downgrade
@@ -10277,12 +10370,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     splits = _gap_actions(symbol).get("splits") or set()
                 except Exception:
                     splits = set()
+                # The deepest earnings history the app has (v4.51). A ten-year
+                # swing card with four years of report dates would score every
+                # older episode "clean" purely because nobody looked.
+                try:
+                    deep_earn = _deep_earn_hist(symbol)
+                except Exception:
+                    deep_earn = None
                 res = _swings.analyze(symbol, period=period, pct=pctc,
                                       min_move_pct=mmc, flow=flow, bars=bars,
                                       split_dates=splits,
                                       projection_cfg=_swing_projection_cfg(),
                                       what_if_target_pct=wt,
-                                      what_if_stop_pct=ws)
+                                      what_if_stop_pct=ws,
+                                      deep_earnings=deep_earn)
                 with _SWINGS_LOCK:
                     _SWINGS_CACHE[skey] = (time.time(), res)
                     if len(_SWINGS_CACHE) > 128:

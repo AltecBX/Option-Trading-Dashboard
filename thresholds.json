@@ -831,7 +831,7 @@
     }
   },
   "swing_projection": {
-    "_doc": "SWING REVERSAL PROJECTION — the conditional layer on top of the Patterns tab's zigzag. Given the active swing has already travelled X%, the cohort is every completed same-direction swing that reached AT LEAST X% — a survival population, deliberately not a similarity window, because a window around the current size excludes the swings that kept going and understates remaining risk exactly when the knife is still falling. Walk-forward validation across 14 symbols / ~800 events: this conditioning cut the median reversal-size error 28% versus the unconditional rhythm (MAE 9.37 to 6.79 percentage points) with p25-p75 band coverage at 47.8% against the ~50% ideal. Regime, 20-day range position and velocity were each tested as ADDITIONAL cohort filters and each REJECTED: none improved out-of-sample error and every one degraded band coverage. They remain displayed context only. Repo file = defaults; <data>/thresholds.json overrides key by key.",
+    "_doc": "SWING REVERSAL PROJECTION — the conditional layer on top of the Patterns tab's zigzag. Given the active swing has already travelled X%, the cohort is every completed same-direction swing that reached AT LEAST X% — a survival population, deliberately not a similarity window, because a window around the current size excludes the swings that kept going and understates remaining risk exactly when the knife is still falling. v4.51 corrections, each measured over 16 symbols x 10 years of daily bars (about 5,000 walk-forward events): (1) the 15% DISPLAY filter no longer gates the cohort — at 12% sensitivity it was deleting 19% of all completed legs (the 12-15% band) and at 8% sensitivity 51%; removing it cut early-stage reversal-size error 13% at 12% sensitivity and 43% at 8%, and moved p25-p75 band coverage from 36% and 22% respectively to about 46%, against the 50% ideal. (2) Follow-on probabilities are now fixed-horizon (X% within N trading days) against a baseline measured with the SAME X and N from ordinary days; the old lifetime touch ladder was circular, since a confirmed swing exceeds the sensitivity threshold by definition. (3) The follow-on target is the median of PAIRED per-episode projections rather than median depth x median rebound. (4) Historical entries use the price actually available at the crossing — the session open when the market gapped through the level, which happens on roughly a third of crossings. Regime, 20-day range position and velocity were each tested as ADDITIONAL cohort filters and each REJECTED: none improved out-of-sample error and every one degraded band coverage. They remain displayed context only. Repo file = defaults; <data>/thresholds.json overrides key by key.",
     "min_cohort_n": 6,
     "_min_cohort_n_doc": "UNVALIDATED / TUNABLE. Below this many cohort members the zone still renders but is explicitly labelled a description of a few episodes rather than evidence, and no conditional filter may be applied.",
     "more_move_ladder": [
@@ -839,23 +839,35 @@
       5.0,
       10.0
     ],
-    "_more_move_ladder_doc": "The 'reversed within another X%' ladder, in percentage points of additional adverse move past the current depth.",
-    "next_touch_ladder": [
-      15.0,
-      20.0,
-      30.0
+    "_more_move_ladder_doc": "The 'reversed within another X%' ladder, in percentage points of additional move past the current depth, measured from the price actually available at each historical crossing.",
+    "touch_horizons": [
+      [
+        5.0,
+        5
+      ],
+      [
+        10.0,
+        10
+      ],
+      [
+        15.0,
+        20
+      ]
     ],
-    "_next_touch_ladder_doc": "Touch levels for the projected opposite swing, in percent from the reversal pivot. Every level must sit ABOVE the zigzag sensitivity threshold or it is circular — a reversal only becomes a confirmed swing once the counter-move exceeds the threshold, so P(bounce >= anything below it) is 100% by definition. The engine drops sub-threshold levels and shows the floor.",
+    "_touch_horizons_doc": "UNVALIDATED / TUNABLE shape, VALIDATED principle. (percent, trading days) pairs for the follow-on move. Both the conditional rate — measured from the CLOSE of each historical reversal bar — and the baseline — the same question asked of every ordinary bar — use the same pair, which is the only way the two can be subtracted. Pooled over 16 symbols the conditional rates after confirmed bottoms were 82.9% / 71.9% / 59.5% against baselines of 27.6% / 18.1% / 17.5% (n=772, Wilson lower bounds 80.1 / 68.6 / 56.0); after confirmed tops 80.0 / 66.4 / 52.9 against 24.1 / 13.7 / 11.8 (n=775). These are conditional on the turn having happened — they are measured from bottoms only known to be bottoms afterwards, which is what the what-if calculator exists to correct for. This replaced a lifetime touch ladder whose levels below the zigzag sensitivity scored 100% by construction.",
     "earnings_near_days": 2,
-    "_earnings_near_days_doc": "UNVALIDATED / TUNABLE. An earnings report within this many trading days of the reversal pivot (or inside the follow-on swing) tags the episode as earnings-driven.",
-    "min_clean_next_n": 6,
-    "_min_clean_next_n_doc": "Clean episodes required before earnings-tagged ones are excluded from the next-swing statistics rather than included and counted.",
+    "_earnings_near_days_doc": "UNVALIDATED / TUNABLE. An earnings report within this many trading days of the reversal pivot tags the episode. Contamination is now tagged in three places, not one: between the crossing and the final extreme (which distorts the zone and the remaining move), at the reversal itself, and inside the follow-on swing.",
+    "min_clean_n": 6,
+    "_min_clean_n_doc": "UNVALIDATED / TUNABLE. Clean episodes required before contaminated ones are EXCLUDED from a statistic rather than merely disclosed beside it. Below this the panel keeps them and says so — a silently mixed population is worse than a disclosed one.",
+    "maturity_normal_pct": 100.0,
+    "maturity_beyond_pct": 125.0,
+    "_maturity_doc": "VALIDATED BOUNDARIES. Share of the stock's own unconditional median swing at which a developing move stops being ordinary. From the staged walk-forward run at 12% sensitivity (reversal-size MAE, conditional vs unconditional): 25% of median 6.11 vs 5.98, 50% 5.87 vs 5.83, 75% 5.59 vs 4.58, 100% 6.40 vs 8.08, 125% 8.70 vs 13.76 — conditioning is worth nothing before the move reaches its normal size and worth a fifth to a third of the error after it. Band coverage tells the same story from the other side: at 125% the unconditional band covered 24.6% of outcomes, the conditional one 37.0%. These three states are descriptive labels only; they never enter the arithmetic and no number on the panel is scaled by them.",
     "max_credible_day_move_pct": 50.0,
-    "_max_credible_day_move_pct_doc": "A single close-to-close day beyond this is treated as an unadjusted corporate action or bad data; the swing containing it is excluded and counted. Same convention as the rest of the app.",
+    "_max_credible_day_move_pct_doc": "A single close-to-close move beyond this is treated as an unadjusted corporate action or bad data; the leg containing it is excluded and counted. Same convention as the gap scanner.",
     "range_window": 20,
     "regime_sma_n": 200,
     "atr_n": 14,
     "regime_filter": false,
-    "_regime_filter_doc": "Whether the cohort is additionally restricted to swings whose crossing happened in the same 200-day trend regime as today. OFF because walk-forward validation REJECTED it: size error unchanged (6.79 to 6.78) while band coverage fell from 47.8% to 43.9%. The conditional cohort already absorbs most regime information — deep swings cluster in downtrends. Turn on only with new evidence."
+    "_regime_filter_doc": "REJECTED BY VALIDATION, kept switchable. Filtering the cohort to swings whose crossing shared today's 200-day trend regime did not improve out-of-sample error and reduced band coverage. Range position and velocity conditioning were tested the same way and rejected the same way. Do not re-enable without a fresh walk-forward run."
   }
 }

@@ -515,7 +515,7 @@ def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
 
 
 def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
-                dates: list | None = None) -> dict:
+                dates: list | None = None, opens: list | None = None) -> dict:
     """Lightweight active-swing read from the OHLC already downloaded for the
     row — no extra network. Returns the current swing direction (long/short
     bias) and how far along the move is vs the stock's OWN past swings
@@ -594,30 +594,52 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
         try:
             dts = dates if dates and len(dates) == n else [""] * n
             rev = _sproj.project(pivots, dts, highs, lows, closes,
-                                 min_move_pct=15.0)
-            zone = rev.get("zone") if rev.get("ok") else None
-            rem = rev.get("remaining") if rev.get("ok") else None
-            nxt = rev.get("next") if rev.get("ok") else None
+                                 opens=(opens if opens and len(opens) == n
+                                        else None),
+                                 min_move_pct=15.0,   # display rhythm only —
+                                 # the cohort is every completed leg (v4.51)
+                                 zigzag_pct=pct * 100.0)
+            ok = bool(rev.get("ok"))
+            zone = rev.get("zone") if ok else None
+            rem = rev.get("remaining") if ok else None
+            nxt = rev.get("next") if ok else None
+            st = (rev.get("status") or {}) if ok else {}
+            cur = (rev.get("current") or {}) if ok else {}
             cohort = rev.get("cohort") or {}
+            if ok:
+                # The status is the scan's organising idea (v4.51): a stock
+                # whose LOW already entered its historical bottom zone and has
+                # since traded up off it is a different candidate from one
+                # still falling into that zone, and ranking on distance from
+                # the current close alone cannot tell them apart.
+                out.update({
+                    "rz_status": st.get("code"),
+                    "rz_extreme_price": cur.get("extreme_price"),
+                    "rz_extreme_pct": cur.get("extreme_abs_pct"),
+                    "rz_cur_pct": cur.get("abs_pct"),
+                    "rz_off_extreme_pct": st.get("off_extreme_pct"),
+                    "rz_zone_touched": st.get("zone_touched"),
+                    "rz_in_zone": st.get("current_in_zone"),
+                    "rz_extreme_in_zone": st.get("extreme_in_zone"),
+                    "rz_share_exceeded": cohort.get(
+                        "share_of_history_already_exceeded_pct"),
+                })
             if zone and rem:
-                lo_px, hi_px = zone["band_low_price"], zone["band_high_price"]
-                in_zone = bool(lo_px is not None and hi_px is not None
-                               and lo_px <= cur_price <= hi_px)
                 out.update({
                     "rz_n": cohort.get("n"),
                     "rz_median_price": zone.get("median_price"),
-                    "rz_band_low": lo_px, "rz_band_high": hi_px,
+                    "rz_band_low": zone["band_low_price"],
+                    "rz_band_high": zone["band_high_price"],
                     "rz_dist_median_pct": rem.get("to_median_pct"),
+                    "rz_more_move_pct": rem.get("more_move_median_pct"),
                     "rz_days_median": rem.get("days_median"),
-                    "rz_in_zone": in_zone,
-                    "rz_share_exceeded": cohort.get(
-                        "share_of_history_already_exceeded_pct"),
                 })
             if nxt:
                 out.update({
                     "rz_next_pct": nxt.get("pct_median"),
                     "rz_next_days": nxt.get("days_median"),
                     "rz_next_target": nxt.get("target_median_price"),
+                    "rz_next_paired": bool(nxt.get("target_is_paired")),
                     "rz_next_n": nxt.get("n"),
                 })
         except Exception:
@@ -715,18 +737,27 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
             row["industry"] = ov["industry"]
     # Active swing direction + entry timing (free — runs on the OHLC in hand).
     try:
-        H, L, C, D = [], [], [], []
+        H, L, C, D, O = [], [], [], [], []
         idx = list(sub.index)
+        try:
+            op_col = sub["Open"].tolist()
+        except Exception:
+            op_col = [float("nan")] * len(idx)
         for k, (hi, lo, cl) in enumerate(zip(sub["High"].tolist(),
                                              sub["Low"].tolist(),
                                              sub["Close"].tolist())):
             if hi == hi and lo == lo and cl == cl:   # drop NaN rows
                 H.append(float(hi)); L.append(float(lo)); C.append(float(cl))
+                op = op_col[k] if k < len(op_col) else float("nan")
+                # A missing open falls back to the close: the gap check then
+                # simply never fires for that bar, which is the honest
+                # no-information answer.
+                O.append(float(op) if op == op else float(cl))
                 try:
                     D.append(str(idx[k])[:10])
                 except Exception:
                     D.append("")
-        sw = _swing_read(H, L, C, dates=D)
+        sw = _swing_read(H, L, C, dates=D, opens=O)
         if sw:
             row.update(sw)
     except Exception:
