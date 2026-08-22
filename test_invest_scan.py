@@ -35,6 +35,33 @@ def iso(hours_ago=0.0):
             - timedelta(hours=hours_ago)).isoformat(timespec="seconds")
 
 
+class PinnedTradingDay:
+    """Pin the market clock to a known trading Wednesday for the capture
+    tests. capture_chains CORRECTLY refuses non-trading days — a Saturday
+    quote is Friday's quote wearing Saturday's date — so any test that
+    expects a capture to happen must not inherit the runner's calendar:
+    run on a real Saturday these tests went red without a line of code
+    having changed (found August 22, 2026, a Saturday — the same failure
+    class the time-travel step exists for, from the other direction). The
+    hour is pinned to the one CI already passes at, so nothing else about
+    the tests' world changes."""
+
+    def setUp(self):
+        super().setUp()
+        self._real_market_now = S.market_now
+        tz = getattr(S, "_MARKET_TZ", None)
+        if tz is not None:
+            pinned = datetime(2026, 8, 19, 5, 0, tzinfo=tz)
+        else:                                        # pragma: no cover
+            from datetime import timezone as _tz
+            pinned = S.eastern(datetime(2026, 8, 19, 9, 0, tzinfo=_tz.utc))
+        S.market_now = lambda now=None: pinned
+
+    def tearDown(self):
+        S.market_now = self._real_market_now
+        super().tearDown()
+
+
 def concept(unit, rows):
     return {"units": {unit: rows}}
 
@@ -1589,7 +1616,7 @@ class TestPhase5Snapshot(Phase5Base):
         self.assertIn("nothing to check", out["reason"])
 
 
-class TestChainCapture(Phase5Base):
+class TestChainCapture(PinnedTradingDay, Phase5Base):
     def setUp(self):
         super().setUp()
         self.tmp = tempfile.mkdtemp(prefix="jerry_cap_")
@@ -1679,7 +1706,7 @@ class TestChainCapture(Phase5Base):
         self.assertEqual(list(store), [S._market_today()])
 
 
-class TestReadiness(Phase5Base):
+class TestReadiness(PinnedTradingDay, Phase5Base):
     def setUp(self):
         super().setUp()
         self.tmp = tempfile.mkdtemp(prefix="jerry_ready_")
@@ -1699,7 +1726,11 @@ class TestReadiness(Phase5Base):
         self.assertTrue(out["grows_only_forward"])
 
     def test_a_partial_store_is_part_real(self):
-        today = date.today()
+        # The pinned market clock, not the runner's: the store correctly
+        # refuses to file a chain under a date the market never traded, so
+        # a real-Saturday `date.today()` here made the store empty and the
+        # mode MODEL-BASED instead of MIXED.
+        today = S.market_now().date()
         exp = (today + timedelta(days=30)).isoformat()
         payload = {"underlying": {"last": 100.0}, "source": "schwab",
                    "chains": {exp: {"calls": [
@@ -2330,7 +2361,7 @@ class TestPhase7Config(unittest.TestCase):
                 self.assertNotIn("target_", key)
 
 
-class TestNoSilentlyLostDays(Phase7Base):
+class TestNoSilentlyLostDays(PinnedTradingDay, Phase7Base):
     """A capture that did not happen must not be recorded as one. The whole
     point of the capture log is that tomorrow can tell the difference."""
 

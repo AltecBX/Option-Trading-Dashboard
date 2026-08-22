@@ -8227,6 +8227,62 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .swing-table td { font-size: 13.5px; }
 .swing-table th { font-size: 12px; }
 
+/* ── Swing reversal projection (v4.50) ───────────────────────────────── */
+.rev-block { margin: 12px 0 6px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--bg-2); }
+.rev-summary { font-size: 13.5px; line-height: 1.55; color: var(--fg);
+  margin-bottom: 8px; }
+.rev-flags { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.rev-flag { font: 700 10px/1.5 var(--font-display); letter-spacing: .05em;
+  padding: 2px 7px; border-radius: 6px; color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.rev-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px; }
+@media (max-width: 980px) { .rev-grid { grid-template-columns: 1fr; } }
+.rev-box { border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 11px; background: var(--bg); min-width: 0; }
+.rev-box-title { font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--fg-3); margin-bottom: 6px; }
+.rev-stat { display: flex; flex-direction: column; gap: 1px; margin: 5px 0; }
+.rev-stat > span { font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--fg-3); }
+.rev-stat > b { font-size: 14px; font-weight: 600; color: var(--fg);
+  font-family: var(--font-mono); overflow-wrap: anywhere; }
+.rev-stat > b.up { color: var(--up); }
+.rev-stat > b.down { color: var(--down); }
+.rev-stat > b.warn { color: var(--warn); }
+.rev-stat small { font-weight: 400; }
+.rev-ladder { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 2px;
+  font-size: 12px; align-items: baseline; }
+.rev-ladder > span { font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--fg-3); flex: 0 0 100%; }
+.rev-ladder em { font-style: normal; font-family: var(--font-mono);
+  color: var(--fg-2); white-space: nowrap; }
+.rev-ladder em b { color: var(--fg); }
+.rev-ladder em small { color: var(--fg-4); }
+.rev-note { font-size: 11.5px; line-height: 1.45; color: var(--fg-3);
+  margin: 6px 0 2px; }
+.rev-note.warn { color: var(--warn); }
+.rev-empty { font-size: 12.5px; color: var(--fg-3); line-height: 1.5;
+  padding: 4px 0; }
+.rev-whatif { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 8px 10px; margin-top: 10px; padding-top: 9px;
+  border-top: 1px dashed var(--line-2); font-size: 12.5px; }
+.rev-whatif-lbl { font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--fg-3); }
+.rev-whatif label { display: inline-flex; align-items: center; gap: 4px;
+  color: var(--fg-3); font-size: 12px; }
+.rev-whatif input { width: 52px; padding: 3px 6px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  font-family: var(--font-mono); font-size: 12.5px; }
+.rev-whatif-res { font-family: var(--font-mono); font-size: 12.5px;
+  color: var(--fg-2); overflow-wrap: anywhere; }
+.rev-scan { margin: 10px 0 2px; }
+.rev-scan-modes { display: flex; gap: 6px; margin: 8px 0; }
+.rev-scan-table td, .rev-scan-table th { padding-right: 14px; }
+.rev-inzone td { background: color-mix(in srgb, var(--up) 8%, transparent); }
+
 /* ── Live swing decision box ─────────────────────────────────────────── */
 .swing-live {
   margin: 12px 0 4px;

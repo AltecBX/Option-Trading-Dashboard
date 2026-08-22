@@ -1798,3 +1798,51 @@ repeated extreme pinches, double-tap fires, page scroll free.
    (scanall_status() under the non-reentrant lock) and a response key
    collision ("started" boolean vs timestamp — now started_at).
    382 tests green (9 new in test_scanall.py).
+
+## v4.50 — The Patterns tab answers WHERE it reverses, WHEN, and WHAT FOLLOWS
+
+The swing card's question changes from "how far does this stock normally
+run?" to "given the swing in progress has ALREADY travelled X%, where did
+swings that reached X% actually end, how many more days did they take from
+this exact depth, and what did the opposite swing afterward look like?"
+
+`swing_projection.py` (pure, stdlib + the house Wilson interval) computes
+that from the zigzag pivots swings.py already finds. The comparison set is
+a SURVIVAL population — every completed same-direction swing whose extreme
+reached at least the current one's — deliberately not a "similar size"
+window, which would exclude the swings that kept going and understate
+remaining risk exactly when the knife is still falling. Walk-forward
+validation on 14 symbols / ~800 events before wiring: 28% lower median
+reversal-size error than the unconditional rhythm (9.37 → 6.79 points),
+p25–p75 band coverage 47.8% against the ~50% ideal. Trend regime, 20-day
+range position and velocity were each tested as additional cohort filters
+and each REJECTED (no error improvement, worse coverage); they render as
+context only. A circularity caught on real data: at 12% zigzag sensitivity
+every confirmed counter-swing is ≥12% by definition, so touch levels at or
+under the sensitivity are dropped and the floor is disclosed rather than
+shown as impressive 100%s.
+
+The card now leads with a deterministic plain-English summary and three
+blocks — Current swing / Historical bottom-or-top (the conditional zone in
+dollars, remaining move and days from per-swing remainders at the same
+depth, the bottomed-within-another-X% ladder) / After the reversal (the
+next swing's size, dollar targets anchored at the median zone, touch rates
+with Wilson bounds and random-day baselines, 20-day reclaim) — plus a
+what-if race entered the day each historical swing first reached the
+current depth, same-bar ambiguity counted against the trade. The chart
+gains a Zones toggle (band edges, median, follow-on target in the legend);
+the score-derived "three paths" card is retired — it manufactured path
+probabilities from continuation/exhaustion scores, the exact confusion the
+empirical block replaces. The swing card moves above Pattern Discovery;
+history deepens to 10 years (card) and 5 years (watchlist scan), and every
+scanned row carries rz_* zone fields feeding a sortable bounce/pullback
+Reversal scan section. Tunables live in thresholds.json under
+swing_projection with the validation evidence in the doc keys.
+
+Also fixed: the invest-scan chain-capture tests inherited the runner's
+calendar and went red on a real Saturday (capture correctly refuses
+non-trading days; the tests now pin a trading Wednesday) — the same
+failure class the time-travel CI step exists for, from the other
+direction. 2,452 Python tests green (47 new), 176 node guards (the
+swing-paths guard replaced by a reversal-block guard), 123/123 HTTP smoke,
+46/46 browser checks at 1400px and 390px, suite green 400 days forward.

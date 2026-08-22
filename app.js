@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.49";
+const APP_VERSION = "4.50";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -4308,6 +4308,11 @@ function App() {
     tab: "patterns",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Swing patterns"
+  }, /*#__PURE__*/React.createElement(SwingPatternCard, {
+    apiFetch: apiFetch,
+    ticker: ticker
+  })), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Pattern discovery"
   }, /*#__PURE__*/React.createElement(LazyTab, {
     chunk: "tab-patterns",
@@ -4316,11 +4321,6 @@ function App() {
     apiFetch: apiFetch,
     ticker: ticker,
     onOpenBacktest: () => changeTab("backtest")
-  })), /*#__PURE__*/React.createElement(CardErrorBoundary, {
-    label: "Swing patterns"
-  }, /*#__PURE__*/React.createElement(SwingPatternCard, {
-    apiFetch: apiFetch,
-    ticker: ticker
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "news",
     active: activeTab
