@@ -320,15 +320,17 @@ class TestNextSwing(unittest.TestCase):
                                round(z["median_price"] * 1.25, 2), places=1)
         self.assertIn("reversal has to happen first", nx["target_basis"])
 
-    def test_touch_levels_below_the_zigzag_floor_are_dropped(self):
+    def test_the_lifetime_touch_ladder_is_gone(self):
+        """It was circular: a confirmed swing exceeds the zigzag threshold
+        BY DEFINITION, so every level under it scored 100%. Fixed-horizon
+        rates replaced it, and the old key must not come back."""
         piv, dates, H, L, C = down_history([30, 30, 30, 30, 30, 30, 30],
                                            active=-20.0)
         out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
-                         zigzag_pct=12.0,
-                         cfg={"next_touch_ladder": (5.0, 10.0, 20.0)})
-        lv = [t["pct"] for t in out["next"]["touch"]]
-        self.assertEqual(lv, [20.0])
-        self.assertIn("by definition", out["next"]["touch_floor_note"])
+                         zigzag_pct=12.0)
+        self.assertNotIn("touch", out["next"])
+        self.assertNotIn("baseline", out["next"])
+        self.assertTrue(out["next"]["horizon_touch"])
 
     def test_the_last_swings_unfinished_next_is_not_an_outcome(self):
         # The final decline's "next" is the active leg — unfinished, so it
@@ -342,7 +344,7 @@ class TestNextSwing(unittest.TestCase):
         piv, dates, H, L, C = down_history([30] * 8, active=-20.0)
         out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
                          zigzag_pct=12.0)
-        for t in out["next"]["touch"]:
+        for t in out["next"]["horizon_touch"]:
             self.assertIsNotNone(t["wilson_lo_pct"])
             self.assertLessEqual(t["wilson_lo_pct"], t["rate_pct"])
 
@@ -492,17 +494,44 @@ class TestCompletionIsNotAProbability(unittest.TestCase):
 
 
 class TestBaseline(unittest.TestCase):
+    """The baseline exists to be subtracted from the conditional rate, so
+    the two must ask the identical question: same percent, same horizon,
+    same anchor (the bar's close)."""
 
-    def test_baseline_windows_do_not_overlap(self):
-        # 100 flat bars then a +20% pop in the last 10: with horizon 10 and
-        # stride=horizon, at most one window can contain the pop.
+    def _flat_then_pop(self):
         closes = [100.0] * 100 + [100.0 * (1.2 ** ((i + 1) / 10.0))
                                   for i in range(10)]
-        highs = [c * 1.001 for c in closes]
-        lows = [c * 0.999 for c in closes]
-        rate = sp._baseline_touch(highs, lows, closes, 10.0, 10, "down")
+        return ([c * 1.001 for c in closes], [c * 0.999 for c in closes],
+                closes)
+
+    def test_only_bars_that_could_reach_it_count(self):
+        highs, lows, closes = self._flat_then_pop()
+        rate, n = sp.baseline_hit_rate(highs, lows, closes, 10.0, 10, "down")
+        # Only the last ~10 flat bars are within 10 sessions of the pop.
         self.assertIsNotNone(rate)
-        self.assertLessEqual(rate, 100.0 / (len(closes) // 10 - 1))
+        self.assertLess(rate, 20.0)
+        self.assertEqual(n, len(closes) - 10)
+
+    def test_an_incomplete_window_is_not_a_miss(self):
+        highs, lows, closes = self._flat_then_pop()
+        # The final bars have no 10-bar future: horizon_hit returns None and
+        # baseline_hit_rate must not score them as failures.
+        self.assertIsNone(sp.horizon_hit(highs, lows, closes[-1],
+                                         len(closes) - 1, 10.0, 10, "down"))
+        _rate, n = sp.baseline_hit_rate(highs, lows, closes, 10.0, 10, "down")
+        self.assertEqual(n, len(closes) - 10)
+
+    def test_conditional_and_baseline_use_the_same_pair(self):
+        piv, dates, H, L, C = down_history([30] * 8, active=-20.0)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         zigzag_pct=12.0,
+                         cfg={"touch_horizons": ((7.0, 6),)})
+        t = out["next"]["horizon_touch"][0]
+        self.assertEqual((t["pct"], t["days"]), (7.0, 6))
+        base, n = sp.baseline_hit_rate(H, L, C, 7.0, 6, "down")
+        self.assertEqual(t["baseline_pct"], base)
+        self.assertEqual(t["baseline_n"], n)
+        self.assertEqual(t["edge_pp"], round(t["rate_pct"] - base, 0))
 
 
 class TestValidateWalkForward(unittest.TestCase):
@@ -619,3 +648,475 @@ class TestScannerRead(unittest.TestCase):
 
 if __name__ == "__main__":       # pragma: no cover
     unittest.main()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  v4.51 — the corrections pass
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestTheDisplayFilterNeverDefinesThePopulation(unittest.TestCase):
+    """The 15% setting hides small swings from the TABLES. Using it as a
+    statistical population deleted the shallow reversals — exactly the
+    swings that ended early — and pushed every projected zone deeper."""
+
+    def _mixed(self):
+        # Declines of 12.5, 13, 14 (invisible to the table) and 16, 20, 30
+        # (visible), each followed by a rally, then an active -12% decline.
+        legs = []
+        for s in (12.5, 13.0, 14.0, 16.0, 20.0, 30.0):
+            legs += [(-s, 10), (25.0, 10)]
+        legs.append((-12.0, 10))
+        return build_series(legs)
+
+    def test_a_12_percent_decline_keeps_the_shallow_declines(self):
+        piv, dates, H, L, C = self._mixed()
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertEqual(out["cohort"]["n"], 6)
+        # With the old floor the cohort was [16, 20, 30] and the median
+        # bottom projected 20% down. Keeping 12.5/13/14 halves that.
+        self.assertLess(out["zone"]["median_abs_pct"], 20.0)
+        self.assertAlmostEqual(out["zone"]["median_abs_pct"], 15.0, places=0)
+
+    def test_only_swings_that_never_reached_this_depth_are_excluded(self):
+        legs = []
+        for s in (8.0, 12.5, 13.0, 14.0, 16.0, 20.0, 30.0):
+            legs += [(-s, 10), (25.0, 10)]
+        legs.append((-12.0, 10))
+        piv, dates, H, L, C = build_series(legs)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertEqual(out["cohort"]["n"], 6)          # the 8% is out
+        self.assertEqual(out["cohort"]["n_direction"], 7)
+
+    def test_changing_the_display_filter_does_not_move_the_cohort(self):
+        piv, dates, H, L, C = self._mixed()
+        a = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        b = sp.project(piv, dates, H, L, C, min_move_pct=25.0)
+        c = sp.project(piv, dates, H, L, C, min_move_pct=1.0)
+        for k in ("n", "share_of_history_already_exceeded_pct"):
+            self.assertEqual(a["cohort"][k], b["cohort"][k])
+            self.assertEqual(a["cohort"][k], c["cohort"][k])
+        self.assertEqual(a["zone"], b["zone"])
+        self.assertEqual(a["remaining"]["days_median"],
+                         c["remaining"]["days_median"])
+        self.assertFalse(a["cohort"]["filters"]["display_min_move_pct_applied"])
+        # Only the visible-history block moves with the display filter.
+        self.assertNotEqual(a["history"]["n"], b["history"]["n"])
+
+    def test_the_only_floor_disclosed_is_the_zigzags_own(self):
+        piv, dates, H, L, C = self._mixed()
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         zigzag_pct=12.0)
+        # The active swing is 12% — exactly the sensitivity, so every
+        # completed swing qualifies and the note says so rather than
+        # implying the cohort was selective.
+        self.assertIn("no completed swing is smaller than 12%",
+                      out["cohort"]["floor_note"])
+
+    def test_a_deeper_swing_discloses_that_the_display_filter_is_off(self):
+        legs = []
+        for s2 in (12.5, 13.0, 14.0, 16.0, 20.0, 30.0):
+            legs += [(-s2, 10), (25.0, 10)]
+        legs.append((-14.0, 10))
+        piv, dates, H, L, C = build_series(legs)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         zigzag_pct=12.0)
+        note = out["cohort"]["floor_note"]
+        self.assertIn("12%", note)
+        self.assertIn("15% display filter", note)
+        self.assertEqual(out["cohort"]["n"], 4)   # 14, 16, 20 and 30
+
+    def test_what_if_uses_the_same_unfiltered_population(self):
+        piv, dates, H, L, C = self._mixed()
+        proj = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        wi = sp.what_if(piv, dates, H, L, C, target_pct=10.0, stop_pct=5.0,
+                        min_move_pct=15.0)
+        self.assertEqual(wi["n"], proj["cohort"]["n"])
+
+
+class TestReversalStatus(unittest.TestCase):
+    """Status comes from the running EXTREME, so a stock that already
+    reached its historical zone and bounced is not confused with one still
+    falling into it."""
+
+    def _zone(self, ext, cur, direction="down", lo=80.0, hi=90.0):
+        return sp.zone_state(direction, ext, cur, lo, hi)
+
+    def test_the_status_band_is_the_unconditional_one(self):
+        """The survival cohort all ended at or beyond the current depth, so
+        its shallow quartile sits at or past the extreme by construction —
+        measuring status against it would make IN ZONE unreachable."""
+        piv, dates, H, L, C = down_history([30, 32, 28, 31, 29, 33],
+                                           active=-30.0)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        tz, z = out["typical_zone"], out["zone"]
+        self.assertEqual(tz["n"], 6)                 # every completed decline
+        self.assertLess(z["p25_abs_pct"] + 1e-9, 1e9)
+        self.assertGreaterEqual(z["p25_abs_pct"],
+                                out["current"]["extreme_abs_pct"])
+        self.assertLess(tz["p25_abs_pct"], z["p25_abs_pct"])
+        self.assertEqual(out["status"]["code"], "IN ZONE")
+
+    def test_approaching(self):
+        st = self._zone(ext=95.0, cur=95.0)
+        self.assertEqual(st["code"], "APPROACHING")
+        self.assertFalse(st["zone_touched"])
+
+    def test_in_zone(self):
+        st = self._zone(ext=85.0, cur=86.0)
+        self.assertEqual(st["code"], "IN ZONE")
+        self.assertTrue(st["extreme_in_zone"])
+        self.assertAlmostEqual(st["off_extreme_pct"], 1.2, places=1)
+
+    def test_bouncing_off_zone(self):
+        st = self._zone(ext=84.0, cur=95.0)
+        self.assertEqual(st["code"], "BOUNCING OFF ZONE")
+        self.assertTrue(st["zone_touched"])
+        self.assertFalse(st["current_in_zone"])
+        self.assertGreater(st["off_extreme_pct"], 0)
+
+    def test_fading_off_zone(self):
+        st = self._zone(ext=116.0, cur=105.0, direction="up",
+                        lo=110.0, hi=120.0)
+        self.assertEqual(st["code"], "FADING OFF ZONE")
+        self.assertTrue(st["zone_touched"])
+
+    def test_beyond_typical_zone(self):
+        st = self._zone(ext=70.0, cur=72.0)
+        self.assertEqual(st["code"], "BEYOND TYPICAL ZONE")
+        self.assertTrue(st["extreme_beyond_zone"])
+
+    def test_no_confirmation_threshold_is_invented(self):
+        """A cent above the band is already 'out of the band'. The zone is
+        the yardstick; nothing else decides what counts as a reaction."""
+        self.assertEqual(self._zone(ext=85.0, cur=90.01)["code"],
+                         "BOUNCING OFF ZONE")
+        self.assertEqual(self._zone(ext=85.0, cur=89.99)["code"], "IN ZONE")
+
+    def test_the_extreme_can_be_in_the_zone_while_price_is_not(self):
+        piv, dates, H, L, C = down_history([30, 32, 28, 31, 29, 33],
+                                           active=-30.0)
+        # Now let price recover 12% off that low WITHOUT confirming a new
+        # pivot — the situation the whole status field exists for. The
+        # pivot list is untouched; only bars are appended.
+        last = C[-1]
+        for k in range(1, 7):
+            px = last * (1.0 + 0.12 * k / 6.0)
+            C.append(px); H.append(px * 1.0005); L.append(px * 0.9995)
+            dates.append(f"2031-01-{k:02d}")
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        st = out["status"]
+        self.assertGreater(out["current"]["extreme_abs_pct"],
+                           out["current"]["abs_pct"])
+        self.assertGreater(st["off_extreme_pct"], 5.0)
+        self.assertIn(st["code"], ("BOUNCING OFF ZONE", "IN ZONE",
+                                   "BEYOND TYPICAL ZONE"))
+
+    def test_beyond_history_has_no_band_at_all(self):
+        piv, dates, H, L, C = down_history([20, 21, 22], active=-40.0)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertEqual(out["status"]["code"], "BEYOND HISTORY")
+        self.assertIsNone(out["zone"])
+
+    def test_the_status_is_not_duplicated_into_the_flags(self):
+        """It has its own banner; a flag chip saying the same word is
+        noise, and flags are reserved for conditions that change how much
+        weight the projection deserves."""
+        piv, dates, H, L, C = down_history([30] * 8, active=-20.0)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertNotIn(out["status"]["code"], out["flags"])
+
+
+class TestPairedTargets(unittest.TestCase):
+    """Each episode contributes its own (depth, follow-on) pair. A product
+    of two medians describes an episode that never happened."""
+
+    def _asymmetric(self):
+        # The depth that sits in the MIDDLE of the depth distribution is
+        # paired with an extreme follow-on move, so the median of the
+        # projections cannot equal the projection of the two medians.
+        legs = [(-20, 10), (50, 10), (-25, 10), (10, 10), (-30, 10), (60, 10),
+                (-35, 10), (12, 10), (-40, 10), (55, 10), (-20, 10)]
+        return build_series(legs)
+
+    def test_pairs_are_preserved(self):
+        piv, dates, H, L, C = self._asymmetric()
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        pairs = out["next"]["paired"]["pairs"]
+        by_depth = {round(p["reversal_abs_pct"]): p["next_abs_pct"]
+                    for p in pairs}
+        self.assertAlmostEqual(by_depth[30], 60.0, places=0)
+        self.assertAlmostEqual(by_depth[35], 12.0, places=0)
+
+    def test_the_paired_median_differs_from_median_times_median(self):
+        piv, dates, H, L, C = self._asymmetric()
+        nx = sp.project(piv, dates, H, L, C, min_move_pct=15.0)["next"]
+        self.assertTrue(nx["target_is_paired"])
+        self.assertNotAlmostEqual(nx["target_median_price"],
+                                  nx["target_simple_median_price"], places=1)
+
+    def test_the_paired_target_is_the_primary_one(self):
+        piv, dates, H, L, C = self._asymmetric()
+        nx = sp.project(piv, dates, H, L, C, min_move_pct=15.0)["next"]
+        self.assertEqual(nx["target_median_price"],
+                         nx["paired"]["median_price"])
+        self.assertIn("own follow-on move", nx["target_basis"])
+
+    def test_each_projection_starts_from_todays_swing_origin(self):
+        piv, dates, H, L, C = self._asymmetric()
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        origin = out["current"]["from_price"]
+        for p in out["next"]["paired"]["pairs"]:
+            expect = origin * (1 - p["reversal_abs_pct"] / 100.0)
+            self.assertAlmostEqual(p["projected_reversal_price"], expect,
+                                   places=1)
+
+
+class TestGapThroughEntries(unittest.TestCase):
+    """A level the market opened beyond never existed as a live price."""
+
+    def test_a_gap_through_fills_at_the_open(self):
+        leg = {"start_price": 100.0, "dir": "down", "start_i": 0, "end_i": 9}
+        opens = [100.0] * 5 + [80.0] + [80.0] * 4
+        px, gapped = sp.crossing_fill(leg, opens, "down", 10.0, 5)
+        self.assertTrue(gapped)
+        self.assertEqual(px, 80.0)
+
+    def test_a_bar_that_traded_through_fills_at_the_level(self):
+        leg = {"start_price": 100.0, "dir": "down", "start_i": 0, "end_i": 9}
+        opens = [100.0] * 10
+        px, gapped = sp.crossing_fill(leg, opens, "down", 10.0, 5)
+        self.assertFalse(gapped)
+        self.assertAlmostEqual(px, 90.0, places=6)
+
+    def test_without_opens_the_gap_state_is_unknown_not_false(self):
+        leg = {"start_price": 100.0, "dir": "down", "start_i": 0, "end_i": 9}
+        px, gapped = sp.crossing_fill(leg, None, "down", 10.0, 5)
+        self.assertIsNone(gapped)
+        self.assertAlmostEqual(px, 90.0, places=6)
+
+    def test_the_mirror_case_for_a_rally(self):
+        leg = {"start_price": 100.0, "dir": "up", "start_i": 0, "end_i": 9}
+        opens = [100.0] * 5 + [120.0] * 5
+        px, gapped = sp.crossing_fill(leg, opens, "up", 10.0, 5)
+        self.assertTrue(gapped)
+        self.assertEqual(px, 120.0)
+
+    def test_the_what_if_counts_its_gapped_fills(self):
+        piv, dates, H, L, C = down_history([30] * 6, active=-20.0)
+        opens = [c for c in C]
+        wi = sp.what_if(piv, dates, H, L, C, opens=opens,
+                        target_pct=10.0, stop_pct=5.0)
+        self.assertIn("gapped_entries", wi)
+        self.assertIn("gapped", wi["episodes"][0])
+
+    def test_a_contaminated_following_leg_is_dropped_not_raced(self):
+        piv, dates, H, L, C = down_history([30] * 6, active=-20.0)
+        legs = sp.build_legs(piv, dates, H, L, C)
+        # Declare a split in the MIDDLE of the second leg (the first
+        # rally) — the follow-on path of the first decline. Not at its
+        # start: that bar is the shared pivot, and excluding the decline
+        # itself would prove nothing about the follow-on path.
+        mid = (legs[1]["start_i"] + legs[1]["end_i"]) // 2
+        split = {dates[mid]}
+        clean = sp.what_if(piv, dates, H, L, C, target_pct=10.0, stop_pct=5.0)
+        dirty = sp.what_if(piv, dates, H, L, C, target_pct=10.0, stop_pct=5.0,
+                           split_dates=split)
+        self.assertEqual(dirty["n"], clean["n"] - 1)
+        self.assertEqual(dirty["excluded_contaminated"], 1)
+
+
+class TestEarningsBetweenCrossingAndExtreme(unittest.TestCase):
+    """The case the engine used to miss: a report that lands while the
+    swing is already this deep, and takes it 25% lower."""
+
+    def _series(self):
+        return down_history([25, 26, 27, 28, 29, 30, 31, 32], active=-20.0)
+
+    def _run_leg_dates(self, piv, dates, H, L, C, k):
+        leg = [x for x in sp.build_legs(piv, dates, H, L, C)
+               if x["dir"] == "down"][k]
+        ci = sp.crossing_index(leg, H, L, 20.0)
+        return dates[ci + 1]
+
+    def test_a_report_during_the_run_contaminates_the_zone(self):
+        piv, dates, H, L, C = self._series()
+        earn = {self._run_leg_dates(piv, dates, H, L, C, k) for k in (0, 1)}
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         earnings_dates=earn)
+        self.assertEqual(out["cohort"]["n_earnings_contaminated"], 2)
+        self.assertTrue(out["cohort"]["earnings_excluded_applied"])
+        self.assertEqual(out["cohort"]["n"], 6)
+        self.assertIn("between this depth and the final turn",
+                      out["cohort"]["earnings_note"])
+
+    def test_it_actually_moves_the_zone(self):
+        piv, dates, H, L, C = self._series()
+        clean = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        earn = {self._run_leg_dates(piv, dates, H, L, C, k) for k in (6, 7)}
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         earnings_dates=earn)
+        # Dropping the two DEEPEST declines has to make the zone shallower.
+        self.assertLess(out["zone"]["median_abs_pct"],
+                        clean["zone"]["median_abs_pct"])
+
+    def test_too_few_clean_episodes_disclose_instead_of_excluding(self):
+        piv, dates, H, L, C = self._series()
+        earn = {self._run_leg_dates(piv, dates, H, L, C, k)
+                for k in range(8)}
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         earnings_dates=earn)
+        self.assertFalse(out["cohort"]["earnings_excluded_applied"])
+        self.assertEqual(out["cohort"]["n"], 8)
+        self.assertIn("too few to measure", out["cohort"]["earnings_note"])
+
+    def test_the_source_of_the_dates_travels_with_them(self):
+        piv, dates, H, L, C = self._series()
+        earn = {self._run_leg_dates(piv, dates, H, L, C, 0)}
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                         earnings_dates=earn,
+                         earnings_meta={"label": "3 exact report dates plus "
+                                                 "12 older SEC filing windows",
+                                        "source": "yfinance + SEC"})
+        self.assertIn("SEC filing windows", out["cohort"]["earnings_note"])
+        self.assertEqual(out["cohort"]["earnings_source"], "yfinance + SEC")
+
+
+class TestDeepEarningsHistory(unittest.TestCase):
+    """The card reads ten years of prices; yfinance carries about four
+    years of report dates. Absence of a date must not read as absence of a
+    report, so SEC filing dates fill the gap — as windows, labelled."""
+
+    def setUp(self):
+        import options_dashboard as od
+        self.od = od
+        od._DEEP_EARN_CACHE.clear()
+        self._gap = od._gap_earn_hist
+        self._sec = od._sec_filing_dates
+
+    def tearDown(self):
+        self.od._gap_earn_hist = self._gap
+        self.od._sec_filing_dates = self._sec
+        self.od._DEEP_EARN_CACHE.clear()
+
+    def test_the_two_sources_are_merged_and_counted(self):
+        od = self.od
+        od._gap_earn_hist = lambda s: {"2024-02-01", "2024-05-01"}
+        od._sec_filing_dates = lambda s: ["2016-03-10", "2017-03-10",
+                                          "2024-08-01"]
+        out = od._deep_earn_hist("TEST")
+        self.assertEqual(out["meta"]["n_reported"], 2)
+        self.assertEqual(out["meta"]["n_proxy_filings"], 2)   # 2024-08 is new
+        self.assertEqual(out["meta"]["earliest_exact"], "2024-02-01")
+        self.assertIn("2024-02-01", out["dates"])
+        self.assertIn("2016-03-10", out["dates"])
+
+    def test_a_filing_date_becomes_a_window_not_a_day(self):
+        od = self.od
+        od._gap_earn_hist = lambda s: set()
+        od._sec_filing_dates = lambda s: ["2016-03-10"]
+        out = od._deep_earn_hist("TEST")
+        self.assertIn("2016-03-10", out["dates"])
+        self.assertIn("2016-03-04", out["dates"])       # release, days before
+        self.assertNotIn("2016-03-11", out["dates"])    # never after
+        self.assertEqual(out["meta"]["proxy_window_days"], 7)
+
+    def test_exact_dates_win_where_they_exist(self):
+        od = self.od
+        od._gap_earn_hist = lambda s: {"2024-02-01"}
+        od._sec_filing_dates = lambda s: ["2024-02-05", "2016-03-10"]
+        out = od._deep_earn_hist("TEST")
+        # The 2024 filing is inside the exact-coverage window, so it is not
+        # re-expanded; only the pre-2024 one is.
+        self.assertEqual(out["meta"]["n_proxy_filings"], 1)
+        self.assertNotIn("2024-02-04", out["dates"])
+
+    def test_a_failure_degrades_to_the_shallow_history(self):
+        od = self.od
+        od._gap_earn_hist = lambda s: {"2024-02-01"}
+
+        def boom(_s):
+            raise RuntimeError("SEC unavailable")
+        od._sec_filing_dates = boom
+        with self.assertRaises(RuntimeError):
+            od._deep_earn_hist("TEST")     # the route wraps this in try/except
+
+    def test_the_label_says_which_dates_are_proxies(self):
+        od = self.od
+        od._gap_earn_hist = lambda s: {"2024-02-01"}
+        od._sec_filing_dates = lambda s: ["2016-03-10", "2017-03-10"]
+        out = od._deep_earn_hist("TEST")
+        self.assertIn("SEC filing windows", out["meta"]["label"])
+
+
+class TestMaturityStages(unittest.TestCase):
+    """Descriptive labels with walk-forward evidence behind the boundaries,
+    never a multiplier on any number."""
+
+    def test_early_in_the_move(self):
+        piv, dates, H, L, C = down_history([30] * 8, active=-10.0)
+        m = sp.project(piv, dates, H, L, C, min_move_pct=15.0)["maturity"]
+        self.assertEqual(m["code"], "EARLY IN THE MOVE")
+        self.assertIn("no more accurate here", m["note"])
+
+    def test_at_its_normal_size(self):
+        piv, dates, H, L, C = down_history([30] * 8, active=-31.0)
+        m = sp.project(piv, dates, H, L, C, min_move_pct=15.0)["maturity"]
+        self.assertEqual(m["code"], "AT ITS NORMAL SIZE")
+
+    def test_beyond_its_normal_size(self):
+        piv, dates, H, L, C = down_history([30] * 8, active=-39.0)
+        m = sp.project(piv, dates, H, L, C, min_move_pct=15.0)["maturity"]
+        self.assertEqual(m["code"], "BEYOND ITS NORMAL SIZE")
+
+    def test_the_reference_is_the_unfiltered_population(self):
+        legs = []
+        for s in (13.0, 13.0, 30.0, 30.0):
+            legs += [(-s, 10), (25.0, 10)]
+        legs.append((-20.0, 10))
+        piv, dates, H, L, C = build_series(legs)
+        m = sp.project(piv, dates, H, L, C, min_move_pct=15.0)["maturity"]
+        # Median of ALL four declines is ~21.5, not the ~30 the 15% table
+        # would show.
+        self.assertLess(m["ref_median_pct"], 25.0)
+
+    def test_the_boundaries_are_configurable(self):
+        piv, dates, H, L, C = down_history([30] * 8, active=-31.0)
+        m = sp.project(piv, dates, H, L, C, min_move_pct=15.0,
+                       cfg={"maturity_normal_pct": 200.0})["maturity"]
+        self.assertEqual(m["code"], "EARLY IN THE MOVE")
+
+
+class TestStagedValidation(unittest.TestCase):
+
+    def test_every_stage_is_reported_separately(self):
+        sizes = [20, 24, 22, 30, 26, 35, 28, 40, 25, 33]
+        piv, dates, H, L, C = down_history(sizes, active=-18.0)
+        v = sp.validate(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertEqual(set(v["stages"]),
+                         {f"{s:.2f}" for s in sp.STAGES})
+        deep = v["stages"]["1.25"]
+        self.assertIn("size", deep)
+        self.assertIn("more", deep)
+        self.assertIn("days", deep)
+
+    def test_a_shallow_stage_has_at_least_as_many_events_as_a_deep_one(self):
+        sizes = [20, 24, 22, 30, 26, 35, 28, 40, 25, 33]
+        piv, dates, H, L, C = down_history(sizes, active=-18.0)
+        v = sp.validate(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertGreaterEqual(v["stages"]["0.25"]["events"],
+                                v["stages"]["1.25"]["events"])
+
+    def test_the_old_floored_cohort_is_available_as_a_variant(self):
+        sizes = [20, 24, 22, 30, 26, 35, 28, 40, 25, 33]
+        piv, dates, H, L, C = down_history(sizes, active=-18.0)
+        v = sp.validate(piv, dates, H, L, C, min_move_pct=15.0,
+                        variant="floor15")
+        self.assertEqual(v["variant"], "floor15")
+        self.assertGreater(v["events"], 0)
+
+    def test_events_carry_their_stage(self):
+        sizes = [20, 24, 22, 30, 26, 35, 28, 40, 25, 33]
+        piv, dates, H, L, C = down_history(sizes, active=-18.0)
+        v = sp.validate(piv, dates, H, L, C, min_move_pct=15.0,
+                        with_events=True)
+        self.assertTrue(all("stage" in e for e in v["event_list"]))

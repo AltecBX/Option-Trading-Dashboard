@@ -2305,6 +2305,17 @@ function SwingChart({
       mk2(rv.zone.band_low_price, "rgba(245,158,11,0.55)", LC.LineStyle.Dotted);
       mk2(rv.zone.band_high_price, "rgba(245,158,11,0.55)", LC.LineStyle.Dotted);
       mk2(rv.zone.median_price, zc, LC.LineStyle.Dashed);
+      // The running extreme (v4.51). When it has already entered the zone
+      // and price has moved away from it, these two lines are the picture:
+      // the marker sits inside the band, the current price does not.
+      if (rv.current && rv.current.extreme_price != null) mk2(rv.current.extreme_price, "rgba(148,163,184,0.75)", LC.LineStyle.Dashed);
+      // The band the STATUS refers to: where this stock's swings usually
+      // end, unconditionally. Fainter than the projection, because it is
+      // the reference the extreme travels into rather than the forecast.
+      if (rv.typical_zone) {
+        mk2(rv.typical_zone.band_low_price, "rgba(245,158,11,0.28)", LC.LineStyle.Dotted);
+        mk2(rv.typical_zone.band_high_price, "rgba(245,158,11,0.28)", LC.LineStyle.Dotted);
+      }
       if (rv.next && rv.next.target_median_price != null) mk2(rv.next.target_median_price, rv.direction === "down" ? UPC : DNC, LC.LineStyle.Dotted);
     }
     /* eslint-disable-next-line */
@@ -2372,6 +2383,15 @@ function SwingChart({
   }
   if (show.zones && rv && rv.ok && rv.zone) {
     const revName = rv.direction === "down" ? "bottom" : "top";
+    const st = rv.status || {},
+      rc = rv.current || {};
+    // The unfinished swing, captioned once: where it is now, how deep it
+    // has been, and how long it has been running.
+    if (rc.pct != null) legend.push({
+      name: "swing",
+      text: `CURRENT ${rv.direction === "down" ? "↓" : "↑"}${Math.abs(rc.pct).toFixed(1)}% · EXTREME ${rv.direction === "down" ? "↓" : "↑"}${Number(rc.extreme_abs_pct).toFixed(1)}% · ${rc.days}d`,
+      tip: REV_TIP.extreme
+    });
     legend.push({
       name: `${revName} zone`,
       price: rv.zone.band_low_price,
@@ -2382,6 +2402,23 @@ function SwingChart({
       name: `med ${revName}`,
       price: rv.zone.median_price,
       color: "#f59e0b"
+    });
+    if (rc.extreme_price != null) {
+      // Label carries the state so the chart says the same thing as the
+      // panel: how far price has come back off the extreme, and whether
+      // that extreme ever reached the zone.
+      const off = rc.off_extreme_pct ? ` ${rv.direction === "down" ? "+" : "−"}${rc.off_extreme_pct}% off` : "";
+      legend.push({
+        name: `${rv.direction === "down" ? "running low" : "running high"}${st.zone_touched ? " ✓zone" : ""}${off}`,
+        price: rc.extreme_price,
+        color: "rgba(148,163,184,0.95)"
+      });
+    }
+    if (rv.typical_zone) legend.push({
+      name: `usual ${revName}s`,
+      price: rv.typical_zone.band_low_price,
+      price2: rv.typical_zone.band_high_price,
+      color: "rgba(245,158,11,0.5)"
     });
     if (rv.next && rv.next.target_median_price != null) legend.push({
       name: rv.direction === "down" ? "bounce tgt" : "pullback tgt",
@@ -2430,12 +2467,13 @@ function SwingChart({
     className: "swing-chart-legend"
   }, legend.map(l => /*#__PURE__*/React.createElement("span", {
     key: l.name,
-    className: "swing-legend-item"
-  }, /*#__PURE__*/React.createElement("i", {
+    className: "swing-legend-item",
+    title: l.tip || ""
+  }, l.text ? /*#__PURE__*/React.createElement("b", null, l.text) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("i", {
     style: {
       background: l.color
     }
-  }), l.name, " ", /*#__PURE__*/React.createElement("b", null, l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : fmtUsd(l.price, 2)))))), /*#__PURE__*/React.createElement("div", {
+  }), l.name, " ", /*#__PURE__*/React.createElement("b", null, l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : fmtUsd(l.price, 2))))))), /*#__PURE__*/React.createElement("div", {
     className: "swing-chart",
     ref: wrapRef
   })), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
@@ -2457,22 +2495,30 @@ function fmtLongDate(s) {
   return `${MON[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
 }
 const REV_TIP = {
-  block: "Where this stock's own history says the current swing tends to reverse, and what the opposite swing that follows usually looks like. The comparison set is every completed swing in the same direction that travelled AT LEAST as far as this one already has — deliberately not 'swings of similar size', because that would exclude the ones that kept going and understate the remaining risk exactly when it matters. Walk-forward tested: this conditioning cut the median reversal-price error 28% versus projecting the plain historical median.",
+  block: "Where this stock's own history says the current swing tends to reverse, whether it may already be reacting from that area, and what the opposite swing that follows usually looks like. The comparison set is every completed swing in the same direction that travelled AT LEAST as far as this one already has — deliberately not 'swings of similar size', because that would exclude the ones that kept going and understate the remaining risk exactly when it matters. It is also NOT filtered by the 15% setting that hides small swings from the tables below: that is a reading convenience, and using it as a population deleted one completed swing in five at Standard sensitivity (one in two at Sensitive) — all of them shallow reversals, which pushed every projected zone deeper than the record.",
   current: "The swing in progress: its size from the swing pivot to the current price, the deepest it has been (the extreme — which is what the comparison set is conditioned on), its age in trading days, and today's context. Completion percentages compare against the MEDIAN completed swing in this direction — 100% means the move has matched a typical one, not that it must stop: the zone numbers to the right say what swings that got this far actually did.",
+  extreme: "The running extreme: the lowest low (or highest high) this swing has printed so far, and how far the current price has already travelled back from it. This is the distinction that matters at the right edge — a stock that touched its historical bottom zone and has since risen 6% is in a different situation from one still falling into that zone, and everything below is conditioned on the EXTREME while every distance is measured from today's PRICE.",
+  status: "Where the running extreme stands against the historical reversal zone, decided by three yes/no questions in a fixed order and no invented confirmation threshold — the zone itself is the yardstick. APPROACHING: the extreme has not reached the near edge yet. IN ZONE: the extreme is inside the band. BOUNCING / FADING OFF ZONE: the extreme reached the band and price has since traded back out of it. BEYOND TYPICAL ZONE: the extreme is past the far edge and price is still out there. BEYOND HISTORY: no completed swing ever reached this magnitude, so there is no band at all.",
+  maturity: "How far into a NORMAL move this one is, as a share of the median completed swing in this direction — and, from walk-forward testing rather than taste, how much the conditional projection is worth at that stage. Below 100% the comparison set is nearly the whole history and conditioning measurably adds nothing over the plain rhythm. At 100% it starts to pay (about a fifth less error). Past 125% it matters most: there the unconditional rhythm keeps projecting a turn the move has already passed, and its band covered only a quarter of outcomes. A label, never a multiplier — no number on this panel is scaled by it.",
   completion: "Current size as a share of the median completed same-direction swing (move), and current age as a share of the median duration (time). DESCRIPTIVE ONLY — 105% of median does not mean 105% chance of reversing. A stock can complete 105% of its median decline and keep falling; the cohort statistics beside this are what say how often that happened.",
   rangepos: "Where the current price sits inside the trailing 20-day high-low range: 0 = at the 20-day low, 100 = at the 20-day high. Context only — tested as a way to narrow the comparison set and REJECTED: it did not improve out-of-sample projections.",
   regime: "Above or below the stock's own 200-day average — a deliberately crude, auditable trend read. Context only: tested as a comparison-set filter and REJECTED (no out-of-sample improvement, worse band coverage). Deep declines cluster in downtrends, so the comparison set already carries most of this information.",
   cohort: "How many completed swings the projection rests on: swings in the same direction whose extreme reached at least the current one's. Every number in this section comes from these same swings — one population, one n, so no two numbers can quietly disagree about what 'comparable' means.",
+  typical: "The band where EVERY completed swing in this direction has ended — the 25th to 75th percentile of all of them, projected from this swing's own starting pivot. This is the band the reversal status is measured against, and deliberately not the conditional zone below it: every swing in that conditional set ended at or beyond the current depth, so its shallow edge sits at or past the running extreme BY CONSTRUCTION and 'in the zone' could never fire. Two different questions — where do this stock's swings usually end, and where does THIS one end given it has already come this far.",
   zone: "Where those comparable swings actually ENDED, converted to prices from this swing's own starting pivot. The band is the middle half of them (25th to 75th percentile) — one quarter of comparable swings reversed before the band, one quarter went beyond it. The median is the middle outcome, not a floor and not a promise.",
   remaining: "From the CURRENT price to the median historical reversal level, in percent and dollars, with the typical remaining time. Time comes from each comparable swing's own count of days between the moment it was this deep and its actual end — measured point-in-time on each historical swing, never as a difference between two medians.",
   reversedWithin: "Of the comparable swings, the share that reversed within another X percentage points beyond the current depth — measured from the level where each historical swing matched today's depth. This is the honest exhaustion read: it can be small even when the move has 'completed 100% of median', because it is conditioned on having gotten exactly this far. The bracketed number is the conservative (Wilson lower-bound) end of that rate.",
-  next: "What the opposite swing after the reversal historically looked like, across the same comparable swings. Sizes are measured from each actual reversal pivot; the dollar targets project those sizes from the MEDIAN historical reversal level — the reversal has to happen first, and these are never probabilities of reversing.",
-  touch: "The share of those follow-on swings that reached each level before ending, with the conservative Wilson lower bound in brackets and the chance of the same-size move after ANY random day (same horizon) as the baseline to beat. Levels at or below the chart's sensitivity threshold are not shown: a counter-move smaller than the threshold would not register as a swing at all, so its 'probability' would be 100% by definition and meaningless.",
+  next: "What the opposite swing after the reversal historically looked like, across the same comparable swings. Sizes are measured from each actual reversal pivot. The reversal has to happen first — none of these is a probability of reversing.",
+  paired: "The follow-on target, built from PAIRS rather than from a product. Each comparable episode contributes its own final depth AND the size of the move that actually followed it; both are applied to today's swing origin, giving one projected target per episode, and the band is the 25th-to-75th percentile of those projections. The older 'median depth × median rebound' number is kept only as a diagnostic: multiplying two medians produces a target no single historical episode ever traced, and its band mixes a fixed depth with a variable move. Honest caveat — across 16 symbols the rank correlation between reversal depth and the size of the next move is about zero (−0.02), so pairing moves the median target by only about 1%; what it fixes is the BAND, which is now a distribution of real outcomes.",
+  horizon: "Fixed-horizon excursions: how often the stock moved X% within exactly N trading days of a historical reversal, measured from that day's CLOSE — beside the identical question asked of every ordinary day in the record. Same target, same horizon, or the two numbers cannot be subtracted. The bracketed figure is the conservative (Wilson lower-bound) end of the conditional rate; the baseline is a point estimate only, because its windows overlap. READ THESE AS WHAT FOLLOWED A TURN, NOT AS THE CHANCE OF A TURN: they start at bottoms that were only known to be bottoms afterwards. The what-if below is the version that starts where you would actually have had to buy.",
   reclaim: "How often the follow-on swing got back to the 20-day extreme as it stood at each historical reversal — a level-based read that does not depend on the swing-size definition at all.",
-  whatif: "A first-touch race from RIGHT HERE, not from the projected reversal: entry is simulated on the day each comparable historical swing FIRST reached the current depth, at that level. So the extra adverse move before the actual reversal is inside the trade — the real risk of entering before the turn. Both levels inside one daily bar counts as ambiguous (the intraday order is unknowable from daily bars) and is never counted in the trade's favor.",
+  whatif: "A first-touch race from RIGHT HERE, not from the projected reversal: entry is simulated on the day each comparable historical swing FIRST reached the current depth, at the price actually available that day — the session open whenever the market gapped straight through the level overnight, because that level never existed as a live price. So the extra adverse move before the actual reversal is inside the trade, which is the real risk of entering before the turn. Both levels inside one daily bar counts as ambiguous (the intraday order is unknowable from daily bars) and is never counted in the trade's favor. Episodes whose follow-on leg contains a split or an incredible print are dropped rather than raced through bad prices.",
+  gap: "How many of these historical entries had to be filled at the session open because the stock gapped through the theoretical level overnight. Typically a third of them — pretending you got the exact level would flatter every one of these numbers.",
   beyond: "The current swing has already gone further than most completed swings in its own history, so the comparison set ahead of it is thin by nature — the zone rests on the few swings that went further still. Rarity is not a countdown: the reversed-within numbers say how those deep swings actually resolved.",
-  flags: "Conditions that change how much weight the projection deserves — thin samples, earnings ahead, a swing already beyond most of its history.",
-  scan: "Every scanned watchlist name with an active swing, placed against ITS OWN historical reversal zone — down-swings as bounce (long) candidates, up-swings as pullback (short) candidates. Ranked by distance to the median zone by default; click any column to re-sort. Numbers here come from the 5-year scan frame; open a symbol on this tab for the full 10-year read."
+  earnA: "Earnings are tagged in three places, not one: between the moment a historical swing was this deep and its final turn (which is what turns an ordinary decline into a gap-driven one, and would otherwise teach the zone that the extra drop was normal), at the reversal itself, and inside the follow-on swing. Contaminated episodes are excluded when enough clean ones remain, and included but counted when they do not — never silently mixed. Report dates come from the earnings calendar for roughly the last four years and from SEC 10-Q/10-K filing dates before that; a filing date is a window, not a report date, and is treated as one.",
+  flags: "Conditions that change how much weight the projection deserves — where the extreme stands against the zone, thin samples, earnings ahead, a swing already beyond most of its history.",
+  scan: "Every scanned watchlist name with an active swing, placed against ITS OWN historical reversal zone — down-swings as bounce (long) candidates, up-swings as pullback (short) candidates. Ranked by REVERSAL STATUS first (already reacting, then in the zone, then approaching), with adequate samples before thin ones and distance to the zone breaking the tie; click any column to re-sort. Numbers here come from the 5-year scan frame and are not earnings-filtered; open a symbol on this tab for the full 10-year read.",
+  scanStatus: "Where each name's running EXTREME stands against its own historical reversal zone — not where today's close is. A stock whose low entered the zone and has since traded up off it is a reaction candidate; one still falling toward the zone is an approach candidate. Ranking on distance from the current price alone cannot tell those apart, which is why this column leads the table."
 };
 function RevStat({
   label,
@@ -2497,17 +2543,25 @@ function SwingWhatIf({
   const wi = reversal && reversal.what_if;
   const nxt = reversal && reversal.next;
   const rem = reversal && reversal.remaining;
+  const cur = reversal && reversal.current || {};
   // Data-driven prefills, labeled as such: target = the median follow-on
   // swing, stop = the typical additional adverse move past this depth.
   // Nothing is hardcoded; the user can type anything.
   const [tgt, setTgt] = useState("");
   const [stp, setStp] = useState("");
   const [busy, setBusy] = useState(false);
+  // The SETUP identity (v4.51). Prefills used to be filled only when the
+  // field was empty, so a target computed for one ticker survived into the
+  // next one and silently raced the wrong number. Anything that changes what
+  // "here" means — the symbol, the sensitivity, the swing's origin or
+  // direction, or the depth the cohort is conditioned on — resets them.
+  // Nothing else does, so typed values survive while the setup does not move.
+  const setupKey = [ticker, sens, reversal && reversal.direction, cur.from_date, cur.extreme_abs_pct].join("|");
   useEffect(() => {
-    if (nxt && nxt.pct_median != null && !tgt) setTgt(String(Math.round(nxt.pct_median)));
-    if (rem && rem.more_move_p75_pct != null && !stp) setStp(String(Math.max(1, Math.round(rem.more_move_p75_pct))));
+    setTgt(nxt && nxt.pct_median != null ? String(Math.round(nxt.pct_median)) : "");
+    setStp(rem && rem.more_move_p75_pct != null ? String(Math.max(1, Math.round(rem.more_move_p75_pct))) : "");
     /* eslint-disable-next-line */
-  }, [reversal]);
+  }, [setupKey]);
   const run = async () => {
     const t = parseFloat(tgt),
       s = parseFloat(stp);
@@ -2548,16 +2602,29 @@ function SwingWhatIf({
     className: "down"
   }, wi.p_stop_first_pct, "%"), wi.p_ambiguous_pct > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ambiguous ", wi.p_ambiguous_pct, "%"), wi.p_neither_pct > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 neither ", wi.p_neither_pct, "%"), /*#__PURE__*/React.createElement("small", {
     className: "muted"
-  }, " \xB7 n=", wi.n, wi.median_days_to_target != null ? ` · ~${wi.median_days_to_target}d to target` : "")), wi && !wi.ok && wi.reason && /*#__PURE__*/React.createElement("span", {
+  }, " \xB7 n=", wi.n, wi.median_days_to_target != null ? ` · ~${wi.median_days_to_target}d to target` : ""), wi.gapped_entries > 0 && /*#__PURE__*/React.createElement("small", {
+    className: "muted",
+    title: REV_TIP.gap
+  }, " \xB7 ", wi.gapped_entries, " filled at the open after a gap"), wi.excluded_contaminated > 0 && /*#__PURE__*/React.createElement("small", {
+    className: "muted",
+    title: "Episodes whose follow-on leg contains a split or an incredible single-day print are dropped rather than raced through prices the engine does not trust."
+  }, " ", "\xB7 ", wi.excluded_contaminated, " dropped")), wi && !wi.ok && wi.reason && /*#__PURE__*/React.createElement("span", {
     className: "rev-whatif-res muted"
   }, wi.reason));
 }
+
+// The five reversal states, in the order the scan ranks them. Tone is the
+// only styling input — no state implies a recommendation.
+const REV_STATUS_TONE = {
+  "BOUNCING OFF ZONE": "up",
+  "FADING OFF ZONE": "down",
+  "IN ZONE": "warn",
+  "APPROACHING": "muted",
+  "BEYOND TYPICAL ZONE": "warn",
+  "BEYOND HISTORY": "warn"
+};
 function SwingReversalBlock({
-  apiFetch,
-  ticker,
-  sens,
-  data,
-  onResult
+  data
 }) {
   const rv = data && data.reversal;
   if (!rv) return null;
@@ -2575,6 +2642,9 @@ function SwingReversalBlock({
     rm = rv.remaining,
     nx = rv.next,
     co = rv.cohort;
+  const st = rv.status || {},
+    mat = rv.maturity || {},
+    tz = rv.typical_zone;
   const dirWord = down ? "decline" : "rally";
   const revWord = down ? "bottom" : "top";
   const oppWord = down ? "rebound" : "pullback";
@@ -2587,7 +2657,14 @@ function SwingReversalBlock({
   return /*#__PURE__*/React.createElement("div", {
     className: "rev-block",
     title: REV_TIP.block
-  }, /*#__PURE__*/React.createElement("div", {
+  }, st.code && /*#__PURE__*/React.createElement("div", {
+    className: `rev-status tone-${REV_STATUS_TONE[st.code] || "muted"}`,
+    title: REV_TIP.status + (st.meaning ? " — " + st.meaning : "")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "rev-status-code"
+  }, st.code), /*#__PURE__*/React.createElement("span", {
+    className: "rev-status-why"
+  }, st.meaning)), /*#__PURE__*/React.createElement("div", {
     className: "rev-summary"
   }, rv.summary), (rv.flags || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "rev-flags",
@@ -2603,27 +2680,37 @@ function SwingReversalBlock({
   }, /*#__PURE__*/React.createElement("div", {
     className: "rev-box-title"
   }, "Current ", dirWord), /*#__PURE__*/React.createElement(RevStat, {
-    label: down ? "Down" : "Up",
+    label: down ? "Down from the swing high" : "Up from the swing low",
     tone: down ? "down" : "up",
-    tip: `From the ${fmtLongDate(c.from_date)} swing ${down ? "high" : "low"} at ${usd(c.from_price)} to the current price. The deepest point so far was ${pctf(c.extreme_abs_pct)} on ${fmtLongDate(c.extreme_date)} — that extreme is what the comparison set is conditioned on.`
+    tip: `From the ${fmtLongDate(c.from_date)} swing ${down ? "high" : "low"} at ${usd(c.from_price)} to the current price of ${usd(c.price)}. The deepest point so far was ${pctf(c.extreme_abs_pct)} on ${fmtLongDate(c.extreme_date)} — that extreme is what the comparison set is conditioned on.`
   }, pctf(Math.abs(c.pct)), " ", /*#__PURE__*/React.createElement("small", {
     className: "muted"
-  }, "\xB7 ", c.days, " day", c.days === 1 ? "" : "s")), /*#__PURE__*/React.createElement(RevStat, {
+  }, "\xB7 ", c.days, " day", c.days === 1 ? "" : "s", " \xB7 ", usd(c.price))), /*#__PURE__*/React.createElement(RevStat, {
+    label: down ? "Deepest so far (running low)" : "Highest so far (running high)",
+    tip: REV_TIP.extreme,
+    tone: down ? "down" : "up"
+  }, pctf(c.extreme_abs_pct), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 ", usd(c.extreme_price), " on ", fmtLongDate(c.extreme_date))), /*#__PURE__*/React.createElement(RevStat, {
+    label: down ? "Back off that low" : "Back off that high",
+    tip: REV_TIP.extreme,
+    tone: c.off_extreme_pct ? down ? "up" : "down" : ""
+  }, c.off_extreme_pct == null ? "—" : c.off_extreme_pct === 0 ? "at the extreme" : `${down ? "+" : "−"}${c.off_extreme_pct}%`, c.off_extreme_dollars ? /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 ", usd(c.off_extreme_dollars)) : null), mat.code && /*#__PURE__*/React.createElement(RevStat, {
+    label: "Stage of the move",
+    tip: REV_TIP.maturity + (mat.note ? " — " + mat.note : ""),
+    tone: mat.code === "EARLY IN THE MOVE" ? "muted" : ""
+  }, mat.code === "EARLY IN THE MOVE" ? "Early" : mat.code === "AT ITS NORMAL SIZE" ? "Normal size" : mat.code === "BEYOND ITS NORMAL SIZE" ? "Beyond normal" : "—", /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 ", mat.ratio_pct == null ? "—" : `${mat.ratio_pct}% of a typical ${dirWord}`)), /*#__PURE__*/React.createElement(RevStat, {
     label: "Completion vs median",
     tip: REV_TIP.completion
   }, c.move_completion_pct == null ? "—" : `${c.move_completion_pct}% move`, /*#__PURE__*/React.createElement("small", {
     className: "muted"
   }, " \xB7 ", c.time_completion_pct == null ? "—" : `${c.time_completion_pct}% time`)), /*#__PURE__*/React.createElement(RevStat, {
-    label: "20-day range position",
-    tip: REV_TIP.rangepos
-  }, c.range_pos_20 == null ? "—" : `${c.range_pos_20} / 100`), /*#__PURE__*/React.createElement(RevStat, {
-    label: "Trend regime",
-    tip: REV_TIP.regime
-  }, c.regime === "uptrend" ? "Uptrend" : c.regime === "downtrend" ? "Downtrend" : "Unknown", /*#__PURE__*/React.createElement("small", {
-    className: "muted"
-  }, " \xB7 vs 200-day")), /*#__PURE__*/React.createElement(RevStat, {
     label: "Comparable swings",
-    tip: REV_TIP.cohort,
+    tip: REV_TIP.cohort + (co.floor_note ? " — " + co.floor_note : ""),
     tone: co.insufficient ? "warn" : ""
   }, "n = ", co.n, /*#__PURE__*/React.createElement("small", {
     className: "muted"
@@ -2632,10 +2719,15 @@ function SwingReversalBlock({
     title: REV_TIP.zone
   }, /*#__PURE__*/React.createElement("div", {
     className: "rev-box-title"
-  }, "Historical ", revWord, co.insufficient ? " · thin sample" : ""), !z ? /*#__PURE__*/React.createElement("div", {
+  }, "Historical ", revWord, co.insufficient ? " · thin sample" : ""), tz && /*#__PURE__*/React.createElement(RevStat, {
+    label: `Where its ${dirWord}s usually end`,
+    tip: REV_TIP.typical
+  }, usd(tz.band_low_price), " \u2013 ", usd(tz.band_high_price), /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " \xB7 ", pctf(tz.p25_abs_pct), "\u2013", pctf(tz.p75_abs_pct), " \xB7 all ", tz.n, " of them")), !z ? /*#__PURE__*/React.createElement("div", {
     className: "rev-empty"
   }, co && co.note || "No comparable swing has gone this far — the stock is beyond its own history.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(RevStat, {
-    label: `Typical ${dirWord}`,
+    label: `Given it got this far, typical ${dirWord}`,
     tip: REV_TIP.zone
   }, pctf(z.p25_abs_pct), "\u2013", pctf(z.p75_abs_pct), /*#__PURE__*/React.createElement("small", {
     className: "muted"
@@ -2660,7 +2752,10 @@ function SwingReversalBlock({
     title: REV_TIP.reversedWithin
   }, /*#__PURE__*/React.createElement("span", null, down ? "Bottomed" : "Topped", " within another\u2026"), rm.reversed_within.map(l => /*#__PURE__*/React.createElement("em", {
     key: l.within_more_pct
-  }, l.within_more_pct, "%: ", /*#__PURE__*/React.createElement("b", null, l.rate_pct, "%"), /*#__PURE__*/React.createElement("small", null, " (", l.wilson_lo_pct, ")")))))), /*#__PURE__*/React.createElement("div", {
+  }, l.within_more_pct, "%: ", /*#__PURE__*/React.createElement("b", null, l.rate_pct, "%"), /*#__PURE__*/React.createElement("small", null, " (", l.wilson_lo_pct, ")")))), co.earnings_note && /*#__PURE__*/React.createElement("div", {
+    className: "rev-note",
+    title: REV_TIP.earnA
+  }, co.earnings_note))), /*#__PURE__*/React.createElement("div", {
     className: "rev-box",
     title: REV_TIP.next
   }, /*#__PURE__*/React.createElement("div", {
@@ -2675,38 +2770,29 @@ function SwingReversalBlock({
     className: "muted"
   }, " \xB7 typically ", pctf(nx.pct_p25), "\u2013", pctf(nx.pct_p75))), /*#__PURE__*/React.createElement(RevStat, {
     label: `${oppWord[0].toUpperCase()}${oppWord.slice(1)} target`,
-    tip: nx.target_basis + ". " + REV_TIP.next,
+    tip: nx.target_basis + " " + REV_TIP.paired,
     tone: down ? "up" : "down"
   }, usd(nx.target_median_price), /*#__PURE__*/React.createElement("small", {
     className: "muted"
-  }, " \xB7 zone ", usd(down ? nx.target_p25_price : nx.target_p75_price), "\u2013", usd(down ? nx.target_p75_price : nx.target_p25_price))), /*#__PURE__*/React.createElement(RevStat, {
+  }, " \xB7 zone ", usd(Math.min(nx.target_p25_price, nx.target_p75_price)), "\u2013", usd(Math.max(nx.target_p25_price, nx.target_p75_price)), nx.target_is_paired ? ` · ${(nx.paired || {}).n} paired episodes` : "")), /*#__PURE__*/React.createElement(RevStat, {
     label: "Typical duration",
     tip: REV_TIP.next
   }, nx.days_median == null ? "—" : `${nx.days_median} days`, /*#__PURE__*/React.createElement("small", {
     className: "muted"
-  }, " \xB7 ", nx.days_p25, "\u2013", nx.days_p75)), (nx.touch || []).length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "rev-ladder",
-    title: (nx.touch_floor_note ? nx.touch_floor_note + " " : "") + REV_TIP.touch
-  }, /*#__PURE__*/React.createElement("span", null, "Reached\u2026"), nx.touch.map(t => {
-    const base = ((nx.baseline || {}).touch || []).find(b => b.pct === t.pct);
-    return /*#__PURE__*/React.createElement("em", {
-      key: t.pct
-    }, down ? "+" : "−", t.pct, "%: ", /*#__PURE__*/React.createElement("b", null, t.rate_pct, "%"), /*#__PURE__*/React.createElement("small", null, " (", t.wilson_lo_pct, ")", base && base.rate_pct != null ? ` vs ${base.rate_pct}% any day` : ""));
-  })), nx.reclaim_20d && nx.reclaim_20d.rate_pct != null && /*#__PURE__*/React.createElement(RevStat, {
+  }, " \xB7 ", nx.days_p25, "\u2013", nx.days_p75)), (nx.horizon_touch || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "rev-ladder rev-ladder-wide",
+    title: REV_TIP.horizon + " " + (nx.horizon_note || "")
+  }, /*#__PURE__*/React.createElement("span", null, "After the turn, ", down ? "rose" : "fell", "\u2026"), nx.horizon_touch.map(t => /*#__PURE__*/React.createElement("em", {
+    key: `${t.pct}-${t.days}`
+  }, down ? "+" : "−", t.pct, "% in ", t.days, "d: ", /*#__PURE__*/React.createElement("b", null, t.rate_pct, "%"), /*#__PURE__*/React.createElement("small", null, " (", t.wilson_lo_pct, ")", t.baseline_pct != null ? ` vs ${t.baseline_pct}% any day · ${t.edge_pp >= 0 ? "+" : ""}${t.edge_pp}pp` : "")))), nx.reclaim_20d && nx.reclaim_20d.rate_pct != null && /*#__PURE__*/React.createElement(RevStat, {
     label: down ? "Reclaimed the 20-day high" : "Revisited the 20-day low",
     tip: REV_TIP.reclaim
   }, nx.reclaim_20d.rate_pct, "%", /*#__PURE__*/React.createElement("small", {
     className: "muted"
   }, " (", nx.reclaim_20d.wilson_lo_pct, ") \xB7 n=", nx.reclaim_20d.n)), (nx.earnings_note || nx.earnings_included_note) && /*#__PURE__*/React.createElement("div", {
     className: "rev-note",
-    title: "Earnings at a reversal (or inside the follow-on swing) are a different animal from an ordinary turn, so those episodes are excluded when enough clean ones remain \u2014 and included but counted when they do not."
-  }, nx.earnings_note || nx.earnings_included_note)))), /*#__PURE__*/React.createElement(SwingWhatIf, {
-    apiFetch: apiFetch,
-    ticker: ticker,
-    sens: sens,
-    reversal: rv,
-    onResult: onResult
-  }));
+    title: REV_TIP.earnA
+  }, nx.earnings_note || nx.earnings_included_note)))));
 }
 
 // The reversal scan: the whole watchlist against each name's own zone.
@@ -2715,7 +2801,7 @@ function SwingReversalScan({
 }) {
   const [rows, setRows] = useState(null);
   const [mode, setMode] = useState("bounce");
-  const [sortK, setSortK] = useState("dist");
+  const [sortK, setSortK] = useState("status");
   const [sortD, setSortD] = useState(1);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -2723,18 +2809,49 @@ function SwingReversalScan({
     apiFetch("/api/watchlist_table").then(r => r.json()).then(d => setRows(d && d.rows || [])).catch(() => setRows([]));
   }, [open]);
   const pick = (rows || []).filter(r => r.rz_median_price != null && (mode === "bounce" ? r.swing_dir === "short" : r.swing_dir === "long"));
+  // The default order is a fixed sequence of named fields, not a score:
+  // already reacting off the zone, then inside it, then approaching it, then
+  // past it; adequate samples ahead of thin ones; distance to the zone
+  // breaks the tie. Nothing is weighted or summed.
+  const STATUS_RANK = {
+    "BOUNCING OFF ZONE": 0,
+    "FADING OFF ZONE": 0,
+    "IN ZONE": 1,
+    "APPROACHING": 2,
+    "BEYOND TYPICAL ZONE": 3,
+    "BEYOND HISTORY": 4
+  };
   const val = (r, k) => ({
     sym: r.symbol,
-    cur: Math.abs(r.swing_pct || 0),
+    px: r.price == null ? -1 : r.price,
+    ext: r.rz_extreme_price == null ? -1 : r.rz_extreme_price,
+    cur: Math.abs(r.rz_cur_pct != null ? r.rz_cur_pct : r.swing_pct || 0),
+    extpct: r.rz_extreme_pct == null ? 0 : r.rz_extreme_pct,
     days: r.swing_days || 0,
+    off: r.rz_off_extreme_pct == null ? -1 : r.rz_off_extreme_pct,
     dist: r.rz_dist_median_pct == null ? 999 : Math.abs(r.rz_dist_median_pct),
+    med: r.rz_median_price == null ? -1 : r.rz_median_price,
+    more: r.rz_more_move_pct == null ? 999 : r.rz_more_move_pct,
     left: r.rz_days_median == null ? 999 : r.rz_days_median,
     next: r.rz_next_pct == null ? -999 : r.rz_next_pct,
     tgt: r.rz_next_target == null ? -999 : r.rz_next_target,
     n: r.rz_n || 0,
     earn: r.days_to_earnings == null ? 999 : r.days_to_earnings
   })[k];
+  // Default ordering is a comparator chain over three named fields, in
+  // order of precedence — never a weighted blend of them, which would let
+  // a big distance quietly outvote the status the row is grouped by.
+  const byStatus = (a, b) => {
+    const ra = STATUS_RANK[a.rz_status] == null ? 5 : STATUS_RANK[a.rz_status];
+    const rb = STATUS_RANK[b.rz_status] == null ? 5 : STATUS_RANK[b.rz_status];
+    if (ra !== rb) return ra - rb;
+    const ta = (a.rz_n || 0) >= 6 ? 0 : 1,
+      tb = (b.rz_n || 0) >= 6 ? 0 : 1;
+    if (ta !== tb) return ta - tb;
+    return val(a, "dist") - val(b, "dist");
+  };
   const sorted = pick.slice().sort((a, b) => {
+    if (sortK === "status") return byStatus(a, b) * sortD;
     const x = val(a, sortK),
       y = val(b, sortK);
     return (x < y ? -1 : x > y ? 1 : 0) * sortD;
@@ -2784,15 +2901,36 @@ function SwingReversalScan({
     k: "sym",
     tip: "Ticker."
   }, "Symbol"), /*#__PURE__*/React.createElement(TH, {
+    k: "status",
+    tip: REV_TIP.scanStatus
+  }, "Reversal status"), /*#__PURE__*/React.createElement(TH, {
+    k: "px",
+    tip: "Last scanned price."
+  }, "Price"), /*#__PURE__*/React.createElement(TH, {
+    k: "ext",
+    tip: `The running ${mode === "bounce" ? "low" : "high"} of the active swing — the deepest point it has reached, which is what the comparison set is conditioned on.`
+  }, mode === "bounce" ? "Running low" : "Running high"), /*#__PURE__*/React.createElement(TH, {
     k: "cur",
-    tip: `Current ${mode === "bounce" ? "decline" : "rally"} size.`
-  }, mode === "bounce" ? "Down" : "Up"), /*#__PURE__*/React.createElement(TH, {
+    tip: `Current ${mode === "bounce" ? "decline" : "rally"} measured to the CURRENT price.`
+  }, "Now"), /*#__PURE__*/React.createElement(TH, {
+    k: "extpct",
+    tip: `The same ${mode === "bounce" ? "decline" : "rally"} measured to its deepest point.`
+  }, "Deepest"), /*#__PURE__*/React.createElement(TH, {
     k: "days",
     tip: "Trading days the swing has been running."
   }, "Days"), /*#__PURE__*/React.createElement(TH, {
+    k: "off",
+    tip: `How far price has already travelled back ${mode === "bounce" ? "up off the running low" : "down off the running high"}. The literal number — no confirmation threshold is applied.`
+  }, "Off extreme"), /*#__PURE__*/React.createElement(TH, {
     k: "dist",
     tip: "Distance from the current price to the MEDIAN historical reversal level, as a percent of price. Small = at the zone."
   }, "To median"), /*#__PURE__*/React.createElement(TH, {
+    k: "med",
+    tip: `Median historical ${mode === "bounce" ? "bottom" : "top"} price, and the 25th-75th percentile zone around it.`
+  }, "Zone"), /*#__PURE__*/React.createElement(TH, {
+    k: "more",
+    tip: "Median ADDITIONAL move comparable swings still had from this depth before they turned \u2014 measured from the price actually available at each historical crossing."
+  }, "More to go"), /*#__PURE__*/React.createElement(TH, {
     k: "left",
     tip: "Median remaining trading days, from where comparable historical swings stood at this depth."
   }, "Days left"), /*#__PURE__*/React.createElement(TH, {
@@ -2800,24 +2938,40 @@ function SwingReversalScan({
     tip: `Median ${mode === "bounce" ? "rebound" : "pullback"} after comparable reversals.`
   }, mode === "bounce" ? "Rebound" : "Pullback"), /*#__PURE__*/React.createElement(TH, {
     k: "tgt",
-    tip: "That median follow-on move projected from the median reversal level, in dollars."
+    tip: "The follow-on target: the median of one projection per comparable episode, each pairing that episode's own depth with its own follow-on move."
   }, "Target"), /*#__PURE__*/React.createElement(TH, {
     k: "n",
     tip: "Comparable historical swings behind the numbers (5-year scan frame \u2014 the card reads 10 years)."
   }, "n"), /*#__PURE__*/React.createElement(TH, {
     k: "earn",
-    tip: "Calendar days to the next known earnings report. Blank = none on file."
+    tip: "Calendar days to the next known earnings report. Blank = none on file. The scan does not earnings-filter its history; the card does."
   }, "Earn"))), /*#__PURE__*/React.createElement("tbody", null, sorted.slice(0, 20).map(r => /*#__PURE__*/React.createElement("tr", {
     key: r.symbol,
-    className: r.rz_in_zone ? "rev-inzone" : "",
-    title: r.rz_in_zone ? "Price is INSIDE this name's typical historical reversal zone right now." : r.rz_share_exceeded >= 75 ? "Deeper than most of its own history — the zone rests on the few swings that went further." : ""
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol), r.rz_in_zone ? " ●" : r.rz_share_exceeded >= 75 ? " ⚠" : ""), /*#__PURE__*/React.createElement("td", {
+    className: r.rz_extreme_in_zone ? "rev-inzone" : "",
+    title: (r.rz_status ? r.rz_status + ". " : "") + (r.rz_share_exceeded >= 75 ? "Deeper than most of its own history — the zone rests on the few swings that went further." : "")
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("b", null, r.symbol), r.rz_zone_touched ? " ●" : r.rz_share_exceeded >= 75 ? " ⚠" : ""), /*#__PURE__*/React.createElement("td", {
+    className: `rev-scan-st tone-${REV_STATUS_TONE[r.rz_status] || "muted"}`
+  }, r.rz_status || "—"), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
-  }, Math.abs(r.swing_pct || 0).toFixed(1), "%"), /*#__PURE__*/React.createElement("td", {
+  }, r.price == null ? "—" : `$${Number(r.price).toFixed(2)}`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.rz_extreme_price == null ? "—" : `$${Number(r.rz_extreme_price).toFixed(2)}`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, Math.abs(r.rz_cur_pct != null ? r.rz_cur_pct : r.swing_pct || 0).toFixed(1), "%"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.rz_extreme_pct == null ? "—" : `${Number(r.rz_extreme_pct).toFixed(1)}%`), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.swing_days), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
+  }, r.rz_off_extreme_pct == null ? "—" : r.rz_off_extreme_pct === 0 ? "—" : `${mode === "bounce" ? "+" : "−"}${r.rz_off_extreme_pct}%`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
   }, r.rz_dist_median_pct == null ? "—" : `${r.rz_dist_median_pct > 0 ? "+" : ""}${r.rz_dist_median_pct}%`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.rz_median_price == null ? "—" : `$${Number(r.rz_median_price).toFixed(2)}`, /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, r.rz_band_low == null ? "" : ` (${Number(r.rz_band_low).toFixed(2)}–${Number(r.rz_band_high).toFixed(2)})`)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.rz_more_move_pct == null ? "—" : `${Number(r.rz_more_move_pct).toFixed(1)}%`), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.rz_days_median == null ? "—" : `~${r.rz_days_median}`), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
@@ -2849,6 +3003,7 @@ function SwingPatternCard({
   const [fStruct, setFStruct] = useState("all"); // structure filter
   const [openRow, setOpenRow] = useState(null); // expanded history row key
   const [focusKey, setFocusKey] = useState(null); // chart focus range {start,end}
+  const [more, setMore] = useState(false); // legacy analytics, collapsed
 
   const load = async (sym, pct) => {
     if (!sym) return;
@@ -3082,19 +3237,50 @@ function SwingPatternCard({
   }), /*#__PURE__*/React.createElement("div", {
     className: "skel skel-bar"
   })), data && /*#__PURE__*/React.createElement(SwingReversalBlock, {
+    data: data
+  }), data && (data.bars || []).length > 0 && /*#__PURE__*/React.createElement(TVAdvancedChart, {
+    apiFetch: apiFetch,
+    ticker: ticker,
+    data: data,
+    fallback: /*#__PURE__*/React.createElement(SwingChart, {
+      data: data,
+      focusKey: focusKey,
+      onPickSwing: pickSwingByTime,
+      onClearFocus: () => {
+        setFocusKey(null);
+        setOpenRow(null);
+      }
+    })
+  }), data && data.reversal && data.reversal.ok && /*#__PURE__*/React.createElement(SwingWhatIf, {
     apiFetch: apiFetch,
     ticker: ticker,
     sens: sens,
-    data: data,
+    reversal: data.reversal,
     onResult: setData
-  }), a && a.decision && /*#__PURE__*/React.createElement("div", {
+  }), a && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "swing-chart-toggle",
+    onClick: () => setMore(m => !m),
+    title: "The decision banner, continuation and exhaustion scores, odds, target ladder and trade plan. All still computed \u2014 they simply no longer sit between the projection and the chart."
+  }, more ? "▾" : "▸", " More details \u2014 decision engine, scores, odds, target ladder, trade plan"), more && a && (rv0 => /*#__PURE__*/React.createElement("div", {
+    className: "rev-context",
+    title: "Two readings the reversal projection deliberately does NOT use: both were tested as ways to narrow the comparable-swing set and both were rejected for failing to improve out-of-sample accuracy. Shown as context because they describe where price sits, not because they predict anything."
+  }, /*#__PURE__*/React.createElement("span", {
+    title: REV_TIP.rangepos
+  }, "20-day range position: ", /*#__PURE__*/React.createElement("b", null, rv0 && rv0.current && rv0.current.range_pos_20 != null ? `${rv0.current.range_pos_20} / 100` : "—")), /*#__PURE__*/React.createElement("span", {
+    title: REV_TIP.regime
+  }, "Trend regime: ", /*#__PURE__*/React.createElement("b", null, rv0 && rv0.current ? rv0.current.regime === "uptrend" ? "Uptrend" : rv0.current.regime === "downtrend" ? "Downtrend" : "Unknown" : "—"), " ", /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, "vs 200-day")), /*#__PURE__*/React.createElement("span", {
+    title: "Both were rejected by walk-forward testing as cohort filters \u2014 kept visible, kept out of the arithmetic."
+  }, "Neither narrows the comparison set.")))(data && data.reversal), more && a && a.decision && /*#__PURE__*/React.createElement("div", {
     className: `swing-decision tone-${DECISION_TONE[a.decision.action] || "muted"}`,
     title: "The decision engine's recommended action for this setup, with the drivers behind it"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swing-decision-action"
   }, a.decision.action), (a.decision.drivers || []).length > 0 && /*#__PURE__*/React.createElement("span", {
     className: "swing-decision-because"
-  }, "because ", a.decision.drivers.join(" · "))), a && a.status === "ok" && (() => {
+  }, "because ", a.decision.drivers.join(" · "))), more && a && a.status === "ok" && (() => {
     const reasons = [];
     if (a.odds && a.odds.expectancy_r != null && a.odds.expectancy_r < 0) reasons.push(`negative expectancy (${a.odds.expectancy_r}R)`);
     if (a.flow && a.flow.agrees_with_price === "disagrees") reasons.push("options flow disagrees with the move");
@@ -3110,7 +3296,7 @@ function SwingPatternCard({
     }, "\u26A0 Avoid / wait"), /*#__PURE__*/React.createElement("span", {
       className: "swing-veto-why"
     }, "Low-quality entry \u2014 ", reasons.slice(0, 3).join(" · "), "."));
-  })(), a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
+  })(), more && a && (a.status === "ok" || a.status === "no_rhythm") && /*#__PURE__*/React.createElement("div", {
     className: `swing-live swing-${dirTone}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-live-head"
@@ -3240,7 +3426,7 @@ function SwingPatternCard({
     score: a.exhaustion_score,
     tone: "warn",
     factors: a.exhaustion_factors
-  }))), a && a.status === "ok" && a.odds && (() => {
+  }))), more && a && a.status === "ok" && a.odds && (() => {
     const o = a.odds;
     const vClass = {
       favorable: "up",
@@ -3284,7 +3470,7 @@ function SwingPatternCard({
     }, "stop ", fmtUsd2(o.risk_price)))), /*#__PURE__*/React.createElement("div", {
       className: "swing-odds-note"
     }, o.note));
-  })(), a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
+  })(), more && a && a.status === "ok" && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12
     }
@@ -3359,7 +3545,7 @@ function SwingPatternCard({
     className: `swing-confwhy conf-${a.confidence.level}`
   }, /*#__PURE__*/React.createElement("b", null, /*#__PURE__*/React.createElement(Term, {
     k: "confidence_rating"
-  }, "Confidence: ", a.confidence.level)), " ", /*#__PURE__*/React.createElement("span", null, "because ", (a.confidence.reasons || []).join(", "), "."))), a && a.status === "ok" && a.trade_plan && /*#__PURE__*/React.createElement("div", {
+  }, "Confidence: ", a.confidence.level)), " ", /*#__PURE__*/React.createElement("span", null, "because ", (a.confidence.reasons || []).join(", "), "."))), more && a && a.status === "ok" && a.trade_plan && /*#__PURE__*/React.createElement("div", {
     className: "swing-plan"
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-subtitle",
@@ -3636,20 +3822,7 @@ function SwingPatternCard({
     }, det.before && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Before the move"), /*#__PURE__*/React.createElement("b", null, det.before)), det.beyond_median && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Past the median target"), /*#__PURE__*/React.createElement("b", null, det.beyond_median)), det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "After the ", tab === "up" ? "high" : "low"), /*#__PURE__*/React.createElement("b", null, det.after)), det.hold_vs_target && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Sell at target vs hold"), /*#__PURE__*/React.createElement("b", null, det.hold_vs_target)), !det.before && !det.after && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", null, "Detail"), /*#__PURE__*/React.createElement("b", null, "Not enough surrounding history for this swing."))))));
   })))) : !err && !loading && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`), data && (data.bars || []).length > 0 && /*#__PURE__*/React.createElement(TVAdvancedChart, {
-    apiFetch: apiFetch,
-    ticker: ticker,
-    data: data,
-    fallback: /*#__PURE__*/React.createElement(SwingChart, {
-      data: data,
-      focusKey: focusKey,
-      onPickSwing: pickSwingByTime,
-      onClearFocus: () => {
-        setFocusKey(null);
-        setOpenRow(null);
-      }
-    })
-  }), /*#__PURE__*/React.createElement(SwingReversalScan, {
+  }, filtersOn && allHistSwings.length > 0 ? `No ${tab === "up" ? "up" : "down"}-swings match these filters — adjust or clear them.` : `No major ${tab === "up" ? "up" : "down"}-swings found for ${ticker} in this window.`), /*#__PURE__*/React.createElement(SwingReversalScan, {
     apiFetch: apiFetch
   }));
 }

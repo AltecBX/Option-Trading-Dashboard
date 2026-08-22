@@ -1232,7 +1232,13 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
             min_move_pct: float = 15.0, flow: dict | None = None,
             bars: list | None = None, split_dates=None,
             projection_cfg: dict | None = None,
-            what_if_target_pct=None, what_if_stop_pct=None) -> dict:
+            what_if_target_pct=None, what_if_stop_pct=None,
+            deep_earnings: dict | None = None) -> dict:
+    """`deep_earnings`, when supplied by the route, is
+    {"dates": set[iso], "meta": {...}} — the deepest point-in-time earnings
+    history the app has for this symbol (see options_dashboard._deep_earn_hist).
+    yfinance alone reaches about four years, which is not enough for a ten-year
+    swing history, and a missing report date reads as a clean episode."""
     symbol = symbol.upper().strip()
     if bars:
         # Caller supplied OHLC (the app's Schwab-first, cached daily history) —
@@ -1327,11 +1333,18 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
     reversal = None
     if _sproj is not None:
         try:
+            # The deep set (v4.51) reaches back as far as the price history
+            # when the caller supplies one; otherwise the ~4 years yfinance
+            # carries. Either way the engine is told which it got.
+            earn_iso = set(deep_earnings.get("dates") or ()) if deep_earnings \
+                else _earnings_iso(earnings)
             reversal = _sproj.project(
                 pivots, dates, highs, lows, closes,
+                opens=opens,
                 min_move_pct=min_move_pct,
                 zigzag_pct=pct * 100.0,
-                earnings_dates=_earnings_iso(earnings),
+                earnings_dates=earn_iso,
+                earnings_meta=(deep_earnings or {}).get("meta"),
                 split_dates=split_dates,
                 upcoming_earnings_days=_days_to_next_earnings(
                     earnings, dates[-1] if dates else None),
@@ -1340,9 +1353,10 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
                     and what_if_stop_pct is not None:
                 reversal["what_if"] = _sproj.what_if(
                     pivots, dates, highs, lows, closes,
+                    opens=opens,
                     target_pct=what_if_target_pct,
                     stop_pct=what_if_stop_pct,
-                    min_move_pct=min_move_pct,
+                    earnings_dates=earn_iso,
                     split_dates=split_dates, cfg=projection_cfg)
         except Exception:
             reversal = None

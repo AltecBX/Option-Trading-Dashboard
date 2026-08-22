@@ -1846,3 +1846,85 @@ failure class the time-travel CI step exists for, from the other
 direction. 2,452 Python tests green (47 new), 176 node guards (the
 swing-paths guard replaced by a reversal-block guard), 123/123 HTTP smoke,
 46/46 browser checks at 1400px and 390px, suite green 400 days forward.
+
+## v4.51 — The Patterns tab corrections: the display filter stops defining the population
+
+An independent review of v4.50 found four statistical faults and a product
+one. All five are fixed, each measured over 16 symbols × 10 years of daily
+bars (~5,000 walk-forward events) rather than argued.
+
+**The 15% floor is out of the cohort.** `min_move_pct` hides small swings
+from the TABLES; it was also gating the survival population, so a 13%
+decline was excluded from the comparison set of a 12% decline. That deleted
+precisely the swings that ENDED shallow and pushed every projected zone
+deeper. At 12% sensitivity it was throwing away 19% of all completed legs
+(the 12–15% band); at 8% sensitivity, 51%. Removing it cut early-stage
+reversal-size error 13% at Standard and 43% at Sensitive, and moved p25–p75
+band coverage from 36% / 22% to about 46% against the 50% ideal. It is
+inert once a swing passes 15%, which is why the fault was invisible on deep
+swings. The remaining floor is structural — a zigzag only turns after a
+counter-move of the sensitivity setting, so no completed leg is smaller
+than it — and the payload says so in words.
+
+**Status comes from the running extreme, against the UNCONDITIONAL band.**
+APPROACHING / IN ZONE / BOUNCING (FADING) OFF ZONE / BEYOND TYPICAL ZONE /
+BEYOND HISTORY, decided by three yes/no questions with no invented
+confirmation threshold — the band is the yardstick. The band had to be the
+unconditional one: every member of the survival cohort ended at or beyond
+the current depth, so its shallow quartile sits at or past the extreme BY
+CONSTRUCTION and "in the zone" could never have fired — the same dead-state
+trap as the beyond-the-median flag removed in v4.50. Both bands now render,
+labelled for what they are.
+
+**Probabilities are fixed-horizon or they are not comparable.** The
+lifetime touch ladder is retired (a confirmed swing exceeds the sensitivity
+by definition, so every level under it scored 100%). In its place: X% within
+N trading days, measured from the reversal bar's CLOSE, beside the identical
+question asked of every ordinary bar. Pooled: after confirmed bottoms
+82.9% / 71.9% / 59.5% for +5%/5d, +10%/10d, +15%/20d against baselines of
+27.6% / 18.1% / 17.5% (n=772). Conditional on the turn having happened, and
+labelled that way — the what-if is the version that starts where a trade
+would actually have to be entered.
+
+**Targets are paired, not multiplied.** Each cohort episode contributes its
+own (final depth, follow-on move) pair projected from today's swing origin;
+the target band is the distribution of those projections. Honest finding:
+the rank correlation between depth and next move is about zero (−0.02), so
+the median target moves ~1% — what the change fixes is the BAND, which was
+mixing a fixed depth with a variable move.
+
+**Historical entries stop inventing fills.** Where the market gapped through
+the crossing level overnight — roughly a third of crossings — the entry is
+the session open, in both the remaining-move measurement and the what-if
+race. Episodes whose follow-on leg carries a split or an incredible print
+are dropped rather than raced through prices the engine does not trust.
+
+**Earnings are tagged in three places, not one:** between the crossing and
+the final extreme (new — the case that teaches a zone that an extra 25% gap
+was ordinary), at the reversal, and inside the follow-on swing. Depth comes
+from SEC 10-Q/10-K filing dates for everything older than the ~4 years the
+earnings calendar covers; a filing date is a window, not a report date, and
+is treated and labelled as one.
+
+**Stage labels with evidence behind them.** EARLY IN THE MOVE / AT ITS
+NORMAL SIZE / BEYOND ITS NORMAL SIZE, at 100% and 125% of the stock's own
+median swing. From the staged run (conditional vs unconditional MAE): 25%
+of median 6.11 vs 5.98, 50% 5.87 vs 5.83, 75% 5.59 vs 4.58, 100% 6.40 vs
+8.08, 125% 8.70 vs 13.76. Conditioning is worth nothing before a move
+reaches its normal size and worth a fifth to a third of the error after it.
+Descriptive only — nothing on the panel is scaled by them.
+
+**The tab is reordered around how it is used:** projection, chart, what-if,
+historical swing tables — with the decision banner, scores, odds, target
+ladder and trade plan moved behind a collapsed "More details" (kept, not
+deleted, including the rejected range-position and regime readings). The
+scan is now organised by reversal status — already reacting, then in the
+zone, then approaching — with adequate samples ahead of thin ones and
+distance breaking the tie, ranked by a comparator chain over named fields
+rather than any composite score.
+
+Nothing new was added that testing did not support: the regime, range-
+position and velocity filters stay rejected and were not retested until
+they passed; no indicator, similarity engine or model was introduced.
+2,498 Python tests green (93 in the projection suite), 176 node guards
+(69 in the reversal-UI guard), 43/43 browser checks at 1500px and 390px.
