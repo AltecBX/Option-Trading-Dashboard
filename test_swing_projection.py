@@ -1305,3 +1305,85 @@ class TestAnalyzeResolvesTheThreshold(unittest.TestCase):
         a = self.swings.analyze("TEST", bars=bars, sensitivity="sensitive")
         b = self.swings.analyze("TEST", bars=bars, sensitivity="major")
         self.assertLess(a["params"]["pct"], b["params"]["pct"])
+
+
+class TestTheUnbrokenZigzag(unittest.TestCase):
+    """The chart's connector line should always alternate up, down, up. It
+    used to be drawn from the display-filtered swing tables, so a run of
+    small legs showed as a gap. These pin that the full leg list is present,
+    contiguous, and — the part that matters — that it is presentation only."""
+
+    def setUp(self):
+        import swings
+        self.swings = swings
+        self._b, self._e = swings._fetch_bench, swings._fetch_earnings
+        swings._fetch_bench = lambda period="1y": {}
+        swings._fetch_earnings = lambda symbol: set()
+
+    def tearDown(self):
+        self.swings._fetch_bench = self._b
+        self.swings._fetch_earnings = self._e
+
+    def _bars(self):
+        """Alternating legs of deliberately mixed size, so some fall under
+        any sensible display filter and some do not."""
+        legs = [(-20, 10), (25, 10), (-8, 6), (9, 6), (-30, 12), (35, 12),
+                (-7, 5), (22, 10), (-18, 8)]
+        piv, dates, H, L, C = build_series(legs)
+        return [{"date": dates[i], "open": C[i], "high": H[i], "low": L[i],
+                 "close": C[i], "volume": 1} for i in range(len(dates))]
+
+    # An explicit threshold: the adaptive one would resolve high enough on
+    # this synthetic series to merge the small legs away, and small legs are
+    # the whole point of these tests.
+    PCT = 0.05
+
+    def test_the_legs_alternate_without_a_break(self):
+        z = self.swings.analyze("TEST", bars=self._bars(), pct=self.PCT)["zigzag_legs"]
+        self.assertGreater(len(z), 4)
+        for i in range(len(z) - 1):
+            self.assertNotEqual(z[i]["dir"], z[i + 1]["dir"])
+            self.assertEqual(z[i]["end_date"], z[i + 1]["start_date"])
+
+    def test_only_the_last_leg_is_the_unfinished_one(self):
+        z = self.swings.analyze("TEST", bars=self._bars(), pct=self.PCT)["zigzag_legs"]
+        self.assertTrue(z[-1]["active"])
+        self.assertFalse(any(L["active"] for L in z[:-1]))
+
+    def test_major_means_big_enough_for_the_tables(self):
+        r = self.swings.analyze("TEST", bars=self._bars(), pct=self.PCT,
+                                min_move_pct=15.0)
+        for L in r["zigzag_legs"]:
+            self.assertEqual(L["major"], abs(L["pct"]) >= 15.0)
+
+    def test_the_small_legs_are_the_ones_the_tables_drop(self):
+        r = self.swings.analyze("TEST", bars=self._bars(), pct=self.PCT,
+                                min_move_pct=15.0)
+        z = r["zigzag_legs"]
+        major = [L for L in z if L["major"]]
+        table = len(r["swings"]) + len(r["down_swings"])
+        # Every leg the tables list is a major leg; the extras are exactly
+        # the ones that used to leave gaps in the line.
+        self.assertEqual(len(major), table)
+        self.assertGreater(len(z), len(major))
+
+    def test_the_display_filter_moves_the_flags_and_nothing_else(self):
+        """The proof that this is presentation: change what the tables hide
+        and the leg SET is identical — same count, same dates, same prices.
+        Only which of them count as major moves."""
+        bars = self._bars()
+        a = self.swings.analyze("TEST", bars=bars, pct=self.PCT, min_move_pct=15.0)
+        b = self.swings.analyze("TEST", bars=bars, pct=self.PCT, min_move_pct=5.0)
+        za, zb = a["zigzag_legs"], b["zigzag_legs"]
+        self.assertEqual(len(za), len(zb))
+        for x, y in zip(za, zb):
+            self.assertEqual((x["start_date"], x["end_date"], x["pct"]),
+                             (y["start_date"], y["end_date"], y["pct"]))
+        self.assertNotEqual([x["major"] for x in za], [y["major"] for y in zb])
+        # and the projection itself is untouched by the display filter
+        self.assertEqual(a["reversal"]["zone"], b["reversal"]["zone"])
+
+    def test_it_is_not_consulted_by_the_projection(self):
+        """A blunt guard: the engine module never mentions the chart's list."""
+        with open("swing_projection.py", encoding="utf-8") as fh:
+            self.assertNotIn("zigzag_legs", fh.read())
