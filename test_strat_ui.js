@@ -203,9 +203,16 @@ ok("state colours come from the theme tokens, not hard-coded hex",
    /\.st-seg\.st-up \{ background: var\(--up\)/.test(css)
    && /\.st-seg\.st-down \{ background: var\(--down\)/.test(css));
 const stratCss = css.slice(css.indexOf("CANDLE STATES — Sectors"));
-ok("the new styles introduce no hard-coded colours",
-   !/#[0-9a-fA-F]{6}\b/.test(stratCss.replace(/#1a1300/g, "")),
-   (stratCss.match(/#[0-9a-fA-F]{6}\b/g) || []).join(","));
+// A literal belongs in a token DEFINITION and nowhere else — that is what
+// a token is for. Rules must reference var(), so the check strips the
+// --map-flat definitions (asserted separately to be equal-channel greys)
+// and the one contrast colour on the fixture badge, then bans the rest.
+const ruleCss = stratCss
+  .replace(/--map-flat: #[0-9a-fA-F]{6};/g, "")
+  .replace(/#1a1300/g, "");
+ok("the new style RULES use tokens, never literal colours",
+   !/#[0-9a-fA-F]{6}\b/.test(ruleCss),
+   (ruleCss.match(/#[0-9a-fA-F]{6}\b/g) || []).join(","));
 ok("the sector grid collapses on a phone",
    /\.st-secgrid \{ grid-template-columns: 1fr; \}/.test(css));
 ok("wide tables scroll inside their own container",
@@ -229,6 +236,63 @@ ok("useBoundedList is destructured as a pair, not an object",
    && /\[shown, controls\] = useBoundedList/.test(src));
 ok("changing the underlying resets the chosen expiry",
    /useEffect\(\(\) => \{ setExp\(""\); \}, \[symbol\]\);/.test(src));
+
+// ── 15. the three v4.56a fixes ──────────────────────────────────────────
+// The map mixes toward an ACHROMATIC neutral. Mixing toward --bg-3 (a navy
+// with real chroma) rotated every hue in oklch: green came out teal, red
+// came out purple, and the map read as a chart of something else.
+ok("the map mixes toward a neutral, not the panel background",
+   /var\(--map-flat\)/.test(src) && !/mapColour[\s\S]{0,400}--bg-3/.test(src));
+// The neutral must be an EQUAL-CHANNEL grey and the mix must happen in
+// sRGB. Both halves were got wrong before being got right: mixing toward
+// --bg-3 (a navy) turned green to teal, and mixing toward oklch(L 0 0) was
+// no better because a hue of 0 is the red direction, not a powerless hue —
+// a +0.3% gainer came out orange. sRGB toward (k,k,k) scales every channel
+// difference equally, and hue depends only on those differences.
+const flatLight = /:root \{ --map-flat: (#[0-9a-f]{6}); \}/i.exec(css);
+const flatDark = /\[data-theme="dark"\] \{ --map-flat: (#[0-9a-f]{6}); \}/i.exec(css);
+const equalChannel = (hex) => hex && hex[1] === hex[3] && hex[3] === hex[5]
+  && hex[2] === hex[4] && hex[4] === hex[6];
+ok("the map neutral is an equal-channel grey in light mode",
+   !!flatLight && equalChannel(flatLight[1]), flatLight && flatLight[1]);
+ok("the map neutral is an equal-channel grey in dark mode",
+   !!flatDark && equalChannel(flatDark[1]), flatDark && flatDark[1]);
+ok("the mix happens in sRGB, which cannot rotate a hue",
+   /color-mix\(in srgb, var\(--up\)/.test(src)
+   && /color-mix\(in srgb, var\(--down\)/.test(src));
+ok("the map never mixes a colour in oklch",
+   !/mapColour[\s\S]{0,600}color-mix\(in oklch/.test(src));
+ok("the up and down hues still come from the theme tokens",
+   /var\(--up\) \$\{/.test(src) && /var\(--down\) \$\{/.test(src));
+
+// Labels are sized to the rectangle. A fixed 11px symbol needs ~42px of
+// width, so every smaller rectangle rendered blank and read as missing data.
+ok("map labels scale with the rectangle rather than a hard cutoff",
+   !/c\.w > 42 && c\.h > 26/.test(src) && /fontSize: `\$\{fs\}px`/.test(src));
+ok("the map height is derived from how many rectangles must fit",
+   /perSector \* sectorCount/.test(src));
+ok("how many names per sector is the reader's choice",
+   /MAP_SIZES/.test(src) && /aria-label="How many names per sector"/.test(src));
+ok("the dropped-names note quotes the live limit, not a hard-coded forty",
+   /\{data\.limit_per_sector\} largest names/.test(src));
+
+// Gamma Exposure follows the app's ticker.
+ok("the gamma tab follows the global ticker",
+   /useEffect\(\(\) => \{[\s\S]{0,260}setSymbol\(t\);[\s\S]{0,80}\}, \[ticker\]\)/.test(src));
+
+// The chain is fetched in two bounded steps, never one unbounded call.
+ok("the server enumerates expirations before fetching a chain",
+   /_gex_expirations/.test(dash));
+ok("the wide fetch is bounded by a date range",
+   /expiration=selected\[0\], to_date=selected\[-1\]/.test(dash));
+ok("no code path asks for a chain with no date filter at a wide strike count",
+   !/get_option_chain\(symbol, strike_count=200\)/.test(dash));
+ok("the SPY header gamma read is bounded the same way",
+   /_gex_expirations\(sc, "SPY"\)/.test(dash));
+ok("the multi-expiration option is capped and the cap is a constant",
+   /_GEX_MAX_EXPIRATIONS/.test(dash));
+ok("the UI names the real cap instead of promising every expiration",
+   /Nearest \{expCap\} expirations/.test(src) && !/>All expirations</.test(src));
 
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));

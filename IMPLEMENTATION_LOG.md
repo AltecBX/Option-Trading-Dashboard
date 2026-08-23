@@ -2206,3 +2206,57 @@ directory is still empty. It was not; it contained `_KS11.json`.
 
 2,652 Python tests green across four consecutive full runs, and no thread
 survives the suite.
+
+## v4.57 — Three fixes from the first real look at v4.56
+
+**SPY and QQQ returned no gamma at all.** Asking Schwab for a chain with no
+date filter returns EVERY listed expiration. On a single-name stock that is a
+handful; on SPY it is sixty-odd expirations of dailies, weeklies, monthlies
+and LEAPS, and at the wide strike count gamma needs that is tens of thousands
+of contracts. `SchwabClient._get` allows fifteen seconds and then returns
+None, so the tab reported — accurately and uselessly — that no chain was
+available, for the two symbols anyone opens it for first. MU worked, which is
+what made it look like a symbol problem rather than a size problem.
+
+The chain is now fetched in two bounded steps: one narrow-ladder call to
+enumerate the expirations, then one call for only the expirations being
+measured, bounded by a date range Schwab filters server-side. Neither grows
+with how many expirations the underlying lists. The multi-expiration option
+is capped at the nearest eight and the dropdown says so rather than promising
+"all", because summing every SPY expiration is the unbounded call again under
+another name.
+
+The same unbounded fetch is why the header's SPY gamma read had been showing
+a dash. Fixed the same way.
+
+**Gamma Exposure now follows the app's ticker.** It was taking the ticker as
+initial state only, so changing the symbol anywhere else left the tab behind.
+
+**The market map was purple and teal.** The colour is built by mixing --up or
+--down toward a neutral by the size of the move, and the mix target was
+--bg-3 — the panel behind the map. --bg-3 is a navy at hue ~228 with real
+chroma, so in oklch a green at 152 interpolated toward it came out teal and a
+red at 25 came out purple.
+
+The first fix was wrong too, and the browser caught it: mixing toward
+oklch(L 0 0) still rotated the hue, because a hue of 0 is not a powerless
+hue — it is the red direction. Measured on screen, a +3.6% gainer rendered at
+125 degrees, a +1.7% gainer at 81, and a +0.3% gainer at 30. Green, then
+yellow-green, then orange.
+
+It now mixes in sRGB toward an equal-channel grey, which cannot rotate a hue
+by construction: mixing (r,g,b) with (k,k,k) scales every channel difference
+by the same factor, and hue is a function of those differences alone. Measured
+after: 148 degrees for every gainer and 1 degree for every loser, identical in
+both themes and holding on sub-1% moves.
+
+**And most of the map was blank.** Forty names across eleven sectors in a
+520-pixel-tall map averages about 34 pixels square, which is under every label
+threshold — so the map rendered as a field of unlabelled blocks and read as
+missing data rather than as small holdings. The height is now derived from how
+many rectangles have to fit, labels are sized to their rectangle instead of
+being switched off below a fixed width, and how many names per sector is the
+reader's choice. 230 of 242 rectangles carry their ticker now.
+
+2,652 Python tests, 129 UI guards (13 new), 82/82 browser checks, and a new
+12-check colour harness that measures rendered hue in both themes.

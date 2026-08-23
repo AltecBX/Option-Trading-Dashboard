@@ -12749,6 +12749,19 @@ a.tabsheet-btn.site { text-decoration: none; }
 
 .st-tab { --st-inside: var(--fg-4); --st-outside: var(--warn); }
 
+/* The market map's neutral: a plain GREY, mixed in sRGB.
+   Two earlier attempts got this wrong, both by rotating the hue.
+   Mixing toward --bg-3 (a navy with real chroma) turned greens into teals
+   and reds into purples. Mixing toward oklch(L 0 0) was no better: a hue of
+   0 is not "powerless" — it is the red direction — so oklch interpolated
+   152deg toward 0 and small gains came out yellow, then orange.
+   sRGB toward an equal-channel grey is hue-preserving by construction:
+   mixing (r,g,b) with (k,k,k) scales every channel DIFFERENCE by the same
+   factor, and hue depends only on those differences. Lightness and
+   saturation move; hue cannot. */
+:root { --map-flat: #ededed; }
+[data-theme="dark"] { --map-flat: #2b2b2b; }
+
 /* ── state chip ──────────────────────────────────────────────────────── */
 .st-chip {
   display: inline-flex; align-items: center; justify-content: center;
