@@ -621,6 +621,14 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
                     "rz_zone_touched": st.get("zone_touched"),
                     "rz_in_zone": st.get("current_in_zone"),
                     "rz_extreme_in_zone": st.get("extreme_in_zone"),
+                    # How far INTO the band the extreme travelled, and
+                    # whether the move is deep enough for the conditional
+                    # projection to be worth reading (v4.52). Both are
+                    # displayed and filterable; neither reorders the scan,
+                    # because ordering by them was tested and rejected.
+                    "rz_penetration": st.get("band_penetration_pct"),
+                    "rz_stage": (rev.get("maturity") or {}).get("code"),
+                    "rz_stage_ratio": (rev.get("maturity") or {}).get("ratio_pct"),
                     "rz_share_exceeded": cohort.get(
                         "share_of_history_already_exceeded_pct"),
                 })

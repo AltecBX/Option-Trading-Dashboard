@@ -1928,3 +1928,43 @@ position and velocity filters stay rejected and were not retested until
 they passed; no indicator, similarity engine or model was introduced.
 2,498 Python tests green (93 in the projection suite), 176 node guards
 (69 in the reversal-UI guard), 43/43 browser checks at 1500px and 390px.
+
+## v4.52 — What "already reacting" can and cannot mean
+
+Jerry noticed that the bounce scan's page one was full of names that had
+barely ticked up off a shallow decline, while a deep, well-sampled name sat
+a hundred rows down. He was right about the mechanism, and measuring it
+changed what the fix should be.
+
+**The asymmetry is structural.** BOUNCING (FADING) OFF ZONE requires price
+to travel back OUT of the typical band. From an extreme that merely grazed
+the near edge that is a 1% move; from one sitting deep inside the band it is
+a very large one. So the reaction states can realistically only fire near
+the shallow edge: across 1,197 scanned watchlist symbols the median reacting
+row had penetrated 14% of its band against 46% for a row still IN ZONE, and
+43% of reacting rows were under 10% penetration.
+
+**The obvious fix makes the list worse.** Four alternative orderings were
+measured over the 434 active down-swings against the what-if edge
+(target-first minus stop-first from today's depth — the only outcome-like
+criterion the ordering itself does not use): shipped +1pp; deepest-first
+within status −2pp; reacting and in-zone merged then deepest-first −4pp;
+penetration-banded 0pp with the median cohort collapsing from 24 names to
+10. Deeper penetration selects the swings that simply kept falling.
+Promoting by stage or by sample size was flat to worse too. **The default
+order is therefore unchanged** — status, then adequate sample, then distance
+to the median, exactly as specified.
+
+**What does work is a filter, not a sort.** `band_penetration_pct` (0% at
+the near edge, 100% at the far one, like the 20-day range position) is now a
+visible, sortable "Into zone" column, and the scan gains a stage filter that
+hides swings the walk-forward run says the conditional projection cannot yet
+read. It uses the already-validated 100%-of-median boundary rather than a
+new threshold, and it restricts the list instead of silently promoting rows:
+removing the 286 early-stage down-swings moves a deep, well-sampled name
+from about #106 to #19 — because 286 rows the engine cannot speak to are
+gone, not because it now claims to predict better. Off by default; the scan
+never hides a row unless asked.
+
+99 Python tests in the projection suite (6 new), 78 node guards (9 new),
+17/17 browser checks at 1600px and 390px.

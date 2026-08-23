@@ -2518,6 +2518,8 @@ const REV_TIP = {
   earnA: "Earnings are tagged in three places, not one: between the moment a historical swing was this deep and its final turn (which is what turns an ordinary decline into a gap-driven one, and would otherwise teach the zone that the extra drop was normal), at the reversal itself, and inside the follow-on swing. Contaminated episodes are excluded when enough clean ones remain, and included but counted when they do not — never silently mixed. Report dates come from the earnings calendar for roughly the last four years and from SEC 10-Q/10-K filing dates before that; a filing date is a window, not a report date, and is treated as one.",
   flags: "Conditions that change how much weight the projection deserves — where the extreme stands against the zone, thin samples, earnings ahead, a swing already beyond most of its history.",
   scan: "Every scanned watchlist name with an active swing, placed against ITS OWN historical reversal zone — down-swings as bounce (long) candidates, up-swings as pullback (short) candidates. Ranked by REVERSAL STATUS first (already reacting, then in the zone, then approaching), with adequate samples before thin ones and distance to the zone breaking the tie; click any column to re-sort. Numbers here come from the 5-year scan frame and are not earnings-filtered; open a symbol on this tab for the full 10-year read.",
+  penetration: "How far INTO the typical band the running extreme actually travelled: 0% = it only just reached the near edge, 100% = it went all the way to the far edge, above 100% = out the other side. A position, like the 20-day range position — not a score, and not part of the ordering. It is here because the reaction states are structurally biased toward the shallow edge: leaving the band takes a small move for an extreme that grazed it and a large one for an extreme sitting deep inside, so across 1,197 scanned names the median reacting row had penetrated 14% of its band against 46% for a row still IN ZONE. Sorting the scan by this was TESTED AND REJECTED — deepest-first put names that simply kept falling on page one and left the what-if edge flat to worse. Click it to sort when you want it; the default order does not use it.",
+  scanStage: "Which swings the walk-forward run says are worth reading. Below 100% of a normal move the comparison set is nearly the stock's whole history and conditioning measurably adds nothing, so those rows are labelled early. Hiding them is the honest way to stop shallow qualifiers crowding the list — it uses the SAME validated boundary as the stage label on the card, not a new threshold, and it filters rather than reorders, so nothing is silently promoted. Off by default: the scan never hides a row unless you ask it to.",
   scanStatus: "Where each name's running EXTREME stands against its own historical reversal zone — not where today's close is. A stock whose low entered the zone and has since traded up off it is a reaction candidate; one still falling toward the zone is an approach candidate. Ranking on distance from the current price alone cannot tell those apart, which is why this column leads the table."
 };
 function RevStat({
@@ -2804,11 +2806,17 @@ function SwingReversalScan({
   const [sortK, setSortK] = useState("status");
   const [sortD, setSortD] = useState(1);
   const [open, setOpen] = useState(false);
+  // Stage filter (v4.52). "Normal size or beyond" hides swings the
+  // walk-forward run says the conditional projection cannot yet read — it
+  // is the reason a deep, well-sampled name reaches page one at all. Off by
+  // default: the scan never hides a row unless asked.
+  const [stageF, setStageF] = useState("all");
   useEffect(() => {
     if (!open || rows) return;
     apiFetch("/api/watchlist_table").then(r => r.json()).then(d => setRows(d && d.rows || [])).catch(() => setRows([]));
   }, [open]);
-  const pick = (rows || []).filter(r => r.rz_median_price != null && (mode === "bounce" ? r.swing_dir === "short" : r.swing_dir === "long"));
+  const inMode = r => r.rz_median_price != null && (mode === "bounce" ? r.swing_dir === "short" : r.swing_dir === "long");
+  const pick = (rows || []).filter(r => inMode(r) && (stageF === "all" || r.rz_stage !== "EARLY IN THE MOVE"));
   // The default order is a fixed sequence of named fields, not a score:
   // already reacting off the zone, then inside it, then approaching it, then
   // past it; adequate samples ahead of thin ones; distance to the zone
@@ -2829,6 +2837,7 @@ function SwingReversalScan({
     extpct: r.rz_extreme_pct == null ? 0 : r.rz_extreme_pct,
     days: r.swing_days || 0,
     off: r.rz_off_extreme_pct == null ? -1 : r.rz_off_extreme_pct,
+    pen: r.rz_penetration == null ? -9999 : r.rz_penetration,
     dist: r.rz_dist_median_pct == null ? 999 : Math.abs(r.rz_dist_median_pct),
     med: r.rz_median_price == null ? -1 : r.rz_median_price,
     more: r.rz_more_move_pct == null ? 999 : r.rz_more_move_pct,
@@ -2889,7 +2898,17 @@ function SwingReversalScan({
     className: `rr-btn ${mode === "pullback" ? "pd-f-on" : ""}`,
     onClick: () => setMode("pullback"),
     title: "Stocks in active UP swings, placed against their own historical tops \u2014 short candidates."
-  }, "Pullback candidates (", (rows || []).filter(r => r.rz_median_price != null && r.swing_dir === "long").length, ")")), rows === null && /*#__PURE__*/React.createElement("div", {
+  }, "Pullback candidates (", (rows || []).filter(r => r.rz_median_price != null && r.swing_dir === "long").length, ")"), /*#__PURE__*/React.createElement("span", {
+    className: "rev-scan-sep"
+  }), /*#__PURE__*/React.createElement("button", {
+    className: `rr-btn ${stageF === "all" ? "pd-f-on" : ""}`,
+    onClick: () => setStageF("all"),
+    title: REV_TIP.scanStage
+  }, "All stages"), /*#__PURE__*/React.createElement("button", {
+    className: `rr-btn ${stageF === "developed" ? "pd-f-on" : ""}`,
+    onClick: () => setStageF("developed"),
+    title: REV_TIP.scanStage
+  }, "Normal size or beyond (", (rows || []).filter(r => inMode(r) && r.rz_stage && r.rz_stage !== "EARLY IN THE MOVE").length, ")")), rows === null && /*#__PURE__*/React.createElement("div", {
     className: "rev-empty"
   }, "Loading the scanned board\u2026"), rows !== null && sorted.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "rev-empty"
@@ -2922,6 +2941,9 @@ function SwingReversalScan({
     k: "off",
     tip: `How far price has already travelled back ${mode === "bounce" ? "up off the running low" : "down off the running high"}. The literal number — no confirmation threshold is applied.`
   }, "Off extreme"), /*#__PURE__*/React.createElement(TH, {
+    k: "pen",
+    tip: REV_TIP.penetration
+  }, "Into zone"), /*#__PURE__*/React.createElement(TH, {
     k: "dist",
     tip: "Distance from the current price to the MEDIAN historical reversal level, as a percent of price. Small = at the zone."
   }, "To median"), /*#__PURE__*/React.createElement(TH, {
@@ -2964,6 +2986,11 @@ function SwingReversalScan({
   }, r.swing_days), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.rz_off_extreme_pct == null ? "—" : r.rz_off_extreme_pct === 0 ? "—" : `${mode === "bounce" ? "+" : "−"}${r.rz_off_extreme_pct}%`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: r.rz_stage ? `${r.rz_stage} — ${r.rz_stage_ratio}% of a typical move.` : ""
+  }, r.rz_penetration == null ? "—" : `${r.rz_penetration}%`, r.rz_stage === "EARLY IN THE MOVE" ? /*#__PURE__*/React.createElement("small", {
+    className: "muted"
+  }, " early") : null), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
   }, r.rz_dist_median_pct == null ? "—" : `${r.rz_dist_median_pct > 0 ? "+" : ""}${r.rz_dist_median_pct}%`), /*#__PURE__*/React.createElement("td", {
     className: "scan-num"
