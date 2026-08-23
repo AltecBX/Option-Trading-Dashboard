@@ -428,16 +428,29 @@ def _reads() -> dict:
                 "price": round(price, 2) if price else None,
                 "change_pct": round(chg, 2) if chg is not None else None,
                 "live": bool(hi is not None),
+                "stale": bool((tf.get("D") or {}).get("stale")),
+                "candle_date": (tf.get("D") or {}).get("as_of"),
                 "states": {k: v.get("state") for k, v in tf.items()},
                 "detail": tf,
                 "continuity": ST.continuity({k: v for k, v in tf.items()}),
             })
+        # A stale reading is a candle that is not the current session's —
+        # a scan that has not run since the last close, most often. It is
+        # counted rather than hidden, and the date of the candle actually on
+        # screen is reported so nothing has to be inferred from the clock.
+        stale = [r for r in out if r["stale"]]
+        dates = {}
+        for r in out:
+            if r["candle_date"]:
+                dates[r["candle_date"]] = dates.get(r["candle_date"], 0) + 1
         return {
             "rows": out, "status": status, "keys": keys,
             "board_as_of": (board.get("status") or {}).get("last_scan"),
             "scanning": bool((board.get("status") or {}).get("scanning")),
             "symbols_without_states": no_strat,
             "quoted": sum(1 for r in out if r["live"]),
+            "stale_symbols": len(stale),
+            "candle_date": (max(dates, key=lambda d: dates[d]) if dates else None),
         }
     return _cached("reads", READ_TTL, build)
 
@@ -500,6 +513,8 @@ def sectors() -> dict:
             "classified": classified,
             "unclassified": len(base["rows"]) - classified,
             "symbols_without_states": base["symbols_without_states"],
+            "stale_symbols": base["stale_symbols"],
+            "candle_date": base["candle_date"],
             "status": base["status"],
             "board_as_of": base["board_as_of"],
             "scanning": base["scanning"],
@@ -660,6 +675,8 @@ def context() -> dict:
             "universe": len(base["rows"]),
             "quoted": base["quoted"],
             "symbols_without_states": base["symbols_without_states"],
+            "stale_symbols": base["stale_symbols"],
+            "candle_date": base["candle_date"],
             "status": base["status"],
             "board_as_of": base["board_as_of"],
             "scanning": base["scanning"],

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.55";
+const APP_VERSION = "4.56";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3435,6 +3435,28 @@ function App() {
                        window.dispatchEvent(new CustomEvent("jerry-bt-load", { detail: rules }));
                        changeTab("backtest");
                      }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        {/* Candle states. All three share one lazy chunk, so opening any of
+            them loads the code once and the other two are instant. */}
+        <TabPanel tab="sectors" active={activeTab}>
+          <CardErrorBoundary label="Sectors">
+            <LazyTab chunk="tab-strat" component="SectorsTab" label="Sectors"
+                     apiFetch={apiFetch}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="context" active={activeTab}>
+          <CardErrorBoundary label="Market Context">
+            <LazyTab chunk="tab-strat" component="MarketContextTab" label="Market Context"
+                     apiFetch={apiFetch} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="gex" active={activeTab}>
+          <CardErrorBoundary label="Gamma Exposure">
+            <LazyTab chunk="tab-strat" component="GexTab" label="Gamma Exposure"
+                     apiFetch={apiFetch} ticker={ticker}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="breadth" active={activeTab}>

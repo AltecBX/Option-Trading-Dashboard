@@ -277,9 +277,16 @@ def live_state(entry: dict | None, today_key, live_high=None, live_low=None) -> 
        live high that is already inside the stored range changes nothing.
 
     `live_high`/`live_low` are today's session extremes (Schwab's day high and
-    day low). Omit them and this returns the settled reading with
-    `live: False` — an honest "no quote available" rather than a stale number
-    dressed up as live.
+    day low). Omit them and this returns the STORED reading with `live: False`
+    and, when that candle is not the current period's, `stale: True` and the
+    candle's own key in `as_of`.
+
+    A rollover only happens when there is a live quote to open the new period
+    with. Rolling without one would blank the state — and there are ordinary
+    reasons for no quote to arrive: it is a weekend, it is pre-market, the
+    scan is a day behind, the broker is disconnected. In every one of those
+    the last settled candle is the right thing to show, labelled with its own
+    date, rather than a dashboard of dashes.
     """
     if not entry:
         return None
@@ -288,31 +295,38 @@ def live_state(entry: dict | None, today_key, live_high=None, live_low=None) -> 
     prev_high, prev_low = entry.get("prev_high"), entry.get("prev_low")
     cur_high, cur_low = entry.get("cur_high"), entry.get("cur_low")
     cur_days = entry.get("cur_days") or 0
-    rolled = False
-    if today_key is not None and cur_key is not None:
-        if today_key != cur_key:
-            # The stored current bucket has closed. It is now the reference.
-            rolled = True
-            prev_high, prev_low = cur_high, cur_low
-            cur_high, cur_low, cur_days = None, None, 0
     lh = _num(live_high)
     ll = _num(live_low)
     has_live = lh is not None and ll is not None and lh >= ll > 0
-    if has_live:
+    moved = (today_key is not None and cur_key is not None
+             and today_key != cur_key)
+    rolled = False
+    if has_live and moved:
+        # A new period began AND price is trading in it: the stored candle is
+        # finished and becomes the reference.
+        rolled = True
+        prev_high, prev_low = cur_high, cur_low
+        cur_high, cur_low, cur_days = lh, ll, 1
+        as_of = today_key
+    elif has_live:
         cur_high = lh if cur_high is None else max(cur_high, lh)
         cur_low = ll if cur_low is None else min(cur_low, ll)
-        if rolled:
-            cur_days = 1
+        as_of = cur_key
+    else:
+        as_of = cur_key
     if cur_high is None or cur_low is None:
-        # A period rolled over and no live quote arrived — there is genuinely
-        # no current bar yet. Say so rather than reporting the old one.
         return {"state": None, "live": False, "rolled": rolled,
+                "stale": bool(moved), "as_of": as_of,
                 "prev_high": prev_high, "prev_low": prev_low,
                 "cur_high": None, "cur_low": None, "cur_days": 0,
                 "complete": False, "tf": tf_key}
     return {
         "state": state_of(prev_high, prev_low, cur_high, cur_low),
         "live": bool(has_live), "rolled": rolled,
+        # True when the candle being reported is not the current period's —
+        # the caller shows its date rather than implying it is today's.
+        "stale": bool(moved and not rolled),
+        "as_of": as_of,
         "prev_high": prev_high, "prev_low": prev_low,
         "cur_high": round(cur_high, 4), "cur_low": round(cur_low, 4),
         "cur_days": cur_days,
