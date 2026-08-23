@@ -148,7 +148,21 @@ _QUOTE_MEM: dict = {}           # symbol -> (fetched_ts, quote)
 def configure(daily_fn=None, korea_fn=None, quote_fn=None, data_dir=None,
               now_fn=None) -> None:
     """Wire the providers. `korea_fn` defaults to the built-in Yahoo chart
-    reader; tests pass their own and never touch the network."""
+    reader; tests pass their own and never touch the network.
+
+    Calling this with no arguments RESETS everything, including the data
+    directory — that is what `self.addCleanup(kl.configure)` means, and it
+    is registered beside the tempdir cleanup in every Korea test.
+
+    It used to reset every provider and every memo but leave `_DATA_DIR`
+    pointing at whatever it was last set to. A test that pointed it at a
+    TemporaryDirectory therefore left the module aimed at a deleted path
+    for the rest of the process, and the next thing to write a bar cache
+    wrote it into a directory that was being torn down. Resetting a
+    provider but not the path it writes to is a half-reset, and a
+    half-reset is the kind of thing that only shows up as an intermittent
+    failure somewhere else.
+    """
     global _DAILY_FN, _KOREA_FN, _QUOTE_FN, _DATA_DIR, _NOW_FN
     _DAILY_FN = daily_fn
     _KOREA_FN = korea_fn or _yahoo_daily
@@ -160,6 +174,11 @@ def configure(daily_fn=None, korea_fn=None, quote_fn=None, data_dir=None,
             (_DATA_DIR / "korea" / "bars").mkdir(parents=True, exist_ok=True)
         except Exception as exc:      # pragma: no cover
             print(f"[korea] storage init failed: {exc}")
+    else:
+        # No directory means no disk. `_bars_path` and the tracker both
+        # return None on a null _DATA_DIR and fall back to memory, so this
+        # is a supported state, not a broken one.
+        _DATA_DIR = None
     with _LOCK:
         _BARS_MEM.clear()
         _US_MEM.clear()
