@@ -1120,3 +1120,51 @@ class TestStagedValidation(unittest.TestCase):
         v = sp.validate(piv, dates, H, L, C, min_move_pct=15.0,
                         with_events=True)
         self.assertTrue(all("stage" in e for e in v["event_list"]))
+
+
+class TestBandPenetration(unittest.TestCase):
+    """How far into the typical band the extreme actually travelled — a
+    position, like the 20-day range position. It exists because "reached the
+    band" is one bit that cannot tell a graze from a plunge."""
+
+    def test_zero_at_the_near_edge_and_one_hundred_at_the_far_one(self):
+        self.assertEqual(sp.zone_state("down", 90.0, 91.0, 80.0, 90.0)
+                         ["band_penetration_pct"], 0.0)
+        self.assertEqual(sp.zone_state("down", 80.0, 81.0, 80.0, 90.0)
+                         ["band_penetration_pct"], 100.0)
+
+    def test_it_goes_negative_before_the_band_and_past_100_beyond_it(self):
+        self.assertLess(sp.zone_state("down", 95.0, 95.0, 80.0, 90.0)
+                        ["band_penetration_pct"], 0)
+        self.assertGreater(sp.zone_state("down", 76.0, 77.0, 80.0, 90.0)
+                           ["band_penetration_pct"], 100)
+
+    def test_a_rally_mirrors_it(self):
+        self.assertEqual(sp.zone_state("up", 110.0, 109.0, 110.0, 120.0)
+                         ["band_penetration_pct"], 0.0)
+        self.assertEqual(sp.zone_state("up", 120.0, 119.0, 110.0, 120.0)
+                         ["band_penetration_pct"], 100.0)
+        self.assertLess(sp.zone_state("up", 105.0, 105.0, 110.0, 120.0)
+                        ["band_penetration_pct"], 0)
+
+    def test_a_degenerate_band_has_no_position_inside_it(self):
+        self.assertIsNone(sp.zone_state("down", 85.0, 86.0, 85.0, 85.0)
+                          ["band_penetration_pct"])
+
+    def test_the_reaction_states_are_biased_to_the_shallow_edge(self):
+        """The asymmetry the field exists to expose: with the SAME small
+        bounce off the low, a graze reads as a reaction and a deep plunge
+        reads as still in the zone — because leaving the band is a much
+        bigger move from deep inside it."""
+        graze = sp.zone_state("down", 90.0, 90.0 * 1.01, 80.0, 90.0)
+        deep = sp.zone_state("down", 82.0, 82.0 * 1.01, 80.0, 90.0)
+        self.assertEqual(graze["code"], "BOUNCING OFF ZONE")
+        self.assertEqual(deep["code"], "IN ZONE")
+        self.assertLess(graze["band_penetration_pct"],
+                        deep["band_penetration_pct"])
+
+    def test_it_travels_on_the_projection(self):
+        piv, dates, H, L, C = down_history([30, 32, 28, 31, 29, 33],
+                                           active=-30.0)
+        out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
+        self.assertIsNotNone(out["status"]["band_penetration_pct"])

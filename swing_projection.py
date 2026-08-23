@@ -447,6 +447,16 @@ def zone_state(direction: str, ext_price: float, cur_price: float,
                             price is still out there with it.
       (BEYOND HISTORY is decided by the caller: it means no completed swing
        ever reached this magnitude, so there is no band at all.)
+
+    A known asymmetry, measured and disclosed rather than papered over
+    (v4.52): BOUNCING/FADING can realistically only fire near the NEAR edge.
+    Leaving the band requires price to travel back past that edge, which is
+    a small move for an extreme that just grazed it and a very large one for
+    an extreme sitting deep inside. Across 1,197 scanned symbols the median
+    penetration of a reacting name was 14% of the band against 46% for one
+    still IN ZONE. `band_penetration_pct` below is what makes that visible;
+    ordering the scan by it was tested and rejected (see the scan ordering
+    note in thresholds.json).
     """
     down = direction == "down"
     near_edge = band_high if down else band_low     # the edge reached first
@@ -461,6 +471,16 @@ def zone_state(direction: str, ext_price: float, cur_price: float,
                 (cur_price < band_low - 1e-9)
     off_pct = (abs(cur_price - ext_price) / ext_price * 100.0
                if ext_price else None)
+    # How far INTO the band the extreme actually travelled, as a position
+    # rather than a score: 0% = exactly at the near edge, 100% = at the far
+    # edge, above 100% = out the other side, below 0% = not there yet. The
+    # same kind of measurement as the 20-day range position. It exists
+    # because "reached the band" is a single bit that treats a swing which
+    # grazed the shallow edge as identical to one sitting in the middle of
+    # it — and the shallow grazes are far more numerous.
+    span = abs(near_edge - far_edge)
+    pen = (abs(near_edge - ext_price) / span * 100.0 * (1 if reached else -1)
+           if span > 1e-9 else None)
     if not reached:
         code = "APPROACHING"
     elif left_band:
@@ -475,6 +495,7 @@ def zone_state(direction: str, ext_price: float, cur_price: float,
         "extreme_in_zone": bool(in_zone_ext),
         "extreme_beyond_zone": bool(beyond),
         "current_in_zone": bool(in_zone_cur),
+        "band_penetration_pct": _r(pen, 0),
         "off_extreme_pct": _r(off_pct, 1),
         "off_extreme_dollars": _r(abs(cur_price - ext_price)),
     }

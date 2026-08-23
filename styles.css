@@ -8279,7 +8279,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .rev-whatif-res { font-family: var(--font-mono); font-size: 12.5px;
   color: var(--fg-2); overflow-wrap: anywhere; }
 .rev-scan { margin: 10px 0 2px; }
-.rev-scan-modes { display: flex; gap: 6px; margin: 8px 0; }
+.rev-scan-modes { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0;
+  align-items: center; }
+.rev-scan-sep { width: 1px; align-self: stretch; margin: 0 4px;
+  background: var(--line); }
+@media (max-width: 700px) { .rev-scan-sep { display: none; } }
 .rev-scan-table td, .rev-scan-table th { padding-right: 14px; }
 .rev-inzone td { background: color-mix(in srgb, var(--up) 8%, transparent); }
 

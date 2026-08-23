@@ -110,8 +110,28 @@ ok("the scan reads the running extreme, not only the close",
    /rz_extreme_price/.test(scanBlock) && /rz_off_extreme_pct/.test(scanBlock)
    && /rz_zone_touched/.test(scanBlock));
 ["rz_status", "rz_more_move_pct", "rz_days_median", "rz_next_target",
- "rz_median_price"].forEach(k =>
+ "rz_median_price", "rz_penetration", "rz_stage"].forEach(k =>
   ok(`the scan renders ${k}`, scanBlock.indexOf(k) >= 0));
+
+// 6b — (v4.52) how deep into the band the extreme went is VISIBLE and
+//      sortable, the stage filter exists, and neither touched the default
+//      order: reordering on either was tested and rejected.
+ok("the scan shows how far into the band the extreme went",
+   /Into zone/.test(scanBlock) && /REV_TIP\.penetration/.test(scanBlock));
+ok("that column is sortable", /k="pen"/.test(scanBlock) && /pen: r\.rz_penetration/.test(scanBlock));
+ok("the stage filter exists and is off by default",
+   /useState\("all"\)/.test(scanBlock) && /Normal size or beyond/.test(scanBlock));
+ok("the stage filter FILTERS rather than reorders",
+   /stageF === "all" \|\| r\.rz_stage !== "EARLY IN THE MOVE"/.test(scanBlock));
+ok("the default order still leads on status",
+   /useState\("status"\)/.test(scanBlock));
+ok("penetration is NOT part of the default comparator", (() => {
+  const by = scanBlock.slice(scanBlock.indexOf("const byStatus"),
+                             scanBlock.indexOf("const sorted"));
+  return by.indexOf("pen") === -1 && by.indexOf("rz_penetration") === -1;
+})());
+ok("the rejected ordering is documented where it would be repeated",
+   /TESTED AND REJECTED/.test(tipBlock));
 
 // 7 — the what-if prefills belong to the SETUP, not to whatever was typed
 //     for the last ticker.
