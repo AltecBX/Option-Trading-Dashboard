@@ -12734,3 +12734,335 @@ a.tabsheet-btn.site { text-decoration: none; }
 .kl-research-note { font-size: 11.5px; line-height: 1.5; color: var(--fg-3);
   margin: 6px 2px 12px; max-width: 92ch; }
 .kl-loadbtn { margin: 4px 0 8px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CANDLE STATES — Sectors, Market Context, Gamma Exposure
+   ══════════════════════════════════════════════════════════════════════════
+   Four states, one palette, used identically on all three tabs so a colour
+   means the same thing wherever it appears:
+     1  inside    neutral   — coiled, no direction
+     2U up        green
+     2D down      red
+     3  outside   amber     — both extremes taken out
+   The state colours are the app's own --up/--down/--warn tokens, so they
+   follow the accent theme and both light and dark automatically. */
+
+.st-tab { --st-inside: var(--fg-4); --st-outside: var(--warn); }
+
+/* ── state chip ──────────────────────────────────────────────────────── */
+.st-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 30px; padding: 2px 6px; border-radius: 5px;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;
+  letter-spacing: 0.02em; line-height: 1.5; cursor: help;
+  border: 1px solid transparent;
+}
+.st-chip.sm { min-width: 26px; font-size: 11px; padding: 1px 5px; }
+.st-chip.st-inside { background: color-mix(in oklch, var(--fg-4), transparent 84%); color: var(--fg-2); }
+.st-chip.st-up { background: color-mix(in oklch, var(--up), transparent 82%); color: var(--up); }
+.st-chip.st-down { background: color-mix(in oklch, var(--down), transparent 82%); color: var(--down); }
+.st-chip.st-outside { background: color-mix(in oklch, var(--warn), transparent 80%); color: var(--warn); }
+.st-chip.st-none { background: transparent; color: var(--fg-4); min-width: 26px; }
+/* A live state is one that includes today's session so far. The ring is the
+   only cue that separates it from a settled reading, so it must survive
+   both themes — hence a border rather than a shadow. */
+.st-chip.st-live { border-color: color-mix(in oklch, currentColor, transparent 55%); }
+
+/* ── stacked breadth bar ─────────────────────────────────────────────── */
+.st-barrow { display: flex; align-items: center; gap: 8px; }
+.st-barlabel {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: var(--fg-3); width: 22px; flex: 0 0 22px; cursor: help;
+}
+.st-bar {
+  flex: 1 1 auto; display: flex; height: 12px; border-radius: 4px;
+  overflow: hidden; background: var(--bg-3);
+  border: 1px solid var(--line);
+}
+.st-seg { height: 100%; cursor: help; transition: filter 0.12s var(--ease); }
+.st-seg:hover { filter: brightness(1.12); }
+.st-seg.st-inside { background: color-mix(in oklch, var(--fg-4), transparent 40%); }
+.st-seg.st-up { background: var(--up); }
+.st-seg.st-down { background: var(--down); }
+.st-seg.st-outside { background: var(--warn); }
+.st-seg.st-empty { background: repeating-linear-gradient(45deg,
+  var(--bg-3), var(--bg-3) 4px, var(--line) 4px, var(--line) 5px); }
+.st-barn {
+  font-family: var(--font-mono); font-size: 11px; color: var(--fg-4);
+  width: 34px; flex: 0 0 34px; text-align: right; cursor: help;
+}
+
+/* ── legend ──────────────────────────────────────────────────────────── */
+.st-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+/* `.card-head > div` stacks its children in a column (it is how the title
+   block is laid out), which would turn the legend into a vertical strip.
+   Same opt-out the toolbar and the built-in legend already use. */
+.card-head > .st-legend { flex-direction: row; }
+.st-legend-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--fg-3); cursor: help; white-space: nowrap;
+}
+.st-legend-item b { font-weight: 700; }
+.st-swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.st-swatch.st-inside { background: color-mix(in oklch, var(--fg-4), transparent 40%); }
+.st-swatch.st-up { background: var(--up); }
+.st-swatch.st-down { background: var(--down); }
+.st-swatch.st-outside { background: var(--warn); }
+
+/* ── status line ─────────────────────────────────────────────────────── */
+.st-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  font-size: 12px; color: var(--fg-3); margin: 2px 0 12px;
+}
+.st-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.st-dot-up { background: var(--up); }
+.st-dot-warn { background: var(--warn); }
+.st-dot-mut { background: var(--fg-4); }
+.st-status-label { font-weight: 600; color: var(--fg-2); cursor: help; }
+.st-status-sep { cursor: help; }
+.st-status-sep::before { content: "· "; color: var(--fg-4); }
+.st-scanning { color: var(--accent); }
+.st-source {
+  padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; cursor: help;
+  background: color-mix(in oklch, var(--fg-4), transparent 86%); color: var(--fg-2);
+}
+.st-source-fixture { background: var(--warn); color: #1a1300; }
+
+.st-note { font-size: 11.5px; line-height: 1.55; color: var(--fg-3);
+  margin-top: 10px; max-width: 92ch; }
+.st-rankline {
+  display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 10px;
+  font-size: 12px; color: var(--fg-2);
+}
+.st-rankline b { color: var(--fg-3); font-weight: 600; }
+.st-loading { display: flex; flex-direction: column; gap: 10px; }
+.st-retry { margin-top: 10px; }
+.st-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.st-search {
+  font-family: var(--font-body); font-size: 13px;
+  padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  min-width: 180px;
+}
+.st-search:focus { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+
+/* ── sector cards ────────────────────────────────────────────────────── */
+.st-secgrid {
+  display: grid; gap: var(--gap-grid);
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+.st-seccard {
+  text-align: left; font: inherit; color: inherit; cursor: pointer;
+  display: flex; flex-direction: column; gap: 12px;
+  transition: box-shadow 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.st-seccard:hover { box-shadow: var(--shadow-hover); transform: translateY(-1px); }
+.st-seccard:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+.st-seccard-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.st-seccard-right { text-align: right; }
+.st-seccard-chg { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.st-seccard-chg.up { color: var(--up); }
+.st-seccard-chg.down { color: var(--down); }
+.st-seccard-n { font-size: 11px; color: var(--fg-3); cursor: help; }
+.st-seccard-bars { display: flex; flex-direction: column; gap: 5px; }
+.st-seccard-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  font-size: 11.5px; color: var(--fg-3);
+  border-top: 1px solid var(--line); padding-top: 9px;
+}
+.st-seccard-open { color: var(--accent); font-weight: 600; }
+
+/* ── constituent modal ───────────────────────────────────────────────── */
+.st-modal-wrap {
+  position: fixed; inset: 0; z-index: 90;
+  background: color-mix(in oklch, #000, transparent 45%);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; overscroll-behavior: contain;
+}
+.st-modal {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-hover);
+  width: min(1100px, 100%); max-height: min(86vh, 900px);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.st-modal:focus { outline: none; }
+.st-modal-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  padding: 16px var(--pad-card-x) 12px; border-bottom: 1px solid var(--line);
+}
+.st-modal-close {
+  background: transparent; border: 1px solid var(--line); color: var(--fg-2);
+  border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 14px;
+  flex: 0 0 auto;
+}
+.st-modal-close:hover { background: var(--bg-3); color: var(--fg); }
+.st-modal-tools {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 10px var(--pad-card-x); border-bottom: 1px solid var(--line);
+}
+.st-modal-filter { display: flex; gap: 6px; }
+.st-modal-filter select, .gx-exp {
+  font-family: var(--font-body); font-size: 12px; padding: 5px 8px;
+  border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--fg);
+}
+.st-modal-filter select:disabled { opacity: 0.5; }
+.st-modal-body { overflow: auto; flex: 1 1 auto; padding: 0 var(--pad-card-x) 8px; }
+.st-modal-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px var(--pad-card-x); border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+
+.st-table { width: 100%; }
+.st-table .st-th-tf, .st-table .st-td-tf { text-align: center; }
+.st-table .st-co {
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg-2);
+}
+.st-align { font-size: 11.5px; font-weight: 600; cursor: help; }
+.st-align-up { color: var(--up); }
+.st-align-down { color: var(--down); }
+.st-align-mixed { color: var(--warn); }
+.st-align-none { color: var(--fg-4); }
+
+/* ── market context ──────────────────────────────────────────────────── */
+.st-breadth { display: flex; flex-direction: column; gap: 14px; }
+.st-breadth-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 4px;
+}
+.st-breadth-tf { font-size: 12.5px; font-weight: 600; color: var(--fg-2); cursor: help; }
+.st-breadth-nums { display: flex; gap: 10px; flex-wrap: wrap; }
+.st-num { font-family: var(--font-mono); font-size: 11.5px; cursor: help; }
+.st-num.st-inside { color: var(--fg-3); }
+.st-num.st-up { color: var(--up); }
+.st-num.st-down { color: var(--down); }
+.st-num.st-outside { color: var(--warn); }
+.st-snap { width: 100%; }
+.st-snap .st-inside { color: var(--fg-2); }
+.st-snap .st-up { color: var(--up); }
+.st-snap .st-down { color: var(--down); }
+.st-snap .st-outside { color: var(--warn); }
+.st-snappct { font-size: 10.5px; }
+.st-matrix { width: 100%; }
+.st-matrix .st-th-tf, .st-matrix .st-td-tf { text-align: center; }
+.st-idxname { font-weight: 400; font-size: 11px; }
+
+/* ── intraday breadth line ───────────────────────────────────────────── */
+.st-linewrap { display: flex; flex-direction: column; gap: 8px; }
+.st-linechart { width: 100%; height: 200px; display: block; }
+.st-gridline { stroke: var(--line); stroke-width: 1; }
+.st-axis { fill: var(--fg-4); font-size: 10px; font-family: var(--font-mono); }
+.st-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;
+  vector-effect: non-scaling-stroke; }
+.st-line-inside { stroke: color-mix(in oklch, var(--fg-4), transparent 25%); }
+.st-line-up { stroke: var(--up); }
+.st-line-down { stroke: var(--down); }
+.st-line-outside { stroke: var(--warn); }
+.st-linefoot { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.st-linefoot .up { color: var(--up); }
+.st-linefoot .down { color: var(--down); }
+
+/* ══ GAMMA EXPOSURE ═══════════════════════════════════════════════════ */
+.gx-tools { flex-wrap: wrap; gap: 8px; }
+.gx-symform { display: flex; gap: 6px; }
+.gx-sym { min-width: 110px; text-transform: uppercase;
+  font-family: var(--font-mono); font-weight: 600; }
+.gx-fixture-banner {
+  margin-top: 10px; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+  background: color-mix(in oklch, var(--warn), transparent 82%);
+  border: 1px solid var(--warn); color: var(--fg);
+}
+.gx-summary {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.gx-stat {
+  display: flex; flex-direction: column; gap: 4px; cursor: help;
+  padding: 10px 12px; border-radius: var(--radius);
+  background: var(--bg); border: 1px solid var(--line);
+}
+.gx-stat-label { font-size: 11px; color: var(--fg-3); text-transform: uppercase;
+  letter-spacing: 0.06em; font-weight: 600; }
+.gx-stat-value { font-family: var(--font-mono); font-size: 18px; font-weight: 700; }
+.gx-stat-value.up { color: var(--up); }
+.gx-stat-value.down { color: var(--down); }
+.gx-convention { margin-top: 12px; font-size: 11.5px; line-height: 1.6;
+  color: var(--fg-3); max-width: 92ch; cursor: help; }
+
+.gx-barscroll { max-height: 620px; overflow-y: auto; }
+.gx-bars { display: flex; flex-direction: column; gap: 2px; }
+.gx-row { display: grid; grid-template-columns: 62px 1fr 96px; gap: 8px;
+  align-items: center; padding: 1px 0; }
+.gx-row-spot { background: color-mix(in oklch, var(--accent), transparent 90%);
+  border-radius: 4px; }
+.gx-row-spot .gx-strike { color: var(--accent); font-weight: 700; }
+.gx-strike { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2);
+  text-align: right; cursor: help; }
+.gx-track { position: relative; height: 15px; background: var(--bg-3);
+  border-radius: 3px; overflow: hidden; cursor: help; }
+.gx-centre { position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--line-2); }
+.gx-fill { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; }
+.gx-fill.gx-pos { background: var(--up); }
+.gx-fill.gx-neg { background: var(--down); }
+.gx-val { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2); }
+.gx-scalefoot { font-size: 11px; margin-top: 8px; line-height: 1.5; }
+
+/* ── market map ──────────────────────────────────────────────────────── */
+.gx-mapwrap { width: 100%; }
+.gx-map { width: 100%; display: block; }
+.gx-map-sector { fill: var(--bg-3); stroke: var(--line); stroke-width: 1; }
+.gx-map-sectorlabel { fill: var(--fg-3); font-size: 10.5px; font-weight: 700;
+  font-family: var(--font-display); letter-spacing: 0.04em; }
+.gx-map-cellwrap { cursor: pointer; }
+.gx-map-cell { stroke: var(--bg-2); stroke-width: 1; }
+.gx-map-cellwrap:hover .gx-map-cell { stroke: var(--fg); stroke-width: 1.5; }
+.gx-map-cellwrap:focus-visible .gx-map-cell { stroke: var(--accent); stroke-width: 2; }
+.gx-map-sym { fill: var(--fg); font-size: 11px; font-weight: 700;
+  font-family: var(--font-mono); pointer-events: none; }
+.gx-map-chg { fill: var(--fg-2); font-size: 9.5px;
+  font-family: var(--font-mono); pointer-events: none; }
+
+/* ── responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .st-secgrid { grid-template-columns: 1fr; }
+  .st-modal-wrap { padding: 0; }
+  .st-modal { width: 100%; max-height: 100%; height: 100%; border-radius: 0;
+    border: 0; }
+  .st-modal-body { padding: 0 12px 8px; }
+  .st-modal-head, .st-modal-tools, .st-modal-foot { padding-left: 12px; padding-right: 12px; }
+  .st-table .st-co { display: none; }
+  .st-table thead th:nth-child(2) { display: none; }
+  .gx-summary { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+}
+@media (max-width: 900px) {
+  /* A five-option segmented control does not fit a phone. Let the toolbar
+     wrap onto its own line and the control scroll inside the card, with the
+     labels kept on one line — squeezing them into two-line buttons made the
+     last option unreachable rather than merely cramped. */
+  .st-tab .card-head .toolbar { flex-wrap: wrap; width: 100%; }
+  .st-tab .seg {
+    overflow-x: auto; max-width: 100%;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .st-tab .seg::-webkit-scrollbar { display: none; }
+  .st-tab .seg button { white-space: nowrap; flex: 0 0 auto; }
+  .st-modal-tools .seg { max-width: 100%; overflow-x: auto; }
+}
+@media (max-width: 620px) {
+  .st-search { min-width: 0; width: 100%; }
+  .st-modal-tools { gap: 6px; }
+  .gx-row { grid-template-columns: 50px 1fr 76px; gap: 6px; }
+  .gx-stat-value { font-size: 16px; }
+  .st-barlabel { width: 18px; flex-basis: 18px; }
+  .st-barn { width: 28px; flex-basis: 28px; }
+  .st-linechart { height: 170px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-seccard, .st-seg { transition: none; }
+  .st-seccard:hover { transform: none; }
+}
+.st-behind { color: var(--warn); }

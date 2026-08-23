@@ -2071,3 +2071,86 @@ at all, which is also asserted.
 
 2,526 Python tests green (121 in the projection suite, 6 new), 176 node
 guards (102 in the reversal-UI guard, 6 new).
+
+## v4.56 — Candle states: Sectors, Market Context, Gamma Exposure
+
+Three new dashboards, built on two new pure engines and one live layer.
+Nothing here introduces a second architecture: the states are computed
+inside the watchlist scan that already downloads the bars, the sector list
+comes from the board column that already carries it, the option chain comes
+through the Schwab client that already normalizes gamma and open interest,
+and all three tabs ship as one lazy chunk.
+
+**What a state is.** Every bar classified against the bar before it on the
+same timeframe, from two highs and two lows: inside (1), directional up
+(2U), directional down (2D), outside (3). Nothing in the code says a 2U is
+bullish, because whether it is depends on the timeframe above it and the
+engine cannot see context it was not given.
+
+Two conventions are pinned by test rather than by comment. Taking out an
+extreme means EXCEEDING it, so every comparison is strict and a bar that
+matches the prior high exactly is inside — the alternative puts a 3 on every
+flat, thin day. And weekly through yearly candles are CALENDAR buckets, not
+rolling windows; a rolling five-day high would make the weekly state churn
+daily. Weeks are ISO weeks, which is the only numbering that does not split
+the week containing January 1st into two and invent a one-day weekly bar
+every January.
+
+**Stored extremes, not stored states.** The scan writes each symbol's
+current and prior high/low on all five timeframes — about twenty numbers —
+and the live layer re-reads them against a batched quote. A stored STATE is
+wrong the moment price makes a new high; stored extremes never are. The
+merge is max/min, so it is idempotent. `get_board()` keeps them off the wire
+by default: roughly a megabyte of JSON that only `market_state` can use.
+
+**Live means the regular session, and only once it has begun.** Schwab's
+quote carries the regular-session high and low, which are stale or zero
+pre-market, and a hundred shares through yesterday's high at 7 AM is not a
+2U. Before the open the states are the settled ones from the last close and
+every payload says which it is showing.
+
+Two things the tests caught that reading did not. The calendar date is the
+wrong session key twice a week: bucketing by it on a Sunday opens a daily
+candle in a Sunday bucket, finds it empty, and blanks the whole dashboard
+all weekend. And the first version of the rollover blanked a state whenever
+a new period began without a live quote — which is every weekend, every
+pre-market, and any morning the scan is a day behind. It now rolls only when
+there is a quote to open the new candle with, and otherwise shows the last
+settled candle labelled with its own date.
+
+**Gamma exposure states its model on screen.** Dealer positioning is not
+published by anyone, so every GEX figure is open interest times gamma times
+an assumption about who is on which side. Calls positive, puts negative —
+the standard convention, and the one the existing SPY gamma read already
+used, so the two agree by construction. Figures are dollars of dealer delta
+per 1% move, which is what makes a $6 stock and a $600 stock comparable. The
+convention string travels with the payload and is rendered, so a screenshot
+cannot lose it.
+
+The flip level re-computes each contract's Black-Scholes gamma across a grid
+of hypothetical spot prices rather than cumulatively summing today's
+per-strike figures — the cheap version holds gamma fixed at the one thing
+that moves. Contracts without an implied volatility or a usable expiration
+cannot be re-priced, so they leave the profile (not the per-strike totals)
+and the covered share of open interest is reported beside the answer. No
+crossing inside the grid is reported as no crossing, not extrapolated.
+
+Development fixtures for the chain are OFF unless `GEX_DEV_FIXTURES=1`. This
+dashboard places real trades, and a synthetic chain that appears whenever
+the broker token happens to be expired is a trap no badge fully defuses.
+
+**The market map** is a squarified treemap — the naive ordering produces
+slivers whose relative size nobody can read, which defeats the only thing a
+treemap is for. Forty names per sector are drawn and what was dropped is
+counted on screen.
+
+Three defects the browser harness found that no static check could: the
+constituent list destructured `useBoundedList` as an object when it returns
+a pair, which threw at render; a segmented control dropped straight into a
+card head rendered as a vertical strip, because `.card-head > div` stacks
+its children; and at 390px the five-option sort control was clipped with its
+last option unreachable. All three now have guards.
+
+2,647 Python tests green (121 new across three suites), 288 node guards (112
+in the new candle-state guard), 85/85 browser checks at 1600px and 390px
+against the real engines.

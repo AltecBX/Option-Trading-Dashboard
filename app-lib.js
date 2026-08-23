@@ -179,6 +179,15 @@ const TABS = [{
   id: "backtest",
   label: "Backtest"
 }, {
+  id: "sectors",
+  label: "Sectors"
+}, {
+  id: "context",
+  label: "Market Context"
+}, {
+  id: "gex",
+  label: "Gamma Exposure"
+}, {
   id: "breadth",
   label: "Breadth"
 }, {

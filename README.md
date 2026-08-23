@@ -13,7 +13,7 @@ Open http://localhost:8765/ in a browser. The page calls `/api/ticker?symbol=...
 
 ## Architecture
 
-**Backend.** `options_dashboard.py` is still the HTTP entry point — stdlib `http.server`, every `/api/*` route — but it is no longer where the work happens. Most features now live in their own Python modules that it imports and wires: `gap_engine.py` / `gap_scan.py`, `invest_engine.py` / `invest_scan.py` / `fair_value.py` / `peers.py`, `korea_lead_engine.py` / `korea_lead.py` / `korea_research*.py` / `korea_capture.py`, `backtest.py`, `patterns.py`, and others. The consistent split is a pure engine (mathematics, no I/O, no clock) beside a stateful module that owns fetching, caching and disk. Market data comes from Schwab first where a real quote is needed, with Yahoo as a fallback. Tunables live in `thresholds.json`, overridable key by key from `<data_dir>/thresholds.json`, and the effective config is hashed onto the results it produced.
+**Backend.** `options_dashboard.py` is still the HTTP entry point — stdlib `http.server`, every `/api/*` route — but it is no longer where the work happens. Most features now live in their own Python modules that it imports and wires: `gap_engine.py` / `gap_scan.py`, `invest_engine.py` / `invest_scan.py` / `fair_value.py` / `peers.py`, `korea_lead_engine.py` / `korea_lead.py` / `korea_research*.py` / `korea_capture.py`, `strat_states.py` / `gex_engine.py` / `market_state.py`, `backtest.py`, `patterns.py`, and others. The consistent split is a pure engine (mathematics, no I/O, no clock) beside a stateful module that owns fetching, caching and disk. Market data comes from Schwab first where a real quote is needed, with Yahoo as a fallback. Tunables live in `thresholds.json`, overridable key by key from `<data_dir>/thresholds.json`, and the effective config is hashed onto the results it produced.
 
 **Frontend.** React source in `.jsx`, compiled by `node build_frontend.js` — there is no Babel in the browser. That script compiles the JSX to readable committed `.js`, minifies everything through esbuild into `dist/`, pre-compresses each asset to a `.gz` sibling, and stamps content hashes so a changed file gets a new URL. Several heavy tabs — Gap Scan, Investment, Backtest, Patterns and others — are lazy chunks that are not `<script>` tags in `index.html` at all; `LazyTab` injects them the first time that tab is opened. `config.js` is deliberately left unminified and unversioned because it is edited after deploy. Run the build after any `.jsx` change; deploy machines never run node.
 
@@ -49,6 +49,11 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `tweaks-panel.jsx` | Theme + layout settings drawer |
 | `data.js` | Mock fallback data |
 | `styles.css` | All styles, including mobile-friendly breakpoints |
+| `strat_states.py` | Candle-state engine (1 / 2U / 2D / 3) and calendar bucketing — pure |
+| `gex_engine.py` | Gamma exposure by strike and the Black-Scholes flip profile — pure |
+| `market_state.py` | Live layer for the Sectors and Market Context tabs |
+| `tab-strat.jsx` | Sectors, Market Context and Gamma Exposure (one lazy chunk) |
+| `CANDLE_STATES.md` | How the candle states, sectors and gamma exposure work |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)
@@ -58,6 +63,9 @@ Set on Railway:
 - `API_KEY` — required header value for all `/api/*` requests. Empty = no auth (don't use in prod).
 - `ALLOWED_ORIGIN` — CORS origin allowed. Set to your Vercel URL.
 - `PORT` — Railway sets this automatically.
+- `GEX_DEV_FIXTURES` — set to `1` to serve a clearly-labelled synthetic option
+  chain on the Gamma Exposure tab when the broker has none. **Off by default,
+  and it should stay off in production** — see `CANDLE_STATES.md`.
 
 ## Updating
 

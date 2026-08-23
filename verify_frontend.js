@@ -35,7 +35,7 @@ const ORDER = ["config.js", "data.js", "recommendation.js", "weather.js",
                // so linting/loading them last models the real load order.
                "tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js",
                "tab-recovery.js", "tab-ask.js", "tab-edge.js", "tab-gap.js",
-               "tab-invest.js"];
+               "tab-invest.js", "tab-strat.js"];
 
 // ── Layer 1: free variable lint ─────────────────────────────────────
 const ENV = new Set(("window document navigator localStorage sessionStorage fetch console " +
@@ -130,6 +130,7 @@ const expects = ["fmt$", "fmtPct", "CardErrorBoundary", "RootErrorBoundary",
                  // Lazy-chunk machinery + the components the chunks publish.
                  "LazyTab", "loadChunk", "TreasuriesTab", "EarningsOpsTab",
                  "BacktestCard", "PatternDiscoveryCard", "RecoveryTab", "AskTab", "EdgeTab", "GapTab",
+                 "SectorsTab", "MarketContextTab", "GexTab",
                  "TimingCard", "TimingThresholds"];
 const missing = expects.filter(n => !(n in sandbox));
 if (missing.length) { loadFailed = true; console.log("MISSING EXPORTS: " + missing.join(", ")); }

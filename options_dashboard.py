@@ -197,37 +197,42 @@ except Exception as _exc:  # noqa: BLE001
     _SWINGS_AVAILABLE = False
     _swings = None  # type: ignore
 
-_SWING_PROJ_CFG = {"cfg": None, "ts": 0.0}
+_SECTION_CFG: dict = {}
 
 
-def _swing_projection_cfg() -> dict:
-    """The swing_projection section of thresholds.json — repo defaults with
-    the data-dir overlay merged key-by-key, cached 60s. Same discipline as
-    every other engine's tunables; the engine holds the fallback values, so
-    an unreadable file degrades to defaults rather than an error."""
+def _threshold_section(name: str) -> dict:
+    """One section of thresholds.json — repo defaults with the data-dir
+    overlay merged key-by-key, cached 60s. Same discipline as every other
+    engine's tunables; each engine holds its own fallback values, so an
+    unreadable file degrades to defaults rather than an error. Keys starting
+    with an underscore are documentation and never reach an engine."""
     now = time.time()
-    if _SWING_PROJ_CFG["cfg"] is not None and now - _SWING_PROJ_CFG["ts"] < 60:
-        return _SWING_PROJ_CFG["cfg"]
+    hit = _SECTION_CFG.get(name)
+    if hit is not None and now - hit[1] < 60:
+        return hit[0]
     cfg = {}
     try:
         repo = json.loads((Path(__file__).resolve().parent
                            / "thresholds.json").read_text())
-        cfg = dict(repo.get("swing_projection") or {})
+        cfg = dict(repo.get(name) or {})
     except Exception:
         cfg = {}
     try:
         over_p = Path(_STABLE_DIR) / "thresholds.json"
         if over_p.exists():
-            over = (json.loads(over_p.read_text())
-                    .get("swing_projection") or {})
+            over = (json.loads(over_p.read_text()).get(name) or {})
             for k, v in over.items():
                 if not str(k).startswith("_"):
                     cfg[k] = v
     except Exception:
         pass
     cfg = {k: v for k, v in cfg.items() if not str(k).startswith("_")}
-    _SWING_PROJ_CFG.update({"cfg": cfg, "ts": now})
+    _SECTION_CFG[name] = (cfg, now)
     return cfg
+
+
+def _swing_projection_cfg() -> dict:
+    return _threshold_section("swing_projection")
 
 # Weekly range-location scanner — the selling-setup panel's math across
 # the whole watchlist (near-lows → sell puts, near-highs → sell calls).
@@ -285,6 +290,24 @@ except Exception as _exc:  # noqa: BLE001
     print(f"[watchlist_table] module load failed: {_exc}", file=sys.stderr)
     _WLTABLE_AVAILABLE = False
     _wltable = None  # type: ignore
+
+# Candle states (Sectors + Market Context tabs) and gamma exposure. Both are
+# optional: without them those tabs report unavailable and nothing else in
+# the app changes.
+try:
+    import market_state as _mstate
+    _MSTATE_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[market_state] module load failed: {_exc}", file=sys.stderr)
+    _MSTATE_AVAILABLE = False
+    _mstate = None  # type: ignore
+try:
+    import gex_engine as _gex
+    _GEX_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[gex_engine] module load failed: {_exc}", file=sys.stderr)
+    _GEX_AVAILABLE = False
+    _gex = None  # type: ignore
 
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
@@ -482,6 +505,54 @@ def _spy_gamma_regime():
                 "net_gex": round(net / 1e9, 2), "spot": round(spot, 2)}
     except Exception:
         return None
+
+
+# Gamma exposure needs a chain with per-contract gamma and open interest.
+# Schwab is the only provider here that carries both, so this is the whole
+# provider interface: one function, one shape, one honest source label.
+#
+# Development fixtures are OFF unless GEX_DEV_FIXTURES=1 is set in the
+# environment. This dashboard is used to place real trades, and a synthetic
+# chain that appears whenever the broker token happens to be expired is a
+# trap no badge fully defuses. With the flag off, an unavailable chain says
+# so; with it on, every payload is stamped source="fixture" and the view
+# renders a warning banner instead of a price.
+_GEX_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "gex_dev_chain.json"
+
+
+def _gex_dev_fixtures_enabled() -> bool:
+    return str(os.environ.get("GEX_DEV_FIXTURES", "")).strip().lower() in ("1", "true", "yes")
+
+
+def _gex_chain(symbol: str):
+    """(chain, source, fetched_at) for one underlying.
+
+    strike_count is wide on purpose: gamma concentrates away from the money
+    on index products, and a 60-strike window centred on spot cuts the ladder
+    off before the strikes that set the flip level.
+    """
+    sc = _schwab()
+    if sc is not None:
+        try:
+            chain = sc.get_option_chain(symbol, strike_count=200)
+            if chain and (chain.get("chains") or {}):
+                return chain, "schwab", _now_iso_utc()
+        except Exception as exc:  # noqa: BLE001
+            _log_warn(symbol, "gex/chain", exc)
+    if _gex_dev_fixtures_enabled():
+        try:
+            data = json.loads(_GEX_FIXTURE_PATH.read_text())
+            chain = data.get("chain") or {}
+            und = chain.setdefault("underlying", {})
+            und["symbol"] = symbol.upper()
+            return chain, "fixture", data.get("generated_at")
+        except Exception as exc:  # noqa: BLE001
+            _log_warn(symbol, "gex/fixture", exc)
+    return None, ("schwab" if sc is not None else None), None
+
+
+def _now_iso_utc() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 # Top-of-page market overview (futures/indices/rates/commodities). Cached ~15s.
 _MKT_CACHE: tuple | None = None
@@ -4673,6 +4744,19 @@ def _radar_flow_fn(symbol, price):
             return _compute_flow_score(uw, symbol, float(price or 0.0))
     return None
 
+
+if _MSTATE_AVAILABLE and _mstate is not None:
+    # `with_strat=True` — this is the only consumer of the per-symbol candle
+    # extremes, and the only reason they are excluded from the board by
+    # default (see watchlist_table.get_board).
+    _mstate.configure(
+        schwab_getter=lambda: _schwab(),
+        board_getter=lambda with_strat=True: (
+            (_wltable.get_board(with_strat=with_strat)
+             if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        data_dir=_STABLE_DIR,
+        cfg=_threshold_section("market_state"),
+    )
 
 _intraday.configure(
     schwab_getter=lambda: _schwab(),
@@ -12006,6 +12090,114 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/market_context", exc)
                 self._send_json({"error": str(exc), "gamma": None, "macro": [], "earnings_soon": []}, status=500)
+            return
+        if parsed.path.startswith("/api/strat/"):
+            # Candle states (1 / 2U / 2D / 3) across daily through yearly, for
+            # the Sectors and Market Context tabs. Every section is built from
+            # ONE cached read of the watchlist board plus one batched quote
+            # pass — market_state.py owns the caching, so a dashboard polling
+            # four panels costs one quote batch, not four.
+            if not (_MSTATE_AVAILABLE and _mstate is not None):
+                self._send_json({"ok": False,
+                                 "error": "candle-state module unavailable"}, status=503)
+                return
+            section = parsed.path[len("/api/strat/"):]
+            try:
+                if section == "sectors":
+                    self._send_json(_mstate.sectors())
+                elif section == "sector":
+                    name = (parse_qs(parsed.query).get("name", [""])[0] or "").strip()
+                    if not name:
+                        self._send_json({"ok": False, "error": "name required"},
+                                        status=400)
+                        return
+                    out = _mstate.sector_detail(name)
+                    self._send_json(out, status=200 if out.get("ok") else 404)
+                elif section == "context":
+                    self._send_json(_mstate.context())
+                elif section == "indices":
+                    self._send_json(_mstate.indices())
+                elif section == "status":
+                    self._send_json(_mstate.market_status())
+                else:
+                    self._send_json({"ok": False,
+                                     "error": f"unknown section '{section}'"}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", f"api/strat/{section}", exc)
+                self._send_json({"ok": False, "error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/market_map":
+            # Sector-grouped treemap rows: market cap for the size, today's
+            # percent change for the colour. Same cached read as /api/strat/*.
+            if not (_MSTATE_AVAILABLE and _mstate is not None):
+                self._send_json({"ok": False, "sectors": [],
+                                 "error": "candle-state module unavailable"}, status=503)
+                return
+            try:
+                qs = parse_qs(parsed.query)
+                try:
+                    limit = max(5, min(200, int(qs.get("limit", ["40"])[0])))
+                except (TypeError, ValueError):
+                    limit = 40
+                self._send_json(_mstate.market_map(limit_per_sector=limit))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/market_map", exc)
+                self._send_json({"ok": False, "sectors": [], "error": str(exc)},
+                                status=500)
+            return
+        if parsed.path == "/api/gex":
+            # Gamma exposure for one underlying. `expiration` takes one date,
+            # a comma-separated list, or "all"; omit it for the nearest
+            # expiry. The sign and multiplier assumptions ride along in the
+            # payload's `convention` field — they are a model, not a
+            # measurement, and the view says so on screen.
+            if not (_GEX_AVAILABLE and _gex is not None):
+                self._send_json({"ok": False,
+                                 "error": "gamma-exposure module unavailable"}, status=503)
+                return
+            try:
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", ["SPY"])[0] or "SPY").upper().strip()
+                want = (qs.get("expiration", [""])[0] or "").strip()
+                chain, source, fetched_at = _gex_chain(symbol)
+                if not chain or not (chain.get("chains") or {}):
+                    self._send_json({
+                        "ok": False, "symbol": symbol, "source": source,
+                        "error": ("No option chain is available for this symbol. "
+                                  "Connect the broker under Manage, or pick a "
+                                  "symbol that has listed options."),
+                    }, status=200)
+                    return
+                available = chain.get("expirations") or sorted((chain.get("chains") or {}).keys())
+                if want.lower() == "all":
+                    chosen = list(available)
+                elif want:
+                    chosen = [e for e in want.split(",") if e in available] or available[:1]
+                else:
+                    chosen = available[:1]
+                spot = None
+                sc = _schwab()
+                if sc is not None:
+                    try:
+                        q = sc.get_quote(symbol)
+                        spot = _num((q or {}).get("last"))
+                    except Exception:  # noqa: BLE001
+                        spot = None
+                gcfg = _threshold_section("gex")
+                out = _gex.build(
+                    chain, chosen, date.today(), spot=spot,
+                    rate=_num(gcfg.get("risk_free_rate")) or _gex.DEFAULT_RATE,
+                    contract_size=int(gcfg.get("contract_size") or _gex.CONTRACT_SIZE),
+                    strike_window_pct=_num(gcfg.get("strike_window_pct")) or 25.0)
+                out["symbol"] = symbol
+                out["source"] = source
+                out["fetched_at"] = fetched_at
+                out["available_expirations"] = available
+                out["selected_expirations"] = chosen
+                self._send_json(out)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/gex", exc)
+                self._send_json({"ok": False, "error": str(exc)}, status=500)
             return
         if parsed.path == "/api/market_overview":
             # Macro strip at the top of the page: futures, VIX, 10Y, gold, oil,

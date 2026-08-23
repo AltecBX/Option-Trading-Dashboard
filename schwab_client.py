@@ -853,6 +853,51 @@ class SchwabClient:
             self._cache_set(cache_key, out, TTL_HISTORY)
         return out
 
+    def get_candles(self, symbol: str, period_type: str = "day", period: int = 10,
+                    frequency_type: str = "minute", frequency: int = 30,
+                    extended: bool = False, ttl: int = 120) -> list[dict] | None:
+        """Bars at an arbitrary Schwab frequency, oldest first, as
+        {ts (epoch ms), open, high, low, close, volume}.
+
+        `get_intraday` returns TODAY only and `get_price_history` returns
+        daily bars only. Neither can answer "the last ten days of 30-minute
+        bars", which is what an hourly or four-hourly candle has to be built
+        from — on the first morning bar of the day, today alone does not even
+        contain one completed four-hour candle, let alone the two a state
+        needs. This is the same price-history endpoint both of those already
+        call, with the frequency left to the caller instead of fixed.
+
+        Valid Schwab combinations (the API rejects the rest):
+          periodType=day    period 1..10        frequencyType=minute 1/5/10/15/30
+          periodType=month  period 1..6         frequencyType=daily|weekly
+          periodType=year   period 1..20        frequencyType=daily|weekly|monthly
+        """
+        symbol = symbol.upper().strip()
+        cache_key = (f"candles:{symbol}:{period_type}:{period}:"
+                     f"{frequency_type}:{frequency}:{'x' if extended else 'r'}")
+        hit = self._cache_get(cache_key)
+        if hit is not None:
+            return hit
+        data = self._get(f"{HISTORY_URL_TPL}", {
+            "symbol": symbol,
+            "periodType": period_type,
+            "period": int(period),
+            "frequencyType": frequency_type,
+            "frequency": int(frequency),
+            "needExtendedHoursData": "true" if extended else "false",
+        })
+        if not data:
+            return None
+        out = [
+            {"ts": b.get("datetime", 0), "open": b.get("open"),
+             "high": b.get("high"), "low": b.get("low"),
+             "close": b.get("close"), "volume": b.get("volume", 0)}
+            for b in (data.get("candles") or [])
+        ]
+        if out:
+            self._cache_set(cache_key, out, ttl)
+        return out
+
     def get_intraday(self, symbol: str, minutes_back: int = 480,
                      extended: bool = False) -> list[dict] | None:
         """Today's 1-minute bars. Returns list of

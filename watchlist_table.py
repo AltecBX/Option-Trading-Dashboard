@@ -78,6 +78,11 @@ try:
 except Exception as _exc:  # noqa: BLE001
     print(f"[watchlist_table] swing_projection unavailable: {_exc}", file=sys.stderr)
     _sproj = None
+try:
+    import strat_states as _strat
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] strat_states unavailable: {_exc}", file=sys.stderr)
+    _strat = None
 
 CHUNK = 40
 
@@ -778,6 +783,18 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
         sw = _swing_read(H, L, C, dates=D, opens=O)
         if sw:
             row.update(sw)
+        # Candle states across daily/weekly/monthly/quarterly/yearly. Free:
+        # it collapses the five years of bars already in hand into about
+        # twenty numbers (the current and prior period's high/low on each
+        # timeframe) that market_state.py re-reads against a live quote
+        # forever without touching a bar again. Storing the extremes rather
+        # than the state is the point — a stored STATE goes stale the moment
+        # price makes a new high; stored extremes never do.
+        if _strat is not None and D and H and L:
+            try:
+                row["strat"] = _strat.read(D, H, L)
+            except Exception:
+                pass
     except Exception:
         pass
     # Options-flow (best-effort; UW client is thread-safe + throttled).
@@ -938,9 +955,21 @@ def trigger_scan(symbols: list[str], force: bool = False, overrides: dict | None
     return {"started": True, "total": len(syms)}
 
 
-def get_board() -> dict:
+def get_board(with_strat: bool = False) -> dict:
+    """The scanned board. `with_strat` keeps the per-symbol candle-state
+    extremes on each row.
+
+    They are off by default because they are bulk, not information: about
+    forty numbers per symbol across 1,285 symbols, which is roughly a
+    megabyte of JSON that only `market_state.py` can do anything with. Every
+    other consumer — the watchlist table the browser downloads included —
+    reads named columns and would carry that payload for nothing.
+    """
     with _LOCK:
         rows = list(_STATE["rows"])
+    if not with_strat:
+        rows = [{k: v for k, v in r.items() if k != "strat"} for r in rows]
+    with _LOCK:
         status = {
             "scanning": _STATE["scanning"], "scanned": _STATE["scanned"],
             "total": _STATE["total"], "last_scan": _STATE["last_scan"],
