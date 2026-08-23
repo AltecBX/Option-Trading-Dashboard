@@ -130,6 +130,33 @@ DEFAULTS = {
     # conditional one still covers a third.
     "maturity_normal_pct": 100.0,
     "maturity_beyond_pct": 125.0,
+    # ── how big a move counts as a swing, per stock (v4.54) ────────────
+    # A single percentage threshold cannot mean the same thing on Coca-Cola
+    # and on Coinbase. At a fixed 12% the watchlist segmented into anything
+    # from 2.6 swings a year (KO) to 38 (COIN), and a low-volatility name
+    # could end up with a single "down leg" spanning eighteen months and a
+    # cohort of ONE comparable episode. The threshold is therefore scaled to
+    # the stock's own travel: the median absolute `zigzag_window`-day move,
+    # times k, clamped. Solving per symbol for a comparable number of swings
+    # a year gives a threshold/travel ratio of 2.48 with a 0.987 correlation
+    # across 22 symbols — hence k = 2.5.
+    "adaptive_zigzag": True,
+    "zigzag_k": 2.5,
+    "zigzag_floor_pct": 6.0,
+    "zigzag_ceiling_pct": 18.0,
+    "zigzag_window": 20,
+    # The three sensitivity settings are multipliers on k (and on the clamp),
+    # so "Standard" means the same thing about a stock rather than the same
+    # number on every stock.
+    "sensitivity_multipliers": {"sensitive": 0.68, "standard": 1.0,
+                                "major": 1.36},
+    # The tables and the chart lines hide swings under this multiple of the
+    # threshold. Today's defaults are 12% and 15%, a ratio of 1.25, so this
+    # generalises what the app already does instead of inventing a rule: on
+    # Coca-Cola a fixed 15% filter hid 28 of its 33 completed declines, which
+    # is why a low-volatility chart could look like it had no down legs at
+    # all while the projection was using them.
+    "display_filter_ratio": 1.25,
     # Context windows.
     "range_window": 20,
     "regime_sma_n": 200,
@@ -238,6 +265,96 @@ def atr_at(highs, lows, closes, i, n: int = 14):
                  abs(lows[j] - closes[j - 1]))
         trs.append(tr)
     return sum(trs) / n if trs else None
+
+
+# ── how big a move counts as a swing, for THIS stock ────────────────────────
+
+def typical_move_pct(closes, window: int = 20):
+    """The median absolute `window`-day percentage move — a robust read of
+    how far this stock actually travels in a month.
+
+    Median rather than mean or standard deviation: one crash should not
+    redefine what an ordinary month looks like, and this number decides how
+    the whole history gets cut into swings.
+    """
+    n = len(closes or ())
+    if n < window + 30:
+        return None
+    moves = [abs(closes[i] / closes[i - window] - 1.0) * 100.0
+             for i in range(window, n) if closes[i - window]]
+    return _median(moves)
+
+
+def adaptive_zigzag_pct(closes, *, k: float = 2.5, floor_pct: float = 6.0,
+                        ceiling_pct: float = 18.0, window: int = 20,
+                        multiplier: float = 1.0):
+    """The zigzag threshold this stock deserves, as a FRACTION (0.12 = 12%),
+    or None when there is not enough history to measure.
+
+    A fixed threshold does not mean the same thing on a utility and on a
+    small-cap rocket: the same 12% setting cut the watchlist into 2.6 swings
+    a year at one end and 38 at the other, left low-volatility names with
+    single "swings" spanning more than a year, and starved their cohorts —
+    Coca-Cola's live projection stood on ONE comparable episode. Scaling the
+    threshold to the stock's own travel fixes the segmentation.
+
+    It does NOT make the projection more accurate, and this docstring is the
+    place to say so: over 32 symbols the band coverage (45.2% fixed vs 44.9%
+    adaptive) and the error relative to the swing being projected (27.0% vs
+    26.9%) are unchanged. What changes is whether there is a sample to stand
+    on at all — the median live cohort goes from 17 to 24 and the number of
+    symbols projecting from fewer than six episodes goes from 5 in 32 to
+    none.
+    """
+    v = typical_move_pct(closes, window)
+    if not v:
+        return None
+    m = max(0.05, float(multiplier))
+    return max(floor_pct * m, min(ceiling_pct * m, k * m * v)) / 100.0
+
+
+def resolve_zigzag_pct(closes, cfg: dict | None = None,
+                       sensitivity: str = "standard",
+                       explicit=None) -> dict:
+    """One place that answers "what threshold is this chart using, and why".
+
+    Returns {pct, source, multiplier, typical_move_pct, k, floor, ceiling}
+    with `pct` a fraction. An explicit number always wins — the caller asked
+    for it — and is reported as such so the UI never claims a number was
+    adaptive when it was typed.
+    """
+    c = _cfg(cfg)
+    mults = c.get("sensitivity_multipliers") or {}
+    mult = float(mults.get(sensitivity, 1.0))
+    v = typical_move_pct(closes, int(c["zigzag_window"]))
+    ratio = float(c["display_filter_ratio"])
+    out = {"multiplier": mult, "sensitivity": sensitivity,
+           "typical_move_pct": _r(v, 1), "k": float(c["zigzag_k"]),
+           "display_filter_ratio": ratio,
+           "floor_pct": float(c["zigzag_floor_pct"]) * mult,
+           "ceiling_pct": float(c["zigzag_ceiling_pct"]) * mult,
+           "window": int(c["zigzag_window"])}
+    def _finish(pct, source, **extra):
+        out.update({"pct": pct, "source": source,
+                    "min_move_pct": _r(pct * 100.0 * ratio, 1)}, **extra)
+        return out
+
+    ex = _num(explicit)
+    if ex and ex > 0:
+        return _finish(ex, "explicit")
+    if c.get("adaptive_zigzag"):
+        ad = adaptive_zigzag_pct(closes, k=float(c["zigzag_k"]),
+                                 floor_pct=float(c["zigzag_floor_pct"]),
+                                 ceiling_pct=float(c["zigzag_ceiling_pct"]),
+                                 window=int(c["zigzag_window"]),
+                                 multiplier=mult)
+        if ad:
+            clamped = (abs(ad * 100.0 - out["floor_pct"]) < 1e-9
+                       or abs(ad * 100.0 - out["ceiling_pct"]) < 1e-9)
+            return _finish(ad, "adaptive", clamped=clamped)
+    # Not enough history to measure the stock's own travel: fall back to the
+    # legacy fixed threshold, scaled by the setting, and say so.
+    return _finish(0.12 * mult, "fallback")
 
 
 # ── legs ────────────────────────────────────────────────────────────────────
@@ -1513,6 +1630,11 @@ def validate(pivots, dates, highs, lows, closes, *,
             ev = {
                 "stage": float(frac), "dir": L["dir"], "date": dates[ci],
                 "n_pool": len(pool),
+                # The outcome itself, so a harness can express the error
+                # RELATIVE to the swing. Absolute percentage points are not
+                # comparable across zigzag settings: a smaller threshold
+                # makes smaller swings and shrinks the error for free.
+                "actual": actual, "actual_days": actual_days,
                 "size_err": abs(actual - med) if med is not None else None,
                 "size_covered": (p25 is not None and p75 is not None
                                  and p25 - 1e-9 <= actual <= p75 + 1e-9),

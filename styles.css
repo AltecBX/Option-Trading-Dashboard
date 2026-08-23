@@ -8278,6 +8278,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-family: var(--font-mono); font-size: 12.5px; }
 .rev-whatif-res { font-family: var(--font-mono); font-size: 12.5px;
   color: var(--fg-2); overflow-wrap: anywhere; }
+.swing-sens-note { font-size: 11.5px; color: var(--fg-3); margin: 2px 0 10px;
+  line-height: 1.45; }
+.swing-sens-note b { color: var(--fg-2); font-family: var(--font-mono);
+  font-weight: 600; }
 .rev-scan { margin: 10px 0 2px; }
 .rev-scan-modes { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0;
   align-items: center; }

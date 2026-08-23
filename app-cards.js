@@ -2494,6 +2494,9 @@ function fmtLongDate(s) {
   const MON = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   return `${MON[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
 }
+
+// Why the threshold is not one number for every stock.
+const SENS_TIP = "How big a reversal counts as a new swing — scaled to THIS stock, not a fixed percentage. A single 12% setting cut the watchlist into anything from 2.6 swings a year (Coca-Cola) to 38 (Coinbase), left quiet names with single 'swings' spanning more than a year, and starved their comparison sets: Coca-Cola's projection stood on ONE comparable episode. The threshold is now 2.5x the stock's own median 20-day move, clamped, which is the ratio that gives every chart a comparable number of swings (correlation 0.987 across 22 symbols). Honest caveat: this does NOT make the projection more accurate — band coverage and error relative to the swing are unchanged — it makes the segmentation match the chart and gives the cohort something to stand on. Sensitive and Major are multipliers on that, so they mean the same thing about a stock everywhere.";
 const REV_TIP = {
   block: "Where this stock's own history says the current swing tends to reverse, whether it may already be reacting from that area, and what the opposite swing that follows usually looks like. The comparison set is every completed swing in the same direction that travelled AT LEAST as far as this one already has — deliberately not 'swings of similar size', because that would exclude the ones that kept going and understate the remaining risk exactly when it matters. It is also NOT filtered by the 15% setting that hides small swings from the tables below: that is a reading convenience, and using it as a population deleted one completed swing in five at Standard sensitivity (one in two at Sensitive) — all of them shallow reversals, which pushed every projected zone deeper than the record.",
   current: "The swing in progress: its size from the swing pivot to the current price, the deepest it has been (the extreme — which is what the comparison set is conditioned on), its age in trading days, and today's context. Completion percentages compare against the MEDIAN completed swing in this direction — 100% means the move has matched a typical one, not that it must stop: the zone numbers to the right say what swings that got this far actually did.",
@@ -2571,9 +2574,10 @@ function SwingWhatIf({
     if (!(t > 0) || !(s > 0)) return;
     setBusy(true);
     try {
-      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(ticker)}&pct=${sens}&period=10y&wt=${t}&ws=${s}`);
+      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(ticker)}&sens=${sens}&period=10y&wt=${t}&ws=${s}`);
       const d = await r.json();
-      if (!d.error) onResult(d);
+      // Only publish if the setup is still the one that was raced.
+      if (!d.error && d.symbol === ticker) onResult(d);
     } catch (e) {/* leave the previous payload */}
     setBusy(false);
   };
@@ -3077,7 +3081,7 @@ function SwingPatternCard({
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
-  const [sens, setSens] = useState("0.12"); // zig-zag % threshold
+  const [sens, setSens] = useState("standard"); // scaled to the stock (v4.54)
   const [tab, setTab] = useState("up"); // history table: up | down
   const [fMove, setFMove] = useState("all"); // size filter
   const [fDur, setFDur] = useState("all"); // duration filter
@@ -3088,8 +3092,14 @@ function SwingPatternCard({
   const [focusKey, setFocusKey] = useState(null); // chart focus range {start,end}
   const [more, setMore] = useState(false); // legacy analytics, collapsed
 
+  // Change the ticker and the sensitivity within a moment of each other and
+  // two requests are in flight at once; without a sequence guard the SLOWER,
+  // older one can land last and paint the wrong symbol or the wrong
+  // threshold over the newer answer. Only the most recent request may write.
+  const reqRef = useRef(0);
   const load = async (sym, pct) => {
     if (!sym) return;
+    const seq = ++reqRef.current;
     setLoading(true);
     setErr(null);
     try {
@@ -3097,13 +3107,14 @@ function SwingPatternCard({
       // reached at least the current depth, and two years of history holds
       // too few completed swings for that cohort to mean anything. The
       // chart still opens on the last six months.
-      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(sym)}&pct=${pct}&period=10y`);
+      const r = await apiFetch(`/api/swings?symbol=${encodeURIComponent(sym)}&sens=${pct}&period=10y`);
       const d = await r.json();
+      if (seq !== reqRef.current) return; // superseded
       if (d.error) setErr(d.error);else setData(d);
     } catch (e) {
-      setErr(String(e));
+      if (seq === reqRef.current) setErr(String(e));
     }
-    setLoading(false);
+    if (seq === reqRef.current) setLoading(false);
   };
   // Clear the previous symbol's swings the instant the ticker changes so the
   // card shows its loading skeleton instead of stale data from another symbol
@@ -3163,6 +3174,7 @@ function SwingPatternCard({
   });
   const sgn = v => v == null ? "" : v >= 0 ? "+" : "";
   const a = data && data.analysis;
+  const zz = data && data.params && data.params.zigzag;
   const ind = data && data.indicators;
   const upRhythm = data && data.rhythm;
   const downRhythm = data && data.down_rhythm;
@@ -3291,18 +3303,21 @@ function SwingPatternCard({
     className: "sb-select ab-days",
     value: sens,
     onChange: e => setSens(e.target.value),
-    title: "How big a reversal counts as a new swing"
+    title: SENS_TIP
   }, /*#__PURE__*/React.createElement("option", {
-    value: "0.15"
+    value: "major"
   }, "Major swings"), /*#__PURE__*/React.createElement("option", {
-    value: "0.12"
+    value: "standard"
   }, "Standard"), /*#__PURE__*/React.createElement("option", {
-    value: "0.08"
+    value: "sensitive"
   }, "Sensitive")), /*#__PURE__*/React.createElement("button", {
     className: "scan-run-btn",
     onClick: () => load(ticker, sens),
     disabled: loading
-  }, loading ? "Loading…" : "Refresh"))), err && /*#__PURE__*/React.createElement("div", {
+  }, loading ? "Loading…" : "Refresh"))), zz && zz.pct != null && /*#__PURE__*/React.createElement("div", {
+    className: "swing-sens-note",
+    title: SENS_TIP
+  }, "A swing here means a reversal of ", /*#__PURE__*/React.createElement("b", null, (zz.pct * 100).toFixed(1), "%"), zz.source === "adaptive" && zz.typical_move_pct != null ? /*#__PURE__*/React.createElement(React.Fragment, null, " \u2014 scaled to ", ticker, "'s own travel of ", zz.typical_move_pct, "% in a typical month", zz.clamped ? " (capped)" : "") : zz.source === "explicit" ? /*#__PURE__*/React.createElement(React.Fragment, null, " \u2014 as asked for") : /*#__PURE__*/React.createElement(React.Fragment, null, " \u2014 not enough history to measure this stock's own travel, so the legacy fixed setting is used"), zz.min_move_pct != null && /*#__PURE__*/React.createElement(React.Fragment, null, ". Tables and chart lines below hide swings under ", /*#__PURE__*/React.createElement("b", null, zz.min_move_pct, "%"), ".")), err && /*#__PURE__*/React.createElement("div", {
     className: "ab-status"
   }, /*#__PURE__*/React.createElement("span", {
     className: "ab-err"

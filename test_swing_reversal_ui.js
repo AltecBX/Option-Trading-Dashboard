@@ -148,6 +148,24 @@ ok("it discloses when the board was last filled",
 ok("the tooltip says it is the SAME scan, not a reversal-only one",
    defined.has("scanRun") && /SAME scan the Watchlist tab runs/.test(tipBlock));
 
+// 6d — (v4.54) how big a move counts as a swing is per stock, and the card
+//      says which threshold it used and why.
+ok("the sensitivity selector sends names, not fixed percentages",
+   /value="major"/.test(src) && /value="standard"/.test(src) && /value="sensitive"/.test(src)
+   && !/value="0\.12"/.test(src));
+ok("the card asks the route for a sensitivity", /sens=\$\{pct\}/.test(src));
+ok("the what-if asks for the same one", /sens=\$\{sens\}/.test(src));
+ok("the card states the resolved threshold",
+   /swing-sens-note/.test(src) && /A swing here means a reversal of/.test(src));
+ok("it names the stock's own travel", /own travel of/.test(src));
+ok("it names the display filter too", /hide swings under/.test(src));
+ok("the explainer admits it does not improve accuracy",
+   /SENS_TIP/.test(src) && /does NOT make the projection more accurate/.test(src));
+ok("the explainer cites the measurement, not taste",
+   /correlation 0\.987/.test(src) && /ONE comparable episode/.test(src));
+ok("a stale response cannot overwrite a newer one",
+   /reqRef/.test(src) && /superseded/.test(src));
+
 // 7b — (v4.53) the chart legend no longer floats over the candles, and is
 //      therefore reachable for its own tooltips.
 const chartBlock = src.slice(src.indexOf("function SwingChart"),

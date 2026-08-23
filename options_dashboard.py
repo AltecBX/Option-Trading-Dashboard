@@ -10309,17 +10309,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if not symbol:
                 self._send_json({"error": "symbol required"}, status=400)
                 return
+            # Sensitivity is a NAME now (v4.54): the threshold is scaled to
+            # each stock's own travel, so "Standard" means the same thing
+            # about a stock rather than the same number on every stock. An
+            # explicit pct= still wins, for callers that want one.
+            sens = (qs.get("sens", ["standard"])[0] or "standard").lower()
+            if sens not in ("sensitive", "standard", "major"):
+                sens = "standard"
             try:
-                pct = float(qs.get("pct", ["0.12"])[0])
+                raw = qs.get("pct", [None])[0]
+                pct = float(raw) if raw not in (None, "", "auto") else None
             except (TypeError, ValueError):
-                pct = 0.12
+                pct = None
             try:
-                mm = float(qs.get("min", ["15"])[0])
+                rawmin = qs.get("min", [None])[0]
+                mm = float(rawmin) if rawmin not in (None, "", "auto") else None
             except (TypeError, ValueError):
-                mm = 15.0
+                mm = None
             period = qs.get("period", ["1y"])[0]
-            pctc = max(0.03, min(0.30, pct))
-            mmc = max(1.0, min(60.0, mm))
+            pctc = max(0.03, min(0.30, pct)) if pct else None
+            mmc = max(1.0, min(60.0, mm)) if mm else None
             # Optional what-if race (target % vs stop % from the current
             # swing's depth) — part of the cache identity because it lands
             # inside the payload.
@@ -10330,7 +10339,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 except (TypeError, ValueError):
                     return None
             wt, ws = _qf("wt"), _qf("ws")
-            skey = (symbol, period, round(pctc, 4), round(mmc, 2), wt, ws)
+            skey = (symbol, period, round(pctc, 4) if pctc else sens,
+                    round(mmc, 2) if mmc else "auto", wt, ws)
             now = time.time()
             with _SWINGS_LOCK:
                 hit = _SWINGS_CACHE.get(skey)
@@ -10378,6 +10388,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 except Exception:
                     deep_earn = None
                 res = _swings.analyze(symbol, period=period, pct=pctc,
+                                      sensitivity=sens,
                                       min_move_pct=mmc, flow=flow, bars=bars,
                                       split_dates=splits,
                                       projection_cfg=_swing_projection_cfg(),

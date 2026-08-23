@@ -514,7 +514,7 @@ def _flow_metrics(flow: dict | None, price_dir: str | None) -> dict:
     return out
 
 
-def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
+def _swing_read(highs: list, lows: list, closes: list, pct: float | None = None,
                 dates: list | None = None, opens: list | None = None) -> dict:
     """Lightweight active-swing read from the OHLC already downloaded for the
     row — no extra network. Returns the current swing direction (long/short
@@ -527,6 +527,16 @@ def _swing_read(highs: list, lows: list, closes: list, pct: float = 0.12,
     n = len(closes)
     if n < 40 or len(highs) != n or len(lows) != n:
         return {}
+    # The threshold is scaled to this stock's own travel (v4.54), the same
+    # way the Patterns card resolves it, so the scan and the card cut the
+    # history into the same swings. A fixed percentage meant a utility got
+    # two swings a year and a small-cap rocket thirty-eight.
+    if pct is None and _sproj is not None:
+        try:
+            pct = _sproj.resolve_zigzag_pct(closes).get("pct")
+        except Exception:
+            pct = None
+    pct = float(pct or 0.12)
     try:
         pivots = _sw_zigzag(highs, lows, pct)
     except Exception:

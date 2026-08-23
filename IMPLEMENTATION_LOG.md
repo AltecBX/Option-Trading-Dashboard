@@ -1990,3 +1990,58 @@ unreachable inside a `pointer-events: none` layer since they were added.
 
 2,504 Python tests green, 176 node guards (87 in the reversal-UI guard,
 9 new), 21/21 browser checks at 1600px and 390px.
+
+## v4.54 — A swing means something different on Coca-Cola than on Coinbase
+
+Jerry looked at a Mastercard chart and said it had no down line, and that
+every chart should get its own algorithm because not every stock falls 30%
+and rallies 25%. He was right, and measuring it made the size of the problem
+plain.
+
+**One threshold could not mean one thing.** At the fixed 12% setting the
+watchlist segmented into anything from 2.6 swings a year (KO) to 38 (COIN).
+Quiet names got single "swings" spanning more than a year — MA's longest leg
+was 531 days, PG's 452 — and their comparison sets starved: KO's live
+projection stood on ONE comparable episode, JNJ's on four. Worse, the
+threshold rather than the stock was setting the answer, because every leg is
+at least the threshold by construction: at 12% the "typical swing" came out
+17–22% for a utility and for a rocket alike.
+
+**The threshold now scales to the stock's own travel** — k × the median
+absolute 20-day move, clamped, with the three sensitivity settings as
+multipliers on both k and the clamps. k = 2.5 arrives from two independent
+directions: solving per symbol for a comparable number of swings a year
+gives a threshold/travel ratio with median 2.48 and correlation **0.987**
+across 22 symbols, and the walk-forward sweep over 32 symbols preferred 2.5
+on days-coverage (50.2% against the 50% ideal). MA resolves to 10.2%, KO to
+6.7%, COIN to a capped 18.0%.
+
+**The display filter was half the bug.** Fixed at 15% it hid 28 of KO's 33
+completed declines, which is literally why a quiet chart could look as
+though it had no down legs. It now scales at 1.25× the threshold — the ratio
+the app's own 12%/15% defaults already implied. MA's six-month view goes
+from one long red line to two.
+
+**What this does NOT do, measured rather than assumed:** it does not make
+the projection more accurate. Band coverage 45.2% fixed versus 44.9%
+adaptive; error relative to the swing being projected 27.0% versus 26.9%;
+days-coverage 49.9% versus 50.2%. Absolute MAE in percentage points *looks*
+much better (5.88 → 4.30) and that number is worthless — a smaller threshold
+makes smaller swings and shrinks the error for free, which is why only
+scale-free measures are quoted. What changes is whether there is a sample to
+stand on: the median live cohort goes 17 → 24, and symbols projecting from
+fewer than six episodes go from 5 in 32 to none.
+
+The card now states which threshold it used, the travel it was scaled to,
+whether the cap bound, and what the tables are hiding. An explicit `pct=`
+still wins and is labelled as explicit; too little history falls back to the
+legacy fixed setting and says so.
+
+Also fixed, found by the browser harness rather than by reading: changing
+ticker and sensitivity within a moment of each other left two requests in
+flight, and the older one could land last and paint the wrong symbol's
+swings. Only the newest request may write now.
+
+2,504 Python tests green (115 in the projection suite, 17 new), 176 node
+guards (96 in the reversal-UI guard, 9 new), 14/14 browser checks across a
+quiet, a normal and a wild stock at 1600px and 390px.

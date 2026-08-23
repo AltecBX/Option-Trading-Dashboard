@@ -1228,12 +1228,13 @@ def _days_to_next_earnings(earnings: set, last_date: str):
         return None
 
 
-def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
-            min_move_pct: float = 15.0, flow: dict | None = None,
+def analyze(symbol: str, period: str = "1y", pct: float | None = None,
+            min_move_pct: float | None = None, flow: dict | None = None,
             bars: list | None = None, split_dates=None,
             projection_cfg: dict | None = None,
             what_if_target_pct=None, what_if_stop_pct=None,
-            deep_earnings: dict | None = None) -> dict:
+            deep_earnings: dict | None = None,
+            sensitivity: str = "standard") -> dict:
     """`deep_earnings`, when supplied by the route, is
     {"dates": set[iso], "meta": {...}} — the deepest point-in-time earnings
     history the app has for this symbol (see options_dashboard._deep_earn_hist).
@@ -1282,6 +1283,27 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
         vols = [float(x) for x in hist["Volume"]] if "Volume" in hist else [0.0] * len(closes)
         dates = [d.strftime("%Y-%m-%d") for d in hist.index]
 
+    # How big a move counts as a swing HERE (v4.54). A fixed percentage
+    # cannot mean the same thing on a utility and on a small-cap rocket, so
+    # unless the caller names one, the threshold is scaled to this stock's
+    # own travel. `pct` stays honoured when passed, and the resolved value
+    # travels back in params so the card can say which it used.
+    zz = {"pct": pct, "source": "explicit"}
+    if _sproj is not None:
+        try:
+            zz = _sproj.resolve_zigzag_pct(closes, cfg=projection_cfg,
+                                           sensitivity=sensitivity,
+                                           explicit=pct)
+        except Exception:
+            zz = {"pct": pct or 0.12, "source": "fallback"}
+    pct = float(zz.get("pct") or 0.12)
+    # The tables and chart lines hide swings under min_move_pct. Left fixed
+    # at 15% it hid almost every completed decline on a quiet stock, so a
+    # chart could show no down legs at all while the projection was standing
+    # on thirty of them. It scales with the threshold unless the caller
+    # names one.
+    if min_move_pct is None:
+        min_move_pct = float(zz.get("min_move_pct") or 15.0)
     pivots = _zigzag(highs, lows, pct)
 
     up_swings = _build_swings(pivots, dates, "up", min_move_pct)
@@ -1368,7 +1390,8 @@ def analyze(symbol: str, period: str = "1y", pct: float = 0.12,
     return {
         "symbol": symbol,
         "current_price": current_price,
-        "params": {"period": period, "pct": pct, "min_move_pct": min_move_pct},
+        "params": {"period": period, "pct": pct, "min_move_pct": min_move_pct,
+                   "zigzag": zz},
         "swings": up_swings,
         "down_swings": down_swings,
         "rhythm": up_rhythm,
