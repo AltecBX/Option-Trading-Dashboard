@@ -53,7 +53,11 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `gex_engine.py` | Gamma exposure by strike and the Black-Scholes flip profile — pure |
 | `market_state.py` | Live layer for the Sectors and Market Context tabs |
 | `tab-strat.jsx` | Sectors, Market Context and Gamma Exposure (one lazy chunk) |
+| `setup_engine.py` | Best Setup: the decision layer — delta ceiling, gamma modifier, scoring — pure |
+| `setup_scan.py` | Best Setup: gathers the layers, measures how far the stock actually travels |
+| `tab-setup.jsx` | The Best Setup card on the Trade tab (lazy chunk) |
 | `CANDLE_STATES.md` | How the candle states, sectors and gamma exposure work |
+| `BEST_SETUP.md` | How the one recommendation is built, and what it refuses to do |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)

@@ -206,8 +206,8 @@ def conditioning(closes, streak_block: dict | None,
     about today is unusual, which is the common and correct case.
     """
     sb = streak_block or {}
-    sdir = sb.get("streak_dir")
-    scount = int(sb.get("streak_count") or 0)
+    sdir = SE.streak_sign(sb.get("streak_dir"))
+    scount = int(SE._num(sb.get("streak_count")) or 0)   # noqa: SLF001
     if sdir in (1, -1) and scount >= MIN_STREAK:
         rdir, rlen = _runs(closes)
         idx = [i for i in range(len(closes))
@@ -223,8 +223,11 @@ def conditioning(closes, streak_block: dict | None,
     if mat.get("code") == "BEYOND ITS NORMAL SIZE":
         # The reversal engine already decides what "beyond normal" means and
         # already holds the cohort that met it. Re-deriving the rule here
-        # would let the two drift apart.
-        idx = [int(i) for i in (wb.get("cohort_bar_index") or []) if i is not None]
+        # would let the two drift apart. `cross_bar_index` is the bar at
+        # which each past swing had come as far as this one has now, which
+        # is the bar to measure forward from.
+        idx = [int(i) for i in ((wb.get("cohort") or {}).get("cross_bar_index") or [])
+               if i is not None]
         if idx:
             return {"kind": "swing", "idx": idx,
                     "label": "the swing is beyond its normal size",
@@ -336,6 +339,19 @@ def _ladder(chain, exp, side, spot, t_years, erv, cfg, rate):
         m["liquidity_ok"], m["liquidity_notes"] = ok, why
         out.append(m)
     return out
+
+
+def _no_trade_reason(sides: dict) -> str:
+    """Why nothing was recommended, in the sides' own words."""
+    parts = []
+    for side in ("call", "put"):
+        d = sides.get(side) or {}
+        r = (d.get("reason") or "").strip()
+        if r:
+            parts.append(f"{'Calls' if side == 'call' else 'Puts'}: {r}")
+    if not parts:
+        return "Neither side produced a contract the evidence supports."
+    return " ".join(parts)
 
 
 def analyze(symbol: str, now: date | None = None) -> dict:
@@ -452,7 +468,15 @@ def analyze(symbol: str, now: date | None = None) -> dict:
     # ── one recommendation per side, then the better of the two ──────────
     out_sides = {}
     for side in ("call", "put"):
-        model_touch = None
+        # The second opinion, asked at whatever distance the measurement
+        # ends up solving for: a driftless lognormal at ExpectedRV, which is
+        # the same model Premium Edge already prices every candidate with.
+        # The band only widens where measurement and model agree.
+        def model_touch(dist_pct, _up=(side == "call")):
+            k = spot * (1 + (dist_pct if _up else -dist_pct) / 100.0)
+            p = pe.touch_prob(spot, k, erv, t_years)
+            return None if p is None else p * 100.0
+
         ladder = _ladder(chain, exp, side, spot, t_years, erv, cfg, rate)
         ceiling = SE.delta_ceiling(measured_by_side[side], model_touch_pct=model_touch)
         g_probe = SE.gex_context(gex_block, spot,
@@ -506,8 +530,11 @@ def analyze(symbol: str, now: date | None = None) -> dict:
         "gex_source": gsource, "gex_fetched_at": fetched_at,
         "earnings_next": earn_next, "earnings_in_days": earn_days,
         "bars": len(Cc),
-        "reason": (None if chosen else
-                   "Neither side produced a contract the evidence supports."),
+        # When nothing is recommended, WHY nothing is the whole answer, and
+        # each side already knows its own reason. Collapsing both into
+        # "neither side produced a contract" throws away the only useful
+        # part of a no-trade day.
+        "reason": (None if chosen else _no_trade_reason(out_sides)),
         "version": SETUP_SCAN_VERSION, "engine": SE.SETUP_VERSION,
     }
 

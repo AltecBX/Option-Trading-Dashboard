@@ -2260,3 +2260,72 @@ reader's choice. 230 of 242 rectangles carry their ticker now.
 
 2,652 Python tests, 129 UI guards (13 new), 82/82 browser checks, and a new
 12-check colour harness that measures rendered hue in both themes.
+
+## v4.58 — Best Setup
+
+One card at the top of the Trade tab that combines every layer already in the
+app — weekly range, streaks, swing maturity, premium, implied volatility,
+probability, liquidity, gamma exposure — into a single recommendation: side,
+expiration, strike, delta, credit, the reasoning and the specific risks.
+
+The delta is not predetermined. It is solved for.
+
+**The circularity that had to go first.** The first version mapped a measured
+keep rate to an implied delta of (1 − keep). That returns (1 − target) no
+matter what the data says — it looks like analysis and computes nothing. The
+engine now solves for a DISTANCE instead: the measurement says price stayed
+inside 8.1% of spot 85% of the time over 181 windows, and the market
+independently quotes whatever delta it likes at 8.1% out. The gap between
+those two numbers is the only honest edge here, and it is only an edge
+because they come from different places.
+
+Everything else is a refusal rule. Widening needs 30+ windows and a 5-point
+edge over the unconditional baseline; sizing is on the Wilson lower bound,
+never the point estimate; a driftless lognormal at ExpectedRV has to agree
+about the same distance before the band opens; the hard cap is 0.45 on any
+evidence. Gamma exposure can shrink a trade or veto it, never open one.
+
+Four defects surfaced only by running the thing against real data. Every one
+of them passed the unit tests first.
+
+**Model probabilities were off by a factor of a hundred.** premium_edge
+returns p_itm_model as a fraction — 0.0627 means 6.27%. The engine read it as
+a percentage, so a 6% chance of assignment rendered as a 99.9% keep rate and
+the card said "finishes in the money about 0% of the time". The unit tests
+missed it because the fixture wrote percentages too: a fixture speaking a
+different dialect from the producer it stands in for tests nothing. Fixed at
+the boundary, fixture corrected, and the unit contract pinned.
+
+**Both conditioning branches were dead.** watchlist_table emits the strings
+"up" and "down"; the engine compared them against 1 and -1, which is silently
+false. The swing branch read a key called cohort_bar_index that no producer
+has ever written. The symptom was not a crash — it was 44 of 44 symbols
+reporting "nothing about today is unusual", which reads like a calm market.
+After the fix, 22 of 44. swing_projection now exports cross_bar_index, the
+bar at which each past swing had come as far as this one has, so there is one
+definition of "this deep" rather than two.
+
+**Gathering evidence could make the answer worse.** A measured floor of 8.1%
+that the market happened to quote at 14.8 delta rejected every strike on the
+ladder — including the 18-delta one the default rule would have taken without
+complaint. The reward for having 181 windows of history was no trade at all.
+Evidence may now only ADD candidates: a contract the default band accepts
+stays eligible whatever the measurement found.
+
+**An opposing gamma reading collapsed the band to a sliver.** Scaling only
+the ceiling of 0.15–0.22 leaves 0.15–0.176, a window 2.6 delta points wide
+that a real chain steps straight over, so the card returned "no contract"
+instead of a safer one. Both edges move now — an opposing reading means sell
+further out, not sell nothing.
+
+And one thing the browser found that no test would have: the card was
+recommending trades with negative expected value. Sell a put, MODERATE
+CONFIDENCE, expected value −$20. A high probability of keeping the credit is
+not the same thing as a profitable trade, and letting the confidence badge
+carry that news still puts a recommendation on screen. Those are refused by
+name now, with the contract that came closest and by how much it fell short.
+A no-trade day is a finding and renders as one.
+
+2,740 Python tests (88 for this feature), 54 UI guards, 26 browser checks
+against the real engine on real Nasdaq history, and Layer 1 + Layer 2 of
+verify_frontend green.

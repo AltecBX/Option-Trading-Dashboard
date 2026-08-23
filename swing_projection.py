@@ -877,6 +877,11 @@ def project(pivots, dates, highs, lows, closes, *,
 
     out["cohort"] = {
         "n": len(cohort),
+        # The bar at which each past swing had come as far as this one has
+        # now. Anything wanting to measure "what happened next, from here"
+        # needs those bars, and re-deriving them elsewhere would let a
+        # second definition of "this deep" drift away from this one.
+        "cross_bar_index": [e["ci"] for e in zone_pop if e["ci"] is not None],
         "n_reached": len(cohort_all),
         "n_direction": len(pool),
         "n_earnings_contaminated": sum(1 for e in with_cross if e["earn_run"]),

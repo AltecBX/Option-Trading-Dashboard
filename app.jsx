@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.57";
+const APP_VERSION = "4.58";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3620,6 +3620,15 @@ function App() {
         {/* Watchlist alerts (v1.15) — fresh upgrades and downgrades on
             watchlist tickers in the past 7 days. Scoped to the Trade tab
             (home dashboard) so it doesn't render on every tab. */}
+        {/* Best Setup (v4.58) — one explained recommendation built from
+            every layer the app already computes, so the answer arrives
+            without visiting five tabs and combining them by hand. */}
+        <TabPanel tab="trade" active={activeTab}>
+          <CardErrorBoundary label="Best setup">
+            <LazyTab chunk="tab-setup" component="BestSetupCard" label="Best setup"
+                     apiFetch={apiFetch} ticker={ticker} onOpenTab={changeTab} />
+          </CardErrorBoundary>
+        </TabPanel>
         <TabPanel tab="trade" active={activeTab}>
           <WatchlistAlertsCard
             apiFetch={apiFetch}

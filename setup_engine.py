@@ -109,6 +109,34 @@ def _pct(v, lo=0.0, hi=100.0):
     return None if f is None else max(lo, min(hi, f))
 
 
+def streak_sign(v):
+    """A streak direction as +1 / -1 / None, whichever dialect it arrives in.
+
+    `watchlist_table` emits the strings "up" / "down" / "flat"; fixtures and
+    older callers use 1 / -1 / 0. Comparing a string against 1 is silently
+    false, which does not raise, does not log, and simply means the streak
+    layer never votes and never conditions anything. Normalise once.
+    """
+    if isinstance(v, str):
+        s = v.strip().lower()
+        return 1 if s == "up" else -1 if s == "down" else None
+    f = _num(v)
+    return None if f is None or f == 0 else (1 if f > 0 else -1)
+
+
+def _prob_pct(v):
+    """premium_edge's model probabilities as a percentage.
+
+    `p_itm_model` and `p_touch_model` come back as FRACTIONS in [0, 1] —
+    0.0627 means 6.27%. Reading one as if it were already a percentage
+    turns a 6% chance of assignment into 0.06% and reports the keep rate
+    as 99.9%, which is exactly the kind of number that talks somebody into
+    a trade. Convert once, here, and nowhere else.
+    """
+    f = _num(v)
+    return None if f is None else max(0.0, min(100.0, f * 100.0))
+
+
 def wilson_low(hits: int, n: int, z: float = 1.96) -> float | None:
     """Lower bound of the Wilson interval, as a percentage.
 
@@ -166,7 +194,8 @@ def directional_bias(range_block=None, streak_block=None,
 
     # ── consecutive up/down days against this stock's own record ─────────
     sb = streak_block or {}
-    sdir, scount = sb.get("streak_dir"), sb.get("streak_count") or 0
+    sdir = streak_sign(sb.get("streak_dir"))
+    scount = int(_num(sb.get("streak_count")) or 0)
     longest = sb.get("longest_up") if sdir == 1 else sb.get("longest_down")
     times = sb.get("streak_times_before")
     wr = _pct(sb.get("streak_winrate"))
@@ -393,11 +422,16 @@ def delta_ceiling(measured: dict, model_touch_pct=None,
 
     That is the inversion that makes the feature work. The default band is a
     guess about probability; the distance floor is a measurement of it.
+
+    `model_touch_pct` is the second opinion, as a PERCENTAGE. The distance
+    is not known until `required_distance` has solved for it, so a caller
+    that wants the model consulted at the distance actually chosen passes a
+    callable `f(distance_pct) -> percent` instead of a fixed number.
     """
     band = (round(default_band[0], 3), round(default_band[1], 3))
     req = required_distance(measured, target_win_pct)
     if not req.get("ok"):
-        return {"band": band, "raised": False,
+        return {"band": band, "raised": False, "default_band": band,
                 "basis": req.get("basis", "default"),
                 "target_win_pct": target_win_pct, "n": req.get("n"),
                 "min_distance_pct": None,
@@ -405,6 +439,11 @@ def delta_ceiling(measured: dict, model_touch_pct=None,
     # The model's own touch probability is the second opinion. If it says
     # this distance is riskier than the measurement does, the tighter of the
     # two governs — the trade only gets the benefit both methods agree on.
+    if callable(model_touch_pct):
+        try:
+            model_touch_pct = model_touch_pct(req["distance_pct"])
+        except Exception:  # noqa: BLE001
+            model_touch_pct = None
     mt = _pct(model_touch_pct)
     model_conflict = None
     if mt is not None and (100.0 - mt) < target_win_pct:
@@ -412,13 +451,14 @@ def delta_ceiling(measured: dict, model_touch_pct=None,
                           f"{mt:.0f}%, which is worse than the "
                           f"{100 - target_win_pct:.0f}% the measurement implies. The "
                           f"delta band stays at the default until the two agree.")
-        return {"band": band, "raised": False, "basis": "model-disagrees",
+        return {"band": band, "raised": False, "default_band": band,
+                "basis": "model-disagrees",
                 "target_win_pct": target_win_pct, "n": req.get("n"),
                 "min_distance_pct": req["distance_pct"],
                 "model_touch_pct": mt, "why": model_conflict}
     return {
         "band": (band[0], round(hard_cap, 3)),
-        "raised": True, "basis": "measured",
+        "raised": True, "basis": "measured", "default_band": band,
         "target_win_pct": target_win_pct,
         "min_distance_pct": req["distance_pct"],
         "keep_pct_low": req["keep_pct_low"], "n": req["n"],
@@ -520,15 +560,31 @@ def apply_gex_to_ceiling(ceiling: dict, gex: dict) -> dict:
     out = dict(ceiling)
     v = gex.get("verdict", "unknown")
     factor = GEX_DELTA_ADJUST.get(v, 0.9)
-    lo, hi = out["band"]
     if v == "veto":
         out["vetoed"] = True
         out["veto_note"] = gex.get("note")
         return out
-    if factor < 1.0 and hi > lo:
-        out["band"] = (lo, round(max(lo, hi * factor), 3))
-        out["gex_pullback"] = v
-        out["gex_note"] = gex.get("note")
+    if factor >= 1.0:
+        return out
+
+    # BOTH edges move, not just the ceiling. Scaling only the top of a
+    # 0.15–0.22 band leaves 0.15–0.176: a window 2.6 delta points wide, which
+    # a chain quoted at one-point strike spacing usually steps straight over,
+    # so the card returns "no contract" instead of a safer one. Sliding the
+    # whole window down says what an opposing reading actually means — sell
+    # the same structure further out of the money.
+    def _pull(pair):
+        if not pair:
+            return pair
+        lo, hi = pair
+        return (round(lo * factor, 3), round(hi * factor, 3))
+
+    out["band"] = _pull(out.get("band"))
+    if out.get("default_band"):
+        out["default_band"] = _pull(out["default_band"])
+    out["gex_pullback"] = v
+    out["gex_factor"] = factor
+    out["gex_note"] = gex.get("note")
     return out
 
 
@@ -547,7 +603,7 @@ def score_contract(c: dict, gex: dict, cfg=None) -> dict:
     ev = _num(c.get("ev_per_contract")) or 0.0
     es = _num(c.get("es5_per_share"))
     prem = _num(c.get("prem_pct_collateral")) or 0.0
-    pit = _pct(c.get("p_itm_model"))
+    pit = _prob_pct(c.get("p_itm_model"))
     spread = _num(c.get("spread_pct"))
     liq_ok = bool(c.get("liquidity_ok", True))
     # Reward per unit of the loss actually feared, not per unit of collateral.
@@ -636,6 +692,17 @@ def recommend(symbol: str, spot, side: str, expiration: str, dte,
     """
     band = ceiling.get("band") or DEFAULT_DELTA_BAND
     floor_pct = _num(ceiling.get("min_distance_pct"))
+    # The default rule stands on its own merits, so a contract it would have
+    # accepted stays eligible no matter what the measurement found. Evidence
+    # may only ADD candidates.
+    #
+    # Without that, gathering evidence can make the answer worse. A measured
+    # floor of 8.1% that the market happens to quote at 14.8 delta rejects
+    # every strike, including the 18-delta one the default band would have
+    # taken and recommended happily — so the reward for having 181 windows
+    # of history is no trade at all. A rule that punishes evidence is not a
+    # rule about risk.
+    dband = ceiling.get("default_band") or DEFAULT_DELTA_BAND
     eligible, rejected = [], []
     for c in (contracts or []):
         d = _num(c.get("delta"))
@@ -643,26 +710,30 @@ def recommend(symbol: str, spot, side: str, expiration: str, dte,
             rejected.append((c, "no delta on the quote"))
             continue
         ad = abs(d)
-        if not (band[0] <= ad <= band[1]):
-            rejected.append((c, f"delta {ad:.2f} outside the {band[0]:.2f}"
-                                f"–{band[1]:.2f} band"))
-            continue
+        dist = _num(c.get("dist_pct"))
+        by_default = dband[0] <= ad <= dband[1]
         # The distance floor is the measured half of the rule and it binds
         # independently of delta. A strike the market happens to quote at a
         # low delta but which sits INSIDE the distance history says is safe
-        # is not eligible — the measurement, not the quote, is the promise
-        # this recommendation is making.
-        if floor_pct is not None:
-            dist = _num(c.get("dist_pct"))
-            if dist is None or abs(dist) < floor_pct:
-                rejected.append((c, f"only {abs(dist):.1f}% out of the money, "
-                                    f"inside the {floor_pct:.1f}% the measured "
-                                    f"evidence requires"
+        # is not eligible on the measured path — the measurement, not the
+        # quote, is the promise this recommendation is making.
+        by_measure = (band[0] <= ad <= band[1]
+                      and (floor_pct is None
+                           or (dist is not None and abs(dist) >= floor_pct)))
+        if not (by_default or by_measure):
+            if floor_pct is not None and band[0] <= ad <= band[1]:
+                rejected.append((c, (f"only {abs(dist):.1f}% out of the money, "
+                                     f"inside the {floor_pct:.1f}% the measured "
+                                     f"evidence requires")
                                  if dist is not None else "no distance on the quote"))
-                continue
+            else:
+                rejected.append((c, f"delta {ad:.2f} outside the {band[0]:.2f}"
+                                    f"–{band[1]:.2f} band"))
+            continue
         g = gex_context(gex_block, spot, c.get("strike"), side)
         sc = score_contract(c, g)
-        eligible.append({**c, "gex": g, "scoring": sc})
+        eligible.append({**c, "gex": g, "scoring": sc,
+                         "eligible_by": ("measured" if by_measure else "default")})
     if not eligible:
         return {
             "ok": False, "symbol": symbol, "side": side,
@@ -677,8 +748,33 @@ def recommend(symbol: str, spot, side: str, expiration: str, dte,
                 "reason": best["gex"].get("note") or "Refused on market structure.",
                 "vetoed": True, "band": band, "version": SETUP_VERSION}
 
+    # A premium sale whose expected value is negative is not a setup. The
+    # credit is below what the option is worth at the volatility this stock
+    # actually realizes, which means the win rate is being bought at a price
+    # that loses money over repetition — the exact trade this card exists to
+    # find the opposite of. Refuse it by name rather than ranking it first
+    # and letting the confidence badge carry the bad news.
+    best_ev = _num(best.get("ev_per_contract"))
+    if best_ev is not None and best_ev <= 0:
+        return {
+            "ok": False, "symbol": symbol, "side": side, "band": band,
+            "negative_ev": True,
+            "reason": (
+                f"The best {'call' if side == 'call' else 'put'} the evidence "
+                f"allows — {best.get('strike')} at {abs(_num(best.get('delta')) or 0):.2f} "
+                f"delta for {_num(best.get('credit_exec')) or 0:.2f} — is worth "
+                f"less than it pays. At the volatility this stock actually "
+                f"realizes, expected value is {best_ev:+.0f} dollars per "
+                f"contract, so selling it collects a high win rate at a price "
+                f"that loses money over repetition."),
+            "closest": {"strike": best.get("strike"), "delta": best.get("delta"),
+                        "credit": best.get("credit_exec"),
+                        "ev_per_contract": best_ev},
+            "version": SETUP_VERSION,
+        }
+
     conf = _confidence(bias, ceiling, best["gex"], best)
-    pit = _pct(best.get("p_itm_model"))
+    pit = _prob_pct(best.get("p_itm_model"))
     why = []
     if bias.get("lean"):
         why.extend(bias.get("why") or [])

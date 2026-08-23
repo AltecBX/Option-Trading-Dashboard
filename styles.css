@@ -13079,3 +13079,102 @@ a.tabsheet-btn.site { text-decoration: none; }
   .st-seccard:hover { transform: none; }
 }
 .st-behind { color: var(--warn); }
+
+/* ── Best Setup card (v4.58) ─────────────────────────────────────────────
+   One recommendation with its evidence attached. The layout puts the trade
+   first and the reasoning immediately under it, because the whole point is
+   that the reasoning does not live on five other tabs. */
+.su-card { --su-line: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.su-headline {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px;
+  padding: 14px 16px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  border: 1px solid var(--su-line);
+}
+.su-action { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; cursor: help; }
+.su-side { font-family: var(--font-display); font-size: 17px; font-weight: 700; }
+.su-side-call { color: var(--down); }
+.su-side-put { color: var(--up); }
+.su-strike { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--fg); }
+.su-delta { font-family: var(--font-mono); font-size: 13px; color: var(--fg-2); cursor: help; }
+.su-expiry { font-size: 13px; color: var(--fg-2); cursor: help; }
+.su-conf {
+  margin-left: auto; padding: 3px 10px; border-radius: 999px; cursor: help;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.su-conf-up { background: color-mix(in srgb, var(--up) 16%, transparent); color: var(--up); }
+.su-conf-warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.su-conf-down { background: color-mix(in srgb, var(--down) 16%, transparent); color: var(--down); }
+.su-conf-mut { background: var(--bg-3); color: var(--fg-3); }
+
+/* The band notice is the single most important line on the card: it says
+   whether this strike is the conservative default or a measured widening. */
+.su-band {
+  margin-top: 12px; padding: 10px 14px; border-radius: 10px; cursor: help;
+  font-size: 12.5px; line-height: 1.6;
+  background: var(--bg); border: 1px solid var(--line); color: var(--fg-2);
+}
+.su-band-raised {
+  background: color-mix(in srgb, var(--up) 9%, var(--bg));
+  border-color: color-mix(in srgb, var(--up) 40%, var(--line));
+}
+.su-band b { color: var(--fg); }
+
+.su-stats {
+  display: grid; gap: 10px; margin-top: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+.su-stats-sm { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+.su-stat {
+  display: flex; flex-direction: column; gap: 3px; cursor: help;
+  padding: 9px 11px; border-radius: var(--radius-sm);
+  background: var(--bg); border: 1px solid var(--line);
+}
+.su-stat-label {
+  font-size: 10.5px; color: var(--fg-3); text-transform: uppercase;
+  letter-spacing: 0.06em; font-weight: 600;
+}
+.su-stat-value { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+.su-stat-value.up { color: var(--up); }
+.su-stat-value.down { color: var(--down); }
+
+.su-cols {
+  display: grid; gap: var(--gap-grid); margin-top: 16px;
+  grid-template-columns: 1fr 1fr;
+}
+.su-col .kicker { margin-bottom: 8px; }
+.su-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.65;
+  color: var(--fg-2); display: flex; flex-direction: column; gap: 6px; }
+.su-list-risk li { color: color-mix(in srgb, var(--down) 55%, var(--fg-2)); }
+
+.su-refused {
+  padding: 12px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6;
+  background: color-mix(in srgb, var(--down) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--down) 35%, transparent);
+}
+.su-refused b { color: var(--down); }
+
+.su-more { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.su-more-btn {
+  background: transparent; border: 1px solid var(--line); color: var(--fg-2);
+  border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+  font-family: var(--font-body);
+}
+.su-more-btn:hover { background: var(--bg-3); color: var(--fg); }
+.su-evidence { display: flex; flex-direction: column; gap: 18px; margin-top: 14px; }
+.su-ev-block .kicker { margin-bottom: 8px; }
+.su-note { margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--fg-2);
+  max-width: 92ch; }
+.su-table { width: 100%; }
+.su-strong { font-weight: 700; color: var(--fg); }
+.su-row-meets { background: color-mix(in srgb, var(--up) 8%, transparent); }
+
+@media (max-width: 900px) {
+  .su-cols { grid-template-columns: 1fr; }
+  .su-conf { margin-left: 0; }
+  .su-stats { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+}
+@media (max-width: 620px) {
+  .su-strike { font-size: 20px; }
+  .su-stat-value { font-size: 14px; }
+}

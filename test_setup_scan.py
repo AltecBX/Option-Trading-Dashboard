@@ -82,19 +82,19 @@ class TestTheConditioningRuleIsFixedInAdvance(unittest.TestCase):
     CLOSES = [1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6, 7]
 
     def test_a_run_is_the_first_rule(self):
-        c = SS.conditioning(self.CLOSES, {"streak_dir": 1, "streak_count": 3},
+        c = SS.conditioning(self.CLOSES, {"streak_dir": "up", "streak_count": 3},
                             {"maturity": {"code": "BEYOND ITS NORMAL SIZE"},
-                             "cohort_bar_index": [1, 2, 3]})
+                             "cohort": {"cross_bar_index": [1, 2, 3]}})
         self.assertEqual(c["kind"], "streak")
 
     def test_an_oversized_swing_is_the_second(self):
-        c = SS.conditioning(self.CLOSES, {"streak_dir": 1, "streak_count": 1},
+        c = SS.conditioning(self.CLOSES, {"streak_dir": "up", "streak_count": 1},
                             {"maturity": {"code": "BEYOND ITS NORMAL SIZE"},
-                             "cohort_bar_index": [1, 2, 3]})
+                             "cohort": {"cross_bar_index": [1, 2, 3]}})
         self.assertEqual(c["kind"], "swing")
 
     def test_nothing_unusual_is_no_state_at_all(self):
-        c = SS.conditioning(self.CLOSES, {"streak_dir": 1, "streak_count": 1},
+        c = SS.conditioning(self.CLOSES, {"streak_dir": "up", "streak_count": 1},
                             {"maturity": {"code": "AT ITS NORMAL SIZE"}})
         self.assertIsNone(c["kind"])
         self.assertEqual(c["idx"], [])
@@ -102,20 +102,53 @@ class TestTheConditioningRuleIsFixedInAdvance(unittest.TestCase):
 
     def test_a_short_run_does_not_count_as_a_run(self):
         c = SS.conditioning(self.CLOSES,
-                            {"streak_dir": 1, "streak_count": SS.MIN_STREAK - 1}, {})
+                            {"streak_dir": "up", "streak_count": SS.MIN_STREAK - 1}, {})
         self.assertIsNone(c["kind"])
 
     def test_the_state_selects_bars_that_reached_the_same_run_length(self):
-        c = SS.conditioning(self.CLOSES, {"streak_dir": 1, "streak_count": 3}, {})
+        c = SS.conditioning(self.CLOSES, {"streak_dir": "up", "streak_count": 3}, {})
         rdir, rlen = SS._runs(self.CLOSES)                     # noqa: SLF001
         for i in c["idx"]:
             self.assertEqual(rdir[i], 1)
             self.assertGreaterEqual(rlen[i], 3)
 
     def test_a_longer_run_selects_strictly_fewer_bars(self):
-        short = SS.conditioning(self.CLOSES, {"streak_dir": 1, "streak_count": 3}, {})
-        long = SS.conditioning(self.CLOSES, {"streak_dir": 1, "streak_count": 4}, {})
+        short = SS.conditioning(self.CLOSES, {"streak_dir": "up", "streak_count": 3}, {})
+        long = SS.conditioning(self.CLOSES, {"streak_dir": "up", "streak_count": 4}, {})
         self.assertLessEqual(len(long["idx"]), len(short["idx"]))
+
+    def test_the_streak_branch_fires_on_what_the_producer_really_emits(self):
+        """`watchlist_table` writes the string "up", not the integer 1.
+
+        Both branches of this rule were dead against real data: this one
+        compared a string to 1, and the swing branch below read a key no
+        producer has ever written. The effect was not a crash — it was 44 of
+        44 symbols reporting "nothing about today is unusual".
+        """
+        rising = list(range(1, 61))                 # 59 up days in a row
+        block = SS._streaks(rising)                 # noqa: SLF001
+        self.assertEqual(block["streak_dir"], "up")
+        self.assertGreaterEqual(block["streak_count"], SS.MIN_STREAK)
+        c = SS.conditioning(rising, block, {})
+        self.assertEqual(c["kind"], "streak")
+        self.assertTrue(c["idx"], "the streak branch selected no bars at all")
+
+    def test_the_swing_branch_reads_the_key_the_projection_engine_writes(self):
+        """The cohort's bars live at cohort.cross_bar_index. Nothing has ever
+        written a top-level `cohort_bar_index`, which is what this branch
+        used to look for."""
+        wb = {"maturity": {"code": "BEYOND ITS NORMAL SIZE"},
+              "cohort": {"cross_bar_index": [2, 5, 9]}}
+        c = SS.conditioning(self.CLOSES, {}, wb)
+        self.assertEqual(c["kind"], "swing")
+        self.assertEqual(c["idx"], [2, 5, 9])
+
+    def test_the_projection_engine_really_exports_those_bars(self):
+        """Asserted against swing_projection itself, so renaming the key
+        there fails here rather than silently emptying the cohort."""
+        import inspect
+        import swing_projection
+        self.assertIn("cross_bar_index", inspect.getsource(swing_projection))
 
 
 class TestWeeklyRange(unittest.TestCase):

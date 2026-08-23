@@ -43,8 +43,13 @@ def contract(k, delta, bid, spot=100.0, side="call", oi=800, spread=4.0,
         "credit_exec": bid, "credit_basis": "bid (resting-order floor)",
         "ev_per_contract": (bid * 100 * 0.18) if ev is None else ev,
         "ev_per_tail": 0.35, "es5_per_share": 2.1,
-        "p_itm_model": max(2.0, delta * 100 * 0.55),
-        "p_touch_model": delta * 100 * 0.9,
+        # FRACTIONS in [0, 1], exactly as premium_edge returns them. An
+        # earlier version of this fixture wrote percentages here, which made
+        # the engine's unit bug invisible: a 6% chance of assignment was
+        # reported on screen as a 99.9% keep rate. Never let a fixture speak
+        # a different dialect from the producer it stands in for.
+        "p_itm_model": max(0.02, delta * 0.55),
+        "p_touch_model": min(1.0, delta * 0.9),
         "prem_pct_collateral": bid / spot * 100, "annualized_pct": 12.0,
         "spread_pct": spread, "oi": oi, "liquidity_ok": liq,
         "liquidity_notes": [] if liq else ["open interest below the floor"],
@@ -118,6 +123,39 @@ class TestTheEngineRefusesToWidenWithoutEvidence(unittest.TestCase):
     def test_the_model_agreeing_allows_it(self):
         c = SE.delta_ceiling(measured(CALM, ORDINARY), model_touch_pct=9.0)
         self.assertTrue(c["raised"])
+
+    def test_the_model_is_asked_at_the_distance_actually_solved_for(self):
+        """The second opinion is worthless if it answers a different question.
+
+        The distance does not exist until `required_distance` has solved for
+        it, so a caller passes a callable and the engine asks the model
+        about the strike it is really considering.
+        """
+        asked = []
+
+        def probe(dist_pct):
+            asked.append(dist_pct)
+            return 9.0
+
+        c = SE.delta_ceiling(measured(CALM, ORDINARY), model_touch_pct=probe)
+        self.assertTrue(c["raised"])
+        self.assertEqual(len(asked), 1)
+        self.assertAlmostEqual(asked[0], c["min_distance_pct"], places=6)
+
+    def test_a_callable_second_opinion_can_still_block_the_widening(self):
+        c = SE.delta_ceiling(measured(CALM, ORDINARY),
+                             model_touch_pct=lambda d: 40.0)
+        self.assertFalse(c["raised"])
+        self.assertEqual(c["basis"], "model-disagrees")
+
+    def test_a_second_opinion_that_raises_is_treated_as_no_opinion(self):
+        """A broken probe must not silently widen or silently block."""
+        def boom(_d):
+            raise RuntimeError("no model today")
+
+        c = SE.delta_ceiling(measured(CALM, ORDINARY), model_touch_pct=boom)
+        self.assertTrue(c["raised"])
+        self.assertIsNone(c["model_touch_pct"])
 
     def test_even_the_widest_measured_distance_falling_short(self):
         near = measured({2.0: {"rate": 40, "n": 300}, 4.0: {"rate": 30, "n": 300}},
@@ -198,6 +236,87 @@ class TestTheDistanceFloorBinds(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertLessEqual(abs(out["delta"]), SE.DEFAULT_DELTA_BAND[1] + 1e-9)
 
+    def test_the_widening_can_actually_pay_more_premium(self):
+        """The point of the whole feature, asserted rather than assumed.
+
+        When the measured floor sits CLOSER than the default band's strikes,
+        the market quotes that distance at a higher delta, and the engine is
+        allowed to sell it. If this ever stops being reachable the feature is
+        decorative: it would only ever confirm the default.
+        """
+        calm = measured({2.0: {"rate": 20, "n": 400}, 3.0: {"rate": 12, "n": 400},
+                         5.0: {"rate": 4, "n": 400}},
+                        {2.0: {"rate": 55, "n": 3000}, 3.0: {"rate": 44, "n": 3000},
+                         5.0: {"rate": 30, "n": 3000}})
+        ceiling = SE.delta_ceiling(calm)
+        self.assertTrue(ceiling["raised"])
+        self.assertLess(ceiling["min_distance_pct"], 5.0)
+        # A strike beyond the floor that the market still quotes richly —
+        # exactly the case the feature exists for.
+        rung = contract(104, 0.27, 0.95)
+        ladder = LADDER + [rung]
+        self.assertGreater(abs(rung["dist_pct"]), ceiling["min_distance_pct"])
+        out = SE.recommend("T", 100.0, "call", "2026-09-18", 26, ladder,
+                           SE.directional_bias(), ceiling)
+        self.assertTrue(out["ok"])
+        self.assertGreater(abs(out["delta"]), SE.DEFAULT_DELTA_BAND[1],
+                           "the measured path never sold closer than the default")
+        default_only = SE.recommend("T", 100.0, "call", "2026-09-18", 26, ladder,
+                                    SE.directional_bias(),
+                                    SE.delta_ceiling(measured({}, {})))
+        self.assertGreater(out["credit"], default_only["credit"])
+
+    def test_evidence_can_only_add_candidates_never_remove_them(self):
+        """Gathering history must never turn a trade into no trade.
+
+        A measured floor the market quotes just under the default band's
+        lower edge used to reject every strike — including the one the
+        default rule would have taken without complaint. The reward for
+        having 181 windows of history was no recommendation at all.
+        """
+        ceiling = SE.delta_ceiling(measured(CALM, ORDINARY))
+        floor = ceiling["min_distance_pct"]
+        # One strike, inside the floor, priced squarely in the default band.
+        near = [contract(round(100.0 * (1 + (floor - 1.0) / 100.0), 2), 0.18, 0.60)]
+        widened = SE.recommend("T", 100.0, "call", "2026-09-18", 26, near,
+                               SE.directional_bias(), ceiling)
+        plain = SE.recommend("T", 100.0, "call", "2026-09-18", 26, near,
+                             SE.directional_bias(), SE.delta_ceiling(measured({}, {})))
+        self.assertTrue(plain["ok"], "the default rule should take this strike")
+        self.assertTrue(widened["ok"],
+                        "evidence removed a trade the default rule would take")
+        self.assertEqual(widened["strike"], plain["strike"])
+
+    def test_a_negative_expected_value_sale_is_refused_not_ranked(self):
+        """A high win rate bought at a losing price is not a setup.
+
+        Ranking such a contract first and letting the confidence badge carry
+        the bad news puts "Sell a put · MODERATE CONFIDENCE · expected value
+        −$20" on screen, which reads as a recommendation because it is one.
+        """
+        losing = [contract(108, 0.16, 0.48, ev=-20.0),
+                  contract(112, 0.09, 0.24, ev=-5.0)]
+        out = SE.recommend("T", 100.0, "call", "2026-09-18", 26, losing,
+                           SE.directional_bias(), SE.delta_ceiling(measured({}, {})))
+        self.assertFalse(out["ok"])
+        self.assertTrue(out["negative_ev"])
+        self.assertIn("loses money", out["reason"])
+        # It still says which contract came closest, so the refusal is
+        # inspectable rather than a shrug.
+        self.assertEqual(out["closest"]["strike"], 108)
+
+    def test_a_break_even_sale_is_refused_too(self):
+        flat = [contract(108, 0.16, 0.48, ev=0.0)]
+        out = SE.recommend("T", 100.0, "call", "2026-09-18", 26, flat,
+                           SE.directional_bias(), SE.delta_ceiling(measured({}, {})))
+        self.assertFalse(out["ok"])
+
+    def test_a_positive_expected_value_sale_still_goes_through(self):
+        out = SE.recommend("T", 100.0, "call", "2026-09-18", 26, LADDER,
+                           SE.directional_bias(), SE.delta_ceiling(measured({}, {})))
+        self.assertTrue(out["ok"])
+        self.assertGreater(out["ev_per_contract"], 0)
+
     def test_the_hard_cap_is_never_exceeded(self):
         ceiling = SE.delta_ceiling(measured(CALM, ORDINARY))
         self.assertLessEqual(ceiling["band"][1], SE.MAX_DELTA_CEILING)
@@ -239,6 +358,49 @@ class TestGammaNeverOpensATrade(unittest.TestCase):
         self.assertEqual(g["verdict"], "opposes")
         after = SE.apply_gex_to_ceiling(wide, g)
         self.assertLess(after["band"][1], wide["band"][1])
+
+    def test_opposing_gamma_moves_the_whole_window_not_just_its_ceiling(self):
+        """A pullback must leave a window a real chain can land in.
+
+        Scaling only the top of 0.15–0.22 leaves 0.15–0.176 — 2.6 delta
+        points wide. Strikes on a real chain step further apart than that,
+        so the band ends up straddling the gap between two strikes and the
+        card reports "no contract" rather than recommending a safer one.
+        Pulling back should mean "sell further out", not "sell nothing".
+        """
+        base = SE.delta_ceiling(measured({}, {}))
+        g = SE.gex_context(self.OPPOSING, 100.0, 106.0, "call")
+        after = SE.apply_gex_to_ceiling(base, g)
+        lo0, hi0 = base["band"]
+        lo1, hi1 = after["band"]
+        self.assertLess(lo1, lo0, "the floor of the band did not move")
+        self.assertLess(hi1, hi0)
+        self.assertGreaterEqual(hi1 - lo1, (hi0 - lo0) * 0.75,
+                                f"band collapsed to {lo1:.3f}–{hi1:.3f}")
+
+    def test_opposing_gamma_actually_moves_the_chosen_strike_further_out(self):
+        """The behavioural claim, end to end.
+
+        A pullback that leaves the default band untouched changes nothing at
+        all: the same strikes stay eligible and the same one gets picked, so
+        the note about negative gamma is decoration. An opposing reading has
+        to cost the trade something real — here, distance.
+        """
+        base = SE.delta_ceiling(measured({}, {}))
+        g = SE.gex_context(self.OPPOSING, 100.0, 106.0, "call")
+        after = SE.apply_gex_to_ceiling(base, g)
+        # Deltas that step straight over the 0.150–0.176 sliver, which is
+        # what a real chain does at this strike spacing.
+        ladder = [contract(104, 0.24, 0.90), contract(106, 0.19, 0.62),
+                  contract(108, 0.14, 0.40), contract(110, 0.10, 0.24)]
+        plain = SE.recommend("T", 100.0, "call", "2026-09-18", 26, ladder,
+                             SE.directional_bias(), base)
+        pulled = SE.recommend("T", 100.0, "call", "2026-09-18", 26, ladder,
+                              SE.directional_bias(), after, gex_block=self.OPPOSING)
+        self.assertTrue(plain["ok"], plain.get("reason"))
+        self.assertTrue(pulled["ok"], pulled.get("reason"))
+        self.assertGreater(pulled["strike"], plain["strike"],
+                           "the opposing reading did not move the strike at all")
 
     def test_a_negative_gamma_path_below_the_flip_is_a_veto(self):
         """Below the flip dealers amplify moves. With negative gamma also
@@ -282,6 +444,41 @@ class TestGammaNeverOpensATrade(unittest.TestCase):
         self.assertEqual(g["verdict"], "neutral")
 
 
+class TestTheStreakVocabulary(unittest.TestCase):
+    """The dialect the streak layer actually speaks.
+
+    `watchlist_table` emits "up" / "down" / "flat". An earlier version of
+    this engine compared that string against 1, which is silently false: no
+    exception, no log line, just a streak layer that never votes and never
+    conditions a measurement. Every symbol tested came back "nothing about
+    today is unusual", which reads like a calm market rather than a bug.
+    """
+
+    def test_the_strings_the_producer_actually_emits(self):
+        self.assertEqual(SE.streak_sign("up"), 1)
+        self.assertEqual(SE.streak_sign("down"), -1)
+        self.assertIsNone(SE.streak_sign("flat"))
+
+    def test_the_integers_older_callers_use(self):
+        self.assertEqual(SE.streak_sign(1), 1)
+        self.assertEqual(SE.streak_sign(-1), -1)
+        self.assertIsNone(SE.streak_sign(0))
+
+    def test_nonsense_is_no_direction_rather_than_a_guess(self):
+        for v in (None, "", "sideways", float("nan")):
+            self.assertIsNone(SE.streak_sign(v), repr(v))
+
+    def test_a_string_direction_actually_produces_a_streak_vote(self):
+        """The end-to-end version: the bug was invisible at the unit level
+        because the fixtures spoke integers too."""
+        b = SE.directional_bias(
+            streak_block={"streak_dir": "up", "streak_count": 6,
+                          "longest_up": 7, "streak_times_before": 40,
+                          "streak_winrate": 55})
+        self.assertIn("streak", b["sources"])
+        self.assertEqual(b["lean"], "fade_up")
+
+
 class TestDirectionalBias(unittest.TestCase):
     def test_it_never_becomes_a_price_forecast(self):
         b = SE.directional_bias(range_block={"pos": 92})
@@ -293,7 +490,7 @@ class TestDirectionalBias(unittest.TestCase):
     def test_layers_agreeing_is_recorded_as_agreement(self):
         b = SE.directional_bias(
             range_block={"pos": 92},
-            streak_block={"streak_dir": 1, "streak_count": 6, "longest_up": 7},
+            streak_block={"streak_dir": "up", "streak_count": 6, "longest_up": 7},
             swing_block={"direction": "up",
                          "maturity": {"code": "BEYOND ITS NORMAL SIZE"},
                          "cohort": {"n": 20}})
@@ -319,9 +516,9 @@ class TestDirectionalBias(unittest.TestCase):
         """Four up days is unremarkable for one stock and a record for
         another, so the weight is relative, not absolute."""
         modest = SE.directional_bias(
-            streak_block={"streak_dir": 1, "streak_count": 4, "longest_up": 14})
+            streak_block={"streak_dir": "up", "streak_count": 4, "longest_up": 14})
         extreme = SE.directional_bias(
-            streak_block={"streak_dir": 1, "streak_count": 4, "longest_up": 4})
+            streak_block={"streak_dir": "up", "streak_count": 4, "longest_up": 4})
         mw = modest["votes"][0]["weight"] if modest["votes"] else 0.0
         ew = extreme["votes"][0]["weight"] if extreme["votes"] else 0.0
         self.assertLess(mw, ew)
@@ -332,7 +529,7 @@ class TestTheRecommendation(unittest.TestCase):
         ceiling = kw.pop("ceiling", None) or SE.delta_ceiling(measured(CALM, ORDINARY))
         bias = kw.pop("bias", None) or SE.directional_bias(
             range_block={"pos": 92},
-            streak_block={"streak_dir": 1, "streak_count": 6, "longest_up": 7})
+            streak_block={"streak_dir": "up", "streak_count": 6, "longest_up": 7})
         return SE.recommend("T", 100.0, "call", "2026-09-18", 26,
                             kw.pop("contracts", LADDER), bias, ceiling, **kw)
 
@@ -351,6 +548,30 @@ class TestTheRecommendation(unittest.TestCase):
         r = self._rec()
         self.assertIsNotNone(r["p_keep_model"])
         self.assertIsNotNone(r["ceiling"].get("keep_pct_low"))
+
+    def test_the_model_keep_rate_is_a_percentage_of_a_fraction_input(self):
+        """The unit contract with premium_edge, pinned.
+
+        `p_itm_model` arrives as a fraction: 0.0627 means a 6.27% chance of
+        assignment, so the keep rate is 93.7% — not 99.9%. Reading the
+        fraction as a percentage understates assignment risk by a factor of
+        a hundred and puts a number on screen that would talk somebody into
+        a trade they should not take.
+        """
+        c = contract(108, 0.16, 0.48)
+        c["p_itm_model"] = 0.0627
+        r = SE.recommend("T", 100.0, "call", "2026-09-18", 26, [c],
+                         SE.directional_bias({}, {}, {}),
+                         SE.delta_ceiling(measured({}, {})))
+        self.assertAlmostEqual(r["p_keep_model"], 93.7, places=1)
+
+    def test_a_keep_rate_can_never_exceed_a_hundred_percent(self):
+        c = contract(108, 0.16, 0.48)
+        c["p_itm_model"] = 1.0                    # certain assignment
+        r = SE.recommend("T", 100.0, "call", "2026-09-18", 26, [c],
+                         SE.directional_bias({}, {}, {}),
+                         SE.delta_ceiling(measured({}, {})))
+        self.assertAlmostEqual(r["p_keep_model"], 0.0, places=1)
 
     def test_the_tail_loss_is_always_a_stated_risk(self):
         r = self._rec()
