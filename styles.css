@@ -8281,6 +8281,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .rev-scan { margin: 10px 0 2px; }
 .rev-scan-modes { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0;
   align-items: center; }
+.rev-scan-run { margin-left: auto; }
+@media (max-width: 700px) { .rev-scan-run { margin-left: 0; flex: 1 1 100%; } }
+.rev-scan-meta { font-size: 11.5px; color: var(--fg-3); margin: 0 0 8px;
+  line-height: 1.45; }
+.rev-scan-meta b { color: var(--fg-2); font-weight: 600; }
 .rev-scan-sep { width: 1px; align-self: stretch; margin: 0 4px;
   background: var(--line); }
 @media (max-width: 700px) { .rev-scan-sep { display: none; } }
@@ -9046,6 +9051,13 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   border: 1px solid var(--line, #232733); border-radius: 8px;
   padding: 5px 9px; backdrop-filter: blur(4px);
   font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2, #aeb6c2);
+}
+/* The legend is a block above the canvas rather than an overlay on it: with
+   the reversal levels it runs to two lines, and floating that over the top
+   of the chart hid the candles it describes. */
+.swing-chart-legend {
+  max-width: 100%; margin: 0 0 6px; background: var(--bg-2);
+  backdrop-filter: none; row-gap: 5px;
 }
 .swing-chart-ohlc b { color: var(--fg-1, #e6e9ef); font-weight: 600; }
 .swing-chart-ohlc .up, .swing-chart-legend .up { color: var(--up, #22c55e); }
