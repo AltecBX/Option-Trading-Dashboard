@@ -1968,3 +1968,25 @@ never hides a row unless asked.
 
 99 Python tests in the projection suite (6 new), 78 node guards (9 new),
 17/17 browser checks at 1600px and 390px.
+
+## v4.53 — A scan button where the scan is read, and a legend off the candles
+
+**The reversal scan gets its own `Scan now`.** It reads the shared watchlist
+board, so it had no way to refill itself — the only trigger lived on another
+tab. The button fires the same `/api/watchlist_table/scan`, polls until the
+server reports the scan finished, disables itself with live progress while
+it runs, and prints when the board was last filled plus the 9 AM / 6 PM ET
+auto-refresh. Its tooltip says plainly that this is the SAME full watchlist
+scan (minutes, every tracked symbol) and that it refreshes the six other
+cards reading that board — a per-tab refresh button that quietly costs
+minutes and moves other screens would be worse than no button.
+
+**The chart legend moved out of the crosshair overlay.** It had grown to
+eleven entries and two lines, and floating that over the plot put an opaque
+band across the price action it describes. It now renders as a block above
+the canvas; the one-line OHLC readout stays floating, where it belongs next
+to the cursor. This also revived the legend's own tooltips, which had been
+unreachable inside a `pointer-events: none` layer since they were added.
+
+2,504 Python tests green, 176 node guards (87 in the reversal-UI guard,
+9 new), 21/21 browser checks at 1600px and 390px.

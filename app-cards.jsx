@@ -1706,6 +1706,26 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         )}
       </div>
       {!collapsed && !LC && <div className="ab-status muted">Chart library didn't load (offline?). The swing table above has the full data.</div>}
+      {/* The level legend sits ABOVE the canvas, not floating over it
+          (v4.53). It grew to eleven entries and two lines, which put an
+          opaque band across the top of the price action — and, being inside
+          the pointer-events:none crosshair overlay, its tooltips could
+          never be reached either. The crosshair OHLC readout stays floating:
+          it is one line and belongs next to the cursor. */}
+      {!collapsed && LC && legend.length > 0 && (
+        <div className="swing-chart-legend">
+          {legend.map(l => (
+            <span key={l.name} className="swing-legend-item" title={l.tip || ""}>
+              {/* A text-only entry (the unfinished swing's own label)
+                  carries no swatch and no price — it is a caption for the
+                  candles at the right edge, not a level. */}
+              {l.text ? <b>{l.text}</b> : (
+                <><i style={{ background: l.color }} />{l.name} <b>{l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : fmtUsd(l.price, 2)}</b></>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       {!collapsed && LC && (
         <div className="swing-chart-wrap">
           <div className="swing-chart-overlay">
@@ -1718,20 +1738,6 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
                 <span>C <b className={ro.c >= ro.o ? "up" : "down"}>{ro.c.toFixed(2)}</b></span>
                 {roChg != null && <span className={roChg >= 0 ? "up" : "down"}>{roChg >= 0 ? "+" : ""}{roChg.toFixed(2)}%</span>}
                 <span className="muted">Vol {fmtVol(ro.v)}</span>
-              </div>
-            )}
-            {legend.length > 0 && (
-              <div className="swing-chart-legend">
-                {legend.map(l => (
-                  <span key={l.name} className="swing-legend-item" title={l.tip || ""}>
-                    {/* A text-only entry (the unfinished swing's own label)
-                        carries no swatch and no price — it is a caption for
-                        the candles at the right edge, not a level. */}
-                    {l.text ? <b>{l.text}</b> : (
-                      <><i style={{ background: l.color }} />{l.name} <b>{l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : fmtUsd(l.price, 2)}</b></>
-                    )}
-                  </span>
-                ))}
               </div>
             )}
           </div>
@@ -1783,6 +1789,7 @@ const REV_TIP = {
   flags: "Conditions that change how much weight the projection deserves — where the extreme stands against the zone, thin samples, earnings ahead, a swing already beyond most of its history.",
   scan: "Every scanned watchlist name with an active swing, placed against ITS OWN historical reversal zone — down-swings as bounce (long) candidates, up-swings as pullback (short) candidates. Ranked by REVERSAL STATUS first (already reacting, then in the zone, then approaching), with adequate samples before thin ones and distance to the zone breaking the tie; click any column to re-sort. Numbers here come from the 5-year scan frame and are not earnings-filtered; open a symbol on this tab for the full 10-year read.",
   penetration: "How far INTO the typical band the running extreme actually travelled: 0% = it only just reached the near edge, 100% = it went all the way to the far edge, above 100% = out the other side. A position, like the 20-day range position — not a score, and not part of the ordering. It is here because the reaction states are structurally biased toward the shallow edge: leaving the band takes a small move for an extreme that grazed it and a large one for an extreme sitting deep inside, so across 1,197 scanned names the median reacting row had penetrated 14% of its band against 46% for a row still IN ZONE. Sorting the scan by this was TESTED AND REJECTED — deepest-first put names that simply kept falling on page one and left the what-if edge flat to worse. Click it to sort when you want it; the default order does not use it.",
+  scanRun: "Refills the shared watchlist board — the SAME scan the Watchlist tab runs, not a reversal-only one, because this section has no data of its own: it reads the board and so do the streaks, posture, opportunity and context cards. That means a few minutes for a full watchlist (every tracked symbol gets price, fundamentals and earnings), and it refreshes those other cards too. You rarely need it: the board fills itself at 9 AM and 6 PM ET on weekdays. Press it when you want numbers fresher than the last slot, or right after adding symbols.",
   scanStage: "Which swings the walk-forward run says are worth reading. Below 100% of a normal move the comparison set is nearly the stock's whole history and conditioning measurably adds nothing, so those rows are labelled early. Hiding them is the honest way to stop shallow qualifiers crowding the list — it uses the SAME validated boundary as the stage label on the card, not a new threshold, and it filters rather than reorders, so nothing is silently promoted. Off by default: the scan never hides a row unless you ask it to.",
   scanStatus: "Where each name's running EXTREME stands against its own historical reversal zone — not where today's close is. A stock whose low entered the zone and has since traded up off it is a reaction candidate; one still falling toward the zone is an approach candidate. Ranking on distance from the current price alone cannot tell those apart, which is why this column leads the table.",
 };
@@ -2041,6 +2048,9 @@ function SwingReversalBlock({ data }) {
 // The reversal scan: the whole watchlist against each name's own zone.
 function SwingReversalScan({ apiFetch }) {
   const [rows, setRows] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef(null);
   const [mode, setMode] = useState("bounce");
   const [sortK, setSortK] = useState("status");
   const [sortD, setSortD] = useState(1);
@@ -2050,11 +2060,41 @@ function SwingReversalScan({ apiFetch }) {
   // is the reason a deep, well-sampled name reaches page one at all. Off by
   // default: the scan never hides a row unless asked.
   const [stageF, setStageF] = useState("all");
+  // The board this reads is the shared server-side watchlist scan — the same
+  // one the Watchlist tab fills and six other cards consume. Reading it is
+  // free; refilling it is a multi-minute pass over every tracked symbol, so
+  // the button says so rather than looking like a per-tab refresh.
+  const load = async () => {
+    try {
+      const d = await (await apiFetch("/api/watchlist_table")).json();
+      setRows((d && d.rows) || []);
+      setStatus((d && d.status) || null);
+      return d;
+    } catch (e) { setRows([]); return null; }
+  };
   useEffect(() => {
     if (!open || rows) return;
-    apiFetch("/api/watchlist_table").then(r => r.json())
-      .then(d => setRows((d && d.rows) || [])).catch(() => setRows([]));
+    load();
+    /* eslint-disable-next-line */
   }, [open]);
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  const startScan = async () => {
+    setBusy(true);
+    try { await apiFetch("/api/watchlist_table/scan?force=1"); } catch (e) { /* keep the old board */ }
+    await load();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.status || !d.status.scanning) {
+        clearInterval(pollRef.current); pollRef.current = null; setBusy(false);
+      }
+    }, 4000);
+  };
+  const scanning = busy || !!(status && status.scanning);
+  const lastScan = status && status.last_scan
+    ? new Date(status.last_scan).toLocaleString(undefined,
+        { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : null;
   const inMode = (r) => r.rz_median_price != null &&
     (mode === "bounce" ? r.swing_dir === "short" : r.swing_dir === "long");
   const pick = (rows || []).filter(r => inMode(r) &&
@@ -2129,6 +2169,17 @@ function SwingReversalScan({ apiFetch }) {
             <button className={`rr-btn ${stageF === "developed" ? "pd-f-on" : ""}`}
               onClick={() => setStageF("developed")} title={REV_TIP.scanStage}>
               Normal size or beyond ({(rows || []).filter(r => inMode(r) && r.rz_stage && r.rz_stage !== "EARLY IN THE MOVE").length})</button>
+            <button className="scan-run-btn rev-scan-run" onClick={startScan}
+              disabled={scanning} title={REV_TIP.scanRun}>
+              {scanning ? (status && status.total
+                ? `Scanning… ${status.scanned || 0}/${status.total}` : "Scanning…")
+                : "Scan now"}</button>
+          </div>
+          <div className="rev-scan-meta" title={REV_TIP.scanRun}>
+            {lastScan
+              ? <>Board last scanned <b>{lastScan}</b> · {(rows || []).length} names · auto-refreshes 9 AM &amp; 6 PM ET</>
+              : <>No scan on file yet — the board this reads is filled by the watchlist scan.</>}
+            {status && status.error ? <span className="ab-err"> · {status.error}</span> : null}
           </div>
           {rows === null && <div className="rev-empty">Loading the scanned board…</div>}
           {rows !== null && sorted.length === 0 && (

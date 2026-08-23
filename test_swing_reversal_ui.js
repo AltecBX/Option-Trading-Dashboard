@@ -133,6 +133,35 @@ ok("penetration is NOT part of the default comparator", (() => {
 ok("the rejected ordering is documented where it would be repeated",
    /TESTED AND REJECTED/.test(tipBlock));
 
+// 6c — (v4.53) the scan can be refilled from the tab that reads it, and the
+//      button is honest about what it costs and who else it refreshes.
+ok("the reversal scan has its own scan button",
+   /rev-scan-run/.test(scanBlock) && /Scan now/.test(scanBlock));
+ok("it triggers the shared watchlist scan",
+   /watchlist_table\/scan\?force=1/.test(scanBlock));
+ok("it disables itself and shows progress while scanning",
+   /disabled=\{scanning\}/.test(scanBlock) && /Scanning…/.test(scanBlock));
+ok("it polls until the server says the scan finished",
+   /status\.scanning/.test(scanBlock) && /clearInterval/.test(scanBlock));
+ok("it discloses when the board was last filled",
+   /rev-scan-meta/.test(scanBlock) && /last_scan/.test(scanBlock));
+ok("the tooltip says it is the SAME scan, not a reversal-only one",
+   defined.has("scanRun") && /SAME scan the Watchlist tab runs/.test(tipBlock));
+
+// 7b — (v4.53) the chart legend no longer floats over the candles, and is
+//      therefore reachable for its own tooltips.
+const chartBlock = src.slice(src.indexOf("function SwingChart"),
+                             src.indexOf("function fmtLongDate"));
+ok("the legend renders outside the crosshair overlay", (() => {
+  const ov = chartBlock.indexOf('className="swing-chart-overlay"');
+  const lg = chartBlock.indexOf('className="swing-chart-legend"');
+  return lg >= 0 && ov >= 0 && lg < ov;
+})());
+ok("the legend keeps its per-entry tooltips", /title=\{l\.tip \|\| ""\}/.test(chartBlock));
+ok("the crosshair readout stays floating",
+   chartBlock.indexOf('className="swing-chart-ohlc"') >
+   chartBlock.indexOf('className="swing-chart-overlay"'));
+
 // 7 — the what-if prefills belong to the SETUP, not to whatever was typed
 //     for the last ticker.
 const wiBlock = src.slice(src.indexOf("function SwingWhatIf"),
