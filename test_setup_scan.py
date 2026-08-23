@@ -310,3 +310,126 @@ class TestAnalyzeEndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE CHAIN HAS TO COVER THE SELLING WINDOW
+# ══════════════════════════════════════════════════════════════════════════
+
+class WindowBroker:
+    """A broker that honours the date range, so a fetch asking for the wrong
+    dates actually comes back wrong instead of being quietly forgiven."""
+
+    def __init__(self, offsets=(2, 9, 16, 30, 45, 120), bars=None):
+        self.offsets = offsets
+        self._bars = bars if bars is not None else _bars()
+        self.asked = []
+
+    def get_price_history(self, symbol, days=1400):
+        return self._bars
+
+    def get_option_chain(self, symbol, expiration=None, to_date=None,
+                         strike_count=60):
+        self.asked.append((expiration, to_date))
+        today = date.today()
+        spot = self._bars[-1]["close"]
+        exps = [(today + timedelta(days=n)).isoformat() for n in self.offsets]
+        if expiration:
+            exps = [e for e in exps if e >= expiration[:10]]
+        if to_date:
+            exps = [e for e in exps if e <= to_date[:10]]
+        if not exps:
+            return None
+        merged = {"underlying": {"symbol": symbol, "last": spot},
+                  "expirations": exps, "chains": {}, "source": "stub"}
+        for e in exps:
+            merged["chains"][e] = _chain(spot, e)["chains"][e]
+        return merged
+
+    def get_quote(self, symbol):
+        return {"last": self._bars[-1]["close"]}
+
+
+class TestTheChainMustCoverTheSellingWindow(unittest.TestCase):
+    """The failure every single symbol hit in production.
+
+    The gamma-exposure getter returns the NEAREST expiration, because that
+    is where intraday dealer gamma lives. For a premium sale that is the
+    wrong chain — the nearest expiration is usually a weekly one to five
+    days out, and the seller window is 7 to 60 days. The old guard asked
+    only whether the chain was a non-empty dict, so it accepted that chain
+    and every symbol then failed with "no expiration inside the selling
+    window on this chain".
+
+    A chain that cannot answer the question is as useless as no chain.
+    """
+
+    def setUp(self):
+        SS.invalidate()
+        self.broker = WindowBroker()
+
+    def tearDown(self):
+        SS.configure(schwab_getter=lambda: None)
+        SS.invalidate()
+
+    def _near_only(self, symbol):
+        """Exactly what the gamma getter hands over: the nearest expiry."""
+        today = date.today()
+        exp = (today + timedelta(days=2)).isoformat()
+        spot = self.broker._bars[-1]["close"]                  # noqa: SLF001
+        return (_chain(spot, exp), "schwab", "12:00", [exp], [exp])
+
+    def test_a_near_dated_getter_chain_is_rejected_and_the_window_refetched(self):
+        SS.configure(schwab_getter=lambda: self.broker,
+                     chain_getter=self._near_only,
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("TEST")
+        self.assertNotIn("No expiration", str(out.get("error") or ""),
+                         "the two-day chain was accepted instead of refetched")
+        self.assertTrue(self.broker.asked, "no window fetch was ever made")
+        self.assertIsNotNone(out.get("expiration"), out.get("error"))
+        self.assertGreaterEqual(out["dte"], 7)
+        self.assertLessEqual(out["dte"], 60)
+
+    def test_a_getter_chain_that_does_cover_the_window_is_used_as_is(self):
+        today = date.today()
+        good = (today + timedelta(days=30)).isoformat()
+        spot = self.broker._bars[-1]["close"]                  # noqa: SLF001
+        SS.configure(schwab_getter=lambda: self.broker,
+                     chain_getter=lambda s: (_chain(spot, good), "schwab",
+                                             "12:00", [good], [good]),
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("TEST")
+        self.assertEqual(out.get("expiration"), good)
+        self.assertEqual(self.broker.asked, [],
+                         "refetched a chain that was already usable")
+
+    def test_a_symbol_with_no_medium_dated_options_says_what_it_did_have(self):
+        """When the refusal is real, it has to be inspectable. 'No expiration
+        in the window' on its own looks the same whether the symbol lists
+        nothing usable or the fetch asked for the wrong dates."""
+        thin = WindowBroker(offsets=(1, 3))
+        SS.configure(schwab_getter=lambda: thin,
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("TEST")
+        self.assertFalse(out["ok"])
+        msg = out.get("error") or ""
+        self.assertIn("days out on this chain", msg)
+
+    def test_the_window_comes_from_the_same_config_the_picker_uses(self):
+        """One definition of the window. If the fetch and the pick disagree,
+        the fetch can succeed and the pick still find nothing."""
+        cfg = SS._edge._cfg()                                  # noqa: SLF001
+        lo, hi = SS._window_dtes(cfg)                          # noqa: SLF001
+        st = cfg.get("select", {})
+        self.assertEqual(lo, float(st.get("min_dte", 7)))
+        self.assertEqual(hi, float(st.get("max_dte", 60)))
+
+    def test_window_expiries_uses_the_same_arithmetic_as_the_picker(self):
+        today = date.today()
+        chain = {"chains": {(today + timedelta(days=n)).isoformat(): {}
+                            for n in (1, 8, 30, 90)}}
+        got = SS._window_expiries(chain, today, 7, 60)         # noqa: SLF001
+        self.assertEqual(got, [(today + timedelta(days=8)).isoformat(),
+                               (today + timedelta(days=30)).isoformat()])

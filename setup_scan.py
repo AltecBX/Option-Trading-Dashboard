@@ -341,6 +341,24 @@ def _ladder(chain, exp, side, spot, t_years, erv, cfg, rate):
     return out
 
 
+def _window_dtes(cfg) -> tuple[float, float]:
+    """The seller's expiration window, from the same config premium_edge
+    picks with. Kept in one place so the fetch and the pick cannot disagree
+    about which days are eligible."""
+    st = ((cfg or {}).get("select") or {})
+    return float(st.get("min_dte", 7)), float(st.get("max_dte", 60))
+
+
+def _window_expiries(chain, now: date, lo: float, hi: float) -> list:
+    """Expirations in this chain that a seller could actually use."""
+    out = []
+    for exp in ((chain or {}).get("chains") or {}):
+        d = pe._expiry_dte(exp, now)                          # noqa: SLF001
+        if lo <= d <= hi:
+            out.append(exp)
+    return sorted(out)
+
+
 def _no_trade_reason(sides: dict) -> str:
     """Why nothing was recommended, in the sides' own words."""
     parts = []
@@ -382,15 +400,45 @@ def analyze(symbol: str, now: date | None = None) -> dict:
     D = [D[i] for i in keep]; Hh = [Hh[i] for i in keep]
     Ll = [Ll[i] for i in keep]; Cc = [Cc[i] for i in keep]
 
+    # The chain has to cover the SELLING WINDOW, not merely exist.
+    #
+    # The gamma-exposure getter returns the nearest expiration, because that
+    # is where intraday dealer gamma lives. For a premium sale that is the
+    # wrong chain: the nearest expiration is usually a weekly one to five
+    # days out, and every one of them falls outside the 7-60 day window a
+    # seller picks from. The old guard only asked whether the chain was
+    # non-empty, so it accepted that chain and every symbol then failed with
+    # "no expiration inside the selling window". A chain that cannot answer
+    # the question is as useless as no chain at all — check for a usable
+    # expiration, not for a truthy dict.
+    lo_dte, hi_dte = _window_dtes(cfg)
     chain, gsource, fetched_at = None, None, None
     if _CHAIN_GETTER:
         try:
-            chain, gsource, fetched_at, _avail, _sel = _CHAIN_GETTER(symbol)
+            c, gsource, fetched_at, _avail, _sel = _CHAIN_GETTER(symbol)
+            if _window_expiries(c, now, lo_dte, hi_dte):
+                chain = c
         except Exception:  # noqa: BLE001
             chain = None
+    if chain is None:
+        # Ask the broker for exactly the window, with a day of slack on each
+        # side so an expiration sitting on the boundary is not filtered out
+        # by the fetch before _pick_expiry ever sees it.
+        chain = sc.get_option_chain(
+            symbol,
+            expiration=(now + timedelta(days=max(0, int(lo_dte) - 1))).isoformat(),
+            to_date=(now + timedelta(days=int(hi_dte) + 1)).isoformat(),
+            strike_count=60)
+        gsource, fetched_at = "broker", None
     if not chain or not (chain.get("chains") or {}):
-        to_date = (now + timedelta(days=95)).isoformat()
-        chain = sc.get_option_chain(symbol, to_date=to_date, strike_count=60)
+        # Nothing listed inside the window. Fetch broadly before giving up,
+        # purely so the refusal can name what this symbol DOES list —
+        # "no options at all" and "no options in your window" are different
+        # facts and a reader has to be able to tell them apart.
+        chain = sc.get_option_chain(
+            symbol, to_date=(now + timedelta(days=120)).isoformat(),
+            strike_count=60)
+        gsource, fetched_at = "broker", None
     if not chain or not (chain.get("chains") or {}):
         return {"ok": False, "symbol": symbol,
                 "error": "No option chain came back for this symbol."}
@@ -427,8 +475,18 @@ def analyze(symbol: str, now: date | None = None) -> dict:
 
     exp = pe._pick_expiry(chain, now, cfg, term)              # noqa: SLF001
     if not exp:
+        # Say what the chain DID contain. "No expiration in the window" with
+        # nothing else is a dead end for the reader: it looks identical
+        # whether the symbol lists no medium-dated options at all or the
+        # fetch simply asked for the wrong dates.
+        got = sorted((chain.get("chains") or {}).keys())
+        near = ", ".join(f"{e[:10]} ({pe._expiry_dte(e, now):.0f} days)"  # noqa: SLF001
+                         for e in got[:4]) or "none at all"
         return {"ok": False, "symbol": symbol,
-                "error": "No expiration inside the selling window on this chain."}
+                "error": (f"No expiration between {lo_dte:.0f} and {hi_dte:.0f} "
+                          f"days out on this chain. It listed {len(got)} "
+                          f"expiration{'' if len(got) == 1 else 's'}: {near}"
+                          + ("…" if len(got) > 4 else "") + ".")}
     dte = pe._expiry_dte(exp, now)                            # noqa: SLF001
     t_years = max(1e-6, dte / 365.0)
     rate = 0.04
