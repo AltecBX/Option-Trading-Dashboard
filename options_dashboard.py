@@ -481,11 +481,21 @@ def _spy_gamma_regime():
             spot = _num(q.get("last"))
         if not spot or spot <= 0:
             return None
-        chain = sc.get_option_chain("SPY", strike_count=100)
+        # Two bounded calls, never one unbounded one. SPY lists sixty-odd
+        # expirations; asking for all of them at a hundred strikes is
+        # megabytes, and _get gives up after 15 seconds — which is why this
+        # read had been quietly returning None and the header showed a dash.
+        # See _gex_chain for the same fix on the Gamma Exposure tab.
+        exps = _gex_expirations(sc, "SPY")[:2]   # nearest 2: most intraday gamma
+        if not exps:
+            return None
+        chain = sc.get_option_chain("SPY", expiration=exps[0], to_date=exps[-1],
+                                    strike_count=100)
         if not chain:
             return None
         chains = chain.get("chains") or {}
-        exps = chain.get("expirations") or sorted(chains.keys())
+        exps = [e for e in (chain.get("expirations") or sorted(chains.keys()))
+                if e in set(exps)]
         if not exps:
             return None
         net = 0.0
@@ -524,31 +534,97 @@ def _gex_dev_fixtures_enabled() -> bool:
     return str(os.environ.get("GEX_DEV_FIXTURES", "")).strip().lower() in ("1", "true", "yes")
 
 
-def _gex_chain(symbol: str):
-    """(chain, source, fetched_at) for one underlying.
+# The chain is fetched in TWO bounded steps, never in one unbounded call.
+#
+# Asking Schwab for a chain without a date filter returns EVERY listed
+# expiration. On a single-name stock that is a handful; on SPY or QQQ it is
+# sixty-odd expirations of dailies, weeklies, monthlies and LEAPS. At a wide
+# strike count that is tens of thousands of contracts and many megabytes,
+# and `SchwabClient._get` gives every request 15 seconds before it gives up
+# and returns None. The Gamma Exposure tab then reported, accurately but
+# uselessly, that no chain was available — for the two symbols most people
+# open it for. (The same unbounded fetch is why the header's SPY gamma read
+# showed a dash.)
+#
+# Step one enumerates the expirations at a narrow strike count. Step two
+# fetches only the expirations actually being measured, at the wide count
+# gamma needs. Both are small; neither grows with how many expirations the
+# underlying happens to list.
+_GEX_INDEX_STRIKES = 10       # step one: just enough to list the expirations
+_GEX_WIDE_STRIKES = 200       # step two: the ladder gamma is actually read on
+# How many expirations "several" may mean. Summing every expiration on SPY is
+# the unbounded call again by another name, so the multi-expiration option is
+# capped and the UI names the real number instead of promising "all".
+_GEX_MAX_EXPIRATIONS = 8
 
-    strike_count is wide on purpose: gamma concentrates away from the money
-    on index products, and a 60-strike window centred on spot cuts the ladder
-    off before the strikes that set the flip level.
+
+def _gex_expirations(sc, symbol: str) -> list[str]:
+    """Every expiration the underlying lists, from one narrow-ladder call."""
+    try:
+        idx = sc.get_option_chain(symbol, strike_count=_GEX_INDEX_STRIKES)
+    except Exception as exc:  # noqa: BLE001
+        _log_warn(symbol, "gex/expirations", exc)
+        return []
+    if not idx:
+        return []
+    return list(idx.get("expirations")
+                or sorted((idx.get("chains") or {}).keys()))
+
+
+def _gex_chain(symbol: str, want: str = ""):
+    """(chain, source, fetched_at, available, selected) for one underlying.
+
+    `want` is one expiration date, a comma-separated list, "all" for the
+    nearest `_GEX_MAX_EXPIRATIONS`, or empty for the nearest one.
     """
     sc = _schwab()
     if sc is not None:
-        try:
-            chain = sc.get_option_chain(symbol, strike_count=200)
-            if chain and (chain.get("chains") or {}):
-                return chain, "schwab", _now_iso_utc()
-        except Exception as exc:  # noqa: BLE001
-            _log_warn(symbol, "gex/chain", exc)
+        available = _gex_expirations(sc, symbol)
+        if available:
+            if want.lower() == "all":
+                selected = available[:_GEX_MAX_EXPIRATIONS]
+            elif want:
+                selected = [e for e in want.split(",") if e in available] \
+                    or available[:1]
+            else:
+                selected = available[:1]
+            try:
+                # One date range covering exactly what was asked for. Schwab
+                # filters server-side, so the response is bounded by the
+                # selection rather than by the underlying's listing depth.
+                chain = sc.get_option_chain(
+                    symbol, expiration=selected[0], to_date=selected[-1],
+                    strike_count=_GEX_WIDE_STRIKES)
+                if chain and (chain.get("chains") or {}):
+                    # A date RANGE can return expirations between the ends
+                    # that were not asked for; keep only the selection.
+                    keep = set(selected)
+                    chain["chains"] = {e: v for e, v in (chain.get("chains") or {}).items()
+                                       if e in keep}
+                    chain["expirations"] = sorted(chain["chains"].keys())
+                    if chain["chains"]:
+                        return (chain, "schwab", _now_iso_utc(),
+                                available, sorted(chain["chains"].keys()))
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(symbol, "gex/chain", exc)
     if _gex_dev_fixtures_enabled():
         try:
             data = json.loads(_GEX_FIXTURE_PATH.read_text())
             chain = data.get("chain") or {}
             und = chain.setdefault("underlying", {})
             und["symbol"] = symbol.upper()
-            return chain, "fixture", data.get("generated_at")
+            available = list(chain.get("expirations") or [])
+            if want.lower() == "all":
+                selected = available[:_GEX_MAX_EXPIRATIONS]
+            elif want:
+                selected = [e for e in want.split(",") if e in available] or available[:1]
+            else:
+                selected = available[:1]
+            return (chain, "fixture", data.get("generated_at"),
+                    available, selected)
         except Exception as exc:  # noqa: BLE001
             _log_warn(symbol, "gex/fixture", exc)
-    return None, ("schwab" if sc is not None else None), None
+    return None, ("schwab" if sc is not None else None), None, [], []
 
 
 def _now_iso_utc() -> str:
@@ -12169,22 +12245,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 qs = parse_qs(parsed.query)
                 symbol = (qs.get("symbol", ["SPY"])[0] or "SPY").upper().strip()
                 want = (qs.get("expiration", [""])[0] or "").strip()
-                chain, source, fetched_at = _gex_chain(symbol)
+                chain, source, fetched_at, available, chosen = _gex_chain(symbol, want)
                 if not chain or not (chain.get("chains") or {}):
                     self._send_json({
                         "ok": False, "symbol": symbol, "source": source,
-                        "error": ("No option chain is available for this symbol. "
-                                  "Connect the broker under Manage, or pick a "
-                                  "symbol that has listed options."),
+                        "available_expirations": available,
+                        "error": (
+                            "No option chain came back for this symbol. If the "
+                            "broker is connected under Manage, the symbol may "
+                            "have no listed options."
+                            if not available else
+                            "The broker listed expirations for this symbol but "
+                            "returned no contracts for the one selected."),
                     }, status=200)
                     return
-                available = chain.get("expirations") or sorted((chain.get("chains") or {}).keys())
-                if want.lower() == "all":
-                    chosen = list(available)
-                elif want:
-                    chosen = [e for e in want.split(",") if e in available] or available[:1]
-                else:
-                    chosen = available[:1]
                 spot = None
                 sc = _schwab()
                 if sc is not None:
@@ -12204,6 +12278,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 out["fetched_at"] = fetched_at
                 out["available_expirations"] = available
                 out["selected_expirations"] = chosen
+                out["max_expirations"] = _GEX_MAX_EXPIRATIONS
                 self._send_json(out)
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/gex", exc)

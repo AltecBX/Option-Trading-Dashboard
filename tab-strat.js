@@ -1126,21 +1126,36 @@ function squarify(items, x, y, w, h) {
 
 // Percentage change → colour. Diverging around zero, saturating at 3%,
 // which is where an equity move stops being routine.
+//
+// The mix is toward --map-flat (a grey) and it happens in sRGB. Both halves
+// of that matter, and both were got wrong before being got right.
+//
+// Mixing toward --bg-3, the panel behind the map, rotated every hue: --bg-3
+// is a navy at hue ~228 with real chroma, so in oklch a green at 152 came
+// out teal and a red at 25 came out purple. Mixing toward oklch(L 0 0) was
+// no better — a hue of 0 is not "powerless", it is the red direction, so
+// oklch walked 152 toward 0 and a +0.3% gainer rendered ORANGE.
+//
+// sRGB toward an equal-channel grey cannot rotate a hue: mixing (r,g,b)
+// with (k,k,k) scales every channel difference by the same factor, and hue
+// is a function of those differences alone.
 function mapColour(chg) {
   const v = Math.max(-1, Math.min(1, (chg || 0) / 3));
-  const a = 0.14 + Math.abs(v) * 0.62;
-  return v >= 0 ? `color-mix(in oklch, var(--up) ${Math.round(a * 100)}%, var(--bg-3))` : `color-mix(in oklch, var(--down) ${Math.round(a * 100)}%, var(--bg-3))`;
+  const a = 0.14 + Math.abs(v) * 0.68;
+  return v >= 0 ? `color-mix(in srgb, var(--up) ${Math.round(a * 100)}%, var(--map-flat))` : `color-mix(in srgb, var(--down) ${Math.round(a * 100)}%, var(--map-flat))`;
 }
+const MAP_SIZES = [[20, "Fewer", "The twenty largest names in each sector — the biggest rectangles, the most readable."], [40, "Standard", "The forty largest names in each sector."], [80, "More", "The eighty largest names in each sector. Denser; the smallest rectangles carry no label, only a tooltip."]];
 function MarketMap({
   apiFetch,
   onOpenTicker
 }) {
+  const [limit, setLimit] = useState(40);
   const {
     data,
     err,
     busy,
     reload
-  } = useStFeed(apiFetch, "/api/market_map?limit=40", 30000);
+  } = useStFeed(apiFetch, `/api/market_map?limit=${limit}`, 30000);
   const [w, setW] = useState(960);
   const wrapRef = useRef(null);
   useEffect(() => {
@@ -1151,7 +1166,16 @@ function MarketMap({
     setW(Math.max(280, el.clientWidth));
     return () => ro.disconnect();
   }, []);
-  const H = w < 620 ? 900 : w < 1000 ? 640 : 520;
+
+  // Height scales with how many rectangles have to fit. At 520px the forty
+  // names in eleven sectors averaged about 34px square, which is under every
+  // label threshold — so most of the map rendered as unlabelled blocks and
+  // read as missing data rather than as small holdings. Area per rectangle
+  // is what decides whether a name can be written in it, so the height is
+  // derived from the count instead of being a fixed number.
+  const perSector = Math.max(1, data && data.limit_per_sector || limit);
+  const sectorCount = Math.max(1, (data && data.sectors || []).length);
+  const H = Math.round(Math.max(w < 620 ? 900 : 620, Math.min(2400, perSector * sectorCount * (w < 620 ? 2600 : 2100) / w)));
   const layout = useMemo(() => {
     const secs = data && data.sectors || [];
     if (!secs.length) return [];
@@ -1182,12 +1206,23 @@ function MarketMap({
     className: "card-title"
   }, "Your watchlist by size and today's move"), /*#__PURE__*/React.createElement("div", {
     className: "card-sub"
-  }, "Grouped by sector. Rectangle area is market value, colour is the percentage change today. Click any name to load it.")), /*#__PURE__*/React.createElement("button", {
+  }, "Grouped by sector. Rectangle area is market value, colour is the percentage change today. Click any name to load it.")), /*#__PURE__*/React.createElement("div", {
+    className: "toolbar"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "seg",
+    role: "group",
+    "aria-label": "How many names per sector"
+  }, MAP_SIZES.map(([n, lab, tip]) => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    className: limit === n ? "active" : "",
+    onClick: () => setLimit(n),
+    title: tip
+  }, lab))), /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
     onClick: reload,
     disabled: busy,
     title: "Re-read prices and rebuild the map now."
-  }, busy ? "Refreshing…" : "Refresh")), err ? /*#__PURE__*/React.createElement(StError, {
+  }, busy ? "Refreshing…" : "Refresh"))), err ? /*#__PURE__*/React.createElement(StError, {
     error: err,
     onRetry: reload
   }) : null, !data && !err ? /*#__PURE__*/React.createElement(StLoading, {
@@ -1234,17 +1269,28 @@ function MarketMap({
     style: {
       fill: mapColour(c.child.change_pct)
     }
-  }), c.w > 42 && c.h > 26 ? /*#__PURE__*/React.createElement("text", {
-    x: c.x + c.w / 2,
-    y: c.y + c.h / 2 - 1,
-    className: "gx-map-sym",
-    textAnchor: "middle"
-  }, c.child.symbol) : null, c.w > 52 && c.h > 40 ? /*#__PURE__*/React.createElement("text", {
-    x: c.x + c.w / 2,
-    y: c.y + c.h / 2 + 12,
-    className: "gx-map-chg",
-    textAnchor: "middle"
-  }, stChg(c.child.change_pct, 1)) : null, /*#__PURE__*/React.createElement("title", null, `${c.child.symbol} — ${c.child.company || "name unavailable"}
+  }), (() => {
+    const fs = Math.min(13, Math.max(6, c.w / (c.child.symbol.length * 0.72)));
+    if (c.w < fs * c.child.symbol.length * 0.66 || c.h < fs * 1.5) return null;
+    const room = c.h > fs * 2.9;
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("text", {
+      x: c.x + c.w / 2,
+      y: c.y + c.h / 2 + (room ? -1 : fs * 0.36),
+      className: "gx-map-sym",
+      style: {
+        fontSize: `${fs}px`
+      },
+      textAnchor: "middle"
+    }, c.child.symbol), room ? /*#__PURE__*/React.createElement("text", {
+      x: c.x + c.w / 2,
+      y: c.y + c.h / 2 + fs * 1.15,
+      className: "gx-map-chg",
+      style: {
+        fontSize: `${Math.max(5.5, fs * 0.8)}px`
+      },
+      textAnchor: "middle"
+    }, stChg(c.child.change_pct, 1)) : null);
+  })(), /*#__PURE__*/React.createElement("title", null, `${c.child.symbol} — ${c.child.company || "name unavailable"}
 ${c.child.price == null ? "Price unavailable" : `$${stNum(c.child.price, 2)}`} · ${stChg(c.child.change_pct)} today
 Market value ${stCap(c.child.market_cap)}
 Daily candle ${c.child.state_d || "—"} · weekly ${c.child.state_w || "—"}`)))))) : null), data && data.sizing_note ? /*#__PURE__*/React.createElement("div", {
@@ -1252,7 +1298,7 @@ Daily candle ${c.child.state_d || "—"} · weekly ${c.child.state_w || "—"}`)
   }, data.sizing_note) : null, data && (data.sectors || []).some(s => s.dropped) ? /*#__PURE__*/React.createElement("div", {
     className: "st-note muted",
     title: "A treemap with a thousand rectangles is a texture, not a chart. The tail is trimmed rather than rendered sub-pixel, and the count is shown so nothing is hidden silently."
-  }, "The forty largest names in each sector are drawn;", " ", (data.sectors || []).reduce((s, x) => s + (x.dropped || 0), 0), " smaller names are not.") : null);
+  }, "The ", data.limit_per_sector, " largest names in each sector are drawn;", " ", (data.sectors || []).reduce((s, x) => s + (x.dropped || 0), 0), " smaller names are not.") : null);
 }
 function GexTab({
   apiFetch,
@@ -1276,12 +1322,25 @@ function GexTab({
   useEffect(() => {
     setExp("");
   }, [symbol]);
+
+  // Follow the app's ticker. Changing the symbol anywhere else — the
+  // sidebar, a preset, a click-through from the market map — moves this tab
+  // with it, the way every other per-symbol tab behaves. Typing a symbol
+  // into the box here is still a local override until the app's ticker
+  // changes again.
+  useEffect(() => {
+    const t = String(ticker || "").trim().toUpperCase();
+    if (!t) return;
+    setSymbol(t);
+    setInput(t);
+  }, [ticker]);
   const submit = e => {
     if (e && e.preventDefault) e.preventDefault();
     const s = String(input || "").trim().toUpperCase();
     if (s) setSymbol(s);
   };
   const exps = data && data.available_expirations || [];
+  const expCap = data && data.max_expirations || 8;
   const fixture = data && data.source === "fixture";
   return /*#__PURE__*/React.createElement("div", {
     className: "col-list st-tab st-tab-gex"
@@ -1328,12 +1387,12 @@ function GexTab({
     onChange: e => setExp(e.target.value),
     "aria-label": "Expiration",
     className: "gx-exp",
-    title: "Which expiration to measure. Nearest is the default; 'All expirations' sums the whole chain, which is the longer-horizon picture and much slower to move."
+    title: `Which expiration to measure. Nearest is the default. The multi-expiration option sums the nearest ${expCap} rather than every one listed — an index can list sixty expirations, and asking the broker for all of them at once returns nothing at all.`
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
   }, "Nearest expiration"), /*#__PURE__*/React.createElement("option", {
     value: "all"
-  }, "All expirations"), exps.map(e2 => /*#__PURE__*/React.createElement("option", {
+  }, "Nearest ", expCap, " expirations"), exps.map(e2 => /*#__PURE__*/React.createElement("option", {
     key: e2,
     value: e2
   }, stDate(e2)))), /*#__PURE__*/React.createElement("div", {
