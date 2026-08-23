@@ -309,6 +309,15 @@ except Exception as _exc:  # noqa: BLE001
     _GEX_AVAILABLE = False
     _gex = None  # type: ignore
 
+# Best Setup: one explained recommendation from every layer above.
+try:
+    import setup_scan as _setup
+    _SETUP_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[setup_scan] module load failed: {_exc}", file=sys.stderr)
+    _SETUP_AVAILABLE = False
+    _setup = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -4832,6 +4841,19 @@ if _MSTATE_AVAILABLE and _mstate is not None:
              if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
         data_dir=_STABLE_DIR,
         cfg=_threshold_section("market_state"),
+    )
+
+if _SETUP_AVAILABLE and _setup is not None:
+    # The chain getter is the SAME two-step bounded fetch the Gamma Exposure
+    # tab uses, so the recommendation and that tab can never disagree about
+    # what the chain is.
+    _setup.configure(
+        schwab_getter=lambda: _schwab(),
+        chain_getter=lambda sym: _gex_chain(sym),
+        # Wrapped in a lambda on purpose: this wiring runs at import
+        # time, before _edge_next_earnings is defined further down the
+        # file. A direct reference here is a NameError at startup.
+        earnings_fn=lambda sym: _edge_next_earnings(sym),
     )
 
 _intraday.configure(
@@ -12210,6 +12232,28 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "error": f"unknown section '{section}'"}, status=404)
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", f"api/strat/{section}", exc)
+                self._send_json({"ok": False, "error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/setup":
+            # Best Setup: one explained recommendation for one symbol, built
+            # from the layers every other tab already renders. The engine
+            # refuses to sell nearer the money than the default band unless
+            # the measured evidence supports it — see setup_engine.py.
+            if not (_SETUP_AVAILABLE and _setup is not None):
+                self._send_json({"ok": False,
+                                 "error": "best-setup module unavailable"}, status=503)
+                return
+            try:
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+                if not symbol:
+                    self._send_json({"ok": False, "error": "symbol required"},
+                                    status=400)
+                    return
+                force = (qs.get("force", ["0"])[0] or "0") in ("1", "true")
+                self._send_json(_setup.get(symbol, force=force), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/setup", exc)
                 self._send_json({"ok": False, "error": str(exc)}, status=500)
             return
         if parsed.path == "/api/market_map":
