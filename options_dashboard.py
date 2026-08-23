@@ -5758,14 +5758,24 @@ try:
     )
     _KOREA_AVAILABLE = True
     try:
-        # The forward capture loop. One daemon thread, started once, that
-        # sleeps between checkpoints and fits nothing. It is started here
-        # rather than lazily on first request because the whole point is
-        # to record mornings nobody was watching.
+        # The forward capture loop is IMPORTED here and STARTED in serve()
+        # beside every other background worker. It used to start right here,
+        # at import time, which meant merely importing this module — a test,
+        # a script, a REPL — spawned a daemon thread that fetched Korean
+        # market data and wrote bar caches into whatever directory
+        # korea_lead was last pointed at. In the test suite that was a
+        # different TemporaryDirectory every few seconds, and the thread
+        # would write a bar file into one while it was being deleted:
+        # `OSError: [Errno 39] Directory not empty: 'bars'`, intermittently,
+        # in an unrelated test.
+        #
+        # The original intent — "record mornings nobody was watching",
+        # i.e. do not wait for a first request — is unchanged: the server
+        # is what runs around the clock, so starting with the server starts
+        # it just as early. Only importers stop getting a thread.
         import korea_capture as _korea_capture
-        _korea_capture.start()
     except Exception as _exc3:  # noqa: BLE001
-        print(f"[korea_capture] start failed: {_exc3}", file=sys.stderr)
+        print(f"[korea_capture] import failed: {_exc3}", file=sys.stderr)
         _korea_capture = None  # type: ignore
     try:
         import korea_research as _korea_research
@@ -13178,6 +13188,14 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                 starred_fn=lambda: (_backtest_universe() or {}).get("starred") or [])
         except Exception as exc:  # noqa: BLE001
             print(f"[invest_scan] scheduler start failed: {exc}", file=sys.stderr)
+    # The Korean forward-capture loop. One daemon thread, started once, that
+    # sleeps between checkpoints. It belongs here rather than at import time
+    # — see the wiring block above for what that cost.
+    if _KOREA_AVAILABLE and _korea_capture is not None:
+        try:
+            _korea_capture.start()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[korea_capture] start failed: {exc}", file=sys.stderr)
     # A stalled upstream socket (yfinance has no timeout of its own) can
     # otherwise hang a request thread indefinitely. 15s applies per
     # blocking socket operation, so slow but flowing transfers are fine;

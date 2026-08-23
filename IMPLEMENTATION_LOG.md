@@ -2154,3 +2154,55 @@ last option unreachable. All three now have guards.
 2,647 Python tests green (121 new across three suites), 288 node guards (112
 in the new candle-state guard), 85/85 browser checks at 1600px and 390px
 against the real engines.
+
+## v4.56a — The Korea tempdir flake: a thread that started on import
+
+An intermittent failure that had surfaced twice, in two different tests,
+under two different names:
+
+    OSError: [Errno 39] Directory not empty: 'korea'
+    OSError: [Errno 39] Directory not empty: 'bars'
+
+Both times it landed during a `TemporaryDirectory` teardown in a test that
+had nothing to do with whatever was writing. Twice I looked at it, guessed
+at the mechanism, and left it alone because it was not reproducible on
+demand. The guesses were wrong. What settled it was measuring instead:
+running the suite under a hook that dumps `threading.enumerate()` at exit.
+One thread was still alive — `korea-capture`.
+
+The chain, once seen, is short. `options_dashboard.py` called
+`korea_capture.start()` at MODULE SCOPE, so importing that module started a
+daemon thread that fetched Korean market data and wrote bar caches under
+`korea_lead._DATA_DIR`. Any test that imports the dashboard — the HTTP
+smoke tests, the security tests — started it, and it then ran for the rest
+of the process. Meanwhile every Korea test points `_DATA_DIR` at its own
+`TemporaryDirectory`. The thread wrote a bar file into one while `rmtree`
+was deleting it.
+
+Two things were wrong, and both are fixed.
+
+The loop now starts in `serve()`, beside every other background worker.
+The original comment said it started at import "rather than lazily on first
+request because the whole point is to record mornings nobody was watching"
+— that intent is untouched, because the server is what runs around the
+clock. Only importers stop getting a thread. Verified both ways: importing
+the module now spawns nothing, and `/api/korea_forward/status` still reports
+`running: true` under `--serve`.
+
+And `korea_lead.configure()` with no arguments now resets `_DATA_DIR` too.
+Every Korea test registers a bare `configure()` as its cleanup, right beside
+the tempdir cleanup and correctly ordered to run first — but it reset every
+provider and every memo and left the path pointing at the directory about to
+be deleted. Resetting a provider but not the path it writes to is a
+half-reset, and a half-reset only ever shows up as an intermittent failure
+somewhere else. Every reader of `_DATA_DIR` already guards on falsy and
+`None` is the module's own initial value, so this returns it to a state the
+code was already written for.
+
+Five guards, and the thing that makes them worth having is that all five
+FAIL against the old code — including one that reproduces the actual bug
+deterministically: reset the module, write a bar, and assert the old
+directory is still empty. It was not; it contained `_KS11.json`.
+
+2,652 Python tests green across four consecutive full runs, and no thread
+survives the suite.

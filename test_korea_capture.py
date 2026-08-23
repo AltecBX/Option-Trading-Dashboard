@@ -19,6 +19,7 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -1071,6 +1072,101 @@ class TestTargetDelta(WiredCase):
         self.assertIn("second strike preference",
                       kl.target_delta()["detail"])
         self.assertEqual(kl.target_delta()["delta"], 0.3)
+
+
+class TestNothingStartsAThreadJustBecauseYouImported(unittest.TestCase):
+    """The capture loop must not start at import time.
+
+    It used to. `options_dashboard.py` called `korea_capture.start()` at
+    module scope, so merely importing that module — a test, a script, a
+    REPL — spawned a daemon thread that fetched Korean market data and
+    wrote bar caches under whatever directory `korea_lead` was last
+    pointed at.
+
+    In the test suite that directory was a different TemporaryDirectory
+    every few seconds, and the thread would write a bar file into one
+    while `rmtree` was deleting it:
+
+        OSError: [Errno 39] Directory not empty: 'bars'
+
+    intermittently, during an unrelated Korea research test, on a run
+    that had nothing to do with either module. The loop now starts in
+    serve() beside every other background worker.
+    """
+
+    def test_importing_the_dashboard_spawns_no_capture_thread(self):
+        # A subprocess, so the answer cannot depend on what an earlier test
+        # in this process happened to import or start.
+        import subprocess
+        import sys as _sys
+        out = subprocess.run(
+            [_sys.executable, "-c",
+             "import threading, options_dashboard;"
+             "print(sorted(t.name for t in threading.enumerate()"
+             "             if t is not threading.main_thread()))"],
+            capture_output=True, text=True, timeout=180,
+            env={**os.environ, "JERRY_NO_NET": "1"},
+            cwd=os.path.dirname(os.path.abspath(__file__)))
+        self.assertEqual(out.returncode, 0, out.stderr[-2000:])
+        self.assertNotIn("korea-capture", out.stdout,
+                         "importing options_dashboard started the capture "
+                         "thread; it belongs in serve()")
+
+    def test_the_loop_is_still_started_when_the_server_starts(self):
+        """Moving it must not mean losing it. The whole point of the loop is
+        to record mornings nobody was watching, so the server has to start
+        it — just not the import."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "options_dashboard.py")) as fh:
+            src = fh.read()
+        serve = src[src.index("def serve("):src.index("def main(")]
+        # Assert on the fact, not on the haystack — dumping the whole of
+        # serve() into the message buries the one line that matters.
+        self.assertTrue("_korea_capture.start()" in serve,
+                        "serve() no longer starts the capture loop")
+
+
+class TestABareConfigureIsAFullReset(unittest.TestCase):
+    """`configure()` with no arguments is what every Korea test registers as
+    its cleanup, right beside the tempdir cleanup. It has to reset the data
+    directory too.
+
+    It used to reset every provider and every memo and leave `_DATA_DIR`
+    pointing wherever it was last set. A test that pointed it at a
+    TemporaryDirectory therefore left the module aimed at a deleted path
+    for the rest of the process, and the next writer wrote into a
+    directory that was being torn down."""
+
+    def setUp(self):
+        self._saved = kl._DATA_DIR
+        self.addCleanup(lambda: setattr(kl, "_DATA_DIR", self._saved))
+
+    def test_it_clears_the_data_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kl.configure(data_dir=tmp)
+            self.assertEqual(str(kl._DATA_DIR), tmp)
+            kl.configure()
+            self.assertIsNone(kl._DATA_DIR)
+
+    def test_no_path_survives_the_reset(self):
+        """Every path helper has to go quiet, not point somewhere stale."""
+        with tempfile.TemporaryDirectory() as tmp:
+            kl.configure(data_dir=tmp)
+            self.assertIsNotNone(kl._bars_path("^KS11"))
+        kl.configure()
+        self.assertIsNone(kl._bars_path("^KS11"))
+        self.assertIsNone(kc._dir())
+
+    def test_a_reset_module_writes_nothing_to_disk(self):
+        """The property that actually matters: after the reset, a write
+        cannot land in the directory the test is about to delete."""
+        with tempfile.TemporaryDirectory() as tmp:
+            kl.configure(data_dir=tmp)
+            kl.configure()
+            kl._write_disk("^KS11", {"bars": [{"date": "2026-08-21", "close": 1.0}]})
+            self.assertEqual(
+                sorted(p.name for p in (Path(tmp) / "korea" / "bars").iterdir()),
+                [], "a reset module still wrote into the old directory")
 
 
 if __name__ == "__main__":       # pragma: no cover
