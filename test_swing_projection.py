@@ -1168,3 +1168,140 @@ class TestBandPenetration(unittest.TestCase):
                                            active=-30.0)
         out = sp.project(piv, dates, H, L, C, min_move_pct=15.0)
         self.assertIsNotNone(out["status"]["band_penetration_pct"])
+
+
+class TestAdaptiveThreshold(unittest.TestCase):
+    """A single percentage cannot mean the same thing on a utility and on a
+    small-cap rocket. These pin the scaling, the clamps, and the disclosure
+    — not the accuracy, which measurement showed is unchanged."""
+
+    def _walk(self, step_pct, n=400, start=100.0):
+        """A series that travels `step_pct` per bar, alternating, so its
+        20-day travel is predictable."""
+        out, p, up = [start], start, True
+        for i in range(n):
+            p = p * (1 + (step_pct if up else -step_pct) / 100.0)
+            out.append(p)
+            if i % 20 == 19:
+                up = not up
+        return out
+
+    def test_a_quiet_stock_gets_a_smaller_threshold_than_a_wild_one(self):
+        quiet = sp.adaptive_zigzag_pct(self._walk(0.1), floor_pct=1.0)
+        wild = sp.adaptive_zigzag_pct(self._walk(1.0), ceiling_pct=90.0)
+        self.assertIsNotNone(quiet)
+        self.assertLess(quiet, wild)
+
+    def test_the_threshold_is_k_times_the_stocks_own_travel(self):
+        c = self._walk(0.5)
+        v = sp.typical_move_pct(c)
+        got = sp.adaptive_zigzag_pct(c, k=2.5, floor_pct=0.0, ceiling_pct=99.0)
+        self.assertAlmostEqual(got * 100.0, 2.5 * v, places=6)
+
+    def test_the_clamps_bind(self):
+        self.assertAlmostEqual(
+            sp.adaptive_zigzag_pct(self._walk(0.05), floor_pct=6.0), 0.06, places=6)
+        self.assertAlmostEqual(
+            sp.adaptive_zigzag_pct(self._walk(3.0), ceiling_pct=18.0), 0.18, places=6)
+
+    def test_the_multiplier_moves_the_clamps_too(self):
+        """Otherwise 'Major' on a quiet stock would be pinned to the same
+        floor as 'Sensitive' and the setting would do nothing."""
+        c = self._walk(0.05)
+        a = sp.adaptive_zigzag_pct(c, floor_pct=6.0, multiplier=1.0)
+        b = sp.adaptive_zigzag_pct(c, floor_pct=6.0, multiplier=1.36)
+        self.assertGreater(b, a)
+
+    def test_too_little_history_measures_nothing(self):
+        self.assertIsNone(sp.typical_move_pct([1.0, 2.0, 3.0]))
+        self.assertIsNone(sp.adaptive_zigzag_pct([1.0, 2.0, 3.0]))
+
+    def test_an_explicit_threshold_always_wins_and_says_so(self):
+        z = sp.resolve_zigzag_pct(self._walk(0.5), explicit=0.12)
+        self.assertEqual(z["pct"], 0.12)
+        self.assertEqual(z["source"], "explicit")
+
+    def test_no_history_falls_back_and_says_so(self):
+        z = sp.resolve_zigzag_pct([1.0, 2.0, 3.0])
+        self.assertEqual(z["source"], "fallback")
+        self.assertAlmostEqual(z["pct"], 0.12, places=6)
+
+    def test_the_sensitivity_settings_are_ordered(self):
+        c = self._walk(0.5)
+        lo = sp.resolve_zigzag_pct(c, sensitivity="sensitive")["pct"]
+        mid = sp.resolve_zigzag_pct(c, sensitivity="standard")["pct"]
+        hi = sp.resolve_zigzag_pct(c, sensitivity="major")["pct"]
+        self.assertLess(lo, mid)
+        self.assertLess(mid, hi)
+
+    def test_an_unknown_sensitivity_is_standard(self):
+        c = self._walk(0.5)
+        self.assertEqual(sp.resolve_zigzag_pct(c, sensitivity="banana")["pct"],
+                         sp.resolve_zigzag_pct(c, sensitivity="standard")["pct"])
+
+    def test_the_display_filter_scales_with_the_threshold(self):
+        """Left fixed at 15% it hid almost every completed decline on a quiet
+        stock, so the chart looked like it had no down legs at all."""
+        for sens in ("sensitive", "standard", "major"):
+            z = sp.resolve_zigzag_pct(self._walk(0.5), sensitivity=sens)
+            self.assertAlmostEqual(z["min_move_pct"],
+                                   round(z["pct"] * 100.0 * 1.25, 1), places=1)
+
+    def test_it_can_be_switched_off_by_config(self):
+        z = sp.resolve_zigzag_pct(self._walk(0.5), cfg={"adaptive_zigzag": False})
+        self.assertEqual(z["source"], "fallback")
+
+    def test_the_resolution_is_fully_disclosed(self):
+        z = sp.resolve_zigzag_pct(self._walk(0.5), sensitivity="major")
+        for k in ("pct", "source", "multiplier", "typical_move_pct", "k",
+                  "floor_pct", "ceiling_pct", "min_move_pct", "sensitivity"):
+            self.assertIn(k, z)
+
+
+class TestAnalyzeResolvesTheThreshold(unittest.TestCase):
+
+    def setUp(self):
+        import swings
+        self.swings = swings
+        self._b, self._e = swings._fetch_bench, swings._fetch_earnings
+        swings._fetch_bench = lambda period="1y": {}
+        swings._fetch_earnings = lambda symbol: set()
+
+    def tearDown(self):
+        self.swings._fetch_bench = self._b
+        self.swings._fetch_earnings = self._e
+
+    def _bars(self, step=0.5, n=600):
+        p, up, out = 100.0, True, []
+        for i in range(n):
+            p = p * (1 + (step if up else -step) / 100.0)
+            out.append({"date": f"2020-01-01", "open": p, "high": p * 1.005,
+                        "low": p * 0.995, "close": p, "volume": 1})
+            if i % 20 == 19:
+                up = not up
+        for i, b in enumerate(out):
+            y, m, d = 2020 + i // 360, (i // 30) % 12 + 1, i % 28 + 1
+            b["date"] = f"{y:04d}-{m:02d}-{d:02d}"
+        return out
+
+    def test_the_resolved_threshold_travels_in_the_payload(self):
+        r = self.swings.analyze("TEST", bars=self._bars())
+        z = r["params"]["zigzag"]
+        self.assertIn(z["source"], ("adaptive", "fallback"))
+        self.assertEqual(r["params"]["pct"], z["pct"])
+        self.assertIsNotNone(r["params"]["min_move_pct"])
+
+    def test_an_explicit_pct_is_still_honoured(self):
+        r = self.swings.analyze("TEST", bars=self._bars(), pct=0.12)
+        self.assertAlmostEqual(r["params"]["pct"], 0.12, places=6)
+        self.assertEqual(r["params"]["zigzag"]["source"], "explicit")
+
+    def test_an_explicit_display_filter_is_still_honoured(self):
+        r = self.swings.analyze("TEST", bars=self._bars(), min_move_pct=25.0)
+        self.assertEqual(r["params"]["min_move_pct"], 25.0)
+
+    def test_the_sensitivity_name_changes_the_segmentation(self):
+        bars = self._bars()
+        a = self.swings.analyze("TEST", bars=bars, sensitivity="sensitive")
+        b = self.swings.analyze("TEST", bars=bars, sensitivity="major")
+        self.assertLess(a["params"]["pct"], b["params"]["pct"])
