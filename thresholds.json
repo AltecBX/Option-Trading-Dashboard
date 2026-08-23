@@ -882,5 +882,29 @@
     },
     "display_filter_ratio": 1.25,
     "_adaptive_zigzag_doc": "HOW BIG A MOVE COUNTS AS A SWING, PER STOCK (v4.54). A single percentage cannot mean the same thing on a utility and on a small-cap rocket. At a fixed 12% the watchlist segmented into anything from 2.6 swings a year (KO) to 38 (COIN); low-volatility names got single 'swings' spanning more than a year (MA's longest leg was 531 days, PG's 452); and their cohorts starved - KO's live projection stood on ONE comparable episode, JNJ's on four. The threshold is now k x the stock's own median absolute 20-day move, clamped to [floor, ceiling] and scaled by the sensitivity multiplier. k=2.5 comes from two independent routes: solving per symbol for a comparable number of swings a year gives a threshold/travel ratio with median 2.48 and correlation 0.987 across 22 symbols, and the walk-forward sweep over 32 symbols preferred 2.5 on days-coverage (50.2% against the 50% ideal). HONEST LIMIT, MEASURED: adapting the threshold does NOT make the projection more accurate. Band coverage 45.2% fixed vs 44.9% adaptive; error relative to the swing being projected 27.0% vs 26.9%; days-coverage 49.9% vs 50.2%. What it changes is whether there is a sample to stand on and whether the segmentation matches what the chart shows: the median live cohort goes 17 -> 24 and the symbols projecting from fewer than six episodes go from 5 in 32 to none. Absolute MAE in percentage points is NOT a valid comparison across thresholds - a smaller threshold makes smaller swings and shrinks the error for free, which is why the scale-free measures above are the ones quoted. display_filter_ratio generalises the existing 12%/15% pair: the tables and chart lines hide swings under 1.25x the threshold, because a fixed 15% filter hid 28 of KO's 33 completed declines and made quiet charts look as though they had no down legs at all."
+  },
+  "market_state": {
+    "_doc": "Candle states (Sectors + Market Context tabs) and gamma exposure. Every value here is a cache lifetime, a sampling cadence or a display bound — none of them changes a state, a breadth count or a gamma figure. States are classified by strict comparison of two highs and two lows (see strat_states.py); there is no threshold to tune in that.",
+    "_live_extremes_doc": "Live candle extremes are taken from the REGULAR session only, and only once it has begun. Before 9:30 AM Eastern the states shown are the settled ones from the last close, because Schwab's regular-session high and low are stale or zero pre-market and because a single thin pre-market print through yesterday's high would flip a name to 2U on a hundred shares.",
+    "quote_ttl_seconds": 20,
+    "read_ttl_seconds": 20,
+    "sector_ttl_seconds": 20,
+    "index_ttl_seconds": 45,
+    "map_ttl_seconds": 20,
+    "series_sample_seconds": 120,
+    "series_keep_days": 5,
+    "map_limit_per_sector": 40
+  },
+  "gex": {
+    "_doc": "Gamma exposure. Dealer positioning is not published by anyone, so GEX is open interest times gamma times an ASSUMPTION about who is on which side. The assumption is the model: calls count positive and puts negative, which assumes dealers are net long call gamma and net short put gamma. Changing sign_convention is not a tuning knob — it inverts every number and every regime label on the screen.",
+    "_scaling_doc": "GEX = gamma x open interest x contract_size x spot^2 x (move_pct/100), so figures are dollars of dealer delta per 1% move in the underlying. Quoting per 1% rather than per $1 is what makes a $6 stock and a $600 stock comparable.",
+    "_flip_doc": "The flip level re-computes each contract's Black-Scholes gamma at every candidate spot rather than cumulatively summing today's per-strike GEX. The cheap version holds gamma fixed at the value it has at today's spot, and gamma is precisely the thing that moves as spot moves. Contracts without a usable implied volatility or expiration are excluded from the profile and the covered share of open interest is reported beside the answer.",
+    "contract_size": 100,
+    "move_pct": 1.0,
+    "profile_span_pct": 20.0,
+    "profile_steps": 81,
+    "strike_window_pct": 25.0,
+    "strike_count": 200,
+    "risk_free_rate": 0.045
   }
 }
