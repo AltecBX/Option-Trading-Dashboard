@@ -2045,3 +2045,29 @@ swings. Only the newest request may write now.
 2,504 Python tests green (115 in the projection suite, 17 new), 176 node
 guards (96 in the reversal-UI guard, 9 new), 14/14 browser checks across a
 quiet, a normal and a wild stock at 1600px and 390px.
+
+## v4.55 — The zigzag draws every leg, so the line never breaks
+
+Jerry wanted the chart's line to always alternate up, down, up — and said
+not to do it if it disturbed the algorithm. It does not, and the reason is
+worth writing down: the connector was being drawn from the swing TABLES,
+which hide legs under min_move_pct so they stay readable. Wherever a run of
+small legs sat under that filter the line simply stopped, and a high
+connected to nothing.
+
+The payload now carries `zigzag_legs`: every leg the zigzag actually found,
+including the unfinished one, each flagged `major` (big enough for the
+tables) or not. The chart draws its connectors from that list — solid for
+major legs, dotted for the small ones that keep the shape continuous, dashed
+for the leg still in progress. Markers and labels still come from the
+tables, so a table-row click still highlights its own leg and the chart does
+not fill with labels.
+
+It is presentation only, and there is a test that says so rather than a
+comment: changing min_move_pct moves the `major` flags and nothing else —
+same leg count, same dates, same percentages — and the projection's zone is
+byte-identical across the change. The engine module never mentions the list
+at all, which is also asserted.
+
+2,526 Python tests green (121 in the projection suite, 6 new), 176 node
+guards (102 in the reversal-UI guard, 6 new).

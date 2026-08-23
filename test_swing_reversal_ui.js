@@ -166,6 +166,20 @@ ok("the explainer cites the measurement, not taste",
 ok("a stale response cannot overwrite a newer one",
    /reqRef/.test(src) && /superseded/.test(src));
 
+// 6e — (v4.55) the chart's connector line is the WHOLE zigzag, so it always
+//      alternates up, down, up instead of breaking where the tables filter.
+ok("the chart draws from the unbroken zigzag", /data\.zigzag_legs/.test(src));
+ok("legs too small for the tables are still drawn",
+   /L\.major \? base : minor/.test(src) && /rgba\(34,197,94,0\.55\)/.test(src));
+ok("the small legs are dotted and the unfinished one dashed",
+   /L\.active \? 2 : \(L\.major \? 0 : 1\)/.test(src));
+ok("the direction toggles still apply to it",
+   /if \(L\.dir === "up" && !show\.up\) return;/.test(src));
+ok("it falls back to the swing tables when the payload has no zigzag",
+   /show\.lines && !legs\.length/.test(src));
+ok("markers and labels still come from the tables, so row clicks still work",
+   /if \(show\.up\) upSw\.forEach/.test(src));
+
 // 7b — (v4.53) the chart legend no longer floats over the candles, and is
 //      therefore reachable for its own tooltips.
 const chartBlock = src.slice(src.indexOf("function SwingChart"),

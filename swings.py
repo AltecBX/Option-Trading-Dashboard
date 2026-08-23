@@ -1308,6 +1308,31 @@ def analyze(symbol: str, period: str = "1y", pct: float | None = None,
 
     up_swings = _build_swings(pivots, dates, "up", min_move_pct)
     down_swings = _build_swings(pivots, dates, "down", min_move_pct)
+
+    # The UNBROKEN zigzag, for the chart only (v4.55). The swing tables hide
+    # legs under min_move_pct to stay readable, and the chart was drawing its
+    # connectors from those same filtered lists — so a stretch made of small
+    # legs appeared as a gap, and the line stopped alternating up/down. This
+    # list is every leg the zigzag actually found, including the unfinished
+    # one, each flagged `major` (drawn solid, labelled) or not (drawn faint).
+    # It is presentation only: nothing computes from it. The projection reads
+    # the raw pivots, the tables and the rhythm keep the display filter, so
+    # adding it cannot move a single number on the card.
+    zigzag_legs = []
+    for _a, _b in zip(pivots[:-1], pivots[1:]):
+        _ai, _ap, _akind = _a
+        _bi, _bp, _ = _b
+        if _bi <= _ai or not _ap:
+            continue
+        _pct = (_bp - _ap) / _ap * 100.0
+        zigzag_legs.append({
+            "dir": "up" if _akind == "low" else "down",
+            "start_date": dates[_ai], "end_date": dates[_bi],
+            "start_price": round(float(_ap), 2), "end_price": round(float(_bp), 2),
+            "pct": round(_pct, 1), "days": _bi - _ai,
+            "major": abs(_pct) >= float(min_move_pct),
+            "active": _b is pivots[-1],
+        })
     up_rhythm = _rhythm(up_swings)
     down_rhythm = _rhythm(down_swings)
     ind = _indicators(opens, highs, lows, closes, vols)
@@ -1394,6 +1419,7 @@ def analyze(symbol: str, period: str = "1y", pct: float | None = None,
                    "zigzag": zz},
         "swings": up_swings,
         "down_swings": down_swings,
+        "zigzag_legs": zigzag_legs,
         "rhythm": up_rhythm,
         "down_rhythm": down_rhythm,
         "indicators": ind,

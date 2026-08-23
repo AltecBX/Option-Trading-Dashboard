@@ -1556,6 +1556,7 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     overlayRef.current = { lines: [], priceLines: [] };
 
     const fStart = focusKey && focusKey.start, fEnd = focusKey && focusKey.end;
+    const legs = (data && data.zigzag_legs) || [];
     const DIMUP = "rgba(34,197,94,0.22)", DIMDN = "rgba(239,68,68,0.22)";
     const markers = [];
     const addSwing = (s, dir) => {
@@ -1569,7 +1570,9 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         markers.push({ time: s.low_date, position: "belowBar", color: c, shape: "arrowUp", text: dir === "down" ? lbl : "" });
         markers.push({ time: s.high_date, position: "aboveBar", color: c, shape: "arrowDown", text: dir === "up" ? lbl : "" });
       }
-      if (show.lines) {
+      if (show.lines && !legs.length) {
+        // Legacy path: no unbroken zigzag in the payload, so connectors come
+        // from the filtered swing lists as they always did.
         const lineColor = dim ? (dir === "up" ? DIMUP : DIMDN) : c;
         const ls = chart.addLineSeries({ color: lineColor, lineWidth: focused ? 3 : 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
         const pts = [{ time: s.low_date, value: s.low_price }, { time: s.high_date, value: s.high_price }].sort((x, y) => x.time < y.time ? -1 : 1);
@@ -1579,6 +1582,44 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     };
     if (show.up) upSw.forEach(s => addSwing(s, "up"));
     if (show.down) downSw.forEach(s => addSwing(s, "down"));
+
+    // The unbroken zigzag (v4.55). The connectors are drawn from EVERY leg
+    // the zigzag found, so the line always alternates up, down, up instead
+    // of breaking wherever a run of small legs sat under the table filter.
+    // Legs too small for the tables are drawn faint and carry no label, so
+    // the shape is continuous without the chart becoming noisy. Markers and
+    // labels above still come from the tables, which is what keeps a
+    // table-row click able to highlight its own leg.
+    if (show.lines && legs.length) {
+      legs.forEach(L => {
+        if (L.dir === "up" && !show.up) return;
+        if (L.dir === "down" && !show.down) return;
+        const lo = L.start_date < L.end_date ? L.start_date : L.end_date;
+        const hi = L.start_date < L.end_date ? L.end_date : L.start_date;
+        const focused = fStart && lo === fStart && hi === fEnd;
+        const dim = fStart && !focused;
+        const base = L.dir === "up" ? UPC : DNC;
+        // Three weights, not two: the legs big enough for the tables are
+        // solid, the smaller ones that keep the zigzag continuous are muted
+        // but plainly visible, and anything dimmed by a table-row selection
+        // recedes further than both.
+        const minor = L.dir === "up" ? "rgba(34,197,94,0.55)" : "rgba(239,68,68,0.55)";
+        const faint = L.dir === "up" ? DIMUP : DIMDN;
+        const color = dim ? faint : (L.major ? base : minor);
+        const ls = chart.addLineSeries({
+          color, lineWidth: focused ? 3 : 1.5,
+          // The unfinished leg is dashed; a leg too small for the tables is
+          // dotted, so the shape stays unbroken while still saying which
+          // legs the numbers below are counting.
+          lineStyle: L.active ? 2 : (L.major ? 0 : 1),
+          priceLineVisible: false, lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        ls.setData([{ time: L.start_date, value: L.start_price },
+                    { time: L.end_date, value: L.end_price }]);
+        overlayRef.current.lines.push(ls);
+      });
+    }
     markers.sort((x, y) => x.time < y.time ? -1 : x.time > y.time ? 1 : 0);
     candle.setMarkers(markers);
 
