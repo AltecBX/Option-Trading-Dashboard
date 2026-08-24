@@ -199,6 +199,16 @@ ok("every chain fetch carries both dates",
    !/get_option_chain\(\s*\n?\s*symbol,\s*to_date=/.test(scan2),
    "an unbounded fetch (to_date without expiration) is back");
 
+ok("a stale scan is called out, not rendered as today's list",
+   /This scan is \{staleWord\}, not today/.test(src)
+   && /const stale = /.test(src));
+ok("the staleness threshold is a real age, not a truthiness check",
+   /ageMs > 20 \* 3600 \* 1000/.test(src));
+ok("the stale notice says when the scan actually last completed",
+   /It last completed \{suDate\(data\.as_of\)\}/.test(src));
+ok("it points at the broker, which is the usual cause",
+   /re-authorize under Manage/.test(src));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

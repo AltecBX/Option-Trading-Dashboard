@@ -46,6 +46,7 @@ const SU_TIP = {
   board_skip: "Names the scan measured and then refused, with the reason. A short list is only trustworthy if you can see what did not make it and why.",
   universe: "How many names were ranked for free against how many had their option chain actually measured. Every chain costs a network round trip, so the scan ranks everything and measures the best few.",
   expiry: "The expiration this credit and return are quoted for — the one the premium engine judged richest inside the selling window, not automatically the nearest monthly.",
+  stale: "The Premium Edge scan writes its board to disk and reloads it on restart, so a board can outlive the connection that produced it. When the scan has not completed within the day, every price and premium below is from whenever it last succeeded — usually a lapsed broker sign-in.",
   board_earn: "Earnings inside the option's life excludes a name here. That is the opposite of the Premium Edge scan, which seeks earnings out — because a trader who closes before the report harvests that premium, and one who holds to expiry underwrites it."
 };
 const suNum = (v, d = 2) => v == null || !isFinite(v) ? "—" : Number(v).toFixed(d);
@@ -517,6 +518,11 @@ function SellBoardCard({
   const rows = data && data.rows || [];
   const skipped = data && data.skipped || [];
   const uni = data && data.universe || null;
+  // How old is the scan this board is built from? Anything past a calendar
+  // day is not "today" in any sense a seller cares about.
+  const ageMs = data && data.as_of ? Date.now() - new Date(data.as_of).getTime() : null;
+  const stale = ageMs != null && isFinite(ageMs) && ageMs > 20 * 3600 * 1000;
+  const staleWord = ageMs == null ? "" : ageMs > 72 * 3600 * 1000 ? `${Math.floor(ageMs / 86400000)} days old` : ageMs > 36 * 3600 * 1000 ? "from a couple of days ago" : "from yesterday or earlier";
   return /*#__PURE__*/React.createElement("div", {
     className: "card su-card su-board"
   }, /*#__PURE__*/React.createElement("div", {
@@ -534,7 +540,17 @@ function SellBoardCard({
     className: "research-run-btn",
     onClick: load,
     disabled: busy
-  }, busy ? "Scanning…" : "Refresh"))), uni ? /*#__PURE__*/React.createElement("p", {
+  }, busy ? "Scanning…" : "Refresh"))), stale ?
+  /*#__PURE__*/
+  // A board titled "worth selling today" built from a scan that last
+  // succeeded days ago is worse than an empty one: the prices are
+  // wrong and nothing on screen says so. The scan board persists to
+  // disk and reloads on restart, so this is exactly what a lapsed
+  // broker connection looks like from here.
+  React.createElement("div", {
+    className: "su-refused",
+    title: SU_TIP.stale
+  }, /*#__PURE__*/React.createElement("b", null, "This scan is ", staleWord, ", not today\u2019s."), " ", "It last completed ", suDate(data.as_of), " at ", suTime(data.as_of), ". Prices and premiums below are from then. If the sidebar badge shows a Schwab problem, re-authorize under Manage \u2014 the scan cannot refresh without it.") : null, uni ? /*#__PURE__*/React.createElement("p", {
     className: "su-uni",
     title: SU_TIP.universe
   }, uni.ranked, " names ranked \xB7 ", data.measured || 0, " had their option chain measured \xB7 ", rows.length, " qualified", uni.dropped && uni.dropped["earnings inside the option's life"] ? /*#__PURE__*/React.createElement("span", {
