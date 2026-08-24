@@ -162,3 +162,77 @@ the Refresh button on the card uses that.
   the vocabulary contracts with the producers it reads from.
 - `test_setup_ui.js` — source-level guards on the card, weighted toward
   disclosure rather than appearance.
+
+---
+
+# Worth selling today — the board
+
+The Best Setup card answers "what is the best trade on THIS symbol". The
+board answers the question that actually moves the needle: **on which
+symbols, today, is selling worth doing at all.**
+
+`GET /api/setup_board` · `setup_board.py` · Trade tab, under the card.
+
+## Why this exists, and what it does not claim
+
+Measurement on ten years of large-cap history says the 15–22 delta band
+already sits at roughly the 85% win rate it targets. There is no gap
+between "the distance the evidence supports" and "the strike the market
+quotes" to harvest — more premium, at that horizon, means a lower win rate,
+which is a decision about risk appetite rather than an edge.
+
+So this board **does not try to find a better strike.** It makes the
+narrower claim the data does support: on any given day some names pay far
+more than their own history says that risk is worth, and most pay about
+fair. Selling the rich ones at the SAME delta, and skipping the rest,
+raises income without touching the win rate. That is a selection claim, not
+a pricing claim.
+
+## The earnings sign is deliberately opposite to Premium Edge
+
+The Premium Edge scan **adds** 30 points for earnings inside a week,
+because a trader who closes before the print harvests that premium.
+
+This board **excludes** any name with earnings inside the option's life,
+because a seller who holds to expiry through the report underwrites the
+event rather than harvesting it. Same data, opposite sign, because it is a
+different trade. `TestEarningsIsAnExclusionNotABonus` pins it.
+
+## Two stages, because chains cost money
+
+| Stage | Cost | What it does |
+|---|---|---|
+| 1 | free | Ranks the **whole** watchlist on 20-day realized volatility versus its own year — a proxy for "premium is probably rich" |
+| 2 | one chain fetch per symbol | Measures whether it actually is, on the top names only |
+
+The payload reports both counts, so the board says *"18 names ranked · 11
+had their option chain measured"* rather than implying it looked at
+everything.
+
+## The gates
+
+A name is skipped, **with its reason shown**, when any of these hold:
+
+- earnings falls inside the option's life
+- the option pays under 1.05× what the stock actually realizes — fair pay
+  is not a reason to take assignment risk
+- expected value is zero or negative at that realized volatility
+- the bid/ask spread or open interest fails the liquidity floor
+- the danger model rates it HIGH or EXTREME
+
+A short list is only trustworthy if you can see what did not make it.
+
+## The ranking figure
+
+Preferred: where today's premium sits in this stock's **own** history of
+premiums — self-normalising, since eight volatility points means something
+different on a 15% stock than on a 60% one. That needs `MIN_HIST_N` past
+observations; below the floor it falls back to the raw ratio and **labels
+the row `RATIO` instead of `PCTL`**, rather than quoting a percentile from
+six readings.
+
+That history accumulates from the app itself: both `/api/ticker` and the
+Premium Edge scan append the day's IV30 to disk per symbol. Until enough
+has accumulated, the `Backtest` tab reports `modeled` rather than
+`measured` — and the delta question above cannot be answered from real
+prices.
