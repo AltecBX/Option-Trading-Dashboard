@@ -2375,3 +2375,38 @@ symbol to reach the same numbers.
 
 2,782 Python tests (37 new), 67 UI guards (13 new), 19 browser checks
 against the real module, and Layer 1 + Layer 2 of verify_frontend green.
+
+## v4.60 — A broker problem is not a symbol problem
+
+Two bugs behind one screenshot: every symbol reporting "No option chain
+came back for this symbol" while the sidebar sat on YFINANCE FALLBACK.
+
+**The message was blaming the wrong thing.** A failed chain fetch and a
+symbol with no listed options are indistinguishable from inside analyze,
+and the difference decides whether the fix is re-authorizing or picking a
+different stock. Schwab refresh tokens last seven days, so an expired
+sign-in is the ordinary case rather than a surprise. The engine now asks
+the client for its status and reports THAT — missing credentials, never
+authorized, rejected, expired, or expiring within the day — and only says
+"no chain came back for X" when the broker is genuinely connected.
+
+**And the widening fallback was an unbounded fetch, which was mine.** The
+v4.59 fix added a broad re-fetch so a refusal could name what a symbol does
+list. It passed `to_date` without `expiration` — and `get_option_chain`
+ignores `to_date` unless `expiration` is set, so it asked for EVERY
+expiration. That is precisely the unbounded request v4.57 removed
+elsewhere: on a heavily-optioned name it runs into the 15-second timeout
+and returns None. So a broker problem became a fifteen-second hang followed
+by a message blaming the symbol. Both dates are passed now, and a test
+walks every chain call this module makes and fails on any that omits one.
+
+The fallback badge also says why now. "Schwab configured but last call fell
+back to yfinance" is true and useless; it reads the same whether the
+sign-in expired an hour ago or a request timed out once. It now names the
+reason, warns while the sign-in is still valid but inside its last day, and
+changes the badge itself to "Schwab sign-in expired" when that is what
+happened — because a quiet grey fallback pill is not how a dead broker
+connection should look.
+
+2,787 Python tests (5 new), 72 UI guards (5 new). Each fix was re-broken
+deliberately to confirm the new guards fail against the shipped code.

@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.59";
+const APP_VERSION = "4.60";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3819,12 +3819,20 @@ function App() {
         className: "src-dot"
       }), " Schwab live");
     }
+    // Say WHY. "Fell back to yfinance" with no reason is the
+    // difference between "re-authorize, it takes a minute" and
+    // "something is wrong with this stock" — and Schwab refresh
+    // tokens last seven days, so an expired sign-in is the
+    // ordinary case rather than a surprise.
+    const refr = sw.refresh_remaining_days;
+    const why = sw.needs_reauth || sw.auth_error ? `Schwab rejected the last request${sw.auth_error ? ` (${sw.auth_error})` : ""}` + " — re-authorize under Manage. Option chains will not load until you do." : typeof refr === "number" && refr <= 0 ? "The Schwab sign-in has expired — they last 7 days. Re-authorize under" + " Manage. Option chains will not load until you do." : typeof refr === "number" && refr < 1 ? `The Schwab sign-in expires in about ${Math.round(refr * 24)} hours.` + " Re-authorize under Manage before it does." : "Schwab is connected but the last call fell back to yfinance —" + " usually a timeout or a rate limit. Quotes are delayed;" + " option chains may not load.";
+    const urgent = !!(sw.needs_reauth || sw.auth_error || typeof refr === "number" && refr <= 0);
     return /*#__PURE__*/React.createElement("div", {
-      className: "src-badge src-badge-yf",
-      title: "Schwab configured but last call fell back to yfinance."
+      className: `src-badge src-badge-yf${urgent ? " src-badge-warn" : ""}`,
+      title: why
     }, /*#__PURE__*/React.createElement("span", {
       className: "src-dot"
-    }), " yfinance fallback");
+    }), urgent ? "Schwab sign-in expired" : "yfinance fallback");
   })(), uwHealth && (() => {
     if (!uwHealth.configured) {
       return /*#__PURE__*/React.createElement("div", {

@@ -359,6 +359,47 @@ def _window_expiries(chain, now: date, lo: float, hi: float) -> list:
     return sorted(out)
 
 
+def _broker_note(sc) -> str | None:
+    """Why the broker is not answering, in Jerry's words, when it is not.
+
+    A failed chain fetch and a symbol with no options look identical from
+    here, and the difference matters enormously: one is fixed by
+    re-authorizing, the other by picking a different stock. Schwab refresh
+    tokens expire after seven days, so "it worked yesterday" is the normal
+    case rather than a surprise. Say which it is.
+    """
+    try:
+        st = sc.status() if hasattr(sc, "status") else None
+    except Exception:  # noqa: BLE001
+        return None
+    if not st:
+        return None
+    if not st.get("configured"):
+        return {
+            "missing_credentials": ("The broker credentials are not set, so "
+                                    "no option chain can be fetched. Add them "
+                                    "under Manage."),
+            "no_token_file": ("The broker has never been authorized on this "
+                              "deployment. Connect it under Manage."),
+            "module_unavailable": "The broker integration did not load.",
+        }.get(st.get("reason"),
+              "The broker is not connected. Connect it under Manage.")
+    if st.get("needs_reauth") or st.get("auth_error"):
+        return ("The broker rejected the last request and needs "
+                "re-authorizing under Manage — this is what an expired "
+                "sign-in looks like, not a problem with this symbol.")
+    days = st.get("refresh_remaining_days")
+    if days is not None and days <= 0:
+        return ("The broker sign-in has expired — they last seven days — so "
+                "re-authorize under Manage. Nothing is wrong with this "
+                "symbol.")
+    if days is not None and days < 1:
+        return (f"The broker sign-in expires in about "
+                f"{days * 24:.0f} hours; re-authorize under Manage before it "
+                f"does.")
+    return None
+
+
 def _no_trade_reason(sides: dict) -> str:
     """Why nothing was recommended, in the sides' own words."""
     parts = []
@@ -431,17 +472,37 @@ def analyze(symbol: str, now: date | None = None) -> dict:
             strike_count=60)
         gsource, fetched_at = "broker", None
     if not chain or not (chain.get("chains") or {}):
-        # Nothing listed inside the window. Fetch broadly before giving up,
-        # purely so the refusal can name what this symbol DOES list —
-        # "no options at all" and "no options in your window" are different
-        # facts and a reader has to be able to tell them apart.
+        # Nothing in the window. Widen the fetch before giving up, purely so
+        # the refusal can name what this symbol does list — "no options at
+        # all" and "no options in your window" are different facts and a
+        # reader has to be able to tell them apart. A dead connection and an
+        # empty window both return None here, so this cannot tell them
+        # apart on its own; `_broker_note` does that when the message is
+        # written.
+        #
+        # Both dates are required. `get_option_chain` ignores `to_date`
+        # unless `expiration` is also set, so passing only `to_date` asks
+        # for EVERY expiration this symbol lists — the unbounded fetch that
+        # times out on heavily-optioned names and returns None. An earlier
+        # version of this fallback did exactly that, which turned a broker
+        # problem into "No option chain came back for this symbol" after a
+        # fifteen-second hang.
         chain = sc.get_option_chain(
-            symbol, to_date=(now + timedelta(days=120)).isoformat(),
+            symbol,
+            expiration=now.isoformat(),
+            to_date=(now + timedelta(days=120)).isoformat(),
             strike_count=60)
         gsource, fetched_at = "broker", None
     if not chain or not (chain.get("chains") or {}):
+        # Do not blame the symbol for what is usually a connection problem.
+        note = _broker_note(sc)
         return {"ok": False, "symbol": symbol,
-                "error": "No option chain came back for this symbol."}
+                "error": (note if note else
+                          f"No option chain came back for {symbol}. The "
+                          f"broker is connected, so either this symbol has "
+                          f"no listed options or the request timed out — "
+                          f"try again."),
+                "broker_note": note}
     spot = _num((chain.get("underlying") or {}).get("last")) or Cc[-1]
 
     earn_next = None
