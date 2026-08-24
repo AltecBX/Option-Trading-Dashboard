@@ -318,6 +318,14 @@ except Exception as _exc:  # noqa: BLE001
     _SETUP_AVAILABLE = False
     _setup = None  # type: ignore
 
+try:
+    import setup_board as _sboard
+    _SBOARD_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[setup_board] module load failed: {_exc}", file=sys.stderr)
+    _SBOARD_AVAILABLE = False
+    _sboard = None  # type: ignore
+
 # Track which source served the most recent ticker request, exposed via
 # /api/data_source so the frontend can show a status badge.
 _LAST_SOURCE: dict = {"source": "yfinance", "schwab_status": None}
@@ -12233,6 +12241,49 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", f"api/strat/{section}", exc)
                 self._send_json({"ok": False, "error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/setup_board":
+            # What is worth SELLING today, ranked by how rich the premium is
+            # against what each stock itself realizes.
+            #
+            # This reads the Premium Edge scan's existing rows rather than
+            # fetching anything: that scan already computes implied
+            # volatility, expected realized volatility and the premium's
+            # richness for its candidates, and re-deriving them here would
+            # cost a chain fetch per symbol to arrive at the same numbers.
+            # setup_board only gates and ranks — see its module docstring
+            # for why its earnings rule is the OPPOSITE sign to that scan's.
+            if not (_SBOARD_AVAILABLE and _sboard is not None):
+                self._send_json({"ok": False, "rows": [],
+                                 "error": "setup-board module unavailable"},
+                                status=503)
+                return
+            try:
+                qs = parse_qs(parsed.query)
+                try:
+                    limit = max(1, min(50, int(qs.get("limit", ["10"])[0])))
+                except (TypeError, ValueError):
+                    limit = 10
+                snap = _edge.snapshot() if _EDGE_AVAILABLE else {}
+                rows = (snap or {}).get("rows") or []
+                out = _sboard.build(rows, limit=limit)
+                # Stage 1 over the WHOLE watchlist, so the payload can say
+                # how many names were ranked versus how many were actually
+                # measured. Without it the board silently implies the scan
+                # looked at everything.
+                board = ((_wltable.get_board()
+                          if (_WLTABLE_AVAILABLE and _wltable is not None)
+                          else {}) or {})
+                out["universe"] = _sboard.stage1(board.get("rows") or [])
+                out["ok"] = True
+                out["as_of"] = (snap or {}).get("as_of")
+                out["scanning"] = bool((snap or {}).get("scanning"))
+                out["measured"] = len(rows)
+                self._send_json(out, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn("*", "api/setup_board", exc)
+                self._send_json({"ok": False, "rows": [], "error": str(exc)},
+                                status=500)
             return
         if parsed.path == "/api/setup":
             # Best Setup: one explained recommendation for one symbol, built

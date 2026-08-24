@@ -150,6 +150,40 @@ ok("the new style rules use tokens, never literal colours",
 ok("the two-column reasoning collapses on a phone",
    /\.su-cols \{ grid-template-columns: 1fr; \}/.test(css));
 
+// ── 9. the sell board ───────────────────────────────────────────────────
+const board = read("setup_board.py");
+ok("the board is registered as its own export",
+   /SellBoardCard: React\.memo/.test(src) && /"SellBoardCard"/.test(verify));
+ok("app.jsx mounts it on the Trade tab",
+   /component="SellBoardCard"/.test(appSrc));
+ok("clicking a row loads that symbol in the card above",
+   /onPickTicker=\{\(t\) => \{ setTicker\(t\); setTickerInput\(t\); \}\}/.test(appSrc)
+   && /onPick && onPick\(r\.symbol\)/.test(src));
+ok("earnings inside the option's life EXCLUDES rather than bonuses",
+   /earnings inside the option's life/.test(board)
+   && /EXCLUSION here,\s*\n?\s*not a bonus/.test(board));
+ok("the board does not claim to pick a better strike",
+   /does NOT claim to find a better strike/.test(board));
+ok("the ranking says what it is ranked on",
+   /Ranked by how rich/.test(board) && /SU_TIP\.board/.test(src));
+ok("the richness figure discloses which basis it used",
+   /richness_basis/.test(src) && /rich_basis/.test(src)
+   && /percentile.*ratio|ratio.*percentile/s.test(src));
+ok("a thin history never quotes a percentile",
+   /too few for a/.test(board) && /basis": "ratio"/.test(board)
+   && /MIN_HIST_N/.test(board));
+ok("how many were ranked versus measured is shown",
+   /names ranked/.test(src) && /had their option/.test(src));
+ok("an empty board is stated plainly, not left blank",
+   /Nothing qualifies today/.test(src));
+ok("refused names are reachable with their reasons",
+   /it refused/.test(src) && /su-bskip/.test(src) && /\.su-bskip/.test(css));
+ok("the board table scrolls rather than bursting the page",
+   /\.su-btable-wrap \{ overflow-x: auto; \}/.test(css));
+ok("the board's new styles use tokens, never literal colours",
+   !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Worth selling today board"))),
+   (css.slice(css.indexOf("Worth selling today board")).match(/#[0-9a-fA-F]{6}\b/g) || []).join(","));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

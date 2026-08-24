@@ -130,7 +130,7 @@ const expects = ["fmt$", "fmtPct", "CardErrorBoundary", "RootErrorBoundary",
                  // Lazy-chunk machinery + the components the chunks publish.
                  "LazyTab", "loadChunk", "TreasuriesTab", "EarningsOpsTab",
                  "BacktestCard", "PatternDiscoveryCard", "RecoveryTab", "AskTab", "EdgeTab", "GapTab",
-                 "SectorsTab", "MarketContextTab", "GexTab", "BestSetupCard",
+                 "SectorsTab", "MarketContextTab", "GexTab", "BestSetupCard", "SellBoardCard",
                  "TimingCard", "TimingThresholds"];
 const missing = expects.filter(n => !(n in sandbox));
 if (missing.length) { loadFailed = true; console.log("MISSING EXPORTS: " + missing.join(", ")); }

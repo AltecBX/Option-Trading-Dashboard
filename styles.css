@@ -13178,3 +13178,37 @@ a.tabsheet-btn.site { text-decoration: none; }
   .su-strike { font-size: 20px; }
   .su-stat-value { font-size: 14px; }
 }
+
+/* ── Worth selling today board (v4.59) ─────────────────────────────────── */
+/* Ranks the watchlist by how rich each option is against what that stock
+   itself realizes. Lives on the Trade tab under the Best Setup card. */
+.su-board .card-sub { max-width: 68ch; }
+.su-uni {
+  margin: 0 0 10px; font-size: 12px; color: var(--fg-3);
+  border-left: 2px solid var(--border); padding-left: 10px;
+}
+.su-btable-wrap { overflow-x: auto; }
+.su-btable { width: 100%; min-width: 760px; }
+.su-btable th { white-space: nowrap; }
+/* A right-aligned number followed by a left-aligned date collides without
+   this: "2.41%September 25, 2026" reads as one field. */
+.su-btable th + th, .su-btable td + td { padding-left: 16px; }
+.su-btable td:last-child, .su-btable th:last-child { white-space: nowrap; }
+.su-brow td { vertical-align: middle; }
+.su-blink {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 700; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.su-blink:hover { color: var(--fg-1); }
+.su-bbasis {
+  margin-left: 6px; font-size: 10px; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--fg-3); font-weight: 600;
+}
+.su-bdelta { margin-left: 6px; font-size: 11px; color: var(--fg-3); }
+.su-bskip { margin-top: 8px; }
+.su-bskip li { margin-bottom: 6px; }
+@media (max-width: 620px) {
+  .su-btable { min-width: 620px; }
+  .su-uni { font-size: 11px; }
+}

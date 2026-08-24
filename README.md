@@ -57,6 +57,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `setup_scan.py` | Best Setup: gathers the layers, measures how far the stock actually travels |
 | `tab-setup.jsx` | The Best Setup card on the Trade tab (lazy chunk) |
 | `CANDLE_STATES.md` | How the candle states, sectors and gamma exposure work |
+| `setup_board.py` | Worth selling today: ranks the watchlist by how rich the premium is — pure |
 | `BEST_SETUP.md` | How the one recommendation is built, and what it refuses to do |
 | `assets/app-logo.png` | Brand logo |
 

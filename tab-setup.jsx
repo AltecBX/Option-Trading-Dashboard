@@ -37,6 +37,15 @@ const SU_TIP = {
   measured: "How often price actually travelled each distance within the life of this option — in this state, and from any ordinary bar for comparison. The keep rate is shown on its conservative lower bound.",
   baseline: "The same question asked of every ordinary bar. The conditional rate has to beat this, or the state is not special.",
   alt: "The other side, for comparison. It is shown so the choice is visible rather than assumed.",
+  // ── the board ─────────────────────────────────────────────────────────
+  board: "What is worth SELLING today, ranked by how rich each option is against what that stock itself realizes — not by how many dollars it pays, which mostly just tracks how volatile the stock is.",
+  richness: "Where today's premium sits against this stock's OWN past premiums. 90 means richer than 90% of the readings on file. When too few readings exist for a percentile, it falls back to the raw ratio and the row says which.",
+  rich_basis: "Which measurement the ranking used. PERCENTILE means enough of this stock's own history is on file to say where today sits in it. RATIO means there is not yet, so this is simply how many times over the option pays what the stock realizes.",
+  roc: "The credit as a percentage of the collateral the trade ties up — what the money actually earns, independent of share price.",
+  board_skip: "Names the scan measured and then refused, with the reason. A short list is only trustworthy if you can see what did not make it and why.",
+  universe: "How many names were ranked for free against how many had their option chain actually measured. Every chain costs a network round trip, so the scan ranks everything and measures the best few.",
+  expiry: "The expiration this credit and return are quoted for — the one the premium engine judged richest inside the selling window, not automatically the nearest monthly.",
+  board_earn: "Earnings inside the option's life excludes a name here. That is the opposite of the Premium Edge scan, which seeks earnings out — because a trader who closes before the report harvests that premium, and one who holds to expiry underwrites it.",
 };
 
 const suNum = (v, d = 2) => (v == null || !isFinite(v) ? "—" : Number(v).toFixed(d));
@@ -417,5 +426,186 @@ function BestSetupCard({ apiFetch, ticker, onOpenTab }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// THE BOARD — what is worth selling today, across the watchlist
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Endpoint: GET /api/setup_board
+//
+// This does NOT try to find a better strike. Measurement said the 15-22
+// delta band already sits at the ~85% win rate it targets, so there is no
+// gap there to harvest. What it does is pick the DAYS AND NAMES where the
+// same strike is paying more than that stock's own history says the risk
+// is worth — a selection claim, which the data does support.
+
+function SuBoardRow({ r, onPick }) {
+  const rich = r.richness;
+  const tone = rich >= 80 ? "up" : rich >= 50 ? "" : "muted";
+  return (
+    <tr className="su-brow">
+      <td>
+        <button className="su-blink" onClick={() => onPick && onPick(r.symbol)}
+                title={`Load ${r.symbol} in the Best Setup card above`}>
+          {r.symbol}
+        </button>
+      </td>
+      <td className={`scan-num ${tone}`} title={r.richness_why}>
+        {suNum(rich, 0)}
+        <span className="su-bbasis" title={SU_TIP.rich_basis}>
+          {r.richness_basis === "percentile" ? "pctl" : "ratio"}
+        </span>
+      </td>
+      <td className="scan-num" title={SU_TIP.vrp}>
+        {r.vrp_points == null ? "—"
+          : `${r.vrp_points > 0 ? "+" : "−"}${Math.abs(r.vrp_points).toFixed(1)}`}
+      </td>
+      <td className="scan-num" title={SU_TIP.iv30}>{suPct(r.iv30 * 100, 0)}</td>
+      <td className="scan-num" title={SU_TIP.erv}>{suPct(r.erv30 * 100, 0)}</td>
+      <td className="scan-num" title={SU_TIP.action}>
+        {r.strike == null ? "—" : suNum(r.strike, 2)}
+        {r.delta == null ? null
+          : <span className="su-bdelta">{suNum(Math.abs(r.delta), 2)}Δ</span>}
+      </td>
+      <td className="scan-num" title={SU_TIP.credit}>{suMoney(r.credit)}</td>
+      <td className="scan-num" title={SU_TIP.roc}>{suPct(r.roc_pct, 2)}</td>
+      <td title={SU_TIP.action}>{suDate(r.expiration)}</td>
+    </tr>
+  );
+}
+
+function SellBoardCard({ apiFetch, onPickTicker }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showSkipped, setShowSkipped] = useState(false);
+  const seq = useRef(0);
+
+  const load = React.useCallback(async () => {
+    const mine = ++seq.current;
+    setBusy(true);
+    try {
+      const r = await apiFetch("/api/setup_board?limit=12");
+      const d = await r.json();
+      if (mine !== seq.current) return;
+      setData(d);
+      setErr(d && d.ok === false && d.error ? d.error : null);
+    } catch (e) {
+      if (mine === seq.current) setErr(String(e && e.message ? e.message : e));
+    } finally {
+      if (mine === seq.current) setBusy(false);
+    }
+  }, [apiFetch]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rows = (data && data.rows) || [];
+  const skipped = (data && data.skipped) || [];
+  const uni = (data && data.universe) || null;
+
+  return (
+    <div className="card su-card su-board">
+      <div className="card-head">
+        <div>
+          <span className="kicker" title={SU_TIP.board}>Worth selling today</span>
+          <h3 className="card-title">Where the premium is actually rich</h3>
+          <p className="card-sub">
+            Ranked by how rich each option is against what that stock itself
+            realizes. Same delta you always sell — this picks the names and
+            the days, not the strike.
+          </p>
+        </div>
+        <div className="toolbar">
+          <button className="research-run-btn" onClick={load} disabled={busy}>
+            {busy ? "Scanning…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {uni ? (
+        <p className="su-uni" title={SU_TIP.universe}>
+          {uni.ranked} names ranked · {data.measured || 0} had their option
+          chain measured · {rows.length} qualified
+          {uni.dropped && uni.dropped["earnings inside the option's life"]
+            ? <span title={SU_TIP.board_earn}>
+                {" "}· {uni.dropped["earnings inside the option's life"]} skipped
+                for earnings inside the option&rsquo;s life
+              </span>
+            : null}
+        </p>
+      ) : null}
+
+      {busy && !data ? (
+        <div className="st-loading" aria-busy="true">
+          <div className="skel skel-line" style={{ width: "40%" }} />
+          <div className="skel skel-line" style={{ width: "88%" }} />
+        </div>
+      ) : null}
+
+      {err ? (
+        <React.Fragment>
+          <div className="research-error">{err}</div>
+          <button className="card-error-btn st-retry" onClick={load}>Try again</button>
+        </React.Fragment>
+      ) : null}
+
+      {data && !err && !rows.length ? (
+        <div className="su-refused">
+          <b>Nothing qualifies today.</b>{" "}
+          Every name the scan measured was either paying no more than the
+          stock actually realizes, carrying earnings inside the option&rsquo;s
+          life, or failing a liquidity or expected-value check. Most days are
+          like this; a board that always has something on it is not measuring
+          anything.
+        </div>
+      ) : null}
+
+      {rows.length ? (
+        <div className="su-btable-wrap">
+          <table className="scan-table su-btable">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th className="scan-num" title={SU_TIP.richness}>Richness</th>
+                <th className="scan-num" title={SU_TIP.vrp}>Premium over realized</th>
+                <th className="scan-num" title={SU_TIP.iv30}>Implied</th>
+                <th className="scan-num" title={SU_TIP.erv}>Expected realized</th>
+                <th className="scan-num" title={SU_TIP.action}>Strike</th>
+                <th className="scan-num" title={SU_TIP.credit}>Credit</th>
+                <th className="scan-num" title={SU_TIP.roc}>Return on collateral</th>
+                <th title={SU_TIP.expiry}>Expiration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <SuBoardRow key={r.symbol} r={r} onPick={onPickTicker} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {skipped.length ? (
+        <div className="su-more">
+          <button className="su-more-btn" aria-expanded={showSkipped}
+                  title={SU_TIP.board_skip}
+                  onClick={() => setShowSkipped(v => !v)}>
+            {showSkipped ? "Hide" : "Show"} the {skipped.length} it refused
+          </button>
+          {showSkipped ? (
+            <ul className="su-list su-list-risk su-bskip">
+              {skipped.map(s => (
+                <li key={s.symbol}>
+                  <b>{s.symbol}</b> — {(s.why || []).join(" ")}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // Chunk registration (house pattern — verify_frontend checks this).
-Object.assign(window, { BestSetupCard: React.memo(BestSetupCard) });
+Object.assign(window, { BestSetupCard: React.memo(BestSetupCard),
+                        SellBoardCard: React.memo(SellBoardCard) });

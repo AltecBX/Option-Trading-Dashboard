@@ -37,7 +37,16 @@ const SU_TIP = {
   vrp: "Implied volatility minus expected realized volatility, in points. Positive means options are priced above what the stock is likely to do.",
   measured: "How often price actually travelled each distance within the life of this option — in this state, and from any ordinary bar for comparison. The keep rate is shown on its conservative lower bound.",
   baseline: "The same question asked of every ordinary bar. The conditional rate has to beat this, or the state is not special.",
-  alt: "The other side, for comparison. It is shown so the choice is visible rather than assumed."
+  alt: "The other side, for comparison. It is shown so the choice is visible rather than assumed.",
+  // ── the board ─────────────────────────────────────────────────────────
+  board: "What is worth SELLING today, ranked by how rich each option is against what that stock itself realizes — not by how many dollars it pays, which mostly just tracks how volatile the stock is.",
+  richness: "Where today's premium sits against this stock's OWN past premiums. 90 means richer than 90% of the readings on file. When too few readings exist for a percentile, it falls back to the raw ratio and the row says which.",
+  rich_basis: "Which measurement the ranking used. PERCENTILE means enough of this stock's own history is on file to say where today sits in it. RATIO means there is not yet, so this is simply how many times over the option pays what the stock realizes.",
+  roc: "The credit as a percentage of the collateral the trade ties up — what the money actually earns, independent of share price.",
+  board_skip: "Names the scan measured and then refused, with the reason. A short list is only trustworthy if you can see what did not make it and why.",
+  universe: "How many names were ranked for free against how many had their option chain actually measured. Every chain costs a network round trip, so the scan ranks everything and measures the best few.",
+  expiry: "The expiration this credit and return are quoted for — the one the premium engine judged richest inside the selling window, not automatically the nearest monthly.",
+  board_earn: "Earnings inside the option's life excludes a name here. That is the opposite of the Premium Edge scan, which seeks earnings out — because a trader who closes before the report harvests that premium, and one who holds to expiry underwrites it."
 };
 const suNum = (v, d = 2) => v == null || !isFinite(v) ? "—" : Number(v).toFixed(d);
 const suPct = (v, d = 1) => v == null || !isFinite(v) ? "—" : `${Number(v).toFixed(d)}%`;
@@ -424,8 +433,180 @@ function BestSetupCard({
   }, "The ", alt.side === "call" ? "call" : "put", " side was refused outright, not merely outscored. ", alt.reason)) : null) : null) : null);
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// THE BOARD — what is worth selling today, across the watchlist
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Endpoint: GET /api/setup_board
+//
+// This does NOT try to find a better strike. Measurement said the 15-22
+// delta band already sits at the ~85% win rate it targets, so there is no
+// gap there to harvest. What it does is pick the DAYS AND NAMES where the
+// same strike is paying more than that stock's own history says the risk
+// is worth — a selection claim, which the data does support.
+
+function SuBoardRow({
+  r,
+  onPick
+}) {
+  const rich = r.richness;
+  const tone = rich >= 80 ? "up" : rich >= 50 ? "" : "muted";
+  return /*#__PURE__*/React.createElement("tr", {
+    className: "su-brow"
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    className: "su-blink",
+    onClick: () => onPick && onPick(r.symbol),
+    title: `Load ${r.symbol} in the Best Setup card above`
+  }, r.symbol)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${tone}`,
+    title: r.richness_why
+  }, suNum(rich, 0), /*#__PURE__*/React.createElement("span", {
+    className: "su-bbasis",
+    title: SU_TIP.rich_basis
+  }, r.richness_basis === "percentile" ? "pctl" : "ratio")), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: SU_TIP.vrp
+  }, r.vrp_points == null ? "—" : `${r.vrp_points > 0 ? "+" : "−"}${Math.abs(r.vrp_points).toFixed(1)}`), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: SU_TIP.iv30
+  }, suPct(r.iv30 * 100, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: SU_TIP.erv
+  }, suPct(r.erv30 * 100, 0)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: SU_TIP.action
+  }, r.strike == null ? "—" : suNum(r.strike, 2), r.delta == null ? null : /*#__PURE__*/React.createElement("span", {
+    className: "su-bdelta"
+  }, suNum(Math.abs(r.delta), 2), "\u0394")), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: SU_TIP.credit
+  }, suMoney(r.credit)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: SU_TIP.roc
+  }, suPct(r.roc_pct, 2)), /*#__PURE__*/React.createElement("td", {
+    title: SU_TIP.action
+  }, suDate(r.expiration)));
+}
+function SellBoardCard({
+  apiFetch,
+  onPickTicker
+}) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showSkipped, setShowSkipped] = useState(false);
+  const seq = useRef(0);
+  const load = React.useCallback(async () => {
+    const mine = ++seq.current;
+    setBusy(true);
+    try {
+      const r = await apiFetch("/api/setup_board?limit=12");
+      const d = await r.json();
+      if (mine !== seq.current) return;
+      setData(d);
+      setErr(d && d.ok === false && d.error ? d.error : null);
+    } catch (e) {
+      if (mine === seq.current) setErr(String(e && e.message ? e.message : e));
+    } finally {
+      if (mine === seq.current) setBusy(false);
+    }
+  }, [apiFetch]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const rows = data && data.rows || [];
+  const skipped = data && data.skipped || [];
+  const uni = data && data.universe || null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card su-card su-board"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "kicker",
+    title: SU_TIP.board
+  }, "Worth selling today"), /*#__PURE__*/React.createElement("h3", {
+    className: "card-title"
+  }, "Where the premium is actually rich"), /*#__PURE__*/React.createElement("p", {
+    className: "card-sub"
+  }, "Ranked by how rich each option is against what that stock itself realizes. Same delta you always sell \u2014 this picks the names and the days, not the strike.")), /*#__PURE__*/React.createElement("div", {
+    className: "toolbar"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "research-run-btn",
+    onClick: load,
+    disabled: busy
+  }, busy ? "Scanning…" : "Refresh"))), uni ? /*#__PURE__*/React.createElement("p", {
+    className: "su-uni",
+    title: SU_TIP.universe
+  }, uni.ranked, " names ranked \xB7 ", data.measured || 0, " had their option chain measured \xB7 ", rows.length, " qualified", uni.dropped && uni.dropped["earnings inside the option's life"] ? /*#__PURE__*/React.createElement("span", {
+    title: SU_TIP.board_earn
+  }, " ", "\xB7 ", uni.dropped["earnings inside the option's life"], " skipped for earnings inside the option\u2019s life") : null) : null, busy && !data ? /*#__PURE__*/React.createElement("div", {
+    className: "st-loading",
+    "aria-busy": "true"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "40%"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "88%"
+    }
+  })) : null, err ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "research-error"
+  }, err), /*#__PURE__*/React.createElement("button", {
+    className: "card-error-btn st-retry",
+    onClick: load
+  }, "Try again")) : null, data && !err && !rows.length ? /*#__PURE__*/React.createElement("div", {
+    className: "su-refused"
+  }, /*#__PURE__*/React.createElement("b", null, "Nothing qualifies today."), " ", "Every name the scan measured was either paying no more than the stock actually realizes, carrying earnings inside the option\u2019s life, or failing a liquidity or expected-value check. Most days are like this; a board that always has something on it is not measuring anything.") : null, rows.length ? /*#__PURE__*/React.createElement("div", {
+    className: "su-btable-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table su-btable"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.richness
+  }, "Richness"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.vrp
+  }, "Premium over realized"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.iv30
+  }, "Implied"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.erv
+  }, "Expected realized"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.action
+  }, "Strike"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.credit
+  }, "Credit"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.roc
+  }, "Return on collateral"), /*#__PURE__*/React.createElement("th", {
+    title: SU_TIP.expiry
+  }, "Expiration"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement(SuBoardRow, {
+    key: r.symbol,
+    r: r,
+    onPick: onPickTicker
+  }))))) : null, skipped.length ? /*#__PURE__*/React.createElement("div", {
+    className: "su-more"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "su-more-btn",
+    "aria-expanded": showSkipped,
+    title: SU_TIP.board_skip,
+    onClick: () => setShowSkipped(v => !v)
+  }, showSkipped ? "Hide" : "Show", " the ", skipped.length, " it refused"), showSkipped ? /*#__PURE__*/React.createElement("ul", {
+    className: "su-list su-list-risk su-bskip"
+  }, skipped.map(s => /*#__PURE__*/React.createElement("li", {
+    key: s.symbol
+  }, /*#__PURE__*/React.createElement("b", null, s.symbol), " \u2014 ", (s.why || []).join(" ")))) : null) : null);
+}
+
 // Chunk registration (house pattern — verify_frontend checks this).
 Object.assign(window, {
-  BestSetupCard: React.memo(BestSetupCard)
+  BestSetupCard: React.memo(BestSetupCard),
+  SellBoardCard: React.memo(SellBoardCard)
 });
 })();

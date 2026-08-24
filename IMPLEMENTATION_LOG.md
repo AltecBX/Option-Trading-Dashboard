@@ -2329,3 +2329,49 @@ A no-trade day is a finding and renders as one.
 2,740 Python tests (88 for this feature), 54 UI guards, 26 browser checks
 against the real engine on real Nasdaq history, and Layer 1 + Layer 2 of
 verify_frontend green.
+
+## v4.59 — Worth selling today
+
+A board on the Trade tab that ranks the watchlist by how rich each option
+is against what that stock itself realizes, and says which names to skip
+and why.
+
+This is what came out of asking whether the Best Setup card actually makes
+money. It does not, in the way it was designed to.
+
+**The measured-distance rule is inert, and the arithmetic says it must be.**
+Backtested point-in-time over 597 entries it fired zero times in the useful
+direction. The rule demands 85% at the Wilson LOWER bound; with the ~45-70
+windows conditioning actually produces, clearing that bound needs a 95%
+point estimate, and a 95%-keep distance sits further out than a 15-delta
+strike. Lowering the bar does not help: at a 65% bar it still pointed
+further out 41 times out of 50.
+
+The deeper reason is that an 85% win rate over 30 days IS the 15-22 delta
+band — measured realized keep at 18.5 delta is 83-85%. The rule and the
+default agree with each other, so there was never a gap between them to
+harvest. More premium at that horizon means a lower win rate, which is a
+risk-appetite decision and needs no measurement to make.
+
+**And the earlier "there is edge at every delta" reading was mostly an
+artefact.** Strikes were placed using a modelled IV at 1.10x trailing
+realized. At 1.00x the edge at 15 delta is -0.1 points; at 1.30x it is
++4.8. The constant was doing the work. The model also has no skew at all,
+which cuts against the same conclusion. That analysis cannot settle the
+delta question, and the app's own recorded IV30 is the only thing that
+will — the Backtest tab reports `modeled` until ~60 days accumulate.
+
+So the board makes the narrower claim the data supports: pick the names and
+the days, not the strike. Earnings inside the option's life EXCLUDES here,
+which is the opposite sign to the Premium Edge scan's +30 bonus, because a
+seller who holds to expiry underwrites the report rather than harvesting
+it. Ranking prefers where today's premium sits in that stock's own history
+and falls back to the raw ratio — labelled RATIO, not PCTL — when too few
+readings exist for a percentile.
+
+It measures nothing itself: the rows come from the Premium Edge scan that
+already computes them, because re-deriving would cost a chain fetch per
+symbol to reach the same numbers.
+
+2,782 Python tests (37 new), 67 UI guards (13 new), 19 browser checks
+against the real module, and Layer 1 + Layer 2 of verify_frontend green.
