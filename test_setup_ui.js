@@ -184,6 +184,31 @@ ok("the board's new styles use tokens, never literal colours",
    !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Worth selling today board"))),
    (css.slice(css.indexOf("Worth selling today board")).match(/#[0-9a-fA-F]{6}\b/g) || []).join(","));
 
+// ── 10. a broker problem must not read as a symbol problem ─────────────
+const scan2 = read("setup_scan.py");
+ok("the fallback badge says WHY, not just that it fell back",
+   /re-authorize under Manage/i.test(appSrc)
+   && /sign-in has expired/i.test(appSrc));
+ok("an expired sign-in is called out rather than shown as a quiet fallback",
+   /Schwab sign-in expired/.test(appSrc) && /urgent/.test(appSrc));
+ok("the badge warns before the sign-in expires, not only after",
+   /expires in about/.test(appSrc));
+ok("the engine reports the broker reason instead of blaming the symbol",
+   /def _broker_note/.test(scan2) && /broker_note/.test(scan2));
+ok("every chain fetch carries both dates",
+   !/get_option_chain\(\s*\n?\s*symbol,\s*to_date=/.test(scan2),
+   "an unbounded fetch (to_date without expiration) is back");
+
+ok("a stale scan is called out, not rendered as today's list",
+   /This scan is \{staleWord\}, not today/.test(src)
+   && /const stale = /.test(src));
+ok("the staleness threshold is a real age, not a truthiness check",
+   /ageMs > 20 \* 3600 \* 1000/.test(src));
+ok("the stale notice says when the scan actually last completed",
+   /It last completed \{suDate\(data\.as_of\)\}/.test(src));
+ok("it points at the broker, which is the usual cause",
+   /re-authorize under Manage/.test(src));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

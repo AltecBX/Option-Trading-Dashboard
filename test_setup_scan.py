@@ -433,3 +433,91 @@ class TestTheChainMustCoverTheSellingWindow(unittest.TestCase):
         got = SS._window_expiries(chain, today, 7, 60)         # noqa: SLF001
         self.assertEqual(got, [(today + timedelta(days=8)).isoformat(),
                                (today + timedelta(days=30)).isoformat()])
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# A BROKER PROBLEM MUST NOT READ AS A SYMBOL PROBLEM
+# ══════════════════════════════════════════════════════════════════════════
+
+class ExpiredBroker(WindowBroker):
+    """Answers price history but returns None for every chain, the way a
+    client with an expired sign-in behaves."""
+
+    def __init__(self, status=None, **kw):
+        super().__init__(**kw)
+        self._status = status or {"configured": True, "needs_reauth": True,
+                                  "auth_error": "401", "refresh_remaining_days": 0}
+        self.chain_calls = []
+
+    def get_option_chain(self, symbol, expiration=None, to_date=None,
+                         strike_count=60):
+        self.chain_calls.append((expiration, to_date))
+        return None
+
+    def status(self):
+        return self._status
+
+
+class TestABrokerProblemIsNotASymbolProblem(unittest.TestCase):
+    """Schwab refresh tokens last seven days, so "it worked yesterday" is
+    the normal case. A failed fetch and a symbol with no options look
+    identical from inside analyze, and the difference decides whether the
+    fix is re-authorizing or picking a different stock."""
+
+    def setUp(self):
+        SS.invalidate()
+
+    def tearDown(self):
+        SS.configure(schwab_getter=lambda: None)
+        SS.invalidate()
+
+    def _run(self, broker):
+        SS.configure(schwab_getter=lambda: broker,
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        return SS.analyze("TEST")
+
+    def test_an_expired_sign_in_says_so_instead_of_blaming_the_symbol(self):
+        out = self._run(ExpiredBroker())
+        self.assertFalse(out["ok"])
+        self.assertNotIn("no listed options", out["error"])
+        self.assertIn("re-authoriz", out["error"].lower())
+
+    def test_a_missing_token_names_that_reason(self):
+        b = ExpiredBroker(status={"configured": False, "reason": "no_token_file"})
+        out = self._run(b)
+        self.assertIn("never been authorized", out["error"])
+
+    def test_a_connected_broker_that_simply_has_no_chain_still_says_so(self):
+        b = ExpiredBroker(status={"configured": True, "needs_reauth": False,
+                                  "auth_error": None,
+                                  "refresh_remaining_days": 6.0})
+        out = self._run(b)
+        self.assertIn("broker is connected", out["error"])
+        self.assertIn("TEST", out["error"])
+
+    def test_the_widening_fallback_is_never_an_unbounded_fetch(self):
+        """`get_option_chain` ignores `to_date` unless `expiration` is set,
+        so a fetch passing only `to_date` asks for EVERY expiration — the
+        unbounded request that times out on heavily-optioned names. Every
+        chain call this module makes must carry both dates."""
+        b = ExpiredBroker()
+        self._run(b)
+        self.assertTrue(b.chain_calls, "no chain fetch was attempted")
+        for exp, to in b.chain_calls:
+            self.assertIsNotNone(exp, f"unbounded fetch: expiration=None, to_date={to}")
+            self.assertIsNotNone(to, f"open-ended fetch: expiration={exp}, to_date=None")
+
+    def test_every_widening_fetch_is_bounded_too(self):
+        """A dead connection and an empty window both return None, so the
+        widening cannot tell them apart and always runs. That makes it all
+        the more important that it is bounded."""
+        thin = WindowBroker(offsets=(1, 3))
+        SS.configure(schwab_getter=lambda: thin,
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("TEST")
+        self.assertFalse(out["ok"])
+        for exp, to in thin.asked:
+            self.assertIsNotNone(exp)
+            self.assertIsNotNone(to)
