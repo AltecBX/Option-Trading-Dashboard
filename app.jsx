@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.65";
+const APP_VERSION = "4.66";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -39,6 +39,16 @@ const _TICKER_LRU = new Map();      // key -> { t, payload }
 const _TICKER_LRU_MAX = 8;
 const _TICKER_LRU_TTL = 90000;      // ms — stale views still revalidate instantly
 let _TICKER_LAST_NONCE = null;
+
+// Schwab throttles when symbols are switched faster than it likes to answer.
+// Waiting a few seconds fixes it, so the app waits instead of the user.
+const THROTTLE_BACKOFF = [3, 8, 20];   // seconds between our own retries
+const THROTTLE_MSG =
+  "Your broker is asking us to slow down — this happens when symbols are "
+  + "switched quickly, and it clears by itself. Trying again";
+const THROTTLE_GAVE_UP =
+  "Your broker is still asking us to slow down. Give it a minute, then press "
+  + "Retry. Nothing is wrong with this symbol.";
 
 // Run low-priority work after the browser is idle (or shortly after, on Safari
 // versions without requestIdleCallback) so the first paint + /api/ticker win
@@ -268,6 +278,11 @@ function App() {
   const [expiration, setExpiration] = useState(""); // "" = use server default (next Friday)
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // A broker throttle is not a broken symbol — it clears by itself in a few
+  // seconds. When one lands we say so and count down to our own retry
+  // instead of leaving the user to guess. null = no retry pending.
+  const [retryIn, setRetryIn] = useState(null);
+  const throttleTries = React.useRef(0);
   const [dataVersion, setDataVersion] = useState(0);
   const [navOpen, setNavOpen] = useState(false);      // mobile sidebar drawer
   const [palOpen, setPalOpen] = useState(false);      // ⌘K command palette
@@ -1712,7 +1727,15 @@ function App() {
             + `&weeks=52&baseline=${baseline}`;
     if (expiration) url += `&expiration=${encodeURIComponent(expiration)}`;
     apiFetch(url, { signal: ac.signal })
-      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+      .then(r => {
+        if (r.ok) return r.json();
+        // Keep the HTTP status on the way out — a 429 body is sometimes a
+        // proxy's HTML, and the status is the only reliable way to know a
+        // refusal was "slow down" rather than "no such symbol".
+        return r.json()
+          .catch(() => ({ error: r.statusText || `HTTP ${r.status}` }))
+          .then(e => Promise.reject(Object.assign({}, e, { status: r.status })));
+      })
       .then(payload => {
         if (cancelled) return;
         _TICKER_LRU.delete(_lruKey);                 // re-insert = most recent
@@ -1739,13 +1762,27 @@ function App() {
         const msg = err?.error || err?.message || "Fetch failed";
         const offline = /Failed to fetch|NetworkError|TypeError/.test(msg);
         const havePreset = !!window.MockData?.PRESETS?.[ticker];
+        // Schwab asks us to slow down when symbols are switched quickly.
+        // That is a temporary "not now", not a fact about the symbol, and
+        // it clears on its own — so wait it out rather than making the
+        // user click a button that only looks like it does something.
+        const throttled = err?.status === 429
+          || /too many requests|rate.?limit/i.test(msg);
+        if (throttled && throttleTries.current < THROTTLE_BACKOFF.length) {
+          const wait = THROTTLE_BACKOFF[throttleTries.current];
+          throttleTries.current += 1;
+          setLoadError(THROTTLE_MSG);
+          setRetryIn(wait);
+          setLoading(false);
+          return;
+        }
         if (offline && havePreset) {
           setLoadError(null);
         } else {
           setLoadError(
             offline
               ? "Live API offline. Start with: python3 options_dashboard.py --serve"
-              : msg
+              : throttled ? THROTTLE_GAVE_UP : msg
           );
           // Still log full error so it shows up in DevTools.
           console.warn("ticker fetch failed:", err);
@@ -1754,6 +1791,28 @@ function App() {
       });
     return () => { cancelled = true; ac.abort(); };
   }, [ticker, baseline, expiration, reloadNonce]);
+
+  // Count the pending throttle retry down a second at a time, then fire it.
+  // Bumping reloadNonce is what actually refetches — dataVersion does not
+  // reach the /api/ticker effect above.
+  useEffect(() => {
+    if (retryIn == null) return;
+    if (retryIn <= 0) {
+      setRetryIn(null);
+      setLoadError(null);
+      setReloadNonce(n => n + 1);
+      return;
+    }
+    const t = setTimeout(() => setRetryIn(s => (s == null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [retryIn]);
+
+  // A new symbol gets a clean slate: the previous one's throttle budget and
+  // any countdown still running belong to a request nobody is waiting for.
+  useEffect(() => {
+    throttleTries.current = 0;
+    setRetryIn(null);
+  }, [ticker]);
 
   // Reset expiration override whenever the ticker changes — different
   // symbols have different chains, so a stale date will silently fall back
@@ -3554,12 +3613,27 @@ function App() {
         <PercentCalc activeTicker={ticker} livePrice={getLivePrice(ticker) ?? currentPrice} />
         {/* Error banner — replaces tiny sidebar error with prominent display */}
         {loadError && !loading && (
-          <div className="error-banner">
+          <div className="error-banner" title={retryIn != null
+            ? "Your broker limits how many requests it will answer in a short "
+              + "window. Switching between symbols quickly can cross that line. "
+              + "It is a temporary refusal, not a problem with the symbol or "
+              + "with your account, so the app is waiting it out and will load "
+              + "the symbol itself. You can press Retry to try sooner."
+            : "The symbol could not be loaded. The reason from the data source "
+              + "is shown here. Press Retry to request it again."}>
             <span className="ico">⚠</span>
             <div>
-              <b>Couldn't load {ticker}.</b> <span className="muted">{loadError}</span>
+              <b>Couldn't load {ticker}.</b>{" "}
+              <span className="muted">
+                {loadError}
+                {retryIn != null && ` in ${retryIn} second${retryIn === 1 ? "" : "s"}…`}
+              </span>
             </div>
-            <button className="error-retry" onClick={() => setDataVersion(v => v + 1)}>Retry</button>
+            <button className="error-retry" onClick={() => {
+              setRetryIn(null);
+              setLoadError(null);
+              refreshData();
+            }}>Retry</button>
           </div>
         )}
         {/* Earnings banner */}
