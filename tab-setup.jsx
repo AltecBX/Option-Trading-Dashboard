@@ -9,6 +9,69 @@
 //
 // Endpoint: GET /api/setup?symbol=X
 
+// A throttled request is a "not now", not an answer about the symbol. The
+// backend marks those refusals retryable; both cards below wait them out on
+// this schedule instead of parking a button in front of the reader.
+const SU_RETRY_BACKOFF = [3, 8, 20];   // seconds
+const SU_RETRY_TIP =
+  "Your broker limits how many requests it will answer in a short window, "
+  + "and switching between symbols quickly can cross that line. It is a "
+  + "temporary refusal, not a problem with this symbol or your account, so "
+  + "the card is waiting it out and will load by itself. Try again asks "
+  + "sooner.";
+
+// Shared by both cards: hold a countdown, fire the reload when it hits zero,
+// and start over whenever the thing being looked at changes.
+//
+// The reload arrives as a ref rather than a value because the card's load
+// function has to be able to report back into this hook, and a plain
+// argument would make the two definitions depend on each other's order.
+function useThrottleRetry(loadRef, resetKey) {
+  const [retryIn, setRetryIn] = useState(null);
+  const tries = useRef(0);
+  useEffect(() => { tries.current = 0; setRetryIn(null); }, [resetKey]);
+  useEffect(() => {
+    if (retryIn == null) return;
+    if (retryIn <= 0) {
+      setRetryIn(null);
+      if (loadRef.current) loadRef.current(true);
+      return;
+    }
+    const t = setTimeout(() => setRetryIn((s) => (s == null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [retryIn, loadRef]);
+  // Called with each payload: schedules a retry when the refusal was
+  // transient and we have not already spent the budget.
+  const consider = React.useCallback((d) => {
+    if (d && d.ok === false && d.retryable
+        && tries.current < SU_RETRY_BACKOFF.length) {
+      setRetryIn(SU_RETRY_BACKOFF[tries.current]);
+      tries.current += 1;
+      return true;
+    }
+    return false;
+  }, []);
+  const cancel = React.useCallback(() => setRetryIn(null), []);
+  return { retryIn, consider, cancel };
+}
+
+// The waiting notice, so both cards say it the same way.
+function SuRetryNote({ err, retryIn, onRetry }) {
+  return (
+    <React.Fragment>
+      <div className="research-error" title={retryIn != null ? SU_RETRY_TIP : null}>
+        {err}
+        {retryIn != null
+          ? ` Trying again in ${retryIn} second${retryIn === 1 ? "" : "s"}…`
+          : null}
+      </div>
+      <button className="card-error-btn st-retry" onClick={onRetry}>
+        Try again
+      </button>
+    </React.Fragment>
+  );
+}
+
 const SU_TIP = {
   action: "The side, expiration, strike and delta the evidence supports, from every layer the app already computes — weekly range, streaks, swing maturity, premium, implied volatility, probability, liquidity and gamma exposure.",
   negative_ev: "The best contract the evidence allows pays less than it is worth at the volatility this stock actually realizes. A high probability of keeping the credit is not the same as a profitable trade: sold repeatedly at this price it loses money, because the occasional loss is bigger than all the credits it took to get there. Nothing is recommended rather than the least-bad option.",
@@ -236,6 +299,8 @@ function BestSetupCard({ apiFetch, ticker, onOpenTab }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const seq = useRef(0);
+  const loadRef = useRef(null);
+  const retry = useThrottleRetry(loadRef, ticker);
 
   const load = React.useCallback(async (force) => {
     const sym = String(ticker || "").trim().toUpperCase();
@@ -252,13 +317,15 @@ function BestSetupCard({ apiFetch, ticker, onOpenTab }) {
       if (d && d.symbol && d.symbol !== sym) return;
       setData(d);
       setErr(d && d.ok === false && d.error ? d.error : null);
+      retry.consider(d);
     } catch (e) {
       if (mine === seq.current) setErr(String(e && e.message ? e.message : e));
     } finally {
       if (mine === seq.current) setBusy(false);
     }
-  }, [apiFetch, ticker]);
+  }, [apiFetch, ticker, retry.consider]);
 
+  useEffect(() => { loadRef.current = load; }, [load]);
   useEffect(() => { setData(null); setErr(null); load(false); }, [load]);
 
   const rec = data && data.best;
@@ -320,12 +387,8 @@ function BestSetupCard({ apiFetch, ticker, onOpenTab }) {
       ) : null}
 
       {err ? (
-        <React.Fragment>
-          <div className="research-error">{err}</div>
-          <button className="card-error-btn st-retry" onClick={() => load(true)}>
-            Try again
-          </button>
-        </React.Fragment>
+        <SuRetryNote err={err} retryIn={retry.retryIn}
+                     onRetry={() => { retry.cancel(); load(true); }} />
       ) : null}
 
       {data && data.ok === false && !err ? (
@@ -481,6 +544,8 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
   const [busy, setBusy] = useState(false);
   const [showSkipped, setShowSkipped] = useState(false);
   const seq = useRef(0);
+  const loadRef = useRef(null);
+  const retry = useThrottleRetry(loadRef, "board");
 
   const load = React.useCallback(async () => {
     const mine = ++seq.current;
@@ -491,13 +556,15 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
       if (mine !== seq.current) return;
       setData(d);
       setErr(d && d.ok === false && d.error ? d.error : null);
+      retry.consider(d);
     } catch (e) {
       if (mine === seq.current) setErr(String(e && e.message ? e.message : e));
     } finally {
       if (mine === seq.current) setBusy(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, retry.consider]);
 
+  useEffect(() => { loadRef.current = load; }, [load]);
   useEffect(() => { load(); }, [load]);
 
   const rows = (data && data.rows) || [];
@@ -578,10 +645,8 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
       ) : null}
 
       {err ? (
-        <React.Fragment>
-          <div className="research-error">{err}</div>
-          <button className="card-error-btn st-retry" onClick={load}>Try again</button>
-        </React.Fragment>
+        <SuRetryNote err={err} retryIn={retry.retryIn}
+                     onRetry={() => { retry.cancel(); load(); }} />
       ) : null}
 
       {data && !err && !rows.length ? (

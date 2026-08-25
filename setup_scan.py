@@ -510,7 +510,11 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                 "error": (note if note else
                           f"No price history came back for {symbol}. The "
                           f"request failed or was throttled rather than the "
-                          f"symbol being empty — press Try again."),
+                          f"symbol being empty."),
+                # Nothing about the symbol caused this, so asking again is
+                # the whole fix — the card retries rather than parking a
+                # button in front of the reader.
+                "retryable": True,
                 "broker_note": note}
     if len(bars) < MIN_BARS:
         return {"ok": False, "symbol": symbol,
@@ -559,8 +563,8 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                 "error": (note if note else
                           f"The option chain request for {symbol} failed or "
                           f"was throttled. The broker is connected and the "
-                          f"symbol lists {len(listed)} expirations — press "
-                          f"Try again in a moment."),
+                          f"symbol lists {len(listed)} expirations."),
+                "retryable": True,
                 "broker_note": note}
     if not chain and listed:
         # The symbol lists options, just none inside the selling window.
