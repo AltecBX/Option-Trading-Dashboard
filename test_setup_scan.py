@@ -330,7 +330,7 @@ class WindowBroker:
 
     def get_option_chain(self, symbol, expiration=None, to_date=None,
                          strike_count=60):
-        self.asked.append((expiration, to_date))
+        self.asked.append((expiration, to_date, strike_count))
         today = date.today()
         spot = self._bars[-1]["close"]
         exps = [(today + timedelta(days=n)).isoformat() for n in self.offsets]
@@ -415,7 +415,9 @@ class TestTheChainMustCoverTheSellingWindow(unittest.TestCase):
         out = SS.analyze("TEST")
         self.assertFalse(out["ok"])
         msg = out.get("error") or ""
-        self.assertIn("days out on this chain", msg)
+        self.assertIn("days out", msg)
+        self.assertIn("Nearest:", msg)
+        self.assertIn("lists 2 expirations", msg)
 
     def test_the_window_comes_from_the_same_config_the_picker_uses(self):
         """One definition of the window. If the fetch and the pick disagree,
@@ -451,7 +453,7 @@ class ExpiredBroker(WindowBroker):
 
     def get_option_chain(self, symbol, expiration=None, to_date=None,
                          strike_count=60):
-        self.chain_calls.append((expiration, to_date))
+        self.chain_calls.append((expiration, to_date, strike_count))
         return None
 
     def status(self):
@@ -496,28 +498,206 @@ class TestABrokerProblemIsNotASymbolProblem(unittest.TestCase):
         self.assertIn("broker is connected", out["error"])
         self.assertIn("TEST", out["error"])
 
-    def test_the_widening_fallback_is_never_an_unbounded_fetch(self):
-        """`get_option_chain` ignores `to_date` unless `expiration` is set,
-        so a fetch passing only `to_date` asks for EVERY expiration — the
-        unbounded request that times out on heavily-optioned names. Every
-        chain call this module makes must carry both dates."""
+    def test_no_chain_call_is_unbounded_in_both_dimensions(self):
+        """A chain request is safe if it is bounded by DATES or by a narrow
+        strike ladder. Unbounded in both is the request that returns every
+        contract a name lists, runs past the client's fifteen-second
+        timeout, and comes back as None — which the caller cannot tell from
+        "this symbol has no options".
+
+        The index call deliberately omits dates: ten strikes keeps it cheap
+        however deep the listing is. So the rule is not "always pass dates",
+        it is "never pass neither".
+        """
         b = ExpiredBroker()
         self._run(b)
         self.assertTrue(b.chain_calls, "no chain fetch was attempted")
-        for exp, to in b.chain_calls:
-            self.assertIsNotNone(exp, f"unbounded fetch: expiration=None, to_date={to}")
-            self.assertIsNotNone(to, f"open-ended fetch: expiration={exp}, to_date=None")
+        for call in b.chain_calls:
+            exp, to, strikes = call
+            dated = exp is not None and to is not None
+            narrow = strikes is not None and strikes <= SS.INDEX_STRIKES
+            self.assertTrue(dated or narrow,
+                            f"unbounded fetch: expiration={exp} to_date={to} "
+                            f"strike_count={strikes}")
 
-    def test_every_widening_fetch_is_bounded_too(self):
-        """A dead connection and an empty window both return None, so the
-        widening cannot tell them apart and always runs. That makes it all
-        the more important that it is bounded."""
+    def test_a_thin_symbols_fetches_are_bounded_too(self):
+        """Same rule on the path where the symbol lists options but none
+        inside the selling window."""
         thin = WindowBroker(offsets=(1, 3))
         SS.configure(schwab_getter=lambda: thin,
                      chain_getter=lambda s: (None, None, None, [], []),
                      earnings_fn=lambda s: {})
         out = SS.analyze("TEST")
         self.assertFalse(out["ok"])
-        for exp, to in thin.asked:
+        for exp, to, strikes in thin.asked:
+            self.assertTrue((exp is not None and to is not None)
+                            or (strikes is not None and strikes <= SS.INDEX_STRIKES),
+                            f"unbounded: {exp} {to} {strikes}")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# WHAT FOUR SYMBOLS IN A ROW ACTUALLY FAILED ON
+# ══════════════════════════════════════════════════════════════════════════
+
+class DeepBroker:
+    """A heavily-optioned name: many expirations, like AAPL or GOOGL. The
+    unbounded-in-both-dimensions request against one of these is what timed
+    out and came back as None."""
+
+    # A name like AAPL lists expirations far denser than weekly near the
+    # front, so the seller's 7-60 day window holds a dozen or more. Contract
+    # counts roughly to scale:
+    #   index call        30 expirations x 10 strikes x 2  =   600   fine
+    #   the old request   14 expirations x 60 strikes x 2  = 1,680   times out
+    #   the new request    4 expirations x 40 strikes x 2  =   320   fine
+    # so the stub reproduces the actual failure rather than an arbitrary one.
+    def __init__(self, n_exps=30, bars=None, timeout_over=1000, spacing=4):
+        self._bars = bars if bars is not None else _bars()
+        self.n_exps = n_exps
+        self.timeout_over = timeout_over     # contracts before it "times out"
+        self.spacing = spacing               # days between listed expirations
+        self.calls = []
+
+    def _exps(self):
+        today = date.today()
+        return [(today + timedelta(days=self.spacing * (i + 1))).isoformat()
+                for i in range(self.n_exps)]
+
+    def get_price_history(self, symbol, days=1400):
+        return self._bars
+
+    def get_option_chain(self, symbol, expiration=None, to_date=None,
+                         strike_count=60):
+        self.calls.append((expiration, to_date, strike_count))
+        exps = self._exps()
+        if expiration:
+            exps = [e for e in exps if e >= expiration[:10]]
+        if to_date:
+            exps = [e for e in exps if e <= to_date[:10]]
+        if not exps:
+            return None
+        # The real client has a hard timeout: too much and it returns None.
+        if len(exps) * (strike_count or 60) * 2 > self.timeout_over:
+            return None
+        spot = self._bars[-1]["close"]
+        out = {"underlying": {"symbol": symbol, "last": spot},
+               "expirations": exps, "chains": {}, "source": "stub"}
+        for e in exps:
+            out["chains"][e] = _chain(spot, e)["chains"][e]
+        return out
+
+    def get_quote(self, symbol):
+        return {"last": self._bars[-1]["close"]}
+
+
+class TestAHeavilyOptionedNameStillWorks(unittest.TestCase):
+    """AAPL and GOOGL both came back "No option chain came back for X. The
+    broker is connected…" while the broker was demonstrably fine.
+
+    Asking for a 55-day RANGE at sixty strikes is roughly fourteen hundred
+    contracts on a name like AAPL. That runs past the client's timeout and
+    returns None, which is indistinguishable from "this symbol has no
+    options" — so the card blamed the symbol.
+    """
+
+    def setUp(self):
+        SS.invalidate()
+        self.broker = DeepBroker()
+        SS.configure(schwab_getter=lambda: self.broker,
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+
+    def tearDown(self):
+        SS.configure(schwab_getter=lambda: None)
+        SS.invalidate()
+
+    def test_a_deep_chain_produces_an_expiration_rather_than_timing_out(self):
+        out = SS.analyze("AAPL")
+        self.assertNotIn("No option chain came back", str(out.get("error") or ""))
+        self.assertIsNotNone(out.get("expiration"), out.get("error"))
+
+    def test_it_lists_expirations_cheaply_before_fetching_any(self):
+        SS.analyze("AAPL")
+        first = self.broker.calls[0]
+        self.assertLessEqual(first[2], SS.INDEX_STRIKES,
+                             "the index call was not narrow")
+
+    def test_it_never_asks_for_more_expirations_than_it_needs(self):
+        SS.analyze("AAPL")
+        for exp, to, _st in self.broker.calls[1:]:
             self.assertIsNotNone(exp)
             self.assertIsNotNone(to)
+
+
+class TestAFailedFetchIsNotAnEmptyStock(unittest.TestCase):
+    """TSLA reported "Only 0 daily bars on file". TSLA has decades of them.
+    Zero is what a throttled or failed request returns, and saying it as a
+    fact about the symbol sends the reader looking in the wrong place."""
+
+    def setUp(self):
+        SS.invalidate()
+
+    def tearDown(self):
+        SS.configure(schwab_getter=lambda: None)
+        SS.invalidate()
+
+    def _broker(self, bars):
+        class B(WindowBroker):
+            def get_price_history(self, symbol, days=1400):
+                return bars
+        return B()
+
+    def test_no_bars_is_reported_as_a_failed_request(self):
+        SS.configure(schwab_getter=lambda: self._broker(None),
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("TSLA")
+        self.assertFalse(out["ok"])
+        self.assertNotIn("0 daily bars", out["error"])
+        self.assertIn("TSLA", out["error"])
+
+    def test_an_empty_list_is_treated_the_same_as_none(self):
+        SS.configure(schwab_getter=lambda: self._broker([]),
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("TSLA")
+        self.assertNotIn("0 daily bars", out["error"])
+
+    def test_a_genuinely_short_history_says_so_without_blaming_the_request(self):
+        """SNDK really does have a short history — a recent spin-off. That
+        is a fact about the symbol and should read like one."""
+        SS.configure(schwab_getter=lambda: self._broker(_bars(n=120)),
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        out = SS.analyze("SNDK")
+        self.assertFalse(out["ok"])
+        self.assertIn("120", out["error"])
+        self.assertIn("recent listing", out["error"])
+
+    def test_a_recently_listed_name_with_enough_bars_is_not_refused(self):
+        """383 bars used to be refused outright by a 400-bar gate, which
+        threw away a perfectly good conservative trade. The measured
+        widening has its own, much higher bar and refuses on its own."""
+        self.assertLess(SS.MIN_BARS, 383)
+
+    def test_the_requested_range_spans_no_more_expirations_than_it_will_use(self):
+        """The fetch is a date RANGE, and the server fills a range with every
+        expiration between the ends. So asking for four dates SPREAD across
+        the window still requests the whole window — the same oversized
+        payload, just chosen differently. Only a contiguous block from one
+        end is actually bounded.
+
+        Asserted on the request itself rather than through a timeout model,
+        because a model only catches this when its threshold happens to sit
+        between the two sizes.
+        """
+        b = DeepBroker()
+        chain, listed = SS._window_chain(b, "AAPL", date.today(), 7, 60)  # noqa: SLF001
+        self.assertIsNotNone(chain)
+        index_call, fetch = b.calls[0], b.calls[1]
+        lo, hi, _st = fetch
+        spanned = [e for e in listed if lo[:10] <= e <= hi[:10]]
+        self.assertLessEqual(
+            len(spanned), SS.WINDOW_MAX_EXPIRATIONS,
+            f"the requested range {lo[:10]}..{hi[:10]} covers {len(spanned)} "
+            f"listed expirations, not {SS.WINDOW_MAX_EXPIRATIONS}")

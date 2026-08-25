@@ -2487,3 +2487,45 @@ calendar with no key.
 
 2,801 Python tests (11 new). Both fixes were re-broken deliberately to
 confirm the new guards fail against the shipped code.
+
+## v4.63 — Four symbols, four different failures
+
+Every symbol tried came back with an error, and no two errors were the
+same. Three separate bugs behind them.
+
+**The chain fetch was too big for a real name.** v4.61 asked Schwab for the
+whole 7-60 day selling window at sixty strikes. On something like AAPL that
+is a dozen or more expirations — roughly fourteen hundred contracts — which
+runs past the client's fifteen-second timeout and returns None. The caller
+cannot tell that from "this symbol has no options", so the card blamed AAPL
+and GOOGL for a payload-size problem.
+
+It now does what the Gamma Exposure tab settled on in v4.57: one cheap call
+at ten strikes to list the expirations, then a bounded fetch of a
+contiguous block of four inside the window. Contiguous matters — the fetch
+is a date RANGE and the server fills a range with everything between the
+ends, so four dates SPREAD across the window still request the whole
+window. That mistake was in the first version of this fix and the tests
+caught it.
+
+**"Only 0 daily bars on file" was said about TSLA.** Zero is what a failed
+or throttled request returns, not a fact about Tesla. It now reports the
+request failing, or the broker's own status when that is the cause, and
+keeps "this symbol is too new" for the case where the history really is
+short.
+
+**And a 400-bar gate refused SNDK outright** at 383 bars — a recent
+spin-off with a perfectly good conservative trade available. That floor was
+sized for the measured widening, which has its own much higher bar
+(MIN_MEASURED_N) and refuses on its own. The floor for producing ANY
+recommendation is now 260, about a year, which is what the volatility
+forecast and the weekly range actually need.
+
+The guard on unbounded fetches also had to be corrected rather than kept:
+it demanded every chain call carry both dates, which forbids the cheap
+index call that makes this work at all. The real invariant is that no call
+may be unbounded in BOTH dimensions — dates or a narrow ladder, never
+neither.
+
+2,810 Python tests. All four bugs were re-broken deliberately to confirm
+the new guards fail against the shipped code.
