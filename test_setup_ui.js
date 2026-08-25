@@ -223,6 +223,13 @@ ok("discovery is shape-blind, not tied to one JSON layout",
 ok("a daily post cannot become the weekly card",
    /score_post\(/.test(ewp) && /MIN_CONFIDENCE/.test(ewp));
 
+ok("the board says WHY nothing qualified, counted by reason",
+   /refused_by/.test(src) && /su-tally/.test(src) && /refused_by/.test(board));
+ok("a systematic failure is distinguishable from a quiet market",
+   /SU_TIP\.tally/.test(src) && /points at the data upstream/.test(src));
+ok("each refusal carries a machine-readable code",
+   /"codes": codes/.test(board));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);
