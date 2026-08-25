@@ -482,6 +482,13 @@ function EdgeDetail({ apiFetch, sym, onClose, onOpenTicker }) {
             {fcMae != null && <> · live forecast error (this ticker): <b>{fcMae.toFixed(1)} vol pts</b> mean abs over {fcErrs.length} checks</>}
             {d.erv.quality !== "ok" && <> · <b className="down">{d.erv.quality}</b></>}
           </div>
+          {d.erv.gap_ratio != null && (
+            <div className="edge-note" title="One of the estimators above measures only the ground a stock covers between its high and its low during the trading day. It cannot see the move that happens overnight, because nothing trades then — but an option seller is fully exposed to that move. This number is how much wider this stock's day-to-day swings are once the overnight moves are counted, measured from its own history. A stock that jumps on earnings and then drifts scores high here; one that grinds all day scores near 1.00. Without this correction the whole forecast reads low, which makes option premium look richer than it is.">
+              Overnight moves on this stock add <b>{Math.round((d.erv.gap_ratio - 1) * 100)}%</b> to
+              {" "}what its trading-day range alone would suggest
+              {" "}<span className="muted">· {d.erv.gap_ratio_basis}</span>
+            </div>
+          )}
 
           <EdgeBacktestPanel apiFetch={apiFetch} sym={sym} />
         </div>

@@ -34,8 +34,20 @@ backtest glue), `tab-edge.jsx` (lazy chunk).
   `iv30_avg` (front-expiry ATM — the name lied; §27).
 - **ExpectedRV30** — a *forecast*, not trailing HV: RV5/10/20/30/60,
   EWMA(0.94), Parkinson (first range-based estimator in the app), blended
-  with a long-run anchor shrink. Per-ticker model choice is **walk-forward
-  validated by QLIKE** (under-forecasting vol is penalized harder — the
+  with a long-run anchor shrink. The Parkinson voice enters the blend
+  **gap-calibrated** (`PARK20C`), scaled by the ticker's own trailing ratio
+  of close-to-close vol to range vol. Parkinson measures only the
+  high-to-low distance travelled while the market is open, so it is blind
+  to overnight moves — but the target it is blended to predict, and the
+  move a seller is exposed to, both include them. Across 59 names and
+  26,373 out-of-sample forecasts the ratio runs at a median of **1.20**
+  (p10 1.07, p90 1.39) and calibrating for it cut blend QLIKE by **6.7%**,
+  on 58 of 59 names, in *both* halves of the period; forecast bias moved
+  from −0.90 to +0.57 vol points (the safe side for a seller). The result
+  is insensitive to the ratio window (126/252/504 all within 0.5%) and the
+  clamp never binds in-sample. Uncalibrated Parkinson had read low by ~7.5
+  vol points, which flattered premium. Per-ticker model choice is
+  **walk-forward validated by QLIKE** (under-forecasting vol is penalized harder — the
   seller's asymmetry) and only replaces the global blend when it wins
   out-of-sample on *both halves* of the eval period by ≥5%. No lookahead —
   tests mutate future bars and prove the forecast can't change. A live

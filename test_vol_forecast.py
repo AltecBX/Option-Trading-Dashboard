@@ -197,5 +197,88 @@ class TestExpectedRV30(unittest.TestCase):
         self.assertEqual(out["quality"], "thin_history")
 
 
+class TestTheRangeVoiceCanHearOvernightMoves(unittest.TestCase):
+    """Parkinson only measures the ground covered between a day's high and
+    its low, so it is deaf to anything that happens while the market is
+    shut. The forecast is judged against close-to-close vol, which is not.
+    These guards fail against the uncalibrated blend."""
+
+    def test_a_stock_that_moves_by_gaps_reads_wider_than_its_range(self):
+        quiet = gbm_bars(600, sigma=0.30, seed=11)
+        gappy = gbm_bars(600, sigma=0.30, seed=11, gap_every=5, gap_pct=4.0)
+        r_quiet, _ = vf.gap_ratio(quiet)
+        r_gappy, _ = vf.gap_ratio(gappy)
+        self.assertIsNotNone(r_quiet)
+        self.assertIsNotNone(r_gappy)
+        # the gaps are real volatility the range estimator never saw
+        self.assertGreater(r_gappy, r_quiet + 0.10)
+
+    def test_the_forecast_stops_undershooting_a_gappy_stock(self):
+        """The claim the calibration actually makes: for a name that moves
+        by gaps, the blend used to sit BELOW the volatility that name goes
+        on to realize. A blend weighted on raw PARK20 still undershoots."""
+        gappy = gbm_bars(600, sigma=0.30, seed=11, gap_every=5, gap_pct=4.0)
+        realized = vf.rv([b["close"] for b in gappy], 250)
+        c = vf.candidates(gappy)
+        anchor = vf.rv([b["close"] for b in gappy], 252)
+        old = vf._blend(c, {"RV20": .30, "EWMA94": .35, "PARK20": .35},
+                        anchor, vf.ANCHOR_SHRINK)
+        new = vf._blend(c, vf.GLOBAL_WEIGHTS, anchor, vf.ANCHOR_SHRINK)
+        self.assertLess(old, realized)              # the bug
+        self.assertLess(abs(new - realized), abs(old - realized))
+
+    def test_the_blend_listens_to_the_calibrated_voice(self):
+        # a blend weighted on raw PARK20 is the bug this replaced
+        self.assertIn("PARK20C", vf.GLOBAL_WEIGHTS)
+        self.assertNotIn("PARK20", vf.GLOBAL_WEIGHTS)
+
+    def test_calibration_only_ever_adds(self):
+        """Gaps cannot make a stock calmer than its own intraday range."""
+        for seed in (3, 11, 29):
+            bars = gbm_bars(600, sigma=0.30, seed=seed)
+            c = vf.candidates(bars)
+            self.assertGreaterEqual(c["PARK20C"], c["PARK20"] - 1e-9)
+
+    def test_no_measurable_history_leans_on_the_typical_stock_not_on_nothing(self):
+        """A feed that only started reporting highs and lows recently can
+        price the last 20 days but not the last year. Not being able to
+        measure THIS name is no reason to assume it never gaps — that
+        assumption reads the forecast LOW, and a low forecast makes option
+        premium look richer than it is."""
+        bars = gbm_bars(600, sigma=0.30, seed=5)
+        for b in bars[:-40]:            # the older half of the feed has no range
+            b["high"] = b["low"] = None
+        out = vf.expected_rv30(bars)
+        self.assertIsNone(out["gap_ratio"])
+        self.assertIn("typical stock", out["gap_ratio_basis"])
+        c = vf.candidates(bars)
+        self.assertIsNotNone(c.get("PARK20"))
+        self.assertAlmostEqual(c["PARK20C"] / c["PARK20"],
+                               vf.GAP_RATIO_DEFAULT, places=6)
+
+    def test_the_forecast_says_where_the_number_came_from(self):
+        out = vf.expected_rv30(gbm_bars(600, sigma=0.30, seed=11))
+        self.assertGreaterEqual(out["gap_ratio"], 1.0)
+        self.assertIn("MEASURED", out["gap_ratio_basis"])
+
+    def test_a_broken_high_low_feed_cannot_run_away_with_the_forecast(self):
+        bars = gbm_bars(600, sigma=0.30, seed=11)
+        for b in bars[-300:]:            # collapsed range, as a bad feed gives
+            b["high"] = b["low"] = b["close"]
+        r, _ = vf.gap_ratio(bars)
+        if r is not None:
+            self.assertLessEqual(r, vf.GAP_RATIO_CEIL)
+
+    def test_calibration_uses_no_future_bars(self):
+        bars = gbm_bars(600, sigma=0.30, seed=11)
+        before, _ = vf.gap_ratio(bars[:400])
+        tail = copy.deepcopy(bars)
+        for b in tail[400:]:             # a storm that has not happened yet
+            b["high"] = b["high"] * 1.5
+            b["low"] = b["low"] * 0.5
+        after, _ = vf.gap_ratio(tail[:400])
+        self.assertEqual(before, after)
+
+
 if __name__ == "__main__":
     unittest.main()
