@@ -244,12 +244,16 @@ ok("a throttle is recognised by HTTP status, not only by wording",
 ok("a non-JSON refusal still reaches the throttle check",
    /\.catch\(\(\) => \(\{ error: r\.statusText/.test(appSrc));
 ok("the app waits the throttle out instead of asking the user to",
-   /THROTTLE_BACKOFF/.test(appSrc) && /setReloadNonce\(n => n \+ 1\)/.test(appSrc));
+   /throttleHit\(\)/.test(appSrc) && /setReloadNonce\(n => n \+ 1\)/.test(appSrc));
+// The bound moved into the shared clock, which returns null once the budget
+// is spent — so the guard is that the caller HONOURS a refusal, and still
+// has something to say when it comes. The bound itself is exercised for
+// real in test_throttle_clock.js.
 ok("the retry is bounded, so a real outage cannot loop forever",
-   /throttleTries\.current < THROTTLE_BACKOFF\.length/.test(appSrc)
+   /const wait = throttled \? throttleHit\(\) : null;[\s\S]{0,80}if \(wait\)/.test(appSrc)
    && /THROTTLE_GAVE_UP/.test(appSrc));
-ok("switching symbols clears the previous symbol's countdown",
-   /throttleTries\.current = 0;[\s\S]{0,60}setRetryIn\(null\)/.test(appSrc));
+ok("switching symbols clears this card's countdown",
+   /useEffect\(\(\) => \{ setRetryIn\(null\); \}, \[ticker\]\)/.test(appSrc));
 ok("the wait is explained in plain words, not as a broker error code",
    /asking us to slow down/.test(appSrc)
    && !/Too Many Requests/.test(appSrc));
@@ -278,9 +282,11 @@ ok("the Best Setup card waits the throttle out",
 ok("the sell board waits the throttle out",
    /const retry = useThrottleRetry\(loadRef, "board"\)/.test(src));
 ok("the wait is bounded, so a real outage cannot loop forever",
-   /tries\.current < SU_RETRY_BACKOFF\.length/.test(src));
-ok("switching symbols clears the previous symbol's countdown",
-   /useEffect\(\(\) => \{ tries\.current = 0; setRetryIn\(null\); \}, \[resetKey\]\)/.test(src));
+   /const wait = throttleHit\(\);[\s\S]{0,60}if \(!wait\) return false;/.test(src));
+ok("switching symbols clears this card's countdown",
+   /useEffect\(\(\) => \{ setRetryIn\(null\); \}, \[resetKey\]\)/.test(src));
+ok("but NOT the shared budget — a switch is what provokes the broker",
+   /shared budget[\s\S]{0,20}deliberately does not/i.test(src));
 ok("Try again still works, and cancels the pending countdown",
    /retry\.cancel\(\); load\(true\)/.test(src)
    && /retry\.cancel\(\); load\(\)/.test(src));
@@ -290,6 +296,28 @@ ok("the waiting notice carries a tooltip like everything else",
    /SU_RETRY_TIP/.test(src) && /temporary refusal/.test(src));
 ok("neither card renders its own bare retry button any more",
    !/<button className="card-error-btn st-retry" onClick=\{load\}/.test(src));
+
+// ── 14. one throttle clock, not one per card ───────────────────────────
+// v4.67 gave each card its own backoff. Three components discover the same
+// throttle at once, so that was three waves of retries at a broker that had
+// just asked for fewer. The clock is shared now; its behaviour is tested in
+// test_throttle_clock.js, and these check the wiring.
+const lib = read("app-lib.jsx");
+ok("the clock lives in app-lib, above every card that needs it",
+   /function throttleHit/.test(lib) && /throttleHit,/.test(lib));
+ok("the symbol load reads the shared clock",
+   /const wait = throttled \? throttleHit\(\) : null/.test(appSrc));
+ok("the setup cards read it too",
+   /const wait = throttleHit\(\)/.test(src));
+ok("no card keeps a private backoff ladder any more",
+   !/SU_RETRY_BACKOFF = \[/.test(src) && !/THROTTLE_BACKOFF = \[/.test(appSrc));
+ok("switching symbols does NOT reset the shared budget",
+   /switching symbols is what provoke/i.test(appSrc)
+   && !/throttleTries\.current = 0/.test(appSrc));
+ok("the sidebar gets a label, not the whole paragraph",
+   /THROTTLE_SHORT/.test(appSrc) && /Broker rate limit/.test(appSrc));
+ok("the short sidebar line still explains itself on hover",
+   /title=\{retryIn != null \? THROTTLE_MSG : loadError\}/.test(appSrc));
 
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));

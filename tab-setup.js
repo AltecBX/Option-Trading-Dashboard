@@ -13,7 +13,11 @@
 // A throttled request is a "not now", not an answer about the symbol. The
 // backend marks those refusals retryable; both cards below wait them out on
 // this schedule instead of parking a button in front of the reader.
-const SU_RETRY_BACKOFF = [3, 8, 20]; // seconds
+// The wait itself comes from throttleHit() in app-lib, shared with the main
+// symbol load and the other card. The broker throttles the CONNECTION, so
+// three components each keeping their own backoff means three waves of
+// retries at something that just asked for fewer — which is how a few
+// seconds of throttling turns into a minute of it.
 const SU_RETRY_TIP = "Your broker limits how many requests it will answer in a short window, " + "and switching between symbols quickly can cross that line. It is a " + "temporary refusal, not a problem with this symbol or your account, so " + "the card is waiting it out and will load by itself. Try again asks " + "sooner.";
 
 // Shared by both cards: hold a countdown, fire the reload when it hits zero,
@@ -24,9 +28,10 @@ const SU_RETRY_TIP = "Your broker limits how many requests it will answer in a s
 // argument would make the two definitions depend on each other's order.
 function useThrottleRetry(loadRef, resetKey) {
   const [retryIn, setRetryIn] = useState(null);
-  const tries = useRef(0);
+  // Only this card's countdown resets on a new symbol. The shared budget
+  // deliberately does not: switching symbols is what provokes the broker,
+  // so resetting the escalation on every switch defeats the backoff.
   useEffect(() => {
-    tries.current = 0;
     setRetryIn(null);
   }, [resetKey]);
   useEffect(() => {
@@ -39,15 +44,15 @@ function useThrottleRetry(loadRef, resetKey) {
     const t = setTimeout(() => setRetryIn(s => s == null ? null : s - 1), 1000);
     return () => clearTimeout(t);
   }, [retryIn, loadRef]);
-  // Called with each payload: schedules a retry when the refusal was
-  // transient and we have not already spent the budget.
+  // Called with each payload: joins the shared wait when the refusal was
+  // transient. throttleHit returns null once the budget is spent, and the
+  // card then leaves the message and the button standing.
   const consider = React.useCallback(d => {
-    if (d && d.ok === false && d.retryable && tries.current < SU_RETRY_BACKOFF.length) {
-      setRetryIn(SU_RETRY_BACKOFF[tries.current]);
-      tries.current += 1;
-      return true;
-    }
-    return false;
+    if (!(d && d.ok === false && d.retryable)) return false;
+    const wait = throttleHit();
+    if (!wait) return false;
+    setRetryIn(wait);
+    return true;
   }, []);
   const cancel = React.useCallback(() => setRetryIn(null), []);
   return {
