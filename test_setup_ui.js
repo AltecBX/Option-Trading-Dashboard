@@ -126,8 +126,9 @@ ok("an incomplete forward window is never counted as a miss",
 // ── 7. request hygiene and registration ─────────────────────────────────
 ok("a slow response for an older ticker cannot paint over a newer one",
    /mine !== seq\.current/.test(src) && /d\.symbol !== sym/.test(src));
+// `ticker` must stay a dependency of load — anything else may follow it.
 ok("the card follows the app's ticker", /\}, \[load\]\);/.test(src)
-   && /\[apiFetch, ticker\]/.test(src));
+   && /\[apiFetch, ticker[,\]]/.test(src));
 ok("BestSetupCard is exported to window", /BestSetupCard: React\.memo/.test(src));
 ok("app.jsx lazy-loads it on the Trade tab",
    /component="BestSetupCard"/.test(appSrc) && /chunk="tab-setup"/.test(appSrc));
@@ -256,6 +257,39 @@ ok("the banner tells the user nothing is wrong with the symbol",
    /Nothing is wrong with this symbol/.test(appSrc));
 ok("the countdown banner carries a tooltip like everything else",
    /className="error-banner" title=\{retryIn != null/.test(appSrc));
+
+// ── 13. the cards wait a throttle out too, not just the main load ──────
+// v4.66 taught the /api/ticker load to wait out a broker throttle, but the
+// Best Setup card and the sell board have their OWN request and their own
+// Try again button, so they went on making the reader press it. Same bug,
+// second place. These guards fail if either card loses the behaviour.
+ok("the backend marks a throttled refusal as retryable",
+   /"retryable": True/.test(scan2));
+ok("only the transient refusals are marked, not a short history",
+   (scan2.match(/"retryable": True/g) || []).length === 2
+   && !/only \{len\(bars\)\} daily bars[\s\S]{0,200}"retryable"/.test(scan2));
+ok("a retryable refusal no longer orders the reader to press a button",
+   !/press Try again/.test(scan2));
+ok("both cards share one waiting rule rather than two copies",
+   /function useThrottleRetry/.test(src)
+   && (src.match(/= useThrottleRetry\(loadRef/g) || []).length === 2);
+ok("the Best Setup card waits the throttle out",
+   /const retry = useThrottleRetry\(loadRef, ticker\)/.test(src));
+ok("the sell board waits the throttle out",
+   /const retry = useThrottleRetry\(loadRef, "board"\)/.test(src));
+ok("the wait is bounded, so a real outage cannot loop forever",
+   /tries\.current < SU_RETRY_BACKOFF\.length/.test(src));
+ok("switching symbols clears the previous symbol's countdown",
+   /useEffect\(\(\) => \{ tries\.current = 0; setRetryIn\(null\); \}, \[resetKey\]\)/.test(src));
+ok("Try again still works, and cancels the pending countdown",
+   /retry\.cancel\(\); load\(true\)/.test(src)
+   && /retry\.cancel\(\); load\(\)/.test(src));
+ok("the countdown is visible, not a silent wait",
+   /Trying again in \$\{retryIn\} second/.test(src));
+ok("the waiting notice carries a tooltip like everything else",
+   /SU_RETRY_TIP/.test(src) && /temporary refusal/.test(src));
+ok("neither card renders its own bare retry button any more",
+   !/<button className="card-error-btn st-retry" onClick=\{load\}/.test(src));
 
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
