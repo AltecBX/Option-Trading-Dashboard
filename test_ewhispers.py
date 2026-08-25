@@ -81,6 +81,18 @@ class Base(unittest.TestCase):
                          "background work did not finish")
 
 
+def _settle(timeout=5.0):
+    """Wait out any background refresh started by a test.
+
+    trigger_refresh spawns a thread. Before v4.62 a keyless deployment was
+    turned away before that happened, so most tests could never start one;
+    now they can, and a thread outliving its test lands inside a later one.
+    """
+    end = time.monotonic() + timeout
+    while (ew._REFRESHING or ew._REHYDRATING) and time.monotonic() < end:
+        time.sleep(0.02)
+
+
 # ── Week logic ──────────────────────────────────────────────────────────────
 
 class TestTradingWeek(Base):
@@ -675,9 +687,20 @@ class TestThePinnedPostIsPreferred(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         ew.configure(Path(self.tmp))
         ew._STATE = None                                    # noqa: SLF001
+        ew._REFRESHING = False                              # noqa: SLF001
+        ew._LAST_ATTEMPT_MONO = 0.0                         # noqa: SLF001
         os.environ["X_BEARER_TOKEN"] = "test-token"
+        self._saved = {n: getattr(ew, n) for n in
+                       ("_x_pinned_candidate", "_x_search_candidates",
+                        "_timeline_post_ids", "_fetch_syndication", "_session")}
 
     def tearDown(self):
+        # Anything monkeypatched here would otherwise still be installed
+        # when a LATER class runs — and a background refresh thread landing
+        # on a stale stub is a flake that only shows up sometimes.
+        _settle()
+        for n, v in self._saved.items():
+            setattr(ew, n, v)
         os.environ.pop("X_BEARER_TOKEN", None)
         ew._STATE = None                                    # noqa: SLF001
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -811,12 +834,15 @@ class TestTheKeylessPath(unittest.TestCase):
         os.environ.pop("JERRY_NO_NET", None)
         ew._REFRESHING = False                              # noqa: SLF001
         ew._LAST_ATTEMPT_MONO = 0.0                         # noqa: SLF001
-        self._syn = ew._fetch_syndication                   # noqa: SLF001
-        self._ids = ew._timeline_post_ids                   # noqa: SLF001
+        self._saved = {n: getattr(ew, n) for n in
+                       ("_fetch_syndication", "_timeline_post_ids",
+                        "_session", "_x_pinned_candidate",
+                        "_x_search_candidates")}
 
     def tearDown(self):
-        ew._fetch_syndication = self._syn                   # noqa: SLF001
-        ew._timeline_post_ids = self._ids                   # noqa: SLF001
+        _settle()
+        for n, v in self._saved.items():
+            setattr(ew, n, v)
         ew._STATE = None                                    # noqa: SLF001
         os.environ["JERRY_NO_NET"] = "1"
         shutil.rmtree(self.tmp, ignore_errors=True)
