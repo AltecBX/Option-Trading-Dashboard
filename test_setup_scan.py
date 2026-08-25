@@ -692,7 +692,7 @@ class TestAFailedFetchIsNotAnEmptyStock(unittest.TestCase):
         between the two sizes.
         """
         b = DeepBroker()
-        chain, listed = SS._window_chain(b, "AAPL", date.today(), 7, 60)  # noqa: SLF001
+        chain, listed, _why = SS._window_chain(b, "AAPL", date.today(), 7, 60)  # noqa: SLF001
         self.assertIsNotNone(chain)
         index_call, fetch = b.calls[0], b.calls[1]
         lo, hi, _st = fetch
@@ -701,3 +701,62 @@ class TestAFailedFetchIsNotAnEmptyStock(unittest.TestCase):
             len(spanned), SS.WINDOW_MAX_EXPIRATIONS,
             f"the requested range {lo[:10]}..{hi[:10]} covers {len(spanned)} "
             f"listed expirations, not {SS.WINDOW_MAX_EXPIRATIONS}")
+
+
+class TestTheThreeWaysAChainFetchFails(unittest.TestCase):
+    """They are not the same fact and must not share a message.
+
+    Reported from production: "TSLA lists 22 expirations but none between 7
+    and 60 days out" — with the list underneath it showing one at 8 days.
+    That was a throttled request wearing the wrong explanation, and it sends
+    the reader looking at the symbol instead of at the rate limit.
+    """
+
+    def setUp(self):
+        SS.invalidate()
+
+    def tearDown(self):
+        SS.configure(schwab_getter=lambda: None)
+        SS.invalidate()
+
+    def _run(self, broker):
+        SS.configure(schwab_getter=lambda: broker,
+                     chain_getter=lambda s: (None, None, None, [], []),
+                     earnings_fn=lambda s: {})
+        return SS.analyze("TEST")
+
+    def test_a_throttled_fetch_says_throttled_not_empty_window(self):
+        class Throttled(WindowBroker):
+            def get_option_chain(self, symbol, expiration=None, to_date=None,
+                                 strike_count=60):
+                # The index call succeeds; the real fetch is rate limited.
+                if expiration is None:
+                    return super().get_option_chain(
+                        symbol, None, None, strike_count)
+                return None
+        out = self._run(Throttled())
+        self.assertFalse(out["ok"])
+        self.assertNotIn("none between", out["error"])
+        self.assertIn("throttled", out["error"].lower())
+
+    def test_a_genuinely_empty_window_still_says_so(self):
+        out = self._run(WindowBroker(offsets=(1, 3)))
+        self.assertFalse(out["ok"])
+        self.assertIn("none between", out["error"])
+
+    def test_a_symbol_with_no_listing_at_all_is_its_own_case(self):
+        class NoOptions(WindowBroker):
+            def get_option_chain(self, symbol, expiration=None, to_date=None,
+                                 strike_count=60):
+                return None
+        out = self._run(NoOptions())
+        self.assertFalse(out["ok"])
+        self.assertNotIn("none between", out["error"])
+
+    def test_the_window_message_never_contradicts_its_own_list(self):
+        """The tell that exposed this: a message claiming nothing is in the
+        window while listing something that is."""
+        out = self._run(WindowBroker(offsets=(1, 3, 8, 30)))
+        # 8 and 30 are inside 7..60, so this must NOT be the empty-window
+        # message — it should have produced a chain instead.
+        self.assertNotIn("none between", str(out.get("error") or ""))

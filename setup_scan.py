@@ -424,7 +424,15 @@ def _list_expirations(sc, symbol: str) -> list:
 
 
 def _window_chain(sc, symbol: str, now: date, lo: float, hi: float):
-    """(chain, every expiration the symbol lists) for the selling window.
+    """(chain, every expiration the symbol lists, why-it-failed) for the
+    selling window.
+
+    The third value exists because the three ways this returns nothing are
+    NOT the same fact, and collapsing them is how "TSLA lists 22
+    expirations but none between 7 and 60 days out" ended up on screen
+    while the list underneath it plainly showed one at 8 days. That was a
+    throttled fetch wearing the wrong message.
+
 
     Two steps, because one is not enough. Asking Schwab for a 55-day RANGE
     at sixty strikes is roughly fourteen hundred contracts on a name like
@@ -435,11 +443,11 @@ def _window_chain(sc, symbol: str, now: date, lo: float, hi: float):
     """
     avail = _list_expirations(sc, symbol)
     if not avail:
-        return None, []
+        return None, [], "no_listing"
     wanted = [e for e in sorted(avail)
               if lo <= pe._expiry_dte(e, now) <= hi]                # noqa: SLF001
     if not wanted:
-        return None, avail
+        return None, avail, "no_window"
     # CONTIGUOUS, not spread. The fetch is a date RANGE, and Schwab fills a
     # range with every expiration between the ends — so picking four dates
     # spread across the window still asks for the whole window and times out
@@ -451,16 +459,18 @@ def _window_chain(sc, symbol: str, now: date, lo: float, hi: float):
         chain = sc.get_option_chain(symbol, expiration=sel[0], to_date=sel[-1],
                                     strike_count=WINDOW_STRIKES)
     except Exception:  # noqa: BLE001
-        return None, avail
+        return None, avail, "fetch_failed"
     if not chain or not (chain.get("chains") or {}):
-        return None, avail
+        return None, avail, "fetch_failed"
     # A date range can return expirations between the ends that were not
     # asked for; keep only the selection so the payload stays bounded.
     keep = set(sel)
     chain["chains"] = {e: v for e, v in (chain.get("chains") or {}).items()
                        if e in keep}
     chain["expirations"] = sorted(chain["chains"].keys())
-    return (chain if chain["chains"] else None), avail
+    if not chain["chains"]:
+        return None, avail, "fetch_failed"
+    return chain, avail, None
 
 
 def _no_trade_reason(sides: dict) -> str:
@@ -536,10 +546,22 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                 chain = c
         except Exception:  # noqa: BLE001
             chain = None
-    listed = []
+    listed, why = [], None
     if chain is None:
-        chain, listed = _window_chain(sc, symbol, now, lo_dte, hi_dte)
+        chain, listed, why = _window_chain(sc, symbol, now, lo_dte, hi_dte)
         gsource, fetched_at = "broker", None
+    if not chain and why == "fetch_failed":
+        # The symbol lists options in the window; the request for them
+        # failed or was throttled. Say THAT — do not tell the reader the
+        # window is empty when it demonstrably is not.
+        note = _broker_note(sc)
+        return {"ok": False, "symbol": symbol,
+                "error": (note if note else
+                          f"The option chain request for {symbol} failed or "
+                          f"was throttled. The broker is connected and the "
+                          f"symbol lists {len(listed)} expirations — press "
+                          f"Try again in a moment."),
+                "broker_note": note}
     if not chain and listed:
         # The symbol lists options, just none inside the selling window.
         # That is a different fact from "no chain came back at all", and the
