@@ -739,7 +739,12 @@ function EdgeDetail({
     className: "edge-note"
   }, "components: ", Object.entries(d.erv.components || {}).map(([k, v]) => `${k} ${edgeIvPct(v)}`).join(" · "), d.erv.anchor != null && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 long-run anchor ", edgeIvPct(d.erv.anchor)), fcMae != null && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 live forecast error (this ticker): ", /*#__PURE__*/React.createElement("b", null, fcMae.toFixed(1), " vol pts"), " mean abs over ", fcErrs.length, " checks"), d.erv.quality !== "ok" && /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", /*#__PURE__*/React.createElement("b", {
     className: "down"
-  }, d.erv.quality))), /*#__PURE__*/React.createElement(EdgeBacktestPanel, {
+  }, d.erv.quality))), d.erv.gap_ratio != null && /*#__PURE__*/React.createElement("div", {
+    className: "edge-note",
+    title: "One of the estimators above measures only the ground a stock covers between its high and its low during the trading day. It cannot see the move that happens overnight, because nothing trades then \u2014 but an option seller is fully exposed to that move. This number is how much wider this stock's day-to-day swings are once the overnight moves are counted, measured from its own history. A stock that jumps on earnings and then drifts scores high here; one that grinds all day scores near 1.00. Without this correction the whole forecast reads low, which makes option premium look richer than it is."
+  }, "Overnight moves on this stock add ", /*#__PURE__*/React.createElement("b", null, Math.round((d.erv.gap_ratio - 1) * 100), "%"), " to", " ", "what its trading-day range alone would suggest", " ", /*#__PURE__*/React.createElement("span", {
+    className: "muted"
+  }, "\xB7 ", d.erv.gap_ratio_basis)), /*#__PURE__*/React.createElement(EdgeBacktestPanel, {
     apiFetch: apiFetch,
     sym: sym
   })));

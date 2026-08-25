@@ -230,6 +230,33 @@ ok("a systematic failure is distinguishable from a quiet market",
 ok("each refusal carries a machine-readable code",
    /"codes": codes/.test(board));
 
+// ── 12. a broker throttle is temporary, and says so ────────────────────
+// Switching symbols quickly makes Schwab answer "too many requests". That
+// is a "not now", not a fact about the symbol, and it clears by itself.
+ok("the retry button actually retries the request that failed",
+   /className="error-retry"[\s\S]{0,200}refreshData\(\)/.test(appSrc),
+   "bumping dataVersion does not re-run the /api/ticker effect");
+ok("the error banner does not keep the old dataVersion no-op",
+   !/className="error-retry" onClick=\{\(\) => setDataVersion/.test(appSrc));
+ok("a throttle is recognised by HTTP status, not only by wording",
+   /status === 429/.test(appSrc) && /status: r\.status/.test(appSrc));
+ok("a non-JSON refusal still reaches the throttle check",
+   /\.catch\(\(\) => \(\{ error: r\.statusText/.test(appSrc));
+ok("the app waits the throttle out instead of asking the user to",
+   /THROTTLE_BACKOFF/.test(appSrc) && /setReloadNonce\(n => n \+ 1\)/.test(appSrc));
+ok("the retry is bounded, so a real outage cannot loop forever",
+   /throttleTries\.current < THROTTLE_BACKOFF\.length/.test(appSrc)
+   && /THROTTLE_GAVE_UP/.test(appSrc));
+ok("switching symbols clears the previous symbol's countdown",
+   /throttleTries\.current = 0;[\s\S]{0,60}setRetryIn\(null\)/.test(appSrc));
+ok("the wait is explained in plain words, not as a broker error code",
+   /asking us to slow down/.test(appSrc)
+   && !/Too Many Requests/.test(appSrc));
+ok("the banner tells the user nothing is wrong with the symbol",
+   /Nothing is wrong with this symbol/.test(appSrc));
+ok("the countdown banner carries a tooltip like everything else",
+   /className="error-banner" title=\{retryIn != null/.test(appSrc));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);
