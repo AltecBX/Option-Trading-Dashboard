@@ -372,26 +372,89 @@ def _x_search_candidates() -> tuple[str, list[dict]]:
     if status != 200:
         return f"http_{status}", []
     try:
-        d = json.loads(text)
-        media = {m["media_key"]: m for m in (d.get("includes", {}).get("media") or [])
-                 if isinstance(m, dict) and m.get("media_key")}
-        out = []
-        for tw in d.get("data") or []:
-            keys = (tw.get("attachments") or {}).get("media_keys") or []
-            photos = [media[k] for k in keys
-                      if k in media and media[k].get("type") == "photo"]
-            refs = tw.get("referenced_tweets") or []
-            out.append({
-                "id": str(tw.get("id") or ""),
-                "text": tw.get("text") or "",
-                "created_at": tw.get("created_at"),
-                "photos": photos,
-                "is_retweet": any(r.get("type") == "retweeted" for r in refs),
-                "is_reply": any(r.get("type") == "replied_to" for r in refs),
-            })
-        return "ok", out
+        return "ok", _parse_tweets_payload(json.loads(text))
     except Exception as exc:  # noqa: BLE001
         return f"bad_payload: {str(exc)[:80]}", []
+
+
+X_USER_URL = "https://api.x.com/2/users/by/username"
+X_TWEET_URL = "https://api.x.com/2/tweets"
+
+
+def _parse_tweets_payload(d: dict) -> list[dict]:
+    """Candidates from any v2 payload carrying `data` + media includes.
+
+    Shared by the search and the pinned-post lookup so both speak the same
+    shape and only one parser can drift."""
+    media = {m["media_key"]: m for m in ((d.get("includes") or {}).get("media") or [])
+             if isinstance(m, dict) and m.get("media_key")}
+    rows = d.get("data")
+    if isinstance(rows, dict):
+        rows = [rows]
+    out = []
+    for tw in rows or []:
+        keys = (tw.get("attachments") or {}).get("media_keys") or []
+        photos = [media[k] for k in keys
+                  if k in media and media[k].get("type") == "photo"]
+        refs = tw.get("referenced_tweets") or []
+        out.append({
+            "id": str(tw.get("id") or ""),
+            "text": tw.get("text") or "",
+            "created_at": tw.get("created_at"),
+            "photos": photos,
+            "is_retweet": any(r.get("type") == "retweeted" for r in refs),
+            "is_reply": any(r.get("type") == "replied_to" for r in refs),
+        })
+    return out
+
+
+def _x_pinned_candidate() -> tuple[str, dict | None]:
+    """(status, candidate) for whatever @eWhispers currently has PINNED.
+
+    They pin the current week's calendar and repin each weekend, so the
+    pinned post is the answer to "which post covers this week" by
+    construction — no scoring across fifty recent posts, no tie-breaking, no
+    chance of a daily list or next week's calendar winning on recency.
+
+    Two calls because the API cannot expand a pinned tweet's media in the
+    user lookup: one for the id, one for the tweet itself.
+    """
+    try:
+        status, text = _x_get(
+            f"{X_USER_URL}/{ACCOUNT}?user.fields=pinned_tweet_id")
+    except Exception as exc:  # noqa: BLE001
+        return f"unreachable: {str(exc)[:80]}", None
+    if status == 429:
+        return "rate_limited", None
+    if status in (401, 403):
+        return "invalid_credentials", None
+    if status != 200:
+        return f"http_{status}", None
+    try:
+        pinned_id = ((json.loads(text) or {}).get("data") or {}).get("pinned_tweet_id")
+    except Exception as exc:  # noqa: BLE001
+        return f"bad_payload: {str(exc)[:80]}", None
+    if not pinned_id:
+        return "no_pinned_post", None
+    url = (f"{X_TWEET_URL}/{_urlquote(str(pinned_id))}"
+           "?tweet.fields=created_at,text,entities,referenced_tweets"
+           "&expansions=attachments.media_keys"
+           "&media.fields=url,preview_image_url,width,height,type")
+    try:
+        status, text = _x_get(url)
+    except Exception as exc:  # noqa: BLE001
+        return f"unreachable: {str(exc)[:80]}", None
+    if status == 429:
+        return "rate_limited", None
+    if status in (401, 403):
+        return "invalid_credentials", None
+    if status != 200:
+        return f"http_{status}", None
+    try:
+        cands = _parse_tweets_payload(json.loads(text) or {})
+    except Exception as exc:  # noqa: BLE001
+        return f"bad_payload: {str(exc)[:80]}", None
+    return ("ok", cands[0]) if cands else ("no_pinned_post", None)
 
 
 def _record_from_candidate(c: dict, confidence: float, wk: str) -> dict:
@@ -426,6 +489,52 @@ def _refresh_from_x() -> None:
     current week's card."""
     st = _load_state()
     ref_week = trading_week()[0].isoformat()
+
+    # The PINNED post first. @eWhispers pins the current week's calendar and
+    # repins it each weekend, so the pinned post answers "which post covers
+    # this week" by construction. Searching recent posts and scoring fifty
+    # candidates is the fallback, not the primary: it can be outvoted by a
+    # daily list, and it silently serves LAST week's calendar whenever this
+    # week's post fails to clear the bar.
+    pin_status, pin = _x_pinned_candidate()
+    if pin_status == "ok" and pin:
+        pub = None
+        try:
+            pub = date.fromisoformat((pin.get("created_at") or "")[:10])
+        except Exception:  # noqa: BLE001
+            pub = None
+        conf, wk, _r = score_post(
+            pin.get("text") or "", has_image=bool(pin.get("photos")),
+            is_reply=pin.get("is_reply", False),
+            is_retweet=pin.get("is_retweet", False),
+            published=pub, ref_week=ref_week)
+        # Being pinned is itself strong evidence, so a wording change that
+        # defeats `parse_week` must not throw the post away — attribute it
+        # to the current week and record that the week was ASSUMED, not
+        # read, so the card can say so. Content still has to look like a
+        # weekly calendar: a pinned promo scores near zero and is dropped.
+        assumed = False
+        if not wk and conf >= 0.15 and pin.get("photos"):
+            wk, assumed = ref_week, True
+        if wk and (conf >= MIN_CONFIDENCE or assumed):
+            rec = _record_from_candidate(pin, max(conf, MIN_CONFIDENCE), wk)
+            rec["source"] = "pinned"
+            rec["week_assumed"] = assumed
+            with _LOCK:
+                st["weeks"][wk] = rec
+                st["last_checked"] = _now_iso()
+                st["last_status"] = "ok"
+                st["last_error"] = None
+                _prune_weeks(st)
+            _save_state()
+            _log(f"refresh: pinned post covers week {wk} "
+                 f"(confidence {conf:.2f}{', week assumed' if assumed else ''})")
+            return
+        _log(f"refresh: pinned post did not look like a weekly calendar "
+             f"(confidence {conf:.2f}) — falling back to search")
+    elif pin_status not in ("ok", "no_pinned_post"):
+        _log(f"refresh: pinned lookup {pin_status} — falling back to search")
+
     status, cands = _x_search_candidates()
     with _LOCK:
         st["last_checked"] = _now_iso()
@@ -919,6 +1028,10 @@ def get_weekly(week: str | None = None) -> dict:
                 f"{week_label(week_start)}.")
     elif showing == "manual":
         note = "Showing the manually supplied post."
+    elif (post or {}).get("week_assumed"):
+        note = ("Taken from the pinned @eWhispers post. Its wording did not "
+                "name a week, so this is assumed to be the current one — "
+                "which is what they pin.")
 
     return {
         "available": post is not None,
@@ -930,6 +1043,8 @@ def get_weekly(week: str | None = None) -> dict:
         "requested_week": target,
         "is_current_week": week_start == ref_week,
         "showing": showing,
+        "post_source": (post or {}).get("source"),
+        "week_assumed": bool((post or {}).get("week_assumed")),
         "weeks": weeks,
         "prev_week": prev_week,
         "next_week": next_week,

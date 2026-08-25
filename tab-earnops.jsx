@@ -271,13 +271,32 @@ function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
       {data && data.week_label && (
         <div className="ew-weekline">
           <span className="tsy-datechip num">{data.week_label}</span>
-          {data.showing === "previous" && <span className="tsy-pill mut" title={data.note || ""}>PREVIOUS WEEK</span>}
+          {data.showing === "previous" && <span className="tsy-pill warn" title={data.note || ""}>LAST WEEK</span>}
+          {data.post_source === "pinned" && <span className="tsy-pill mut" title="Taken from the post @eWhispers currently has pinned, which is always the current week.">PINNED</span>}
           {data.showing === "manual" && <span className="tsy-pill mut" title="This post was supplied manually below.">MANUAL</span>}
           {data.showing === "history" && <span className="tsy-pill mut">ARCHIVE</span>}
           {post && post.published_at && (
             <span className="muted ew-posted">posted {fmtUSDate(post.published_at)}</span>
           )}
         </div>
+      )}
+
+      {/* Showing a week other than the current one is the single thing that
+          can quietly mislead here — an old calendar looks exactly like a
+          current one. A grey pill with the reason in a tooltip is not
+          enough; say it in the open. */}
+      {data && data.showing === "previous" && (
+        <div className="ew-stale" title={data.note || ""}>
+          <b>This is last week&rsquo;s calendar, not this week&rsquo;s.</b>{" "}
+          {data.note || "This week's post has not been detected yet."}{" "}
+          {data.credentials
+            ? "Press Refresh to look again."
+            : "Automatic detection needs an X API key (X_BEARER_TOKEN), "
+              + "or paste this week's @eWhispers post link below."}
+        </div>
+      )}
+      {data && data.week_assumed && data.showing === "current" && (
+        <div className="ew-assumed" title={data.note || ""}>{data.note}</div>
       )}
 
       {err && !data && <div className="tsy-err">Couldn't reach the dashboard server: {err}</div>}
