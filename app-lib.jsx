@@ -431,6 +431,44 @@ const SWST = {
   },
 };
 
+// ── one throttle clock for the whole app ────────────────────────────────
+//
+// The broker throttles the CONNECTION, not one request. Three cards each
+// running their own backoff means three independent waves of retries at a
+// broker that just asked for fewer — which is how a short throttle turns
+// into a long one. So the wait is shared: whoever hits it first sets the
+// clock, everyone else reads it, and the escalation is counted once.
+//
+// Times are epoch milliseconds. The budget resets after a clean stretch,
+// so an unrelated throttle an hour later starts from the short wait again.
+const THROTTLE_STEPS = [3, 8, 20];        // seconds
+const THROTTLE_FORGET_MS = 120000;        // quiet this long ⇒ start over
+const _THROTTLE = { until: 0, tries: 0, last: 0 };
+
+// Register a throttle and return the shared wait in seconds, or null when
+// the budget is spent and the caller should stop retrying and say so.
+function throttleHit() {
+  const now = Date.now();
+  if (now - _THROTTLE.last > THROTTLE_FORGET_MS) _THROTTLE.tries = 0;
+  _THROTTLE.last = now;
+  // Someone else is already waiting — join their wait rather than adding
+  // a second clock on top of it.
+  if (_THROTTLE.until > now) {
+    return Math.max(1, Math.ceil((_THROTTLE.until - now) / 1000));
+  }
+  if (_THROTTLE.tries >= THROTTLE_STEPS.length) return null;
+  const wait = THROTTLE_STEPS[_THROTTLE.tries];
+  _THROTTLE.tries += 1;
+  _THROTTLE.until = now + wait * 1000;
+  return wait;
+}
+
+// Is a throttle wait in effect right now? Used to keep the notice in one
+// place instead of repeating the same sentence in every card.
+function throttleWaiting() { return Date.now() < _THROTTLE.until; }
+
+function throttleClear() { _THROTTLE.until = 0; _THROTTLE.tries = 0; }
+
 // Shared US date format (M-D-YYYY, e.g. 6-19-2026) used app-wide.
 function fmtUSDate(s) {
   if (!s) return "—";
@@ -439,4 +477,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear });

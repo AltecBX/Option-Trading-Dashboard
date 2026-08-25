@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.67";
+const APP_VERSION = "4.68";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -41,14 +41,19 @@ const _TICKER_LRU_TTL = 90000;      // ms — stale views still revalidate insta
 let _TICKER_LAST_NONCE = null;
 
 // Schwab throttles when symbols are switched faster than it likes to answer.
-// Waiting a few seconds fixes it, so the app waits instead of the user.
-const THROTTLE_BACKOFF = [3, 8, 20];   // seconds between our own retries
+// Waiting a few seconds fixes it, so the app waits instead of the user. The
+// clock lives in app-lib (throttleHit) and is SHARED with every other card:
+// the broker throttles the connection, not one request, so three cards each
+// running their own backoff is three waves of retries at something that
+// just asked for fewer.
 const THROTTLE_MSG =
   "Your broker is asking us to slow down — this happens when symbols are "
   + "switched quickly, and it clears by itself. Trying again";
 const THROTTLE_GAVE_UP =
   "Your broker is still asking us to slow down. Give it a minute, then press "
   + "Retry. Nothing is wrong with this symbol.";
+// The sidebar is a narrow column, not a place for a paragraph.
+const THROTTLE_SHORT = "Broker rate limit — retrying";
 
 // Run low-priority work after the browser is idle (or shortly after, on Safari
 // versions without requestIdleCallback) so the first paint + /api/ticker win
@@ -279,10 +284,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   // A broker throttle is not a broken symbol — it clears by itself in a few
-  // seconds. When one lands we say so and count down to our own retry
-  // instead of leaving the user to guess. null = no retry pending.
+  // seconds. When one lands we say so and count down to the retry instead of
+  // leaving the user to guess. The escalation is counted on the shared clock
+  // in app-lib, not here. null = no retry pending.
   const [retryIn, setRetryIn] = useState(null);
-  const throttleTries = React.useRef(0);
   const [dataVersion, setDataVersion] = useState(0);
   const [navOpen, setNavOpen] = useState(false);      // mobile sidebar drawer
   const [palOpen, setPalOpen] = useState(false);      // ⌘K command palette
@@ -1768,9 +1773,10 @@ function App() {
         // user click a button that only looks like it does something.
         const throttled = err?.status === 429
           || /too many requests|rate.?limit/i.test(msg);
-        if (throttled && throttleTries.current < THROTTLE_BACKOFF.length) {
-          const wait = THROTTLE_BACKOFF[throttleTries.current];
-          throttleTries.current += 1;
+        // The wait comes from the shared clock, so this joins whatever wait
+        // the other cards are already serving instead of starting a second.
+        const wait = throttled ? throttleHit() : null;
+        if (wait) {
           setLoadError(THROTTLE_MSG);
           setRetryIn(wait);
           setLoading(false);
@@ -1807,12 +1813,11 @@ function App() {
     return () => clearTimeout(t);
   }, [retryIn]);
 
-  // A new symbol gets a clean slate: the previous one's throttle budget and
-  // any countdown still running belong to a request nobody is waiting for.
-  useEffect(() => {
-    throttleTries.current = 0;
-    setRetryIn(null);
-  }, [ticker]);
+  // A new symbol drops this card's countdown — it belonged to a request
+  // nobody is waiting for now. The SHARED budget deliberately survives:
+  // switching symbols is what provoked the broker, so letting each switch
+  // reset the escalation is how a short throttle becomes a long one.
+  useEffect(() => { setRetryIn(null); }, [ticker]);
 
   // Reset expiration override whenever the ticker changes — different
   // symbols have different chains, so a stale date will silently fall back
@@ -2977,7 +2982,15 @@ function App() {
                   ? <LiveClock />
                   : "Static snapshot"}
             </div>
-            {loadError && <div className="sb-status err">{loadError}</div>}
+            {/* The banner across the top already carries the full sentence.
+                This column is too narrow to repeat it, so a throttle gets a
+                label here and the explanation stays in one place. */}
+            {loadError && (
+              <div className="sb-status err"
+                   title={retryIn != null ? THROTTLE_MSG : loadError}>
+                {retryIn != null ? `${THROTTLE_SHORT} (${retryIn}s)` : loadError}
+              </div>
+            )}
             <div className="sb-source-badges">
             {dataSource && (() => {
               const sw = dataSource.schwab || {};
