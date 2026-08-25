@@ -13212,3 +13212,23 @@ a.tabsheet-btn.site { text-decoration: none; }
   .su-btable { min-width: 620px; }
   .su-uni { font-size: 11px; }
 }
+
+/* ── Earnings Whispers: showing a week that is not this one (v4.61) ────── */
+/* An old calendar looks exactly like a current one, so this state has to
+   announce itself rather than hide the reason in a tooltip. */
+.ew-stale {
+  margin: 8px 0 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5;
+  border: 1px solid var(--down); border-radius: 8px;
+  background: color-mix(in srgb, var(--down) 8%, transparent);
+  color: var(--fg-1);
+}
+.ew-stale b { color: var(--down); }
+.ew-assumed {
+  margin: 6px 0 10px; padding: 8px 10px; font-size: 12px;
+  color: var(--fg-3); border-left: 2px solid var(--line); border-radius: 4px;
+}
+.tsy-pill.warn {
+  border-color: var(--down);
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 10%, transparent);
+}

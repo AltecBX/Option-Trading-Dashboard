@@ -2410,3 +2410,37 @@ connection should look.
 
 2,787 Python tests (5 new), 72 UI guards (5 new). Each fix was re-broken
 deliberately to confirm the new guards fail against the shipped code.
+
+## v4.61 — The pinned @eWhispers post is the answer
+
+The Earnings Ops tab was showing last week's calendar photo.
+
+The detector searched @eWhispers' recent posts and scored fifty candidates
+on wording, images, parsed week and cashtag count. When this week's post
+failed to clear the bar it fell back to the most recent verified week —
+last week's — behind a small grey PREVIOUS WEEK pill with the reason hidden
+in a tooltip.
+
+Jerry pointed out the invariant that removes all of the guesswork: they PIN
+the current week's calendar, and repin each weekend. So the pinned post
+answers "which post covers this week" by construction. It is now the
+primary source — one user lookup for the pinned id, one tweet fetch for the
+media — with the scored search kept as the fallback for when nothing is
+pinned or the lookup fails.
+
+Being pinned is evidence, not proof, so the post is still scored: a pinned
+promo does not become the week's calendar. But a wording change that
+defeats the week parser no longer throws the post away — it is attributed
+to the current week and the card says the week was assumed rather than
+read.
+
+Both the search and the pinned lookup now go through one payload parser, so
+they cannot drift apart, and it handles the single-object `data` the tweet
+endpoint returns as well as the list the search returns.
+
+The last-week state also stops hiding. An old calendar looks exactly like a
+current one, so it now says so in the open — what week it is, why this week
+is missing, and whether the fix is Refresh or an API key — instead of a
+grey pill with the explanation on hover.
+
+2,794 Python tests (7 new), 7 browser checks against the rendered tab.

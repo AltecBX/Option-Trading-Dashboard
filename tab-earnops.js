@@ -335,16 +335,25 @@ function EarningsWhispersCard({
   }, /*#__PURE__*/React.createElement("span", {
     className: "tsy-datechip num"
   }, data.week_label), data.showing === "previous" && /*#__PURE__*/React.createElement("span", {
-    className: "tsy-pill mut",
+    className: "tsy-pill warn",
     title: data.note || ""
-  }, "PREVIOUS WEEK"), data.showing === "manual" && /*#__PURE__*/React.createElement("span", {
+  }, "LAST WEEK"), data.post_source === "pinned" && /*#__PURE__*/React.createElement("span", {
+    className: "tsy-pill mut",
+    title: "Taken from the post @eWhispers currently has pinned, which is always the current week."
+  }, "PINNED"), data.showing === "manual" && /*#__PURE__*/React.createElement("span", {
     className: "tsy-pill mut",
     title: "This post was supplied manually below."
   }, "MANUAL"), data.showing === "history" && /*#__PURE__*/React.createElement("span", {
     className: "tsy-pill mut"
   }, "ARCHIVE"), post && post.published_at && /*#__PURE__*/React.createElement("span", {
     className: "muted ew-posted"
-  }, "posted ", fmtUSDate(post.published_at))), err && !data && /*#__PURE__*/React.createElement("div", {
+  }, "posted ", fmtUSDate(post.published_at))), data && data.showing === "previous" && /*#__PURE__*/React.createElement("div", {
+    className: "ew-stale",
+    title: data.note || ""
+  }, /*#__PURE__*/React.createElement("b", null, "This is last week\u2019s calendar, not this week\u2019s."), " ", data.note || "This week's post has not been detected yet.", " ", data.credentials ? "Press Refresh to look again." : "Automatic detection needs an X API key (X_BEARER_TOKEN), " + "or paste this week's @eWhispers post link below."), data && data.week_assumed && data.showing === "current" && /*#__PURE__*/React.createElement("div", {
+    className: "ew-assumed",
+    title: data.note || ""
+  }, data.note), err && !data && /*#__PURE__*/React.createElement("div", {
     className: "tsy-err"
   }, "Couldn't reach the dashboard server: ", err), !data && !err && /*#__PURE__*/React.createElement("div", {
     className: "ew-body",

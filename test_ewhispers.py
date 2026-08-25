@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from datetime import date, timedelta
@@ -649,3 +650,132 @@ class TestPersistence(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE PINNED POST IS THE ANSWER, NOT THE HIGHEST-SCORING RECENT ONE
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestThePinnedPostIsPreferred(unittest.TestCase):
+    """@eWhispers pins the current week's calendar and repins each weekend,
+    so the pinned post answers "which post covers this week" by
+    construction. Scoring fifty recent posts can be outvoted by a daily
+    list — and when this week's post fails to clear the bar it silently
+    serves LAST week's calendar, which is the reported symptom.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        ew.configure(Path(self.tmp))
+        ew._STATE = None                                    # noqa: SLF001
+        os.environ["X_BEARER_TOKEN"] = "test-token"
+
+    def tearDown(self):
+        os.environ.pop("X_BEARER_TOKEN", None)
+        ew._STATE = None                                    # noqa: SLF001
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _week(self):
+        return ew.trading_week()[0]
+
+    def _pinned(self, text, with_photo=True, tid="9001"):
+        photos = [{"media_key": "m1", "type": "photo",
+                   "url": "https://pbs.twimg.com/media/x.jpg",
+                   "width": 1200, "height": 900}] if with_photo else []
+        return {"id": tid, "text": text, "created_at": self._week().isoformat()
+                + "T12:00:00.000Z", "photos": photos,
+                "is_retweet": False, "is_reply": False}
+
+    def test_the_pinned_post_is_used_and_search_is_not_called(self):
+        wk = self._week()
+        text = (f"#Earnings for the week of {wk.strftime('%B %-d, %Y')} "
+                f"$AAPL $MSFT $NVDA $AMD $KO $PG")
+        called = []
+        ew._x_pinned_candidate = lambda: ("ok", self._pinned(text))  # noqa: SLF001
+        ew._x_search_candidates = lambda: (called.append(1), ("ok", []))[1]  # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        out = ew.get_weekly()
+        self.assertTrue(out["available"])
+        self.assertEqual(out["post"]["post_id"], "9001")
+        self.assertEqual(out["post_source"], "pinned")
+        self.assertEqual(called, [], "search ran even though the pin answered")
+
+    def test_a_pinned_post_whose_wording_hides_the_week_is_still_used(self):
+        """A wording change must not throw away the one post they pin."""
+        ew._x_pinned_candidate = lambda: (                  # noqa: SLF001
+            "ok", self._pinned("This week's earnings $AAPL $MSFT $NVDA"))
+        ew._x_search_candidates = lambda: ("ok", [])        # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        out = ew.get_weekly()
+        self.assertTrue(out["available"])
+        self.assertTrue(out["week_assumed"])
+        self.assertEqual(out["week_start"], self._week().isoformat())
+        self.assertIn("assumed", (out["note"] or "").lower())
+
+    def test_a_pinned_promo_is_not_shown_as_the_calendar(self):
+        """Being pinned is evidence, not proof. Content still has to look
+        like a weekly calendar."""
+        ew._x_pinned_candidate = lambda: (                  # noqa: SLF001
+            "ok", self._pinned("Subscribe to Earnings Whispers Pro today!",
+                               with_photo=False))
+        searched = []
+        ew._x_search_candidates = lambda: (searched.append(1), ("ok", []))[1]  # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        self.assertEqual(len(searched), 1, "search was not used as fallback")
+        self.assertFalse(ew.get_weekly()["available"])
+
+    def test_no_pinned_post_falls_back_to_search(self):
+        searched = []
+        ew._x_pinned_candidate = lambda: ("no_pinned_post", None)   # noqa: SLF001
+        ew._x_search_candidates = lambda: (searched.append(1), ("ok", []))[1]  # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        self.assertEqual(len(searched), 1)
+
+    def test_a_failing_pinned_lookup_falls_back_rather_than_giving_up(self):
+        searched = []
+        ew._x_pinned_candidate = lambda: ("rate_limited", None)     # noqa: SLF001
+        ew._x_search_candidates = lambda: (searched.append(1), ("ok", []))[1]  # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        self.assertEqual(len(searched), 1)
+
+    def test_the_pinned_post_replaces_a_stale_previous_week(self):
+        """The reported bug: last week's calendar on screen because this
+        week's was never detected."""
+        last = (self._week() - timedelta(days=7)).isoformat()
+        st = ew._load_state()                               # noqa: SLF001
+        st["weeks"][last] = {"post_id": "old", "week_start": last,
+                             "week_end": last, "image_url": None,
+                             "text": "last week", "tickers": [],
+                             "confidence": 0.9, "source": "x"}
+        ew._save_state()                                    # noqa: SLF001
+        before = ew.get_weekly()
+        self.assertEqual(before["showing"], "previous")
+
+        wk = self._week()
+        ew._x_pinned_candidate = lambda: (                  # noqa: SLF001
+            "ok", self._pinned(
+                f"#Earnings for the week of {wk.strftime('%B %-d, %Y')} "
+                f"$AAPL $MSFT $NVDA $AMD $KO"))
+        ew._x_search_candidates = lambda: ("ok", [])        # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        after = ew.get_weekly()
+        self.assertEqual(after["showing"], "current")
+        self.assertEqual(after["week_start"], wk.isoformat())
+        self.assertIsNone(after["note"])
+
+
+class TestOnePayloadParser(unittest.TestCase):
+    """The search and the pinned lookup must not drift apart."""
+
+    def test_both_shapes_go_through_the_same_parser(self):
+        media = {"includes": {"media": [{"media_key": "k", "type": "photo",
+                                         "url": "https://pbs.twimg.com/a.jpg"}]}}
+        one = dict(media, data={"id": "1", "text": "t",
+                                "attachments": {"media_keys": ["k"]}})
+        many = dict(media, data=[{"id": "1", "text": "t",
+                                  "attachments": {"media_keys": ["k"]}}])
+        a = ew._parse_tweets_payload(one)                   # noqa: SLF001
+        b = ew._parse_tweets_payload(many)                  # noqa: SLF001
+        self.assertEqual(a, b)
+        self.assertEqual(len(a), 1)
+        self.assertEqual(len(a[0]["photos"]), 1)
