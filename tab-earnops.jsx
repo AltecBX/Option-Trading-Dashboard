@@ -289,10 +289,14 @@ function EarningsWhispersCard({ apiFetch, onOpenTicker }) {
         <div className="ew-stale" title={data.note || ""}>
           <b>This is last week&rsquo;s calendar, not this week&rsquo;s.</b>{" "}
           {data.note || "This week's post has not been detected yet."}{" "}
-          {data.credentials
-            ? "Press Refresh to look again."
-            : "Automatic detection needs an X API key (X_BEARER_TOKEN), "
-              + "or paste this week's @eWhispers post link below."}
+          {/* An API key stopped being the requirement in v4.62 — the
+              pinned-post lookup is keyless. Telling Jerry to go get one
+              would send him after a problem a key would not fix. */}
+          {String(data.last_status || "").startsWith("no_credentials")
+            ? "The automatic lookup could not reach X. Paste this week's "
+              + "pinned @eWhispers post link below — no API key needed."
+            : "Press Refresh to look again, or paste this week's pinned "
+              + "@eWhispers post link below."}
         </div>
       )}
       {data && data.week_assumed && data.showing === "current" && (

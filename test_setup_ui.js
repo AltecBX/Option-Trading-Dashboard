@@ -209,6 +209,20 @@ ok("the stale notice says when the scan actually last completed",
 ok("it points at the broker, which is the usual cause",
    /re-authorize under Manage/.test(src));
 
+// ── 11. the earnings calendar is keyless now ───────────────────────────
+const earn = read("tab-earnops.jsx");
+const ewp = read("ewhispers.py");
+ok("the calendar banner no longer demands an X API key",
+   !/Automatic detection needs an X API key/.test(earn));
+ok("it says the lookup needs no key",
+   /no API key needed/.test(earn) && /no API key needed/.test(ewp));
+ok("the pinned post is found without credentials",
+   /def _keyless_weekly_candidate/.test(ewp) && /def _timeline_post_ids/.test(ewp));
+ok("discovery is shape-blind, not tied to one JSON layout",
+   /shape-blind/.test(ewp) && /_ID_RE/.test(ewp));
+ok("a daily post cannot become the weekly card",
+   /score_post\(/.test(ewp) && /MIN_CONFIDENCE/.test(ewp));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

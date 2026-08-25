@@ -496,7 +496,8 @@ def _refresh_from_x() -> None:
     # candidates is the fallback, not the primary: it can be outvoted by a
     # daily list, and it silently serves LAST week's calendar whenever this
     # week's post fails to clear the bar.
-    pin_status, pin = _x_pinned_candidate()
+    pin_status, pin = (_x_pinned_candidate() if _bearer_token()
+                       else ("no_credentials", None))
     if pin_status == "ok" and pin:
         pub = None
         try:
@@ -534,6 +535,40 @@ def _refresh_from_x() -> None:
              f"(confidence {conf:.2f}) — falling back to search")
     elif pin_status not in ("ok", "no_pinned_post"):
         _log(f"refresh: pinned lookup {pin_status} — falling back to search")
+
+    # No API key? The public timeline feed still leads with the pinned post
+    # and the per-post feed still hydrates it, both without credentials.
+    # This is the path that matters for a deployment with no X_BEARER_TOKEN,
+    # which is otherwise reduced to a weekly copy-paste.
+    kl_status, kl, kl_conf, kl_wk = _keyless_weekly_candidate(ref_week)
+    if kl is not None and kl_wk:
+        rec = _record_from_candidate(kl, kl_conf, kl_wk)
+        rec["source"] = "public-timeline"
+        with _LOCK:
+            cur = st["weeks"].get(kl_wk)
+            if cur is None or kl_conf >= (cur.get("confidence") or 0):
+                st["weeks"][kl_wk] = rec
+            st["last_checked"] = _now_iso()
+            st["last_status"] = "ok"
+            st["last_error"] = None
+            _prune_weeks(st)
+        _save_state()
+        _log(f"refresh: public timeline covers week {kl_wk} "
+             f"(confidence {kl_conf:.2f}, no credentials needed)")
+        if kl_wk == ref_week:
+            return
+    else:
+        _log(f"refresh: keyless lookup {kl_status}")
+
+    if not _bearer_token():
+        # Nothing further is possible without a key. Record why, rather
+        # than leaving last_status reading like a healthy check.
+        with _LOCK:
+            st["last_checked"] = _now_iso()
+            st["last_status"] = ("ok" if kl is not None
+                                 else f"no_credentials ({kl_status})")
+        _save_state()
+        return
 
     status, cands = _x_search_candidates()
     with _LOCK:
@@ -640,6 +675,97 @@ def _fetch_syndication(post_id: str) -> dict | None:
     created = str(d.get("created_at") or "")[:19] or None
     return {"text": d.get("text") or "", "published_at": created,
             "author_ok": screen.lower() == ACCOUNT.lower(), "photos": photos}
+
+
+PROFILE_TIMELINE_URL = ("https://syndication.twitter.com/srv/timeline-profile/"
+                        "screen-name/{account}")
+_ID_RE = re.compile(r"\b(\d{15,25})\b")
+KEYLESS_MAX_IDS = 12               # how many recent posts to hydrate at most
+
+
+def _timeline_post_ids(limit: int = KEYLESS_MAX_IDS) -> tuple[str, list[str]]:
+    """(status, post ids) for @eWhispers' recent posts, WITHOUT an API key.
+
+    This reads the same public feed X's own embedded profile-timeline widget
+    renders from — the sibling of the tweet feed `_fetch_syndication`
+    already uses. The PINNED post leads that timeline, which is the whole
+    point: they pin the current week's calendar and repin it each weekend.
+
+    Deliberately shape-blind. Rather than walk a JSON tree that X can
+    restructure without notice, it pulls every numeric id out of the
+    response and lets the ALREADY-VERIFIED per-post endpoint decide what
+    each one actually is. A layout change costs nothing here; a change to
+    the per-post feed would be caught by its own tests.
+    """
+    url = PROFILE_TIMELINE_URL.format(account=ACCOUNT)
+    try:
+        s = _session()
+        r = s.get(url, headers={"User-Agent": UA,
+                                "Accept": "text/html,application/json,*/*"},
+                  timeout=TIMEOUT)
+    except Exception as exc:  # noqa: BLE001
+        return f"unreachable: {str(exc)[:80]}", []
+    if r.status_code == 429:
+        return "rate_limited", []
+    if r.status_code != 200:
+        return f"http_{r.status_code}", []
+    seen, out = set(), []
+    for m in _ID_RE.finditer(r.text or ""):
+        pid = m.group(1)
+        if pid in seen:
+            continue
+        seen.add(pid)
+        out.append(pid)
+        if len(out) >= max(1, int(limit) * 4):
+            break
+    return ("ok", out) if out else ("no_ids", [])
+
+
+def _keyless_weekly_candidate(ref_week: str) -> tuple[str, dict | None, float, str | None]:
+    """(status, candidate, confidence, week) — the current week's calendar
+    found with no credentials at all.
+
+    Every id from the public timeline is hydrated through the per-post feed
+    and scored by the same rules the API path uses, so a promo, a daily
+    list or a reply cannot become the weekly card. The first post that
+    announces THIS week wins; the pinned post is normally that post, and
+    scoring means it does not have to be.
+    """
+    status, ids = _timeline_post_ids()
+    if status != "ok":
+        return status, None, 0.0, None
+    best = (0.0, None, None)
+    checked = 0
+    for pid in ids:
+        if checked >= KEYLESS_MAX_IDS:
+            break
+        data = _fetch_syndication(pid)
+        if not data:
+            continue
+        checked += 1
+        if not data.get("author_ok"):
+            continue
+        pub = None
+        try:
+            pub = date.fromisoformat((data.get("published_at") or "")[:10])
+        except Exception:  # noqa: BLE001
+            pub = None
+        conf, wk, _reasons = score_post(
+            data.get("text") or "", has_image=bool(data.get("photos")),
+            published=pub, ref_week=ref_week)
+        if not wk or conf < MIN_CONFIDENCE:
+            continue
+        cand = {"id": pid, "text": data.get("text") or "",
+                "created_at": data.get("published_at"),
+                "photos": data.get("photos") or [],
+                "is_retweet": False, "is_reply": False}
+        if wk == ref_week:
+            return "ok", cand, conf, wk          # this week — stop looking
+        if conf > best[0]:
+            best = (conf, cand, wk)
+    if best[1] is not None:
+        return "ok", best[1], best[0], best[2]
+    return "no_weekly_post", None, 0.0, None
 
 
 def _fetch_oembed(post_url: str) -> dict | None:
@@ -919,16 +1045,17 @@ def trigger_refresh(force: bool = False) -> dict:
     global _REFRESHING, _LAST_ATTEMPT_MONO
     if os.environ.get("JERRY_NO_NET") == "1":
         return {"started": False, "reason": "network disabled (JERRY_NO_NET)"}
-    if not _bearer_token():
-        # No API key to search with — but a forced refresh (the card's
-        # Refresh button) can still re-hydrate the manual post, so a
-        # transient image-fetch failure is fixable with one click.
-        if force and _rehydrate_manual_async(force=True):
-            return {"started": True, "mode": "manual_rehydrate"}
-        return {"started": False, "reason": "no X API credentials (X_BEARER_TOKEN)"}
+    rehydrated = False
+    if not _bearer_token() and force:
+        # A forced refresh also re-hydrates the manual post, so a transient
+        # image-fetch failure is fixable with one click. The keyless check
+        # below still runs either way — it needs no credentials, and this
+        # gate returning early is what used to make a key mandatory.
+        rehydrated = bool(_rehydrate_manual_async(force=True))
     with _LOCK:
         if _REFRESHING:
-            return {"started": False, "reason": "already checking"}
+            return {"started": False, "reason": "already checking",
+                    "manual_rehydrate": rehydrated}
         if not force and (time.monotonic() - _LAST_ATTEMPT_MONO) < CHECK_INTERVAL_SEC \
                 and _LAST_ATTEMPT_MONO > 0:
             return {"started": False, "reason": "checked recently"}
@@ -952,7 +1079,10 @@ def trigger_refresh(force: bool = False) -> dict:
                 _REFRESHING = False
 
     threading.Thread(target=run, daemon=True).start()
-    return {"started": True}
+    return {"started": True, "mode": ("manual_rehydrate" if rehydrated
+                                     else ("keyless" if not _bearer_token()
+                                           else "full")),
+            "manual_rehydrate": rehydrated}
 
 
 # ── The endpoint payload ────────────────────────────────────────────────────
@@ -1016,9 +1146,17 @@ def get_weekly(week: str | None = None) -> dict:
     creds = bool(_bearer_token())
     note = None
     if post is None:
-        if not creds and not manual_url:
-            note = ("Automatic detection needs an X API key (X_BEARER_TOKEN) — "
-                    "or paste the current @eWhispers weekly post link below.")
+        if last_status and str(last_status).startswith("no_credentials"):
+            # An API key is NOT required any more — the keyless lookup is.
+            # Saying "needs an API key" here would send Jerry off to buy one
+            # for a problem a key would not fix.
+            why = str(last_status).split("(", 1)[-1].rstrip(")")
+            note = (f"The automatic lookup could not reach X ({why}). Paste "
+                    f"this week's pinned @eWhispers post link below and the "
+                    f"calendar will load — no API key needed.")
+        elif not creds and not manual_url:
+            note = ("Nothing has been detected for this week yet. Paste the "
+                    "pinned @eWhispers post link below to load it now.")
         elif last_status and last_status not in ("ok", None):
             note = f"X check failed ({last_status}) — nothing cached yet."
         else:
