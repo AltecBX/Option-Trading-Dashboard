@@ -284,3 +284,38 @@ class TestTheBoardDoesNotOverclaim(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheRefusalTally(unittest.TestCase):
+    """"0 qualified" reads identically whether the market is quiet or
+    something upstream is broken. Those need opposite responses, so the
+    board counts WHY."""
+
+    def test_it_counts_each_reason(self):
+        rows = [scan_row("A", ev=-1.0), scan_row("B", ev=-1.0),
+                scan_row("C", vrp_ratio=1.0), scan_row("D", earnings_inside=True)]
+        out = SB.build(rows)
+        got = {r["code"]: r["n"] for r in out["refused_by"]}
+        self.assertEqual(got.get("negative_ev"), 2)
+        self.assertEqual(got.get("fair_pay"), 1)
+        self.assertEqual(got.get("earnings"), 1)
+
+    def test_a_systematic_data_failure_is_visible_as_one_reason(self):
+        """The case worth spotting: every name refused for the same thing."""
+        rows = [scan_row(f"S{i}", vrp_ratio=None, vrp_percentile=None, hist_n=0)
+                for i in range(12)]
+        out = SB.build(rows)
+        self.assertEqual(out["qualified"], 0)
+        top = out["refused_by"][0]
+        self.assertEqual(top["n"], 12)
+        self.assertIn(top["code"], ("no_reading",))
+
+    def test_a_qualifying_board_has_nothing_to_tally(self):
+        out = SB.build([scan_row("A")])
+        self.assertEqual(out["refused_by"], [])
+
+    def test_every_refusal_carries_a_machine_readable_code(self):
+        for kw in ({"vrp_ratio": 1.0}, {"ev": -1.0}, {"liquidity_ok": False},
+                   {"danger": "HIGH"}, {"earnings_inside": True}):
+            g = SB.gate(scan_row("A", **kw))
+            self.assertTrue(g["codes"], kw)

@@ -47,6 +47,7 @@ const SU_TIP = {
   universe: "How many names were ranked for free against how many had their option chain actually measured. Every chain costs a network round trip, so the scan ranks everything and measures the best few.",
   expiry: "The expiration this credit and return are quoted for — the one the premium engine judged richest inside the selling window, not automatically the nearest monthly.",
   stale: "The Premium Edge scan writes its board to disk and reloads it on restart, so a board can outlive the connection that produced it. When the scan has not completed within the day, every price and premium below is from whenever it last succeeded — usually a lapsed broker sign-in.",
+  tally: "Why the measured names did not qualify, counted by reason. If nearly all of them say the same thing — especially 'no premium reading' — that points at the data upstream rather than a quiet market.",
   board_earn: "Earnings inside the option's life excludes a name here. That is the opposite of the Premium Edge scan, which seeks earnings out — because a trader who closes before the report harvests that premium, and one who holds to expiry underwrites it."
 };
 const suNum = (v, d = 2) => v == null || !isFinite(v) ? "—" : Number(v).toFixed(d);
@@ -550,7 +551,10 @@ function SellBoardCard({
   React.createElement("div", {
     className: "su-refused",
     title: SU_TIP.stale
-  }, /*#__PURE__*/React.createElement("b", null, "This scan is ", staleWord, ", not today\u2019s."), " ", "It last completed ", suDate(data.as_of), " at ", suTime(data.as_of), ". Prices and premiums below are from then. If the sidebar badge shows a Schwab problem, re-authorize under Manage \u2014 the scan cannot refresh without it.") : null, uni ? /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("b", null, "This scan is ", staleWord, ", not today\u2019s."), " ", "It last completed ", suDate(data.as_of), " at ", suTime(data.as_of), ". Prices and premiums below are from then. If the sidebar badge shows a Schwab problem, re-authorize under Manage \u2014 the scan cannot refresh without it.") : null, data && (data.refused_by || []).length ? /*#__PURE__*/React.createElement("p", {
+    className: "su-uni su-tally",
+    title: SU_TIP.tally
+  }, "Refused: ", (data.refused_by || []).map(r => `${r.n} ${r.label}`).join(" · ")) : null, uni ? /*#__PURE__*/React.createElement("p", {
     className: "su-uni",
     title: SU_TIP.universe
   }, uni.ranked, " names ranked \xB7 ", data.measured || 0, " had their option chain measured \xB7 ", rows.length, " qualified", uni.dropped && uni.dropped["earnings inside the option's life"] ? /*#__PURE__*/React.createElement("span", {

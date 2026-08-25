@@ -155,35 +155,42 @@ def gate(row: dict, horizon_days: float | None = None,
     Every rejection carries its reason in words, because a board that
     silently drops names teaches nothing about why the list is short.
     """
-    reasons = []
+    reasons, codes = [], []
     if not row.get("data_ok", True):
+        codes.append("no_data")
         reasons.append("The data needed to price it did not come back.")
     if row.get("liquidity_ok") is False or row.get("liquidity_poor") is True:
+        codes.append("liquidity")
         reasons.append("The bid/ask spread or open interest fails the "
                        "liquidity floor — the exit costs more than the edge.")
     dte = _num(row.get("best_dte")) if horizon_days is None else horizon_days
     if row.get("earnings_inside"):
+        codes.append("earnings")
         reasons.append("Earnings falls inside the option's life. Holding to "
                        "expiry through a report underwrites the event rather "
                        "than harvesting it.")
     ev = _num(row.get("best_ev"))
     if ev is not None and ev <= 0:
+        codes.append("negative_ev")
         reasons.append(f"Expected value is {ev:+.2f} per share at the "
                        f"volatility this stock actually realizes — a high "
                        f"chance of keeping the credit at a price that loses "
                        f"money over repetition.")
     ratio = _num(row.get("vrp_ratio"))
     if ratio is None:
+        codes.append("no_reading")
         reasons.append("No reading on how the premium compares to what this "
                        "stock realizes.")
     elif ratio < min_vrp_ratio:
+        codes.append("fair_pay")
         reasons.append(f"The option pays {ratio:.2f}x what this stock "
                        f"actually realizes — under the {min_vrp_ratio:.2f}x "
                        f"floor. Fair pay is not a reason to take assignment "
                        f"risk.")
     if str(row.get("danger") or "").upper() in ("HIGH", "EXTREME"):
+        codes.append("danger")
         reasons.append(f"The danger model rates this {row.get('danger')}.")
-    return {"ok": not reasons, "reasons": reasons, "dte": dte}
+    return {"ok": not reasons, "reasons": reasons, "codes": codes, "dte": dte}
 
 
 def richness(row: dict, min_hist_n: int = MIN_HIST_N) -> dict:
@@ -226,7 +233,7 @@ def build(rows, horizon_days: float | None = None, limit: int = 10,
           min_vrp_ratio: float = MIN_VRP_RATIO,
           min_hist_n: int = MIN_HIST_N) -> dict:
     """The board: what to sell today, in order, and what was skipped and why."""
-    keep, skipped = [], []
+    keep, skipped, tally = [], [], []
     for r in (rows or []):
         sym = (r.get("symbol") or r.get("ticker") or "").upper().strip()
         if not sym:
@@ -255,15 +262,30 @@ def build(rows, horizon_days: float | None = None, limit: int = 10,
         if g["ok"] and rich["value"] is not None:
             keep.append(entry)
         else:
+            codes = list(g["codes"]) or ["no_reading"]
+            tally.extend(codes)
             skipped.append({**entry, "why": g["reasons"] or
-                            ["No usable reading on the premium's richness."]})
+                            ["No usable reading on the premium's richness."],
+                            "codes": codes})
     # Richest first. Ties break on return on collateral, so of two equally
     # rich names the one that pays more for the same money wins.
     keep.sort(key=lambda x: (-(x["richness"] or 0.0), -(x["roc_pct"] or 0.0)))
+    # A one-line tally of WHY the list is short. Without it, "0 qualified"
+    # looks the same whether the market is quiet or something upstream is
+    # broken — and those need completely different responses.
+    order = ["no_data", "no_reading", "fair_pay", "negative_ev",
+             "earnings", "liquidity", "danger"]
+    label = {"no_data": "no data", "no_reading": "no premium reading",
+             "fair_pay": "paying only fair", "negative_ev": "negative value",
+             "earnings": "earnings inside", "liquidity": "poor liquidity",
+             "danger": "rated dangerous"}
+    counts = {c: tally.count(c) for c in order if tally.count(c)}
     return {
         "rows": keep[:max(0, int(limit))],
         "shown": min(len(keep), max(0, int(limit))),
         "qualified": len(keep),
+        "refused_by": [{"code": c, "label": label[c], "n": n}
+                       for c, n in counts.items()],
         "skipped": skipped,
         "version": SETUP_BOARD_VERSION,
         "basis": ("Ranked by how rich today's premium is against what this "

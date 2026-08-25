@@ -92,7 +92,15 @@ except Exception as _exc:  # noqa: BLE001
 # question; the engine interpolates between rungs.
 DISTANCES = (1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0)
 MIN_STREAK = 3                 # shorter than this is not a run
-MIN_BARS = 400                 # below this no measured rate is worth having
+# The hard floor for producing ANY recommendation. It is not the floor for
+# the measured widening — that has its own, much higher bar (MIN_MEASURED_N)
+# and refuses on its own. Gating the whole card at 400 turned a recently
+# listed name like SNDK, with 383 bars and a perfectly good conservative
+# trade available, into a blank error.
+MIN_BARS = 260
+INDEX_STRIKES = 10             # cheap call, just to list expirations
+WINDOW_STRIKES = 40            # enough ladder around the money to choose from
+WINDOW_MAX_EXPIRATIONS = 4     # bounds the payload; _pick_expiry ranks these
 SIDE_DELTA_SCAN = (0.05, 0.50)  # wider than Premium Edge's fixed band
 CACHE_TTL = 90.0
 
@@ -400,6 +408,61 @@ def _broker_note(sc) -> str | None:
     return None
 
 
+def _list_expirations(sc, symbol: str) -> list:
+    """Every expiration the underlying lists, from one narrow-ladder call.
+
+    Ten strikes keeps this cheap no matter how deep the listing is — the
+    same trick the Gamma Exposure tab uses, for the same reason.
+    """
+    try:
+        idx = sc.get_option_chain(symbol, strike_count=INDEX_STRIKES)
+    except Exception:  # noqa: BLE001
+        return []
+    if not idx:
+        return []
+    return list(idx.get("expirations") or sorted((idx.get("chains") or {}).keys()))
+
+
+def _window_chain(sc, symbol: str, now: date, lo: float, hi: float):
+    """(chain, every expiration the symbol lists) for the selling window.
+
+    Two steps, because one is not enough. Asking Schwab for a 55-day RANGE
+    at sixty strikes is roughly fourteen hundred contracts on a name like
+    AAPL, which runs past the client's fifteen-second timeout and comes
+    back as None — indistinguishable, from the caller, from "this symbol
+    has no options". So: list the expirations cheaply, choose a handful
+    inside the window, then fetch only those.
+    """
+    avail = _list_expirations(sc, symbol)
+    if not avail:
+        return None, []
+    wanted = [e for e in sorted(avail)
+              if lo <= pe._expiry_dte(e, now) <= hi]                # noqa: SLF001
+    if not wanted:
+        return None, avail
+    # CONTIGUOUS, not spread. The fetch is a date RANGE, and Schwab fills a
+    # range with every expiration between the ends — so picking four dates
+    # spread across the window still asks for the whole window and times out
+    # exactly like the request this replaced. A contiguous block from the
+    # near end of the window is bounded by construction, and the nearest
+    # expirations inside it are the liquid ones anyway.
+    sel = wanted[:WINDOW_MAX_EXPIRATIONS]
+    try:
+        chain = sc.get_option_chain(symbol, expiration=sel[0], to_date=sel[-1],
+                                    strike_count=WINDOW_STRIKES)
+    except Exception:  # noqa: BLE001
+        return None, avail
+    if not chain or not (chain.get("chains") or {}):
+        return None, avail
+    # A date range can return expirations between the ends that were not
+    # asked for; keep only the selection so the payload stays bounded.
+    keep = set(sel)
+    chain["chains"] = {e: v for e, v in (chain.get("chains") or {}).items()
+                       if e in keep}
+    chain["expirations"] = sorted(chain["chains"].keys())
+    return (chain if chain["chains"] else None), avail
+
+
 def _no_trade_reason(sides: dict) -> str:
     """Why nothing was recommended, in the sides' own words."""
     parts = []
@@ -428,10 +491,22 @@ def analyze(symbol: str, now: date | None = None) -> dict:
     now = now or datetime.now().date()
     cfg = _edge._cfg()                                        # noqa: SLF001
     bars = sc.get_price_history(symbol, days=1400)
-    if not bars or len(bars) < MIN_BARS:
+    if not bars:
+        # None and [] mean the request failed or was throttled — NOT that
+        # this stock has no history. "Only 0 daily bars on file" reads as a
+        # fact about TSLA and sends the reader looking in the wrong place.
+        note = _broker_note(sc)
         return {"ok": False, "symbol": symbol,
-                "error": (f"Only {len(bars or [])} daily bars on file — fewer "
-                          f"than the {MIN_BARS} needed to measure anything.")}
+                "error": (note if note else
+                          f"No price history came back for {symbol}. The "
+                          f"request failed or was throttled rather than the "
+                          f"symbol being empty — press Try again."),
+                "broker_note": note}
+    if len(bars) < MIN_BARS:
+        return {"ok": False, "symbol": symbol,
+                "error": (f"{symbol} has only {len(bars)} daily bars of "
+                          f"history, fewer than the {MIN_BARS} this needs. "
+                          f"That usually means a recent listing or spin-off.")}
     D = [b["date"][:10] for b in bars]
     Hh = [_num(b.get("high")) for b in bars]
     Ll = [_num(b.get("low")) for b in bars]
@@ -461,38 +536,24 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                 chain = c
         except Exception:  # noqa: BLE001
             chain = None
+    listed = []
     if chain is None:
-        # Ask the broker for exactly the window, with a day of slack on each
-        # side so an expiration sitting on the boundary is not filtered out
-        # by the fetch before _pick_expiry ever sees it.
-        chain = sc.get_option_chain(
-            symbol,
-            expiration=(now + timedelta(days=max(0, int(lo_dte) - 1))).isoformat(),
-            to_date=(now + timedelta(days=int(hi_dte) + 1)).isoformat(),
-            strike_count=60)
+        chain, listed = _window_chain(sc, symbol, now, lo_dte, hi_dte)
         gsource, fetched_at = "broker", None
-    if not chain or not (chain.get("chains") or {}):
-        # Nothing in the window. Widen the fetch before giving up, purely so
-        # the refusal can name what this symbol does list — "no options at
-        # all" and "no options in your window" are different facts and a
-        # reader has to be able to tell them apart. A dead connection and an
-        # empty window both return None here, so this cannot tell them
-        # apart on its own; `_broker_note` does that when the message is
-        # written.
-        #
-        # Both dates are required. `get_option_chain` ignores `to_date`
-        # unless `expiration` is also set, so passing only `to_date` asks
-        # for EVERY expiration this symbol lists — the unbounded fetch that
-        # times out on heavily-optioned names and returns None. An earlier
-        # version of this fallback did exactly that, which turned a broker
-        # problem into "No option chain came back for this symbol" after a
-        # fifteen-second hang.
-        chain = sc.get_option_chain(
-            symbol,
-            expiration=now.isoformat(),
-            to_date=(now + timedelta(days=120)).isoformat(),
-            strike_count=60)
-        gsource, fetched_at = "broker", None
+    if not chain and listed:
+        # The symbol lists options, just none inside the selling window.
+        # That is a different fact from "no chain came back at all", and the
+        # reader has to be able to tell them apart. _window_chain already
+        # knows every expiration this symbol lists, so naming them costs
+        # nothing — no second fetch, and none of the unbounded requests that
+        # earlier versions of this fallback made.
+        near = ", ".join(f"{e[:10]} ({pe._expiry_dte(e, now):.0f} days)"   # noqa: SLF001
+                         for e in sorted(listed)[:4])
+        return {"ok": False, "symbol": symbol,
+                "error": (f"{symbol} lists {len(listed)} expirations but none "
+                          f"between {lo_dte:.0f} and {hi_dte:.0f} days out, "
+                          f"which is the window a seller picks from. "
+                          f"Nearest: {near}.")}
     if not chain or not (chain.get("chains") or {}):
         # Do not blame the symbol for what is usually a connection problem.
         note = _broker_note(sc)
