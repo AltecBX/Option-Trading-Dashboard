@@ -916,3 +916,13 @@ class TestTheKeylessPath(unittest.TestCase):
         self.assertIn("2085726194914242793", ids)
         self.assertIn("2085726194914242794", ids)
         self.assertNotIn("123", ids)
+
+    def test_it_never_tells_jerry_to_get_an_api_key_he_does_not_need(self):
+        """v4.62 made the lookup keyless. A banner still saying "needs an X
+        API key" would send him after a problem a key would not fix."""
+        ew._timeline_post_ids = lambda limit=12: ("rate_limited", [])  # noqa: SLF001
+        ew._refresh_from_x()                                           # noqa: SLF001
+        note = ew.get_weekly()["note"] or ""
+        self.assertNotIn("needs an X API key", note)
+        self.assertIn("no API key needed", note)
+        self.assertIn("rate_limited", note)

@@ -350,7 +350,7 @@ function EarningsWhispersCard({
   }, "posted ", fmtUSDate(post.published_at))), data && data.showing === "previous" && /*#__PURE__*/React.createElement("div", {
     className: "ew-stale",
     title: data.note || ""
-  }, /*#__PURE__*/React.createElement("b", null, "This is last week\u2019s calendar, not this week\u2019s."), " ", data.note || "This week's post has not been detected yet.", " ", data.credentials ? "Press Refresh to look again." : "Automatic detection needs an X API key (X_BEARER_TOKEN), " + "or paste this week's @eWhispers post link below."), data && data.week_assumed && data.showing === "current" && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, "This is last week\u2019s calendar, not this week\u2019s."), " ", data.note || "This week's post has not been detected yet.", " ", String(data.last_status || "").startsWith("no_credentials") ? "The automatic lookup could not reach X. Paste this week's " + "pinned @eWhispers post link below — no API key needed." : "Press Refresh to look again, or paste this week's pinned " + "@eWhispers post link below."), data && data.week_assumed && data.showing === "current" && /*#__PURE__*/React.createElement("div", {
     className: "ew-assumed",
     title: data.note || ""
   }, data.note), err && !data && /*#__PURE__*/React.createElement("div", {

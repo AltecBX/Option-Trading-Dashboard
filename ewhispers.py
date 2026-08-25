@@ -1146,9 +1146,17 @@ def get_weekly(week: str | None = None) -> dict:
     creds = bool(_bearer_token())
     note = None
     if post is None:
-        if not creds and not manual_url:
-            note = ("Automatic detection needs an X API key (X_BEARER_TOKEN) — "
-                    "or paste the current @eWhispers weekly post link below.")
+        if last_status and str(last_status).startswith("no_credentials"):
+            # An API key is NOT required any more — the keyless lookup is.
+            # Saying "needs an API key" here would send Jerry off to buy one
+            # for a problem a key would not fix.
+            why = str(last_status).split("(", 1)[-1].rstrip(")")
+            note = (f"The automatic lookup could not reach X ({why}). Paste "
+                    f"this week's pinned @eWhispers post link below and the "
+                    f"calendar will load — no API key needed.")
+        elif not creds and not manual_url:
+            note = ("Nothing has been detected for this week yet. Paste the "
+                    "pinned @eWhispers post link below to load it now.")
         elif last_status and last_status not in ("ok", None):
             note = f"X check failed ({last_status}) — nothing cached yet."
         else:
