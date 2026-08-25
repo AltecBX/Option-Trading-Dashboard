@@ -2444,3 +2444,46 @@ is missing, and whether the fix is Refresh or an API key — instead of a
 grey pill with the explanation on hover.
 
 2,794 Python tests (7 new), 7 browser checks against the rendered tab.
+
+## v4.62 — No API key is not no calendar
+
+v4.61 made the pinned @eWhispers post the primary source, which was the
+right fix and could not run: this deployment has no X_BEARER_TOKEN, and
+`trigger_refresh` returned early on a missing key before any detection of
+any kind happened. The card served last week's calendar indefinitely, and
+the only remedy was pasting the post link by hand every week.
+
+The pinned post is reachable without credentials. X's public
+profile-timeline feed — the sibling of the per-post feed this module has
+used for the manual URL all along — leads with the pinned post, and the
+per-post feed hydrates it into full text plus the full-resolution image.
+Neither needs a key.
+
+The discovery step is deliberately shape-blind. Rather than walk a JSON
+tree X can restructure without notice, it pulls every numeric id out of the
+response and lets the already-verified per-post feed decide what each one
+is. Each candidate is then scored by the same rules the API path uses, so a
+promo, a reply, or one of their far more frequent DAILY posts cannot become
+the weekly card. The first post announcing the current week wins; the
+pinned post is normally that post, and scoring means it does not have to be.
+
+Two dead ends worth recording so nobody retries them. The `eps.sh/cal` link
+printed on the calendar itself redirects to earningswhispers.com/cal, whose
+only images are `ogcal.png` and `cardcal.png` — both still showing the week
+of **August 14, 2023**. Static Open Graph placeholders, not the live
+calendar. And the CDN variants of the timeline feed answer 200 with an
+empty body.
+
+The credential gate in `trigger_refresh` was the actual blocker and is
+gone. Three existing tests asserted the old contract — "no credentials
+means no attempt" — which is precisely the behaviour that caused this; they
+now assert that a keyless check still runs.
+
+Honest limit: the discovery endpoint rate-limits this sandbox's shared IP,
+so it could not be exercised end to end here. It fails safe — no ids found
+means the previous behaviour, unchanged — and everything downstream of it
+is verified, including a real fetch that returned the genuine 3840x2160
+calendar with no key.
+
+2,801 Python tests (11 new). Both fixes were re-broken deliberately to
+confirm the new guards fail against the shipped code.

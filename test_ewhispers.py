@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
@@ -297,10 +298,11 @@ class TestRefresh(Base):
 
 
 class TestRefreshGating(Base):
-    def test_no_credentials_means_no_attempt(self):
+    def test_no_credentials_still_tries_the_keyless_path(self):
+        """v4.62: missing credentials no longer means missing calendar."""
         res = ew.trigger_refresh(force=True)
-        self.assertFalse(res["started"])
-        self.assertIn("credentials", res["reason"])
+        self.assertTrue(res["started"], res)
+        self.assertEqual(res["mode"], "keyless")
 
     def test_jerry_no_net_wins_over_everything(self):
         self.with_token()
@@ -611,13 +613,18 @@ class TestForcedRefreshWithoutCredentials(Base):
         fake.syndication = True
         res = ew.trigger_refresh(force=True)
         self.assertTrue(res["started"])
-        self.assertEqual(res["mode"], "manual_rehydrate")
+        self.assertTrue(res["manual_rehydrate"])
         self.wait_idle()
         self.assertIn("HPH7loKWIAA7HRP", ew._load_state()["manual"]["image_url"])
 
-    def test_unforced_refresh_without_creds_still_declines(self):
+    def test_unforced_refresh_without_creds_now_still_checks(self):
+        """Contract change (v4.62): a deployment with no API key used to be
+        turned away here, which meant no detection of any kind ever ran and
+        the card served last week's calendar forever. The keyless timeline
+        check needs no credentials, so it runs — still rate-limited by the
+        normal interval."""
         res = ew.trigger_refresh()
-        self.assertFalse(res["started"])
+        self.assertTrue(res["started"], res)
 
 
 class TestPersistence(Base):
@@ -779,3 +786,133 @@ class TestOnePayloadParser(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(len(a), 1)
         self.assertEqual(len(a[0]["photos"]), 1)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# NO API KEY IS NOT NO CALENDAR
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestTheKeylessPath(unittest.TestCase):
+    """A deployment with no X_BEARER_TOKEN used to be reduced to a weekly
+    copy-paste: trigger_refresh returned early on the missing key, so no
+    detection of any kind ran and the card served last week's calendar
+    indefinitely.
+
+    The public timeline feed leads with the PINNED post and the per-post
+    feed hydrates it, both without credentials.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        ew.configure(Path(self.tmp))
+        ew._STATE = None                                    # noqa: SLF001
+        os.environ.pop("X_BEARER_TOKEN", None)
+        os.environ.pop("TWITTER_BEARER_TOKEN", None)
+        os.environ.pop("JERRY_NO_NET", None)
+        ew._REFRESHING = False                              # noqa: SLF001
+        ew._LAST_ATTEMPT_MONO = 0.0                         # noqa: SLF001
+        self._syn = ew._fetch_syndication                   # noqa: SLF001
+        self._ids = ew._timeline_post_ids                   # noqa: SLF001
+
+    def tearDown(self):
+        ew._fetch_syndication = self._syn                   # noqa: SLF001
+        ew._timeline_post_ids = self._ids                   # noqa: SLF001
+        ew._STATE = None                                    # noqa: SLF001
+        os.environ["JERRY_NO_NET"] = "1"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _wk(self):
+        return ew.trading_week()[0]
+
+    def _weekly(self, week):
+        return {"text": (f"#earnings for the week of "
+                         f"{week.strftime('%B %d, %Y')} "
+                         f"$NVDA $CRM $MRVL $CRWD $KSS $INTU"),
+                "published_at": (week - timedelta(days=3)).isoformat() + "T13:00:00",
+                "author_ok": True,
+                "photos": [{"url": "https://pbs.twimg.com/media/abc.jpg",
+                            "width": 3840, "height": 2160}]}
+
+    def test_the_pinned_weekly_post_is_found_with_no_credentials(self):
+        wk = self._wk()
+        ew._timeline_post_ids = lambda limit=12: ("ok", ["555"])   # noqa: SLF001
+        ew._fetch_syndication = lambda pid: self._weekly(wk)       # noqa: SLF001
+        ew._refresh_from_x()                                       # noqa: SLF001
+        out = ew.get_weekly()
+        self.assertTrue(out["available"])
+        self.assertEqual(out["showing"], "current")
+        self.assertEqual(out["week_start"], wk.isoformat())
+        self.assertEqual(out["post_source"], "public-timeline")
+
+    def test_it_replaces_a_stale_previous_week(self):
+        """The reported symptom, on a deployment with no key."""
+        wk = self._wk()
+        last = (wk - timedelta(days=7)).isoformat()
+        st = ew._load_state()                               # noqa: SLF001
+        st["weeks"][last] = {"post_id": "old", "week_start": last,
+                             "week_end": last, "image_url": None,
+                             "text": "last week", "tickers": [],
+                             "confidence": 0.9, "source": "x"}
+        ew._save_state()                                    # noqa: SLF001
+        self.assertEqual(ew.get_weekly()["showing"], "previous")
+        ew._timeline_post_ids = lambda limit=12: ("ok", ["555"])   # noqa: SLF001
+        ew._fetch_syndication = lambda pid: self._weekly(wk)       # noqa: SLF001
+        ew._refresh_from_x()                                       # noqa: SLF001
+        self.assertEqual(ew.get_weekly()["showing"], "current")
+
+    def test_a_daily_post_never_becomes_the_weekly_card(self):
+        """Their daily posts outnumber the weekly one and carry images too."""
+        daily = {"text": ("#earnings after the close on Monday, August 24, "
+                          "2026, and before the open on Tuesday, August 25, "
+                          "2026 $DKS $GRRR $BNS"),
+                 "published_at": self._wk().isoformat() + "T21:00:00",
+                 "author_ok": True,
+                 "photos": [{"url": "https://pbs.twimg.com/media/d.jpg"}]}
+        ew._timeline_post_ids = lambda limit=12: ("ok", ["777"])   # noqa: SLF001
+        ew._fetch_syndication = lambda pid: daily                  # noqa: SLF001
+        ew._refresh_from_x()                                       # noqa: SLF001
+        self.assertFalse(ew.get_weekly()["available"])
+
+    def test_a_post_from_another_account_is_ignored(self):
+        bad = dict(self._weekly(self._wk()), author_ok=False)
+        ew._timeline_post_ids = lambda limit=12: ("ok", ["888"])   # noqa: SLF001
+        ew._fetch_syndication = lambda pid: bad                    # noqa: SLF001
+        ew._refresh_from_x()                                       # noqa: SLF001
+        self.assertFalse(ew.get_weekly()["available"])
+
+    def test_a_rate_limited_timeline_fails_safely(self):
+        ew._timeline_post_ids = lambda limit=12: ("rate_limited", [])  # noqa: SLF001
+        ew._refresh_from_x()                                           # noqa: SLF001
+        out = ew.get_weekly()
+        self.assertFalse(out["available"])
+        self.assertIn("no_credentials", str(out["last_status"]))
+
+    def test_the_refresh_is_no_longer_gated_on_having_a_key(self):
+        """The gate that made this whole path unreachable."""
+        ew._timeline_post_ids = lambda limit=12: ("no_ids", [])    # noqa: SLF001
+        r = ew.trigger_refresh(force=True)
+        self.assertTrue(r.get("started"), r)
+        self.assertEqual(r.get("mode"), "keyless")
+        # trigger_refresh runs in a background thread; letting it outlive the
+        # test lets it land inside a LATER one and double-count that test's
+        # stubs. Wait it out.
+        for _ in range(200):
+            if not ew._REFRESHING:                                 # noqa: SLF001
+                break
+            time.sleep(0.02)
+        self.assertFalse(ew._REFRESHING)                           # noqa: SLF001
+
+    def test_id_extraction_is_blind_to_the_payload_shape(self):
+        """Shape-blind on purpose: X can restructure the timeline without
+        notice, and the per-post feed decides what each id really is."""
+        class R:
+            status_code = 200
+            text = ('garbage {"entry_id":"tweet-2085726194914242793",'
+                    '"x":1} 2085726194914242794 <a>short 123</a>')
+        ew._session = lambda: type("S", (), {                      # noqa: SLF001
+            "get": staticmethod(lambda *a, **k: R())})()
+        status, ids = ew._timeline_post_ids()                      # noqa: SLF001
+        self.assertEqual(status, "ok")
+        self.assertIn("2085726194914242793", ids)
+        self.assertIn("2085726194914242794", ids)
+        self.assertNotIn("123", ids)
