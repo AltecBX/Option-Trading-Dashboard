@@ -67,6 +67,16 @@ STAGE1_LIMIT = 25            # how many symbols earn a chain fetch
 # The option must pay at least this much more than the stock actually
 # realizes. At 1.0 the premium is merely fair, and a fair price is not a
 # reason to take assignment risk.
+#
+# This stayed at 1.05 through the v4.65 forecast fix and the v4.70 funnel
+# split, deliberately. Before v4.65 the forecast read about a vol point low,
+# so this floor was quietly looser than it looked — nearer 1.02 in effect.
+# The fix made it a real 5%. Lowering it now to bring more names back would
+# be paying for the same correction twice, and it would change a risk
+# preference in the same breath as a correctness fix, leaving no way to tell
+# which one moved the board. Whether 5% is the right cushion is a question
+# about how much edge is worth assignment risk, which is the owner's call
+# and not a measurement.
 MIN_VRP_RATIO = 1.05
 # Below this many past observations, "today is in the 90th percentile of
 # this stock's own premium" is a coincidence with a decimal point.

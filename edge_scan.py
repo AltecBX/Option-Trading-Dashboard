@@ -379,16 +379,80 @@ def analyze_symbol(sym: str, intent: str = "premium_only", record: bool = False,
 
 # ── Stage 1 + scan worker ───────────────────────────────────────────────────
 
-def _stage1_candidates(cfg: dict) -> list:
-    """Free screen over the watchlist_table board. Ranked by premium-seller
-    interest: realized-vol rank + earnings proximity + day move."""
+# How far out a hold-to-expiry seller's option lives, for the purpose of
+# deciding whether an earnings report falls inside it. Matches the sell
+# board's own horizon so the two cannot drift apart silently.
+SELLER_HORIZON_DAYS = 47          # 45-day option + the board's 2-day buffer
+SELLER_SLOTS_DEFAULT = 10         # chain fetches reserved for sellable names
+OBS_FRESH_DAYS = 10               # a richness reading older than this is stale
+OBS_LOOKUP_MULTIPLE = 3           # how many candidates deep to read the store
+
+
+def _measured_richness(sym: str, today: str) -> tuple[float, str] | None:
+    """This ticker's own last MEASURED premium richness, if it is recent.
+
+    The scan has been recording iv30, erv30 and vrp_ratio per ticker per day
+    all along (record_observation). For any name it has already measured,
+    that reading is the real thing — there is no reason to rank it by a
+    proxy for richness when the app has richness itself on file.
+
+    Returns (ratio, basis) or None when there is no usable reading. A stale
+    reading is treated as no reading rather than as weak evidence: premium
+    moves, and a fortnight-old number dressed up as current is worse than
+    admitting we do not know.
+    """
+    try:
+        hist = pe.load_observations(sym) or []
+    except Exception:  # noqa: BLE001
+        return None
+    for h in reversed(hist):
+        ratio = h.get("vrp_ratio")
+        d = h.get("date")
+        if not isinstance(ratio, (int, float)) or not d:
+            continue
+        try:
+            age = (date.fromisoformat(today) - date.fromisoformat(d[:10])).days
+        except (TypeError, ValueError):
+            return None
+        if age < 0 or age > OBS_FRESH_DAYS:
+            return None
+        return float(ratio), f"measured {age}d ago"
+    return None
+
+
+def _stage1_candidates(cfg: dict, today: str | None = None) -> list:
+    """Free screen over the watchlist_table board — for BOTH questions the
+    app asks of a chain, because one budget of fetches serves both.
+
+    Premium Edge wants the richest premium there is, and the richest premium
+    lives around an earnings report, so this funnel has always added a bonus
+    for one falling inside the next week. The sell board asks the opposite
+    question — what can a hold-to-expiry seller actually sell — and an
+    earnings report inside the option's life is an outright EXCLUSION there.
+    Both are correct for their own tab, and setup_board's docstring already
+    says the signs are opposed.
+
+    What neither said is that the board reads whatever THIS funnel picked.
+    So the earnings bonus was spending scarce chain fetches on names the
+    board would then refuse for having earnings, and the board reported the
+    result as "nothing qualifies today" — a statement about the market that
+    was partly a statement about its own shopping list.
+
+    The budget is now split. The event slate keeps today's scoring, so
+    Premium Edge loses nothing. A reserved seller slate holds names with no
+    report inside a seller's horizon, ranked by their own last MEASURED
+    richness where the observation store has a recent one and by the
+    realized-vol proxy only where it does not.
+    """
     sn = cfg.get("scan", {})
+    today = today or date.today().isoformat()
     try:
         board = _BOARD_FN() if _BOARD_FN else None
         rows = (board or {}).get("rows") or []
     except Exception:
         rows = []
-    out = []
+    horizon = float(sn.get("seller_horizon_days", SELLER_HORIZON_DAYS))
+    event, sellable = [], []
     for r in rows:
         try:
             last = float(r.get("last") or 0)
@@ -402,7 +466,11 @@ def _stage1_candidates(cfg: dict) -> list:
             continue
         if avol and avol < float(sn.get("min_avg_volume", 1e6)):
             continue
-        score = float(r.get("rvol_rank") or 0)
+        tkr = r.get("ticker")
+        if not tkr:
+            continue
+        rank = float(r.get("rvol_rank") or 0)
+        score = rank
         dte_e = r.get("days_to_earnings")
         if isinstance(dte_e, (int, float)):
             if 0 <= dte_e <= 7:
@@ -413,10 +481,37 @@ def _stage1_candidates(cfg: dict) -> list:
             score += min(abs(float(r.get("change") or 0)) * 4, 20)
         except (TypeError, ValueError):
             pass
-        out.append((score, r.get("ticker")))
-    out.sort(reverse=True)
+        event.append((score, tkr))
+        # A report inside the horizon is what the seller cannot trade; a
+        # missing date is unknown, not absent, so it stays out of the slate
+        # the board is going to trust.
+        if isinstance(dte_e, (int, float)) and 0 <= dte_e <= horizon:
+            continue
+        if not isinstance(dte_e, (int, float)):
+            continue
+        sellable.append((rank, tkr))
+    event.sort(reverse=True)
+    sellable.sort(reverse=True)
     cap = int(sn.get("stage2_n", 24))
-    cands = [t for _s, t in out if t][:cap]
+    seller_cap = int(sn.get("stage2_seller_n", SELLER_SLOTS_DEFAULT))
+    cands = [t for _s, t in event][:cap]
+    if seller_cap > 0 and sellable:
+        # Re-rank the shortlist on real richness where the store has a
+        # recent reading. Bounded reads: only a few deep, so a 600-name
+        # board never turns into 600 file opens.
+        deep = [t for _s, t in sellable[:max(seller_cap * OBS_LOOKUP_MULTIPLE,
+                                             seller_cap)]]
+        scored = []
+        for i, t in enumerate(deep):
+            hit = _measured_richness(t, today)
+            # Measured richness outranks the proxy outright: any real
+            # reading sorts above every name we can only guess at, and
+            # among guesses the original order is kept.
+            scored.append(((1, hit[0]) if hit else (0, -i), t))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        for _s, t in scored[:seller_cap]:
+            if t not in cands:
+                cands.append(t)
     if cands:
         return cands
     # Cold start: the watchlist board rebuilds on weekday schedules, so a

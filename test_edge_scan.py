@@ -160,6 +160,152 @@ class TestStage1(unittest.TestCase):
             self.assertEqual(cands[0], "GOOD")
 
 
+class TestTheFunnelServesBothQuestions(unittest.TestCase):
+    """One budget of chain fetches feeds two tabs that want opposite things.
+
+    Premium Edge wants the richest premium, which lives around an earnings
+    report, so the funnel adds a bonus for one falling inside the week. The
+    sell board excludes any name with a report inside the option's life.
+    Both are right for their own tab — but the board reads whatever THIS
+    funnel picked, so the bonus was buying chains for names the board was
+    guaranteed to refuse, then reporting "nothing qualifies today".
+    """
+
+    def _rows(self):
+        # Two names an earnings-hungry funnel loves and a seller cannot use,
+        # and three quiet ones a seller can, ranked below them on the proxy.
+        return [
+            {"ticker": "ERNA", "last": 100.0, "market_cap": 5e10,
+             "avg_volume": 5e6, "rvol_rank": 70, "days_to_earnings": 3,
+             "change": 3.0},
+            {"ticker": "ERNB", "last": 100.0, "market_cap": 5e10,
+             "avg_volume": 5e6, "rvol_rank": 65, "days_to_earnings": 14,
+             "change": 2.0},
+            {"ticker": "CALMA", "last": 100.0, "market_cap": 5e10,
+             "avg_volume": 5e6, "rvol_rank": 40, "days_to_earnings": 80,
+             "change": 0.2},
+            {"ticker": "CALMB", "last": 100.0, "market_cap": 5e10,
+             "avg_volume": 5e6, "rvol_rank": 30, "days_to_earnings": 90,
+             "change": 0.1},
+            {"ticker": "CALMC", "last": 100.0, "market_cap": 5e10,
+             "avg_volume": 5e6, "rvol_rank": 20, "days_to_earnings": 120,
+             "change": 0.1},
+        ]
+
+    def test_sellable_names_reach_the_scan_even_when_the_proxy_buries_them(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, board_rows=self._rows())
+            cfg = es._cfg()
+            cfg["scan"]["stage2_n"] = 2          # only the two earnings names
+            cands = es._stage1_candidates(cfg, today="2026-08-26")
+            self.assertEqual(cands[:2], ["ERNA", "ERNB"],
+                             "Premium Edge must keep its event slate")
+            for t in ("CALMA", "CALMB", "CALMC"):
+                self.assertIn(t, cands, f"{t} is sellable and was never fetched")
+
+    def test_the_event_slate_is_not_taken_from_premium_edge(self):
+        """The seller slate is additional. Halving Premium Edge to pay for
+        it would fix one tab by breaking the other."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, board_rows=self._rows())
+            cfg = es._cfg()
+            cfg["scan"]["stage2_n"] = 2
+            cfg["scan"]["stage2_seller_n"] = 0
+            base = es._stage1_candidates(cfg, today="2026-08-26")
+            cfg["scan"]["stage2_seller_n"] = 3
+            with_seller = es._stage1_candidates(cfg, today="2026-08-26")
+            self.assertEqual(with_seller[:len(base)], base)
+            self.assertGreater(len(with_seller), len(base))
+
+    def test_a_name_with_earnings_inside_never_enters_the_seller_slate(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            rows = [{"ticker": "SOON", "last": 100.0, "market_cap": 5e10,
+                     "avg_volume": 5e6, "rvol_rank": 90,
+                     "days_to_earnings": 20, "change": 0.0}]
+            wire(tmp, board_rows=rows)
+            cfg = es._cfg()
+            cfg["scan"]["stage2_n"] = 0
+            cfg["scan"]["stage2_seller_n"] = 5
+            self.assertEqual(es._stage1_candidates(cfg, today="2026-08-26"), [])
+
+    def test_an_unknown_earnings_date_is_not_treated_as_no_earnings(self):
+        """Missing is not absent. A name whose report date we do not know
+        must not be handed to the board as safe to sell."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            rows = [{"ticker": "UNKN", "last": 100.0, "market_cap": 5e10,
+                     "avg_volume": 5e6, "rvol_rank": 90, "change": 0.0}]
+            wire(tmp, board_rows=rows)
+            cfg = es._cfg()
+            cfg["scan"]["stage2_n"] = 0
+            cfg["scan"]["stage2_seller_n"] = 5
+            self.assertEqual(es._stage1_candidates(cfg, today="2026-08-26"), [])
+
+    def test_a_measured_richness_outranks_the_proxy(self):
+        """The scan has been recording real iv30/erv30/vrp_ratio per ticker
+        all along. For a name it has already measured there is no reason to
+        rank by a proxy for richness when richness itself is on file."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, board_rows=self._rows())
+            # CALMC sits LAST on the proxy but was measured paying 1.40x.
+            pe.record_observation("CALMC", {"date": "2026-08-25",
+                                            "vrp_ratio": 1.40})
+            cfg = es._cfg()
+            cfg["scan"]["stage2_n"] = 0
+            cfg["scan"]["stage2_seller_n"] = 1
+            self.assertEqual(es._stage1_candidates(cfg, today="2026-08-26"),
+                             ["CALMC"])
+
+    def test_a_stale_reading_is_not_evidence_about_today(self):
+        """Premium moves. A fortnight-old number presented as current is
+        worse than admitting we do not know."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, board_rows=self._rows())
+            pe.record_observation("CALMC", {"date": "2026-06-01",
+                                            "vrp_ratio": 1.90})
+            self.assertIsNone(es._measured_richness("CALMC", "2026-08-26"))
+            cfg = es._cfg()
+            cfg["scan"]["stage2_n"] = 0
+            cfg["scan"]["stage2_seller_n"] = 1
+            # falls back to the proxy order, which puts CALMA first
+            self.assertEqual(es._stage1_candidates(cfg, today="2026-08-26"),
+                             ["CALMA"])
+
+    def test_a_future_dated_reading_is_refused(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            wire(tmp, board_rows=self._rows())
+            pe.record_observation("CALMC", {"date": "2027-01-01",
+                                            "vrp_ratio": 9.0})
+            self.assertIsNone(es._measured_richness("CALMC", "2026-08-26"))
+
+    def test_the_store_is_not_read_once_per_watchlist_name(self):
+        """600 names on the board must not become 600 file opens per scan."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            rows = [{"ticker": f"S{i:03d}", "last": 100.0, "market_cap": 5e10,
+                     "avg_volume": 5e6, "rvol_rank": 50 + (i % 40),
+                     "days_to_earnings": 90, "change": 0.0}
+                    for i in range(600)]
+            wire(tmp, board_rows=rows)
+            seen = []
+            real = es._measured_richness
+            es._measured_richness = lambda s, t: (seen.append(s), real(s, t))[1]
+            try:
+                cfg = es._cfg()
+                cfg["scan"]["stage2_n"] = 24
+                cfg["scan"]["stage2_seller_n"] = 10
+                es._stage1_candidates(cfg, today="2026-08-26")
+            finally:
+                es._measured_richness = real
+            self.assertLessEqual(len(seen), 10 * es.OBS_LOOKUP_MULTIPLE)
+            self.assertGreater(len(seen), 0)
+
+    def test_the_seller_horizon_matches_the_board_that_consumes_it(self):
+        """If these drift apart the funnel silently starts buying chains the
+        board refuses again — the whole bug this class exists for."""
+        import setup_board as sb
+        self.assertEqual(es.SELLER_HORIZON_DAYS,
+                         45 + sb.EARNINGS_BUFFER_DAYS)
+
+
 class TestBreachAndEM(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

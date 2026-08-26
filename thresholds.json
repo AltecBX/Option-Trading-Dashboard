@@ -297,6 +297,8 @@
     "scan": {
       "_doc": "Discovery funnel. Stage 1 free board screen -> stage2_n chains+history; Stage 3 deep contract work on deep_n. Chain calls pause when app-wide rate usage exceeds budget_req_per_min (shared 110/min cap).",
       "stage2_n": 24,
+      "stage2_seller_n": 10,
+      "seller_horizon_days": 47,
       "deep_n": 12,
       "min_price": 20.0,
       "min_market_cap": 5000000000.0,

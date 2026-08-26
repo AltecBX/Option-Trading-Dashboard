@@ -104,7 +104,22 @@ config hash.
 ## Scanner funnel & budget
 
 Stage 1 (free): watchlist-board screen (price/mcap/volume gates + rvol
-rank + earnings proximity). Stage 2 (budgeted): top 24 names get ONE
+rank + earnings proximity), split into **two slates** because one budget
+of chain fetches feeds two tabs that want opposite things. The **event
+slate** (`stage2_n`, 24) keeps the earnings-proximity bonus — the richest
+premium lives around a report, which is Premium Edge's question. The
+**seller slate** (`stage2_seller_n`, 10) holds only names with *no* report
+inside `seller_horizon_days` (47 = a 45-day option plus the sell board's
+2-day buffer), because an earnings report inside the option's life is an
+outright exclusion for a hold-to-expiry seller. The seller slate is ranked
+by each ticker's own last **MEASURED** `vrp_ratio` from the observation
+store when one is ≤10 days old, and by the rvol-rank proxy only where it
+is not; a stale or future-dated reading counts as no reading. Store lookups
+are bounded to 3× the slate size, so a 600-name board is never 600 file
+opens. Before this split the board read whatever the event slate picked,
+so the earnings bonus was buying chains for names the board would then
+refuse for having earnings — and reporting the result as "nothing
+qualifies today". Stage 2 (budgeted): those names get ONE
 chain call (95d out — IV30, term, skew, and all candidate contracts ride
 in the same payload) + cached history. Stage 3 (free): deep contract
 analysis. Chain calls defer while app-wide Schwab usage ≥70/min
