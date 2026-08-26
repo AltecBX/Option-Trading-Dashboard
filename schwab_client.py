@@ -181,6 +181,12 @@ class SchwabClient:
         self._req_log: list = []  # epoch timestamps for rate accounting
         self._refresh_blocked_until = 0.0  # cooldown after a failed refresh
         self._auth_error: str | None = None  # last refresh failure (for status)
+        # Whether the broker is actually ANSWERING, which is a separate
+        # question from whether it is configured and signed in. See
+        # _note_result(). Its own lock so status() never waits on a refresh.
+        self._serving_lock = threading.Lock()
+        self._last_ok_at: float = 0.0
+        self._consecutive_failures: int = 0
         env = _load_env()
         self.app_key = env.get("SCHWAB_APP_KEY", "").strip()
         self.app_secret = env.get("SCHWAB_APP_SECRET", "").strip()
@@ -249,6 +255,9 @@ class SchwabClient:
         # Refresh token expires 7 days from issue
         refresh_age_days = access_age / 86400
         refresh_remaining_days = max(0, 7 - refresh_age_days)
+        with self._serving_lock:
+            fails = self._consecutive_failures
+            last_ok = self._last_ok_at
         return {
             "configured": True,
             "access_remaining_sec": access_remaining,
@@ -256,6 +265,12 @@ class SchwabClient:
             "needs_refresh_soon": refresh_remaining_days < 1,
             "auth_error": self._auth_error,
             "needs_reauth": bool(self._auth_error),
+            # Authorized is not the same as answering. `serving` is None
+            # until the first request of the process — no evidence either
+            # way — and callers must treat that as "unknown", never "down".
+            "serving": None if (fails == 0 and not last_ok) else fails == 0,
+            "consecutive_failures": fails,
+            "last_ok_age_sec": None if not last_ok else round(time.time() - last_ok, 1),
         }
 
     def _access_token_valid(self) -> bool:
@@ -439,6 +454,24 @@ class SchwabClient:
             self._cache[key] = (time.time() + ttl, value)
 
     # ── HTTP helper ─────────────────────────────────────────────────────
+    def _note_result(self, ok: bool) -> None:
+        """Remember whether the broker is actually answering.
+
+        Being configured and signed in is not the same as being reachable.
+        Schwab can be authorized and still refuse to serve — pre-market
+        windows, brief outages, an account-level limit — and when that
+        happens the app quietly falls back to another price source that has
+        no option chains at all. Without this, every card downstream can
+        only guess, and the guesses come out as "no option chain came back
+        for CIEN", which reads as a fact about Ciena.
+        """
+        with self._serving_lock:
+            if ok:
+                self._last_ok_at = time.time()
+                self._consecutive_failures = 0
+            else:
+                self._consecutive_failures += 1
+
     def _get(self, url: str, params: dict) -> dict | None:
         token = self._ensure_token()
         if not token:
@@ -452,7 +485,9 @@ class SchwabClient:
         req.add_header("Accept", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
-                return json.loads(resp.read())
+                out = json.loads(resp.read())
+            self._note_result(True)
+            return out
         except urllib.error.HTTPError as e:
             # 401 likely means our access token is stale despite the
             # local check (clock drift, manual revocation). Try one
@@ -463,13 +498,18 @@ class SchwabClient:
                     req.headers["Authorization"] = f"Bearer {new_token}"
                     try:
                         with urllib.request.urlopen(req, timeout=15) as resp:
-                            return json.loads(resp.read())
+                            out = json.loads(resp.read())
+                        self._note_result(True)
+                        return out
                     except Exception:
+                        self._note_result(False)
                         return None
             print(f"[schwab] {url} HTTP {e.code}", file=sys.stderr)
+            self._note_result(False)
             return None
         except Exception as exc:  # noqa: BLE001
             print(f"[schwab] {url} error: {exc}", file=sys.stderr)
+            self._note_result(False)
             return None
 
     # ── Public market data methods ──────────────────────────────────────

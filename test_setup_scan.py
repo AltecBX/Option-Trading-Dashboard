@@ -498,6 +498,54 @@ class TestABrokerProblemIsNotASymbolProblem(unittest.TestCase):
         self.assertIn("broker is connected", out["error"])
         self.assertIn("TEST", out["error"])
 
+    def test_a_signed_in_broker_that_is_not_answering_says_THAT(self):
+        """The state Jerry actually hits: configured, signed in, token
+        healthy — and simply not serving. The app already knows (the sidebar
+        badge says it has fallen back to a backup price source). Before
+        this, that came out as "either this symbol has no listed options or
+        the request timed out", which is a sentence about the stock."""
+        b = ExpiredBroker(status={"configured": True, "needs_reauth": False,
+                                  "auth_error": None,
+                                  "refresh_remaining_days": 6.0,
+                                  "serving": False,
+                                  "consecutive_failures": 4})
+        out = self._run(b)
+        self.assertFalse(out["ok"])
+        self.assertIn("not answering", out["error"])
+        self.assertIn("backup price source", out["error"])
+        # and it must not offer the reader a possibility we know is false
+        self.assertNotIn("no listed options", out["error"])
+        self.assertNotIn("re-authoriz", out["error"].lower())
+
+    def test_an_outage_is_worth_retrying_but_an_empty_listing_is_not(self):
+        """Retrying only helps in the case that can change. A broker that is
+        answering and reports no chain will report no chain again."""
+        down = ExpiredBroker(status={"configured": True, "needs_reauth": False,
+                                     "auth_error": None,
+                                     "refresh_remaining_days": 6.0,
+                                     "serving": False,
+                                     "consecutive_failures": 2})
+        self.assertTrue(self._run(down).get("retryable"))
+        SS.invalidate()
+        fine = ExpiredBroker(status={"configured": True, "needs_reauth": False,
+                                     "auth_error": None,
+                                     "refresh_remaining_days": 6.0,
+                                     "serving": True,
+                                     "consecutive_failures": 0})
+        self.assertFalse(self._run(fine).get("retryable"))
+
+    def test_never_having_asked_is_not_evidence_of_an_outage(self):
+        """serving=None means no request has been made yet this process.
+        Reporting that as "your broker is down" would be inventing news."""
+        fresh = ExpiredBroker(status={"configured": True, "needs_reauth": False,
+                                      "auth_error": None,
+                                      "refresh_remaining_days": 6.0,
+                                      "serving": None,
+                                      "consecutive_failures": 0})
+        out = self._run(fresh)
+        self.assertNotIn("not answering", out["error"])
+        self.assertIn("broker is connected", out["error"])
+
     def test_no_chain_call_is_unbounded_in_both_dimensions(self):
         """A chain request is safe if it is bounded by DATES or by a narrow
         strike ladder. Unbounded in both is the request that returns every

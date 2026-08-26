@@ -405,6 +405,19 @@ def _broker_note(sc) -> str | None:
         return (f"The broker sign-in expires in about "
                 f"{days * 24:.0f} hours; re-authorize under Manage before it "
                 f"does.")
+    # Signed in and still not answering. This is the state the sidebar badge
+    # is already reporting as a fallback data source, and it is the one that
+    # used to come out as "no option chain came back for CIEN" — a sentence
+    # about Ciena, when nothing about Ciena was involved. Nothing to fix and
+    # nothing to re-authorize: the backup price source carries no option
+    # chains, so the cards that need one have to wait.
+    if st.get("serving") is False:
+        n = st.get("consecutive_failures") or 0
+        return ("Your broker is signed in but is not answering right now"
+                + (f" ({n} requests in a row went unanswered)" if n > 1 else "")
+                + ". The app has fallen back to its backup price source, "
+                "which carries no option chains. This usually clears on its "
+                "own — nothing is wrong with this symbol or your sign-in.")
     return None
 
 
@@ -582,6 +595,11 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                           f"Nearest: {near}.")}
     if not chain or not (chain.get("chains") or {}):
         # Do not blame the symbol for what is usually a connection problem.
+        # When the broker is answering normally, an empty listing really can
+        # mean the symbol has no options — but when it is NOT answering, the
+        # emptiness says nothing at all about the symbol, and offering the
+        # reader "either ... or" makes them weigh a possibility we already
+        # know to be false. Retry only in the case that can change.
         note = _broker_note(sc)
         return {"ok": False, "symbol": symbol,
                 "error": (note if note else
@@ -589,6 +607,7 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                           f"broker is connected, so either this symbol has "
                           f"no listed options or the request timed out — "
                           f"try again."),
+                "retryable": bool(note),
                 "broker_note": note}
     spot = _num((chain.get("underlying") or {}).get("last")) or Cc[-1]
 
