@@ -17,6 +17,7 @@ NOT run automatically — Jerry can run before shipping.
 """
 import json
 import os
+import threading
 import socket
 import subprocess
 import sys
@@ -241,6 +242,76 @@ def test_log_warn_doesnt_crash():
     _log_warn(12345, "test", Exception("numeric symbol"))
 
 
+def test_serving_state_separates_authorized_from_answering():
+    """Being signed in is not the same as being reachable.
+
+    Schwab can hold a valid token and still refuse to serve — a pre-market
+    window, a brief outage, an account limit — and the app then falls back
+    to a price source with no option chains. Every card downstream has to
+    be able to tell that apart from "this symbol has no options", so the
+    client has to record it rather than returning a bare None.
+    """
+    import schwab_client
+
+    c = schwab_client.SchwabClient.__new__(schwab_client.SchwabClient)
+    c._serving_lock = threading.Lock()
+    c._last_ok_at = 0.0
+    c._consecutive_failures = 0
+    c.app_key, c.app_secret = "k", "s"
+    c.token_data = {"obtained_at": int(time.time()), "expires_in": 1800,
+                    "refresh_token": "r"}
+    c._auth_error = None
+
+    # Nothing has been asked yet — that is not evidence of an outage.
+    assert c.status()["serving"] is None, "no requests yet must read as unknown"
+
+    c._note_result(False)
+    st = c.status()
+    assert st["serving"] is False, st
+    assert st["consecutive_failures"] == 1
+
+    c._note_result(False)
+    assert c.status()["consecutive_failures"] == 2
+
+    # One good answer clears it — an outage that ended is not an outage.
+    c._note_result(True)
+    st = c.status()
+    assert st["serving"] is True, st
+    assert st["consecutive_failures"] == 0
+    assert st["last_ok_age_sec"] is not None and st["last_ok_age_sec"] < 5
+
+    # A later failure does not erase that the broker was working.
+    c._note_result(False)
+    st = c.status()
+    assert st["serving"] is False
+    assert st["last_ok_age_sec"] is not None, "last success must be remembered"
+
+
+def test_serving_state_survives_concurrent_requests():
+    """Requests land from several threads (the scan, the tape, the cards).
+    A counter that loses increments would under-report an outage."""
+    import schwab_client
+
+    c = schwab_client.SchwabClient.__new__(schwab_client.SchwabClient)
+    c._serving_lock = threading.Lock()
+    c._last_ok_at = 0.0
+    c._consecutive_failures = 0
+    c.app_key, c.app_secret = "k", "s"
+    c.token_data = {"obtained_at": int(time.time()), "expires_in": 1800}
+    c._auth_error = None
+
+    def hammer():
+        for _ in range(200):
+            c._note_result(False)
+
+    ts = [threading.Thread(target=hammer) for _ in range(8)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert c.status()["consecutive_failures"] == 1600, c.status()
+
+
 def run():
     tests = [
         test_stale_seconds_helper,
@@ -252,6 +323,8 @@ def run():
         test_data_source_endpoint,
         test_uw_health_when_unconfigured,
         test_known_good_ticker_works,
+        test_serving_state_separates_authorized_from_answering,
+        test_serving_state_survives_concurrent_requests,
     ]
     passed = 0
     failed = 0
