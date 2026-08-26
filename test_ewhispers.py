@@ -35,10 +35,40 @@ TOKEN = "TESTTOKEN-shhh-1234567890"
 _REAL_X_GET = ew._x_get
 
 
+class _NoNetSession:
+    """A session that refuses instantly instead of dialling out.
+
+    setUp clears JERRY_NO_NET so the hydration paths under test actually
+    run, which also re-opens the real network for anything a test forgot to
+    stub. The keyless calendar path (added in v4.62) does not go through
+    _x_get, so the stub_search helper does not cover it — and those calls
+    carry ewhispers.TIMEOUT, fifteen seconds, inside a background refresh
+    thread that tearDown only waits five seconds for.
+
+    That is the whole flake: on a runner where the connection HANGS rather
+    than being refused, the worker is still in a socket timeout when
+    wait_idle gives up, and five tests fail with "background work did not
+    finish". It passes wherever DNS fails fast, which is why it survived
+    green runs. Killing the transport makes an unstubbed call fail in
+    microseconds — the worker's `finally` clears the flag either way — and
+    means no test in this file can quietly depend on the internet.
+    """
+
+    def get(self, *a, **kw):
+        raise RuntimeError("test attempted a real network call — stub the "
+                           "fetch it needs (_fetch_syndication, "
+                           "_timeline_post_ids, _x_get) instead")
+
+    post = get
+
+    def close(self):
+        pass
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        ew.configure(self._tmp.name)
+        ew.configure(self._tmp.name, session_factory=_NoNetSession)
         self._today, ew._today = ew._today, lambda: TODAY
         ew._LAST_ATTEMPT_MONO = 0.0
         ew._REFRESHING = False
@@ -77,8 +107,13 @@ class Base(unittest.TestCase):
         end = _t.monotonic() + timeout
         while (ew._REFRESHING or ew._REHYDRATING) and _t.monotonic() < end:
             _t.sleep(0.02)
-        self.assertFalse(ew._REFRESHING or ew._REHYDRATING,
-                         "background work did not finish")
+        stuck = [n for n, v in (("_REFRESHING", ew._REFRESHING),
+                                ("_REHYDRATING", ew._REHYDRATING)) if v]
+        self.assertFalse(stuck,
+                         f"background work did not finish after {timeout}s: "
+                         f"{', '.join(stuck)} still set. Something this test "
+                         f"triggered reached the network unstubbed, or a "
+                         f"worker is not clearing its flag in `finally`.")
 
 
 def _settle(timeout=5.0):
