@@ -911,7 +911,8 @@ def _rehydrate_manual_async(force: bool = False) -> bool:
         finally:
             _REHYDRATING = False
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=run, daemon=True,
+                     name="ewhispers-rehydrate").start()
     return True
 
 
@@ -1078,7 +1079,10 @@ def trigger_refresh(force: bool = False) -> dict:
             with _LOCK:
                 _REFRESHING = False
 
-    threading.Thread(target=run, daemon=True).start()
+    # Named so it can be found in a thread dump — and so tests can
+    # JOIN it rather than watch a boolean that setUp resets.
+    threading.Thread(target=run, daemon=True,
+                     name="ewhispers-refresh").start()
     return {"started": True, "mode": ("manual_rehydrate" if rehydrated
                                      else ("keyless" if not _bearer_token()
                                            else "full")),
