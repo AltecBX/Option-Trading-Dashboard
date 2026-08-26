@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 from datetime import date, timedelta
@@ -65,8 +66,31 @@ class _NoNetSession:
         pass
 
 
+def _join_workers(timeout=10.0):
+    """Wait for ewhispers' own background threads to actually END.
+
+    The flags are not enough on their own. setUp resets _REFRESHING to
+    False, so a worker still running from the PREVIOUS test becomes
+    invisible: the next test's wait_idle sees a clear flag, returns at
+    once, and the old thread goes on to call the new test's stub. That is
+    exactly how "expected 1 search, got 2" happens, and it is why the
+    flags alone left a rare cross-test flake behind.
+
+    A boolean cannot be joined; a thread can. Both workers are named, so
+    they can be found and waited out no matter whose flag says what.
+    """
+    for t in threading.enumerate():
+        if t is threading.current_thread():
+            continue
+        if str(t.name).startswith("ewhispers-"):
+            t.join(timeout)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
+        # Drain anything the previous test left running BEFORE clearing the
+        # flags, so a leaked worker cannot be hidden by the reset below.
+        _join_workers()
         self._tmp = tempfile.TemporaryDirectory()
         ew.configure(self._tmp.name, session_factory=_NoNetSession)
         self._today, ew._today = ew._today, lambda: TODAY
@@ -79,6 +103,7 @@ class Base(unittest.TestCase):
 
     def tearDown(self):
         self.wait_idle()
+        _join_workers()          # the flag can clear before the thread ends
         ew._x_get = _REAL_X_GET
         ew._today = self._today
         ew.configure(None)
