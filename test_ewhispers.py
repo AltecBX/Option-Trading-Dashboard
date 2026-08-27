@@ -53,6 +53,15 @@ class _NoNetSession:
     green runs. Killing the transport makes an unstubbed call fail in
     microseconds — the worker's `finally` clears the flag either way — and
     means no test in this file can quietly depend on the internet.
+
+    That last sentence was once only true of the Base classes, and the gap
+    bit: the standalone classes configured their own data dirs, configure()
+    without this factory resets the session to a REAL one, and their tests
+    passed for months only because X rate-limits most non-browser callers —
+    the limiter was the de-facto stub. The night a runner got a real answer,
+    two of them failed against production behaving correctly. EVERY
+    configure() call in this file must pass a session factory; there is a
+    guard test asserting so.
     """
 
     def get(self, *a, **kw):
@@ -611,7 +620,7 @@ class TestManual(Base):
     def test_env_seed_is_picked_up(self):
         os.environ["JERRY_NO_NET"] = "1"
         os.environ["EWHISPERS_MANUAL_URL"] = f"https://twitter.com/eWhispers/status/{EXAMPLE_ID}"
-        ew.configure(self._tmp.name)                        # fresh state load
+        ew.configure(self._tmp.name, session_factory=_NoNetSession)                        # fresh state load
         self.assertEqual(ew.get_weekly()["manual_url"], EXAMPLE_URL)
 
 
@@ -704,7 +713,7 @@ class TestPersistence(Base):
         self.with_token()
         self.stub_search()
         ew._refresh_from_x()
-        ew.configure(self._tmp.name)                        # simulate reboot
+        ew.configure(self._tmp.name, session_factory=_NoNetSession)                        # simulate reboot
         out = ew.get_weekly()
         self.assertTrue(out["available"])
         self.assertEqual(out["post"]["post_id"], EXAMPLE_ID)
@@ -713,7 +722,7 @@ class TestPersistence(Base):
         p = Path(self._tmp.name) / "ewhispers" / "state.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("{not json")
-        ew.configure(self._tmp.name)
+        ew.configure(self._tmp.name, session_factory=_NoNetSession)
         out = ew.get_weekly()                               # no crash, clean empty
         self.assertFalse(out["available"])
 
@@ -725,6 +734,37 @@ class TestPersistence(Base):
         ew._prune_weeks(st)
         self.assertEqual(len(st["weeks"]), ew.KEEP_WEEKS)
         self.assertIn(max(st["weeks"]), st["weeks"])        # newest kept
+
+
+class TestNoConfigureCallLeavesTheNetworkOpen(unittest.TestCase):
+    """configure() without a session factory silently restores the REAL
+    network, because the factory argument defaults to None. That default is
+    right for production and treacherous in a test file: it is the hole
+    behind the 01:04 UTC double-red, where a standalone class configured
+    its own data dir and thereby un-did the no-net armor two classes above
+    it. This asserts, on this file's own source, that every configure()
+    call pins a session — so the next class added to this file cannot
+    reopen the hole by following the old pattern."""
+
+    def test_every_configure_in_this_file_pins_a_session(self):
+        import re
+        src = Path(__file__).read_text()
+        # The lookbehind excludes QUOTED occurrences — this test mentions
+        # the call by name and must not flag its own strings.
+        call = re.compile(r'(?<!["\'])\bew\.configure\(')
+        bad = []
+        for i, line in enumerate(src.splitlines(), 1):
+            code = line.split("#", 1)[0]
+            if not call.search(code):
+                continue
+            if "ew.configure(None)" in code:
+                # the tearDown detach idiom: the data dir is dropped and the
+                # next setUp re-arms before any test code runs again
+                continue
+            if "session_factory=" not in code:
+                bad.append(f"line {i}: {line.strip()}")
+        self.assertEqual(bad, [], "configure() calls that reopen the real "
+                                  "network — pass session_factory=")
 
 
 if __name__ == "__main__":
@@ -745,7 +785,18 @@ class TestThePinnedPostIsPreferred(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        ew.configure(Path(self.tmp))
+        # The no-net session is not optional here. This class configures its
+        # own data dir, and configure() without the factory RESETS the
+        # session to a real one — which is how these tests reached the
+        # actual internet for months and passed anyway: the syndication
+        # endpoint rate-limits most non-browser callers, so the keyless
+        # path "found nothing" and fell through to search exactly as the
+        # assertions expected. X's rate limiter was the de-facto stub. The
+        # night a GitHub runner got a real answer (01:04 UTC, both CI jobs
+        # at once), the keyless path found the GENUINE weekly post, stored
+        # it, and correctly stopped before searching — and every "falls
+        # back to search" assertion read zero.
+        ew.configure(Path(self.tmp), session_factory=_NoNetSession)
         ew._STATE = None                                    # noqa: SLF001
         ew._REFRESHING = False                              # noqa: SLF001
         ew._LAST_ATTEMPT_MONO = 0.0                         # noqa: SLF001
@@ -753,6 +804,11 @@ class TestThePinnedPostIsPreferred(unittest.TestCase):
         self._saved = {n: getattr(ew, n) for n in
                        ("_x_pinned_candidate", "_x_search_candidates",
                         "_timeline_post_ids", "_fetch_syndication", "_session")}
+        # These tests are about the pinned-versus-search decision, so the
+        # keyless timeline between those two steps must deterministically
+        # find nothing — not "find nothing because the network refused".
+        ew._timeline_post_ids = lambda limit=12: ("http_429", [])   # noqa: SLF001
+        ew._fetch_syndication = lambda pid: None                    # noqa: SLF001
 
     def tearDown(self):
         # Anything monkeypatched here would otherwise still be installed
@@ -828,6 +884,40 @@ class TestThePinnedPostIsPreferred(unittest.TestCase):
         ew._refresh_from_x()                                # noqa: SLF001
         self.assertEqual(len(searched), 1)
 
+    def test_a_keyless_find_is_a_success_that_stops_the_search(self):
+        """The deterministic recreation of the night both CI jobs went red.
+
+        At 01:04 UTC a GitHub runner's request to the public timeline was
+        actually ANSWERED — this suite could still reach the internet from
+        this class — and the keyless path found the genuine weekly post,
+        stored it, and correctly stopped before searching. Two tests then
+        failed for asserting search "was not used as fallback": they were
+        failing against production behaving RIGHT, in a world their setUp
+        never controlled. The world is controlled now (no-net session,
+        keyless stubbed empty in setUp), and this test pins the semantics
+        the incident revealed: a keyless find for the reference week is an
+        answer, and an answered question is not searched again."""
+        wk = self._week()
+        ew._timeline_post_ids = lambda limit=12: ("ok", ["777"])    # noqa: SLF001
+        ew._fetch_syndication = lambda pid: {                       # noqa: SLF001
+            "text": (f"#Earnings for the week of {wk.strftime('%B %-d, %Y')} "
+                     f"$AAPL $MSFT $NVDA $AMD $KO"),
+            "published_at": wk.isoformat() + "T12:00:00",
+            "author_ok": True,
+            "photos": [{"url": "https://pbs.twimg.com/media/x.jpg",
+                        "width": 1200, "height": 900}]}
+        searched = []
+        ew._x_pinned_candidate = lambda: ("no_pinned_post", None)   # noqa: SLF001
+        ew._x_search_candidates = lambda: (searched.append(1), ("ok", []))[1]  # noqa: SLF001
+        ew._refresh_from_x()                                # noqa: SLF001
+        self.assertEqual(searched, [], "the calendar was found — searching "
+                                       "after an answer burns credits for "
+                                       "nothing")
+        out = ew.get_weekly()
+        self.assertTrue(out["available"])
+        self.assertEqual(out["post_source"], "public-timeline")
+        self.assertEqual(out["week_start"], wk.isoformat())
+
     def test_the_pinned_post_replaces_a_stale_previous_week(self):
         """The reported bug: last week's calendar on screen because this
         week's was never detected."""
@@ -887,7 +977,7 @@ class TestTheKeylessPath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        ew.configure(Path(self.tmp))
+        ew.configure(Path(self.tmp), session_factory=_NoNetSession)
         ew._STATE = None                                    # noqa: SLF001
         os.environ.pop("X_BEARER_TOKEN", None)
         os.environ.pop("TWITTER_BEARER_TOKEN", None)
