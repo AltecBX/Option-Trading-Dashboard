@@ -325,6 +325,32 @@ ok("the sidebar gets a label, not the whole paragraph",
 ok("the short sidebar line still explains itself on hover",
    /title=\{retryIn != null \? THROTTLE_MSG : loadError\}/.test(appSrc));
 
+// ── 15. a page is not data, and a parse error is not a message ─────────
+// Seen in production (LITE, 8:57 AM): the hosting layer answered one
+// /api/setup request with an HTML page, and the card printed the browser's
+// own parse error — "Unexpected token '<'" — verbatim. The two kinds of
+// page mean different things: a gateway error page self-heals, the
+// Cloudflare sign-in screen (a 200 with HTML) needs a reload, and neither
+// is a fact about the symbol on screen.
+ok("both cards read responses through the page-aware reader",
+   (src.match(/await suReadJson\(r\)/g) || []).length === 2);
+ok("no bare r.json() remains in the setup cards",
+   !/await r\.json\(\)/.test(src));
+ok("a gateway page self-heals through the retry countdown",
+   /err: SU_ERR_GATEWAY, retryable: true/.test(src));
+ok("the sign-in page does NOT auto-retry — retrying cannot sign in",
+   /\? \{ d: null, err: SU_ERR_SIGNIN, retryable: false \}/.test(src)
+   // the sentence spans a string concatenation, so match its halves
+   && /Reload the page to /.test(src) && /sign back in/.test(src));
+ok("neither page kind blames the symbol",
+   /not a problem with this symbol/.test(src)
+   && /nothing is wrong with this symbol/i.test(src));
+ok("a dead connection is worded, not dumped as an exception",
+   /suHumanError\(e\)/.test(src) && /could not be reached/.test(src));
+ok("the main symbol load guards its 200-path parse the same way",
+   /if \(r\.ok\) return r\.json\(\)\.catch\(/.test(appSrc)
+   && /PAGE_NOT_DATA_MSG/.test(appSrc));
+
 console.log(`\n${passed}/${passed + failed} passed`
             + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

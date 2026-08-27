@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.73";
+const APP_VERSION = "4.74";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -54,6 +54,10 @@ const THROTTLE_GAVE_UP =
   + "Retry. Nothing is wrong with this symbol.";
 // The sidebar is a narrow column, not a place for a paragraph.
 const THROTTLE_SHORT = "Broker rate limit — retrying";
+// A 200 with an HTML body is the deployment's sign-in screen, not data.
+const PAGE_NOT_DATA_MSG =
+  "The app answered with a page instead of data — usually the sign-in "
+  + "screen after the session expires. Reload the page to sign back in.";
 
 // Run low-priority work after the browser is idle (or shortly after, on Safari
 // versions without requestIdleCallback) so the first paint + /api/ticker win
@@ -1733,7 +1737,13 @@ function App() {
     if (expiration) url += `&expiration=${encodeURIComponent(expiration)}`;
     apiFetch(url, { signal: ac.signal })
       .then(r => {
-        if (r.ok) return r.json();
+        // A 200 whose body is a PAGE is Cloudflare Access serving its
+        // sign-in screen with a success status once the session expires.
+        // Parsed as JSON that detonates as "Unexpected token '<'" — a
+        // sentence about the browser's parser — so it is caught here and
+        // said in words the reader can act on.
+        if (r.ok) return r.json().catch(
+          () => Promise.reject({ error: PAGE_NOT_DATA_MSG, status: r.status }));
         // Keep the HTTP status on the way out — a 429 body is sometimes a
         // proxy's HTML, and the status is the only reliable way to know a
         // refusal was "slow down" rather than "no such symbol".

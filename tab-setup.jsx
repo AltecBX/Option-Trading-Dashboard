@@ -77,6 +77,40 @@ function SuRetryNote({ err, retryIn, onRetry }) {
   );
 }
 
+// The hosting layer can answer a data request with a PAGE — a gateway error
+// while the server is busy, or the sign-in screen once the Cloudflare
+// session expires. Reading a page as JSON throws "Unexpected token '<'",
+// which is a sentence about the browser's parser, not about anything the
+// reader can act on — and it went on screen verbatim (LITE, 8:57 AM).
+// So: read text, try JSON, and when it is a page say WHICH KIND in words.
+// Only the gateway kind self-heals, so only it joins the retry countdown.
+const SU_ERR_GATEWAY =
+  "The server answered with an error page instead of data — that is the "
+  + "hosting layer having a moment, not a problem with this symbol.";
+const SU_ERR_SIGNIN =
+  "The app's sign-in page answered instead of data. Reload the page to "
+  + "sign back in — nothing is wrong with this symbol.";
+const SU_ERR_OFFLINE =
+  "The app could not be reached. Check the connection, then press Try again.";
+
+async function suReadJson(r) {
+  const text = await r.text();
+  try { return { d: JSON.parse(text) }; }
+  catch (_e) {
+    // A 2xx page is Cloudflare Access serving its sign-in screen with a
+    // success status; retrying cannot sign anyone in. Anything else with a
+    // page body is the gateway failing, which clears by itself.
+    return r.ok
+      ? { d: null, err: SU_ERR_SIGNIN, retryable: false }
+      : { d: null, err: SU_ERR_GATEWAY, retryable: true };
+  }
+}
+
+function suHumanError(e) {
+  const m = String(e && e.message ? e.message : e);
+  return /fetch|network/i.test(m) ? SU_ERR_OFFLINE : m;
+}
+
 const SU_TIP = {
   action: "The side, expiration, strike and delta the evidence supports, from every layer the app already computes — weekly range, streaks, swing maturity, premium, implied volatility, probability, liquidity and gamma exposure.",
   negative_ev: "The best contract the evidence allows pays less than it is worth at the volatility this stock actually realizes. A high probability of keeping the credit is not the same as a profitable trade: sold repeatedly at this price it loses money, because the occasional loss is bigger than all the credits it took to get there. Nothing is recommended rather than the least-bad option.",
@@ -315,16 +349,22 @@ function BestSetupCard({ apiFetch, ticker, onOpenTab }) {
     try {
       const r = await apiFetch(`/api/setup?symbol=${encodeURIComponent(sym)}`
                                + (force ? "&force=1" : ""));
-      const d = await r.json();
+      const { d, err: pageErr, retryable } = await suReadJson(r);
       // A slow response for an older ticker must never paint over a newer
       // one — the same sequence guard the Patterns tab needed.
       if (mine !== seq.current) return;
-      if (d && d.symbol && d.symbol !== sym) return;
+      if (d == null) {
+        setData(null);
+        setErr(pageErr);
+        retry.consider({ ok: false, retryable });
+        return;
+      }
+      if (d.symbol && d.symbol !== sym) return;
       setData(d);
-      setErr(d && d.ok === false && d.error ? d.error : null);
+      setErr(d.ok === false && d.error ? d.error : null);
       retry.consider(d);
     } catch (e) {
-      if (mine === seq.current) setErr(String(e && e.message ? e.message : e));
+      if (mine === seq.current) setErr(suHumanError(e));
     } finally {
       if (mine === seq.current) setBusy(false);
     }
@@ -557,13 +597,19 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
     setBusy(true);
     try {
       const r = await apiFetch("/api/setup_board?limit=12");
-      const d = await r.json();
+      const { d, err: pageErr, retryable } = await suReadJson(r);
       if (mine !== seq.current) return;
+      if (d == null) {
+        setData(null);
+        setErr(pageErr);
+        retry.consider({ ok: false, retryable });
+        return;
+      }
       setData(d);
-      setErr(d && d.ok === false && d.error ? d.error : null);
+      setErr(d.ok === false && d.error ? d.error : null);
       retry.consider(d);
     } catch (e) {
-      if (mine === seq.current) setErr(String(e && e.message ? e.message : e));
+      if (mine === seq.current) setErr(suHumanError(e));
     } finally {
       if (mine === seq.current) setBusy(false);
     }
