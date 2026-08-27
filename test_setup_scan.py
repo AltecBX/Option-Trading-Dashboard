@@ -517,9 +517,18 @@ class TestABrokerProblemIsNotASymbolProblem(unittest.TestCase):
         self.assertNotIn("no listed options", out["error"])
         self.assertNotIn("re-authoriz", out["error"].lower())
 
-    def test_an_outage_is_worth_retrying_but_an_empty_listing_is_not(self):
-        """Retrying only helps in the case that can change. A broker that is
-        answering and reports no chain will report no chain again."""
+    def test_a_dead_request_is_retryable_whatever_the_status_says(self):
+        """This guard used to assert the opposite for the healthy-status
+        case, on the premise that "a broker that is answering and reports
+        no chain will report no chain again." Production disproved the
+        premise: AAOI at 8:50 in the evening, sidebar badge reading SCHWAB
+        LIVE — quotes serving — while every chain request died in the rate
+        limiter. `serving` is measured from whichever requests last ran, so
+        a healthy flag plus a None chain means MID-THROTTLE, not a settled
+        fact about the symbol, and retrying is precisely what fixes it.
+        What must never self-retry is a fact retrying cannot change — a
+        short history, a genuine no-window — and those have their own
+        guards. So: dead requests retry regardless of the status flag."""
         down = ExpiredBroker(status={"configured": True, "needs_reauth": False,
                                      "auth_error": None,
                                      "refresh_remaining_days": 6.0,
@@ -532,7 +541,11 @@ class TestABrokerProblemIsNotASymbolProblem(unittest.TestCase):
                                      "refresh_remaining_days": 6.0,
                                      "serving": True,
                                      "consecutive_failures": 0})
-        self.assertFalse(self._run(fine).get("retryable"))
+        out = self._run(fine)
+        self.assertTrue(out.get("retryable"),
+                        "a None chain from a 'serving' broker is a throttled "
+                        "request, not a fact about the symbol")
+        self.assertIn("failed or was throttled", out["error"])
 
     def test_never_having_asked_is_not_evidence_of_an_outage(self):
         """serving=None means no request has been made yet this process.
@@ -792,14 +805,49 @@ class TestTheThreeWaysAChainFetchFails(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertIn("none between", out["error"])
 
-    def test_a_symbol_with_no_listing_at_all_is_its_own_case(self):
-        class NoOptions(WindowBroker):
+    def test_a_dead_index_call_is_a_failed_request_not_an_unlisted_symbol(self):
+        """The predecessor of this test stubbed every chain call to None and
+        called that "a symbol with no listing at all" — enshrining the very
+        conflation it should have caught. None is the client's FAILURE
+        signal. Reported from production at 8:50 in the evening: AAOI and
+        LITE, both plainly optionable, told the reader "either this symbol
+        has no listed options or the request timed out" with no self-retry,
+        while NFLX in the same minute drew the throttle branch and counted
+        down. Same throttle, three symbols, two stories."""
+        class DeadIndex(WindowBroker):
             def get_option_chain(self, symbol, expiration=None, to_date=None,
                                  strike_count=60):
                 return None
-        out = self._run(NoOptions())
+        out = self._run(DeadIndex())
         self.assertFalse(out["ok"])
+        self.assertIn("failed or was throttled", out["error"])
+        self.assertNotIn("no listed options", out["error"])
         self.assertNotIn("none between", out["error"])
+        # the message must not invent an expiration count it never received
+        self.assertNotIn("lists 0 expirations", out["error"])
+        # and a throttle is the refusal that clears by itself — the card
+        # must be allowed to wait it out
+        self.assertTrue(out.get("retryable"))
+
+    def test_a_genuinely_empty_listing_says_so_without_the_timeout_hedge(self):
+        """The broker ANSWERED and the answer listed nothing. That is the
+        only branch where "no listed options" can be true, and because we
+        know the request came back, the "or the request timed out" hedge
+        would make the reader weigh a possibility already ruled out."""
+        class AnswersEmpty(WindowBroker):
+            def get_option_chain(self, symbol, expiration=None, to_date=None,
+                                 strike_count=60):
+                spot = self._bars[-1]["close"]
+                return {"underlying": {"symbol": symbol, "last": spot},
+                        "expirations": [], "chains": {}, "source": "stub"}
+        out = self._run(AnswersEmpty())
+        self.assertFalse(out["ok"])
+        self.assertIn("lists no option expirations", out["error"])
+        self.assertNotIn("timed out", out["error"])
+        self.assertNotIn("failed or was throttled", out["error"])
+        # a hiccup on the broker's side is the common cause for a real
+        # name, so one bounded retry round is allowed to clear it
+        self.assertTrue(out.get("retryable"))
 
     def test_the_window_message_never_contradicts_its_own_list(self):
         """The tell that exposed this: a message claiming nothing is in the

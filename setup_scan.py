@@ -421,19 +421,32 @@ def _broker_note(sc) -> str | None:
     return None
 
 
-def _list_expirations(sc, symbol: str) -> list:
-    """Every expiration the underlying lists, from one narrow-ladder call.
+def _list_expirations(sc, symbol: str) -> tuple[list, bool]:
+    """(every expiration the underlying lists, whether the request FAILED).
 
     Ten strikes keeps this cheap no matter how deep the listing is — the
     same trick the Gamma Exposure tab uses, for the same reason.
+
+    The second value exists because the client answers None for every kind
+    of failure — a throttle, a timeout, an outage — and None used to be
+    returned from here as the same [] as a well-formed answer that lists
+    nothing. Those are different facts about different things: one is about
+    the CONNECTION and clears by itself; the other is about the SYMBOL and
+    does not. Collapsing them is how a rate-limited request at nine in the
+    evening came out as "either this symbol has no listed options or the
+    request timed out" about names that plainly trade options — with no
+    auto-retry, because the message blamed the wrong thing.
     """
     try:
         idx = sc.get_option_chain(symbol, strike_count=INDEX_STRIKES)
     except Exception:  # noqa: BLE001
-        return []
+        return [], True
     if not idx:
-        return []
-    return list(idx.get("expirations") or sorted((idx.get("chains") or {}).keys()))
+        # None is the client's failure signal; a bare falsy dict is garbage.
+        # Neither is an ANSWER, so neither says anything about the symbol.
+        return [], True
+    return (list(idx.get("expirations")
+                 or sorted((idx.get("chains") or {}).keys())), False)
 
 
 def _window_chain(sc, symbol: str, now: date, lo: float, hi: float):
@@ -454,7 +467,12 @@ def _window_chain(sc, symbol: str, now: date, lo: float, hi: float):
     has no options". So: list the expirations cheaply, choose a handful
     inside the window, then fetch only those.
     """
-    avail = _list_expirations(sc, symbol)
+    avail, listing_failed = _list_expirations(sc, symbol)
+    if listing_failed:
+        # The INDEX request died — throttle, timeout, outage. Same fact as
+        # the window fetch dying, so it wears the same why and gets the
+        # same self-retry, instead of masquerading as an unlisted symbol.
+        return None, [], "fetch_failed"
     if not avail:
         return None, [], "no_listing"
     wanted = [e for e in sorted(avail)
@@ -568,15 +586,23 @@ def analyze(symbol: str, now: date | None = None) -> dict:
         chain, listed, why = _window_chain(sc, symbol, now, lo_dte, hi_dte)
         gsource, fetched_at = "broker", None
     if not chain and why == "fetch_failed":
-        # The symbol lists options in the window; the request for them
-        # failed or was throttled. Say THAT — do not tell the reader the
-        # window is empty when it demonstrably is not.
+        # A request did not come back — either the cheap index call for the
+        # symbol's listing, or the follow-up fetch for the window. Say THAT.
+        # When the listing survived, naming how many expirations exist keeps
+        # the message from ever contradicting the evidence; when the index
+        # call itself died, there is no count to claim and the message must
+        # not invent one.
         note = _broker_note(sc)
+        if listed:
+            msg = (f"The option chain request for {symbol} failed or was "
+                   f"throttled. The broker is connected and the symbol "
+                   f"lists {len(listed)} expirations.")
+        else:
+            msg = (f"The request for {symbol}'s option listing failed or "
+                   f"was throttled. The broker is connected, and nothing "
+                   f"about {symbol} caused this.")
         return {"ok": False, "symbol": symbol,
-                "error": (note if note else
-                          f"The option chain request for {symbol} failed or "
-                          f"was throttled. The broker is connected and the "
-                          f"symbol lists {len(listed)} expirations."),
+                "error": note if note else msg,
                 "retryable": True,
                 "broker_note": note}
     if not chain and listed:
@@ -593,13 +619,28 @@ def analyze(symbol: str, now: date | None = None) -> dict:
                           f"between {lo_dte:.0f} and {hi_dte:.0f} days out, "
                           f"which is the window a seller picks from. "
                           f"Nearest: {near}.")}
+    if not chain and why == "no_listing":
+        # The broker ANSWERED, and the answer listed nothing. This is the
+        # one branch where "no listed options" can be the plain truth, so it
+        # is said without the "or the request timed out" hedge — we know it
+        # did not. Still retryable: for a name that visibly trades options,
+        # an empty answer is overwhelmingly a hiccup on the broker's side,
+        # asking again is the whole fix, and the card's shared throttle
+        # clock bounds the cost for the rare symbol where it IS the truth.
+        return {"ok": False, "symbol": symbol,
+                "error": (f"The broker answered, and its answer lists no "
+                          f"option expirations for {symbol}. For a small or "
+                          f"newly listed stock that can be the plain truth; "
+                          f"for one that clearly trades options it is a "
+                          f"hiccup on the broker's side."),
+                "retryable": True,
+                "broker_note": None}
     if not chain or not (chain.get("chains") or {}):
-        # Do not blame the symbol for what is usually a connection problem.
-        # When the broker is answering normally, an empty listing really can
-        # mean the symbol has no options — but when it is NOT answering, the
-        # emptiness says nothing at all about the symbol, and offering the
-        # reader "either ... or" makes them weigh a possibility we already
-        # know to be false. Retry only in the case that can change.
+        # The residual case — a chain arrived but holds nothing usable, or
+        # the gamma-exposure getter produced something unfit. Nearly
+        # unreachable now that every _window_chain outcome has its own
+        # branch above; kept so an unknown failure still says something
+        # rather than crashing into the pricing code.
         note = _broker_note(sc)
         return {"ok": False, "symbol": symbol,
                 "error": (note if note else

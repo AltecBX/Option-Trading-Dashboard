@@ -269,8 +269,14 @@ ok("the countdown banner carries a tooltip like everything else",
 // second place. These guards fail if either card loses the behaviour.
 ok("the backend marks a throttled refusal as retryable",
    /"retryable": True/.test(scan2));
+// Three refusals may self-retry: failed price history, a failed chain or
+// listing request, and — since v4.73 — a well-formed EMPTY listing, because
+// for a name that visibly trades options an empty answer is overwhelmingly
+// the broker's hiccup and the shared throttle clock bounds the cost. What
+// must never self-retry is a fact about the symbol itself, like too few
+// bars of history: retrying cannot mint a longer past.
 ok("only the transient refusals are marked, not a short history",
-   (scan2.match(/"retryable": True/g) || []).length === 2
+   (scan2.match(/"retryable": True/g) || []).length === 3
    && !/only \{len\(bars\)\} daily bars[\s\S]{0,200}"retryable"/.test(scan2));
 ok("a retryable refusal no longer orders the reader to press a button",
    !/press Try again/.test(scan2));
