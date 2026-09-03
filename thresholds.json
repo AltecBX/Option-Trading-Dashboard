@@ -908,5 +908,118 @@
     "strike_window_pct": 25.0,
     "strike_count": 200,
     "risk_free_rate": 0.045
+  },
+  "short_premium": {
+    "_doc": "Short Premium Opportunity Engine (sp_engine.py, SHORT_PREMIUM.md). Every gate and every selling mode lives here; the values are the defaults in sp_engine.DEFAULTS and are hypotheses the ranking backtest scores, never laws of finance. <data>/thresholds.json overrides key-by-key.",
+    "select": {
+      "_doc": "Which contracts are even considered: DTE window, the short-strike delta band (wide on purpose — the gates decide, not the band), candidate spread widths as a fraction of spot, and how many expirations/candidates per symbol.",
+      "min_dte": 1,
+      "max_dte": 60,
+      "delta_band": [0.05, 0.45],
+      "spread_widths_frac": [0.03, 0.05, 0.08],
+      "max_expirations": 6,
+      "max_candidates_per_symbol": 40
+    },
+    "data": {
+      "_doc": "Gate 1. A quote older than max_quote_age_s while the market is open is stale; a chain older than max_chain_age_s is stale; daily history older than max_bars_age_days is stale. Delayed quotes never qualify.",
+      "max_quote_age_s": 900,
+      "max_chain_age_s": 1800,
+      "max_bars_age_days": 4,
+      "require_two_sided": true
+    },
+    "liquidity": {
+      "_doc": "Gate 2. Open interest, volume, spread as a share of mid, the underlying's dollar volume, and the quoted size below which the market is called thin (a note, not a gate).",
+      "min_oi": 100,
+      "min_volume": 1,
+      "min_oi_if_no_volume": 500,
+      "max_spread_pct": 12.0,
+      "min_underlying_dollar_volume": 5000000,
+      "thin_size": 5
+    },
+    "events": {
+      "_doc": "Gate 3. Earnings inside the option's life (plus the buffer) is an outright refusal in normal mode; EVENT mode requires it instead. Macro events inside the life cost points; one at expiry costs more. Ex-dividend inside the life of a short call is noted (no wired source yet).",
+      "earnings_buffer_days": 2,
+      "macro_penalty_pts": 8,
+      "macro_at_expiry_days": 1,
+      "ex_div_note_for_calls": true
+    },
+    "costs": {
+      "_doc": "Per contract per leg. The credit is the BID, so no half-spread is charged on the short leg; wings are bought at the ASK. slippage_per_share is an extra haircut on top of the bid for a seller who cannot rest an order.",
+      "commission_per_contract": 0.65,
+      "reg_fees_per_contract": 0.05,
+      "slippage_per_share": 0.0
+    },
+    "tail": {
+      "_doc": "Gate 5. Points per measured trigger; a mode's max_tail_pts is the refusal line. An expected shortfall beyond the mode's multiple of the credit is a refusal on its own.",
+      "gap_reach_penalty_pts": 15,
+      "rv_accel_ratio": 1.6,
+      "rv_accel_pts": 10,
+      "backwardation_pts": 10,
+      "vix_pctile": 85.0,
+      "vix_pts": 10,
+      "gamma_dte": 3,
+      "gamma_delta": 0.30,
+      "gamma_pts": 12,
+      "skew_rr_volpts": 8.0,
+      "skew_pts": 6
+    },
+    "evidence": {
+      "_doc": "Gate 6. Below min_n_eff_for_measured independent windows the conservative P0 is the model less a 5-point haircut and says so; kappa is the prior strength (in independent windows) for shrinking a ticker's own rate toward the universe prior.",
+      "min_n_eff_for_measured": 20,
+      "kappa": 40
+    },
+    "modes": {
+      "_doc": "Selling modes. `objective` is what the ranking maximizes AFTER the gates; the floors and caps are the gates that differ by mode. Adjust freely; the forward test grades whichever you run.",
+      "conservative": {
+        "objective": "max_p0_conservative",
+        "min_p0": 0.85,
+        "min_p0_conservative": 0.80,
+        "min_ev_per_contract": 5.0,
+        "min_roc_pct": 0.5,
+        "min_credit": 0.20,
+        "max_es95_over_credit": 6.0,
+        "max_tail_pts": 30,
+        "max_spread_pct": 10.0
+      },
+      "balanced": {
+        "objective": "max_ev_per_tail",
+        "min_p0": 0.75,
+        "min_p0_conservative": 0.68,
+        "min_ev_per_contract": 5.0,
+        "min_roc_pct": 0.8,
+        "min_credit": 0.25,
+        "max_es95_over_credit": 8.0,
+        "max_tail_pts": 45,
+        "max_spread_pct": 12.0
+      },
+      "income": {
+        "objective": "max_annualized_roc",
+        "min_p0": 0.65,
+        "min_p0_conservative": 0.58,
+        "min_ev_per_contract": 8.0,
+        "min_roc_pct": 1.2,
+        "min_credit": 0.30,
+        "max_es95_over_credit": 10.0,
+        "max_tail_pts": 55,
+        "max_spread_pct": 12.0
+      }
+    },
+    "weights": {
+      "_doc": "Sell Quality components (max points each, sum 100). Explainable starting weights; the score is shown, the mode's objective orders.",
+      "safety": 22,
+      "edge": 18,
+      "income": 12,
+      "liquidity": 10,
+      "tail": 14,
+      "event": 8,
+      "data": 8,
+      "calibration": 8
+    },
+    "scan": {
+      "_doc": "Best Sales Today funnel. Stage 1 is free (watchlist board + measured richness from the Premium Edge observation store); stage 2 reuses the Premium Edge chain fetch for the same names (one fetch serves every subsystem); the evidence table per symbol is cached for a day.",
+      "max_symbols": 24,
+      "evidence_cache_hours": 20,
+      "top_n": 25
+    }
   }
 }
