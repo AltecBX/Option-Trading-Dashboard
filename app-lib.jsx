@@ -204,6 +204,21 @@ function sharedJson(apiFetch, url, ttlMs = 15000) {
 // once. Boards are sorted best-first, so render the top slice and let the
 // user pull more on demand — no virtualization dep, no scroll-jitter, and
 // the count is always shown so nothing is silently hidden.
+// Where a watchlist row's sector label came from (v4.76). Yahoo is the
+// usual source; when it throttles a big sweep the row keeps last scan's
+// label or takes the SEC's classification, and the hover says which.
+const SECTOR_SOURCE_TIP = {
+  csv: "Sector from your imported watchlist CSV (overrides every other source)",
+  yahoo: "Sector from Yahoo Finance",
+  prior: "Sector remembered from this stock's last scan — Yahoo did not answer this time",
+  sec: "Sector from the SEC's industry classification (SIC code) — Yahoo did not answer this time",
+};
+function sectorSourceTip(r) {
+  if (!r || !r.sector) return "No sector yet — Yahoo did not answer and the SEC has no filer under this ticker";
+  const src = SECTOR_SOURCE_TIP[r.sector_source] || "Sector";
+  return r.industry ? `${src} · Industry: ${r.industry}` : src;
+}
+
 function useBoundedList(items, initial = 150, step = 300) {
   const [n, setN] = useState(initial);
   const arr = items || [];
@@ -477,4 +492,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip });

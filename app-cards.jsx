@@ -3486,7 +3486,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       case "pe": return <td key={k} className="scan-num">{r.pe != null ? r.pe : "—"}</td>;
       case "forward_pe": return <td key={k} className="scan-num">{r.forward_pe != null ? r.forward_pe : "—"}</td>;
       case "industry": return <td key={k} className="wl-txt">{r.industry || "—"}</td>;
-      case "sector": return <td key={k} className="wl-txt">{r.sector || "—"}</td>;
+      case "sector": return <td key={k} className="wl-txt" title={sectorSourceTip(r)}>{r.sector || "—"}</td>;
       case "rsi": return <td key={k} className="scan-num">{r.rsi != null ? r.rsi : "—"}</td>;
       case "rel_vol": return <td key={k} className="scan-num">{r.rel_vol != null ? r.rel_vol + "x" : "—"}</td>;
       case "flow_net": return <td key={k} className="scan-num">{flowCell(r)}</td>;

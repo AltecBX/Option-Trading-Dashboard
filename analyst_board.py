@@ -43,6 +43,10 @@ try:
     _YF_OK = True
 except Exception:
     _YF_OK = False
+try:
+    import sector_map as _sector_map    # SEC SIC → sector when Yahoo is quiet (v4.76)
+except Exception:                       # pragma: no cover
+    _sector_map = None
 
 import analyst_client
 
@@ -446,6 +450,17 @@ def _enrich(symbol: str) -> dict:
         except Exception:
             pass
     out.pop("_vol", None)
+    # No sector from Yahoo is Yahoo being quiet, not a company without one.
+    # The SEC's classification fills the blank so the sector rollups on the
+    # board count the name instead of filing it under "Unknown".
+    if not out.get("sector") and _sector_map is not None:
+        try:
+            hint = _sector_map.sector_hint(symbol)
+        except Exception:
+            hint = {}
+        if hint.get("sector"):
+            out["sector"] = hint["sector"]
+            out["sector_source"] = "sec"
     return out
 
 

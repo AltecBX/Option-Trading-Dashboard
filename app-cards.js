@@ -5020,7 +5020,8 @@ function WatchlistTableCard({
       case "sector":
         return /*#__PURE__*/React.createElement("td", {
           key: k,
-          className: "wl-txt"
+          className: "wl-txt",
+          title: sectorSourceTip(r)
         }, r.sector || "—");
       case "rsi":
         return /*#__PURE__*/React.createElement("td", {
