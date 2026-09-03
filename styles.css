@@ -13291,3 +13291,10 @@ a.tabsheet-btn.site { text-decoration: none; }
 @media (max-width: 620px) {
   .sl-table td.sl-m-hide { display: none; }
 }
+/* Inner tables must never widen the detail block past the viewport: grid
+   items default to min-width:auto, which lets an 8-column table push the
+   whole block off a phone's right edge. */
+.sl-detail-wrap { max-width: 100%; box-sizing: border-box; overflow: hidden; }
+.sl-detail, .sl-detail > *, .sl-block { min-width: 0; }
+.sl-block { overflow-x: auto; }
+.sl-why, .sl-pw, .sl-block p, .sl-block li { overflow-wrap: anywhere; }
