@@ -62,6 +62,10 @@ except Exception:
     _OK = False
 
 import analyst_board
+try:
+    import sector_map as _sector_map    # SEC SIC → sector, the floor under Yahoo (v4.76)
+except Exception:                       # pragma: no cover
+    _sector_map = None
 
 # Reuse the Patterns-tab swing math so the watchlist's swing/timing read
 # agrees with the swing chart. Pure functions, no network — they run on the
@@ -719,6 +723,39 @@ def set_flow_provider(fn) -> None:
     _FLOW_FN = fn
 
 
+def _fill_sector(row: dict, sym: str, prior_row: dict | None) -> None:
+    """Give the row a sector when Yahoo did not.
+
+    The Sectors view groups by this field, and Yahoo's `.info` — its only
+    source until v4.76 — answers a 1,300-name sweep with empty dicts once
+    it starts throttling. A row with no sector is not a stock with no
+    sector; it is a source that went quiet. So: keep the label the row
+    carried last scan (Yahoo's own word, remembered), and failing that take
+    the SEC's classification, which never throttles and never changes.
+    The CSV and a live Yahoo answer always win; this only fills a blank.
+    """
+    if row.get("sector"):
+        return
+    prior_sector = (prior_row or {}).get("sector")
+    if prior_sector:
+        row["sector"] = prior_sector
+        row["sector_source"] = "prior"
+        if not row.get("industry") and (prior_row or {}).get("industry"):
+            row["industry"] = prior_row["industry"]
+        return
+    if _sector_map is None:
+        return
+    try:
+        hint = _sector_map.sector_hint(sym)
+    except Exception:
+        return
+    if hint.get("sector"):
+        row["sector"] = hint["sector"]
+        row["sector_source"] = "sec"
+        if not row.get("industry") and hint.get("industry"):
+            row["industry"] = hint["industry"]
+
+
 def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | None = None) -> dict | None:
     """Build one watchlist row from its slice of the batched OHLC download.
     Pure per-symbol work (price metrics + fundamentals + swing read + optional
@@ -753,11 +790,14 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
         ov = _OVERRIDES.get(sym)
     row["tag"] = (ov or {}).get("tag") or ""
     row["weekly"] = (ov or {}).get("weekly") if ov else None
+    row["sector_source"] = "yahoo" if row.get("sector") else None
     if ov:
         if ov.get("sector"):
             row["sector"] = ov["sector"]
+            row["sector_source"] = "csv"
         if ov.get("industry"):
             row["industry"] = ov["industry"]
+    _fill_sector(row, sym, prior_row)
     # Active swing direction + entry timing (free — runs on the OHLC in hand).
     try:
         H, L, C, D, O = [], [], [], [], []
