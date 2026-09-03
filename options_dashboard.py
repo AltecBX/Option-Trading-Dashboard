@@ -5397,6 +5397,52 @@ except Exception as _exc:  # noqa: BLE001
     _pedge = None  # type: ignore
 
 
+# ── Best Sales Today wiring (SHORT_PREMIUM.md) ───────────────────────────────
+# Rides the Premium Edge chain fetch: sell_scan registers as a chain consumer
+# so one bounded chain per name feeds both engines inside the same budget.
+def _sell_sector_for(sym: str):
+    try:
+        board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
+        for r in board.get("rows") or []:
+            if r.get("symbol") == sym:
+                return r.get("sector") or None
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _sell_provider_status() -> dict:
+    try:
+        sc = _schwab()
+        return sc.status() if sc is not None else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+try:
+    import sell_scan as _sell
+    import sp_forward as _spfwd
+    _sell.configure(
+        data_dir=_STABLE_DIR,
+        board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        market_open_fn=lambda: _intraday.market_open(),
+        status_fn=_sell_provider_status,
+        sector_fn=_sell_sector_for,
+        spy_regime_fn=_spy_gamma_regime,
+    )
+    _spfwd.configure(
+        data_dir=_STABLE_DIR,
+        bars_fn=lambda sym: (_schwab().get_price_history(sym, days=400) if _schwab() is not None else None),
+        market_open_fn=lambda: _intraday.market_open(),
+    )
+    _SELL_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[sell_scan] wiring failed: {_exc}", file=sys.stderr)
+    _SELL_AVAILABLE = False
+    _sell = None  # type: ignore
+    _spfwd = None  # type: ignore
+
+
 # ── Premarket Gap Fade & Rebound scanner wiring (GAP_SCANNER.md) ─────────────
 
 _GAP_ACT_CACHE: dict = {}      # symbol -> (ts, {"splits", "dividends"})
@@ -9120,6 +9166,66 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                     status=404)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/edge", exc)
+                self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/sell" or parsed.path.startswith("/api/sell/"):
+            if not _SELL_AVAILABLE:
+                self._send_json({"error": "best sales unavailable", "rows": []},
+                                status=503)
+                return
+            section = parsed.path[len("/api/sell"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            mode = (qs.get("mode", ["balanced"])[0] or "balanced").strip().lower()
+            if mode not in _sell.MODES_ALL:
+                mode = "balanced"
+            try:
+                if section == "":
+                    strat = (qs.get("strategy", [""])[0] or "").strip().lower() or None
+                    top = qs.get("top", [""])[0]
+                    self._send_json(_sell.snapshot(
+                        mode, strategy=strat, top_n=(int(top) if top.isdigit() else None),
+                        record=(qs.get("record", ["1"])[0] or "1") in ("1", "true")),
+                        no_store=True)
+                elif section == "detail":
+                    symbol = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not symbol:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    out = _sell.detail(symbol, mode)
+                    self._send_json(out, status=404 if out.get("error") else 200, no_store=True)
+                elif section == "scan":
+                    if not _EDGE_AVAILABLE:
+                        self._send_json({"error": "premium edge unavailable"}, status=503)
+                        return
+                    # The sell board rides the Premium Edge chain pass: one
+                    # bounded chain per name feeds both engines.
+                    self._send_json(_edge.trigger_scan(
+                        force=(qs.get("force", ["0"])[0] or "0") in ("1", "true")),
+                        no_store=True)
+                elif section == "status":
+                    st = _sell.status()
+                    st["forward"] = _spfwd.status()
+                    self._send_json(st, no_store=True)
+                elif section == "config":
+                    cfg_s, h = _sell.E.config()
+                    self._send_json({"config": cfg_s, "hash": h, "engine": _sell.E.SP_ENGINE_VERSION,
+                                     "probability": _sell.E.sp.SP_PROB_VERSION,
+                                     "scanner": _sell.SELL_SCAN_VERSION}, no_store=True)
+                elif section == "predictions":
+                    days = qs.get("days", ["120"])[0]
+                    self._send_json({"rows": _sell.predictions(int(days) if days.isdigit() else 120)},
+                                    no_store=True)
+                elif section == "calibration":
+                    self._send_json(_spfwd.calibration(
+                        refresh=(qs.get("refresh", ["0"])[0] or "0") in ("1", "true")),
+                        no_store=True)
+                elif section == "grade":
+                    self._send_json(_spfwd.grade_pending(), no_store=True)
+                else:
+                    self._send_json({"error": f"unknown sell section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/sell", exc)
                 self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/gap" or parsed.path.startswith("/api/gap/"):
@@ -13447,6 +13553,13 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _gap.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[gap_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _SELL_AVAILABLE:
+        try:
+            # grades every recorded Best Sales recommendation after its expiry
+            # from daily bars, and rebuilds the calibration tables nightly
+            _spfwd.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[sell_scan] forward-test scheduler start failed: {exc}", file=sys.stderr)
     if _INVEST_AVAILABLE:
         try:
             _invest.start_scheduler(
