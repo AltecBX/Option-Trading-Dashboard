@@ -966,7 +966,7 @@ def portfolio_concentration(ranked: list[dict], sector_of: dict | None = None, t
             flags.append(f"{n} of the top {len(top)} are {s} — one sector bet, not {n} independent ones")
     for e, n in exps.items():
         if n >= max(3, int(0.6 * len(top))):
-            flags.append(f"{n} of the top {len(top)} expire {e} — one date carries most of the risk")
+            flags.append(f"{n} of the top {len(top)} expire {long_date(e)} — one date carries most of the risk")
     if sides.get("put", 0) >= max(4, int(0.8 * len(top))):
         flags.append("almost every pick is a short put — this is one long-market bet")
     return {"n": len(top), "sectors": sectors, "expirations": exps, "sides": sides, "flags": flags}
