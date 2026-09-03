@@ -452,7 +452,9 @@ def _pred_path(day: str) -> Path | None:
 
 
 def prediction_key(c: dict, mode: str) -> str:
-    return f"{c['symbol']}|{c['strategy']}|{c['expiration']}|{c['short_strike']}|{c.get('long_strike')}|{mode}"
+    # short_call distinguishes two condors that share a put wing
+    return (f"{c['symbol']}|{c['strategy']}|{c['expiration']}|{c['short_strike']}|{c.get('long_strike')}"
+            f"|{c.get('short_call')}|{mode}")
 
 
 def _record_predictions(top: list[dict], mode: str, cfg_hash: str) -> int:

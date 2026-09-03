@@ -210,9 +210,13 @@ def build_candidates(sym: str, chain: dict, bars: list, now: date, cfg: dict,
                 if single_kind in strategies:
                     out.append(_single(sym, exp, dte, side, single_kind, m, spot, cfg))
                 if f"{side}_credit_spread" in strategies:
+                    seen_wings = set()
                     for w in widths:
                         sprd = _spread(sym, exp, dte, side, m, rows, spot, t_years, sigma_h, w, cfg)
-                        if sprd:
+                        # two configured widths can round to the same listed
+                        # wing — one structure, not two
+                        if sprd and sprd["long_strike"] not in seen_wings:
+                            seen_wings.add(sprd["long_strike"])
                             out.append(sprd)
         if "iron_condor" in strategies:
             puts = [c for c in out if c["expiration"] == exp[:10] and c["strategy"] == "put_credit_spread"]
