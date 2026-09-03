@@ -37,6 +37,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -58,7 +59,7 @@ DEFAULTS = {
     "_doc": "Short Premium Opportunity Engine (sp_engine.py, SHORT_PREMIUM.md). Modes and gates.",
     "select": {"min_dte": 1, "max_dte": 60, "delta_band": [0.05, 0.45],
                "spread_widths_frac": [0.03, 0.05, 0.08], "max_expirations": 6,
-               "max_candidates_per_symbol": 40},
+               "max_candidates_per_symbol": 400},
     "data": {"max_quote_age_s": 900, "max_chain_age_s": 1800, "max_bars_age_days": 4,
              "require_two_sided": True},
     "liquidity": {"min_oi": 100, "min_volume": 1, "min_oi_if_no_volume": 500,
@@ -301,9 +302,10 @@ def _spread(sym, exp, dte, side, m, rows, spot, t_years, sigma_h, width_pref, cf
     cap = max_loss * 100.0
     # POP for the spread: profit iff the short leg settles below net credit
     probs = dict(m["probs"] or {})
-    probs["p_profit"] = sp.p_profit(spot, k, sigma_h, t_years, side, credit,
-                                    costs_per_share=costs)
-    probs["p_max_loss"] = sp.p_itm(spot, best["strike"], sigma_h, t_years, side)
+    pp = sp.p_profit(spot, k, sigma_h, t_years, side, credit, costs_per_share=costs)
+    pml = sp.p_itm(spot, best["strike"], sigma_h, t_years, side)
+    probs["p_profit"] = round(pp, 4) if pp is not None else None
+    probs["p_max_loss"] = round(pml, 4) if pml is not None else None
     return {**_base(sym, exp, dte, f"{side}_credit_spread", spot),
             "side": side, "short_strike": k, "long_strike": best["strike"], "width": round(width, 2),
             "legs": 2, "credit": round(credit, 2), "credit_basis": "short at bid, long at ask",
@@ -759,8 +761,11 @@ def rejection_summary(evaluated: list[dict]) -> list[dict]:
         if c.get("verdict") == "qualified":
             continue
         for r in c.get("rejections") or [{"gate": "data", "why": ["insufficient data"]}]:
-            key = (r["gate"], (r["why"] or ["(unstated)"])[0])
-            g = groups.setdefault(key, {"gate": r["gate"], "reason": key[1], "n": 0, "symbols": set()})
+            reason = (r["why"] or ["(unstated)"])[0]
+            # group by the reason's shape, not its numbers, so "P0 63% under the
+            # 68% floor" and "P0 67% under the 68% floor" are one line
+            key = (r["gate"], re.sub(r"\d+(?:\.\d+)?", "N", reason))
+            g = groups.setdefault(key, {"gate": r["gate"], "reason": reason, "n": 0, "symbols": set()})
             g["n"] += 1
             g["symbols"].add(c.get("symbol"))
     out = [{**g, "symbols": sorted(g["symbols"])} for g in groups.values()]
@@ -771,6 +776,26 @@ def rejection_summary(evaluated: list[dict]) -> list[dict]:
 # ── explanations ────────────────────────────────────────────────────────────
 def _pct(x):
     return f"{x * 100:.0f}%" if x is not None else "—"
+
+
+def _vol(x):
+    return f"{(x or 0) * 100:.1f}% annualized volatility"
+
+
+def _r(x, nd=2):
+    try:
+        return f"{float(x):.{nd}f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def long_date(iso) -> str:
+    """'2026-10-07' → 'October 7, 2026' (the only date format the screen shows)."""
+    try:
+        d = date.fromisoformat(str(iso)[:10])
+        return f"{d.strftime('%B')} {d.day}, {d.year}"
+    except (TypeError, ValueError):
+        return str(iso or "—")
 
 
 def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -> dict:
@@ -787,12 +812,12 @@ def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -
         why_stock += f", the {ctx['vrp_percentile']:.0f}th percentile of its own premium history"
     why_stock += (f"; the {top['dte_bucket']}-day bucket paid the best compensation per unit of "
                   f"tail risk on this chain.")
-    why_exp = (f"The {top['expiration']} expiration ({top['dte']:.0f} days) was chosen over the other "
+    why_exp = (f"The {long_date(top['expiration'])} expiration ({top['dte']:.0f} days) was chosen over the other "
                f"listed dates because its {strat} scored highest on this mode's objective "
                f"({top.get('objective', '').replace('_', ' ')}) after the gates.")
     why_strike = (f"The {top['short_strike']} strike sits {abs(top.get('dist_pct') or 0):.1f}% "
-                  f"({top.get('k_sigma', 0):.2f} standard deviations, {top.get('expected_moves_out') or 0:.2f} "
-                  f"expected moves) from spot at {abs(_num(top.get('delta')) or 0):.2f} delta.")
+                  f"({top.get('k_sigma', 0):.2f} expected moves, the forecast standard deviations at this "
+                  f"horizon) from spot at {abs(_num(top.get('delta')) or 0):.2f} delta.")
     why_side = {"put": "A put was sold because the downside premium is the richer side after the "
                        "forecast and the evidence, and the stock's history of reaching this distance "
                        "downward is what the probability is measured on.",
@@ -801,7 +826,7 @@ def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -
                 "both": "Both sides are sold (iron condor) because each wing clears the gates on its own "
                         "and the two events are disjoint."}[top["side"]]
     support = (f"P0 (expires worthless) is {_pct(pb.get('p0_model'))} on the model at the "
-               f"{top.get('sigma_h', 0):.3f} horizon forecast, {_pct(pb.get('p0_measured'))} on this "
+               f"{_vol(top.get('sigma_h'))} forecast, {_pct(pb.get('p0_measured'))} on this "
                f"stock's own measured history, and {_pct(pb.get('p0_conservative'))} on the conservative "
                f"bound ({pb.get('conservative_basis')}). Probability of touching the strike first: "
                f"{_pct(pb.get('p_touch'))} model, {_pct(pb.get('p_touch_measured'))} measured. "
@@ -817,7 +842,7 @@ def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -
               if ev_.get("levels") else "No measurable breach history for this stock at this horizon; the "
                                         "probability rests on the pooled universe calibration.")
     wrong = [
-        f"The forecast volatility is wrong: a {top.get('sigma_h', 0):.3f} forecast that realizes 30% higher "
+        f"The forecast volatility is wrong: a {_vol(top.get('sigma_h'))} forecast that realizes 30% higher "
         f"roughly doubles the modeled chance of finishing in the money.",
         (f"A gap: the 95th-percentile overnight gap toward this strike is {ex.get('gap_toward_strike_sigma_p95')}σ "
          f"and the largest seen was {ex.get('gap_toward_strike_sigma_max')}σ, against a strike {top.get('k_sigma', 0):.2f}σ away."
@@ -825,11 +850,11 @@ def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -
         "A scheduled or unscheduled event repricing the whole name (the earnings gate only covers known dates).",
         "IV holding flat is assumed for the early-profit paths; a volatility spike after entry delays every target.",
     ]
-    worst = (f"When this distance was breached, price overshot the strike by {ex.get('overshoot_sigma')}σ on "
-             f"average, first reaching it after {ex.get('first_touch_bars')} sessions, and crossed back "
-             f"{ex.get('recross')} times." if ex.get("overshoot_sigma") is not None
+    worst = (f"When this distance was breached, price overshot the strike by {_r(ex.get('overshoot_sigma'))}σ on "
+             f"average, first reaching it after {_r(ex.get('first_touch_bars'), 1)} sessions, and crossed back "
+             f"{_r(ex.get('recross'), 1)} times." if ex.get("overshoot_sigma") is not None
              else "No breach of this distance in the measured history.")
-    reject = [f"Earnings date moving inside {top['expiration']}.",
+    reject = [f"An earnings date landing before {long_date(top['expiration'])}.",
               f"The bid falling below {(top.get('credit') or 0) * 0.8:.2f} (expected value turns negative near "
               f"{top.get('fair_at_forecast')}).",
               "Realized volatility accelerating past 1.6× its 20-day pace, or the term structure inverting.",
@@ -838,12 +863,12 @@ def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -
     if runner_up:
         r = runner_up
         pb2 = r.get("probability") or {}
-        vs2 = (f"#2 ({r['symbol']} {r['strategy'].replace('_', ' ')} {r['expiration']} {r['short_strike']}) "
-               f"ranks below because its {top.get('objective', '').replace('_', ' ')} is "
-               f"{r.get('objective_value')} against {top.get('objective_value')}: "
+        vs2 = (f"#2 ({r['symbol']} {r['strategy'].replace('_', ' ')} {long_date(r['expiration'])} "
+               f"{r['short_strike']}) ranks below because its {top.get('objective', '').replace('_', ' ')} is "
+               f"{_r(r.get('objective_value'), 3)} against {_r(top.get('objective_value'), 3)}: "
                f"P0 conservative {_pct(pb2.get('p0_conservative'))} vs {_pct(pb.get('p0_conservative'))}, "
                f"EV {r.get('ev_per_contract'):+.0f} vs {top.get('ev_per_contract'):+.0f}, "
-               f"worst-5% loss {r.get('es95_per_share')} vs {top.get('es95_per_share')} per share, "
+               f"worst-5% loss {_r(r.get('es95_per_share'))} vs {_r(top.get('es95_per_share'))} per share, "
                f"sell quality {(r.get('sell_quality') or {}).get('score')} vs {(top.get('sell_quality') or {}).get('score')}.")
     return {"why_stock": why_stock, "why_expiration": why_exp, "why_strike": why_strike,
             "why_side": why_side, "evidence": support, "what_market_overpays": overpay,

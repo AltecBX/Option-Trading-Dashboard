@@ -918,7 +918,7 @@
       "delta_band": [0.05, 0.45],
       "spread_widths_frac": [0.03, 0.05, 0.08],
       "max_expirations": 6,
-      "max_candidates_per_symbol": 40
+      "max_candidates_per_symbol": 400
     },
     "data": {
       "_doc": "Gate 1. A quote older than max_quote_age_s while the market is open is stale; a chain older than max_chain_age_s is stale; daily history older than max_bars_age_days is stale. Delayed quotes never qualify.",

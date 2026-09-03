@@ -46,6 +46,18 @@ import vol_forecast as vf
 
 _DATA_DIR: Path | None = None
 _SCHWAB = None                 # callable -> SchwabClient | None
+# One chain fetch serves every subsystem (v4.80). Anything registered here
+# is handed the chain, the bars and the analysis context of every symbol
+# this scanner fetches, inside the same pass — the sell engine reads the
+# chain Premium Edge already paid for instead of fetching its own.
+_CHAIN_CONSUMERS: list = []
+
+
+def register_chain_consumer(fn) -> None:
+    """fn(symbol, chain, bars, context) — called once per analyzed symbol;
+    exceptions are swallowed so a consumer can never break the scan."""
+    if fn not in _CHAIN_CONSUMERS:
+        _CHAIN_CONSUMERS.append(fn)
 _BOARD_FN = None               # callable -> watchlist_table board dict
 _EARNINGS_FN = None            # callable(sym) -> {"next": iso|None, "past": [iso]}
 _EARN_MOVES_FN = None          # callable(sym) -> {"avg_abs": float, "n": int} | None
@@ -353,6 +365,18 @@ def analyze_symbol(sym: str, intent: str = "premium_only", record: bool = False,
         "main_risk": scored.get("main_risk") or (danger["reasons"][0] if danger["reasons"] else None),
         "data_ok": data_ok, "as_of": today,
     }
+    for consumer in list(_CHAIN_CONSUMERS):
+        try:
+            consumer(sym, chain, bars, {
+                "today": today, "now": now, "spot": spot, "market_open": is_open,
+                "earnings_date": earn_next, "earnings_within": earnings_within,
+                "erv": erv_pack, "iv30": iv, "term": term, "skew": sk, "vrp": vrp,
+                "hist": hist, "danger": danger, "bar_features": feats,
+                "vix_percentile": danger_features.get("vix_percentile"),
+                "macro": macro, "source": chain.get("source"),
+            })
+        except Exception as exc:  # noqa: BLE001 — a consumer never breaks the scan
+            print(f"edge_scan: chain consumer failed for {sym}: {exc}")
     detail = {
         "row": row, "term": term, "skew": sk, "vrp": vrp, "hist": hist,
         "erv": erv_pack, "iv30": iv, "classification": cls,
