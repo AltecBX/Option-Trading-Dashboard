@@ -152,11 +152,16 @@ def _leg_costs(n_legs: int, cfg: dict) -> float:
 
 def build_candidates(sym: str, chain: dict, bars: list, now: date, cfg: dict,
                      evidence_table: dict | None = None, state: str | None = None,
-                     strategies=STRATEGIES, iv_entry_by_row: bool = True) -> list[dict]:
+                     strategies=STRATEGIES, iv_entry_by_row: bool = True,
+                     with_paths: bool = False) -> list[dict]:
     """Every short-premium structure the chain supports inside the seller
     window, each carrying its economics, its separated probabilities at the
     CONTRACT's horizon, and its measured evidence. No gates yet — that is
-    `evaluate`'s job, so a rejected candidate can still say why."""
+    `evaluate`'s job, so a rejected candidate can still say why.
+
+    The early-profit path simulation is expensive and only matters for the
+    finalists, so it is off here (`with_paths=False`) and added by
+    `attach_paths` after ranking."""
     spot = _num((chain.get("underlying") or {}).get("last")) or 0.0
     if spot <= 0 or not bars:
         return []
@@ -189,7 +194,8 @@ def build_candidates(sym: str, chain: dict, bars: list, now: date, cfg: dict,
                 probs = sp.contract_probabilities(
                     spot, m["strike"], side, dte, sigma_h, m["credit_exec"],
                     costs_per_share=_leg_costs(1, cfg) + float(cfg["costs"]["slippage_per_share"]),
-                    iv_entry=(iv_row if iv_entry_by_row else None), paths=bool(iv_row))
+                    iv_entry=(iv_row if iv_entry_by_row else None),
+                    paths=(with_paths and bool(iv_row)))
                 evid = ev.evidence_for_strike(evidence_table, h_td, k, side, state=state,
                                               kappa=float(cfg["evidence"]["kappa"]))
                 ctx = ev.strike_context(evidence_table, h_td, k, side)
@@ -215,11 +221,16 @@ def build_candidates(sym: str, chain: dict, bars: list, now: date, cfg: dict,
                     if abs(pc["width"] - cc["width"]) > 1e-9:
                         continue
                     out.append(_condor(sym, exp, dte, pc, cc, spot, cfg))
+    # Cap PER STRATEGY, best expected value first, so a chain with many
+    # strikes cannot crowd the spreads out with single-leg candidates.
     cap = int(st.get("max_candidates_per_symbol", 40))
-    if len(out) > cap:
-        out.sort(key=lambda c: -(_num(c.get("ev_per_contract")) or -1e9))
-        out = out[:cap]
-    return out
+    per = max(4, cap // max(1, len(strategies)))
+    kept = []
+    for strat in strategies:
+        rows = [c for c in out if c["strategy"] == strat]
+        rows.sort(key=lambda c: -(_num(c.get("ev_per_contract")) or -1e9))
+        kept.extend(rows[:per])
+    return kept
 
 
 def _base(sym, exp, dte, strategy, spot):
@@ -625,7 +636,7 @@ def _components(c: dict, pb: dict, gates: dict, ctx: dict, cfg: dict, mode_cfg: 
 
 
 def _sell_quality(comp: dict, cfg: dict) -> dict:
-    w = cfg["weights"]
+    w = {k: v for k, v in cfg["weights"].items() if not str(k).startswith("_")}
     tot = sum(float(v) for v in w.values()) or 1.0
     score = sum(float(w[k]) * comp[k]["score"] for k in w if k in comp) / tot
     return {"score": round(score, 1),
@@ -715,6 +726,30 @@ def rank(evaluated: list[dict]) -> list[dict]:
     for i, c in enumerate(q, 1):
         c["rank"] = i
     return q
+
+
+def attach_paths(ranked: list[dict], top_n: int = 10, n_paths: int = 2000) -> list[dict]:
+    """Run the early-profit path simulation for the finalists only and
+    attach it under probability.paths (MODELED, labeled). Iron condors get
+    the put wing's paths. Idempotent."""
+    for c in ranked[:top_n]:
+        pb = c.get("probability") or {}
+        if pb.get("paths"):
+            continue
+        short = c.get("short") or {}
+        iv_entry = (c["quote"] if c["legs"] < 4 else c["quote"]["put"]).get("iv")
+        side = "put" if c["side"] == "both" else c["side"]
+        try:
+            paths = sp.profit_path_stats(c["spot"], c["short_strike"], c.get("sigma_h"), iv_entry,
+                                         c["dte"], side, short.get("credit_exec") or c["credit"],
+                                         n_paths=n_paths)
+        except Exception:  # noqa: BLE001
+            paths = None
+        pb["paths"] = paths
+        c["probability"] = pb
+        if isinstance(c.get("probs"), dict):
+            c["probs"]["paths"] = paths
+    return ranked
 
 
 def rejection_summary(evaluated: list[dict]) -> list[dict]:

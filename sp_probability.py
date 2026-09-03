@@ -391,7 +391,7 @@ def expected_shortfall(spot, strike, sigma, t_years, side, credit, q=0.05) -> fl
 
 # ── early profit targets: a path model ──────────────────────────────────────
 def profit_path_stats(spot, strike, sigma_real, iv_entry, dte_calendar, side, credit,
-                      targets=(0.5, 0.75, 0.9), near_zero_frac=0.10, n_paths=4000,
+                      targets=(0.5, 0.75, 0.9), near_zero_frac=0.10, n_paths=2000,
                       seed=7, model="lognormal", dof=T_DOF_DEFAULT, rate=0.0) -> dict | None:
     """P(the short option loses f of its value before expiry), for each f in
     `targets`, plus P(it becomes nearly worthless), the expected number of
@@ -426,6 +426,20 @@ def profit_path_stats(spot, strike, sigma_real, iv_entry, dte_calendar, side, cr
     hit_day = {f: np.full(n_paths, -1.0) for f in targets}
     zero_day = np.full(n_paths, -1.0)
     touched = np.zeros(n_paths, dtype=bool)
+    from math import erf as _erf
+    _vn = np.vectorize(lambda x: 0.5 * (1.0 + _erf(x / math.sqrt(2.0))))
+
+    def _bs_vec(s_arr, T_rem):
+        # Vectorized Black-Scholes, the same formula as metrics._bs_price
+        # (r=rate, q=0), so a path set of thousands is priced in one call.
+        sq = math.sqrt(T_rem)
+        d1 = (np.log(s_arr / strike) + (rate + 0.5 * iv_entry * iv_entry) * T_rem) / (iv_entry * sq)
+        d2 = d1 - iv_entry * sq
+        disc = math.exp(-rate * T_rem)
+        if side == "call":
+            return s_arr * _vn(d1) - strike * disc * _vn(d2)
+        return strike * disc * _vn(-d2) - s_arr * _vn(-d1)
+
     for k in range(steps):
         s_k = paths[:, k]
         remaining_cal = max(0.0, days - (k + 1) * cal_per_step)
@@ -433,8 +447,7 @@ def profit_path_stats(spot, strike, sigma_real, iv_entry, dte_calendar, side, cr
         if T_rem <= 0:
             val = np.maximum(0.0, (strike - s_k) if side == "put" else (s_k - strike))
         else:
-            val = np.array([_bs_price(float(s), strike, T_rem, iv_entry, side, r=rate, q=0.0)
-                            for s in s_k])
+            val = _bs_vec(s_k, T_rem)
         touched |= (s_k <= strike) if side == "put" else (s_k >= strike)
         for f in targets:
             m = (hit_day[f] < 0) & (val <= credit * (1.0 - f))
