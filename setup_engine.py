@@ -291,13 +291,21 @@ def measured_touch(conditional: dict | None, baseline: dict | None,
         b_rate = _pct(b.get("rate"))
         if c_rate is None or c_n <= 0:
             continue
-        hits = int(round(c_rate / 100.0 * c_n))
+        # Overlapping windows are not independent trials. The producer says
+        # how many of them do not overlap (`n_eff`); the Wilson bound and the
+        # sample-size floor both run on that number, while `n` stays on the
+        # row because it is what was actually measured (v4.77). A producer
+        # that reports no overlap count is taken at its word — the live
+        # producer (setup_scan.touch_curve) always reports one.
+        n_eff = int(c.get("n_eff") or c_n)
+        n_eff = max(1, min(n_eff, c_n))
+        hits_eff = int(round(c_rate / 100.0 * n_eff))
         # The share that did NOT travel that far is the seller's win rate, so
         # the conservative bound is the Wilson LOWER bound on not touching.
-        keep_low = wilson_low(c_n - hits, c_n)
+        keep_low = wilson_low(n_eff - hits_eff, n_eff)
         rows.append({
             "distance_pct": _num(key),
-            "touch_pct": round(c_rate, 1), "n": c_n,
+            "touch_pct": round(c_rate, 1), "n": c_n, "n_eff": n_eff,
             "baseline_touch_pct": round(b_rate, 1) if b_rate is not None else None,
             "edge_points": (round(b_rate - c_rate, 1) if b_rate is not None else None),
             "keep_pct": round(100.0 - c_rate, 1),
@@ -307,12 +315,13 @@ def measured_touch(conditional: dict | None, baseline: dict | None,
         return {"usable": False, "rows": [],
                 "reason": ("No measured history for how far this stock travels "
                            "in this state over this horizon.")}
-    best_n = max(r["n"] for r in rows)
+    best_n = max(r["n_eff"] for r in rows)
     if best_n < min_n:
-        return {"usable": False, "rows": rows, "max_n": best_n,
-                "reason": (f"Only {best_n} comparable windows in this state — "
-                           f"fewer than the {min_n} needed before a measured "
-                           f"rate is worth acting on.")}
+        raw_n = max(r["n"] for r in rows)
+        return {"usable": False, "rows": rows, "max_n": best_n, "max_n_raw": raw_n,
+                "reason": (f"Only {best_n} independent windows in this state "
+                           f"({raw_n} measured, most overlapping) — fewer than the "
+                           f"{min_n} needed before a measured rate is worth acting on.")}
     edges = [r["edge_points"] for r in rows if r["edge_points"] is not None]
     mean_edge = (sum(edges) / len(edges)) if edges else None
     calmer = mean_edge is not None and mean_edge >= min_edge
@@ -546,8 +555,13 @@ def gex_context(gex_block: dict | None, spot, strike, side: str,
     }
 
 
+# `unknown` is 1.0 on purpose (v4.77). It means no gamma reading exists —
+# the chain had no usable open interest, or the engine was not wired — and
+# absent data is not a reading. At 0.9 a missing feed quietly turned the
+# documented 0.15–0.22 default into 0.135–0.198, a policy change nobody
+# asked for and nothing on the card explained.
 GEX_DELTA_ADJUST = {"supports": 1.0, "neutral": 1.0, "opposes": 0.8,
-                    "unknown": 0.9, "veto": 0.0}
+                    "unknown": 1.0, "veto": 0.0}
 
 
 def apply_gex_to_ceiling(ceiling: dict, gex: dict) -> dict:
@@ -559,7 +573,7 @@ def apply_gex_to_ceiling(ceiling: dict, gex: dict) -> dict:
     """
     out = dict(ceiling)
     v = gex.get("verdict", "unknown")
-    factor = GEX_DELTA_ADJUST.get(v, 0.9)
+    factor = GEX_DELTA_ADJUST.get(v, 1.0)
     if v == "veto":
         out["vetoed"] = True
         out["veto_note"] = gex.get("note")
@@ -704,6 +718,7 @@ def recommend(symbol: str, spot, side: str, expiration: str, dte,
     # rule about risk.
     dband = ceiling.get("default_band") or DEFAULT_DELTA_BAND
     eligible, rejected = [], []
+    illiquid = 0
     for c in (contracts or []):
         d = _num(c.get("delta"))
         if d is None:
@@ -730,15 +745,31 @@ def recommend(symbol: str, spot, side: str, expiration: str, dte,
                 rejected.append((c, f"delta {ad:.2f} outside the {band[0]:.2f}"
                                     f"–{band[1]:.2f} band"))
             continue
+        # Liquidity is a GATE, not a score penalty (v4.77). A contract that
+        # cannot be entered and exited at anything near the quoted numbers
+        # is not a recommendation with a caveat; it is not a recommendation.
+        # Before this it lost 40 points and could still finish first when
+        # every neighbour was worse.
+        if c.get("liquidity_ok") is False:
+            rejected.append((c, "fails the liquidity gate: "
+                             + ", ".join(c.get("liquidity_notes") or ["thin market"])))
+            illiquid += 1
+            continue
         g = gex_context(gex_block, spot, c.get("strike"), side)
         sc = score_contract(c, g)
         eligible.append({**c, "gex": g, "scoring": sc,
                          "eligible_by": ("measured" if by_measure else "default")})
     if not eligible:
+        in_band_illiquid = illiquid > 0 and illiquid >= len(rejected) - illiquid
         return {
             "ok": False, "symbol": symbol, "side": side,
-            "reason": ("No contract on this expiration sits inside the delta band "
-                       "the evidence supports."),
+            "reason": ((f"Every contract inside the delta band the evidence supports "
+                        f"fails the liquidity gate ({illiquid} checked) — the strikes "
+                        f"exist, but not at a market you could trade.")
+                       if in_band_illiquid else
+                       ("No contract on this expiration sits inside the delta band "
+                        "the evidence supports.")),
+            "illiquid": bool(illiquid),
             "band": band, "rejected": len(rejected),
             "version": SETUP_VERSION,
         }
@@ -827,12 +858,19 @@ def recommend(symbol: str, spot, side: str, expiration: str, dte,
         "premium_pct_collateral": best.get("prem_pct_collateral"),
         "annualized_pct": best.get("annualized_pct"),
         "p_keep_model": (round(100.0 - pit, 1) if pit is not None else None),
-        "p_touch_model": best.get("p_touch_model"),
+        # Percent, like p_keep_model beside it. The producer speaks in
+        # fractions; a 0.31 next to an 84.0 read as a third of one percent
+        # (v4.77).
+        "p_touch_model": _prob_pct(best.get("p_touch_model")),
+        "prob_basis": best.get("prob_basis"),
         "ev_per_contract": best.get("ev_per_contract"),
         "tail_loss_per_share": best.get("es5_per_share"),
         "breakeven": best.get("breakeven"), "collateral": best.get("collateral"),
         "spread_pct": best.get("spread_pct"), "open_interest": best.get("oi"),
         "liquidity_ok": best.get("liquidity_ok"),
+        # Provenance of the quote behind the numbers above (v4.77).
+        "quote_age_s": best.get("quote_age_s"),
+        "delta_source": best.get("delta_source"),
         "band": band, "band_raised": bool(ceiling.get("raised")),
         "bias": bias, "ceiling": ceiling, "gex": best["gex"],
         "iv": iv_block or {},

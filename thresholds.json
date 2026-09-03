@@ -191,7 +191,7 @@
       "global_weights": {
         "RV20": 0.3,
         "EWMA94": 0.35,
-        "PARK20": 0.35
+        "PARK20C": 0.35
       },
       "anchor_window": 252,
       "anchor_shrink": 0.25,

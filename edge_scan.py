@@ -250,7 +250,11 @@ def analyze_symbol(sym: str, intent: str = "premium_only", record: bool = False,
     if not bars or len(bars) < int(cfg.get("forecast", {}).get("min_history_bars", 120)):
         return {"symbol": sym, "error": "insufficient price history", "data_ok": False}
     to_date = (now + timedelta(days=int(sn.get("chain_days_out", 95)))).isoformat()
-    chain = sc.get_option_chain(sym, to_date=to_date,
+    # BOTH dates. get_option_chain only sends a date range when `expiration`
+    # is set, so passing `to_date` alone asked Schwab for EVERY expiration —
+    # the unbounded request v4.60 removed elsewhere — and the documented
+    # "one call, 95 days out" was never what went over the wire (v4.77).
+    chain = sc.get_option_chain(sym, expiration=now.isoformat(), to_date=to_date,
                                 strike_count=int(sn.get("chain_strike_count", 50)))
     if not chain or not chain.get("chains"):
         return {"symbol": sym, "error": "no option chain", "data_ok": False}
@@ -710,6 +714,7 @@ def breach_stats(bars: list, cfg: dict) -> dict | None:
             continue
         for k in ks:
             n = pt = pi = ct = ci = 0
+            sig_sum = 0.0
             for i in range(start, ends, 2):      # step 2: cheap, still dense
                 sigma = vf.rv(closes[: i + 1], 20)
                 if not sigma or closes[i] <= 0:
@@ -722,6 +727,7 @@ def breach_stats(bars: list, cfg: dict) -> dict | None:
                 if len(lo_seg) < h * 0.8 or closes[i + h] <= 0:
                     continue
                 n += 1
+                sig_sum += sigma
                 if min(lo_seg) <= put_k:
                     pt += 1
                 if closes[i + h] <= put_k:
@@ -732,10 +738,16 @@ def breach_stats(bars: list, cfg: dict) -> dict | None:
                     ci += 1
             if n < min_w:
                 continue
-            model_touch = pe.touch_prob(100.0, 100.0 * math.exp(-k * 0.30 * math.sqrt(t_years)),
-                                        0.30, t_years)
-            model_itm = pe.p_itm(100.0, 100.0 * math.exp(-k * 0.30 * math.sqrt(t_years)),
-                                 0.30, t_years, "put")
+            # The model column at the σ the windows were actually placed
+            # with (their mean), not a fixed 30%. Touch is scale-free in k,
+            # but P(ITM) carries a ½σ²T term, so a hard-coded σ misstated
+            # the calibration gap on every ticker that is not a 30-vol
+            # stock (v4.77).
+            sbar = sig_sum / n
+            model_touch = pe.touch_prob(100.0, 100.0 * math.exp(-k * sbar * math.sqrt(t_years)),
+                                        sbar, t_years)
+            model_itm = pe.p_itm(100.0, 100.0 * math.exp(-k * sbar * math.sqrt(t_years)),
+                                 sbar, t_years, "put")
             out_rows.append({
                 "horizon_td": h, "k_sigma": k, "n": n,
                 "put_touch_emp": round(pt / n, 4), "put_itm_emp": round(pi / n, 4),
