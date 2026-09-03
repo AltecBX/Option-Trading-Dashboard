@@ -140,6 +140,9 @@ async function slReadJson(r) {
 
 // ── column definitions (label, key, tooltip, formatter, numeric) ────────────
 const SL_COLS = [["Rank", "rank", "rank", r => r.rank, true], ["Symbol", "symbol", "symbol", null, false], ["Structure", "strategy", "strategy_col", r => SL_STRAT_LABEL[r.strategy] || r.strategy, false], ["Side", "side", "side", r => String(r.side || "").toUpperCase(), false], ["Expiration", "expiration", "expiration", r => slDate(r.expiration), false], ["Days", "dte", "dte", r => `${slNum(r.dte, 0)} · ${r.dte_bucket}`, true], ["Short strike", "short_strike", "short_strike", r => r.short_call != null ? `${slNum(r.short_strike, 1)} / ${slNum(r.short_call, 1)}` : slNum(r.short_strike, 1), true], ["Wing · width", "width", "long_strike", r => r.long_strike == null ? "—" : `${slNum(r.long_strike, 1)} · ${slNum(r.width, 1)}`, true], ["Distance", "dist_pct", "dist", r => slPctRaw(Math.abs(r.dist_pct || 0), 1), true], ["Expected moves", "k_sigma", "moves", r => slNum(r.k_sigma, 2), true], ["Delta", "delta", "delta", r => slNum(Math.abs(r.delta || 0), 2), true], ["Credit (bid)", "credit", "credit", r => slMoney(r.credit), true], ["Net credit", "net_credit", "net_credit", r => slMoney(r.net_credit), true], ["Spread", "spread_pct", "spread_pct", r => slPctRaw(r.spread_pct, 1), true], ["Open interest", "oi", "oi", r => r.oi == null ? "—" : Number(r.oi).toLocaleString(), true], ["Volume", "volume", "volume", r => r.volume == null ? "—" : Number(r.volume).toLocaleString(), true], ["P0 model", "p0_model", "p0_model", r => slPct(r.p0_model), true], ["P0 conservative", "p0_conservative", "p0_conservative", r => slPct(r.p0_conservative), true], ["P0 measured", "p0_measured", "p0_measured", r => `${slPct(r.p0_measured)}${r.n_eff ? ` (${r.n_eff})` : ""}`, true], ["Touch", "p_touch", "p_touch", r => slPct(r.p_touch), true], ["Touch measured", "p_touch_measured", "p_touch_measured", r => slPct(r.p_touch_measured), true], ["Profit", "p_profit", "p_profit", r => slPct(r.p_profit), true], ["Half credit by", "p_hit_50", "p_hit_50", r => r.p_hit_50 == null ? "—" : `${slPct(r.p_hit_50)} · day ${slNum(r.days_to_50, 0)}`, true], ["Expected value", "ev_per_contract", "ev", r => slSigned(r.ev_per_contract, 0), true], ["Worst 5%", "es95_per_share", "es95", r => slMoney(r.es95_per_share), true], ["Max loss", "max_loss_per_share", "max_loss", r => slMoney(r.max_loss_per_share), true], ["Capital", "capital", "capital", r => slMoney(r.capital, 0), true], ["Return", "roc_pct", "roc", r => slPctRaw(r.roc_pct, 2), true], ["Annualized", "annualized_roc_pct", "ann", r => slPctRaw(r.annualized_roc_pct, 0), true], ["Value per tail", "ev_per_tail", "ev_tail", r => slNum(r.ev_per_tail, 3), true], ["Implied vs forecast", "iv", "iv", r => `${slPct(r.iv)} / ${slPct(r.sigma_h)}`, true], ["Premium ratio", "vrp_ratio", "vrp", r => slNum(r.vrp_ratio, 2), true], ["Earnings", "earnings_in_days", "earnings", r => r.earnings_date ? `${slDate(r.earnings_date)}${r.earnings_in_days != null ? ` (${r.earnings_in_days}d)` : ""}` : "none known", false], ["Sell Quality", "sell_quality", "sq", r => slNum(r.sell_quality, 1), true], ["Confidence", "confidence", "confidence", r => String(r.confidence || "").toUpperCase(), false], ["Data", "data_source", "data", r => `${String(r.data_source || "?").toUpperCase()}${r.greeks ? ` · ${r.greeks}` : ""}${r.quote_age_s != null ? ` · ${slNum(r.quote_age_s, 0)}s` : ""}`, false]];
+// On a phone the table stacks into cards; only the decision-relevant fields
+// show there (the full set is one tap away in the expanded row).
+const SL_MOBILE = new Set(["rank", "symbol", "strategy", "expiration", "short_strike", "width", "dist_pct", "credit", "p0_model", "p0_conservative", "p_touch", "ev_per_contract", "es95_per_share", "roc_pct", "sell_quality", "confidence"]);
 const SL_DEFAULT_ASC = new Set(["rank", "symbol", "strategy", "side", "expiration", "dte", "spread_pct", "p_touch", "p_touch_measured", "es95_per_share", "max_loss_per_share", "capital", "delta"]);
 
 // ── sub-components ─────────────────────────────────────────────────────────
@@ -407,19 +410,22 @@ function SlCalibration({
     title: SL_TIP.learning
   }, "Learning check: ", /*#__PURE__*/React.createElement("b", null, learn.status), " \u2014 ", learn.note) : null);
 }
-function SlDetailRow({
+function SlDetailBlock({
   r,
   detail,
   pathway,
-  colSpan,
-  why
+  why,
+  onClose
 }) {
-  return /*#__PURE__*/React.createElement("tr", {
-    className: "sl-detail-row"
-  }, /*#__PURE__*/React.createElement("td", {
-    colSpan: colSpan,
-    className: "mtable-full"
+  return /*#__PURE__*/React.createElement("div", {
+    className: "sl-detail-wrap"
   }, /*#__PURE__*/React.createElement("div", {
+    className: "sl-detail-head"
+  }, /*#__PURE__*/React.createElement("b", null, "#", r.rank, " ", r.symbol), " \xB7 ", SL_STRAT_LABEL[r.strategy] || r.strategy, " \xB7 ", slDate(r.expiration), " \xB7", " ", "short ", slNum(r.short_strike, 1), r.long_strike != null ? ` / long ${slNum(r.long_strike, 1)}` : "", /*#__PURE__*/React.createElement("button", {
+    className: "su-more-btn sl-close",
+    onClick: onClose,
+    title: "Collapse this row"
+  }, "Close")), /*#__PURE__*/React.createElement("div", {
     className: "sl-detail"
   }, why ? /*#__PURE__*/React.createElement("div", {
     className: "sl-block"
@@ -443,7 +449,7 @@ function SlDetailRow({
     title: SL_TIP.pathway
   }, "Risk pathway"), /*#__PURE__*/React.createElement(SlPathway, {
     pw: pathway
-  })) : null)));
+  })) : null));
 }
 
 // ── the card ─────────────────────────────────────────────────────────────────
@@ -537,6 +543,7 @@ function SellBestCard({
       return (ka < kb ? -1 : ka > kb ? 1 : 0) * sortD;
     });
   }, [rows, sortK, sortD]);
+  const openRow = open ? sorted.find(r => slRowKey(r) === open) || null : null;
   const th = (label, k, tipKey, numeric) => /*#__PURE__*/React.createElement("th", {
     key: k,
     className: numeric ? "scan-th-num" : "",
@@ -676,9 +683,9 @@ function SellBestCard({
       title: "Click for the Sell Quality breakdown, the gates, the profit targets and the risk pathway"
     }, SL_COLS.map(([label, ck, tipKey, f, numeric]) => /*#__PURE__*/React.createElement("td", {
       key: ck,
-      className: numeric ? "scan-num" : "",
       "data-label": label,
-      title: SL_TIP[tipKey]
+      title: SL_TIP[tipKey],
+      className: `${numeric ? "scan-num" : ""} ${SL_MOBILE.has(ck) ? "" : "sl-m-hide"}`
     }, ck === "symbol" ? /*#__PURE__*/React.createElement("button", {
       className: "su-blink",
       title: SL_TIP.symbol,
@@ -686,14 +693,14 @@ function SellBestCard({
         e.stopPropagation();
         onPickTicker && onPickTicker(r.symbol);
       }
-    }, r.symbol) : f(r)))), isOpen ? /*#__PURE__*/React.createElement(SlDetailRow, {
-      r: r,
-      colSpan: SL_COLS.length,
-      detail: detailFor(r),
-      pathway: (data.risk_pathways || {})[slPathKey(r)] || null,
-      why: r.rank === 1 ? data.why_number_one : null
-    }) : null);
-  })))) : null, portfolio && (portfolio.flags || []).length ? /*#__PURE__*/React.createElement("div", {
+    }, r.symbol) : f(r)))));
+  })))) : null, openRow ? /*#__PURE__*/React.createElement(SlDetailBlock, {
+    r: openRow,
+    detail: detailFor(openRow),
+    pathway: (data.risk_pathways || {})[slPathKey(openRow)] || null,
+    why: openRow.rank === 1 ? data.why_number_one : null,
+    onClose: () => setOpen(null)
+  }) : null, portfolio && (portfolio.flags || []).length ? /*#__PURE__*/React.createElement("div", {
     className: "sl-flags",
     title: SL_TIP.portfolio
   }, /*#__PURE__*/React.createElement("b", null, "Portfolio note:"), " ", portfolio.flags.join(" · ")) : null, data ? /*#__PURE__*/React.createElement("div", {

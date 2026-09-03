@@ -1019,7 +1019,8 @@
       "_doc": "Best Sales Today funnel. Stage 1 is free (watchlist board + measured richness from the Premium Edge observation store); stage 2 reuses the Premium Edge chain fetch for the same names (one fetch serves every subsystem); the evidence table per symbol is cached for a day.",
       "max_symbols": 24,
       "evidence_cache_hours": 20,
-      "top_n": 25
+      "top_n": 25,
+      "max_rows_per_symbol": 3
     }
   }
 }

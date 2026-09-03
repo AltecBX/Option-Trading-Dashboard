@@ -13285,3 +13285,9 @@ a.tabsheet-btn.site { text-decoration: none; }
   .sl-table td { white-space: normal; }
   .sl-pathway { grid-template-columns: 1fr; }
 }
+.sl-detail-wrap { margin: 10px 0; border: 1px solid var(--sl-line); border-radius: 12px; background: var(--bg-2); padding: 10px 12px; }
+.sl-detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-bottom: 6px; }
+.sl-close { margin-left: auto; }
+@media (max-width: 620px) {
+  .sl-table td.sl-m-hide { display: none; }
+}

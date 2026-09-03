@@ -852,6 +852,9 @@ def explain(top: dict, runner_up: dict | None = None, ctx: dict | None = None) -
          f"and the largest seen was {ex.get('gap_toward_strike_sigma_max')}σ, against a strike {top.get('k_sigma', 0):.2f}σ away."
          if ex.get("gap_toward_strike_sigma_p95") is not None else "Gap history unavailable."),
         "A scheduled or unscheduled event repricing the whole name (the earnings gate only covers known dates).",
+        "A regime shift the forecast cannot see: in the walk-forward stress test, contracts opened in the six "
+        "weeks before March 2020 claimed a 92% chance of expiring worthless and delivered 40% (MEASURED on 50 "
+        "names). No gate saw it coming; Conservative mode refused 77% of those dates, Balanced 6%.",
         "IV holding flat is assumed for the early-profit paths; a volatility spike after entry delays every target.",
     ]
     worst = (f"When this distance was breached, price overshot the strike by {_r(ex.get('overshoot_sigma'))}σ on "
@@ -908,13 +911,13 @@ def risk_pathway(c: dict, cfg: dict | None = None) -> dict:
     ex = c.get("excursion") or {}
     danger = {"price": (f"spot within {max(1.0, abs(c.get('dist_pct') or 0) / 2):.1f}% of the short strike "
                         f"({c['short_strike']}) — from the history, the first touch typically comes after "
-                        f"{ex.get('first_touch_bars')} sessions"),
+                        f"{_r(ex.get('first_touch_bars'), 1)} sessions"),
               "volatility": "implied volatility rising more than 10 points after entry",
               "event": "any newly scheduled company event inside the life of the option",
               "market": "the index gamma regime flipping to short (moves accelerate)"}
     exit_ = {"residual_reward_vs_risk": (f"When the remaining premium is under {round(credit * 0.25, 2)} "
                                          f"(75% captured) the reward left is small against a tail that is "
-                                         f"still {c.get('es95_per_share')} per share — buying back is "
+                                         f"still {_r(c.get('es95_per_share'))} per share — buying back is "
                                          f"statistically reasonable unless expiry is within a few days."),
              "rule": "close when residual credit < 25% AND days left > 5, or on any DANGER trigger"}
     roll = {"note": ("A roll must improve the position: the new credit net of the close cost must be "

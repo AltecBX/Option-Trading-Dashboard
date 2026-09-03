@@ -320,6 +320,21 @@ def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | N
         for g in pm.get("rejection_summary") or []:
             rejections.append({**g, "symbol": sym})
     ranked = E.rank(pool)
+    # One rich name must not fill the board: cap the rows per symbol so the
+    # top list compares STOCKS, then re-rank what is shown. Every contract
+    # of a symbol remains reachable through detail().
+    per_sym_cap = int((cfg.get("scan") or {}).get("max_rows_per_symbol", 3))
+    if per_sym_cap > 0:
+        counts: dict = {}
+        capped = []
+        for c in ranked:
+            n = counts.get(c["symbol"], 0)
+            if n < per_sym_cap:
+                counts[c["symbol"]] = n + 1
+                capped.append(c)
+        for i, c in enumerate(capped, 1):
+            c["rank"] = i
+        ranked = capped
     E.attach_paths(ranked, top_n=min(10, top_n))
     top = ranked[:top_n]
     # collapse rejections across symbols by (gate, reason)

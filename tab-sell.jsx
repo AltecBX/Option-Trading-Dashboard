@@ -185,6 +185,11 @@ const SL_COLS = [
   ["Data", "data_source", "data",
     (r) => `${String(r.data_source || "?").toUpperCase()}${r.greeks ? ` · ${r.greeks}` : ""}${r.quote_age_s != null ? ` · ${slNum(r.quote_age_s, 0)}s` : ""}`, false],
 ];
+// On a phone the table stacks into cards; only the decision-relevant fields
+// show there (the full set is one tap away in the expanded row).
+const SL_MOBILE = new Set(["rank", "symbol", "strategy", "expiration", "short_strike", "width", "dist_pct",
+                           "credit", "p0_model", "p0_conservative", "p_touch", "ev_per_contract",
+                           "es95_per_share", "roc_pct", "sell_quality", "confidence"]);
 const SL_DEFAULT_ASC = new Set(["rank", "symbol", "strategy", "side", "expiration", "dte", "spread_pct",
                                 "p_touch", "p_touch_measured", "es95_per_share", "max_loss_per_share", "capital", "delta"]);
 
@@ -431,10 +436,14 @@ function SlCalibration({ apiFetch }) {
   );
 }
 
-function SlDetailRow({ r, detail, pathway, colSpan, why }) {
+function SlDetailBlock({ r, detail, pathway, why, onClose }) {
   return (
-    <tr className="sl-detail-row">
-      <td colSpan={colSpan} className="mtable-full">
+    <div className="sl-detail-wrap">
+      <div className="sl-detail-head">
+        <b>#{r.rank} {r.symbol}</b> · {SL_STRAT_LABEL[r.strategy] || r.strategy} · {slDate(r.expiration)} ·
+        {" "}short {slNum(r.short_strike, 1)}{r.long_strike != null ? ` / long ${slNum(r.long_strike, 1)}` : ""}
+        <button className="su-more-btn sl-close" onClick={onClose} title="Collapse this row">Close</button>
+      </div>
         <div className="sl-detail">
           {why ? (
             <div className="sl-block">
@@ -458,8 +467,7 @@ function SlDetailRow({ r, detail, pathway, colSpan, why }) {
             </div>
           ) : null}
         </div>
-      </td>
-    </tr>
+    </div>
   );
 }
 
@@ -534,6 +542,7 @@ function SellBestCard({ apiFetch, onPickTicker }) {
       return (ka < kb ? -1 : ka > kb ? 1 : 0) * sortD;
     });
   }, [rows, sortK, sortD]);
+  const openRow = open ? sorted.find((r) => slRowKey(r) === open) || null : null;
 
   const th = (label, k, tipKey, numeric) => (
     <th key={k} className={numeric ? "scan-th-num" : ""} title={SL_TIP[tipKey]}
@@ -661,7 +670,8 @@ function SellBestCard({ apiFetch, onPickTicker }) {
                     <tr className={`scan-row sl-row ${isOpen ? "scan-row-active" : ""} ${r.rank === 1 ? "sl-row-top" : ""}`}
                         onClick={() => toggle(r)} title="Click for the Sell Quality breakdown, the gates, the profit targets and the risk pathway">
                       {SL_COLS.map(([label, ck, tipKey, f, numeric]) => (
-                        <td key={ck} className={numeric ? "scan-num" : ""} data-label={label} title={SL_TIP[tipKey]}>
+                        <td key={ck} data-label={label} title={SL_TIP[tipKey]}
+                            className={`${numeric ? "scan-num" : ""} ${SL_MOBILE.has(ck) ? "" : "sl-m-hide"}`}>
                           {ck === "symbol" ? (
                             <button className="su-blink" title={SL_TIP.symbol}
                                     onClick={(e) => { e.stopPropagation(); onPickTicker && onPickTicker(r.symbol); }}>
@@ -671,18 +681,23 @@ function SellBestCard({ apiFetch, onPickTicker }) {
                         </td>
                       ))}
                     </tr>
-                    {isOpen ? (
-                      <SlDetailRow r={r} colSpan={SL_COLS.length}
-                                   detail={detailFor(r)}
-                                   pathway={(data.risk_pathways || {})[slPathKey(r)] || null}
-                                   why={r.rank === 1 ? data.why_number_one : null} />
-                    ) : null}
                   </React.Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
+      ) : null}
+
+      {/* The expanded row renders BELOW the table, not inside its scroll
+          frame, so the defence of a pick reads full width without a second
+          scrollbar. */}
+      {openRow ? (
+        <SlDetailBlock r={openRow}
+                       detail={detailFor(openRow)}
+                       pathway={(data.risk_pathways || {})[slPathKey(openRow)] || null}
+                       why={openRow.rank === 1 ? data.why_number_one : null}
+                       onClose={() => setOpen(null)} />
       ) : null}
 
       {portfolio && (portfolio.flags || []).length ? (
