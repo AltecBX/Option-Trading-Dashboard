@@ -13232,3 +13232,69 @@ a.tabsheet-btn.site { text-decoration: none; }
   color: var(--down);
   background: color-mix(in srgb, var(--down) 10%, transparent);
 }
+
+/* ── Best Sales Today (v4.80, tab-sell.jsx) ─────────────────────────────── */
+.sl-card { --sl-line: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.sl-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sl-select {
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 9px; padding: 6px 9px; font: inherit; font-size: 13px;
+}
+.sl-modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+.sl-mode {
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-2);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.sl-mode:hover { color: var(--fg); background: var(--bg-3); }
+.sl-mode-on { background: color-mix(in srgb, var(--accent) 18%, var(--bg-2)); color: var(--fg); border-color: var(--accent); font-weight: 600; }
+.sl-status { color: var(--fg-3); font-size: 12.5px; margin: 0 0 8px; }
+.sl-live { color: var(--up); font-weight: 600; }
+.sl-muted { color: var(--fg-3); font-size: 12.5px; margin: 6px 0; }
+.sl-notrade { font-size: 14px; }
+.sl-table-wrap { max-height: 70vh; }
+.sl-table th, .sl-table td { white-space: nowrap; font-size: 12.5px; padding: 6px 8px; }
+.sl-table .sl-row { cursor: pointer; }
+.sl-row-top td { font-weight: 600; }
+.sl-row-top td:first-child { color: var(--up); }
+.sl-detail-row td { white-space: normal; background: var(--bg-2); }
+.sl-detail { display: grid; gap: 12px; padding: 8px 4px; max-width: min(100%, 120ch); }
+.sl-block { border: 1px solid var(--sl-line); border-radius: 11px; padding: 10px 12px; background: var(--bg); }
+.sl-block-title { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
+.sl-mini { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sl-mini th { text-align: left; color: var(--fg-3); font-weight: 600; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+.sl-mini td { padding: 4px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); vertical-align: top; }
+.sl-mini .scan-num { text-align: right; }
+.sl-gates { list-style: none; padding: 0; margin: 0; display: grid; gap: 3px; }
+.sl-gate-ok { color: var(--fg-2); }
+.sl-gate-ok b { color: var(--up); }
+.sl-gate-no b { color: var(--down); }
+.sl-why { display: grid; gap: 8px; }
+.sl-why-sec p, .sl-why-sec ul { margin: 2px 0 0; font-size: 13px; line-height: 1.45; }
+.sl-why-sec ul { padding-left: 18px; }
+.sl-why-title { font-weight: 600; font-size: 12.5px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.sl-pathway { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.sl-pw { border-left: 3px solid var(--sl-line); padding-left: 10px; }
+.sl-pw-title { font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.sl-pw p, .sl-pw ul { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; }
+.sl-pw ul { padding-left: 18px; }
+.sl-flags { margin: 8px 0; padding: 8px 12px; border-radius: 9px; background: color-mix(in srgb, var(--warn) 12%, var(--bg-2)); font-size: 13px; }
+.sl-cal-off td { color: var(--down); }
+.sl-failed td:nth-child(2) { white-space: normal; }
+@media (max-width: 620px) {
+  .sl-table-wrap { max-height: none; }
+  .sl-table td { white-space: normal; }
+  .sl-pathway { grid-template-columns: 1fr; }
+}
+.sl-detail-wrap { margin: 10px 0; border: 1px solid var(--sl-line); border-radius: 12px; background: var(--bg-2); padding: 10px 12px; }
+.sl-detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-bottom: 6px; }
+.sl-close { margin-left: auto; }
+@media (max-width: 620px) {
+  .sl-table td.sl-m-hide { display: none; }
+}
+/* Inner tables must never widen the detail block past the viewport: grid
+   items default to min-width:auto, which lets an 8-column table push the
+   whole block off a phone's right edge. */
+.sl-detail-wrap { max-width: 100%; box-sizing: border-box; overflow: hidden; }
+.sl-detail, .sl-detail > *, .sl-block { min-width: 0; }
+.sl-block { overflow-x: auto; }
+.sl-why, .sl-pw, .sl-block p, .sl-block li { overflow-wrap: anywhere; }

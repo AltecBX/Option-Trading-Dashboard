@@ -236,3 +236,15 @@ Premium Edge scan append the day's IV30 to disk per symbol. Until enough
 has accumulated, the `Backtest` tab reports `modeled` rather than
 `measured` — and the delta question above cannot be answered from real
 prices.
+
+## v4.80 — where this sits under Best Sales Today
+
+The card above both of these on the Trade tab, Best Sales Today
+(SHORT_PREMIUM.md), answers the market-wide question in a chosen selling
+mode and records every row it shows for grading. Best Setup keeps its job
+— the explained trade on the symbol you are looking at — and the board
+keeps its selection claim. v4.77 fixes shared with the engine: the horizon
+is counted in trading days (`horizon_bars`), the measured widening's
+Wilson interval uses the independent window count (`n_eff`), an "unknown"
+gamma read no longer narrows the band, illiquid contracts are refused
+rather than penalised, and retryable chain failures are not cached.

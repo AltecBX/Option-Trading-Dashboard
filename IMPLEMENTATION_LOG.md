@@ -2529,3 +2529,55 @@ neither.
 
 2,810 Python tests. All four bugs were re-broken deliberately to confirm
 the new guards fail against the shipped code.
+
+## v4.80 — Best Sales Today: one short-premium engine, graded
+
+The user's highest priority is selling options, and the question behind
+it is narrow: which option has the strongest evidence of expiring
+worthless while still paying for the risk. Four surfaces answered parts of
+it with four probabilities and no memory of what they had claimed. The
+audit (five code readers plus a primary-source research brief) found the
+defects that mattered before anything new was built: a config key
+(`PARK20`) that silently zeroed a third of the volatility forecast, a chain
+fetch that asked Schwab for every expiration when a date was missing, a
+setup horizon counted in calendar days and used as bars, Wilson intervals
+on overlapping windows as if they were independent, a liquidity penalty
+where a gate was needed, an "unknown" gamma factor that narrowed the band,
+a breach model with a hard-coded 30% sigma, and retryable failures cached
+as answers. All fixed with guards (`test_v477_seller_defects`, 13 of 18
+fail against the shipped code).
+
+Then one engine. `sp_probability` separates P0, P(touch), P(profit), the
+early-target odds and the tail, each at the contract's own horizon, with
+the distribution, the tail correction and the touch model chosen by
+walk-forward on ten years of a hundred names and the losers written down.
+`sp_evidence` measures each stock's own breach history under fixed states
+and shrinks it toward peers and the universe, reporting how much is its
+own. `sp_engine` runs six gates in order and refuses out loud, scores what
+survives, orders it by a stated objective per mode, and writes the defence
+of number one in plain English. `sell_scan` rides the Premium Edge chain
+pass — one fetch, both engines — and records every row it shows.
+`sp_forward` grades those rows after expiry from daily bars and builds the
+calibration tables; profit is labeled MODELED and early targets
+UNAVAILABLE because there is no option price history to measure them on.
+
+The ranking objectives were backtested with the real engine on modeled
+premiums over measured paths. Balanced's objective — expected value per
+unit of tail — was the only one that won both halves; it stays the
+default. The dense 2020 pass is the finding to remember: contracts opened
+in the six weeks before the crash claimed 92% and delivered 40% in every
+mode, and the only defense was Conservative refusing 77% of those dates.
+NO TRADE is a first-class answer on the card for that reason.
+
+The card sits at the top of the Trade tab: four modes, thirty-six sortable
+columns each with a tooltip, the expanded row with the Sell Quality
+breakdown, the gates, the profit targets and the risk pathway, WHY OTHER
+STOCKS FAILED grouped by gate, the funnel, and the calibration panel that
+says ACCRUING until something has been graded. Every date is spelled out.
+Screenshots on desktop and a 400-pixel phone showed no console errors;
+the phone stack shows the sixteen decision fields and the detail wraps.
+
+SHORT_PREMIUM.md carries the architecture, the validation tables, the
+honest ledger and the limitations. 2,941 Python tests before the new
+modules; the new suites add 97, plus 83 source guards in
+`test_sell_ui.js` and ten routes in the HTTP smoke.

@@ -598,6 +598,13 @@ def contract_economics(row: dict, spot: float, side: str, t_years: float,
         "credit_exec": round(bid, 2), "credit_basis": "bid (resting-order floor)",
         "spread_pct": round((ask - bid) / mid * 100.0, 1) if mid > 0 else None,
         "volume": row.get("volume"), "oi": row.get("openInterest"),
+        # Quote provenance rides along so a consumer can gate on it: how
+        # old the quote is, how much size sits at the bid and ask, and
+        # whether the delta came from the broker or was computed here.
+        "quote_age_s": row.get("quote_age_s"),
+        "bid_size": row.get("bid_size"), "ask_size": row.get("ask_size"),
+        "delta_source": ("provider" if row.get("delta") is not None
+                         else ("computed" if delta is not None else None)),
         "delta": round(float(delta), 3) if delta is not None else None,
         "theta": row.get("theta"), "gamma": row.get("gamma"), "vega": row.get("vega"),
         "iv": round(iv_row, 4) if iv_row else None,

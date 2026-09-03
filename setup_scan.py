@@ -142,24 +142,70 @@ def forward_extremes(highs, lows, days: int):
     not exist — an incomplete window is not a miss, and counting it as one
     would flatter every rate at the recent end of the history.
     """
+    from collections import deque
     n = len(highs)
     mx: list = [None] * n
     mn: list = [None] * n
     d = max(1, int(days))
-    for i in range(n):
-        j0, j1 = i + 1, i + 1 + d
-        if j1 > n:
-            break
-        hi = lo = None
-        for j in range(j0, j1):
-            h, l = highs[j], lows[j]
-            hi = h if hi is None or h > hi else hi
-            lo = l if lo is None or l < lo else lo
-        mx[i], mn[i] = hi, lo
+    if n < d + 1:
+        return mx, mn
+    # Sliding-window extremes with monotonic deques: one pass, O(n), in
+    # place of the O(n·d) rescan that ran twice per side per request. The
+    # window for bar i is bars i+1 .. i+d inclusive, exactly as before.
+    hi_q: deque = deque()   # indices, highs decreasing
+    lo_q: deque = deque()   # indices, lows increasing
+    for j in range(n):
+        h, l = highs[j], lows[j]
+        while hi_q and highs[hi_q[-1]] <= h:
+            hi_q.pop()
+        hi_q.append(j)
+        while lo_q and lows[lo_q[-1]] >= l:
+            lo_q.pop()
+        lo_q.append(j)
+        i = j - d                      # the bar whose window just completed
+        if i < 0:
+            continue
+        while hi_q[0] <= i:            # drop indices outside i+1 .. j
+            hi_q.popleft()
+        while lo_q[0] <= i:
+            lo_q.popleft()
+        mx[i], mn[i] = highs[hi_q[0]], lows[lo_q[0]]
     return mx, mn
 
 
-def touch_curve(closes, mx, mn, idx, distances, up: bool) -> dict:
+def horizon_bars(dte_calendar: float) -> int:
+    """An option's life in TRADING BARS from its calendar days to expiry:
+    252 sessions per 365 days, never below one. This is the unit
+    forward_extremes counts in, so it is the only unit a horizon may be
+    expressed in when it reaches the measurement."""
+    try:
+        dte = float(dte_calendar)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, int(round(dte * 252.0 / 365.0)))
+
+
+def independent_windows(idx, horizon: int) -> int:
+    """How many of these forward windows do not overlap: the greedy count
+    of start bars spaced at least `horizon` apart.
+
+    Windows that start on consecutive bars share almost every session, so
+    counting each as its own trial overstates the sample many times over
+    and makes a Wilson bound look tighter than the evidence is. The
+    non-overlapping count is the honest denominator for that bound; the raw
+    count is still reported, because it is what was measured (v4.77).
+    """
+    h = max(1, int(horizon))
+    n = 0
+    last = None
+    for i in sorted(idx):
+        if last is None or i - last >= h:
+            n += 1
+            last = i
+    return n
+
+
+def touch_curve(closes, mx, mn, idx, distances, up: bool, horizon: int = 1) -> dict:
     """Share of the given bars from which price travelled each distance
     within the horizon, measured from the bar's CLOSE.
 
@@ -167,10 +213,14 @@ def touch_curve(closes, mx, mn, idx, distances, up: bool) -> dict:
     a fall (the risk to a short put). The close on both sides of the
     comparison, so a rate measured from an intraday extreme cannot flatter
     itself against a baseline measured from a close.
+
+    Each distance carries `n` (windows measured) and `n_eff` (how many of
+    them do not overlap — see independent_windows). `horizon` is in bars.
     """
     out = {}
     for d in distances:
         hits = tries = 0
+        used = []
         for i in idx:
             if i >= len(closes):
                 continue
@@ -181,11 +231,13 @@ def touch_curve(closes, mx, mn, idx, distances, up: bool) -> dict:
             if not c0 or c0 <= 0:
                 continue
             tries += 1
+            used.append(i)
             level = c0 * (1.0 + d / 100.0) if up else c0 * (1.0 - d / 100.0)
             if (ext >= level) if up else (ext <= level):
                 hits += 1
         if tries:
-            out[d] = {"rate": round(hits / tries * 100.0, 2), "n": tries}
+            out[d] = {"rate": round(hits / tries * 100.0, 2), "n": tries,
+                      "n_eff": independent_windows(used, horizon)}
     return out
 
 
@@ -707,13 +759,19 @@ def analyze(symbol: str, now: date | None = None) -> dict:
 
     # ── the measurement ──────────────────────────────────────────────────
     cond = conditioning(Cc, streak_block, swing_block)
-    horizon = max(1, int(round(dte)))
+    # The option's life in TRADING BARS, which is what forward_extremes
+    # counts. `dte` is calendar days; feeding it in as a bar count measured a
+    # 45-day option over 45 bars, about 63 calendar days, so every touch rate
+    # was taken over a window ~40% longer than the trade and the conservative
+    # bound was conservative for the wrong reason (v4.77).
+    horizon = horizon_bars(dte)
     mx, mn = forward_extremes(Hh, Ll, horizon)
     all_idx = [i for i in range(len(Cc)) if mx[i] is not None]
     measured_by_side = {}
     for side, up in (("call", True), ("put", False)):
-        c_curve = touch_curve(Cc, mx, mn, cond["idx"], DISTANCES, up) if cond["idx"] else {}
-        b_curve = touch_curve(Cc, mx, mn, all_idx, DISTANCES, up)
+        c_curve = (touch_curve(Cc, mx, mn, cond["idx"], DISTANCES, up, horizon)
+                   if cond["idx"] else {})
+        b_curve = touch_curve(Cc, mx, mn, all_idx, DISTANCES, up, horizon)
         measured_by_side[side] = SE.measured_touch(c_curve, b_curve)
 
     gex_block = None
@@ -816,6 +874,11 @@ def get(symbol: str, force: bool = False) -> dict:
         if hit and (now - hit[0]) < CACHE_TTL:
             return {**hit[1], "cached": True}
     out = analyze(key)
+    # A failure that says "try again" must not be served for 90 seconds as
+    # if it were the answer — the broker coming back is the whole point of
+    # retrying, and a cached refusal hides it (v4.77).
+    if out.get("retryable"):
+        return out
     with _LOCK:
         _CACHE[key] = (now, out)
         if len(_CACHE) > 200:

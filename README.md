@@ -59,6 +59,13 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `CANDLE_STATES.md` | How the candle states, sectors and gamma exposure work |
 | `setup_board.py` | Worth selling today: ranks the watchlist by how rich the premium is — pure |
 | `BEST_SETUP.md` | How the one recommendation is built, and what it refuses to do |
+| `sp_probability.py` | Short premium: P0 / P(touch) / P(profit) / early targets / tail at the contract's horizon — pure |
+| `sp_evidence.py` | Short premium: each stock's measured breach history, shrunk toward peers and the universe — pure |
+| `sp_engine.py` | Short premium: six gates in order, Sell Quality, modes, objectives, the plain-English defence — pure |
+| `sell_scan.py` | Best Sales Today: rides the Premium Edge chain pass, keeps the board, records every row shown |
+| `sp_forward.py` | Best Sales Today: grades recorded rows after expiry and builds the calibration tables |
+| `tab-sell.jsx` | The Best Sales Today card at the top of the Trade tab (lazy chunk) |
+| `SHORT_PREMIUM.md` | The short-premium engine: gates, probabilities, validation results, the honest ledger |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)
