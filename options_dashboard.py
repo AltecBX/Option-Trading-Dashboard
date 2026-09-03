@@ -2926,10 +2926,67 @@ def _build_legs_for_backtest(strategy: str, spot: float, T: float,
 
 
 
-def check_earnings(symbol: str) -> tuple[bool, str | None]:
-    stock = yf.Ticker(symbol)
+# yfinance's earnings_dates, fetched once per symbol and shared. Both
+# loaders below need it and both used to fetch it — two identical slow calls
+# in every build, and it is a build-time dependency of every symbol switch.
+# A real answer is kept for an hour; earnings dates do not move inside one.
+# An empty answer is kept only briefly, because yfinance answers a throttle
+# with an empty frame, and an empty frame pinned for an hour would read as
+# "no earnings" on a symbol that reports next week — the one thing a
+# premium seller must not be told. Failures are not kept at all.
+_EARN_CACHE: dict = {}      # symbol -> (fetched_at, earnings_dates)
+_EARN_INFLIGHT: dict = {}   # symbol -> {"done": Event, "error": exc | None}
+_EARN_LOCK = threading.Lock()
+_EARN_TTL = 3600
+_EARN_EMPTY_TTL = 300
+_EARN_FLIGHT_WAIT = 60.0
+
+
+def _earnings_dates(symbol: str):
+    """The earnings_dates frame for `symbol`, one fetch shared by everyone
+    asking at once. Raises what yfinance raised, so each caller keeps its
+    own handling of a failure."""
+    now = time.time()
+    with _EARN_LOCK:
+        hit = _EARN_CACHE.get(symbol)
+        if hit is not None:
+            frame = hit[1]
+            ttl = _EARN_EMPTY_TTL if (frame is None or frame.empty) else _EARN_TTL
+            if (now - hit[0]) < ttl:
+                return frame
+        flight = _EARN_INFLIGHT.get(symbol)
+        leader = flight is None
+        if leader:
+            flight = {"done": threading.Event(), "error": None}
+            _EARN_INFLIGHT[symbol] = flight
+    if not leader:
+        flight["done"].wait(_EARN_FLIGHT_WAIT)
+        if flight["error"] is not None:
+            raise flight["error"]
+        with _EARN_LOCK:
+            hit = _EARN_CACHE.get(symbol)
+        if hit is None:
+            raise RuntimeError(f"earnings dates for {symbol} did not arrive in time")
+        return hit[1]
     try:
-        earnings = stock.earnings_dates
+        frame = yf.Ticker(symbol).earnings_dates
+        with _EARN_LOCK:
+            _EARN_CACHE[symbol] = (time.time(), frame)
+            if len(_EARN_CACHE) > 2000:
+                _EARN_CACHE.pop(next(iter(_EARN_CACHE)))
+        return frame
+    except Exception as exc:  # noqa: BLE001
+        flight["error"] = exc
+        raise
+    finally:
+        with _EARN_LOCK:
+            _EARN_INFLIGHT.pop(symbol, None)
+        flight["done"].set()
+
+
+def check_earnings(symbol: str) -> tuple[bool, str | None]:
+    try:
+        earnings = _earnings_dates(symbol)
         if earnings is None or earnings.empty:
             return False, None
         today = date.today()
@@ -2952,9 +3009,8 @@ def load_earnings_history(symbol: str, weeks: int) -> dict:
     Used by the front-end to mark earnings on the candlestick and weekly
     returns charts. Always returns ISO date strings (YYYY-MM-DD).
     """
-    stock = yf.Ticker(symbol)
     try:
-        earnings = stock.earnings_dates
+        earnings = _earnings_dates(symbol)
     except Exception:
         return {"past": [], "next": None}
     if earnings is None or earnings.empty:
@@ -3711,6 +3767,58 @@ _TICKER_LG_MAX = 40
 # few seconds of staleness on the heavy payload (bars/chain/earnings) is fine.
 _TICKER_FRESH: dict = {}
 _TICKER_TTL = 10.0  # seconds
+# Builds in progress, by cache key. A symbol switched to, away from, and
+# back to inside one build used to start a second full build — bars, chain,
+# earnings, info — while the first was still running. The second request
+# now waits for the first and serves its result.
+_TICKER_INFLIGHT: dict = {}
+_TICKER_FLIGHT_WAIT = 120.0  # seconds; a cold build can wait on yfinance
+
+
+def _ticker_payload(cache_key: tuple, builder) -> dict:
+    """The payload for `cache_key`: a fresh cached one, else one build
+    shared by everyone asking for it at the same time.
+
+    Raises whatever the build raised, to every request that waited on it,
+    so each takes the same last-good-or-error path it would have taken
+    building alone.
+    """
+    with _TICKER_LG_LOCK:
+        hit = _TICKER_FRESH.get(cache_key)
+        if hit is not None and (time.time() - hit[0]) < _TICKER_TTL:
+            return hit[1]
+        flight = _TICKER_INFLIGHT.get(cache_key)
+        leader = flight is None
+        if leader:
+            flight = {"done": threading.Event(), "error": None}
+            _TICKER_INFLIGHT[cache_key] = flight
+    if not leader:
+        flight["done"].wait(_TICKER_FLIGHT_WAIT)
+        if flight["error"] is not None:
+            raise flight["error"]
+        with _TICKER_LG_LOCK:
+            hit = _TICKER_FRESH.get(cache_key)
+            built = hit[1] if hit is not None else _TICKER_LAST_GOOD.get(cache_key)
+        if built is None:
+            raise RuntimeError(f"build of {cache_key[0]} did not finish in time")
+        return built
+    try:
+        payload = builder()
+        with _TICKER_LG_LOCK:
+            _TICKER_LAST_GOOD[cache_key] = payload
+            _TICKER_FRESH[cache_key] = (time.time(), payload)
+            while len(_TICKER_LAST_GOOD) > _TICKER_LG_MAX:
+                _TICKER_LAST_GOOD.pop(next(iter(_TICKER_LAST_GOOD)))
+            while len(_TICKER_FRESH) > _TICKER_LG_MAX:
+                _TICKER_FRESH.pop(next(iter(_TICKER_FRESH)))
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        flight["error"] = exc
+        raise
+    finally:
+        with _TICKER_LG_LOCK:
+            _TICKER_INFLIGHT.pop(cache_key, None)
+        flight["done"].set()
 # Per-symbol swing analysis is a full year of pivots + a UW flow read; cache so
 # flipping back to a symbol (or the Patterns tab re-mounting) is instant.
 _SWINGS_CACHE: dict = {}
@@ -13035,23 +13143,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 friday_baseline = self.friday_baseline
             target_exp = (qs.get("expiration", [""])[0] or "").strip() or None
             cache_key = (symbol, weeks, friday_baseline, target_exp)
-            # Serve a recent build instantly (TTL cache) — makes flipping back
-            # to a just-viewed symbol feel instant instead of a full rebuild.
-            now = time.time()
-            with _TICKER_LG_LOCK:
-                hit = _TICKER_FRESH.get(cache_key)
-            if hit is not None and (now - hit[0]) < _TICKER_TTL:
-                self._send_json(hit[1], no_store=True, default=str)
-                return
             try:
-                payload = build_payload(symbol, weeks, friday_baseline, target_exp)
-                with _TICKER_LG_LOCK:
-                    _TICKER_LAST_GOOD[cache_key] = payload
-                    _TICKER_FRESH[cache_key] = (time.time(), payload)
-                    while len(_TICKER_LAST_GOOD) > _TICKER_LG_MAX:
-                        _TICKER_LAST_GOOD.pop(next(iter(_TICKER_LAST_GOOD)))
-                    while len(_TICKER_FRESH) > _TICKER_LG_MAX:
-                        _TICKER_FRESH.pop(next(iter(_TICKER_FRESH)))
+                payload = _ticker_payload(
+                    cache_key,
+                    lambda: build_payload(symbol, weeks, friday_baseline, target_exp))
                 self._send_json(payload, no_store=True, default=str)
             except Exception as exc:  # noqa: BLE001
                 # Serve the last good payload with a stale flag rather
