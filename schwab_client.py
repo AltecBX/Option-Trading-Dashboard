@@ -135,6 +135,10 @@ HISTORY_URL_TPL = f"{API_BASE}/marketdata/v1/pricehistory"
 TTL_QUOTE = 4
 TTL_CHAIN = 30
 TTL_HISTORY = 600  # 10 min — daily bars don't update intraday
+# How long a request that found an identical fetch already in flight waits
+# for it, instead of starting its own. Bounded by what one fetch can take:
+# a 15s read, a token refresh, and the one retry after it.
+HIST_FLIGHT_WAIT = 50
 
 
 def _stale_seconds_from_ms(trade_time_ms: int | float | None) -> int | None:
@@ -178,6 +182,9 @@ class SchwabClient:
     def __init__(self):
         self._lock = threading.RLock()
         self._cache: dict = {}  # key -> (expires_at_epoch, value)
+        # Fetches in progress, keyed like the cache. A second request for
+        # the same thing waits on the Event instead of asking Schwab again.
+        self._inflight: dict = {}
         self._req_log: list = []  # epoch timestamps for rate accounting
         self._refresh_blocked_until = 0.0  # cooldown after a failed refresh
         self._auth_error: str | None = None  # last refresh failure (for status)
@@ -449,9 +456,21 @@ class SchwabClient:
                 return None
             return value
 
+    # Entries expire by TTL but were never removed until read back, so a
+    # scan across hundreds of symbols left every one of them resident.
+    # Past this many entries, drop what has expired; if that is not enough,
+    # drop whatever expires soonest.
+    _CACHE_MAX = 4000
+
     def _cache_set(self, key: str, value: Any, ttl: int) -> None:
         with self._lock:
             self._cache[key] = (time.time() + ttl, value)
+            if len(self._cache) > self._CACHE_MAX:
+                now = time.time()
+                for k in [k for k, (exp, _) in self._cache.items() if exp <= now]:
+                    del self._cache[k]
+                while len(self._cache) > self._CACHE_MAX:
+                    del self._cache[min(self._cache, key=lambda k: self._cache[k][0])]
 
     # ── HTTP helper ─────────────────────────────────────────────────────
     def _note_result(self, ok: bool) -> None:
@@ -808,34 +827,90 @@ class SchwabClient:
             result["chains"][exp]["puts"].sort(key=lambda r: r["strike"])
         return result
 
+    # Schwab uses periodType=year with valid periods 1,2,3,5,10,15,20.
+    _HIST_PERIODS = (1, 2, 3, 5, 10, 15, 20)
+
+    @staticmethod
+    def _hist_period(days: int) -> int:
+        """The smallest whole-year period that covers `days` calendar days.
+        Short ranges still pull a year and slice locally; long ranges
+        (pattern discovery, v3.45) map onto the smallest covering period.
+        Candles come back split-adjusted."""
+        if days <= 260:
+            return 1
+        if days <= 620:
+            return 2
+        if days <= 1000:
+            return 3
+        if days <= 1750:
+            return 5
+        if days <= 3560:
+            return 10
+        if days <= 5400:
+            return 15
+        return 20
+
+    def _hist_cached(self, symbol: str, period: int, days: int) -> list[dict] | None:
+        """The last `days` bars from any cached year-bucket at least as
+        wide as `period`. The tail of a five-year series is the tail of a
+        one-year series, so a wider bucket answers a narrower question."""
+        for p in self._HIST_PERIODS:
+            if p < period:
+                continue
+            full = self._cache_get(f"hist:{symbol}:p{p}")
+            if full:
+                return full[-days:]
+        return None
+
     def get_price_history(self, symbol: str, days: int = 260) -> list[dict] | None:
         """Daily bars going back `days` calendar days. Returns list of
         {date, open, high, low, close, volume} dicts, oldest first.
+
+        Cached by the year-bucket Schwab actually serves, not by the day
+        count the caller asked for. The dashboard's weekly loader asks for
+        394 days and its daily loader for 580 — the same two-year request —
+        and a dozen callers across the scans ask for 10, 30, 200, 400, 730,
+        900, 1400 days of the same symbol. Keyed by `days`, every one of
+        those was its own Schwab call, and the broker's rate limit was the
+        thing paying for it. One fetch per bucket now serves them all, and
+        a request that finds an identical fetch already in flight waits for
+        that one instead of starting another.
         """
         symbol = symbol.upper().strip()
-        cache_key = f"hist:{symbol}:{days}"
-        hit = self._cache_get(cache_key)
+        period = self._hist_period(days)
+        hit = self._hist_cached(symbol, period, days)
         if hit is not None:
             return hit
-        # Schwab uses periodType=year with valid periods 1,2,3,5,10,15,20.
-        # For short ranges we still pull a year and slice locally — saves
-        # API calls on repeated chart redraws. Long ranges (pattern
-        # discovery, v3.45) map calendar days onto the smallest covering
-        # period; candles come back split-adjusted.
-        if days <= 260:
-            period = 1
-        elif days <= 620:
-            period = 2
-        elif days <= 1000:
-            period = 3
-        elif days <= 1750:
-            period = 5
-        elif days <= 3560:
-            period = 10
-        elif days <= 5400:
-            period = 15
-        else:
-            period = 20
+        key = f"hist:{symbol}:p{period}"
+        with self._lock:
+            flight = self._inflight.get(key)
+            leader = flight is None
+            if leader:
+                flight = threading.Event()
+                self._inflight[key] = flight
+        if not leader:
+            flight.wait(HIST_FLIGHT_WAIT)
+            # Nothing cached after the wait means the fetch failed. A
+            # second attempt on the heels of a failed one is exactly the
+            # pile-on the wait exists to prevent; the next poll will retry.
+            return self._hist_cached(symbol, period, days)
+        full = None
+        try:
+            full = self._fetch_history(symbol, period)
+            if full:
+                self._cache_set(key, full, TTL_HISTORY)
+        finally:
+            with self._lock:
+                self._inflight.pop(key, None)
+            flight.set()
+        if full is None:
+            return None
+        return full[-days:]
+
+    def _fetch_history(self, symbol: str, period: int) -> list[dict] | None:
+        """One year-bucket of daily bars from Schwab, untrimmed. None when
+        the broker did not answer; an empty list when it answered with
+        no candles."""
         params = {
             "symbol": symbol,
             "periodType": "year",
@@ -887,10 +962,6 @@ class SchwabClient:
                 "close": b.get("close"),
                 "volume": b.get("volume"),
             })
-        # Trim to requested days
-        out = out[-days:]
-        if out:
-            self._cache_set(cache_key, out, TTL_HISTORY)
         return out
 
     def get_candles(self, symbol: str, period_type: str = "day", period: int = 10,
