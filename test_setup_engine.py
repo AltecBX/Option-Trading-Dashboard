@@ -590,12 +590,16 @@ class TestTheRecommendation(unittest.TestCase):
         self.assertFalse(r["band_raised"])
         self.assertTrue(any("conservative strike" in x for x in r["risks"]))
 
-    def test_an_illiquid_contract_is_scored_down_and_disclosed(self):
+    def test_an_illiquid_contract_is_refused_not_scored_down(self):
+        """v4.77: liquidity is a gate. Before, an illiquid strike lost 40
+        points and could still be the recommendation when its neighbours
+        were worse — a trade that cannot be entered or exited at the quoted
+        numbers is not a recommendation with a caveat."""
         bad = [contract(106, 0.22, 0.72, liq=False, spread=28.0)]
         r = self._rec(contracts=bad)
-        self.assertTrue(r["ok"])
-        self.assertTrue(any("liquidity" in x.lower() for x in r["risks"]))
-        self.assertLess(r["confidence"]["level"], 60)
+        self.assertFalse(r["ok"])
+        self.assertTrue(r.get("illiquid"))
+        self.assertIn("liquidity gate", r["reason"])
 
     def test_conflicting_layers_cost_confidence_and_are_disclosed(self):
         conflicted = SE.directional_bias(
