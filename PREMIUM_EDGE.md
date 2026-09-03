@@ -188,3 +188,13 @@ EM calibration and breach model columns to MEASURED implied bases, (2)
 run the §6 Z-threshold sweep on real history and let it re-weight
 `score_weights`, (3) train the fat-tail correction (empirical minus
 model breach gap) into the P(touch) shown on contracts, per ticker.
+
+## v4.80 — the chain pass now feeds two engines
+
+`edge_scan.analyze_symbol` publishes every chain it fetches to registered
+consumers (`register_chain_consumer`). `sell_scan` consumes it and runs the
+Short Premium Opportunity Engine (SHORT_PREMIUM.md) on the same bounded
+chain, so the Best Sales Today board costs no additional Schwab calls. The
+edge scan's own outputs are unchanged. Two v4.77 corrections landed here
+too: the forecast weights key is `PARK20C` (the `PARK20` key had silently
+dropped that estimator), and the chain fetch always carries both dates.
