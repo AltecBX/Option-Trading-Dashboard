@@ -2581,3 +2581,41 @@ SHORT_PREMIUM.md carries the architecture, the validation tables, the
 honest ledger and the limitations. 2,941 Python tests before the new
 modules; the new suites add 97, plus 83 source guards in
 `test_sell_ui.js` and ten routes in the HTTP smoke.
+
+## v4.81 — a short strike is not a contract, and yesterday is not today
+
+Clicking the Rank header on the live board changed the arrow and appeared
+to add duplicate rows. Two separate faults were behind that screenshot,
+and the second was the dangerous one.
+
+A row was keyed by symbol, strategy, expiration and short strike. On the
+board that produced the report, three TSLA put credit spreads shared a
+short strike of 357.5 and differed only in which wing was bought, and two
+AAPL iron condors shared a put wing. Same key, different trades. React
+reconciles a keyed list by key, so re-sorting a list whose keys collide
+leaves stale rows mounted — the duplicates appeared on the click, which is
+why the sort looked like it was adding rows. The same collision merged the
+risk-pathway map, so an expanded row could show another contract's plan.
+`sp_engine.contract_id` is now the single identity, both wings and both
+call strikes included, and every row, pathway, detail payload and
+forward-test record carries it.
+
+The board also persists to disk and reloads on restart, and nothing
+dropped a symbol evaluated on an earlier day. That is why the same
+screenshot showed options EXPIRING THAT DAY labeled "1 day": they had been
+evaluated the evening before, with the previous session's spot and quotes,
+under a header stamped with the newest scan time. Anything not evaluated
+today on the exchange clock, or older than twelve hours, is now dropped
+and counted rather than ranked, and the card says how many names went. A
+contract at or past its expiration is never offered.
+
+Timestamps were naive, so a UTC container told a reader in New York that a
+board built at 6:39 their time was built at 10:39, and the age beside it
+could render negative. The scanner runs on the exchange clock now and
+every stamp carries its offset.
+
+Verified in a real browser against the running server: nine rows, six of
+which share a short strike with another, stayed nine across six clicks of
+the Rank header, sorted correctly, with no console errors. 21 guards in
+`test_v481_board_identity` (19 fail against v4.80) and 10 more in
+`test_sell_ui.js`.

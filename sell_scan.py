@@ -440,9 +440,11 @@ def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | N
         "as_of": as_of, "age_hours": _age_hours(as_of), "scanning": scanning,
         "no_trade": len(top) == 0,
         "no_trade_reason": (None if top else (
-            (f"Nothing on this board was evaluated today — {len(stale)} name"
-             f"{'' if len(stale) == 1 else 's'} on file are from an earlier session and were dropped "
-             f"rather than shown with yesterday's prices. Run the scan.") if stale and not symbols else
+            (f"Nothing on this board was evaluated today. "
+             f"{'The 1 name' if len(stale) == 1 else f'All {len(stale)} names'} on file "
+             f"{'is' if len(stale) == 1 else 'are'} from an earlier session, and "
+             f"{'it was' if len(stale) == 1 else 'they were'} dropped rather than shown with "
+             f"stale prices and a day too much time to expiry. Run the scan.") if stale and not symbols else
             "No symbol scanned yet — run the Premium Edge scan." if not symbols else
             f"Nothing qualifies in {mode} mode across {len(symbols)} scanned names: every candidate "
             f"failed at least one gate (see why_others_failed). NO TRADE is the answer.")),
