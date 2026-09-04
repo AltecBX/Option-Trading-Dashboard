@@ -13298,3 +13298,4 @@ a.tabsheet-btn.site { text-decoration: none; }
 .sl-detail, .sl-detail > *, .sl-block { min-width: 0; }
 .sl-block { overflow-x: auto; }
 .sl-why, .sl-pw, .sl-block p, .sl-block li { overflow-wrap: anywhere; }
+.sl-stale { color: var(--warn); font-weight: 600; }

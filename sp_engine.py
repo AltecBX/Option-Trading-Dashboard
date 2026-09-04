@@ -74,6 +74,8 @@ DEFAULTS = {
              "gamma_dte": 3, "gamma_delta": 0.30, "gamma_pts": 12,
              "skew_rr_volpts": 8.0, "skew_pts": 6},
     "evidence": {"min_n_eff_for_measured": 20, "kappa": 40},
+    "scan": {"top_n": 25, "max_symbols": 24, "evidence_cache_hours": 20,
+             "max_rows_per_symbol": 3, "max_board_age_hours": 12},
     "modes": {
         "conservative": {"objective": "max_p0_conservative", "min_p0": 0.85, "min_p0_conservative": 0.80,
                          "min_ev_per_contract": 5.0, "min_roc_pct": 0.5, "min_credit": 0.20,
@@ -721,6 +723,30 @@ def objective_value(c: dict, objective: str) -> float | None:
     if objective == "max_sell_quality":
         return (c.get("sell_quality") or {}).get("score")
     return (c.get("sell_quality") or {}).get("score")
+
+
+def contract_id(c: dict) -> str:
+    """The stable, UNIQUE identity of one structure.
+
+    A short strike is not an identity. Three put credit spreads on the same
+    expiration and the same short strike, differing only in which wing was
+    bought, are three different trades with three different risks — and two
+    iron condors can share a put wing. Anything that keys a list, a map or a
+    stored record by the short strike alone silently merges them: the v4.80
+    board did, and the UI rendered the collided rows twice while the sort
+    appeared to do nothing (React reconciles a keyed list by key, and
+    duplicate keys leave stale nodes mounted).
+    """
+    def part(v):
+        if v is None:
+            return "-"
+        if isinstance(v, (int, float)):
+            return f"{float(v):g}"
+        return str(v)
+
+    return "|".join(part(c.get(k)) for k in (
+        "symbol", "strategy", "side", "expiration",
+        "short_strike", "long_strike", "short_call", "long_call"))
 
 
 def rank(evaluated: list[dict]) -> list[dict]:

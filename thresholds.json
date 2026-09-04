@@ -1,8 +1,8 @@
 {
-  "_doc": "Friday 0DTE timing engine — the single config (spec v3 §35). Every tunable lives here; no magic numbers in code. Repo file = defaults; a copy at <data_dir>/thresholds.json overrides key-by-key (deep merge). The effective config's sha256 hash is stamped on every decision. Surfaced read-only in the tweaks panel.",
+  "_doc": "Friday 0DTE timing engine \u2014 the single config (spec v3 \u00a735). Every tunable lives here; no magic numbers in code. Repo file = defaults; a copy at <data_dir>/thresholds.json overrides key-by-key (deep merge). The effective config's sha256 hash is stamped on every decision. Surfaced read-only in the tweaks panel.",
   "version": 1,
   "risk": {
-    "_doc": "Admissibility limits per position intent (§29). A future/current sale is admissible only while every limit holds. Amendment C: intent changes limits and costs, never the market model.",
+    "_doc": "Admissibility limits per position intent (\u00a729). A future/current sale is admissible only while every limit holds. Amendment C: intent changes limits and costs, never the market model.",
     "income_only": {
       "max_p_itm": 0.15,
       "max_p_touch": 0.35,
@@ -15,7 +15,7 @@
       "max_delta": 0.5,
       "breach_cost_mult": 0.15
     },
-    "_breach_cost_doc": "breach_cost_mult scales the terminal-intrinsic penalty charged to WAIT paths that die inadmissible (breached before any admissible capturable sale). Income-only: assignment is a failure, waiting near danger is expensive (2.0x intrinsic). Wheel-acceptable: assignment is tolerable economics — covered call = capped upside you already accepted, CSP = buying a stock you wanted at effective basis (0.15x).",
+    "_breach_cost_doc": "breach_cost_mult scales the terminal-intrinsic penalty charged to WAIT paths that die inadmissible (breached before any admissible capturable sale). Income-only: assignment is a failure, waiting near danger is expensive (2.0x intrinsic). Wheel-acceptable: assignment is tolerable economics \u2014 covered call = capped upside you already accepted, CSP = buying a stock you wanted at effective basis (0.15x).",
     "max_quote_age_s": 120,
     "max_spread_pct_of_mid": 30.0,
     "min_bid": 0.05,
@@ -24,7 +24,7 @@
     "min_improvement_frac": 0.08
   },
   "simulation": {
-    "_doc": "Monte Carlo core (§9). Seed derives deterministically from the decision id (Amendment B) so replay is byte-identical.",
+    "_doc": "Monte Carlo core (\u00a79). Seed derives deterministically from the decision id (Amendment B) so replay is byte-identical.",
     "paths": 2000,
     "step_minutes": 1,
     "horizons_min": [
@@ -39,20 +39,20 @@
     "event_range_widen_frac": 0.25
   },
   "bands": {
-    "_doc": "Score bands (§17): 0-20 strong wait, 21-40 wait, 41-59 getting close, 60-79 sell zone, 80-100 strong sell. Calibrated later from results.",
+    "_doc": "Score bands (\u00a717): 0-20 strong wait, 21-40 wait, 41-59 getting close, 60-79 sell zone, 80-100 strong sell. Calibrated later from results.",
     "wait_max": 40,
     "strong_wait_max": 20,
     "getting_close_max": 59,
     "sell_zone_max": 79
   },
   "score_weights": {
-    "_doc": "§17: the score SUMMARIZES the stopping quantities, never replaces them.",
+    "_doc": "\u00a717: the score SUMMARIZES the stopping quantities, never replaces them.",
     "p_no_better_next_look": 0.45,
     "extra_credit_exhausted": 0.35,
     "risk_pressure": 0.2
   },
   "hysteresis": {
-    "_doc": "§34 + Amendment B: displayed state changes only past margin or persistence; margin must clear k× the Monte Carlo standard error so MC noise alone can never rattle the UI. Risk escalations are exempt and fire immediately.",
+    "_doc": "\u00a734 + Amendment B: displayed state changes only past margin or persistence; margin must clear k\u00d7 the Monte Carlo standard error so MC noise alone can never rattle the UI. Risk escalations are exempt and fire immediately.",
     "margin_points": 6,
     "persist_evals": 2,
     "min_margin_mc_se_mult": 2.0,
@@ -65,14 +65,14 @@
     ]
   },
   "attention": {
-    "_doc": "§31: decisions are evaluated against the next realistic look, not the next minute.",
+    "_doc": "\u00a731: decisions are evaluated against the next realistic look, not the next minute.",
     "look_interval_min": 30,
     "alert_latency_min": 3,
     "alert_budget_per_day": 10,
     "alert_min_dollar_impact": 25.0
   },
   "tape": {
-    "_doc": "§3 intraday option tape. Cadences in seconds; durable benchmark defined in SECONDS (Amendment E), converted to snapshots at the live cadence. Budget shares the app-wide Schwab 110 req/min self-cap.",
+    "_doc": "\u00a73 intraday option tape. Cadences in seconds; durable benchmark defined in SECONDS (Amendment E), converted to snapshots at the live cadence. Budget shares the app-wide Schwab 110 req/min self-cap.",
     "p1_seconds": 30,
     "p2_seconds": 60,
     "discovery_seconds": 300,
@@ -100,7 +100,7 @@
     "interest_decay_min": 10
   },
   "final_hour": {
-    "_doc": "§33: inside the window the question flips to close vs carry.",
+    "_doc": "\u00a733: inside the window the question flips to close vs carry.",
     "window_min": 45,
     "pennies_max_cost": 0.05,
     "risk_per_penny_threshold": 1.5,
@@ -109,7 +109,7 @@
     "settlement_watch_until_et": "17:30"
   },
   "portfolio": {
-    "_doc": "§30 + Amendment D: shared-shock scenarios; each position valued under the view matching its intent, then summed. weekly_max_loss_usd is the risk budget under the ±2% shared shock.",
+    "_doc": "\u00a730 + Amendment D: shared-shock scenarios; each position valued under the view matching its intent, then summed. weekly_max_loss_usd is the risk budget under the \u00b12% shared shock.",
     "sector_proxy": "SMH",
     "shocks_pct": [
       -2.0,
@@ -123,14 +123,14 @@
     "beta_overrides": {}
   },
   "management": {
-    "_doc": "§20. The 2x credit tripwire is model-free and stays armed by default.",
+    "_doc": "\u00a720. The 2x credit tripwire is model-free and stays armed by default.",
     "tripwire_credit_mult": 2.0,
     "risk_rising_p_touch": 0.45,
     "strike_threatened_pct": 1.0,
     "buyback_attractive_capture_frac": 0.8
   },
   "tranche": {
-    "_doc": "§13 dynamic tranching; cold-start fixed plan badged heuristic while confidence is low.",
+    "_doc": "\u00a713 dynamic tranching; cold-start fixed plan badged heuristic while confidence is low.",
     "max_count": 4,
     "min_frac": 0.1,
     "cold_start_plan": [
@@ -141,13 +141,13 @@
     "confidence_floor": 0.6
   },
   "limits": {
-    "_doc": "§14 seed rules until the fill distribution exists: Likely = credit at 70% of projected extension, Balanced = credit at projected extreme × 0.85, Stretch = credit at the 2.5σ VWAP band.",
+    "_doc": "\u00a714 seed rules until the fill distribution exists: Likely = credit at 70% of projected extension, Balanced = credit at projected extreme \u00d7 0.85, Stretch = credit at the 2.5\u03c3 VWAP band.",
     "likely_extension_frac": 0.7,
     "balanced_extreme_mult": 0.85,
     "stretch_sigma": 2.5
   },
   "events": {
-    "_doc": "§15: scheduled events are FEATURES that widen simulated ranges near their timestamps; optional per-class hard block windows (minutes before/after) in which decision states show BLOCKED.",
+    "_doc": "\u00a715: scheduled events are FEATURES that widen simulated ranges near their timestamps; optional per-class hard block windows (minutes before/after) in which decision states show BLOCKED.",
     "range_widen_window_min": 20,
     "block_windows_min": {
       "fomc": 15,
@@ -172,7 +172,7 @@
     "valid_through": "2027-12-31"
   },
   "intents": {
-    "_doc": "§29: per-position intent set from the UI; key = 'SYM|kind' (e.g. 'MU|put') or 'SYM' for both sides. Unlisted positions use default.",
+    "_doc": "\u00a729: per-position intent set from the UI; key = 'SYM|kind' (e.g. 'MU|put') or 'SYM' for both sides. Unlisted positions use default.",
     "default": "income_only",
     "per_position": {}
   },
@@ -369,7 +369,7 @@
   "gap_fade": {
     "_doc": "Premarket Gap Fade & Rebound scanner (GAP_SCANNER.md). Answers: when this stock previously moved like this before the open, what happened next? Repo file = defaults; <data>/thresholds.json overrides key-by-key (deep merge). Every threshold here is a configurable starting rule validated by the walk-forward grid in /api/gap/backtest, never a hardcoded truth. Probabilities are shown with sample sizes and Wilson intervals; signal gates use the CONSERVATIVE lower bound so 7-of-8 can never masquerade as a reliable 87%.",
     "event": {
-      "_doc": "What qualifies a historical day for the event store. A day qualifies if the OFFICIAL open gap exceeded official_gap_min_pct OR the premarket price reached pm_gap_min_pct at any time (discoverable only where premarket minute data exists — hinted days historically, every scanned day from launch forward). Time-matched queries only count an event at time t if it had already crossed the threshold by t.",
+      "_doc": "What qualifies a historical day for the event store. A day qualifies if the OFFICIAL open gap exceeded official_gap_min_pct OR the premarket price reached pm_gap_min_pct at any time (discoverable only where premarket minute data exists \u2014 hinted days historically, every scanned day from launch forward). Time-matched queries only count an event at time t if it had already crossed the threshold by t.",
       "official_gap_min_pct": 4.0,
       "pm_gap_min_pct": 5.0,
       "min_price": 3.0,
@@ -410,7 +410,7 @@
       "delayed_open_after_min": 5
     },
     "slippage": {
-      "_doc": "MODELED execution costs, applied per side. Per-side slip = max(base_bps, spread_frac x observed spread) x (pm_mult premarket / 1 regular). Stops assume fill THROUGH the stop by stop_through_frac of the stop distance — stops do not fill at the stop price.",
+      "_doc": "MODELED execution costs, applied per side. Per-side slip = max(base_bps, spread_frac x observed spread) x (pm_mult premarket / 1 regular). Stops assume fill THROUGH the stop by stop_through_frac of the stop distance \u2014 stops do not fill at the stop price.",
       "base_bps": 5.0,
       "spread_frac": 0.5,
       "pm_mult": 2.0,
@@ -437,7 +437,7 @@
       "max_spread_pct": 5.0
     },
     "hysteresis": {
-      "_doc": "Displayed signal changes only after persist_evals consecutive evaluations agree (timing-engine discipline). Risk escalations — NO DATA, stale quotes, new earnings catalyst, HOLD/CONTINUATION risk — bypass and fire immediately. Raw and displayed are both recorded.",
+      "_doc": "Displayed signal changes only after persist_evals consecutive evaluations agree (timing-engine discipline). Risk escalations \u2014 NO DATA, stale quotes, new earnings catalyst, HOLD/CONTINUATION risk \u2014 bypass and fire immediately. Raw and displayed are both recorded.",
       "persist_evals": 2,
       "escalate_signals": [
         "NO DATA",
@@ -500,7 +500,7 @@
       "trap_cyclical_percentile": 85.0
     },
     "regime": {
-      "_doc": "A valuation regime shift is called when the median of the recent window moves further than the SPREAD of the earlier window — a level change, not a wiggle. Deliberately simple and inspectable; a black-box change-point model would be harder to argue with and no more true.",
+      "_doc": "A valuation regime shift is called when the median of the recent window moves further than the SPREAD of the earlier window \u2014 a level change, not a wiggle. Deliberately simple and inspectable; a black-box change-point model would be harder to argue with and no more true.",
       "recent_years": 2.0,
       "window_years": 5.0,
       "shift_ratio": 1.0
@@ -513,7 +513,7 @@
     },
     "_phase3": "Phase 3 (INVESTMENT.md). Turns the tab from 'is this company attractive' into 'what is it worth, what does today's price imply, and which structure is economically best'. Bear/Base/Bull comes from valid basis-compatible methods only, never an average of them; the confidence decides how far above the pessimistic value the credited value is allowed to travel, so LOWER confidence LOWERS the price we will pay. Every structure is compared on identical capital at an identical expiration on identical scenario prices.",
     "fair_value": {
-      "_doc": "The three valuation methods and how they combine. The percentiles run on the company's own YIELD history, where a HIGH yield is a CHEAP price — which is why the pessimistic case sits at the high-yield percentile. The disagreement bands are a stated convention, not a tested result: nothing here has verified that a 30% gap between two methods predicts anything. They exist so a wide disagreement visibly costs the valuation its confidence instead of being averaged quietly away.",
+      "_doc": "The three valuation methods and how they combine. The percentiles run on the company's own YIELD history, where a HIGH yield is a CHEAP price \u2014 which is why the pessimistic case sits at the high-yield percentile. The disagreement bands are a stated convention, not a tested result: nothing here has verified that a 30% gap between two methods predicts anything. They exist so a wide disagreement visibly costs the valuation its confidence instead of being averaged quietly away.",
       "self_bear_yield_percentile": 0.85,
       "self_base_yield_percentile": 0.5,
       "self_bull_yield_percentile": 0.15,
@@ -536,7 +536,7 @@
       "min_margin_of_safety": 0.2
     },
     "expected_return": {
-      "_doc": "The scenario bridge. Growth rates are percentiles of the company's OWN realized compound earnings growth measured over windows the same length as the projection — percentiles of one-year growth are not percentiles of three-year growth, and compounding the former produced a bull case of seven hundred dollars a share for Apple. Exit multiples are percentiles of the multiple this company has actually traded at. Dividends are cash: they are compounded to the horizon at the matching Treasury yield and enter terminal wealth, never added to the price return as a percentage. Buyback yield is not added at all — a buyback raises earnings per share, which is already the first contribution.",
+      "_doc": "The scenario bridge. Growth rates are percentiles of the company's OWN realized compound earnings growth measured over windows the same length as the projection \u2014 percentiles of one-year growth are not percentiles of three-year growth, and compounding the former produced a bull case of seven hundred dollars a share for Apple. Exit multiples are percentiles of the multiple this company has actually traded at. Dividends are cash: they are compounded to the horizon at the matching Treasury yield and enter terminal wealth, never added to the price return as a percentage. Buyback yield is not added at all \u2014 a buyback raises earnings per share, which is already the first contribution.",
       "horizon_years": 3.0,
       "growth_bear_percentile": 0.25,
       "growth_base_percentile": 0.5,
@@ -553,7 +553,7 @@
       "prob_bull": 0.25
     },
     "implied_expectations": {
-      "_doc": "The reverse discounted cash flow, solved by bisection on a bracketed interval for ONE unknown: the five-year free-cash-flow growth the price is already paying for. The discount rate is deliberately NOT a per-company weighted average cost of capital — a beta estimated from five years of daily returns moves by whole points depending on the window, and that false precision would propagate into every cell of the grid. It is the 10-year Treasury plus a stated premium, varied across the grid.",
+      "_doc": "The reverse discounted cash flow, solved by bisection on a bracketed interval for ONE unknown: the five-year free-cash-flow growth the price is already paying for. The discount rate is deliberately NOT a per-company weighted average cost of capital \u2014 a beta estimated from five years of daily returns moves by whole points depending on the window, and that false precision would propagate into every cell of the grid. It is the 10-year Treasury plus a stated premium, varied across the grid.",
       "reverse_dcf_years": 5,
       "equity_risk_premium_pct": 4.5,
       "terminal_growth_pct": 3.0,
@@ -565,7 +565,7 @@
       ]
     },
     "structures": {
-      "_doc": "The comparator. Comparison capital is 100 x the current share price — one round lot, which is what one contract controls. Nothing is ever ranked on return-on-premium, return-on-margin or return-on-buying-power-reduction: those denominators reward a structure for the money it did NOT put to work, which is what makes leverage look like skill. Cash a structure does not spend earns the matching Treasury yield to expiration.",
+      "_doc": "The comparator. Comparison capital is 100 x the current share price \u2014 one round lot, which is what one contract controls. Nothing is ever ranked on return-on-premium, return-on-margin or return-on-buying-power-reduction: those denominators reward a structure for the money it did NOT put to work, which is what makes leverage look like skill. Cash a structure does not spend earns the matching Treasury yield to expiration.",
       "toss_up_margin_pct": 0.5,
       "probability_shift": 0.05,
       "min_dividend_extrinsic_cushion": 1.0,
@@ -589,9 +589,9 @@
       "leaps_iv_history_days": 400,
       "leaps_tenor_tolerance": 0.3
     },
-    "_phase4": "Phase 4 adds three things: a bank valued on tangible book and its own profitability, a property trust valued on reconstructed funds from operations, and two testing engines — a path-dependent covered-call simulator and forward validation of the recommendations this app has already recorded. Insurers and brokers are deliberately still refused: no model here is built for either, and half a model reads exactly like a whole one on screen.",
+    "_phase4": "Phase 4 adds three things: a bank valued on tangible book and its own profitability, a property trust valued on reconstructed funds from operations, and two testing engines \u2014 a path-dependent covered-call simulator and forward validation of the recommendations this app has already recorded. Insurers and brokers are deliberately still refused: no model here is built for either, and half a model reads exactly like a whole one on screen.",
     "bank": {
-      "_doc": "The bank model. Cost of equity is the ten-year Treasury plus a stated premium — a market-wide convention, never a per-company number fitted to make the answer come out. The justified multiple is (return on tangible common equity - growth) divided by (cost of equity - growth), which says that a bank earning exactly its cost of equity is worth exactly its tangible book.",
+      "_doc": "The bank model. Cost of equity is the ten-year Treasury plus a stated premium \u2014 a market-wide convention, never a per-company number fitted to make the answer come out. The justified multiple is (return on tangible common equity - growth) divided by (cost of equity - growth), which says that a bank earning exactly its cost of equity is worth exactly its tangible book.",
       "bank_equity_risk_premium_pct": 5.0,
       "bank_terminal_growth_pct": 3.0,
       "bank_justified_rotce_haircut_pct": 3.0,
@@ -619,7 +619,7 @@
       "cc_dte_tolerance": 0.6
     },
     "forward_test": {
-      "_doc": "Forward validation of recorded recommendations. The minimum sample is not a calibrated figure and is not claimed to be — it is the conventional floor below which a median is an anecdote. Below it every bucket reports INSUFFICIENT SAMPLE and nothing else.",
+      "_doc": "Forward validation of recorded recommendations. The minimum sample is not a calibrated figure and is not claimed to be \u2014 it is the conventional floor below which a median is an anecdote. Below it every bucket reports INSUFFICIENT SAMPLE and nothing else.",
       "forward_min_sample": 30,
       "forward_min_sector_peers": 5,
       "forward_positive_verdicts": [
@@ -639,7 +639,7 @@
     },
     "_phase5": "Phase 5 adds specialized valuation for insurers and for broker-dealers, and strengthens the prospective capture of real option chains so the covered-call simulator and the forward validation become real with time. Neither of the two new models is applied to everything in its industry code: an insurer whose annual report does not say what kind of insurance it writes is refused, because claims over premiums is a loss ratio for a car insurer and is not a ratio at all for a life insurer, and a filer in a broker's industry code that has no customer money on its balance sheet is an asset manager or an exchange and is refused too.",
     "insurance": {
-      "_doc": "The insurer model. The combined ratio is reported only where the underwriting expense is actually filed — five of thirty-six insurers tag it — and never assembled out of whatever cost line happens to be tagged. Adverse reserve development holds the fair-value confidence down, which lowers the buy zone rather than printing a warning beside a number it did not change.",
+      "_doc": "The insurer model. The combined ratio is reported only where the underwriting expense is actually filed \u2014 five of thirty-six insurers tag it \u2014 and never assembled out of whatever cost line happens to be tagged. Adverse reserve development holds the fair-value confidence down, which lowers the buy zone rather than printing a warning beside a number it did not change.",
       "insurance_combined_ratio_alarm": 100.0,
       "insurance_adverse_development_pct": 1.0,
       "insurance_min_subtype_peers": 5,
@@ -649,7 +649,7 @@
       "insurance_justified_roe_uplift_pct": 2.0
     },
     "broker": {
-      "_doc": "The broker model. Whether a filer is a broker-dealer at all is answered from its balance sheet — customer receivables, segregated customer cash, commissions, dealer trading, underwriting revenue — rather than from its industry code, which also covers exchanges and asset managers. Client assets are not in the filings anywhere and stay blank; for a customer-driven brokerage that missing number holds the fair-value confidence down.",
+      "_doc": "The broker model. Whether a filer is a broker-dealer at all is answered from its balance sheet \u2014 customer receivables, segregated customer cash, commissions, dealer trading, underwriting revenue \u2014 rather than from its industry code, which also covers exchanges and asset managers. Client assets are not in the filings anywhere and stay blank; for a customer-driven brokerage that missing number holds the fair-value confidence down.",
       "broker_material_deposits_pct": 10.0,
       "broker_min_subtype_peers": 5,
       "broker_min_peers_for_regression": 8,
@@ -659,7 +659,7 @@
       "broker_leverage_alarm": 15.0
     },
     "chain_capture": {
-      "_doc": "The daily capture of real option chains for followed tickers. Deliberately narrow: expirations out to about six weeks and a bounded ring of strikes around the money, which is everything the covered-call tenors and strike rules read and nothing more. A day that goes uncaptured is gone — there is no source of historical chains this app can reach, and nothing here is ever back-filled.",
+      "_doc": "The daily capture of real option chains for followed tickers. Deliberately narrow: expirations out to about six weeks and a bounded ring of strikes around the money, which is everything the covered-call tenors and strike rules read and nothing more. A day that goes uncaptured is gone \u2014 there is no source of historical chains this app can reach, and nothing here is ever back-filled.",
       "capture_max_dte": 50,
       "capture_strike_count": 50
     },
@@ -680,13 +680,13 @@
       "routing_max_ocf_margin_pct": 150.0
     },
     "filing_tables": {
-      "_doc": "Reading a small, named set of operating measures out of the company's own SEC filing tables — client assets, assets under management, net new money, a published combined ratio, a published funds-from-operations figure. None of these is in XBRL, because none of them is a line of a financial statement. Every reading carries the accession, the document, the row label, the column, the period and the unit, and a reading is refused outright when the row is ambiguous, the period is missing or the scale is a guess: a thousandfold unit error must never reach a screen. A filing never changes, so a reading of one is written once and never rewritten.",
+      "_doc": "Reading a small, named set of operating measures out of the company's own SEC filing tables \u2014 client assets, assets under management, net new money, a published combined ratio, a published funds-from-operations figure. None of these is in XBRL, because none of them is a line of a financial statement. Every reading carries the accession, the document, the row label, the column, the period and the unit, and a reading is refused outright when the row is ambiguous, the period is missing or the scale is a guess: a thousandfold unit error must never reach a screen. A filing never changes, so a reading of one is written once and never rewritten.",
       "reconstruction_tolerance_pct": 5.0,
       "client_asset_max_age_days": 200
     },
-    "_phase7": "Phase 7 adds no valuation engine. It makes the weakest data inputs production-grade. An annual report organised by segment rather than by adjective is now classified from the segments it names, which is what American International Group's report does and why it could not be classified before. A table caption is no longer assumed to cover every row in the table: the scale is taken from the most specific statement that covers the number, which is how T. Rowe Price's $1,893.4 becomes $1.9 trillion instead of $1.9 billion. The number itself is taken from the column its period heads rather than from the front of the row, because Affiliated Managers prints last year first. Published figures are compared with reconstructed ones only when the basis, the period and the window all match — a REIT publishes funds from operations five ways and only one of them is what a share is entitled to. And every prospective capture now writes down what it tried, so a missed trading day is reported the next morning instead of discovered in a backtest six months later.",
+    "_phase7": "Phase 7 adds no valuation engine. It makes the weakest data inputs production-grade. An annual report organised by segment rather than by adjective is now classified from the segments it names, which is what American International Group's report does and why it could not be classified before. A table caption is no longer assumed to cover every row in the table: the scale is taken from the most specific statement that covers the number, which is how T. Rowe Price's $1,893.4 becomes $1.9 trillion instead of $1.9 billion. The number itself is taken from the column its period heads rather than from the front of the row, because Affiliated Managers prints last year first. Published figures are compared with reconstructed ones only when the basis, the period and the window all match \u2014 a REIT publishes funds from operations five ways and only one of them is what a share is entitled to. And every prospective capture now writes down what it tried, so a missed trading day is reported the next morning instead of discovered in a backtest six months later.",
     "insurance_basis": {
-      "_doc": "When a company-wide loss ratio means something. A multiline insurer files one premium line and one claims line, and where it is genuinely two businesses the claims include benefits paid by a life book whose earnings the premiums leave out. Measured across today's multiline insurers: Chubb 3.2 percent of assets, Kemper 4.5, Cincinnati Financial 6.9, Berkshire Hathaway 1.4 — and Horace Mann at 32.3, which is a life company with a car insurer attached. Above the line the underwriting ratios are refused as a mixed business basis; book value, returns, reserves and the whole valuation carry on regardless.",
+      "_doc": "When a company-wide loss ratio means something. A multiline insurer files one premium line and one claims line, and where it is genuinely two businesses the claims include benefits paid by a life book whose earnings the premiums leave out. Measured across today's multiline insurers: Chubb 3.2 percent of assets, Kemper 4.5, Cincinnati Financial 6.9, Berkshire Hathaway 1.4 \u2014 and Horace Mann at 32.3, which is a life company with a car insurer attached. Above the line the underwriting ratios are refused as a mixed business basis; book value, returns, reserves and the whole valuation carry on regardless.",
       "insurance_spread_material_pct": 10.0,
       "insurance_evidence_max_age_days": 400.0
     },
@@ -696,18 +696,18 @@
       "cross_check_material_pct": 5.0
     },
     "capture_health": {
-      "_doc": "Whether the prospective capture actually happened. The Investment snapshot, the end-of-day option chain, the long-dated observation, the benchmark close and the exact recommended contract are expected once per followed ticker per TRADING day — weekends and market holidays expect nothing, and the calendar is computed from the exchange's rules rather than typed out, so it does not expire. Nothing here is ever back-filled: a missed option chain stays missed, and the point of the report is that it says so the next morning instead of six months later during a backtest.",
+      "_doc": "Whether the prospective capture actually happened. The Investment snapshot, the end-of-day option chain, the long-dated observation, the benchmark close and the exact recommended contract are expected once per followed ticker per TRADING day \u2014 weekends and market holidays expect nothing, and the calendar is computed from the exchange's rules rather than typed out, so it does not expire. Nothing here is ever back-filled: a missed option chain stays missed, and the point of the report is that it says so the next morning instead of six months later during a backtest.",
       "capture_hour_et": 17,
       "capture_late_after_hours": 2,
       "capture_keep_days": 400
     }
   },
   "korea_lead": {
-    "_doc": "KOREA LEAD — overnight Korean context above the Gap Scan. Korea closes before New York opens, so a Korean session dated D is matched to the U.S. session dated D and nothing is shifted. Every number below decides how conservative the WORDING is, or where a price series stops being believable; none of them is a finding, and none of them is a weight. There is deliberately no composite Korea score and no weighting of KOSPI against Samsung or SK Hynix, because no weighting has been validated out of sample. USD/KRW is excluded from every statistic: its daily bar is stamped on a London day, which closes after the U.S. opens, so using it would be reading the future. Repo file = defaults; <data>/thresholds.json overrides key by key.",
+    "_doc": "KOREA LEAD \u2014 overnight Korean context above the Gap Scan. Korea closes before New York opens, so a Korean session dated D is matched to the U.S. session dated D and nothing is shifted. Every number below decides how conservative the WORDING is, or where a price series stops being believable; none of them is a finding, and none of them is a weight. There is deliberately no composite Korea score and no weighting of KOSPI against Samsung or SK Hynix, because no weighting has been validated out of sample. USD/KRW is excluded from every statistic: its daily bar is stamped on a London day, which closes after the U.S. opens, so using it would be reading the future. Repo file = defaults; <data>/thresholds.json overrides key by key.",
     "max_credible_move_pct": 50.0,
     "_max_credible_move_pct_doc": "A split- and spinoff-adjusted daily series should never print an overnight move this large, so a day that does is excluded and counted rather than explained. Set clear of the real moves measured across the target list (the largest was about +37% on an earnings day) and below the move an unadjusted 3-for-2 split would fake (-33%). This is NOT a split detector: it does not claim to know what happened, only that no adjusted series should print it.",
     "implied_min_n": 8,
-    "_implied_min_n_doc": "Matched sessions required before the Korea Implied Gap shows a rate at all. Below it the panel says how many sessions it found and shows nothing else — a match rate from three sessions is not a match rate.",
+    "_implied_min_n_doc": "Matched sessions required before the Korea Implied Gap shows a rate at all. Below it the panel says how many sessions it found and shows nothing else \u2014 a match rate from three sessions is not a match rate.",
     "near_zero_expected_pct": 0.15,
     "_near_zero_expected_pct_doc": "Below this expected gap magnitude the 'share already covered' figure is refused, because dividing by an expectation near zero turns a rounding difference into a headline percentage. It is also always refused when the two signs disagree.",
     "edge_gates": {
@@ -723,14 +723,14 @@
     "freshness": {
       "_doc": "UNVALIDATED / TUNABLE. How old a reading may be before the panel stops treating it as describing right now. None of these was fitted to anything; they are starting hypotheses chosen so that a number on screen is never older than the decision it is being used for.",
       "korea_current_max_age_min": 20,
-      "_korea_current_max_age_min_doc": "At or under this age a Korean reading is called CURRENT FOR SOURCE — never 'real time'. The provider carrying KOSPI, Samsung and SK Hynix here is a delayed feed, and a twenty-minute-old print from a delayed feed is the freshest thing this app can honestly claim to have. Saying 'real time' would be describing the provider we wish we had.",
+      "_korea_current_max_age_min_doc": "At or under this age a Korean reading is called CURRENT FOR SOURCE \u2014 never 'real time'. The provider carrying KOSPI, Samsung and SK Hynix here is a delayed feed, and a twenty-minute-old print from a delayed feed is the freshest thing this app can honestly claim to have. Saying 'real time' would be describing the provider we wish we had.",
       "korea_delayed_max_age_min": 60,
       "_korea_delayed_max_age_min_doc": "Between the two limits the reading is DELAYED: still usable, visibly behind. Past it the reading is STALE and is not used to describe the current session.",
       "us_premarket_max_quote_age_s": 300,
-      "_us_premarket_max_quote_age_s_doc": "Before 9:30 ET a target quote older than this cannot produce a premarket gap, a residual, a residual percentile, or a confirming/diverging call. This gate exists because of a measured failure, not a hypothetical one: when the primary quote source is unavailable the fallback returns YESTERDAY'S 4pm close as 'last' and the close before that as 'previous', which reads as a perfectly plausible premarket gap and is actually yesterday's full-day return. Thin premarket names — WDC, STX — are where an old print looks most like a current one."
+      "_us_premarket_max_quote_age_s_doc": "Before 9:30 ET a target quote older than this cannot produce a premarket gap, a residual, a residual percentile, or a confirming/diverging call. This gate exists because of a measured failure, not a hypothetical one: when the primary quote source is unavailable the fallback returns YESTERDAY'S 4pm close as 'last' and the close before that as 'previous', which reads as a perfectly plausible premarket gap and is actually yesterday's full-day return. Thin premarket names \u2014 WDC, STX \u2014 are where an old print looks most like a current one."
     },
     "chip_confirmation": {
-      "_doc": "UNVALIDATED / TUNABLE heuristic starting thresholds. These decide when Samsung and SK Hynix are said to CONFIRM the index rather than merely to have closed on the same side of zero. They are not a score and they are not weights: the two names are counted, never blended. Nothing here has been validated out of sample — they encode the judgement that a 0.05% move is not a direction.",
+      "_doc": "UNVALIDATED / TUNABLE heuristic starting thresholds. These decide when Samsung and SK Hynix are said to CONFIRM the index rather than merely to have closed on the same side of zero. They are not a score and they are not weights: the two names are counted, never blended. Nothing here has been validated out of sample \u2014 they encode the judgement that a 0.05% move is not a direction.",
       "min_same_sign_abs_pct": 0.3,
       "_min_same_sign_abs_pct_doc": "Every one of the three has to have moved at least this far for CONFIRMED. Below it a name is drifting, not agreeing, and calling that confirmation would make the strongest label the easiest one to earn on a quiet day.",
       "kospi_divergence_min_abs_pct": 0.5,
@@ -743,7 +743,7 @@
       "min_n": 30,
       "_min_n_doc": "Matched sessions required before a direction is named. Deliberately higher than implied_min_n (which governs whether the bucket table is shown at all): showing a reader what eight sessions did is honest, telling them it is a lean is not.",
       "wilson_lower_min": 0.5,
-      "_wilson_lower_min_doc": "The CONSERVATIVE end of the same-direction interval must clear this before a direction is named — on either side. A rate whose honest range sits entirely BELOW a coin flip is a real finding about a ticker that opens against Korea, not a failure. Only a range straddling this value says nothing, and that case is INCONCLUSIVE."
+      "_wilson_lower_min_doc": "The CONSERVATIVE end of the same-direction interval must clear this before a direction is named \u2014 on either side. A rate whose honest range sits entirely BELOW a coin flip is a real finding about a ticker that opens against Korea, not a failure. Only a range straddling this value says nothing, and that case is INCONCLUSIVE."
     },
     "relationship": {
       "_doc": "UNVALIDATED / TUNABLE. When the recent and long windows are treated as describing the same relationship, and when they are not. INCONCLUSIVE and UNSTABLE are deliberately different answers: the first says the evidence cannot establish a direction, the second says the relationship itself has changed underneath the evidence.",
@@ -757,14 +757,14 @@
       "_r_doc": "Where STRONG stops and STABLE begins, and where STABLE stops and WEAK begins. Judged on the WEAKER of the two windows, so a healthy long window cannot cover for a recent one that has faded."
     },
     "unusual": {
-      "_doc": "UNVALIDATED / TUNABLE. How unusual today's Korean move is, measured against that index's OWN trailing year rather than against a fixed percentage. A fixed level ages badly in both directions — it fires constantly in a violent year and never in a calm one — where a percentile carries the volatility regime with it.",
+      "_doc": "UNVALIDATED / TUNABLE. How unusual today's Korean move is, measured against that index's OWN trailing year rather than against a fixed percentage. A fixed level ages badly in both directions \u2014 it fires constantly in a violent year and never in a calm one \u2014 where a percentile carries the volatility regime with it.",
       "unusual_percentile": 90,
       "extreme_percentile": 97,
       "_percentile_doc": "Percentile of trailing absolute daily moves. The percentile itself, the sample size behind it and the lookback are all shown next to the label, so the reader can disagree with the label by looking at what produced it.",
       "min_history_n": 60,
       "_min_history_n_doc": "Trailing sessions required before any percentile is computed. Below it there is no percentile rather than a percentile from a handful of days.",
       "lookback_sessions": 252,
-      "_lookback_sessions_doc": "The trailing window, in sessions, ending the session BEFORE today — today's own move is never part of the distribution it is being ranked against."
+      "_lookback_sessions_doc": "The trailing window, in sessions, ending the session BEFORE today \u2014 today's own move is never part of the distribution it is being ranked against."
     },
     "driver_selection": {
       "_doc": "UNVALIDATED / TUNABLE. When the primary Korean driver for a target may change. Every gate here is measured OUT OF SAMPLE on an expanding-window walk-forward; a difference in in-sample correlation, however large, can never move the driver. The gates are conjunctive on purpose: a challenger that wins one metric and loses the other has not shown it is better, it has shown it is different.",
@@ -777,22 +777,22 @@
       "min_oos_n": 250,
       "_min_oos_n_doc": "ABSOLUTE QUALITY FLOOR, not a relative one. Out-of-sample scored sessions required before any candidate is eligible to be primary at all.",
       "min_direction_pct": 52.0,
-      "_min_direction_pct_doc": "ABSOLUTE QUALITY FLOOR. A candidate below this is not promoted no matter how badly the alternatives do. A driver must be good, not merely least bad — without this floor, a universe of worthless signals still elects a winner.",
+      "_min_direction_pct_doc": "ABSOLUTE QUALITY FLOOR. A candidate below this is not promoted no matter how badly the alternatives do. A driver must be good, not merely least bad \u2014 without this floor, a universe of worthless signals still elects a winner.",
       "max_rmse_ratio": 1.0,
       "_max_rmse_ratio_doc": "ABSOLUTE QUALITY FLOOR. Out-of-sample error relative to simply predicting the training mean. At or above 1.0 the candidate is not beating a constant, so it is not a driver."
     },
     "premium_context": {
-      "_doc": "UNVALIDATED / TUNABLE. Korea Lead has no opinion about strike selection and must never grow a second one. This is a FALLBACK only — used when the application has no currently selected target delta of its own to borrow.",
+      "_doc": "UNVALIDATED / TUNABLE. Korea Lead has no opinion about strike selection and must never grow a second one. This is a FALLBACK only \u2014 used when the application has no currently selected target delta of its own to borrow.",
       "fallback_target_delta": 0.2,
       "_fallback_target_delta_doc": "Used only when nothing else in the app has expressed a preference. When the app does have a selected target delta, that value is used and this one is ignored."
     },
     "finality": {
-      "_doc": "UNVALIDATED / TUNABLE. When a Korean session may be called FINAL. The wall clock says what SHOULD be happening; only the data says what IS. South Korea moves the session on College Scholastic Ability Test day, and no exam-day calendar ships with this app — nor should one, because a hardcoded calendar is wrong the first year it is not updated. Instead the session stays PRELIMINARY while Korean values are still advancing, however late that runs.",
+      "_doc": "UNVALIDATED / TUNABLE. When a Korean session may be called FINAL. The wall clock says what SHOULD be happening; only the data says what IS. South Korea moves the session on College Scholastic Ability Test day, and no exam-day calendar ships with this app \u2014 nor should one, because a hardcoded calendar is wrong the first year it is not updated. Instead the session stays PRELIMINARY while Korean values are still advancing, however late that runs.",
       "quiet_minutes": 15,
       "_quiet_minutes_doc": "The Korean close must have been observed unchanged for at least this long, across at least two separate readings, before the session is called FINAL. A market that is still moving is never final, whatever the clock says.",
       "fallback_final_kst": "18:30",
-      "_fallback_final_kst_doc": "DOCUMENTED CONSERVATIVE FALLBACK. The app may be restarted, or simply not asked, for hours — in which case there are no two readings to compare and the quiet test can never be satisfied. After this Seoul time a session whose bar exists is accepted as final without observed quiet. It sits deliberately late: past the 15:30 regular close, past the 18:00 end of the provider's post-session window, and far enough before the 9:25am ET forward snapshot (22:25 Seoul) that nothing downstream is affected. Its only cost is that a genuinely irregular session stays PRELIMINARY a few hours longer.",
-      "provider_close_disagrees_note": "The provider's own trading-period metadata reports the KRX regular session as 09:00–15:00 Seoul, which disagrees with the 15:30 close that the closing single-price auction actually settles at. That is one more reason finality is not read from provider schedule metadata: two sources disagree about the schedule, and neither of them is the market."
+      "_fallback_final_kst_doc": "DOCUMENTED CONSERVATIVE FALLBACK. The app may be restarted, or simply not asked, for hours \u2014 in which case there are no two readings to compare and the quiet test can never be satisfied. After this Seoul time a session whose bar exists is accepted as final without observed quiet. It sits deliberately late: past the 15:30 regular close, past the 18:00 end of the provider's post-session window, and far enough before the 9:25am ET forward snapshot (22:25 Seoul) that nothing downstream is affected. Its only cost is that a genuinely irregular session stays PRELIMINARY a few hours longer.",
+      "provider_close_disagrees_note": "The provider's own trading-period metadata reports the KRX regular session as 09:00\u201315:00 Seoul, which disagrees with the 15:30 close that the closing single-price auction actually settles at. That is one more reason finality is not read from provider schedule metadata: two sources disagree about the schedule, and neither of them is the market."
     },
     "forward": {
       "_doc": "UNVALIDATED / TUNABLE. The genuine point-in-time record captured going forward. Nothing here is ever backfilled: a checkpoint the app was not running for is MISSED, and MISSED is a permanent fact about that morning. Backfilling one would destroy the only property that makes this data worth having.",
@@ -804,9 +804,9 @@
       ],
       "_checkpoints_kst_doc": "Seoul times at which the Korean state is archived, plus the confirmed final close. These exist to answer a question no amount of daily history can: how early in the Korean session the signal becomes useful.",
       "checkpoint_grace_min": 12,
-      "_checkpoint_grace_min_doc": "How late a capture may run and still be recorded AS that checkpoint. Past it the checkpoint is MISSED and is never captured retrospectively — a 13:47 reading is not the 13:00 observation, and calling it one would silently poison every future study of when the signal matures. The actual capture time is stored on every record either way.",
+      "_checkpoint_grace_min_doc": "How late a capture may run and still be recorded AS that checkpoint. Past it the checkpoint is MISSED and is never captured retrospectively \u2014 a 13:47 reading is not the 13:00 observation, and calling it one would silently poison every future study of when the signal matures. The actual capture time is stored on every record either way.",
       "snapshot_et": "09:25",
-      "_snapshot_et_doc": "The forward prediction record, taken before the U.S. opens over a fixed server-side universe. Deliberately not driven by whichever ticker happens to be selected in someone's browser — a client selection is not server state, and a prediction that only exists when somebody was watching is not a record.",
+      "_snapshot_et_doc": "The forward prediction record, taken before the U.S. opens over a fixed server-side universe. Deliberately not driven by whichever ticker happens to be selected in someone's browser \u2014 a client selection is not server state, and a prediction that only exists when somebody was watching is not a record.",
       "snapshot_grace_min": 4,
       "_snapshot_grace_min_doc": "The 9:25 snapshot must be taken before the open. Past this it is MISSED rather than taken late, because a 9:31 'pre-open' record is not one.",
       "poll_seconds": 30,
@@ -814,26 +814,26 @@
       "min_forward_n": 40,
       "_min_forward_n_doc": "TRUE FORWARD records required before a forward scorecard is shown at all. A scorecard built on three mornings is worse than no scorecard, because it looks like evidence. Forward-recorded results are never combined with backtested ones into a single rate.",
       "retain_days": 1100,
-      "_retain_days_doc": "How long forward records are kept, in days. About four years — long enough that the question this data exists to answer becomes answerable."
+      "_retain_days_doc": "How long forward records are kept, in days. About four years \u2014 long enough that the question this data exists to answer becomes answerable."
     },
     "research": {
-      "_doc": "The V2 research layer (korea_research.py). These decide when a statistic is refused for want of data, never what it says. Nothing in this section is ever applied to the panel's own numbers — the research layer measures, and promotion of any model to a production signal is a decision a person makes after reading the comparison, not a side effect of a model scoring well.",
+      "_doc": "The V2 research layer (korea_research.py). These decide when a statistic is refused for want of data, never what it says. Nothing in this section is ever applied to the panel's own numbers \u2014 the research layer measures, and promotion of any model to a production signal is a decision a person makes after reading the comparison, not a side effect of a model scoring well.",
       "min_regression_n": 60,
-      "_min_regression_n_doc": "Below this many matched sessions a regression is refused rather than fitted. Not a statistical law — a floor chosen so a slope is never reported from a sample where one quarter of unusual weather would dominate it.",
+      "_min_regression_n_doc": "Below this many matched sessions a regression is refused rather than fitted. Not a statistical law \u2014 a floor chosen so a slope is never reported from a sample where one quarter of unusual weather would dominate it.",
       "min_train_n": 250,
       "_min_train_n_doc": "Roughly one trading year. A walk-forward fold is only scored after the model has seen at least this much history, and a point-in-time residual is left empty until then rather than produced by a model with nothing to learn from.",
       "walk_step": 21,
-      "_walk_step_doc": "Sessions between re-fits in the expanding-window evaluation — about monthly.",
+      "_walk_step_doc": "Sessions between re-fits in the expanding-window evaluation \u2014 about monthly.",
       "regime_window": 20,
       "_regime_window_doc": "Trailing realised-volatility window for the regime split, computed through the PRIOR close so it is knowable before the open it labels. Same-day VIX is deliberately not used: at 9:30 it is a future value.",
       "fdr_alpha": 0.05,
       "_fdr_alpha_doc": "False-discovery rate for the Benjamini-Hochberg correction across the pair matrix. With dozens of cells some look significant by luck; the q-value is what decides, not the raw p-value.",
       "estimate_disagreement_pct": 0.75,
-      "_estimate_disagreement_pct_doc": "How far the bucket estimate and the fitted-line estimate may differ before the panel says MODEL DISAGREEMENT. They are never averaged — the midpoint of two estimates that disagree is a third number nothing supports."
+      "_estimate_disagreement_pct_doc": "How far the bucket estimate and the fitted-line estimate may differ before the panel says MODEL DISAGREEMENT. They are never averaged \u2014 the midpoint of two estimates that disagree is a third number nothing supports."
     }
   },
   "swing_projection": {
-    "_doc": "SWING REVERSAL PROJECTION — the conditional layer on top of the Patterns tab's zigzag. Given the active swing has already travelled X%, the cohort is every completed same-direction swing that reached AT LEAST X% — a survival population, deliberately not a similarity window, because a window around the current size excludes the swings that kept going and understates remaining risk exactly when the knife is still falling. v4.51 corrections, each measured over 16 symbols x 10 years of daily bars (about 5,000 walk-forward events): (1) the 15% DISPLAY filter no longer gates the cohort — at 12% sensitivity it was deleting 19% of all completed legs (the 12-15% band) and at 8% sensitivity 51%; removing it cut early-stage reversal-size error 13% at 12% sensitivity and 43% at 8%, and moved p25-p75 band coverage from 36% and 22% respectively to about 46%, against the 50% ideal. (2) Follow-on probabilities are now fixed-horizon (X% within N trading days) against a baseline measured with the SAME X and N from ordinary days; the old lifetime touch ladder was circular, since a confirmed swing exceeds the sensitivity threshold by definition. (3) The follow-on target is the median of PAIRED per-episode projections rather than median depth x median rebound. (4) Historical entries use the price actually available at the crossing — the session open when the market gapped through the level, which happens on roughly a third of crossings. Regime, 20-day range position and velocity were each tested as ADDITIONAL cohort filters and each REJECTED: none improved out-of-sample error and every one degraded band coverage. They remain displayed context only. Repo file = defaults; <data>/thresholds.json overrides key by key.",
+    "_doc": "SWING REVERSAL PROJECTION \u2014 the conditional layer on top of the Patterns tab's zigzag. Given the active swing has already travelled X%, the cohort is every completed same-direction swing that reached AT LEAST X% \u2014 a survival population, deliberately not a similarity window, because a window around the current size excludes the swings that kept going and understates remaining risk exactly when the knife is still falling. v4.51 corrections, each measured over 16 symbols x 10 years of daily bars (about 5,000 walk-forward events): (1) the 15% DISPLAY filter no longer gates the cohort \u2014 at 12% sensitivity it was deleting 19% of all completed legs (the 12-15% band) and at 8% sensitivity 51%; removing it cut early-stage reversal-size error 13% at 12% sensitivity and 43% at 8%, and moved p25-p75 band coverage from 36% and 22% respectively to about 46%, against the 50% ideal. (2) Follow-on probabilities are now fixed-horizon (X% within N trading days) against a baseline measured with the SAME X and N from ordinary days; the old lifetime touch ladder was circular, since a confirmed swing exceeds the sensitivity threshold by definition. (3) The follow-on target is the median of PAIRED per-episode projections rather than median depth x median rebound. (4) Historical entries use the price actually available at the crossing \u2014 the session open when the market gapped through the level, which happens on roughly a third of crossings. Regime, 20-day range position and velocity were each tested as ADDITIONAL cohort filters and each REJECTED: none improved out-of-sample error and every one degraded band coverage. They remain displayed context only. Repo file = defaults; <data>/thresholds.json overrides key by key.",
     "min_cohort_n": 6,
     "_min_cohort_n_doc": "UNVALIDATED / TUNABLE. Below this many cohort members the zone still renders but is explicitly labelled a description of a few episodes rather than evidence, and no conditional filter may be applied.",
     "more_move_ladder": [
@@ -856,14 +856,14 @@
         20
       ]
     ],
-    "_touch_horizons_doc": "UNVALIDATED / TUNABLE shape, VALIDATED principle. (percent, trading days) pairs for the follow-on move. Both the conditional rate — measured from the CLOSE of each historical reversal bar — and the baseline — the same question asked of every ordinary bar — use the same pair, which is the only way the two can be subtracted. Pooled over 16 symbols the conditional rates after confirmed bottoms were 82.9% / 71.9% / 59.5% against baselines of 27.6% / 18.1% / 17.5% (n=772, Wilson lower bounds 80.1 / 68.6 / 56.0); after confirmed tops 80.0 / 66.4 / 52.9 against 24.1 / 13.7 / 11.8 (n=775). These are conditional on the turn having happened — they are measured from bottoms only known to be bottoms afterwards, which is what the what-if calculator exists to correct for. This replaced a lifetime touch ladder whose levels below the zigzag sensitivity scored 100% by construction.",
+    "_touch_horizons_doc": "UNVALIDATED / TUNABLE shape, VALIDATED principle. (percent, trading days) pairs for the follow-on move. Both the conditional rate \u2014 measured from the CLOSE of each historical reversal bar \u2014 and the baseline \u2014 the same question asked of every ordinary bar \u2014 use the same pair, which is the only way the two can be subtracted. Pooled over 16 symbols the conditional rates after confirmed bottoms were 82.9% / 71.9% / 59.5% against baselines of 27.6% / 18.1% / 17.5% (n=772, Wilson lower bounds 80.1 / 68.6 / 56.0); after confirmed tops 80.0 / 66.4 / 52.9 against 24.1 / 13.7 / 11.8 (n=775). These are conditional on the turn having happened \u2014 they are measured from bottoms only known to be bottoms afterwards, which is what the what-if calculator exists to correct for. This replaced a lifetime touch ladder whose levels below the zigzag sensitivity scored 100% by construction.",
     "earnings_near_days": 2,
     "_earnings_near_days_doc": "UNVALIDATED / TUNABLE. An earnings report within this many trading days of the reversal pivot tags the episode. Contamination is now tagged in three places, not one: between the crossing and the final extreme (which distorts the zone and the remaining move), at the reversal itself, and inside the follow-on swing.",
     "min_clean_n": 6,
-    "_min_clean_n_doc": "UNVALIDATED / TUNABLE. Clean episodes required before contaminated ones are EXCLUDED from a statistic rather than merely disclosed beside it. Below this the panel keeps them and says so — a silently mixed population is worse than a disclosed one.",
+    "_min_clean_n_doc": "UNVALIDATED / TUNABLE. Clean episodes required before contaminated ones are EXCLUDED from a statistic rather than merely disclosed beside it. Below this the panel keeps them and says so \u2014 a silently mixed population is worse than a disclosed one.",
     "maturity_normal_pct": 100.0,
     "maturity_beyond_pct": 125.0,
-    "_maturity_doc": "VALIDATED BOUNDARIES. Share of the stock's own unconditional median swing at which a developing move stops being ordinary. From the staged walk-forward run at 12% sensitivity (reversal-size MAE, conditional vs unconditional): 25% of median 6.11 vs 5.98, 50% 5.87 vs 5.83, 75% 5.59 vs 4.58, 100% 6.40 vs 8.08, 125% 8.70 vs 13.76 — conditioning is worth nothing before the move reaches its normal size and worth a fifth to a third of the error after it. Band coverage tells the same story from the other side: at 125% the unconditional band covered 24.6% of outcomes, the conditional one 37.0%. These three states are descriptive labels only; they never enter the arithmetic and no number on the panel is scaled by them.",
+    "_maturity_doc": "VALIDATED BOUNDARIES. Share of the stock's own unconditional median swing at which a developing move stops being ordinary. From the staged walk-forward run at 12% sensitivity (reversal-size MAE, conditional vs unconditional): 25% of median 6.11 vs 5.98, 50% 5.87 vs 5.83, 75% 5.59 vs 4.58, 100% 6.40 vs 8.08, 125% 8.70 vs 13.76 \u2014 conditioning is worth nothing before the move reaches its normal size and worth a fifth to a third of the error after it. Band coverage tells the same story from the other side: at 125% the unconditional band covered 24.6% of outcomes, the conditional one 37.0%. These three states are descriptive labels only; they never enter the arithmetic and no number on the panel is scaled by them.",
     "max_credible_day_move_pct": 50.0,
     "_max_credible_day_move_pct_doc": "A single close-to-close move beyond this is treated as an unadjusted corporate action or bad data; the leg containing it is excluded and counted. Same convention as the gap scanner.",
     "range_window": 20,
@@ -871,7 +871,7 @@
     "atr_n": 14,
     "regime_filter": false,
     "_regime_filter_doc": "REJECTED BY VALIDATION, kept switchable. Filtering the cohort to swings whose crossing shared today's 200-day trend regime did not improve out-of-sample error and reduced band coverage. Range position and velocity conditioning were tested the same way and rejected the same way. Do not re-enable without a fresh walk-forward run.",
-    "_scan_ordering_doc": "SCAN ORDERING — REORDERING TESTED AND REJECTED (v4.52). The default order stays: reversal status, then adequate sample, then distance to the median. The reaction states are structurally biased toward the shallow edge of the band — leaving the band is a small move for an extreme that grazed it and a large one for an extreme sitting deep inside — so across 1,197 scanned watchlist symbols the median reacting row had penetrated 14% of its band against 46% for a row still IN ZONE, and 43% of reacting rows were under 10% penetration. Four alternative orderings were measured against the what-if edge (target-first minus stop-first from today's depth, the only outcome-like criterion the ordering itself does not use), over the 434 active down-swings: shipped +1pp; deepest-first within status -2pp; reacting and in-zone merged then deepest-first -4pp; penetration-banded 0pp with the median cohort collapsing from 24 to 10. Deeper penetration selects names that simply kept falling. Promoting by stage or by sample size also left the edge flat to worse. So band penetration and the maturity stage are DISPLAYED and filterable, never summed into the order: the stage filter uses the already-validated 100%-of-median boundary and restricts the list instead of silently promoting rows (it moves a deep, well-sampled name from about #106 to #19 by removing 286 early-stage rows, not by claiming it predicts better). Do not re-order on these without a fresh measurement.",
+    "_scan_ordering_doc": "SCAN ORDERING \u2014 REORDERING TESTED AND REJECTED (v4.52). The default order stays: reversal status, then adequate sample, then distance to the median. The reaction states are structurally biased toward the shallow edge of the band \u2014 leaving the band is a small move for an extreme that grazed it and a large one for an extreme sitting deep inside \u2014 so across 1,197 scanned watchlist symbols the median reacting row had penetrated 14% of its band against 46% for a row still IN ZONE, and 43% of reacting rows were under 10% penetration. Four alternative orderings were measured against the what-if edge (target-first minus stop-first from today's depth, the only outcome-like criterion the ordering itself does not use), over the 434 active down-swings: shipped +1pp; deepest-first within status -2pp; reacting and in-zone merged then deepest-first -4pp; penetration-banded 0pp with the median cohort collapsing from 24 to 10. Deeper penetration selects names that simply kept falling. Promoting by stage or by sample size also left the edge flat to worse. So band penetration and the maturity stage are DISPLAYED and filterable, never summed into the order: the stage filter uses the already-validated 100%-of-median boundary and restricts the list instead of silently promoting rows (it moves a deep, well-sampled name from about #106 to #19 by removing 286 early-stage rows, not by claiming it predicts better). Do not re-order on these without a fresh measurement.",
     "adaptive_zigzag": true,
     "zigzag_k": 2.5,
     "zigzag_floor_pct": 6.0,
@@ -886,7 +886,7 @@
     "_adaptive_zigzag_doc": "HOW BIG A MOVE COUNTS AS A SWING, PER STOCK (v4.54). A single percentage cannot mean the same thing on a utility and on a small-cap rocket. At a fixed 12% the watchlist segmented into anything from 2.6 swings a year (KO) to 38 (COIN); low-volatility names got single 'swings' spanning more than a year (MA's longest leg was 531 days, PG's 452); and their cohorts starved - KO's live projection stood on ONE comparable episode, JNJ's on four. The threshold is now k x the stock's own median absolute 20-day move, clamped to [floor, ceiling] and scaled by the sensitivity multiplier. k=2.5 comes from two independent routes: solving per symbol for a comparable number of swings a year gives a threshold/travel ratio with median 2.48 and correlation 0.987 across 22 symbols, and the walk-forward sweep over 32 symbols preferred 2.5 on days-coverage (50.2% against the 50% ideal). HONEST LIMIT, MEASURED: adapting the threshold does NOT make the projection more accurate. Band coverage 45.2% fixed vs 44.9% adaptive; error relative to the swing being projected 27.0% vs 26.9%; days-coverage 49.9% vs 50.2%. What it changes is whether there is a sample to stand on and whether the segmentation matches what the chart shows: the median live cohort goes 17 -> 24 and the symbols projecting from fewer than six episodes go from 5 in 32 to none. Absolute MAE in percentage points is NOT a valid comparison across thresholds - a smaller threshold makes smaller swings and shrinks the error for free, which is why the scale-free measures above are the ones quoted. display_filter_ratio generalises the existing 12%/15% pair: the tables and chart lines hide swings under 1.25x the threshold, because a fixed 15% filter hid 28 of KO's 33 completed declines and made quiet charts look as though they had no down legs at all."
   },
   "market_state": {
-    "_doc": "Candle states (Sectors + Market Context tabs) and gamma exposure. Every value here is a cache lifetime, a sampling cadence or a display bound — none of them changes a state, a breadth count or a gamma figure. States are classified by strict comparison of two highs and two lows (see strat_states.py); there is no threshold to tune in that.",
+    "_doc": "Candle states (Sectors + Market Context tabs) and gamma exposure. Every value here is a cache lifetime, a sampling cadence or a display bound \u2014 none of them changes a state, a breadth count or a gamma figure. States are classified by strict comparison of two highs and two lows (see strat_states.py); there is no threshold to tune in that.",
     "_live_extremes_doc": "Live candle extremes are taken from the REGULAR session only, and only once it has begun. Before 9:30 AM Eastern the states shown are the settled ones from the last close, because Schwab's regular-session high and low are stale or zero pre-market and because a single thin pre-market print through yesterday's high would flip a name to 2U on a hundred shares.",
     "quote_ttl_seconds": 20,
     "read_ttl_seconds": 20,
@@ -898,7 +898,7 @@
     "map_limit_per_sector": 40
   },
   "gex": {
-    "_doc": "Gamma exposure. Dealer positioning is not published by anyone, so GEX is open interest times gamma times an ASSUMPTION about who is on which side. The assumption is the model: calls count positive and puts negative, which assumes dealers are net long call gamma and net short put gamma. Changing sign_convention is not a tuning knob — it inverts every number and every regime label on the screen.",
+    "_doc": "Gamma exposure. Dealer positioning is not published by anyone, so GEX is open interest times gamma times an ASSUMPTION about who is on which side. The assumption is the model: calls count positive and puts negative, which assumes dealers are net long call gamma and net short put gamma. Changing sign_convention is not a tuning knob \u2014 it inverts every number and every regime label on the screen.",
     "_scaling_doc": "GEX = gamma x open interest x contract_size x spot^2 x (move_pct/100), so figures are dollars of dealer delta per 1% move in the underlying. Quoting per 1% rather than per $1 is what makes a $6 stock and a $600 stock comparable.",
     "_flip_doc": "The flip level re-computes each contract's Black-Scholes gamma at every candidate spot rather than cumulatively summing today's per-strike GEX. The cheap version holds gamma fixed at the value it has at today's spot, and gamma is precisely the thing that moves as spot moves. Contracts without a usable implied volatility or expiration are excluded from the profile and the covered share of open interest is reported beside the answer.",
     "contract_size": 100,
@@ -912,11 +912,18 @@
   "short_premium": {
     "_doc": "Short Premium Opportunity Engine (sp_engine.py, SHORT_PREMIUM.md). Every gate and every selling mode lives here; the values are the defaults in sp_engine.DEFAULTS and are hypotheses the ranking backtest scores, never laws of finance. <data>/thresholds.json overrides key-by-key.",
     "select": {
-      "_doc": "Which contracts are even considered: DTE window, the short-strike delta band (wide on purpose — the gates decide, not the band), candidate spread widths as a fraction of spot, and how many expirations/candidates per symbol.",
+      "_doc": "Which contracts are even considered: DTE window, the short-strike delta band (wide on purpose \u2014 the gates decide, not the band), candidate spread widths as a fraction of spot, and how many expirations/candidates per symbol.",
       "min_dte": 1,
       "max_dte": 60,
-      "delta_band": [0.05, 0.45],
-      "spread_widths_frac": [0.03, 0.05, 0.08],
+      "delta_band": [
+        0.05,
+        0.45
+      ],
+      "spread_widths_frac": [
+        0.03,
+        0.05,
+        0.08
+      ],
       "max_expirations": 6,
       "max_candidates_per_symbol": 400
     },
@@ -958,7 +965,7 @@
       "vix_pctile": 85.0,
       "vix_pts": 10,
       "gamma_dte": 3,
-      "gamma_delta": 0.30,
+      "gamma_delta": 0.3,
       "gamma_pts": 12,
       "skew_rr_volpts": 8.0,
       "skew_pts": 6
@@ -973,10 +980,10 @@
       "conservative": {
         "objective": "max_p0_conservative",
         "min_p0": 0.85,
-        "min_p0_conservative": 0.80,
+        "min_p0_conservative": 0.8,
         "min_ev_per_contract": 5.0,
         "min_roc_pct": 0.5,
-        "min_credit": 0.20,
+        "min_credit": 0.2,
         "max_es95_over_credit": 6.0,
         "max_tail_pts": 30,
         "max_spread_pct": 10.0
@@ -998,7 +1005,7 @@
         "min_p0_conservative": 0.58,
         "min_ev_per_contract": 8.0,
         "min_roc_pct": 1.2,
-        "min_credit": 0.30,
+        "min_credit": 0.3,
         "max_es95_over_credit": 10.0,
         "max_tail_pts": 55,
         "max_spread_pct": 12.0
@@ -1016,11 +1023,12 @@
       "calibration": 8
     },
     "scan": {
-      "_doc": "Best Sales Today funnel. Stage 1 is free (watchlist board + measured richness from the Premium Edge observation store); stage 2 reuses the Premium Edge chain fetch for the same names (one fetch serves every subsystem); the evidence table per symbol is cached for a day.",
+      "_doc": "Best Sales Today funnel. Stage 1 is free (watchlist board + measured richness from the Premium Edge observation store); stage 2 reuses the Premium Edge chain fetch for the same names (one fetch serves every subsystem); the evidence table per symbol is cached for a day. A board older than max_board_age_hours, or evaluated on an earlier day, is dropped rather than shown: its days-to-expiry and its quotes are from then.",
       "max_symbols": 24,
       "evidence_cache_hours": 20,
       "top_n": 25,
-      "max_rows_per_symbol": 3
+      "max_rows_per_symbol": 3,
+      "max_board_age_hours": 12
     }
   }
 }

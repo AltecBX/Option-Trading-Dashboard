@@ -95,6 +95,7 @@ const SL_TIP = {
   paths: "Profit-target intelligence from 2,000 modeled price paths at the entry implied volatility: the chance each target is reachable before expiry and the typical day. Residual reward versus residual risk decides whether to take it.",
   ex_div: "Ex-dividend risk on the short call: a dividend inside the life of the option raises early-assignment risk. No ex-dividend source is wired yet, so calls are flagged rather than cleared.",
   macro: "Scheduled macro events (FOMC, CPI, jobs) inside the life of the option, counted from the app's macro calendar.",
+  stale_dropped: "Names last evaluated on an earlier day, or more than half a day ago, are dropped rather than ranked. Their quotes, their spot price and their days-to-expiry are all from then — a contract carried over from yesterday would be shown with one more day of life than it has. Run the scan to replace them.",
   stale: "This board is older than a trading session. Prices, premiums and probabilities are from when the scan last completed. Run the scan or check the broker connection.",
 };
 
@@ -121,14 +122,26 @@ const slAge = (s) => {
   if (!s) return null;
   const ms = Date.now() - new Date(s).getTime();
   if (!isFinite(ms)) return null;
+  // a server and a viewer in different zones used to make this negative
   const m = Math.round(ms / 60000);
+  if (m < 1) return "just now";
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
   if (h < 36) return `${h} hour${h === 1 ? "" : "s"} ago`;
   return `${Math.round(h / 24)} days ago`;
 };
-const slRowKey = (r) => `${r.symbol}|${r.strategy}|${r.expiration}|${r.short_strike}`;
-const slPathKey = (r) => `${r.symbol}|${r.strategy}|${r.expiration}|${r.short_strike}`;
+// One identity per structure, from the backend (sp_engine.contract_id).
+// The short strike alone is NOT unique: three put credit spreads can share
+// it and differ only in the wing, and two condors can share a put wing. When
+// those collided, React saw duplicate keys in a keyed list, and re-sorting
+// left the stale rows mounted — the board appeared to grow duplicates every
+// time a column header was clicked. The fallback composes the same identity
+// from the legs for any payload that predates row_id.
+const slRowKey = (r) => (r.row_id
+  || [r.symbol, r.strategy, r.side, r.expiration,
+      r.short_strike, r.long_strike, r.short_call, r.long_call]
+       .map((v) => (v == null ? "-" : v)).join("|"));
+const slPathKey = slRowKey;
 
 async function slReadJson(r) {
   const text = await r.text();
@@ -623,6 +636,11 @@ function SellBestCard({ apiFetch, onPickTicker }) {
           {data.scanning ? <span className="sl-live" title={SL_TIP.scanning}> · scanning now</span> : null}
           <span title={SL_TIP.objective}> · {modeLabel} mode ranks by {objective}</span>
           <span title={SL_TIP.funnel}> · {data.n_symbols} names · {data.n_qualified} qualified</span>
+          {data.stale_dropped ? (
+            <span className="sl-stale" title={SL_TIP.stale_dropped}>
+              {" "}· {data.stale_dropped} name{data.stale_dropped === 1 ? "" : "s"} dropped as stale
+            </span>
+          ) : null}
           <span title={SL_TIP.engine}> · {data.engine} · {String(data.config_hash || "").slice(0, 8)}</span>
         </p>
       ) : null}

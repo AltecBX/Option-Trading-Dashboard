@@ -5429,6 +5429,11 @@ try:
         status_fn=_sell_provider_status,
         sector_fn=_sell_sector_for,
         spy_regime_fn=_spy_gamma_regime,
+        # Exchange time, not the container's. The server runs in UTC, so a
+        # naive stamp reads as the viewer's own clock (10:39 AM on a screen
+        # whose clock says 6:39), and "evaluated today" would flip a day at
+        # 8 PM Eastern while the session is still the same one.
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
     )
     _spfwd.configure(
         data_dir=_STABLE_DIR,

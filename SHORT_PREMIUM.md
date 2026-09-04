@@ -256,6 +256,31 @@ rows per symbol (`scan.max_rows_per_symbol`, default 3) so one rich name
 cannot fill the list; every contract stays reachable through
 `/api/sell/detail`.
 
+## 10a. What identifies a contract, and how fresh the board must be (v4.81)
+
+**One identity.** `sp_engine.contract_id` — symbol, strategy, side,
+expiration and all four strikes. A short strike is not an identity: three
+put credit spreads can share one and differ only in the wing, and two iron
+condors can share a put wing. The v4.80 board keyed rows by the short
+strike, so those merged; React reconciles a keyed list by key, and a keyed
+list with duplicates leaves stale rows mounted when it re-sorts — clicking
+a column header appeared to add duplicate rows. Every row, the risk-pathway
+map, `top_detail` and the forward-test records now carry `row_id`, and the
+card keys on it.
+
+**Freshness is a gate, not a caption.** The board persists to disk and
+reloads on restart. Anything not evaluated TODAY on the exchange clock, or
+older than `scan.max_board_age_hours` (default 12), is dropped and counted
+in `stale_dropped` / `stale_symbols` rather than ranked — its quotes, its
+spot and its days-to-expiry are all from then. In v4.80 that gap put
+contracts expiring TODAY on the board labeled "1 day". A contract at or
+past its expiration is never offered in any case.
+
+**Timestamps carry their offset.** The scanner runs on the exchange clock
+(`now_fn`) and every stamp is timezone-aware, so a UTC container no longer
+tells a reader in New York that a board built at 6:39 AM their time was
+built at 10:39, and an age can never render negative.
+
 ## 11. Endpoints
 
 `GET /api/sell?mode=&strategy=&top=&record=` · `/api/sell/detail?symbol=&mode=`
