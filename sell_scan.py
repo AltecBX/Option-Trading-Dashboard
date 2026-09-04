@@ -77,14 +77,31 @@ def configure(data_dir=None, board_getter=None, market_open_fn=None, status_fn=N
     _load_board()
 
 
-def _today() -> date:
+def _now() -> datetime:
+    """The app's clock, ALWAYS timezone-aware.
+
+    A naive timestamp is read by the browser as the VIEWER's local time, so
+    a board stamped on a UTC server showed 10:39 AM to a reader whose own
+    clock said 6:39 AM, and the age beside it came out negative. Carrying
+    the offset costs nothing and makes every screen honest."""
     if _NOW_FN:
         try:
             n = _NOW_FN()
-            return n.date() if hasattr(n, "date") else n
+            if isinstance(n, datetime):
+                return n if n.tzinfo is not None else n.astimezone()
+            if isinstance(n, date):
+                return datetime(n.year, n.month, n.day).astimezone()
         except Exception:  # noqa: BLE001
             pass
-    return date.today()
+    return datetime.now().astimezone()
+
+
+def _stamp() -> str:
+    return _now().replace(microsecond=0).isoformat()
+
+
+def _today() -> date:
+    return _now().date()
 
 
 # ── evidence cache ───────────────────────────────────────────────────────────
@@ -185,7 +202,7 @@ def _context_for(sym: str, chain: dict, bars: list, context: dict) -> dict:
         "delayed": (context.get("source") or chain.get("source")) not in ("schwab", None),
         "provider_serving": status.get("serving"),
         "market_open": bool(context.get("market_open")),
-        "chain_ts": datetime.now().replace(microsecond=0).isoformat(),
+        "chain_ts": _stamp(),
         "chain_age_s": (min(ages) if ages else None),
         "bars_last": last_bar, "bars_age_days": bars_age,
         "earnings_date": earn, "earnings_in_days": earn_days,
@@ -233,7 +250,7 @@ def on_chain(sym: str, chain: dict, bars: list, context: dict) -> dict | None:
             "n_candidates": len(evald), "n_qualified": len(qualified),
             "insufficient": sum(1 for c in rejected if c.get("verdict") == "insufficient"),
         }
-    entry = {"symbol": sym, "as_of": datetime.now().replace(microsecond=0).isoformat(),
+    entry = {"symbol": sym, "as_of": _stamp(),
              "spot": ctx.get("spot") or (chain.get("underlying") or {}).get("last"),
              "ctx": ctx, "state": state, "modes": per_mode, "config_hash": cfg_hash,
              "engine": E.SP_ENGINE_VERSION, "n_candidates": len(cands),
@@ -285,9 +302,51 @@ def _age_hours(iso: str | None) -> float | None:
     if not iso:
         return None
     try:
-        return round((datetime.now() - datetime.fromisoformat(iso)).total_seconds() / 3600.0, 2)
+        t = datetime.fromisoformat(iso)
+        now = _now()
+        # a board written before v4.81 carries no offset; read it as local
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=now.tzinfo)
+        return round((now - t).total_seconds() / 3600.0, 2)
     except Exception:  # noqa: BLE001
         return None
+
+
+def _expired(c: dict) -> bool:
+    """Has this contract's expiration already passed, or is it expiring
+    today? Its days-to-expiry, its probabilities and its quotes were all
+    computed on the day it was evaluated, so a board that keeps showing it
+    is quoting a stale number of days on a live screen."""
+    try:
+        return date.fromisoformat(str(c.get("expiration"))[:10]) <= _today()
+    except (TypeError, ValueError):
+        return False
+
+
+def _fresh_only(symbols: dict, cfg: dict) -> tuple[dict, list]:
+    """Only what was evaluated TODAY, and recently enough to still be true.
+
+    The board persists to disk and reloads on restart, so without this a
+    symbol scanned yesterday evening keeps its rows on this morning's board
+    — with yesterday's spot, yesterday's quotes and a days-to-expiry that is
+    now off by a day. That is how contracts expiring TODAY appeared on the
+    v4.80 board labeled "1 day". A stale name is dropped and counted, never
+    silently mixed in with fresh ones."""
+    max_h = float((cfg.get("scan") or {}).get("max_board_age_hours", 12))
+    today = _today()
+    fresh, stale = {}, []
+    for sym, entry in symbols.items():
+        iso = entry.get("as_of")
+        age = _age_hours(iso)
+        try:
+            same_day = date.fromisoformat(str(iso)[:10]) == today
+        except (TypeError, ValueError):
+            same_day = False
+        if same_day and (age is None or age <= max_h):
+            fresh[sym] = entry
+        else:
+            stale.append({"symbol": sym, "as_of": iso, "age_hours": age})
+    return fresh, stale
 
 
 def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | None = None,
@@ -299,14 +358,16 @@ def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | N
     mode = mode if mode in MODES_ALL else "balanced"
     top_n = int(top_n or (cfg.get("scan") or {}).get("top_n", 25))
     with _LOCK:
-        symbols = dict(_STATE["symbols"])
+        all_symbols = dict(_STATE["symbols"])
         as_of = _STATE["as_of"]
+    symbols, stale = _fresh_only(all_symbols, cfg)
     pool, rejections, per_symbol = [], [], []
     for sym, entry in symbols.items():
         pm = (entry.get("modes") or {}).get(mode) or {}
         q = pm.get("qualified") or []
         if strategy:
             q = [c for c in q if c.get("strategy") == strategy]
+        q = [c for c in q if not _expired(c)]
         for c in q:
             c2 = dict(c)
             c2["symbol_as_of"] = entry.get("as_of")
@@ -335,6 +396,10 @@ def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | N
         for i, c in enumerate(capped, 1):
             c["rank"] = i
         ranked = capped
+    # stamp the identity onto the candidates too, so top_detail and the
+    # pathway map are looked up by exactly what the rows are keyed by
+    for c in ranked:
+        c["row_id"] = E.contract_id(c)
     E.attach_paths(ranked, top_n=min(10, top_n))
     top = ranked[:top_n]
     # collapse rejections across symbols by (gate, reason)
@@ -352,7 +417,7 @@ def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | N
         ctx0 = (symbols.get(t0["symbol"]) or {}).get("ctx") or {}
         explain = E.explain(t0, top[1] if len(top) > 1 else None, ctx0)
         for c in top[:5]:
-            pathways[f"{c['symbol']}|{c['strategy']}|{c['expiration']}|{c['short_strike']}"] = E.risk_pathway(c, cfg)
+            pathways[E.contract_id(c)] = E.risk_pathway(c, cfg)
     sector_of = {s: (e.get("ctx") or {}).get("sector") for s, e in symbols.items()}
     if _SECTOR_FN:
         for s in symbols:
@@ -375,10 +440,14 @@ def snapshot(mode: str = "balanced", strategy: str | None = None, top_n: int | N
         "as_of": as_of, "age_hours": _age_hours(as_of), "scanning": scanning,
         "no_trade": len(top) == 0,
         "no_trade_reason": (None if top else (
+            (f"Nothing on this board was evaluated today — {len(stale)} name"
+             f"{'' if len(stale) == 1 else 's'} on file are from an earlier session and were dropped "
+             f"rather than shown with yesterday's prices. Run the scan.") if stale and not symbols else
             "No symbol scanned yet — run the Premium Edge scan." if not symbols else
             f"Nothing qualifies in {mode} mode across {len(symbols)} scanned names: every candidate "
             f"failed at least one gate (see why_others_failed). NO TRADE is the answer.")),
         "n_symbols": len(symbols), "n_qualified": len(ranked), "shown": len(top),
+        "stale_dropped": len(stale), "stale_symbols": sorted(x["symbol"] for x in stale),
         "rows": [_row(c) for c in top],
         "top_detail": top[:5],
         "why_number_one": explain,
@@ -401,6 +470,9 @@ def _row(c: dict) -> dict:
     prov = ((c.get("gates") or {}).get("data") or {}).get("provenance") or {}
     ev_ = (c.get("gates") or {}).get("events", {}).get("details") or {}
     return {
+        # the UI keys its rows and its pathway lookups by this; the short
+        # strike alone collides across wings (see sp_engine.contract_id)
+        "row_id": E.contract_id(c),
         "rank": c.get("rank"), "symbol": c["symbol"], "spot": c["spot"],
         "strategy": c["strategy"], "side": c["side"],
         "expiration": c["expiration"], "dte": c["dte"], "dte_bucket": c["dte_bucket"],
@@ -443,13 +515,19 @@ def detail(sym: str, mode: str = "balanced") -> dict:
     rank order, the defence of its best, and every rejection."""
     sym = (sym or "").upper()
     mode = mode if mode in MODES_ALL else "balanced"
+    cfg, _h = E.config()
     with _LOCK:
         entry = _STATE["symbols"].get(sym)
+    if entry and not _fresh_only({sym: entry}, cfg)[0]:
+        return {"ok": False, "symbol": sym, "error": "the last evaluation of this symbol is from an "
+                                                     "earlier session — run the scan for today's prices"}
     if not entry:
         return {"ok": False, "symbol": sym, "error": "not scanned yet — it is not in the Premium Edge "
                                                     "funnel's current slate, or the scan has not run"}
     pm = (entry.get("modes") or {}).get(mode) or {}
-    ranked = E.rank(list(pm.get("qualified") or []))
+    ranked = E.rank([c for c in (pm.get("qualified") or []) if not _expired(c)])
+    for c in ranked:
+        c["row_id"] = E.contract_id(c)
     E.attach_paths(ranked, top_n=5)
     return {"ok": True, "symbol": sym, "mode": mode, "as_of": entry.get("as_of"), "spot": entry.get("spot"),
             "ctx": entry.get("ctx"), "state": entry.get("state"),
@@ -467,9 +545,9 @@ def _pred_path(day: str) -> Path | None:
 
 
 def prediction_key(c: dict, mode: str) -> str:
-    # short_call distinguishes two condors that share a put wing
-    return (f"{c['symbol']}|{c['strategy']}|{c['expiration']}|{c['short_strike']}|{c.get('long_strike')}"
-            f"|{c.get('short_call')}|{mode}")
+    """One identity for a recommendation, from the one identity for a
+    structure — the short strike alone merges different trades."""
+    return f"{E.contract_id(c)}|{mode}"
 
 
 def _record_predictions(top: list[dict], mode: str, cfg_hash: str) -> int:
@@ -495,7 +573,7 @@ def _record_predictions(top: list[dict], mode: str, cfg_hash: str) -> int:
         pb = c.get("probability") or {}
         q = c["quote"] if c["legs"] < 4 else c["quote"]["put"]
         rec = {
-            "recorded_at": datetime.now().replace(microsecond=0).isoformat(), "day": day,
+            "recorded_at": _stamp(), "day": day,
             "key": key, "mode": mode, "rank": c.get("rank"),
             "symbol": c["symbol"], "spot": c["spot"], "strategy": c["strategy"], "side": c["side"],
             "expiration": c["expiration"], "dte": c["dte"], "dte_bucket": c["dte_bucket"],

@@ -111,6 +111,24 @@ ok("the calibration panel says MEASURED / MODELED / UNAVAILABLE / ACCRUING in wo
 ok("the learning loop is reported, never applied", /Reported only; never applied by the app on its own/.test(src) && /never rewrites the engine/.test(forward));
 ok("the board does not poll when idle", /if \(!\(data && data\.scanning\)\) return;/.test(src));
 
+// ── 5b. row identity: the v4.81 duplicate-rows defect ───────────────────
+ok("rows are keyed by the backend's contract identity, not the short strike",
+   /const slRowKey = \(r\) => \(r\.row_id/.test(src)
+   && !/const slRowKey = \(r\) => `\$\{r\.symbol\}\|\$\{r\.strategy\}\|\$\{r\.expiration\}\|\$\{r\.short_strike\}`/.test(src));
+ok("the fallback identity includes every leg", /r\.long_strike, r\.short_call, r\.long_call/.test(src));
+ok("the pathway lookup uses the same identity as the row key", /const slPathKey = slRowKey;/.test(src));
+ok("the backend stamps that identity on every row", /"row_id": E\.contract_id\(c\)/.test(scan));
+ok("the engine defines one contract identity", /def contract_id/.test(engine)
+   && /"short_strike", "long_strike", "short_call", "long_call"/.test(engine));
+ok("an age is never rendered as a negative number", /if \(m < 1\) return "just now";/.test(src));
+ok("names dropped as stale are stated, not silently missing",
+   /data\.stale_dropped/.test(src) && /dropped as stale/.test(src)
+   && /stale_dropped:/.test(tipBlock));
+ok("the scanner drops a board from an earlier session", /def _fresh_only/.test(scan)
+   && /max_board_age_hours/.test(scan));
+ok("a contract at or past its expiration is not offered", /def _expired/.test(scan));
+ok("timestamps carry a timezone", /def _stamp/.test(scan) && /astimezone\(\)/.test(scan));
+
 // ── 6. the backend contract ─────────────────────────────────────────────
 ok("/api/sell routes exist", /parsed\.path == "\/api\/sell"/.test(dash) && /section == "calibration"/.test(dash) && /section == "detail"/.test(dash));
 ok("the sell scan rides the Premium Edge chain pass (one fetch)", /register_chain_consumer\(on_chain\)/.test(scan) && /_CHAIN_CONSUMERS/.test(read("edge_scan.py")));
@@ -121,7 +139,7 @@ ok("row fields the card reads are written by the scanner",
     "sell_quality", "confidence", "data_source", "greeks", "quote_age_s", "data_ts", "earnings_date", "vrp_ratio"]
      .every((k) => new RegExp(`"${k}":`).test(scan)));
 ok("the forward grader labels its outcomes", /"finish": "MEASURED"/.test(forward) && /"pnl": "MODELED/.test(forward) && /"early_profit_targets": "UNAVAILABLE/.test(forward));
-ok("the app version was bumped", /const APP_VERSION = "4\.80"/.test(appSrc));
+ok("the app version was bumped", /const APP_VERSION = "4\.81"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }
