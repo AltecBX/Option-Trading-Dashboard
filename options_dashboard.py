@@ -5029,7 +5029,9 @@ try:
         bars_fn=lambda sym: (lambda c: c.get_price_history(sym, days=900) if c is not None else None)(_schwab()),
         market_open_fn=lambda: _intraday.market_open(),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
-        catalyst_fn=_gap_news_catalyst,
+        # deferred by a lambda: the catalyst helper is defined further down
+        # this module, and passing the bare name here would fail at import
+        catalyst_fn=lambda sym: _gap_news_catalyst(sym),
         minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
         data_dir=_STABLE_DIR,
     )

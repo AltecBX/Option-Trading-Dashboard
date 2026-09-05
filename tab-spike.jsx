@@ -85,8 +85,6 @@ const SK_COLS = [
   ["Symbol", "symbol", "card", null, false],
   ["Run today", "move_pct", "move",
     (r) => `${skPct(r.move_pct)} · ${skSig(r.move_sigma)}`, true],
-  ["Its own volatility", "sigma_annual", "vol", (r) => skPct0(r.sigma_annual, 0), true],
-  ["Expires", "expiration", "expiration", (r) => skDate(r.expiration), false],
   ["Strike", "strike", "strike",
     (r) => `${skNum(r.strike, 2)} · ${skPct(r.strike_pct)}`, true],
   ["Beyond the run", "beyond_sigma", "beyond", (r) => skSig(r.beyond_sigma), true],
@@ -99,13 +97,14 @@ const SK_COLS = [
   ["Evidence", "grade", "grade", (r) => r.grade, false],
   ["Its own runs", "n_own", "own",
     (r) => `${r.n_own == null ? "—" : r.n_own} · ${skPct0(r.weight_own, 0)}`, true],
+  ["Its own volatility", "sigma_annual", "vol", (r) => skPct0(r.sigma_annual, 0), true],
   ["Spread", "spread_pct", "spread", (r) => skPct(r.spread_pct, 0), true],
   ["Open interest", "oi", "oi",
     (r) => `${r.oi == null ? "—" : Number(r.oi).toLocaleString()} · ${r.volume == null ? "—" : Number(r.volume).toLocaleString()}`, true],
   ["Implied volatility", "iv", "iv",
     (r) => `${skPct0(r.iv, 0)} · ${skNum(r.delta, 2)}Δ`, true],
 ];
-const SK_ASC = new Set(["rank", "symbol", "expiration", "strike", "spread_pct",
+const SK_ASC = new Set(["rank", "symbol", "strike", "spread_pct",
                         "p_close_above", "p_touch", "settles"]);
 // On a phone the table stacks; only the deciding fields show there.
 const SK_MOBILE = new Set(["rank", "symbol", "move_pct", "strike", "beyond_sigma",
@@ -267,8 +266,8 @@ function SpikeCard({ apiFetch, onPickTicker }) {
           <h3 className="card-title">What today&rsquo;s runs pay for selling above them</h3>
           <p className="card-sub">
             Stocks that have moved hard in their OWN volatility, and every same-day call
-            above the level they reached — ranked by the credit minus what that call has
-            historically settled for. A big mover finishes at its high about one time in
+            above the level they reached, all expiring TODAY — ranked by the credit minus
+            what that call has historically settled for. A big mover finishes at its high about one time in
             fifteen; the seller is paid for the run being over, not for a reversal.
           </p>
         </div>
