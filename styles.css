@@ -13299,3 +13299,26 @@ a.tabsheet-btn.site { text-decoration: none; }
 .sl-block { overflow-x: auto; }
 .sl-why, .sl-pw, .sl-block p, .sl-block li { overflow-wrap: anywhere; }
 .sl-stale { color: var(--warn); font-weight: 600; }
+
+/* ── Sold into strength (v4.82, tab-spike.jsx) ──────────────────────────── */
+.sk-card { --sk-line: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.sk-table-wrap { max-height: 68vh; }
+.sk-table th, .sk-table td { white-space: nowrap; font-size: 12.5px; padding: 6px 8px; }
+.sk-table .sk-row { cursor: pointer; }
+.sk-row-top td { font-weight: 600; }
+.sk-edge-up { color: var(--up); }
+.sk-edge-dn { color: var(--down); }
+.sk-detail-wrap {
+  margin: 10px 0; border: 1px solid var(--sk-line); border-radius: 12px;
+  background: var(--bg-2); padding: 10px 12px; max-width: 100%;
+  box-sizing: border-box; overflow: hidden;
+}
+.sk-detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-bottom: 6px; }
+.sk-close { margin-left: auto; }
+.sk-detail { display: grid; gap: 12px; max-width: min(100%, 110ch); }
+.sk-detail p, .sk-detail li { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  .sk-table-wrap { max-height: none; }
+  .sk-table td { white-space: normal; }
+  .sk-table td.sk-m-hide { display: none; }
+}

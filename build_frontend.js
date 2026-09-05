@@ -35,7 +35,7 @@ const JSX_FILES = ["strategies.jsx", "tweaks-panel.jsx", "tooltips.jsx", "charts
   // NOT referenced by index.html; LazyTab injects them on first tab open.
   "tab-patterns.jsx", "tab-backtest.jsx", "tab-treasuries.jsx", "tab-earnops.jsx",
   "tab-recovery.jsx", "tab-ask.jsx", "tab-edge.jsx", "tab-gap.jsx",
-  "tab-invest.jsx", "tab-strat.jsx", "tab-setup.jsx", "tab-sell.jsx"];
+  "tab-invest.jsx", "tab-strat.jsx", "tab-setup.jsx", "tab-sell.jsx", "tab-spike.jsx"];
 // Everything index.html loads locally, in load order. config.js excluded on purpose.
 const SERVED_JS = ["data.js", "recommendation.js", "weather.js", "journal.js",
   "strategies.js", "tweaks-panel.js", "tooltips.js", "charts.js",
@@ -48,7 +48,7 @@ const SERVED_JS = ["data.js", "recommendation.js", "weather.js", "journal.js",
 // opened that tab kept the cached copy for a year and never saw the change.
 const CHUNK_JS = ["tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js",
   "tab-recovery.js", "tab-ask.js", "tab-edge.js", "tab-gap.js",
-  "tab-invest.js", "tab-strat.js", "tab-setup.js", "tab-sell.js"];
+  "tab-invest.js", "tab-strat.js", "tab-setup.js", "tab-sell.js", "tab-spike.js"];
 const SERVED_CSS = ["styles.css"];
 
 let failed = false;
