@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.81";
+const APP_VERSION = "4.82";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3739,6 +3739,16 @@ function App() {
         {/* Watchlist alerts (v1.15) — fresh upgrades and downgrades on
             watchlist tickers in the past 7 days. Scoped to the Trade tab
             (home dashboard) so it doesn't render on every tab. */}
+        {/* Sold into strength (v4.82) — the time-critical one, so it sits
+            first: a spike's premium decays by the minute, and this board is
+            only worth anything while the move is live. */}
+        <TabPanel tab="trade" active={activeTab}>
+          <CardErrorBoundary label="Sold into strength">
+            <LazyTab chunk="tab-spike" component="SpikeCard" label="Sold into strength"
+                     apiFetch={apiFetch}
+                     onPickTicker={(t) => { switchTicker(t); }} />
+          </CardErrorBoundary>
+        </TabPanel>
         {/* Best Sales Today (v4.80) — the market-wide answer to the only
             question a premium seller has: which option has the strongest
             evidence of expiring worthless while still paying for the risk.

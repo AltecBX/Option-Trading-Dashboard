@@ -66,6 +66,10 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `sp_forward.py` | Best Sales Today: grades recorded rows after expiry and builds the calibration tables |
 | `tab-sell.jsx` | The Best Sales Today card at the top of the Trade tab (lazy chunk) |
 | `SHORT_PREMIUM.md` | The short-premium engine: gates, probabilities, validation results, the honest ledger |
+| `spike_evidence.py` | Sold into strength: what a stock does after it has already run, in its own sigma — pure |
+| `spike_scan.py` | Sold into strength: today's runs, same-day chains, ranked by credit minus measured settlement |
+| `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
+| `SPIKE_FADE.md` | What was measured about spikes, why sigma is the ruler, and what the feature refuses |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)

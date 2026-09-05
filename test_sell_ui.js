@@ -139,7 +139,7 @@ ok("row fields the card reads are written by the scanner",
     "sell_quality", "confidence", "data_source", "greeks", "quote_age_s", "data_ts", "earnings_date", "vrp_ratio"]
      .every((k) => new RegExp(`"${k}":`).test(scan)));
 ok("the forward grader labels its outcomes", /"finish": "MEASURED"/.test(forward) && /"pnl": "MODELED/.test(forward) && /"early_profit_targets": "UNAVAILABLE/.test(forward));
-ok("the app version was bumped", /const APP_VERSION = "4\.81"/.test(appSrc));
+ok("the app version was bumped", /const APP_VERSION = "4\.82"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

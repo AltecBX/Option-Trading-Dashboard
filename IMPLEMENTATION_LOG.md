@@ -2619,3 +2619,48 @@ which share a short strike with another, stayed nine across six clicks of
 the Rank header, sorted correctly, with no console errors. 21 guards in
 `test_v481_board_identity` (19 fail against v4.80) and 10 more in
 `test_sell_ui.js`.
+
+## v4.82 — sold into strength
+
+The ask was speed: find the stocks that have run hard, find the same-day
+calls that briefly pay too much for selling above them, and rank the ones
+where the premium beats the real risk — before the volatility premium
+collapses. The research changed the shape of it twice before any code was
+written.
+
+First, percent is the wrong ruler. A 3.6% day on a stock running at 81%
+annualised volatility is an ordinary session; a 16.4% day on a 51%-vol name
+is a 4.7-sigma event. Two trades that looked alike in percentage terms were
+opposite in risk, and the strike that looked further away was the closer
+one. Everything is measured in the stock's own daily sigma now, and that
+normalisation was tested before it was trusted: across volatility quartiles
+and price bands, the probability of closing a sigma beyond a three-sigma
+move sits in a 20.6-22.1% band, so one table serves every name.
+
+Second, the premise needed correcting. A stock that runs hard really does
+almost never finish at its high — 6.8% at four sigma, 5.1% at five, and
+54% of two-sigma gap-ups close below their own open. But the level on the
+screen is frequently not the high yet: a strike a quarter-sigma above a
+four-sigma run is touched 83% of the time. The seller is not paid for a
+reversal, which is common; the seller is paid for the run being over. That
+is a function of how much session is left, and it is why the same IOT
+45.50 call at its real $1.15 bid prices at -$12 a contract at 10:00 and
++$70 at 15:15.
+
+So the board ranks on credit minus measured settlement — dollars per
+contract, with no volatility model anywhere in the verdict — and the
+session fraction scales the measured tables down from the upper bound they
+represent. That scaling is MEASURED from minute bars where they exist and
+MODELED from the clock where they do not, and the card says which on
+screen because it is the largest approximation in the feature.
+
+Takeover and merger spikes are refused outright rather than ranked. That is
+the one move that does not come back, and it is also the move that quietly
+leaves a survivorship hole in any history measured on names that still
+exist — a limitation the card discloses rather than hides.
+
+The worker is lazy, starting on the first read and dying when the market
+shuts or nobody is watching. One bounded chain call per name that actually
+ran. 127 guards across the two Python modules and the card, and the render
+was checked in a real browser at desktop and phone width with no console
+errors.

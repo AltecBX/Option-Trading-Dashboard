@@ -5017,6 +5017,31 @@ _juice.configure(
     pivots_fn=_juice_pivots,
 )
 
+# ── Sold into strength: today's runs, priced (SPIKE_FADE.md) ────────────────
+# Rides the board and the bars the app already keeps; one bounded chain call
+# per name that has actually run, and only while somebody is watching.
+try:
+    import spike_evidence as _spikeev
+    import spike_scan as _spike
+    _spike.configure(
+        schwab_getter=lambda: _schwab(),
+        board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        bars_fn=lambda sym: (lambda c: c.get_price_history(sym, days=900) if c is not None else None)(_schwab()),
+        market_open_fn=lambda: _intraday.market_open(),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+        # deferred by a lambda: the catalyst helper is defined further down
+        # this module, and passing the bare name here would fail at import
+        catalyst_fn=lambda sym: _gap_news_catalyst(sym),
+        minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
+        data_dir=_STABLE_DIR,
+    )
+    _SPIKE_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[spike_scan] wiring failed: {_exc}", file=sys.stderr)
+    _SPIKE_AVAILABLE = False
+    _spike = None  # type: ignore
+    _spikeev = None  # type: ignore
+
 # ── Natural-language backtesting lab (v3.43) ────────────────────────────────
 import backtest as _backtest
 
@@ -10340,6 +10365,41 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self._send_json(_juice.snapshot(), no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/juice", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/spike" or parsed.path.startswith("/api/spike/"):
+            if not _SPIKE_AVAILABLE:
+                self._send_json({"error": "sold into strength unavailable", "rows": []},
+                                status=503)
+                return
+            section = parsed.path[len("/api/spike"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "":
+                    top = qs.get("top", [""])[0]
+                    self._send_json(_spike.snapshot(int(top) if top.isdigit() else None),
+                                    no_store=True)
+                elif section == "detail":
+                    sym = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not sym:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    out = _spike.detail(sym)
+                    self._send_json(out, status=404 if not out.get("ok") else 200,
+                                    no_store=True)
+                elif section == "status":
+                    self._send_json(_spike.status(), no_store=True)
+                elif section == "config":
+                    self._send_json({"config": _spike.config(),
+                                     "version": _spike.SPIKE_SCAN_VERSION,
+                                     "evidence": _spikeev.SPIKE_EVIDENCE_VERSION,
+                                     "prior": {k: v for k, v in _spikeev.universe_prior().items()
+                                               if k != "cells"}}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown spike section {section}"},
+                                    status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/spike", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
             return
         if parsed.path == "/api/patterns":
