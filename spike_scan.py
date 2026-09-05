@@ -57,7 +57,7 @@ _LOCK = threading.RLock()
 _STATE: dict = {
     "rows": [], "as_of": None, "scanning": False, "thread": None, "error": None,
     "universe": 0, "scanned": 0, "candidates": [], "refused": [], "last_req": 0.0,
-    "by_symbol": {}, "profile": None, "profile_day": None,
+    "by_symbol": {}, "profile": None, "profile_day": None, "warming": 0,
 }
 _TABLES: dict = {}           # symbol -> (day, ticker table)
 _SIGMAS: dict = {}           # symbol -> (day, daily sigma)
@@ -78,7 +78,8 @@ DEFAULTS = {
                   "min_volume": 0, "min_underlying_dollar_volume": 2e7},
     "edge": {"min_edge_per_contract": 5.0, "min_credit": 0.10},
     "events": {"refuse_kinds": ["BUYOUT", "MERGER DEAL", "MERGER VOTE", "DEAL CLOSED"]},
-    "scan": {"cycle_seconds": CYCLE_SECS, "profile_days": 15, "profile_symbol": "SPY"},
+    "scan": {"cycle_seconds": CYCLE_SECS, "profile_days": 15, "profile_symbol": "SPY",
+             "cold_fetches_per_pass": 40, "sigma_ttl_days": 4},
 }
 
 
@@ -248,11 +249,61 @@ def _table_for(sym: str, bars: list) -> dict | None:
     return t
 
 
+SIGMA_TTL_DAYS = 4               # a 20-day sigma barely moves in a day
+COLD_FETCHES_PER_PASS = 40       # how many new names may cost bars in one pass
+
+
+def _sigma_path() -> Path | None:
+    return None if _DATA_DIR is None else _DATA_DIR / "spike" / "sigmas.json"
+
+
+def _load_sigmas() -> None:
+    """Warm the volatility cache from disk. Without this every restart pays
+    for a full sweep of the watchlist again."""
+    p = _sigma_path()
+    if p is None or not p.exists() or _SIGMAS:
+        return
+    try:
+        for sym, v in (json.loads(p.read_text()) or {}).items():
+            _SIGMAS[sym] = (v["day"], float(v["sigma"]))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _save_sigmas() -> None:
+    p = _sigma_path()
+    if p is None:
+        return
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({k: {"day": d, "sigma": s}
+                                   for k, (d, s) in _SIGMAS.items()},
+                                  separators=(",", ":")))
+        tmp.replace(p)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _cached_sigma(sym: str) -> float | None:
+    """The stock's daily sigma if it is already known and still fresh —
+    never a fetch. Volatility moves slowly, so a value from a few days ago
+    is a fine answer and a free one."""
+    hit = _SIGMAS.get(sym)
+    if not hit:
+        return None
+    try:
+        age = (_now().date() - date.fromisoformat(hit[0])).days
+    except (TypeError, ValueError):
+        return None
+    return hit[1] if 0 <= age <= SIGMA_TTL_DAYS else None
+
+
 def _sigma_for(sym: str, bars: list) -> float | None:
     today = _now().date().isoformat()
-    hit = _SIGMAS.get(sym)
-    if hit and hit[0] == today:
-        return hit[1]
+    cached = _cached_sigma(sym)
+    if cached is not None:
+        return cached
     s = sev.daily_sigma(bars)
     if s:
         _SIGMAS[sym] = (today, s)
@@ -265,13 +316,18 @@ def stage1(cfg: dict | None = None) -> tuple[list, int]:
     the board the app already keeps and the bars it already caches."""
     cfg = cfg or config()
     st = cfg["select"]
+    _load_sigmas()
     board = {}
     try:
         board = (_BOARD_FN() if _BOARD_FN else {}) or {}
     except Exception:  # noqa: BLE001
         board = {}
-    out = []
     rows = board.get("rows") or []
+    # Pass one: everything that can be judged for free. A watchlist this size
+    # would otherwise cost a daily-bar fetch for every green name before we
+    # knew whether any of them was a candidate — hundreds of broker calls on
+    # a shared budget, every morning.
+    ready, cold = [], []
     for r in rows:
         sym = r.get("symbol")
         last = _num(r.get("last"))
@@ -283,21 +339,43 @@ def stage1(cfg: dict | None = None) -> tuple[list, int]:
         prev_close = last / (1.0 + chg / 100.0)
         if prev_close <= 0:
             continue
-        bars = _bars(sym)
+        rec = {"symbol": sym, "last": last, "change_pct": chg, "prev_close": prev_close,
+               "dollar_volume": (_num(r.get("avg_volume")) or 0) * last,
+               "sector": r.get("sector")}
+        sig = _cached_sigma(sym)
+        if sig is None:
+            cold.append(rec)
+        else:
+            rec["sigma"] = sig
+            ready.append(rec)
+    # Pass two: spend bars on the names we cannot yet judge, biggest movers
+    # first and only a bounded number per pass, so the cache warms over a few
+    # cycles instead of blocking the first scan of the day.
+    cold.sort(key=lambda c: -c["change_pct"])
+    budget = int((cfg.get("scan") or {}).get("cold_fetches_per_pass", COLD_FETCHES_PER_PASS))
+    warmed = 0
+    for rec in cold[:budget]:
+        bars = _bars(rec["symbol"])
         if not bars or len(bars) < 60:
             continue
-        sigma = _sigma_for(sym, bars)
-        if not sigma:
+        sig = _sigma_for(rec["symbol"], bars)
+        if not sig:
             continue
-        move_s = sev.in_sigma(last, prev_close, sigma)
+        rec["sigma"] = sig
+        ready.append(rec)
+        warmed += 1
+    if warmed:
+        _save_sigmas()
+    with _LOCK:
+        _STATE["warming"] = max(0, len(cold) - budget)
+    out = []
+    for rec in ready:
+        move_s = sev.in_sigma(rec["last"], rec["prev_close"], rec["sigma"])
         if move_s is None or move_s < float(st["min_move_sigma"]):
             continue
-        dollar_vol = (_num(r.get("avg_volume")) or 0) * last
-        out.append({"symbol": sym, "last": last, "change_pct": chg,
-                    "prev_close": prev_close, "sigma": sigma,
-                    "sigma_annual": sigma * math.sqrt(252),
-                    "move_sigma": move_s, "dollar_volume": dollar_vol,
-                    "sector": r.get("sector")})
+        rec["move_sigma"] = move_s
+        rec["sigma_annual"] = rec["sigma"] * math.sqrt(252)
+        out.append(rec)
     out.sort(key=lambda c: -c["move_sigma"])
     return out[: int(st["max_candidates"])], len(rows)
 
@@ -544,6 +622,7 @@ def snapshot(top_n: int | None = None) -> dict:
             "as_of": _STATE["as_of"], "scanning": _STATE["scanning"],
             "market_open": open_now, "error": _STATE["error"],
             "universe": _STATE["universe"], "scanned": _STATE["scanned"],
+            "warming": _STATE.get("warming", 0),
             "rows": rows, "n_rows": len(_STATE["rows"]),
             "candidates": [{k: c[k] for k in ("symbol", "move_sigma", "change_pct",
                                               "sigma_annual", "last")} for c in cands],
@@ -588,5 +667,6 @@ def status() -> dict:
         return {"version": SPIKE_SCAN_VERSION, "as_of": _STATE["as_of"],
                 "scanning": _STATE["scanning"], "error": _STATE["error"],
                 "universe": _STATE["universe"], "scanned": _STATE["scanned"],
-                "rows": len(_STATE["rows"]),
+                "rows": len(_STATE["rows"]), "warming": _STATE.get("warming", 0),
+                "sigmas_cached": len(_SIGMAS),
                 "profile_days": _STATE.get("profile_days_used", 0)}

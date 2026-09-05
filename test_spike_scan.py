@@ -111,6 +111,84 @@ class Stage1(unittest.TestCase):
         self.assertEqual(sk.stage1()[0], [])
 
 
+class Budget(unittest.TestCase):
+    """A 1,289-name watchlist must not cost a daily-bar fetch per green name.
+    The first version did, which is hundreds of broker calls on a shared
+    110-a-minute budget every morning — it would have worked and starved
+    everything else in the app while doing it."""
+
+    def _big_board(self, n=700):
+        return [{"symbol": f"S{i:04d}", "last": 100.0, "change": 0.5 + (i % 40) * 0.5,
+                 "avg_volume": 5e6} for i in range(n)]
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp(prefix="spikebudget_")
+        self.fetches = {"n": 0}
+        sk._SIGMAS.clear(); sk._TABLES.clear()
+
+        def bars_fn(sym):
+            self.fetches["n"] += 1
+            return BARS["RUN"]
+        self.bars_fn = bars_fn
+        sk.configure(board_getter=lambda: {"rows": self._big_board()}, bars_fn=bars_fn,
+                     market_open_fn=lambda: True, data_dir=self.tmp,
+                     now_fn=lambda: datetime(TODAY.year, TODAY.month, TODAY.day, 14, 0).astimezone())
+
+    def test_a_cold_pass_is_bounded_not_a_full_sweep(self):
+        cfg = sk.config()
+        budget = int(cfg["scan"]["cold_fetches_per_pass"])
+        sk.stage1(cfg)
+        self.assertLessEqual(self.fetches["n"], budget,
+                             "stage 1 swept the whole board for bars")
+        self.assertGreater(sk._STATE["warming"], 0,
+                           "the names it could not judge yet must be counted")
+
+    def test_the_biggest_movers_are_warmed_first(self):
+        seen = []
+
+        def bars_fn(sym):
+            seen.append(sym)
+            return BARS["RUN"]
+        sk.configure(board_getter=lambda: {"rows": self._big_board()}, bars_fn=bars_fn,
+                     market_open_fn=lambda: True, data_dir=self.tmp,
+                     now_fn=lambda: datetime(TODAY.year, TODAY.month, TODAY.day, 14, 0).astimezone())
+        board = {r["symbol"]: r["change"] for r in self._big_board()}
+        sk.stage1()
+        moves = [board[s] for s in seen]
+        self.assertEqual(moves, sorted(moves, reverse=True),
+                         "the cache should warm on the biggest movers first")
+
+    def test_a_warm_cache_costs_nothing(self):
+        sk.stage1()
+        before = self.fetches["n"]
+        sk._STATE["warming"] = 0
+        # every symbol already measured is answered for free on the next pass
+        warmed = set(sk._SIGMAS)
+        sk.configure(board_getter=lambda: {"rows": [r for r in self._big_board()
+                                                    if r["symbol"] in warmed]},
+                     bars_fn=self.bars_fn, market_open_fn=lambda: True, data_dir=self.tmp,
+                     now_fn=lambda: datetime(TODAY.year, TODAY.month, TODAY.day, 14, 0).astimezone())
+        sk.stage1()
+        self.assertEqual(self.fetches["n"], before, "a known name was re-fetched")
+
+    def test_the_cache_survives_a_restart(self):
+        sk.stage1()
+        n = len(sk._SIGMAS)
+        self.assertGreater(n, 0)
+        sk._SIGMAS.clear()
+        sk._load_sigmas()
+        self.assertEqual(len(sk._SIGMAS), n, "the volatility cache did not persist")
+
+    def test_a_stale_sigma_is_not_trusted_forever(self):
+        old = (datetime.now() - timedelta(days=90)).date().isoformat()
+        sk._SIGMAS["ZZZZ"] = (old, 0.03)
+        self.assertIsNone(sk._cached_sigma("ZZZZ"))
+        fresh = sk._now().date().isoformat()
+        sk._SIGMAS["ZZZZ"] = (fresh, 0.03)
+        self.assertAlmostEqual(sk._cached_sigma("ZZZZ"), 0.03)
+
+
 class Clock(unittest.TestCase):
     def test_the_session_fraction_tracks_the_bell(self):
         d = datetime(2026, 9, 4, 9, 30).astimezone()

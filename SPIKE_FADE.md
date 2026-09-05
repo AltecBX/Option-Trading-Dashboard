@@ -88,6 +88,21 @@ The worker starts on the first read and dies when the market shuts or nobody
 is looking, so an eager board costs nothing idle. It refreshes every two
 minutes while open — same-day premium decays by the minute.
 
+## 5a. What stage 1 is allowed to spend
+
+The watchlist is 1,289 names and several hundred of them are green on an
+ordinary day. Judging a move in sigma needs the stock's volatility, and the
+first version fetched daily bars for every green name to get it — hundreds
+of broker calls against a shared 110-a-minute budget, every morning, before
+knowing whether any of them was a candidate. It would have worked and
+starved the rest of the app doing it.
+
+Volatility moves slowly, so it is cached per symbol for four days and
+persisted to disk across restarts. A pass answers every name it already
+knows for free, then spends bars on at most `cold_fetches_per_pass` (40) of
+the ones it does not — biggest movers first, so the cache warms on the names
+most likely to matter. The payload reports how many are still warming.
+
 ## 6. Refusals
 
 - **Takeover and merger spikes are never listed.** That is the one move that
