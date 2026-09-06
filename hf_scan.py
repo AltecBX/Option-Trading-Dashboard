@@ -295,7 +295,10 @@ def gather_tide() -> dict | None:
             data = uw.sector_tide(uw_name)
         except Exception:  # noqa: BLE001
             continue
-        rows = (data or {}).get("data") if isinstance(data, dict) else data
+        # The UW client unwraps the envelope and hands back the rows as a
+        # bare list; only the raw endpoint returns {data, date}. Both shapes
+        # arrive here, so neither may be assumed.
+        rows = data.get("data") if isinstance(data, dict) else data
         if not rows:
             continue
         last = rows[-1]
@@ -303,7 +306,8 @@ def gather_tide() -> dict | None:
             net = float(last.get("net_call_premium") or 0) - float(last.get("net_put_premium") or 0)
         except (TypeError, ValueError):
             continue
-        out[ours] = {"net_premium": net, "as_of": (data or {}).get("date") or last.get("date"),
+        as_of = data.get("date") if isinstance(data, dict) else None
+        out[ours] = {"net_premium": net, "as_of": as_of or last.get("date"),
                      "points": len(rows)}
     return out or None
 

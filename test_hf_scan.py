@@ -204,6 +204,43 @@ class Gathering(Base):
         self.assertTrue(raw["cftc"], "the CFTC still answered")
 
 
+class SectorTide(Base):
+    """The Unusual Whales client unwraps the envelope and returns the rows as
+    a bare list; the raw endpoint returns {data, date}. Production hit the
+    first shape and the gather raised "'list' object has no attribute 'get'",
+    which the board reported as the source being unavailable."""
+
+    class UW:
+        def __init__(self, shape):
+            self.shape = shape
+
+        def sector_tide(self, sector, date=None):
+            rows = [{"date": "2026-09-04", "net_call_premium": "3000000",
+                     "net_put_premium": "1000000"}]
+            return rows if self.shape == "list" else {"data": rows, "date": "2026-09-04"}
+
+    def _tide(self, shape):
+        SC.configure(data_dir=self.tmp.name, uw_getter=lambda: self.UW(shape), now_fn=lambda: NOW)
+        return SC.gather_tide()
+
+    def test_a_bare_list_is_read(self):
+        out = self._tide("list")
+        self.assertEqual(out["Technology"]["net_premium"], 2_000_000.0)
+        self.assertEqual(out["Technology"]["as_of"], "2026-09-04")
+
+    def test_an_enveloped_payload_is_read_too(self):
+        out = self._tide("dict")
+        self.assertEqual(out["Technology"]["net_premium"], 2_000_000.0)
+        self.assertEqual(out["Technology"]["as_of"], "2026-09-04")
+
+    def test_uw_sector_names_are_folded_onto_the_app_s(self):
+        out = self._tide("list")
+        self.assertIn("Consumer Discretionary", out, "UW calls it Consumer Cyclical")
+        self.assertIn("Consumer Staples", out, "UW calls it Consumer Defensive")
+        self.assertIn("Materials", out, "UW calls it Basic Materials")
+        self.assertNotIn("Consumer Cyclical", out)
+
+
 class TheWeeklyRecord(Base):
     def test_a_reading_is_stored_under_its_iso_week(self):
         b = SC.build()

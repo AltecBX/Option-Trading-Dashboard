@@ -501,3 +501,11 @@ The prime-broker channel (Reuters "HEDGE FLOW" and equivalents quoting
 Goldman, Morgan Stanley, JPMorgan) is wired into `hf_pulse.build()` and
 tested, but nothing populates it yet. The weekly report assembly, its
 history view and the compare-with-week-N view are Phase 3.
+
+**Follow-up, same day.** The first production reading (week 2026-W36, CFTC
+as of September 1, 2026) worked except for one source: the Unusual Whales
+client unwraps the JSON envelope and returns the tide rows as a bare list,
+while the raw endpoint returns `{data, date}`. The gather assumed the
+second shape and raised `'list' object has no attribute 'get'`, which the
+board correctly reported as the source being unavailable rather than
+silently dropping it. Both shapes are now read, and guarded.
