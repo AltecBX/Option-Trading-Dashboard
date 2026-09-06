@@ -77,6 +77,7 @@ def attribution_ok(rows) -> bool:
 
 # ── transport ───────────────────────────────────────────────────────────────
 _FETCH = None            # (url) -> bytes; injected. Defaults to sec_filings' throttled fetch.
+_POST = None             # (url, body) -> bytes; injected. FINRA's query API only.
 _DATA_DIR: Path | None = None
 _NOW_FN = None
 _LOCK = threading.RLock()
@@ -94,9 +95,10 @@ FTD_PAGE = "https://www.sec.gov/data-research/sec-markets-data/fails-deliver-dat
 GNEWS = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
 
-def configure(fetch_fn=None, data_dir=None, now_fn=None) -> None:
-    global _FETCH, _DATA_DIR, _NOW_FN
+def configure(fetch_fn=None, data_dir=None, now_fn=None, post_fn=None) -> None:
+    global _FETCH, _DATA_DIR, _NOW_FN, _POST
     _FETCH = fetch_fn
+    _POST = post_fn
     _DATA_DIR = Path(data_dir) if data_dir else None
     _NOW_FN = now_fn
     if _DATA_DIR is not None:
@@ -129,6 +131,21 @@ def _today() -> date:
 def _default_fetch(url: str) -> bytes:
     import sec_filings as _sec
     return _sec._fetch(url, timeout=30)  # noqa: SLF001
+
+
+def _default_post(url: str, body: bytes) -> bytes:
+    """FINRA's query API is the only source here that needs a POST. Kept
+    separate from the SEC transport so its throttle is not spent on a host
+    that does not ask for one."""
+    import urllib.request
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/json",
+        "Accept-Encoding": "identity",
+        "User-Agent": "JerryTrade dashboard (hedge fund intelligence)"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        # 204 means "no such report yet" and has no body — an empty answer,
+        # not an error, and the caller reads it as "not published".
+        return resp.read() if resp.status != 204 else b""
 
 
 def _cache_path(key: str) -> Path | None:
@@ -171,6 +188,47 @@ def _get(url: str, ttl: float, kind: str = "bytes") -> bytes | None:
         try:
             tmp = p.with_suffix(".tmp")
             tmp.write_text(json.dumps({"ts": now, "kind": kind, "url": url,
+                                       "hex": raw.hex()}), encoding="utf-8")
+            tmp.replace(p)
+        except Exception:  # noqa: BLE001
+            pass
+    return raw
+
+
+def _post(url: str, body: bytes, key: str, ttl: float) -> bytes | None:
+    """A cached POST. Keyed by `key` rather than the URL, because every page
+    of a FINRA pull hits the same URL with a different body."""
+    now = time.time()
+    with _LOCK:
+        hit = _MEM.get(key)
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+    p = _cache_path(key)
+    if p is not None and p.exists():
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+            if now - float(rec.get("ts") or 0) < ttl:
+                raw = bytes.fromhex(rec["hex"])
+                with _LOCK:
+                    _MEM[key] = (float(rec["ts"]), raw)
+                return raw
+        except Exception:  # noqa: BLE001
+            pass
+    if not available():
+        return None
+    post = _POST or _default_post
+    try:
+        raw = post(url, body)
+    except Exception:  # noqa: BLE001
+        return None
+    if raw is None:
+        return None
+    with _LOCK:
+        _MEM[key] = (now, raw)
+    if p is not None:
+        try:
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"ts": now, "kind": "post", "url": key,
                                        "hex": raw.hex()}), encoding="utf-8")
             tmp.replace(p)
         except Exception:  # noqa: BLE001
@@ -674,3 +732,308 @@ def feed_items(url: str) -> list[dict]:
 def news_items(query: str) -> list[dict]:
     raw = _get(GNEWS.format(q=quote_plus(query)), TTL["news"], "news")
     return parse_rss(raw) if raw else []
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 2 — the aggregate layer (Hedge Fund Pulse).
+#
+# Everything below is about the hedge fund universe, never about one fund.
+# Each function returns rows classed REGULATORY POSITIONING DATA (an official
+# filing or report about positions) or INSTITUTIONAL FLOW PROXY (anonymous
+# market-structure activity that is evidence of behaviour, not a position).
+# `evidence()` refuses to attach a fund name to either, and the store checks
+# it again before writing.
+# ══════════════════════════════════════════════════════════════════════════
+
+CFTC_SOCRATA = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"
+FINRA_SI = "https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest"
+FINRA_SHVOL = "https://cdn.finra.org/equity/regsho/daily/CNMSshvol{ymd}.txt"
+OFR_FPF = "https://data.financialresearch.gov/hf/v1/series/dataset?dataset=fpf"
+
+# The CFTC's Traders in Financial Futures report is the only WEEKLY, official,
+# hedge-fund-specific positioning data that exists. "Leveraged Funds" is the
+# category hedge funds report under. Positions are as of Tuesday; the report
+# is published the following Friday at 3:30 PM ET.
+#
+# Two cautions the card must carry, both true of the level and not the change:
+# leveraged funds are STRUCTURALLY net short equity index futures (they hedge
+# long stock books and run basis trades), and the sector contracts are small
+# and thinly held. The change and the percentile are the signal; the level is
+# not. History depth is reported per market because it is not uniform — the
+# Communication contract has traded for barely a year.
+CFTC_MARKETS = [
+    {"key": "sp500", "market": "E-MINI S&P 500", "label": "S&P 500", "kind": "index"},
+    {"key": "nasdaq", "market": "NASDAQ-100 Consolidated", "label": "Nasdaq 100", "kind": "index"},
+    {"key": "russell", "market": "RUSSELL E-MINI", "label": "Russell 2000", "kind": "index"},
+    {"key": "djia", "market": "DJIA Consolidated", "label": "Dow Jones", "kind": "index"},
+    {"key": "vix", "market": "VIX FUTURES", "label": "VIX", "kind": "vol"},
+    {"key": "sec_staples", "market": "E-MINI S&P CONSU STAPLES INDEX", "label": "Consumer Staples",
+     "kind": "sector", "sector": "Consumer Staples"},
+    {"key": "sec_energy", "market": "E-MINI S&P ENERGY INDEX", "label": "Energy",
+     "kind": "sector", "sector": "Energy"},
+    {"key": "sec_financials", "market": "E-MINI S&P FINANCIAL INDEX", "label": "Financials",
+     "kind": "sector", "sector": "Financials"},
+    {"key": "sec_health", "market": "E-MINI S&P HEALTH CARE INDEX", "label": "Health Care",
+     "kind": "sector", "sector": "Health Care"},
+    {"key": "sec_industrials", "market": "E-MINI S&P INDUSTRIAL INDEX", "label": "Industrials",
+     "kind": "sector", "sector": "Industrials"},
+    {"key": "sec_utilities", "market": "E-MINI S&P UTILITIES INDEX", "label": "Utilities",
+     "kind": "sector", "sector": "Utilities"},
+    {"key": "sec_comm", "market": "E-MINI S&P COMMUNICATION INDEX", "label": "Communication Services",
+     "kind": "sector", "sector": "Communication Services"},
+]
+# The four sectors with no leveraged-fund futures contract at all. Named here
+# so the card can say WHICH inputs a sector is missing rather than showing a
+# blank cell that looks like a scanner fault.
+CFTC_SECTORS_MISSING = ("Technology", "Consumer Discretionary", "Materials", "Real Estate")
+
+CFTC_WEEKS = 170                 # ~3¼ years, the depth Socrata reliably serves
+TTL["cftc"] = 6 * 3600.0         # published Friday 3:30 PM ET; six hours is generous
+TTL["finra_si"] = 12 * 3600.0    # twice a month
+TTL["shvol"] = 6 * 3600.0        # daily file, posted that evening
+TTL["ofr"] = 24 * 3600.0         # quarterly series
+
+
+def _maybe_gunzip(raw: bytes) -> bytes:
+    """The OFR host gzips its JSON whatever Accept-Encoding asks for, and
+    urllib does not decompress for us. Sniffing the magic bytes is the only
+    reliable test — the Content-Encoding header is not always set."""
+    if raw[:2] == b"\x1f\x8b":
+        import gzip
+        try:
+            return gzip.decompress(raw)
+        except Exception:  # noqa: BLE001
+            return raw
+    return raw
+
+
+def _num_or_none(v):
+    try:
+        return float(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+# ── CFTC Traders in Financial Futures ───────────────────────────────────────
+
+def parse_cftc(rows: list[dict]) -> list[dict]:
+    """Weekly rows, newest first, with the three trader groups' net positions.
+
+    Net = long − short contracts. `gross` = long + short is the size of the
+    book on both sides, which is what "are they levering up?" reads: a fund
+    that doubles both legs has taken more risk and no net change would show
+    it. Spread positions are reported separately and are neither."""
+    out = []
+    for r in rows:
+        d = str(r.get("report_date_as_yyyy_mm_dd") or "")[:10]
+        lev_l, lev_s = _num_or_none(r.get("lev_money_positions_long")), _num_or_none(r.get("lev_money_positions_short"))
+        am_l, am_s = _num_or_none(r.get("asset_mgr_positions_long")), _num_or_none(r.get("asset_mgr_positions_short"))
+        dl_l, dl_s = _num_or_none(r.get("dealer_positions_long_all")), _num_or_none(r.get("dealer_positions_short_all"))
+        if not d or lev_l is None or lev_s is None:
+            continue
+        out.append({
+            "date": d,
+            "open_interest": _num_or_none(r.get("open_interest_all")),
+            "lev_long": lev_l, "lev_short": lev_s,
+            "lev_net": lev_l - lev_s, "lev_gross": lev_l + lev_s,
+            "lev_spread": _num_or_none(r.get("lev_money_positions_spread")),
+            "traders_long": _num_or_none(r.get("traders_lev_money_long_all")),
+            "traders_short": _num_or_none(r.get("traders_lev_money_short_all")),
+            "asset_mgr_net": (am_l - am_s) if (am_l is not None and am_s is not None) else None,
+            "dealer_net": (dl_l - dl_s) if (dl_l is not None and dl_s is not None) else None,
+        })
+    return sorted(out, key=lambda r: r["date"], reverse=True)
+
+
+def cftc_series(market: str, weeks: int = CFTC_WEEKS) -> list[dict]:
+    """One market's weekly Leveraged Funds history, newest first."""
+    from urllib.parse import urlencode
+    qs = urlencode({
+        "$select": ("report_date_as_yyyy_mm_dd,open_interest_all,"
+                    "lev_money_positions_long,lev_money_positions_short,lev_money_positions_spread,"
+                    "traders_lev_money_long_all,traders_lev_money_short_all,"
+                    "asset_mgr_positions_long,asset_mgr_positions_short,"
+                    "dealer_positions_long_all,dealer_positions_short_all"),
+        "$where": f"contract_market_name='{market}'",
+        "$order": "report_date_as_yyyy_mm_dd DESC",
+        "$limit": str(int(weeks)),
+    })
+    raw = _get(f"{CFTC_SOCRATA}?{qs}", TTL["cftc"], "cftc")
+    if not raw:
+        return []
+    try:
+        return parse_cftc(json.loads(raw.decode("utf-8", "replace")))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def cftc_all() -> dict[str, dict]:
+    """Every market in CFTC_MARKETS, keyed. Twelve Socrata calls a week."""
+    out = {}
+    for m in CFTC_MARKETS:
+        series = cftc_series(m["market"])
+        if series:
+            out[m["key"]] = {**m, "series": series, "weeks": len(series),
+                             "as_of": series[0]["date"]}
+    return out
+
+
+# ── FINRA consolidated short interest ───────────────────────────────────────
+
+def finra_settlements(today: date, n: int = 8, lag_business_days: int = 8) -> list[str]:
+    """The settlement dates whose short-interest report should be public.
+
+    FINRA settles twice a month — the 15th and the last business day — and
+    publishes about eight business days later. Dates are only offered when
+    that lag has elapsed, because asking for one that has not been published
+    returns an empty 204 that looks exactly like a broken source."""
+    import market_calendar as _cal
+
+    def on_or_before(d: date) -> date:
+        while not _cal.is_session(d):
+            d -= timedelta(days=1)
+        return d
+
+    dates, y, m = [], today.year, today.month
+    for _ in range(n + 4):
+        mid = on_or_before(date(y, m, 15))
+        nxt = date(y + (m == 12), (m % 12) + 1, 1)
+        eom = on_or_before(nxt - timedelta(days=1))
+        for s in (eom, mid):
+            probe = s
+            for _ in range(lag_business_days):
+                probe = _cal.next_session(probe)
+            if probe <= today and s not in dates:
+                dates.append(s)
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    return [d.isoformat() for d in sorted(dates, reverse=True)[:n]]
+
+
+def parse_short_interest(text: str) -> dict[str, dict]:
+    """FINRA's CSV, keyed by symbol.
+
+    `days_to_cover` is short interest over average daily volume — how many
+    days of normal trading it would take the shorts to buy back. It is the
+    field that separates a crowded short from a merely large one."""
+    import csv
+    import io
+    out: dict[str, dict] = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        sym = (row.get("symbolCode") or "").strip().upper()
+        if not sym:
+            continue
+        cur = _num_or_none(row.get("currentShortPositionQuantity"))
+        prev = _num_or_none(row.get("previousShortPositionQuantity"))
+        out[sym] = {
+            "symbol": sym, "name": (row.get("issueName") or "").strip(),
+            "short": cur, "short_prev": prev,
+            "change": (cur - prev) if (cur is not None and prev is not None) else None,
+            "change_pct": _num_or_none(row.get("changePercent")),
+            "adv": _num_or_none(row.get("averageDailyVolumeQuantity")),
+            "days_to_cover": _num_or_none(row.get("daysToCoverQuantity")),
+            "settlement": (row.get("settlementDate") or "").strip(),
+        }
+    return out
+
+
+def finra_short_interest(settlement: str, page_size: int = 5000, max_pages: int = 8) -> dict[str, dict]:
+    """Every symbol's short interest for one settlement date.
+
+    About 22,000 rows, served 5,000 at a time. A settlement not yet published
+    answers 204 with no body, which reads here as an empty dict — the caller
+    then says the report is not out yet rather than that shorts went to zero."""
+    body = json.dumps({"limit": page_size, "offset": 0,
+                       "compareFilters": [{"compareType": "EQUAL", "fieldName": "settlementDate",
+                                           "fieldValue": settlement}]}).encode()
+    out: dict[str, dict] = {}
+    for page in range(max_pages):
+        payload = json.loads(body)
+        payload["offset"] = page * page_size
+        raw = _post(FINRA_SI, json.dumps(payload).encode(),
+                    f"finra_si:{settlement}:{page}", TTL["finra_si"])
+        if not raw:
+            break
+        chunk = parse_short_interest(raw.decode("utf-8", "replace"))
+        if not chunk:
+            break
+        out.update(chunk)
+        if len(chunk) < page_size:
+            break
+    return out
+
+
+# ── FINRA daily short volume (Reg SHO) ──────────────────────────────────────
+
+def parse_short_volume(text: str) -> dict:
+    """Short volume as a share of total volume, per symbol and market-wide.
+
+    This is PRESSURE, not a position: it counts shares sold short during the
+    session, most of which are covered the same day by market makers. It sits
+    in the flow-proxy class for exactly that reason, and it exists here to
+    fill the two-week gap between short-interest reports."""
+    rows, tot_short, tot_all = {}, 0.0, 0.0
+    for line in text.splitlines():
+        p = line.split("|")
+        if len(p) < 5 or p[0].startswith("Date") or not p[1].strip():
+            continue
+        sym = p[1].strip().upper()
+        sh, ex, tv = _num_or_none(p[2]), _num_or_none(p[3]), _num_or_none(p[4])
+        if sh is None or tv is None or tv <= 0:
+            continue
+        rows[sym] = {"symbol": sym, "short": sh, "exempt": ex or 0.0, "total": tv,
+                     "share": sh / tv * 100.0}
+        tot_short += sh
+        tot_all += tv
+    return {"rows": rows, "n": len(rows), "market_share": (tot_short / tot_all * 100.0) if tot_all else None,
+            "date": (text.splitlines()[1].split("|")[0] if len(text.splitlines()) > 1 else None)}
+
+
+def finra_short_volume(day: date) -> dict | None:
+    raw = _get(FINRA_SHVOL.format(ymd=day.strftime("%Y%m%d")), TTL["shvol"], "shvol")
+    if not raw:
+        return None
+    out = parse_short_volume(raw.decode("latin-1"))
+    out["session"] = day.isoformat()
+    return out if out["n"] else None
+
+
+# ── OFR Hedge Fund Monitor (Form PF aggregates) ─────────────────────────────
+
+OFR_SERIES = {
+    "lev_top10": "FPF-ALLQHF_GAVN10_LEVERAGERATIO_AVERAGE",
+    "lev_11_50": "FPF-ALLQHF_GAVN11TO50_LEVERAGERATIO_AVERAGE",
+    "lev_51plus": "FPF-ALLQHF_GAVN51_LEVERAGERATIO_AVERAGE",
+    "borrow_prime": "FPF-BORROW_PRIMEBROKER_SUM",
+    "borrow_repo": "FPF-BORROW_REPO_SUM",
+}
+
+
+def ofr_leverage() -> dict:
+    """Industry leverage and borrowing from SEC Form PF, via the Office of
+    Financial Research. Quarterly and about five months behind — the only
+    OFFICIAL answer to "are hedge funds levering up?" that exists, and slow
+    enough that it is context for the weekly picture, never the weekly
+    picture itself. The lag is reported with every figure."""
+    raw = _get(OFR_FPF, TTL["ofr"], "ofr")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(_maybe_gunzip(raw).decode("utf-8", "replace")).get("timeseries") or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    out = {}
+    for key, sid in OFR_SERIES.items():
+        node = data.get(sid) or {}
+        pts = [(str(p[0])[:10], _num_or_none(p[1]))
+               for p in (node.get("timeseries", {}).get("aggregation") or [])
+               if p and p[1] is not None]
+        if not pts:
+            continue
+        name = ((node.get("metadata") or {}).get("description") or {}).get("name")
+        out[key] = {"series_id": sid, "name": name, "points": pts,
+                    "as_of": pts[-1][0], "value": pts[-1][1],
+                    "prev": pts[-2][1] if len(pts) > 1 else None,
+                    "n": len(pts)}
+    return out

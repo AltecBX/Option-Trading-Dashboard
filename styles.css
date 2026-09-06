@@ -13253,6 +13253,40 @@ a.tabsheet-btn.site { text-decoration: none; }
    anything else on it, so it is called out rather than left to be inferred. */
 .sl-cal { color: var(--warn, var(--fg-2)); font-weight: 600; }
 
+
+/* ── Hedge Fund Pulse (v4.86) ─────────────────────────────────────────────
+   The aggregate layer. Visually distinct from the fund cards so the two
+   layers never read as one thing: verdicts are chips, confidence is a word
+   and not a bar, and a conflict is coloured rather than hidden. */
+.hf-views { display: inline-flex; gap: 4px; }
+.hf-pulse { display: flex; flex-direction: column; gap: 14px; }
+.hf-questions { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; }
+.hf-q { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg-2); display: flex; flex-direction: column; gap: 6px; }
+.hf-q-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.hf-q-head h4 { margin: 0; font-size: 13.5px; }
+.hf-q-verdict { font-weight: 700; font-size: 12px; letter-spacing: .03em; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line); white-space: nowrap; }
+.hf-q-verdict-adding, .hf-q-verdict-rising, .hf-q-verdict-adding-shorts { color: var(--up); border-color: color-mix(in srgb, var(--up) 50%, var(--line)); }
+.hf-q-verdict-reducing, .hf-q-verdict-falling, .hf-q-verdict-covering { color: var(--down); border-color: color-mix(in srgb, var(--down) 50%, var(--line)); }
+.hf-q-verdict-mixed { color: var(--warn, var(--fg-2)); border-color: color-mix(in srgb, var(--warn, var(--fg-2)) 50%, var(--line)); }
+.hf-q-verdict-no-data, .hf-q-verdict-little-change { color: var(--fg-3); }
+.hf-q-meta, .hf-q-persist { margin: 0; font-size: 12px; color: var(--fg-3); }
+.hf-persist-cell { display: inline-block; margin-right: 12px; }
+.hf-conf { font-weight: 600; }
+.hf-conf-high { color: var(--up); }
+.hf-conf-moderate { color: var(--fg-2); }
+.hf-conf-low, .hf-conf-none { color: var(--fg-3); }
+.hf-crowd { font-weight: 700; font-size: 11.5px; letter-spacing: .03em; }
+.hf-crowd-crowded { color: var(--warn, var(--down)); }
+.hf-crowd-de-crowding { color: var(--accent); }
+.hf-crowd-normal { color: var(--fg-3); font-weight: 400; }
+.hf-changed { border-left: 3px solid var(--accent); padding-left: 10px; }
+.hf-changed h4 { margin: 0 0 4px; font-size: 13.5px; }
+.hf-context { margin: 0; padding-left: 16px; font-size: 12px; color: var(--fg-2); }
+@media (max-width: 640px) {
+  .hf-questions { grid-template-columns: 1fr; }
+  .hf-views { width: 100%; }
+}
+
 /* ── Hedge Funds · Named Fund Watch (v4.85, HEDGE_FUND_INTEL.md) ──────────
    The one visual rule: UNKNOWN is a real state with its own look, not an
    empty cell, and the "broader trend" block is visibly separate from any

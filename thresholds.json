@@ -1069,13 +1069,21 @@
     }
   },
   "hedge": {
-    "_doc": "Hedge Fund Intelligence (hf_watch.py, HEDGE_FUND_INTEL.md). Phase 1 \u2014 Named Fund Watch. The only knobs are cadences: how often a manager's EDGAR trail is re-read, and how far back statements, press and 13D events are listed.",
+    "_doc": "Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). `watch` is the Named Fund Watch (hf_watch.py) \u2014 how often a manager's EDGAR trail is re-read and how far back statements, press and 13D events are listed. `pulse` is the aggregate layer (hf_scan.py, hf_pulse.py) \u2014 the weekly cadence, how much history the percentiles use, and what counts as crowded.",
     "watch": {
       "refresh_hours": 6,
       "statement_days": 45,
       "press_days": 14,
       "event_days": 180,
       "new_filing_days": 7
+    },
+    "pulse": {
+      "refresh_hours": 12,
+      "cftc_weeks": 170,
+      "short_volume_days": 20,
+      "sector_min_symbols": 25,
+      "crowded_percentile": 90,
+      "crowded_inputs": 2
     }
   }
 }

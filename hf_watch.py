@@ -38,7 +38,7 @@ from pathlib import Path
 import hf_registry as R
 import hf_sources as S
 
-HF_WATCH_VERSION = "1.0.1"
+HF_WATCH_VERSION = "1.1.0"
 
 DEFAULTS = {
     "_doc": ("Hedge Fund Intelligence (hf_watch.py, HEDGE_FUND_INTEL.md). Phase 1 — Named Fund "
@@ -80,6 +80,7 @@ _UW_GETTER = None                # () -> UWClient | None
 _SECTOR_FN = None                # (symbol) -> sector name | None
 _SECTOR_NORM = None              # (any sector label) -> one of the app's sector names | None
 _NOW_FN = None
+_TREND_FN = None                 # () -> the Pulse's sentence for the combined block
 _SEED_PATH: Path | None = None
 _LOCK = threading.RLock()
 _STATE: dict = {"records": {}, "as_of": None, "refreshing": False, "thread": None,
@@ -87,11 +88,12 @@ _STATE: dict = {"records": {}, "as_of": None, "refreshing": False, "thread": Non
 
 
 def configure(data_dir=None, uw_getter=None, sector_fn=None, now_fn=None, seed_path=None,
-              sector_norm=None) -> None:
-    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _NOW_FN, _SEED_PATH, _SECTOR_NORM
+              sector_norm=None, trend_fn=None) -> None:
+    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _NOW_FN, _SEED_PATH, _SECTOR_NORM, _TREND_FN
     _DATA_DIR = Path(data_dir) if data_dir else None
     _UW_GETTER, _SECTOR_FN, _NOW_FN = uw_getter, sector_fn, now_fn
     _SECTOR_NORM = sector_norm
+    _TREND_FN = trend_fn
     _SEED_PATH = Path(seed_path) if seed_path else None
     if _DATA_DIR is not None:
         try:
@@ -550,11 +552,22 @@ def activity_state(rec: dict, today: date | None = None) -> dict:
 
 
 def broader_trend() -> dict:
-    """The Hedge Fund Pulse's sentence for the combined block. Phase 2 fills
-    it; until then the block exists, is labelled, and says it is empty —
-    an absent heading would let the fund block look like the whole story."""
+    """The Hedge Fund Pulse's sentence for the combined block.
+
+    Injected rather than imported, so this module cannot reach into the
+    aggregate layer and accidentally mix the two: it receives a finished
+    sentence, already classed MODEL INFERENCE, and renders it under its own
+    heading. Nothing about a fund is computed from it, and nothing about it
+    is computed from a fund."""
+    if _TREND_FN is not None:
+        try:
+            out = _TREND_FN()
+            if isinstance(out, dict):
+                return out
+        except Exception:  # noqa: BLE001
+            pass
     return {"available": False, "class": S.INFERENCE,
-            "note": "The aggregate layer (Hedge Fund Pulse) is not built yet. Nothing here is about this fund."}
+            "note": "The aggregate layer (Hedge Fund Pulse) has not been read yet. Nothing here is about this fund."}
 
 
 # ── refresh ─────────────────────────────────────────────────────────────────

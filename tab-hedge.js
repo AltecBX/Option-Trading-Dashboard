@@ -1,5 +1,5 @@
 (function () {
-// tab-hedge.jsx — LAZY CHUNK (v4.85). HEDGE FUNDS: NAMED FUND WATCH.
+// tab-hedge.jsx — LAZY CHUNK (v4.86). HEDGE FUNDS: PULSE + NAMED FUND WATCH.
 //
 // What is VERIFIED about each watched manager, and WHEN. Two dates on every
 // fact: the date it describes and the date it became public. Between
@@ -13,8 +13,17 @@
 // to summarise it as a view. A concentrated book (READABLE) gets the
 // quarter-on-quarter diff, because there a change usually means a decision.
 //
-// Endpoints: GET /api/hf · /api/hf/fund?key= · /api/hf/watchlist (PUT)
-// HEDGE_FUND_INTEL.md §5d.
+// Two layers on one tab, and the rule that separates them is the whole
+// feature: THE PULSE is the universe from anonymous official data (CFTC
+// Leveraged Funds, FINRA short interest, flows, Form PF), and it never
+// becomes part of a fund's record. NAMED FUNDS is what specific managers
+// actually filed. The Pulse appears on a fund card only under its own
+// heading, in its own evidence class, saying it is not about that fund.
+//
+// Endpoints: GET /api/hf · /api/hf/fund?key= · /api/hf/pulse ·
+//            /api/hf/pulse/history · /api/hf/pulse/week?week= ·
+//            /api/hf/watchlist (PUT)
+// HEDGE_FUND_INTEL.md §5c, §5d.
 
 const HF_TIP = {
   card: "Named Fund Watch. For each manager on your list: what the SEC filings prove, the date those positions were true, the date the public could see them, and what has been filed or said since. Between filings the answer is UNKNOWN, and the card says exactly that.",
@@ -46,7 +55,7 @@ const HF_TIP = {
   press: "What news outlets reported the manager did or said. Weaker than a filing and weaker than the manager's own words: it is attributed to the outlet, with the date.",
   filings: "The filing trail: every 13F-family filing with the period it describes and the day it went public, newest first, including amendments and notices.",
   crosscheck: "Unusual Whales parses the same 13F independently. What is compared is WHICH names are the largest, not how many rows each side used — EDGAR lists a book line by line across subsidiaries, Unusual Whales dedupes to tickers. Seven of the ten largest in common is agreement. Disagreement is shown as a conflict — not averaged, not hidden. Too few mapped names to compare is inconclusive, not a conflict.",
-  broader: "THE OTHER LAYER, kept apart on purpose. What the hedge fund universe as a whole appears to be doing, from anonymous aggregate sources (CFTC, short interest, flows, prime-broker quotes). It is NOT about this fund and never becomes part of a fund's block. Built in Phase 2.",
+  broader: "THE OTHER LAYER, kept apart on purpose. What the hedge fund universe as a whole appears to be doing, from anonymous aggregate sources (CFTC, short interest, flows, prime-broker quotes). It is NOT about this fund and never becomes part of a fund's block — it is rendered here, under its own heading, in its own evidence class, and nothing on the fund's card is computed from it.",
   new_filings: "Every 13D, 13G and 13F-family filing by any watched manager in the last week, read from EDGAR's daily index. This is the raw stream the cards are built from.",
   evidence: "The evidence class of this row. VERIFIED FUND ACTIVITY is a filing (FILING), the manager's own words (STATEMENT), or an outlet's report (PRESS). The four anonymous classes can never carry a fund's name — the code refuses to store such a row.",
   cusips: "How many CUSIP → symbol pairs are on file, from the SEC's fails-to-deliver list. A 13F names securities by CUSIP, not ticker; this is how a line becomes a clickable symbol.",
@@ -55,7 +64,33 @@ const HF_TIP = {
   sort: "Order the cards by when their latest positions went public, by how many positions changed, by name, or by style.",
   ceased: "This manager no longer files with the SEC. The last filing is shown for the record; anything newer is a public statement, and statements are claims.",
   people: "Who runs the book. Names help when the press reports a person rather than the firm.",
-  edgar_name: "The manager's exact registered name on EDGAR, and its CIK. Use this if you want to look the filings up yourself."
+  edgar_name: "The manager's exact registered name on EDGAR, and its CIK. Use this if you want to look the filings up yourself.",
+  // ── Hedge Fund Pulse (v4.86) ──
+  pulse: "THE OTHER LAYER. What the hedge fund universe as a whole appears to be doing, from sources that are official but anonymous — nobody's name is on any of it. Read once a week, on the CFTC's schedule. It is never about any one fund, and no fund's card is ever built from it.",
+  pulse_verdict: "The answer to one weekly question, from every source that had something to say. ADDING or REDUCING is the direction the majority of the deciding inputs moved. MIXED means they genuinely disagreed — the card shows both sides rather than averaging them into a consensus that does not exist. NO DATA means nothing answered.",
+  pulse_conf: "Not a probability, and not tunable. It counts how many INDEPENDENT evidence classes agree. One source, however official, is one source (LOW). Two classes agreeing is the first point the answer is not an artefact of one provider (MODERATE). Three with no dissent is HIGH. A prime-broker quote can raise confidence in what the data already says; it can never create a verdict on its own.",
+  pulse_streak: "How many consecutive weeks this has moved the same way — the 'fourth consecutive week of selling' shape. A week whose move is inside the noise band ends a streak without starting one the other way, so four weeks means four weeks.",
+  pulse_persist: "How much of the recent past agrees with this week, at 2, 4, 8 and 12 weeks. 'Three of the last four weeks' is a trend; 'two of the last twelve' is this week and noise. A window with less history than it needs says nothing rather than padding.",
+  pulse_unusual: "Where the current LEVEL sits in its own three-year range. Leveraged funds are structurally net short index futures — they hedge long stock books — so a big net short is normal and only its percentile is informative. The change is the signal; the level is context.",
+  pulse_input: "One piece of evidence behind the verdict: what it measures, its evidence class, the weekly change, and where its level sits in its own history. A DECIDING input can set a verdict; a SUPPORTING one (a flow proxy, a prime-broker quote) can only corroborate.",
+  pulse_conflict: "An input pointing the opposite way to the verdict. Kept and named, never averaged away — you asked for conflicting signals between data sources by name, and this is where they appear.",
+  pulse_missing: "Sources that had nothing to say this week: not yet published, or unreachable. Named so a thin answer reads as thin rather than as a broken scanner.",
+  pulse_cftc: "CFTC Traders in Financial Futures — the only WEEKLY, official, hedge-fund-specific positioning data that exists. 'Leveraged Funds' is the category hedge funds report under. Positions are as of Tuesday and published the following Friday at 3:30 PM Eastern, so it is three days old the moment it arrives.",
+  pulse_gross: "Long plus short contracts — the size of the book on both sides. This is how leverage reads weekly: a fund that doubles both legs has taken more risk and its NET position would not move at all.",
+  pulse_ofr: "Industry leverage from SEC Form PF, via the Treasury's Office of Financial Research. The only official answer to 'are hedge funds levering up?' — and about five months behind, so it is context with its own date on it, never this week's picture.",
+  pulse_si: "FINRA consolidated short interest: an official count of shares actually sold short, settled twice a month and published about eight business days later. It is the anchor for the short side; the daily short-volume share fills the fortnight between reports.",
+  pulse_shvol: "The share of the day's volume that was sold short. This is PRESSURE, not positions — most of it is market-maker inventory covered the same session — so it corroborates and never decides.",
+  pulse_sector: "Each sector's verdict and how many inputs it actually has. Only seven of the eleven sectors have a leveraged-fund futures contract at all; the other four are read from flows alone, and the card says which.",
+  pulse_sector_rank: "Sectors are ranked by how big this week's move is IN THEIR OWN TERMS — the change divided by that contract's typical weekly move. The sector contracts differ in size by more than tenfold, so ranking by raw contracts would put Financials on top every week regardless of what happened.",
+  pulse_nofutures: "No leveraged-fund futures contract exists for this sector, so there is no weekly regulatory reading for it. Its verdict rests on flows only, which is weaker — and saying so is the point.",
+  pulse_crowd: "Crowded means at or beyond the 90th percentile of its OWN history on two or more measures — one extreme reading is a number, two agreeing is a position everyone is in. De-crowding means it was crowded and is moving back toward the middle, which is the part that hurts when it happens quickly.",
+  pulse_crowd_names: "The most crowded single-name shorts by days to cover — how many days of ordinary volume the shorts would need to buy back. Filtered to names trading over a million shares a day: FINRA caps the field at 1000 days, and without the filter the list is entirely illiquid tickers whose ratio is arithmetic rather than a trade. This names securities; it names no fund.",
+  pulse_dtc: "Days to cover: shares short divided by average daily volume. The measure that separates a crowded short from a merely large one.",
+  pulse_changed: "Every verdict that reads differently from the stored reading a week ago. This is the only place a previous conclusion is allowed to matter, and it is what makes the board a record rather than a snapshot.",
+  pulse_history: "Every week ever read, kept forever, so you can watch positioning evolve rather than only see today.",
+  pulse_week: "The ISO week this reading belongs to. The CFTC publishes once a week, so a week is the natural unit of the record; re-reading within the same week replaces that week's entry.",
+  pulse_dates: "What each source is AS OF. They are not the same date and never will be: futures positions are Tuesday's, short interest is a fortnight old, Form PF is a quarter old. Every figure carries the date it describes.",
+  view: "Two layers, kept apart. THE PULSE is the whole universe from anonymous data. NAMED FUNDS is what specific managers have actually filed. The Pulse never becomes part of a fund's record — that is the rule the whole feature is built on."
 };
 const hfDate = s => {
   if (!s) return "—";
@@ -242,7 +277,12 @@ function HfBroader({
     className: "hf-muted"
   }, "(not about any one fund)"), " ", /*#__PURE__*/React.createElement(HfTag, {
     cls: bt && bt.class || "MODEL INFERENCE"
-  })), bt && bt.available ? /*#__PURE__*/React.createElement("p", null, bt.text) : /*#__PURE__*/React.createElement("p", {
+  })), bt && bt.available ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", null, bt.text), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.pulse_dates
+  }, bt.as_of_text ? `Futures positions as of ${bt.as_of_text}` : null, bt.week ? ` · week ${bt.week}` : null, bt.confidence ? ` · confidence ${bt.confidence}` : null), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted"
+  }, bt.note)) : /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
   }, bt && bt.note || "Not available."));
 }
@@ -709,6 +749,418 @@ function HfWatchlistEditor({
     className: "hf-muted"
   }, msg) : null) : null);
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// THE PULSE — the aggregate layer. Anonymous sources only; no fund is named
+// anywhere in this half of the tab.
+// ══════════════════════════════════════════════════════════════════════════
+
+const HF_CONF_ORDER = {
+  HIGH: 3,
+  MODERATE: 2,
+  LOW: 1,
+  NONE: 0
+};
+function HfConfidence({
+  c
+}) {
+  if (!c) return null;
+  const k = String(c.level || "NONE").toLowerCase();
+  return /*#__PURE__*/React.createElement("span", {
+    className: `hf-conf hf-conf-${k}`,
+    title: `${HF_TIP.pulse_conf}\n\n${c.why || ""}`
+  }, "confidence ", c.level, c.classes ? /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, " \xB7 ", c.classes, " class", c.classes === 1 ? "" : "es") : null);
+}
+function HfInputs({
+  inputs,
+  open
+}) {
+  if (!open || !inputs || !inputs.length) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_input
+  }, "Measure"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.evidence
+  }, "Evidence"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_input
+  }, "Weekly change"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_unusual
+  }, "Level percentile"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.as_of
+  }, "As of"))), /*#__PURE__*/React.createElement("tbody", null, inputs.map(i => /*#__PURE__*/React.createElement("tr", {
+    key: i.key
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Measure",
+    title: i.note || ""
+  }, i.label, i.weight < 1 ? /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted",
+    title: HF_TIP.pulse_input
+  }, " \xB7 supporting") : null), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Evidence"
+  }, /*#__PURE__*/React.createElement(HfTag, {
+    cls: i.class
+  })), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Weekly change",
+    className: i.direction > 0 ? "up" : i.direction < 0 ? "down" : ""
+  }, i.change == null ? "—" : hfSigned(Math.round(i.change)), i.direction === 0 && i.change != null ? /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted",
+    title: "Inside this measure's own noise band"
+  }, " (no direction)") : null), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Level percentile",
+    title: HF_TIP.pulse_unusual
+  }, i.percentile == null ? "—" : `${i.percentile}th`, i.n ? /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, " of ", hfInt(i.n)) : null), /*#__PURE__*/React.createElement("td", {
+    "data-label": "As of"
+  }, hfDate(i.as_of)))))));
+}
+function HfQuestion({
+  q
+}) {
+  const [open, setOpen] = React.useState(false);
+  if (!q) return null;
+  const v = String(q.verdict || "NO DATA");
+  const k = v.toLowerCase().replace(/[^a-z]+/g, "-");
+  const st = q.streak || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: `hf-q hf-q-${k}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "hf-q-head"
+  }, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.pulse_verdict
+  }, q.question), /*#__PURE__*/React.createElement("span", {
+    className: `hf-q-verdict hf-q-verdict-${k}`,
+    title: HF_TIP.pulse_verdict
+  }, v)), /*#__PURE__*/React.createElement("p", {
+    className: "hf-q-meta"
+  }, /*#__PURE__*/React.createElement(HfConfidence, {
+    c: q.confidence
+  }), st.weeks && st.direction ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_streak
+  }, " \xB7 ", st.word) : null, q.unusual && q.unusual.percentile != null ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_unusual
+  }, " \xB7 level at the ", q.unusual.percentile, "th percentile of ", hfInt(q.unusual.n), " weeks") : null), q.persistence ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-q-persist",
+    title: HF_TIP.pulse_persist
+  }, ["2", "4", "8", "12"].map(w => {
+    const p = q.persistence[w];
+    return /*#__PURE__*/React.createElement("span", {
+      key: w,
+      className: "hf-persist-cell"
+    }, w, "w: ", /*#__PURE__*/React.createElement("b", null, p ? `${p.same}/${p.of}` : "—"));
+  })) : null, q.note ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted"
+  }, q.note) : null, q.conflicts && q.conflicts.length ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-conflict",
+    title: HF_TIP.pulse_conflict
+  }, "Disagreeing: ", q.conflicts.map(c => c.label).join("; ")) : null, q.missing && q.missing.length ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.pulse_missing
+  }, "No answer from: ", q.missing.join("; ")) : null, q.context && q.context.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "hf-context",
+    title: HF_TIP.pulse_ofr
+  }, q.context.map(c => /*#__PURE__*/React.createElement("li", {
+    key: c.label
+  }, c.label, ": ", /*#__PURE__*/React.createElement("b", null, c.value == null ? "—" : Math.abs(c.value) > 1e6 ? hfMoney(c.value) : Number(c.value).toFixed(2)), " ", /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, "as of ", hfDate(c.as_of), " \u2014 ", c.note)))) : null, q.inputs && q.inputs.length ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: () => setOpen(!open),
+    title: HF_TIP.pulse_input
+  }, open ? "Hide" : "Show", " the ", q.inputs.length, " input", q.inputs.length === 1 ? "" : "s"), /*#__PURE__*/React.createElement(HfInputs, {
+    inputs: q.inputs,
+    open: open
+  })) : null);
+}
+function HfSectorStrip({
+  sec
+}) {
+  if (!sec || !sec.rows) return null;
+  return /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.pulse_sector
+  }, "Which sectors are being bought, and which sold"), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.pulse_sector_rank
+  }, sec.ranked_by), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Sector"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_verdict
+  }, "Verdict"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_sector_rank
+  }, "Size of this week's move"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_streak
+  }, "Streak"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_sector
+  }, "Inputs"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_conf
+  }, "Confidence"))), /*#__PURE__*/React.createElement("tbody", null, sec.rows.map(r => {
+    const k = String(r.verdict || "").toLowerCase().replace(/[^a-z]+/g, "-");
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.sector
+    }, /*#__PURE__*/React.createElement("td", {
+      "data-label": "Sector"
+    }, r.sector, !r.has_futures ? /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted",
+      title: HF_TIP.pulse_nofutures
+    }, " \xB7 flows only") : null), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Verdict"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `hf-q-verdict hf-q-verdict-${k}`
+    }, r.verdict)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Size of this week's move",
+      title: HF_TIP.pulse_sector_rank
+    }, r.move_size_text || "—"), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Streak"
+    }, r.streak && r.streak.weeks && r.streak.direction ? r.streak.word : "—"), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Inputs",
+      title: HF_TIP.pulse_sector
+    }, r.inputs_available), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Confidence"
+    }, (r.confidence || {}).level || "—"));
+  })))), sec.no_futures && sec.no_futures.length ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.pulse_nofutures
+  }, "No leveraged-fund futures contract exists for ", sec.no_futures.join(", "), " \u2014 those four are read from flows alone.") : null);
+}
+function HfCrowding({
+  cr,
+  onOpenTicker
+}) {
+  if (!cr) return null;
+  return /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.pulse_crowd
+  }, "Where trades are crowded, and where crowding is unwinding"), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.pulse_crowd
+  }, cr.rule), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Market"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_crowd
+  }, "State"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_unusual
+  }, "Net"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_gross
+  }, "Gross"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_crowd
+  }, "One-sidedness"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.as_of
+  }, "As of"))), /*#__PURE__*/React.createElement("tbody", null, cr.markets.map(r => {
+    const k = String(r.state || "").toLowerCase().replace(/[^a-z]+/g, "-");
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.key
+    }, /*#__PURE__*/React.createElement("td", {
+      "data-label": "Market"
+    }, r.market), /*#__PURE__*/React.createElement("td", {
+      "data-label": "State"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: `hf-crowd hf-crowd-${k}`
+    }, r.state)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Net"
+    }, r.percentiles.net == null ? "—" : `${r.percentiles.net}th`), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Gross"
+    }, r.percentiles.gross == null ? "—" : `${r.percentiles.gross}th`), /*#__PURE__*/React.createElement("td", {
+      "data-label": "One-sidedness"
+    }, r.percentiles.one_sided == null ? "—" : `${r.percentiles.one_sided}th`), /*#__PURE__*/React.createElement("td", {
+      "data-label": "As of"
+    }, hfDate(r.as_of)));
+  })))), cr.names && cr.names.length ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("h5", {
+    title: HF_TIP.pulse_crowd_names
+  }, "Most crowded single-name shorts ", /*#__PURE__*/React.createElement(HfTag, {
+    cls: "REGULATORY POSITIONING DATA"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Name"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_dtc
+  }, "Days to cover"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_si
+  }, "Shares short"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_si
+  }, "Change"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.as_of
+  }, "Settled"))), /*#__PURE__*/React.createElement("tbody", null, cr.names.map(n => /*#__PURE__*/React.createElement("tr", {
+    key: n.symbol
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Symbol"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "hf-sym",
+    onClick: () => onOpenTicker && onOpenTicker(n.symbol),
+    title: `Open ${n.symbol} on the Trade tab`
+  }, n.symbol)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Name",
+    className: "hf-issuer"
+  }, n.name), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Days to cover",
+    title: HF_TIP.pulse_dtc
+  }, Number(n.days_to_cover).toFixed(1)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Shares short"
+  }, hfInt(Math.round(n.short))), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Change",
+    className: n.change_pct > 0 ? "up" : n.change_pct < 0 ? "down" : ""
+  }, n.change_pct == null ? "—" : `${n.change_pct > 0 ? "+" : ""}${n.change_pct}%`), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Settled"
+  }, hfDate(n.settlement)))))))) : null);
+}
+function PulsePanel({
+  apiFetch,
+  onOpenTicker
+}) {
+  const [d, setD] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const {
+        d: got,
+        err: readErr
+      } = await hfReadJson(await apiFetch("/api/hf/pulse", {
+        noCache: true
+      }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got);
+      setErr(got.error || null);
+    } catch (e) {
+      setErr(String(e && e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [apiFetch]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
+  React.useEffect(() => {
+    if (!(d && d.refreshing)) return;
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [d && d.refreshing, load]);
+  if (busy && !d) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "st-loading",
+      "aria-busy": "true"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line",
+      style: {
+        width: "45%"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line",
+      style: {
+        width: "90%"
+      }
+    }));
+  }
+  if (err && !d) {
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "research-error"
+    }, err), /*#__PURE__*/React.createElement("button", {
+      className: "card-error-btn st-retry",
+      onClick: load
+    }, "Try again"));
+  }
+  if (d && !d.available) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "hf-pulse"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "hf-muted",
+      title: HF_TIP.pulse
+    }, d.note, d.refreshing ? " Reading now — this takes about a minute the first time." : ""), /*#__PURE__*/React.createElement("button", {
+      className: "sl-mode",
+      onClick: load,
+      disabled: busy
+    }, busy ? "Loading…" : "Check again"));
+  }
+  if (!d) return null;
+  const dates = d.dates || {};
+  return /*#__PURE__*/React.createElement("div", {
+    className: "hf-pulse",
+    title: HF_TIP.pulse
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "sl-status"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_week
+  }, "Week ", d.week), dates.cftc_as_of ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_cftc
+  }, " \xB7 futures positions as of ", dates.cftc_as_of) : null, dates.short_interest ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_si
+  }, " \xB7 short interest settled ", dates.short_interest) : null, dates.short_volume ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_shvol
+  }, " \xB7 short volume ", dates.short_volume) : null, dates.ofr ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.pulse_ofr
+  }, " \xB7 Form PF ", dates.ofr) : null, d.refreshing ? /*#__PURE__*/React.createElement("span", {
+    className: "sl-live"
+  }, " \xB7 reading") : null, /*#__PURE__*/React.createElement("span", null, " \xB7 pulse ", d.pulse_version || d.version || ""), " ", /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: load,
+    disabled: busy,
+    title: "Read the sources again"
+  }, "reload")), d.changed ? /*#__PURE__*/React.createElement("section", {
+    className: "hf-changed",
+    title: HF_TIP.pulse_changed
+  }, /*#__PURE__*/React.createElement("h4", null, "What changed since last week"), d.changed.available ? d.changed.n ? /*#__PURE__*/React.createElement("ul", {
+    className: "hf-notes"
+  }, d.changed.changes.map((c, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, /*#__PURE__*/React.createElement("b", null, c.what), ": ", c.from, " \u2192 ", /*#__PURE__*/React.createElement("b", null, c.to)))) : /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted"
+  }, "Nothing changed since ", d.changed.since, ". That is itself a finding.") : /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted"
+  }, d.changed.note)) : null, /*#__PURE__*/React.createElement("div", {
+    className: "hf-questions"
+  }, (d.questions || []).map((q, i) => /*#__PURE__*/React.createElement(HfQuestion, {
+    key: i,
+    q: q
+  }))), /*#__PURE__*/React.createElement(HfSectorStrip, {
+    sec: d.sectors
+  }), /*#__PURE__*/React.createElement(HfCrowding, {
+    cr: d.crowding,
+    onOpenTicker: onOpenTicker
+  }), d.unavailable && d.unavailable.length ? /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.pulse_missing
+  }, "Sources that had nothing this week"), /*#__PURE__*/React.createElement("ul", {
+    className: "hf-notes"
+  }, d.unavailable.map((u, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, u)))) : null, d.history && d.history.length ? /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.pulse_history
+  }, "Every week read so far"), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_week
+  }, "Week"), /*#__PURE__*/React.createElement("th", null, "Exposure"), /*#__PURE__*/React.createElement("th", null, "Leverage"), /*#__PURE__*/React.createElement("th", null, "Longs"), /*#__PURE__*/React.createElement("th", null, "Shorts"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_crowd
+  }, "Crowded"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_changed
+  }, "Changes"))), /*#__PURE__*/React.createElement("tbody", null, d.history.map(h => /*#__PURE__*/React.createElement("tr", {
+    key: h.week
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Week"
+  }, h.week), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Exposure"
+  }, (h.verdicts || {}).exposure || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Leverage"
+  }, (h.verdicts || {}).leverage || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Longs"
+  }, (h.verdicts || {}).longs || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Shorts"
+  }, (h.verdicts || {}).shorts || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Crowded"
+  }, (h.crowded || []).join(", ") || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Changes"
+  }, h.n_changes == null ? "—" : h.n_changes))))))) : null);
+}
 const HF_SORTS = {
   public: {
     label: "Newest filing first",
@@ -731,6 +1183,7 @@ function HedgeTab({
   apiFetch,
   onOpenTicker
 }) {
+  const [view, setView] = React.useState("pulse");
   const [data, setData] = React.useState(null);
   const [err, setErr] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
@@ -740,6 +1193,7 @@ function HedgeTab({
   const [sort, setSort] = React.useState("public");
   const [filter, setFilter] = React.useState("");
   const load = React.useCallback(async () => {
+    if (view !== "funds") return; // the fund list is only fetched when it is on screen
     setBusy(true);
     try {
       const {
@@ -757,7 +1211,7 @@ function HedgeTab({
     } finally {
       setBusy(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, view]);
   React.useEffect(() => {
     load();
   }, [load]);
@@ -842,11 +1296,20 @@ function HedgeTab({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
     title: HF_TIP.card
-  }, "Hedge Funds \xB7 Named Fund Watch"), /*#__PURE__*/React.createElement("p", {
+  }, "Hedge Funds"), /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
-  }, "What is verified about each manager, and when. Between filings: UNKNOWN.")), /*#__PURE__*/React.createElement("div", {
+  }, view === "pulse" ? "What the whole universe appears to be doing, from anonymous official data. Never about any one fund." : "What is verified about each manager, and when. Between filings: UNKNOWN.")), /*#__PURE__*/React.createElement("div", {
     className: "hf-controls"
-  }, /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "hf-views",
+    title: HF_TIP.view
+  }, /*#__PURE__*/React.createElement("button", {
+    className: `sl-mode ${view === "pulse" ? "sl-mode-on" : ""}`,
+    onClick: () => setView("pulse")
+  }, "The Pulse"), /*#__PURE__*/React.createElement("button", {
+    className: `sl-mode ${view === "funds" ? "sl-mode-on" : ""}`,
+    onClick: () => setView("funds")
+  }, "Named Funds")), view === "funds" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
     className: "hf-filter",
     placeholder: "Filter by name, style, person",
     value: filter,
@@ -864,7 +1327,10 @@ function HedgeTab({
     onClick: load,
     disabled: busy,
     title: "Reload the board"
-  }, busy ? "Loading…" : "Reload"))), data ? /*#__PURE__*/React.createElement("p", {
+  }, busy ? "Loading…" : "Reload")) : null)), view === "pulse" ? /*#__PURE__*/React.createElement(PulsePanel, {
+    apiFetch: apiFetch,
+    onOpenTicker: onOpenTicker
+  }) : null, view === "funds" && data ? /*#__PURE__*/React.createElement("p", {
     className: "sl-status"
   }, /*#__PURE__*/React.createElement("span", {
     title: "When the server last finished reading every manager"
@@ -874,12 +1340,12 @@ function HedgeTab({
     title: HF_TIP.cusips
   }, " \xB7 ", hfInt(data.cusips_mapped), " CUSIPs mapped"), data.last_sweep ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.new_filings
-  }, " \xB7 index swept ", hfDateTime(data.last_sweep)) : null, /*#__PURE__*/React.createElement("span", null, " \xB7 watch ", data.version)) : null, err ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, " \xB7 index swept ", hfDateTime(data.last_sweep)) : null, /*#__PURE__*/React.createElement("span", null, " \xB7 watch ", data.version)) : null, view === "funds" && err ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "research-error"
   }, err), /*#__PURE__*/React.createElement("button", {
     className: "card-error-btn st-retry",
     onClick: load
-  }, "Try again")) : null, busy && !data ? /*#__PURE__*/React.createElement("div", {
+  }, "Try again")) : null, view === "funds" && busy && !data ? /*#__PURE__*/React.createElement("div", {
     className: "st-loading",
     "aria-busy": "true"
   }, /*#__PURE__*/React.createElement("div", {
@@ -892,15 +1358,15 @@ function HedgeTab({
     style: {
       width: "88%"
     }
-  })) : null, data ? /*#__PURE__*/React.createElement(HfBroader, {
+  })) : null, view === "funds" && data ? /*#__PURE__*/React.createElement(HfBroader, {
     bt: data.broader_trend
-  }) : null, data ? /*#__PURE__*/React.createElement(HfNewFilings, {
+  }) : null, view === "funds" && data ? /*#__PURE__*/React.createElement(HfNewFilings, {
     rows: data.new_filings
-  }) : null, data && data.errors && Object.keys(data.errors).length ? /*#__PURE__*/React.createElement("p", {
+  }) : null, view === "funds" && data && data.errors && Object.keys(data.errors).length ? /*#__PURE__*/React.createElement("p", {
     className: "hf-conflict"
   }, "Could not read: ", Object.entries(data.errors).map(([k, v]) => `${k} (${v})`).join("; ")) : null, /*#__PURE__*/React.createElement("div", {
     className: "hf-grid"
-  }, managers.map(m => /*#__PURE__*/React.createElement(FundCard, {
+  }, view !== "funds" ? null : managers.map(m => /*#__PURE__*/React.createElement(FundCard, {
     key: m.key,
     m: m,
     open: !!open[m.key],
@@ -909,10 +1375,10 @@ function HedgeTab({
     loading: !!loadingKey[m.key],
     onOpenTicker: onOpenTicker,
     onRefresh: refreshFund
-  }))), /*#__PURE__*/React.createElement(HfWatchlistEditor, {
+  }))), view === "funds" ? /*#__PURE__*/React.createElement(HfWatchlistEditor, {
     apiFetch: apiFetch,
     onSaved: load
-  }));
+  }) : null);
 }
 Object.assign(window, {
   HedgeTab: React.memo(HedgeTab)
