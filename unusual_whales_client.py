@@ -109,6 +109,9 @@ ENDPOINTS = {
     "institution_activity": "/api/institution/{name}/activity/v2",
     "institution_sectors": "/api/institution/{name}/sectors",
     "institutions_latest_filings": "/api/institutions/latest_filings",
+    # Sector options tide (Hedge Fund Pulse) — net call and put premium
+    # through the session for one GICS sector. Anonymous institutional flow.
+    "sector_tide": "/api/market/{sector}/sector-tide",
 }
 
 
@@ -130,6 +133,7 @@ TTL_BY_KEY = {
     "institution_activity": 6 * 3600,
     "institution_sectors": 6 * 3600,
     "institutions_latest_filings": 3600,
+    "sector_tide": 900,
     "_default": 15,
 }
 
@@ -257,6 +261,17 @@ class UWClient:
 
     def institutions_latest_filings(self, limit: int = 50) -> Optional[dict]:
         return self._get("institutions_latest_filings", {"limit": str(limit)})
+
+    def sector_tide(self, sector: str, date: str | None = None) -> Optional[dict]:
+        """Net call/put premium for one GICS sector through the session.
+
+        `sector` is UW's own vocabulary (e.g. "Consumer Cyclical"). Path
+        parameters are substituted verbatim by _get, and these names contain
+        spaces, so the escaping has to happen here."""
+        p = {"sector": urllib.parse.quote(str(sector), safe="")}
+        if date:
+            p["date"] = date
+        return self._get("sector_tide", p)
 
     def rate_snapshot(self) -> dict[str, Any]:
         """Read-only copy of the latest rate-limit info."""

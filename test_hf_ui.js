@@ -21,6 +21,11 @@ function ok(name, cond, extra) {
   else { failed++; fails.push(name); console.log("  FAIL  " + name + (extra ? " — got: " + extra : "")); }
 }
 const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
+// Pull one tooltip's text out of the HF_TIP table so a guard can assert on it.
+const HF_TIPS_OF = (s, key) => {
+  const m = new RegExp(`\\n  ${key}: "((?:[^"\\\\]|\\\\.)*)"`).exec(s);
+  return m ? m[1] : "";
+};
 
 const src = read("tab-hedge.jsx");
 const appSrc = read("app.jsx");
@@ -35,6 +40,8 @@ const registry = read("hf_registry.py");
 const dash = read("options_dashboard.py");
 const smoke = read("test_http_smoke.py");
 const seed = JSON.parse(read("hf_watchlist.json"));
+const pulse = read("hf_pulse.py");
+const scan = read("hf_scan.py");
 
 // ── 1. registration and placement ───────────────────────────────────────
 ok("registered as a lazy chunk", /"tab-hedge\.jsx"/.test(build) && /"tab-hedge\.js"/.test(build));
@@ -118,7 +125,52 @@ ok("the watchlist is writable", /parsed\.path == "\/api\/hf\/watchlist"/.test(da
 ok("the routes are in the HTTP smoke", /"\/api\/hf"/.test(smoke) && /"\/api\/hf\/fund\?key=pershing"/.test(smoke));
 ok("EDGAR is the record; UW is a cross-check, not a source", /Unusual Whales is a cross-check/.test(dash) && /institution_holdings/.test(read("unusual_whales_client.py")));
 ok("sector labels are folded onto the app's eleven sectors", /sector_norm=/.test(dash) && /SECTOR_BY_ETF/.test(dash));
-ok("the version was bumped", /const APP_VERSION = "4\.85"/.test(appSrc));
+
+// ── 6. the Pulse: the aggregate layer (v4.86) ───────────────────────────
+ok("the two layers are switchable and named", /The Pulse<\/button>/.test(src) && /Named Funds<\/button>/.test(src)
+   && /setView\("pulse"\)/.test(src) && /setView\("funds"\)/.test(src));
+ok("the Pulse panel exists and has its own component", /function PulsePanel/.test(src));
+ok("each weekly question renders verdict, confidence, streak and persistence",
+   /function HfQuestion/.test(src) && /q\.verdict/.test(src) && /HfConfidence/.test(src)
+   && /HF_TIP\.pulse_streak/.test(src) && /HF_TIP\.pulse_persist/.test(src));
+ok("the four windows 2/4/8/12 are on screen", /\["2", "4", "8", "12"\]\.map/.test(src));
+ok("every input behind a verdict can be opened and shows its class and date",
+   /function HfInputs/.test(src) && /HfTag cls=\{i\.class\}/.test(src) && /hfDate\(i\.as_of\)/.test(src));
+ok("conflicts are shown, never averaged",
+   /Disagreeing:/.test(src) && /def conflicts/.test(pulse) && /never averaged/.test(HF_TIPS_OF(src, "pulse_conflict")));
+ok("missing sources are named", /No answer from:/.test(src) && /Sources that had nothing this week/.test(src));
+ok("what changed since last week is a section", /What changed since last week/.test(src)
+   && /def changed_since/.test(pulse) && /That is itself a finding/.test(src));
+ok("the weekly history is listed", /Every week read so far/.test(src) && /def history/.test(scan));
+ok("sectors rank in their own terms, and that is explained on screen",
+   /sec\.ranked_by/.test(src) && /move_size_text/.test(src) && /in its own terms/i.test(pulse));
+ok("the four sectors with no futures contract are called out",
+   /flows only/.test(src) && /CFTC_SECTORS_MISSING/.test(sources) && /no_futures/.test(src));
+ok("crowding is lean AND size, never one fact twice",
+   /never one counted twice/.test(pulse) && /hf-crowd-crowded/.test(css));
+ok("crowded single names are filtered for liquidity", /DTC_CAP/.test(pulse) && /MIN_ADV/.test(pulse)
+   && /Days to cover/.test(src));
+ok("a flat history has no percentile", /max\(xs\) == min\(xs\)/.test(pulse));
+ok("the change is the signal, not the level — said in code and on the card",
+   /structurally net short/.test(pulse) && /HF_TIP\.pulse_unusual/.test(src));
+ok("leverage reads gross, and Form PF is context with its own date",
+   /lev_gross/.test(pulse) && /five months behind/.test(pulse) && /HF_TIP\.pulse_ofr/.test(src));
+ok("confidence counts independent classes and cannot be created by a quote",
+   /independent evidence class/.test(pulse) && /cannot create one on their own/.test(pulse)
+   && /can never create a\s*\n?\s*verdict alone/.test(pulse));
+ok("the pulse is pure — no I/O, no clock", !/datetime\.now|urllib|json\.load|open\(/.test(pulse));
+ok("the aggregate layer never names a fund",
+   /cannot be attributed to a fund/.test(sources) && /refusing to store a pulse reading/.test(scan));
+ok("the fund cards receive the trend injected, not imported",
+   /trend_fn/.test(watch) && !/import hf_scan/.test(watch) && /trend_fn=lambda: _hfscan\.headline\(\)/.test(dash));
+ok("the broader block on a fund card carries the Pulse's date and class",
+   /bt\.as_of_text/.test(src) && /HfTag cls=\{\(bt && bt\.class\)/.test(src));
+ok("/api/hf/pulse routes exist", /section == "pulse"/.test(dash) && /section == "pulse\/history"/.test(dash)
+   && /section == "pulse\/week"/.test(dash));
+ok("the pulse routes are in the HTTP smoke", /"\/api\/hf\/pulse"/.test(smoke));
+ok("the pulse cadence is published in thresholds", /"pulse"/.test(read("thresholds.json")));
+
+ok("the version was bumped", /const APP_VERSION = "4\.86"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

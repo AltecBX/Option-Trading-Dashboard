@@ -5047,10 +5047,20 @@ except Exception as _exc:  # noqa: BLE001
 # of a held name comes from the app's own board first (the user's sector map)
 # and from nothing else — an unmapped position is reported as unmapped.
 try:
+    import hf_pulse as _hfpulse
+    import hf_scan as _hfscan
     import hf_sources as _hfsrc
     import hf_watch as _hfwatch
     _hfsrc.configure(data_dir=_STABLE_DIR,
                      now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None)
+    _hfscan.configure(
+        data_dir=_STABLE_DIR,
+        uw_getter=lambda: (_uw_client.get_client() if _UW_AVAILABLE else None),
+        sector_fn=lambda sym: _sell_sector_for(sym),
+        sector_norm=lambda name: ((_mstate.SECTOR_BY_ETF.get(_mstate.sector_etf(name)) or {}).get("name")
+                                  if "_mstate" in globals() and _mstate is not None else str(name)),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+    )
     _hfwatch.configure(
         data_dir=_STABLE_DIR,
         uw_getter=lambda: (_uw_client.get_client() if _UW_AVAILABLE else None),
@@ -5059,6 +5069,9 @@ try:
         # names, so a 13F roll-up and the Sectors tab speak the same words.
         sector_norm=lambda name: ((_mstate.SECTOR_BY_ETF.get(_mstate.sector_etf(name)) or {}).get("name")
                                   if "_mstate" in globals() and _mstate is not None else str(name)),
+        # The aggregate layer's sentence, handed over finished. hf_watch does
+        # not import hf_scan: the two layers meet here and nowhere else.
+        trend_fn=lambda: _hfscan.headline(),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
     )
     _HF_AVAILABLE = True
@@ -5067,6 +5080,8 @@ except Exception as _exc:  # noqa: BLE001
     _HF_AVAILABLE = False
     _hfwatch = None  # type: ignore
     _hfsrc = None  # type: ignore
+    _hfscan = None  # type: ignore
+    _hfpulse = None  # type: ignore
 
 # ── Natural-language backtesting lab (v3.43) ────────────────────────────────
 import backtest as _backtest
@@ -10472,8 +10487,25 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 elif section == "watchlist":
                     self._send_json({"registry": _hfwatch.registry(),
                                      "overlay": _hfwatch._load_overlay()}, no_store=True)  # noqa: SLF001
+                elif section == "pulse":
+                    self._send_json(_hfscan.snapshot(), no_store=True)
+                elif section == "pulse/status":
+                    self._send_json(_hfscan.status(), no_store=True)
+                elif section == "pulse/refresh":
+                    self._send_json(_hfscan.refresh_now(), no_store=True)
+                elif section == "pulse/history":
+                    self._send_json({"weeks": _hfscan.history(
+                        int((qs.get("limit", ["60"])[0] or "60"))), "ok": True}, no_store=True)
+                elif section == "pulse/week":
+                    wk = (qs.get("week", [""])[0] or "").strip()
+                    out = _hfscan.snapshot_for(wk) if wk else None
+                    self._send_json(out or {"error": f"no reading stored for {wk!r}"},
+                                    status=200 if out else 404, no_store=True)
                 elif section == "config":
-                    self._send_json({"config": _hfwatch.config(), "version": _hfwatch.HF_WATCH_VERSION,
+                    self._send_json({"config": {**_hfwatch.config(), **_hfscan.config()},
+                                     "version": _hfwatch.HF_WATCH_VERSION,
+                                     "scan": _hfscan.HF_SCAN_VERSION,
+                                     "pulse": _hfpulse.HF_PULSE_VERSION,
                                      "sources": _hfsrc.HF_SOURCES_VERSION,
                                      "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)
                 else:

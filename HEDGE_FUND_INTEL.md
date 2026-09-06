@@ -409,3 +409,95 @@ same way the last three features did.
    keep them out of the five classes entirely?
 3. **Report day**: Friday after the 3:30 PM CFTC release (recommended), or
    Monday morning so the weekend's press coverage is in it?
+
+---
+
+## 9. Phase 2 as built — the Hedge Fund Pulse
+
+*Shipped in v4.86: `hf_pulse.py` (pure), `hf_scan.py` (stateful), the Pulse
+panel in `tab-hedge.jsx`, and four new providers in `hf_sources.py`.*
+
+### What the live data changed about the design
+
+Six things only appeared once the real sources were running, and each one
+changed the code:
+
+1. **FINRA caps days-to-cover at 1000, and 4,133 of the 22,482 rows in the
+   August 14, 2026 report sit at that cap.** They are OTC foreign ordinaries
+   trading a few hundred shares a day, where dividing by a near-zero
+   denominator produces a number that means nothing. Unfiltered, the
+   "most crowded shorts" list was entirely untradeable tickers. With a
+   floor of a million shares a day and the cap excluded, the list is
+   NFE at 28.6 days, NTST at 27.9, SVRA at 27.1, OCGN at 23.9 — real names.
+
+2. **Net position and one-sidedness are the same fact when gross is
+   steady.** The first crowding rule counted net, gross and one-sidedness as
+   three independent measures and called any two of them a crowd. But
+   one-sidedness is |net| ÷ gross, so a high net drags it up automatically
+   and one fact voted twice; every quiet market with a single notable
+   reading came out crowded. Crowding is now LEAN (one-sidedness) **and**
+   SIZE (gross), which are genuinely two different things.
+
+3. **A perfectly flat series returns the 100th percentile** if ties count,
+   which would flag every quiet market as extreme. A series with no spread
+   now has no percentile at all.
+
+4. **The sector contracts differ in size by more than tenfold.** Ranking
+   "most bought" by raw contracts put Financials on top regardless of what
+   happened. Sectors are now ranked by the change divided by that
+   contract's own typical weekly move — Health Care sold at 1.7× its
+   typical week, Utilities bought at 1.6×.
+
+5. **The short share of volume moves in tenths of a point.** A 0.19-point
+   move read as a direction until the input was given a noise band drawn
+   from its own history.
+
+6. **The OFR gzips its JSON whatever Accept-Encoding asks for**, and urllib
+   does not decompress. Sniffing the magic bytes is the only reliable test.
+
+### The rules the Pulse keeps
+
+- **The change is the signal; the level is not.** Leveraged funds are
+  structurally net short index futures — on September 1, 2026 they were
+  short 317,564 E-mini contracts, which is an ordinary Tuesday. Every
+  verdict reads the weekly change; the level appears only as a percentile
+  of its own three-year history.
+- **Leverage reads GROSS, not net.** A book that doubles both legs has
+  taken more risk and its net does not move. Form PF is the official
+  measure and is about five months behind, so it is context with its own
+  date, never the weekly picture.
+- **The two legs are answered separately.** "Reducing longs?" and "adding
+  shorts?" are different questions and a net figure hides both.
+- **Confidence counts independent evidence classes**, not a probability.
+  One source is one source (LOW); two classes agreeing is the first point
+  the answer is not an artefact of one provider (MODERATE); three with no
+  dissent is HIGH. A prime-broker quote can raise confidence in what the
+  data already says and can never create a verdict alone — the Phase 3
+  channel is wired and tested for exactly that.
+- **Disagreement is a finding.** Inputs pointing opposite ways make the
+  verdict MIXED and both sides are listed.
+- **Missing is not zero.** Only seven of the eleven sectors have a
+  leveraged-fund futures contract; the other four are read from flows and
+  the card says so. Sources that did not answer are named.
+
+### The record
+
+Each reading is stored under its ISO week and kept forever, so "what
+changed from last week" is a comparison against a stored answer rather than
+a claim. A re-run inside the same week replaces that week's entry and still
+compares against the previous one.
+
+### Where the two layers meet
+
+In exactly one place: `hf_scan.headline()` produces one sentence, classed
+MODEL INFERENCE, and `options_dashboard.py` injects it into `hf_watch` as
+`trend_fn`. `hf_watch` does not import `hf_scan`. The sentence is rendered
+under its own heading with its own date, and no fund's record is computed
+from it.
+
+### Still Phase 3
+
+The prime-broker channel (Reuters "HEDGE FLOW" and equivalents quoting
+Goldman, Morgan Stanley, JPMorgan) is wired into `hf_pulse.build()` and
+tested, but nothing populates it yet. The weekly report assembly, its
+history view and the compare-with-week-N view are Phase 3.
