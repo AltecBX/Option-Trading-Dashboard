@@ -44,7 +44,7 @@ const HF_TIP = {
   statements: "What the manager said in their OWN channel (a newsletter, a letter). Shown as a quote with its date. A statement is a claim, not a position, and is never counted as one.",
   press: "What news outlets reported the manager did or said. Weaker than a filing and weaker than the manager's own words: it is attributed to the outlet, with the date.",
   filings: "The filing trail: every 13F-family filing with the period it describes and the day it went public, newest first, including amendments and notices.",
-  crosscheck: "Unusual Whales parses the same 13F independently. Agreement is reassurance. Disagreement is shown as a conflict — not averaged, not hidden.",
+  crosscheck: "Unusual Whales parses the same 13F independently. What is compared is WHICH names are the largest, not how many rows each side used — EDGAR lists a book line by line across subsidiaries, Unusual Whales dedupes to tickers. Seven of the ten largest in common is agreement. Disagreement is shown as a conflict — not averaged, not hidden. Too few mapped names to compare is inconclusive, not a conflict.",
   broader: "THE OTHER LAYER, kept apart on purpose. What the hedge fund universe as a whole appears to be doing, from anonymous aggregate sources (CFTC, short interest, flows, prime-broker quotes). It is NOT about this fund and never becomes part of a fund's block. Built in Phase 2.",
   new_filings: "Every 13D, 13G and 13F-family filing by any watched manager in the last week, read from EDGAR's daily index. This is the raw stream the cards are built from.",
   evidence: "The evidence class of this row. VERIFIED FUND ACTIVITY is a filing (FILING), the manager's own words (STATEMENT), or an outlet's report (PRESS). The four anonymous classes can never carry a fund's name — the code refuses to store such a row.",
@@ -323,8 +323,10 @@ function FundDetail({ d, onOpenTicker }) {
         <section>
           <h4 title={HF_TIP.crosscheck}>Cross-check against Unusual Whales</h4>
           {d.crosscheck.available ? (
-            <p className={d.crosscheck.agree ? "hf-muted" : "hf-conflict"} title={HF_TIP.crosscheck}>
-              EDGAR table: {hfInt(d.crosscheck.n_edgar)} lines · Unusual Whales: {hfInt(d.crosscheck.n_uw)} lines · {d.crosscheck.agree ? "agree" : "CONFLICT — shown, not resolved"}
+            <p className={d.crosscheck.agree === false ? "hf-conflict" : "hf-muted"} title={HF_TIP.crosscheck}>
+              Largest positions in common: {hfInt(d.crosscheck.top_overlap)} of {hfInt(d.crosscheck.top_compared)} ·
+              EDGAR {hfInt(d.crosscheck.n_edgar)} positions ({hfInt(d.crosscheck.n_edgar_lines)} lines) · Unusual Whales {hfInt(d.crosscheck.n_uw)} rows ·{" "}
+              {d.crosscheck.agree === true ? "agree" : d.crosscheck.agree === false ? "CONFLICT — shown, not resolved" : "too few mapped names to compare"}
             </p>
           ) : <p className="hf-muted">Unusual Whales had no parse of this filing.</p>}
         </section>

@@ -38,7 +38,7 @@ from pathlib import Path
 import hf_registry as R
 import hf_sources as S
 
-HF_WATCH_VERSION = "1.0.0"
+HF_WATCH_VERSION = "1.0.1"
 
 DEFAULTS = {
     "_doc": ("Hedge Fund Intelligence (hf_watch.py, HEDGE_FUND_INTEL.md). Phase 1 — Named Fund "
@@ -193,7 +193,12 @@ def _load_records() -> None:
     for p in d.glob("*.json"):
         try:
             rec = json.loads(p.read_text(encoding="utf-8"))
-            if rec.get("key"):
+            # A record written by an older version of this module may carry
+            # an older shape (the first cross-check compared row counts).
+            # Leaving it out means the next look re-reads the manager, which
+            # costs a handful of cached EDGAR calls and never shows a stale
+            # verdict under a new label.
+            if rec.get("key") and rec.get("watch_version") == HF_WATCH_VERSION:
                 with _LOCK:
                     _STATE["records"][rec["key"]] = rec
         except Exception:  # noqa: BLE001
@@ -345,9 +350,20 @@ def _statements(entry: dict) -> tuple[list[dict], list[dict]]:
     return own[:20], press[:15]
 
 
-def _uw_crosscheck(cik: int, cur: dict | None) -> dict | None:
+CROSSCHECK_TOP = 10        # the largest lines compared between EDGAR and Unusual Whales
+CROSSCHECK_AGREE = 7       # this many of them in common is agreement
+
+
+def _uw_crosscheck(cik: int, cur: dict | None, symbol_of: dict | None = None) -> dict | None:
     """Unusual Whales parses the same filing. Agreement is reassurance;
-    disagreement is a conflict row, not something to average away."""
+    disagreement is a conflict row, not something to average away.
+
+    What is compared is WHICH names are the largest, not how many rows each
+    side used. EDGAR lists Berkshire's book as 89 lines across subsidiaries
+    where Unusual Whales dedupes to 30 tickers; counting rows would call
+    that a conflict on every card, and it is only a counting difference.
+    If seven of the ten largest positions by value are the same tickers on
+    both sides, the two readings agree."""
     if _UW_GETTER is None or cur is None:
         return None
     try:
@@ -360,10 +376,31 @@ def _uw_crosscheck(cik: int, cur: dict | None) -> dict | None:
     if not data:
         return {"available": False}
     rows = data if isinstance(data, list) else (data.get("data") or [])
-    n_uw = len(rows)
-    n_edgar = len(cur.get("positions") or [])
-    agree = n_edgar > 0 and abs(n_uw - n_edgar) <= max(2, 0.05 * n_edgar)
-    return {"available": True, "n_uw": n_uw, "n_edgar": n_edgar, "agree": agree,
+    positions = cur.get("positions") or []
+    agg = S._aggregate(positions)  # noqa: SLF001
+    symbol_of = symbol_of or {}
+    edgar_top = []
+    for p in sorted(agg.values(), key=lambda x: -(x.get("value") or 0)):
+        sym = symbol_of.get(p.get("cusip") or "")
+        if sym and sym not in edgar_top:
+            edgar_top.append(sym)
+        if len(edgar_top) >= CROSSCHECK_TOP:
+            break
+    uw_top = []
+    for r in sorted(rows, key=lambda x: -float(x.get("value") or 0)):
+        t = str(r.get("ticker") or "").upper()
+        if t and t not in uw_top:
+            uw_top.append(t)
+        if len(uw_top) >= CROSSCHECK_TOP:
+            break
+    overlap = len(set(edgar_top) & set(uw_top))
+    compared = min(len(edgar_top), len(uw_top))
+    # Agreement needs enough mapped names to compare; with fewer than the
+    # threshold on either side the check is inconclusive, not a conflict.
+    agree = None if compared < CROSSCHECK_AGREE else overlap >= CROSSCHECK_AGREE
+    return {"available": True, "n_uw": len(rows), "n_edgar": len(agg), "n_edgar_lines": len(positions),
+            "top_compared": compared, "top_overlap": overlap, "agree": agree,
+            "edgar_top": edgar_top, "uw_top": uw_top,
             # UW labels each held name with a sector; that is the fallback
             # for names the user's own board has never classified.
             "sector_by_symbol": {str(r.get("ticker")).upper(): r.get("sector")
@@ -373,6 +410,7 @@ def _uw_crosscheck(cik: int, cur: dict | None) -> dict | None:
 def _build(entry: dict, cusips: dict[str, str]) -> dict:
     key, name = entry["key"], entry["name"]
     rec: dict = {"key": key, "name": name, "style": entry.get("style"),
+                 "watch_version": HF_WATCH_VERSION,
                  "turnover": entry.get("turnover"), "status": R.status_of(entry),
                  "people": entry.get("people") or [], "built_at": _now().isoformat(timespec="seconds"),
                  "cik": None, "identities": entry.get("ciks") or [], "evidence": [],
@@ -457,7 +495,7 @@ def _build_from_edgar(rec: dict, entry: dict, cik: int, sub: dict, cusips: dict[
         for bucket in ("new", "increased", "reduced", "exited"):
             for r in (rec["change"] or {}).get(bucket) or []:
                 r["symbol"] = symbol_of.get(r.get("cusip"))
-        rec["crosscheck"] = _uw_crosscheck(cik, cur)
+        rec["crosscheck"] = _uw_crosscheck(cik, cur, symbol_of)
         uw_sectors = (rec["crosscheck"] or {}).get("sector_by_symbol") or {}
 
         def sector_for(sym: str):
@@ -470,9 +508,11 @@ def _build_from_edgar(rec: dict, entry: dict, cik: int, sub: dict, cusips: dict[
         rec["sectors"] = S.sector_exposure(positions, symbol_of, sector_for)
         if rec["crosscheck"] is not None:
             rec["crosscheck"].pop("sector_by_symbol", None)
-        if rec["crosscheck"] and rec["crosscheck"].get("available") and not rec["crosscheck"].get("agree"):
-            rec["notes"].append(f"Unusual Whales counts {rec['crosscheck']['n_uw']} positions in this filing; "
-                                f"EDGAR's table has {rec['crosscheck']['n_edgar']}. Shown as a conflict, not resolved.")
+        cc = rec["crosscheck"]
+        if cc and cc.get("available") and cc.get("agree") is False:
+            rec["notes"].append(f"Unusual Whales and EDGAR disagree on what this book's largest positions are: "
+                                f"only {cc['top_overlap']} of the top {cc['top_compared']} match. Shown as a "
+                                f"conflict, not resolved.")
     elif entry.get("status") == "CEASED":
         rec["notes"].append("No holdings report is on file for a current period; this manager has ceased filing.")
     else:
