@@ -1,0 +1,271 @@
+"""Guards for hf_sources.py — the parsers, on real captured filings.
+
+Every fixture under fixtures/hf is a document EDGAR or the SEC actually
+served on September 6, 2026: Pershing Square Inc.'s Q1 and Q2 2026 13F
+tables and cover pages, the old Pershing entity's 13F-NT naming the
+successor, a live SCHEDULE 13D/A in the structured XML the SEC adopted in
+December 2024, a cut of the SEC fails-to-deliver file, a day's EDGAR form
+index, and Michael Burry's Substack feed. Nothing here touches the network.
+"""
+
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+import hf_sources as S
+
+FX = Path(__file__).resolve().parent / "fixtures" / "hf"
+
+
+def _b(name: str) -> bytes:
+    return (FX / name).read_bytes()
+
+
+class Evidence(unittest.TestCase):
+    def test_anonymous_classes_cannot_name_a_fund(self):
+        for cls in (S.PRIME_BROKER, S.REGULATORY, S.FLOW_PROXY, S.INFERENCE):
+            with self.assertRaises(ValueError, msg=cls):
+                S.evidence(cls, None, "2026-09-01", "2026-09-04", "x", fund="Citadel")
+
+    def test_verified_rows_carry_a_fund_and_a_subtype(self):
+        row = S.evidence(S.VERIFIED, "FILING", "2026-06-30", "2026-08-14", "EDGAR", fund="Pershing Square")
+        self.assertEqual(row["fund"], "Pershing Square")
+        with self.assertRaises(ValueError):
+            S.evidence(S.VERIFIED, None, "2026-06-30", "2026-08-14", "EDGAR", fund="Pershing Square")
+        with self.assertRaises(ValueError):
+            S.evidence(S.VERIFIED, "RUMOUR", "2026-06-30", "2026-08-14", "EDGAR", fund="Pershing Square")
+
+    def test_unknown_class_is_refused(self):
+        with self.assertRaises(ValueError):
+            S.evidence("HEARSAY", None, None, None, "x")
+
+    def test_attribution_ok_is_the_store_s_gate(self):
+        good = [S.evidence(S.VERIFIED, "FILING", None, None, "e", fund="A"),
+                S.evidence(S.REGULATORY, None, None, None, "cftc")]
+        self.assertTrue(S.attribution_ok(good))
+        smuggled = [{"class": S.REGULATORY, "fund": "Citadel"}]
+        self.assertFalse(S.attribution_ok(smuggled))
+
+
+class ThirteenF(unittest.TestCase):
+    def test_the_q2_table_reads_every_row(self):
+        rows = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        self.assertEqual(len(rows), 15)
+        amzn = next(r for r in rows if r["issuer"] == "AMAZON COM INC")
+        self.assertEqual(amzn["cusip"], "023135106")
+        self.assertEqual(amzn["shares"], 8563857.0)
+        self.assertEqual(amzn["value"], 2041109677.0, "values are dollars, not thousands")
+        self.assertIsNone(amzn["put_call"])
+        self.assertEqual(amzn["share_type"], "SH")
+
+    def test_the_cover_page(self):
+        p = S.parse_13f_primary(_b("ps_13f_2026-06-30_primary.xml"))
+        self.assertEqual(p["period_end"], "2026-06-30")
+        self.assertEqual(p["report_type"], "13F HOLDINGS REPORT")
+        self.assertFalse(p["is_amendment"])
+        self.assertEqual(p["entries"], 15.0)
+        self.assertEqual(p["value_total"], 19465692772.0)
+        self.assertEqual(p["filer_cik"], 2026053)
+        self.assertEqual(p["signed_on"], "2026-08-14")
+
+    def test_the_notice_names_the_successor(self):
+        p = S.parse_13f_primary(_b("ps_13f_nt_2026-06-30_primary.xml"))
+        self.assertEqual(p["report_type"], "13F NOTICE")
+        self.assertEqual(p["filer_cik"], 1336528)
+        succ = S.successor_from_notice(p)
+        self.assertEqual(succ["cik"], 2026053)
+        self.assertIn("PERSHING SQUARE INC", succ["name"])
+
+    def test_a_holdings_report_has_no_successor(self):
+        p = S.parse_13f_primary(_b("ps_13f_2026-06-30_primary.xml"))
+        self.assertIsNone(S.successor_from_notice(p))
+
+    def test_a_split_line_is_one_position(self):
+        """Pershing lists Howard Hughes twice in Q2 (two sub-manager lines).
+        Summed, it is one position; unsummed, the diff would call the second
+        line a new position."""
+        rows = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        hhh = [r for r in rows if "HOWARD HUGHES" in r["issuer"]]
+        self.assertEqual(len(hhh), 2)
+        agg = S._aggregate(rows)  # noqa: SLF001
+        self.assertEqual(len(agg), 14)
+        k = next(k for k in agg if agg[k]["issuer"].startswith("HOWARD HUGHES"))
+        self.assertEqual(agg[k]["shares"], sum(r["shares"] for r in hhh))
+
+    def test_the_quarter_diff(self):
+        q1 = S.parse_13f_table(_b("ps_13f_2026-03-31.xml"))
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        d = S.diff_positions(q1, q2)
+        self.assertEqual(d["n_prev"], 1)
+        self.assertEqual(d["n_now"], 14)
+        self.assertEqual(len(d["new"]), 13)
+        self.assertEqual(len(d["exited"]), 0)
+        hhh = [r for r in d["increased"] + d["reduced"] if "HOWARD HUGHES" in r["issuer"]]
+        self.assertEqual(len(hhh) + d["unchanged"], 1, "Howard Hughes appears exactly once")
+        self.assertTrue(all(r["shares_prev"] is None for r in d["new"]))
+        self.assertGreater(d["value_total_now"], d["value_total_prev"])
+
+    def test_the_diff_ranks_by_size(self):
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        d = S.diff_positions(None, q2)
+        vals = [r["value_now"] for r in d["new"]]
+        self.assertEqual(vals, sorted(vals, reverse=True))
+
+    def test_exits_are_listed(self):
+        q1 = S.parse_13f_table(_b("ps_13f_2026-03-31.xml"))
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        d = S.diff_positions(q2, q1)
+        self.assertEqual(len(d["exited"]), 13)
+        self.assertTrue(all(r["delta_pct"] == -100.0 for r in d["exited"]))
+
+    def test_concentration_and_options_share(self):
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        c = S.concentration(q2)
+        self.assertEqual(c["n"], 15)
+        self.assertGreater(c["top10_weight"], 85.0)
+        self.assertEqual(c["options_value_share"], 0.0)
+        opt = q2 + [{"issuer": "X", "cusip": "000000000", "value": c["value_total"], "shares": 1, "put_call": "Put"}]
+        self.assertEqual(S.concentration(opt)["options_value_share"], 50.0)
+
+    def test_top_positions_carry_weights_that_sum_sensibly(self):
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        top = S.top_positions(q2, 5)
+        self.assertEqual(len(top), 5)
+        self.assertEqual(top[0]["issuer"], "UBER TECHNOLOGIES INC")
+        self.assertLessEqual(sum(t["weight"] for t in top), 100.0)
+
+
+class Sectors(unittest.TestCase):
+    def test_sector_rollup_reports_unmapped_instead_of_hiding_it(self):
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        cus = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+        known = {"AMZN": "Consumer Discretionary", "MSFT": "Technology", "META": "Communication Services"}
+        out = S.sector_exposure(q2, cus, lambda s: known.get(s))
+        names = [s["sector"] for s in out["sectors"]]
+        self.assertEqual(set(names), set(known.values()))
+        self.assertEqual(out["unmapped"]["n"], 15 - 3)
+        total = sum(s["weight"] for s in out["sectors"]) + out["unmapped"]["weight"]
+        self.assertAlmostEqual(total, 100.0, places=6)
+
+    def test_a_sector_function_that_throws_counts_as_unmapped(self):
+        q2 = S.parse_13f_table(_b("ps_13f_2026-06-30.xml"))
+        cus = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+
+        def boom(_):
+            raise RuntimeError("no")
+        out = S.sector_exposure(q2, cus, boom)
+        self.assertEqual(out["sectors"], [])
+        self.assertEqual(out["unmapped"]["n"], 15)
+
+
+class CusipMap(unittest.TestCase):
+    def test_the_fails_file_pairs_cusip_with_symbol(self):
+        m = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+        self.assertGreater(len(m), 300)
+        self.assertEqual(m["023135106"], "AMZN")
+        self.assertEqual(m["594918104"], "MSFT")
+
+    def test_every_pershing_cusip_is_in_the_cut(self):
+        m = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+        for r in S.parse_13f_table(_b("ps_13f_2026-06-30.xml")):
+            self.assertIn(r["cusip"], m, r["issuer"])
+
+
+class ThirteenD(unittest.TestCase):
+    def test_the_structured_13d(self):
+        d = S.parse_13d(_b("schedule_13d_a_sample.xml"))
+        self.assertEqual(d["form"], "SCHEDULE 13D/A")
+        self.assertEqual(d["issuer_name"], "Tutor Perini Corporation")
+        self.assertEqual(d["percent_max"], 8.2)
+        self.assertEqual(d["event_date"], "2026-08-31")
+        self.assertEqual(len(d["reporting_persons"]), 4)
+        self.assertEqual(d["filer_cik"], 906134)
+        self.assertTrue(d["purpose"])
+
+    def test_garbage_is_none_not_a_crash(self):
+        self.assertIsNone(S.parse_13d(b"<html>not xml at all"))
+        self.assertEqual(S.parse_13f_table(b"<html>"), [])
+        self.assertEqual(S.parse_13f_primary(b"nope"), {})
+
+
+class DailyIndex(unittest.TestCase):
+    SAMPLE = (
+        "Description:           Daily Index of EDGAR Dissemination Feed by Form Type\n"
+        "Last Data Received:    September 04, 2026\n\n"
+        "Form Type   Company Name                                                  CIK         Date Filed  File Name\n"
+        "-----------------------------------------------------------------------------------------------------------\n"
+        "13F-HR      Nordflint Capital Partners Fondsmaeglerselskab A/S            1815421     20260904    edgar/data/1815421/0001815421-26-000003.txt\n"
+        "13F-HR/A    CITADEL ADVISORS LLC                                          1423053     20260904    edgar/data/1423053/0001104659-26-100000.txt\n"
+        "SCHEDULE 13D     AMG Pantheon Infrastructure Fund, LLC                         2046200     20260904    edgar/data/2046200/0001104659-26-105535.txt\n"
+        "SCHEDULE 13G/A   Some Holder  With Two  Spaces Inc                           1234567     20260904    edgar/data/1234567/0001234567-26-000001.txt\n"
+        "8-K         SOMEBODY ELSE                                                 7777777     20260904    edgar/data/7777777/0007777777-26-000001.txt\n"
+    )
+
+    def test_watched_forms_only_and_fields(self):
+        rows = S.parse_daily_index(self.SAMPLE)
+        self.assertEqual([r["form"] for r in rows], ["13F-HR", "13F-HR/A", "SCHEDULE 13D", "SCHEDULE 13G/A"])
+        cit = rows[1]
+        self.assertEqual(cit["cik"], 1423053)
+        self.assertEqual(cit["filed"], "2026-09-04")
+        self.assertEqual(cit["accession"], "0001104659-26-100000")
+
+    def test_a_company_name_with_double_spaces_survives(self):
+        rows = S.parse_daily_index(self.SAMPLE)
+        self.assertEqual(rows[3]["cik"], 1234567)
+        self.assertIn("Two  Spaces", rows[3]["company"])
+
+    def test_all_forms_when_asked(self):
+        rows = S.parse_daily_index(self.SAMPLE, forms=())
+        self.assertEqual(len(rows), 5)
+
+
+class Feeds(unittest.TestCase):
+    def test_the_substack_feed(self):
+        items = S.parse_rss(_b("burry_substack.xml"))
+        self.assertGreaterEqual(len(items), 15)
+        self.assertTrue(all(i["title"] for i in items))
+        self.assertTrue(all(i["link"] for i in items))
+        self.assertTrue(items[0]["published"].startswith("2026-"))
+        self.assertLessEqual(len(items[0]["summary"]), 400)
+
+    def test_pubdate_formats(self):
+        self.assertEqual(S._rss_date("Thu, 05 Feb 2026 08:00:00 GMT"), "2026-02-05T08:00:00+00:00")  # noqa: SLF001
+        self.assertIsNone(S._rss_date("yesterday"))  # noqa: SLF001
+
+
+class Transport(unittest.TestCase):
+    def test_offline_never_fetches(self):
+        import os
+        calls = []
+        S.configure(fetch_fn=lambda url: calls.append(url) or b"{}")
+        os.environ["JERRY_NO_NET"] = "1"
+        try:
+            self.assertIsNone(S.submissions(1423053))
+            self.assertEqual(S.daily_index(__import__("datetime").date(2026, 9, 4)), [])
+        finally:
+            os.environ.pop("JERRY_NO_NET", None)
+            S.configure(fetch_fn=None)
+        self.assertEqual(calls, [])
+
+    def test_an_injected_fetch_is_used_and_cached_in_memory(self):
+        import os
+        os.environ.pop("JERRY_NO_NET", None)
+        calls = []
+
+        def fetch(url):
+            calls.append(url)
+            return b'{"name": "X", "filings": {"recent": {"form": [], "filingDate": [], "reportDate": [], "accessionNumber": [], "primaryDocument": [], "acceptanceDateTime": []}}}'
+        S._MEM.clear()  # noqa: SLF001
+        S.configure(fetch_fn=fetch)
+        try:
+            self.assertEqual(S.submissions(42)["name"], "X")
+            self.assertEqual(S.submissions(42)["name"], "X")
+        finally:
+            S.configure(fetch_fn=None)
+            S._MEM.clear()  # noqa: SLF001
+        self.assertEqual(len(calls), 1, "the second read is served from memory")
+
+
+if __name__ == "__main__":
+    unittest.main()

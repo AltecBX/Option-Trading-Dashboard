@@ -164,6 +164,9 @@ const TABS = [{
   id: "invest",
   label: "Investment"
 }, {
+  id: "hedge",
+  label: "Hedge Funds"
+}, {
   id: "edge",
   label: "Premium Edge"
 }, {

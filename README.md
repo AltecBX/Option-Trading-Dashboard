@@ -69,9 +69,13 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `spike_evidence.py` | Sold into strength: what a stock does after it has already run, in its own sigma — pure |
 | `spike_scan.py` | Sold into strength: today's runs, same-day chains, ranked by credit minus measured settlement |
 | `market_calendar.py` | Which days the market actually trades — holidays, 1:00 PM half days, observed dates — computed, not listed; pure |
+| `hf_registry.py` | Named Fund Watch: who is watched, under which EDGAR identities, READABLE or OPAQUE — pure |
+| `hf_sources.py` | Named Fund Watch: EDGAR 13F tables, cover pages, 13F-NT successors, structured 13D XML, daily index, CUSIP→symbol, feeds — evidence rows with two dates |
+| `hf_watch.py` | Named Fund Watch: per-manager record, quarter diff, UNKNOWN rule, lazy refresh, watchlist overlay |
 | `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
+| `tab-hedge.jsx` | Hedge Funds tab: the Named Fund Watch cards, UNKNOWN between filings, watchlist editor (lazy chunk) |
 | `SPIKE_FADE.md` | What was measured about spikes, why sigma is the ruler, and what the feature refuses |
-| `HEDGE_FUND_INTEL.md` | Hedge fund intelligence: source audit (verified September 6, 2026), what updates daily/weekly/quarterly, evidence classes, and the design — no code yet |
+| `HEDGE_FUND_INTEL.md` | Hedge fund intelligence: source audit (verified September 6, 2026), what updates daily/weekly/quarterly, evidence classes, and the three-phase design |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)

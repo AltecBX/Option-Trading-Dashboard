@@ -102,6 +102,13 @@ ENDPOINTS = {
     "spike": "/api/market/spike",
     # Total options volume by ticker, today.
     "ticker_options_volume": "/api/stock/{ticker}/options-volume",
+    # 13F institutions (Hedge Fund Intelligence). `name` accepts a CIK,
+    # which is what the dashboard passes — a partial name can match the
+    # wrong manager. Cross-check against EDGAR, not a replacement for it.
+    "institution_holdings": "/api/institution/{name}/holdings",
+    "institution_activity": "/api/institution/{name}/activity/v2",
+    "institution_sectors": "/api/institution/{name}/sectors",
+    "institutions_latest_filings": "/api/institutions/latest_filings",
 }
 
 
@@ -118,6 +125,11 @@ TTL_BY_KEY = {
     "sector_flow": 60,
     "spike": 15,
     "ticker_options_volume": 30,
+    # A 13F cannot change between filings; six hours is already generous.
+    "institution_holdings": 6 * 3600,
+    "institution_activity": 6 * 3600,
+    "institution_sectors": 6 * 3600,
+    "institutions_latest_filings": 3600,
     "_default": 15,
 }
 
@@ -225,6 +237,26 @@ class UWClient:
 
     def ticker_options_volume(self, ticker: str) -> Optional[dict]:
         return self._get("ticker_options_volume", {"ticker": ticker.upper()})
+
+    # ── 13F institutions (Hedge Fund Intelligence) ──
+    def institution_holdings(self, name_or_cik: str, date: str | None = None,
+                             limit: int = 500) -> Optional[dict]:
+        p = {"name": str(name_or_cik), "limit": str(limit)}
+        if date:
+            p["date"] = date
+        return self._get("institution_holdings", p)
+
+    def institution_activity(self, name_or_cik: str, limit: int = 200) -> Optional[dict]:
+        return self._get("institution_activity", {"name": str(name_or_cik), "limit": str(limit)})
+
+    def institution_sectors(self, name_or_cik: str, date: str | None = None) -> Optional[dict]:
+        p = {"name": str(name_or_cik)}
+        if date:
+            p["date"] = date
+        return self._get("institution_sectors", p)
+
+    def institutions_latest_filings(self, limit: int = 50) -> Optional[dict]:
+        return self._get("institutions_latest_filings", {"limit": str(limit)})
 
     def rate_snapshot(self) -> dict[str, Any]:
         """Read-only copy of the latest rate-limit info."""

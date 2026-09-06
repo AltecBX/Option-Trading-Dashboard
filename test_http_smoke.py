@@ -237,6 +237,13 @@ for p in [
     f"/api/spike/detail?symbol={S}",
     "/api/spike/status",
     "/api/spike/config",
+    # Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). Offline every route
+    # still answers 200 — NOT READ YET is an answer, and the card renders it.
+    "/api/hf",
+    "/api/hf/fund?key=pershing",
+    "/api/hf/status",
+    "/api/hf/config",
+    "/api/hf/watchlist",
     "/api/gap",
     "/api/gap/config",
     "/api/gap/live",

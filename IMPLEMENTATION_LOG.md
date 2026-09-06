@@ -2727,3 +2727,59 @@ explaining why it matters more here than anywhere else on the dashboard.
 
 35 new guards (27 calendar, 7 spike clock, 8 card), checked against the
 NYSE's published 2024-2027 closures rather than against the code.
+
+## v4.85 — Hedge Funds, phase 1: Named Fund Watch
+
+The first of three phases from HEDGE_FUND_INTEL.md. This one answers, for
+each of thirty-two watched managers: what does the SEC record prove, the
+date it was true, the date the public could see it, and what has been
+filed or said since. Between filings the answer is UNKNOWN, rendered in
+that word with the number of days, and no industry-wide trend ever softens
+it — the trend block exists under its own heading, in its own evidence
+class, and the code that builds a fund's block never sees it.
+
+Three things the build turned up that the design had not fully anticipated:
+
+- **A manager is not a CIK, and the filings say so themselves.** Pershing
+  Square's old entity filed a 13F-NT for June 30, 2026, and the notice's
+  own "other managers" block names Pershing Square Inc. as the filer that
+  reports the book. The watch reads that block and follows it. The trap on
+  the other side: a HOLDINGS report also lists "other managers" — the
+  entities whose positions it includes — and the new Pershing filer lists
+  the old one there. Read naively, the successor points back at its
+  predecessor. Only a NOTICE can name a successor; a test pins it.
+- **A 13G is not activity.** The first pass counted every SCHEDULE 13G
+  filed after quarter end as "FILED SINCE," which made every card say it.
+  A 13G is a passive holder's quarterly notice describing a quarter end,
+  usually the one the 13F already covers; its filing date is not a date
+  anything happened. A 13D is filed within five business days of a
+  transaction, so its date is an event date. Only the second kind moves
+  the state, and multi-strategy managers who file hundreds of 13Gs a
+  quarter now read UNKNOWN like everyone else.
+- **A 13F names securities by CUSIP, not ticker.** The one free, official
+  list that pairs the two is the SEC's fails-to-deliver file — 13,255 pairs
+  in the August 2026 half, every one of Pershing's fifteen among them. It
+  is refreshed twice a month and is what turns a line into a clickable
+  symbol. Split lines (the same security listed twice across sub-managers,
+  which Pershing does for Howard Hughes) are summed before the diff, so a
+  split never reads as a new position.
+
+The turnover class does the honest work. A READABLE book (Pershing,
+Elliott, Appaloosa, Duquesne) gets the quarter-on-quarter diff by shares —
+value moves with price when nothing was traded. An OPAQUE book (Citadel,
+Millennium, Two Sigma, Renaissance, D. E. Shaw, Point72, Balyasny) gets
+counts only and a stated refusal: its 13F is thousands of hedged,
+fast-turnover lines whose top entries are index options, and listing them
+as decisions would be fiction. Scion is CEASED — the last filing is on the
+card for the record, and Michael Burry's Substack is read as statements,
+which are claims and are rendered as "wrote:", never as positions.
+
+Every fact stored carries one of the five evidence classes and two dates.
+`hf_sources.evidence()` raises rather than build an anonymous row that
+names a fund, and the store refuses to write a record containing one.
+
+Verified live before shipping: Pershing followed to CIK 2026053 with 15
+positions (13 new versus March 31, top ten 90.3% of value), Elliott's
+Triple Flag 13D/A at 64.7% of class, Scion CEASED with the September 3 and
+4 Substack posts. 45 Python guards on captured filings, 30 more on the
+offline pipeline, 50 source guards on the card and routes.

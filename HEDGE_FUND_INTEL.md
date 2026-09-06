@@ -390,7 +390,7 @@ thresholds under `hedge` in `thresholds.json`.
 
 | Phase | Delivers | Depends on |
 |---|---|---|
-| **1 — Named Fund Watch** | Registry with successors and turnover class; EDGAR 13F ingestion and quarter diff; 13D/13G/13F-NT capture from the daily index; UW cross-check; statements capture; the fund card with both dates and "UNKNOWN"; tests against captured filings | Nothing new — every source verified |
+| **1 — Named Fund Watch** — *shipped in v4.85* (`hf_registry.py`, `hf_sources.py`, `hf_watch.py`, `tab-hedge.jsx`) | Registry with successors and turnover class; EDGAR 13F ingestion and quarter diff; 13D/13G/13F-NT capture from the daily index; UW cross-check; statements capture; the fund card with both dates and "UNKNOWN"; tests against captured filings | Nothing new — every source verified |
 | **2 — Pulse** | CFTC equity + sector futures with percentiles; FINRA short interest and short volume with sector roll-up; UW sector tide, ETF flows, borrow; the pure `hf_pulse.py` with streaks, persistence, crowding; the Pulse panel | Phase 1 sector map |
 | **3 — Combined + Weekly Report** | The combined rule on every fund card; press capture (PRIME BROKER quotes); the report builder, store, history and compare; conflicts and confidence | Phases 1–2 |
 | **4 — optional** | X statements if the token is set; Form SHO when published; SSGA fallback (adds `openpyxl`); outcome grading | — |
