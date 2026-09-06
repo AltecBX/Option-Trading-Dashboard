@@ -2664,3 +2664,66 @@ shuts or nobody is watching. One bounded chain call per name that actually
 ran. 127 guards across the two Python modules and the card, and the render
 was checked in a real browser at desktop and phone width with no console
 errors.
+
+## v4.84 — the app did not know what a holiday was
+
+Found while checking a calendar, not while reading code: the next session
+was going to be Labor Day, and nothing in the app knew that. Every
+"is the market open?" test in the repo was the same three lines —
+
+```python
+if now.weekday() >= 5:
+    return False
+return _dtime(9, 30) <= now.time() < _dtime(16, 0)
+```
+
+— written three separate times, in `intraday.py`, in `juice.py`, and in
+`intraday_option_store.py`. It is right about 240 days a year and wrong
+about the other ten. On a holiday the scanners would wake, sweep, and call
+the broker all day for a market that was not trading, and every board would
+look live while showing nothing real.
+
+The quieter half of the bug is the one that costs money. Nine days a year
+the bell is at 1:00 PM, not 4:00. `spike_scan.elapsed_fraction()` measured
+the day against a hardcoded 16:00, so at 12:30 on the Friday after
+Thanksgiving it reported 46% of the session gone when the true figure is
+86%. Sold Into Strength is priced almost entirely on how much of the day is
+left: that error tells Jerry there is three times more risk ahead than there
+is, and buries the best sales of the year under a settlement estimate that
+assumes three hours that do not exist. `juice._dte_days` divided by 6.5
+hours for the same reason.
+
+`market_calendar.py` is now the single answer. Rules are **computed, not
+listed** — nth-weekday, last-weekday, observed-date shifts, and the
+Gregorian Easter algorithm for Good Friday — so the calendar does not expire
+at the end of a hardcoded year, which is the failure mode a table would
+have. The only thing that cannot be derived is an unscheduled closure (a
+state funeral, Hurricane Sandy), so those stay an explicit dated set.
+
+Three edge cases the obvious implementation gets wrong, all guarded:
+
+- **New Year's Day on a Saturday takes no day at all.** Every other fixed
+  holiday shifts back to Friday; this one does not, and the NYSE simply
+  trades December 31.
+- **Memorial Day is the last Monday of May, and May has 31 days.** The first
+  cut of `_last_weekday` started its walk at the 28th and returned May 24,
+  2027 instead of May 31. The published-calendar test caught it — which is
+  the reason those tests compare against the NYSE's own list rather than
+  against the module's output.
+- **July 3 is a half day only when July 4 is itself a weekday.** In 2026 the
+  Fourth falls on a Saturday, so July 3 is the full closure, not a 1:00 bell.
+
+Wired into all four callers, each keeping its own window: the option
+collector still starts five minutes early and runs five past, it just does
+it around the right bell. `session_profile()` now skips holidays and half
+days when it builds the shape of a normal session — a 3.5-hour day poured
+into a 6.5-hour mould would have claimed the afternoon was dead.
+
+The board says which day it is in words. A closed market names the holiday
+and gives the next session ("The market is closed — Labor Day. ... Next
+session is September 8, 2026"), so a holiday never reads as a broken
+scanner, and a short session is flagged on the status line with a tooltip
+explaining why it matters more here than anywhere else on the dashboard.
+
+35 new guards (27 calendar, 7 spike clock, 8 card), checked against the
+NYSE's published 2024-2027 closures rather than against the code.

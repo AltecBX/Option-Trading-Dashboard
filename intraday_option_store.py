@@ -40,6 +40,8 @@ import time
 from datetime import datetime, date, time as _dtime, timedelta
 from pathlib import Path
 
+import market_calendar as _cal
+
 _DATA_DIR: Path | None = None
 _CHAIN_FN = None                 # (symbol, expiry_iso) -> normalized chain | None
 _SCHWAB_GETTER = None            # () -> client | None (for rate accounting)
@@ -346,9 +348,12 @@ def _snap_symbol(symbol: str, expiry: str, tier: int, keys: set,
 # ── Collector loop ──────────────────────────────────────────────────────────
 
 def _market_open(now: datetime) -> bool:
-    if now.weekday() >= 5:
-        return False
-    return _dtime(9, 25) <= now.time() < _dtime(16, 5)
+    """The collector's own window: five minutes either side of the bell, so
+    it is already running at the open and catches the closing print. The
+    calendar decides WHICH days and where the bell falls — on a half day
+    that is 1:00 PM, so the loop stops at 1:05 instead of running three
+    dead hours."""
+    return _cal.is_open(now, open_time=_dtime(9, 25), close_pad_minutes=5)
 
 
 def _collector_loop() -> None:

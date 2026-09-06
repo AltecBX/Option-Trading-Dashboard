@@ -338,6 +338,75 @@ class Board(unittest.TestCase):
         self.assertIn("MODELED", sk.snapshot()["session_profile"])
 
 
+class TheCalendar(unittest.TestCase):
+    """The session clock has to follow the market's calendar, not a constant.
+
+    This board is priced almost entirely on how much of the day is left, so
+    a 4:00 PM assumption on a 1:00 PM day is not a cosmetic bug — it triples
+    the risk the card believes is still ahead."""
+
+    HALF = date(2026, 11, 27)        # the Friday after Thanksgiving, 1:00 PM bell
+    FULL = date(2026, 11, 30)        # the Monday after, a normal session
+    SHUT = date(2026, 9, 7)          # Labor Day
+
+    def _at(self, d, hour, minute=0):
+        sk.configure(now_fn=lambda: datetime(d.year, d.month, d.day, hour, minute).astimezone())
+
+    def test_a_half_day_is_mostly_gone_by_half_past_noon(self):
+        self._at(self.HALF, 12, 30)
+        self.assertAlmostEqual(sk.elapsed_fraction(), 3.0 / 3.5, places=3)
+
+    def test_the_same_clock_time_on_a_normal_day_is_not(self):
+        self._at(self.FULL, 12, 30)
+        self.assertAlmostEqual(sk.elapsed_fraction(), 3.0 / 6.5, places=3)
+
+    def test_the_half_day_bell_ends_the_session(self):
+        self._at(self.HALF, 13, 30)
+        self.assertEqual(sk.elapsed_fraction(), 1.0)
+        self._at(self.FULL, 13, 30)
+        self.assertLess(sk.elapsed_fraction(), 1.0)
+
+    def test_a_closed_day_says_which_holiday_and_when_it_reopens(self):
+        self._at(self.SHUT, 11, 0)
+        reason = sk._closed_reason()                              # noqa: SLF001
+        self.assertIn("Labor Day", reason)
+        self.assertIn("September 8, 2026", reason)
+
+    def test_the_calendar_note_never_shows_an_iso_date(self):
+        self._at(self.SHUT, 11, 0)
+        note = sk._calendar_note()                                # noqa: SLF001
+        self.assertEqual(note["date"], "September 7, 2026")
+        self.assertFalse(note["is_session"])
+        self.assertEqual(note["next_session"], "September 8, 2026")
+
+    def test_a_half_day_is_flagged_with_its_real_bell(self):
+        self._at(self.HALF, 11, 0)
+        note = sk._calendar_note()                                # noqa: SLF001
+        self.assertTrue(note["is_session"])
+        self.assertTrue(note["early_close"])
+        self.assertEqual(note["closes_at"], "1:00 PM Eastern")
+
+    def test_the_variance_profile_refuses_holidays_and_half_days(self):
+        """Building the shape of a normal session out of a 3.5-hour day would
+        claim the afternoon is dead; asking the broker for bars on a holiday
+        just wastes a call."""
+        asked = []
+
+        def minute_day(sym, d):
+            asked.append(d)
+            return None
+
+        sk.configure(now_fn=lambda: datetime(2026, 12, 1, 11, 0).astimezone(),
+                     minute_day_fn=minute_day, market_open_fn=lambda: True)
+        with sk._LOCK:
+            sk._STATE["profile"] = None
+            sk._STATE["profile_day"] = None
+        sk.session_profile(refresh=True)
+        self.assertNotIn("2026-11-26", asked, "Thanksgiving is not a session")
+        self.assertNotIn("2026-11-27", asked, "the day after is a half day")
+        self.assertIn("2026-11-30", asked, "the Monday after is a full session")
+
+
 class Config(unittest.TestCase):
     def test_every_floor_is_published_in_thresholds(self):
         import json
