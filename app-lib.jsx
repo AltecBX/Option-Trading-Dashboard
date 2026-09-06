@@ -110,6 +110,7 @@ const TABS = [
   { id: "flow", label: "Flow" },
   { id: "scanners", label: "Scanners" },
   { id: "invest", label: "Investment" },
+  { id: "hedge", label: "Hedge Funds" },
   { id: "edge", label: "Premium Edge" },
   { id: "gap", label: "Gap Scan" },
   { id: "recovery", label: "Recovery" },

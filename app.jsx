@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.84";
+const APP_VERSION = "4.85";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3510,6 +3510,16 @@ function App() {
             <LazyTab chunk="tab-invest" component="InvestTab" label="Investment"
                      apiFetch={apiFetch}
                      ticker={ticker}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        {/* Hedge Funds (v4.85) — Named Fund Watch. What is verified about
+            each watched manager and WHEN; UNKNOWN between filings, in that
+            word. HEDGE_FUND_INTEL.md. */}
+        <TabPanel tab="hedge" active={activeTab}>
+          <CardErrorBoundary label="Hedge Funds">
+            <LazyTab chunk="tab-hedge" component="HedgeTab" label="Hedge Funds"
+                     apiFetch={apiFetch}
                      onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
           </CardErrorBoundary>
         </TabPanel>

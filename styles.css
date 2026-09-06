@@ -13252,6 +13252,74 @@ a.tabsheet-btn.site { text-decoration: none; }
 /* A holiday or a 1:00 PM bell changes what this board is worth more than
    anything else on it, so it is called out rather than left to be inferred. */
 .sl-cal { color: var(--warn, var(--fg-2)); font-weight: 600; }
+
+/* ── Hedge Funds · Named Fund Watch (v4.85, HEDGE_FUND_INTEL.md) ──────────
+   The one visual rule: UNKNOWN is a real state with its own look, not an
+   empty cell, and the "broader trend" block is visibly separate from any
+   fund's card. */
+.hf-root .hf-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hf-filter { min-width: 220px; padding: 6px 8px; background: var(--bg-2); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+.hf-muted { color: var(--fg-3); font-size: 12.5px; }
+.hf-conflict { color: var(--down); font-weight: 600; font-size: 12.5px; }
+.hf-tag { display: inline-block; font-size: 10.5px; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg-2); background: var(--bg-2); vertical-align: middle; margin-left: 6px; white-space: nowrap; }
+.hf-tag-verified { border-color: color-mix(in srgb, var(--up) 55%, var(--line)); color: var(--up); }
+.hf-tag-inference { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
+.hf-tag-prime-broker, .hf-tag-regulatory, .hf-tag-flow-proxy { color: var(--fg-2); }
+.hf-broader { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; background: color-mix(in srgb, var(--bg-2) 60%, transparent); }
+.hf-broader h4 { margin: 0 0 4px; font-size: 13px; }
+.hf-newfilings { margin: 10px 0 14px; }
+.hf-newfilings h4 { margin: 0 0 6px; font-size: 13px; }
+.hf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.hf-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg-2); display: flex; flex-direction: column; gap: 8px; }
+.hf-card-open { grid-column: 1 / -1; }
+.hf-card-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; cursor: pointer; }
+.hf-card-title h3 { margin: 0 0 4px; font-size: 15px; }
+.hf-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.hf-badge { font-size: 10.5px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg-2); }
+.hf-badge-readable { color: var(--up); border-color: color-mix(in srgb, var(--up) 50%, var(--line)); }
+.hf-badge-opaque { color: var(--warn, var(--fg-2)); border-color: color-mix(in srgb, var(--warn, var(--fg-2)) 50%, var(--line)); }
+.hf-badge-status-ceased { color: var(--down); border-color: color-mix(in srgb, var(--down) 50%, var(--line)); }
+.hf-badge-status-successor { color: var(--accent); }
+.hf-activity { display: flex; flex-direction: column; align-items: flex-end; text-align: right; min-width: 130px; }
+.hf-activity-label { font-size: 10.5px; color: var(--fg-3); letter-spacing: .04em; text-transform: uppercase; }
+.hf-activity-state { font-weight: 700; font-size: 15px; letter-spacing: .02em; }
+.hf-activity-sub { font-size: 11px; color: var(--fg-3); }
+.hf-activity-unknown .hf-activity-state { color: var(--fg-2); }
+.hf-activity-filed-since .hf-activity-state { color: var(--up); }
+.hf-activity-ceased .hf-activity-state { color: var(--down); }
+.hf-activity-not-read-yet .hf-activity-state { color: var(--fg-3); }
+.hf-dates { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-size: 12.5px; }
+.hf-dates dt { color: var(--fg-3); }
+.hf-dates dd { margin: 0; font-weight: 600; }
+.hf-facts { margin: 0; font-size: 12.5px; color: var(--fg-2); }
+.hf-refusal { margin: 0; font-size: 12.5px; color: var(--warn, var(--fg-2)); border-left: 3px solid var(--warn, var(--line)); padding-left: 8px; }
+.hf-refusal-small { font-size: 12px; }
+.hf-note-line { margin: 0; }
+.hf-card-actions { display: flex; gap: 8px; }
+.hf-detail { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+.hf-detail h4 { margin: 0 0 4px; font-size: 13.5px; }
+.hf-detail h5 { margin: 8px 0 4px; font-size: 12.5px; color: var(--fg-2); }
+.hf-describe { margin: 0; font-size: 13px; }
+.hf-table th, .hf-table td { white-space: nowrap; font-size: 12.5px; padding: 5px 8px; }
+.hf-table-wrap { max-height: 46vh; }
+.hf-sym { background: none; border: 0; color: var(--accent); font-weight: 700; cursor: pointer; padding: 0; font: inherit; }
+.hf-sym-none { color: var(--fg-3); font-weight: 400; }
+.hf-issuer { color: var(--fg-3); font-size: 11.5px; }
+.hf-sectors { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; }
+.hf-events, .hf-statements, .hf-press, .hf-notes { margin: 0; padding-left: 16px; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+.hf-quote { color: var(--fg-2); font-size: 12px; border-left: 2px solid var(--line); padding-left: 8px; margin-top: 2px; }
+.hf-editor { margin-top: 14px; }
+.hf-editor-body { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.hf-editor-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.hf-editor-row input, .hf-editor-row select { padding: 6px 8px; background: var(--bg-2); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+.hf-editor-list { list-style: none; padding: 0; margin: 0; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow: auto; }
+.hf-link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0 4px; }
+@media (max-width: 640px) {
+  .hf-grid { grid-template-columns: 1fr; }
+  .hf-card-head { flex-direction: column; }
+  .hf-activity { align-items: flex-start; text-align: left; }
+  .hf-table-wrap { max-height: none; }
+}
 .sl-muted { color: var(--fg-3); font-size: 12.5px; margin: 6px 0; }
 .sl-notrade { font-size: 14px; }
 .sl-table-wrap { max-height: 70vh; }

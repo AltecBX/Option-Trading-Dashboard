@@ -5042,6 +5042,32 @@ except Exception as _exc:  # noqa: BLE001
     _spike = None  # type: ignore
     _spikeev = None  # type: ignore
 
+# ── Hedge Fund Intelligence: Named Fund Watch (HEDGE_FUND_INTEL.md) ─────────
+# EDGAR is the source of record; Unusual Whales is a cross-check. The sector
+# of a held name comes from the app's own board first (the user's sector map)
+# and from nothing else — an unmapped position is reported as unmapped.
+try:
+    import hf_sources as _hfsrc
+    import hf_watch as _hfwatch
+    _hfsrc.configure(data_dir=_STABLE_DIR,
+                     now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None)
+    _hfwatch.configure(
+        data_dir=_STABLE_DIR,
+        uw_getter=lambda: (_uw_client.get_client() if _UW_AVAILABLE else None),
+        sector_fn=lambda sym: _sell_sector_for(sym),
+        # Fold any source's sector label onto the app's eleven SPDR sector
+        # names, so a 13F roll-up and the Sectors tab speak the same words.
+        sector_norm=lambda name: ((_mstate.SECTOR_BY_ETF.get(_mstate.sector_etf(name)) or {}).get("name")
+                                  if "_mstate" in globals() and _mstate is not None else str(name)),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+    )
+    _HF_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[hf_watch] wiring failed: {_exc}", file=sys.stderr)
+    _HF_AVAILABLE = False
+    _hfwatch = None  # type: ignore
+    _hfsrc = None  # type: ignore
+
 # ── Natural-language backtesting lab (v3.43) ────────────────────────────────
 import backtest as _backtest
 
@@ -8359,6 +8385,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=400)
             return
+        if parsed.path == "/api/hf/watchlist":
+            # The user's overlay on the shipped watchlist. One bad entry
+            # rejects the whole save; the list is never half-updated.
+            if not _HF_AVAILABLE:
+                self._send_json({"ok": False, "error": "hedge fund intelligence unavailable"}, status=503)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 500_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                out = _hfwatch.set_watchlist(payload)
+                self._send_json(out, status=200 if out.get("ok") else 400)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
         if parsed.path == "/api/prefs":
             try:
                 length = int(self.headers.get("Content-Length", "0") or "0")
@@ -10401,6 +10443,44 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/spike", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/hf" or parsed.path.startswith("/api/hf/"):
+            # Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). Phase 1: the
+            # Named Fund Watch. Offline it still answers 200 with what is
+            # stored and NOT READ YET for the rest.
+            if not _HF_AVAILABLE:
+                self._send_json({"error": "hedge fund intelligence unavailable", "managers": []},
+                                status=503)
+                return
+            section = parsed.path[len("/api/hf"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "":
+                    self._send_json(_hfwatch.snapshot(), no_store=True)
+                elif section == "fund":
+                    key = (qs.get("key", [""])[0] or "").strip()
+                    if not key:
+                        self._send_json({"error": "key required"}, status=400)
+                        return
+                    out = _hfwatch.fund(key)
+                    self._send_json(out, status=404 if not out.get("ok") else 200, no_store=True)
+                elif section == "refresh":
+                    key = (qs.get("key", [""])[0] or "").strip()
+                    self._send_json(_hfwatch.refresh_now([key] if key else None), no_store=True)
+                elif section == "status":
+                    self._send_json(_hfwatch.status(), no_store=True)
+                elif section == "watchlist":
+                    self._send_json({"registry": _hfwatch.registry(),
+                                     "overlay": _hfwatch._load_overlay()}, no_store=True)  # noqa: SLF001
+                elif section == "config":
+                    self._send_json({"config": _hfwatch.config(), "version": _hfwatch.HF_WATCH_VERSION,
+                                     "sources": _hfsrc.HF_SOURCES_VERSION,
+                                     "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown hf section {section}"}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/hf", exc)
+                self._send_json({"error": str(exc), "managers": []}, status=500)
             return
         if parsed.path == "/api/patterns":
             # Per-stock pattern discovery (v3.44) — cached 6h per symbol.

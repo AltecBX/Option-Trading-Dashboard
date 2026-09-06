@@ -1067,5 +1067,15 @@
       "profile_days": 15,
       "profile_symbol": "SPY"
     }
+  },
+  "hedge": {
+    "_doc": "Hedge Fund Intelligence (hf_watch.py, HEDGE_FUND_INTEL.md). Phase 1 \u2014 Named Fund Watch. The only knobs are cadences: how often a manager's EDGAR trail is re-read, and how far back statements, press and 13D events are listed.",
+    "watch": {
+      "refresh_hours": 6,
+      "statement_days": 45,
+      "press_days": 14,
+      "event_days": 180,
+      "new_filing_days": 7
+    }
   }
 }
