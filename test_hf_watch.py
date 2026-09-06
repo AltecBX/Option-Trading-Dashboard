@@ -236,6 +236,59 @@ class Statements(Base):
             self.assertNotIn("shares", s)
 
 
+class CrossCheck(Base):
+    """What is compared is which names are largest, not how many rows each
+    side used — EDGAR lists split lines, Unusual Whales dedupes tickers."""
+
+    def _with_uw(self, rows):
+        class UW:
+            def institution_holdings(self, name, date=None, limit=500):
+                return {"data": rows}
+        W.configure(data_dir=self.tmp.name, uw_getter=lambda: UW(), sector_fn=lambda s: None,
+                    now_fn=lambda: NOW, seed_path=self.seed)
+        cus = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+        entry = W.registry()["managers"][0]
+        return W._build(entry, cus)["crosscheck"]  # noqa: SLF001
+
+    def test_same_largest_names_agree_despite_different_row_counts(self):
+        q2 = S.parse_13f_table((FX / "ps_13f_2026-06-30.xml").read_bytes())
+        cus = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+        # UW's view: one row per ticker, half the value, an extra tiny name.
+        rows = [{"ticker": cus[p["cusip"]], "value": (p["value"] or 0) / 2, "sector": "Technology"} for p in q2]
+        rows.append({"ticker": "ZZZ", "value": 1.0, "sector": "Energy"})
+        cc = self._with_uw(rows)
+        self.assertTrue(cc["available"])
+        self.assertTrue(cc["agree"])
+        self.assertEqual(cc["n_edgar"], 14, "aggregated positions, not raw lines")
+        self.assertEqual(cc["n_edgar_lines"], 15)
+        self.assertGreaterEqual(cc["top_overlap"], 7)
+
+    def test_different_largest_names_is_a_conflict(self):
+        rows = [{"ticker": t, "value": 1e9 - i, "sector": "Energy"} for i, t in
+                enumerate(["XOM", "CVX", "COP", "OXY", "SLB", "HAL", "EOG", "PXD", "MPC", "VLO"])]
+        cc = self._with_uw(rows)
+        self.assertFalse(cc["agree"])
+        self.assertEqual(cc["top_overlap"], 0)
+
+    def test_too_few_names_to_compare_is_inconclusive_not_a_conflict(self):
+        cc = self._with_uw([{"ticker": "UBER", "value": 1.0, "sector": "Technology"}])
+        self.assertIsNone(cc["agree"])
+
+    def test_uw_sectors_feed_the_rollup(self):
+        q2 = S.parse_13f_table((FX / "ps_13f_2026-06-30.xml").read_bytes())
+        cus = S.parse_ftd((FX / "cnsfails_sample.txt").read_text(encoding="latin-1"))
+        rows = [{"ticker": cus[p["cusip"]], "value": p["value"], "sector": "Technology"} for p in q2]
+        class UW:
+            def institution_holdings(self, name, date=None, limit=500):
+                return {"data": rows}
+        W.configure(data_dir=self.tmp.name, uw_getter=lambda: UW(), sector_fn=lambda s: None,
+                    now_fn=lambda: NOW, seed_path=self.seed)
+        rec = W._build(W.registry()["managers"][0], cus)  # noqa: SLF001
+        self.assertEqual(rec["sectors"]["unmapped"]["n"], 0)
+        self.assertEqual(rec["sectors"]["sectors"][0]["sector"], "Technology")
+        self.assertNotIn("sector_by_symbol", rec["crosscheck"], "the working map is not stored")
+
+
 class Attribution(Base):
     def test_the_store_refuses_a_smuggled_attribution(self):
         rec = {"key": "x", "name": "X", "evidence": [{"class": S.REGULATORY, "fund": "X"}]}
@@ -249,6 +302,16 @@ class Attribution(Base):
         W._STATE["records"].clear()  # noqa: SLF001
         W.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, seed_path=self.seed)
         self.assertIn("pershing", W._STATE["records"])  # noqa: SLF001
+
+    def test_a_record_from_an_older_module_version_is_not_reloaded(self):
+        W.fund("pershing")
+        p = Path(self.tmp.name) / "hf" / "funds" / "pershing.json"
+        rec = json.loads(p.read_text())
+        rec["watch_version"] = "0.9.0"
+        p.write_text(json.dumps(rec))
+        W._STATE["records"].clear()  # noqa: SLF001
+        W.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, seed_path=self.seed)
+        self.assertNotIn("pershing", W._STATE["records"], "an old shape is re-read, never shown")  # noqa: SLF001
 
 
 class Snapshot(Base):

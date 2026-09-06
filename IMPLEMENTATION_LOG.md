@@ -2783,3 +2783,14 @@ positions (13 new versus March 31, top ten 90.3% of value), Elliott's
 Triple Flag 13D/A at 64.7% of class, Scion CEASED with the September 3 and
 4 Substack posts. 45 Python guards on captured filings, 30 more on the
 offline pipeline, 50 source guards on the card and routes.
+
+**Follow-up, same day.** The first production read of all thirty-two
+managers (32 of 32, no errors, 13,255 CUSIPs mapped, Citadel's
+restatement caught by the sweep) exposed one thing the offline tests could
+not: the Unusual Whales cross-check compared raw row counts, and every
+card read CONFLICT. EDGAR lists Berkshire as 89 lines across subsidiaries
+where Unusual Whales dedupes to 30 tickers — a counting difference, not a
+disagreement. The check now compares WHICH names are largest: seven of
+the ten biggest positions by value in common is agreement, fewer is a
+conflict, and too few mapped names to compare is inconclusive rather than
+a conflict. Four more guards.
