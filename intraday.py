@@ -31,6 +31,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time as _dtime, timedelta
 from pathlib import Path
 
+import market_calendar as _cal
+
 try:
     from zoneinfo import ZoneInfo
     _ET = ZoneInfo("America/New_York")
@@ -82,11 +84,13 @@ def _now_et() -> datetime:
 
 
 def market_open(now: datetime | None = None) -> bool:
-    n = now or _now_et()
-    if n.weekday() >= 5:
-        return False
-    t = n.time()
-    return _dtime(9, 30) <= t < _dtime(16, 0)
+    """Is the market trading right now?
+
+    Delegates to market_calendar, so holidays are closed and half days end
+    at 1:00 PM. This used to check only the weekday and the clock, which
+    meant every holiday looked like a live session and the scanners spent
+    the day calling the broker for a market that was shut."""
+    return _cal.is_open(now or _now_et())
 
 
 def _session_open_ts_ms(now: datetime | None = None) -> int:

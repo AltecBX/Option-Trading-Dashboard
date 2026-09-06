@@ -30,6 +30,7 @@ try:
 except Exception:  # pragma: no cover
     _ET = None
 
+import market_calendar as _cal
 from metrics import one_sigma_move
 
 _SCHWAB_GETTER = None
@@ -60,21 +61,22 @@ def _now_et() -> datetime:
 
 
 def _market_open(now=None) -> bool:
-    n = now or _now_et()
-    return n.weekday() < 5 and _dtime(9, 30) <= n.time() < _dtime(16, 0)
+    return _cal.is_open(now or _now_et())
 
 
 def _dte_days(expiry: date, now: datetime | None = None) -> tuple[int, float]:
     """(calendar DTE, fractional trading days remaining). For 0 DTE the
-    fraction is hours-to-close / 6.5 so 'premium per day left' stays honest
-    at 2pm on expiration Friday."""
+    fraction is hours-to-close over the length of THIS session, so 'premium
+    per day left' stays honest at 2pm on expiration Friday — and on a half
+    day, where the bell is 1:00 PM and the session is 3.5 hours, not 6.5."""
     n = now or _now_et()
     dte = (expiry - n.date()).days
     if dte > 0:
         return dte, float(dte)
-    close = datetime.combine(n.date(), _dtime(16, 0), tzinfo=n.tzinfo)
+    close = datetime.combine(n.date(), _cal.close_time(n.date()), tzinfo=n.tzinfo)
     hours = max((close - n).total_seconds() / 3600.0, 0.3)
-    return 0, max(hours / 6.5, 0.05)
+    full = (_cal.session_seconds(n.date()) or 23400.0) / 3600.0
+    return 0, max(hours / full, 0.05)
 
 
 def _mid(row) -> float:

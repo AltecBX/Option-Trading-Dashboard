@@ -39,6 +39,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 
+import market_calendar as _cal
 import spike_evidence as sev
 
 SPIKE_SCAN_VERSION = "spike-scan-1.0.0"
@@ -141,16 +142,52 @@ def _market_open() -> bool:
 
 # ── the session clock ───────────────────────────────────────────────────────
 def elapsed_fraction(now: datetime | None = None) -> float:
-    """How much of the regular session has already gone. Before the open it
-    is 0; after the bell, 1."""
+    """How much of THIS session has already gone. Before the open it is 0;
+    after the bell, 1.
+
+    The bell comes from the calendar, not from a constant. On a half day the
+    session is 3.5 hours, so 12:30 is 86% gone, not 46% — and since this
+    trade is priced almost entirely on how much of the day is left, a 4:00
+    assumption on a 1:00 day would tell Jerry there is three times more risk
+    ahead than there really is, and hide the best sales of the year."""
     n = now or _now()
+    close = _cal.close_time(n.date())
     o = n.replace(hour=SESSION_OPEN.hour, minute=SESSION_OPEN.minute, second=0, microsecond=0)
-    c = n.replace(hour=SESSION_CLOSE.hour, minute=SESSION_CLOSE.minute, second=0, microsecond=0)
+    c = n.replace(hour=close.hour, minute=close.minute, second=0, microsecond=0)
     if n <= o:
         return 0.0
     if n >= c:
         return 1.0
     return (n - o).total_seconds() / (c - o).total_seconds()
+
+
+def _long_date(d) -> str:
+    """Month Day, Year — never the ISO form on screen."""
+    return f"{d.strftime('%B')} {d.day}, {d.year}"
+
+
+def _calendar_note() -> dict:
+    """What today is, in the calendar's terms, for the card to show."""
+    d = _now().date()
+    return {
+        "date": _long_date(d),
+        "is_session": _cal.is_session(d),
+        "early_close": _cal.is_early_close(d),
+        "closes_at": "1:00 PM Eastern" if _cal.is_early_close(d) else "4:00 PM Eastern",
+        "note": _cal.describe(d),
+        "next_session": _long_date(_cal.next_session(d)),
+    }
+
+
+def _closed_reason() -> str:
+    """Why the board is empty when the market is shut — by name, so a
+    holiday never looks like a broken scanner."""
+    d = _now().date()
+    if not _cal.is_session(d):
+        return (f"{_cal.describe(d)} This board only means anything while a move "
+                f"is live. Next session is {_long_date(_cal.next_session(d))}.")
+    return ("The market is closed for the day — this board only means anything "
+            "while a move is live.")
 
 
 def session_profile(refresh: bool = False) -> list | None:
@@ -180,7 +217,11 @@ def session_profile(refresh: bool = False) -> list | None:
     while used < ndays and tries < ndays * 3:
         tries += 1
         d -= timedelta(days=1)
-        if d.weekday() > 4:
+        # Skip anything that is not a full session. A holiday would cost a
+        # wasted broker call for bars that do not exist; a half day would
+        # pour a 3.5-hour shape into a 6.5-hour mould and quietly claim the
+        # afternoon is dead.
+        if not _cal.is_session(d) or _cal.is_early_close(d):
             continue
         try:
             bars = _MINUTE_DAY_FN(sym, d.isoformat())
@@ -633,11 +674,12 @@ def snapshot(top_n: int | None = None) -> dict:
                                else "MODELED (clock)",
             "prior": {"n_sessions": sev.universe_prior().get("n_sessions"),
                       "n_names": sev.universe_prior().get("n_names")},
+            "calendar": _calendar_note(),
         }
     if not out["rows"]:
         out["no_trade"] = True
         out["no_trade_reason"] = (
-            "The market is closed — this board only means anything while a move is live."
+            _closed_reason()
             if not open_now else
             "Nothing has run far enough today to be worth selling into. Most sessions "
             "are like this; a board that always has something on it is not measuring "

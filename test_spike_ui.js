@@ -141,7 +141,21 @@ ok("every field the card reads is written by the scanner",
     "move_sigma", "sigma_annual", "session_basis", "spread_pct"]
      .every((k) => new RegExp(`"${k}":`).test(scan)));
 ok("dates are spelled out", /month: "long", day: "numeric", year: "numeric"/.test(src));
-ok("the version was bumped", /const APP_VERSION = "4\.82"/.test(appSrc));
+
+// ── 8. the market's own calendar (v4.84) ────────────────────────────────
+ok("the session clock follows the calendar, not a 4pm constant",
+   /_cal\.close_time\(n\.date\(\)\)/.test(scan));
+ok("the variance profile skips holidays and half days",
+   /_cal\.is_session\(d\) or _cal\.is_early_close\(d\)/.test(scan));
+ok("a closed board names the holiday and the next session",
+   /_closed_reason/.test(scan) && /next_session/.test(scan));
+ok("the card shows a holiday or a short session",
+   /data\.calendar/.test(src) && /Short session — closes/.test(src));
+ok("and that line has a tooltip", /SK_TIP\.calendar/.test(src)
+   && /calendar: "What today is on the market's own calendar/.test(src));
+ok("the calendar note spells its dates out too",
+   /strftime\('%B'\)/.test(scan) && !/"next_session": .*isoformat/.test(scan));
+ok("the version was bumped", /const APP_VERSION = "4\.84"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

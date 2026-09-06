@@ -76,6 +76,31 @@ the open and the close, not evenly), **MODELED** when it falls back to the
 clock. That fallback is the largest approximation in the feature and the card
 says so on screen.
 
+### 4a. Which clock
+
+"How much of the session is gone" is only meaningful if the bell is in the
+right place, so `elapsed_fraction()` takes the close from `market_calendar`
+rather than from a constant. About nine days a year the market shuts at 1:00
+PM — the Friday after Thanksgiving, Christmas Eve, the eve of July 4th when
+the Fourth is a weekday — and on those days the session is 3.5 hours, not
+6.5.
+
+The difference is not cosmetic. At 12:30 on a half day:
+
+| Bell assumed | Session gone | Risk still ahead |
+|---|---|---|
+| 4:00 PM (wrong) | 46% | 54% |
+| 1:00 PM (real) | 86% | 14% |
+
+Settlement scales with the risk still ahead, so the wrong bell inflates the
+expected payback nearly fourfold and hides exactly the sales that a short
+session makes attractive. About ten more days a year the market does not open
+at all; on those the board says which holiday it is and when the next session
+falls, so a closed market never reads as a broken scanner.
+
+The variance profile is built only from full sessions — pouring a 3.5-hour
+day into a 6.5-hour mould would claim the afternoon carries no risk.
+
 ## 5. The funnel
 
 | Stage | Cost | What it does |
@@ -137,8 +162,10 @@ Every refusal keeps its reason and is shown on the card.
 
 ## 9. Tests
 
-`test_spike_evidence.py` (36) · `test_spike_scan.py` (24) ·
-`test_spike_ui.js` (67 source guards) · HTTP smoke (+5 routes). Invariants:
+`test_spike_evidence.py` (36) · `test_spike_scan.py` (36) ·
+`test_market_calendar.py` (27) · `test_spike_ui.js` (73 source guards) ·
+HTTP smoke (+5 routes). The calendar guards compare against the NYSE's own
+published 2024-2027 closures, not against the module's output. Invariants:
 sigma is point-in-time, a further strike is never more likely nor more
 expensive, touch is never rarer than close, pooled names are graded pooled,
 the clock only ever reduces the settlement, and off the measured grid it

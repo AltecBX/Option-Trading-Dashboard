@@ -13249,6 +13249,9 @@ a.tabsheet-btn.site { text-decoration: none; }
 .sl-mode-on { background: color-mix(in srgb, var(--accent) 18%, var(--bg-2)); color: var(--fg); border-color: var(--accent); font-weight: 600; }
 .sl-status { color: var(--fg-3); font-size: 12.5px; margin: 0 0 8px; }
 .sl-live { color: var(--up); font-weight: 600; }
+/* A holiday or a 1:00 PM bell changes what this board is worth more than
+   anything else on it, so it is called out rather than left to be inferred. */
+.sl-cal { color: var(--warn, var(--fg-2)); font-weight: 600; }
 .sl-muted { color: var(--fg-3); font-size: 12.5px; margin: 6px 0; }
 .sl-notrade { font-size: 14px; }
 .sl-table-wrap { max-height: 70vh; }

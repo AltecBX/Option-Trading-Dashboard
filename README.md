@@ -68,6 +68,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `SHORT_PREMIUM.md` | The short-premium engine: gates, probabilities, validation results, the honest ledger |
 | `spike_evidence.py` | Sold into strength: what a stock does after it has already run, in its own sigma — pure |
 | `spike_scan.py` | Sold into strength: today's runs, same-day chains, ranked by credit minus measured settlement |
+| `market_calendar.py` | Which days the market actually trades — holidays, 1:00 PM half days, observed dates — computed, not listed; pure |
 | `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
 | `SPIKE_FADE.md` | What was measured about spikes, why sigma is the ruler, and what the feature refuses |
 | `assets/app-logo.png` | Brand logo |

@@ -33,6 +33,7 @@ const SK_TIP = {
   grade: "MEASURED when this ticker has 20 or more comparable runs of its own behind the number. MOSTLY POOLED or POOLED when it does not and the universe is answering. A pooled answer is not a worse answer, but it is a less specific one.",
   own: "How many runs of this size this particular stock has on file, and what share of the probability came from its own record rather than the universe. A name with three spikes on file is answered almost entirely by the pool, and says so.",
   session: "How much of the trading session has already gone. This is the single biggest factor in the trade: the same strike that loses money at 10am can be clearly profitable at 3pm, because the stock has that much less time to reach it.",
+  calendar: "What today is on the market's own calendar. The market is shut about ten weekdays a year and closes early at 1:00 PM on about three more — the day after Thanksgiving, Christmas Eve, and the eve of July 4th. A short session matters here more than anywhere else on the dashboard: with the bell at 1:00 instead of 4:00, there are three fewer hours for the stock to reach your strike, so the same call is worth selling that would not be on a normal day.",
   session_basis: "MEASURED means the share of the day's risk still ahead was computed from real minute bars — risk does not arrive evenly through a session, it clusters at the open and the close. MODELED means it fell back to the clock, which is the largest approximation on this card.",
   expiration: "The expiration being sold. This board only lists same-day expiries, which is the whole point — the position resolves at the bell.",
   spread: "The bid-ask spread as a percentage of the mid. Same-day options widen out fast; a wide market is expensive to exit if the trade goes wrong.",
@@ -287,6 +288,13 @@ function SpikeCard({ apiFetch, onPickTicker }) {
           </span>
           <span title={SK_TIP.session}> · {skPct0(data.elapsed, 0)} of the session gone</span>
           <span title={SK_TIP.session_basis}> · session left {data.session_profile}</span>
+          {data.calendar && (!data.calendar.is_session || data.calendar.early_close) ? (
+            <span className="sl-cal" title={SK_TIP.calendar}>
+              {" "}· {data.calendar.early_close
+                ? `Short session — closes ${data.calendar.closes_at}`
+                : `${data.calendar.note} Next session ${data.calendar.next_session}`}
+            </span>
+          ) : null}
           {data.scanning ? <span className="sl-live" title={SK_TIP.scanning}> · scanning</span> : null}
           <span title={SK_TIP.candidates}> · {data.scanned} of {data.universe} names have run</span>
           {data.prior ? (
