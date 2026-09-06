@@ -71,6 +71,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `market_calendar.py` | Which days the market actually trades — holidays, 1:00 PM half days, observed dates — computed, not listed; pure |
 | `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
 | `SPIKE_FADE.md` | What was measured about spikes, why sigma is the ruler, and what the feature refuses |
+| `HEDGE_FUND_INTEL.md` | Hedge fund intelligence: source audit (verified September 6, 2026), what updates daily/weekly/quarterly, evidence classes, and the design — no code yet |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)
