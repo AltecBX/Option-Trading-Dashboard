@@ -78,6 +78,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `hf_grade.py` | The outcome grader: what the market did over the 1, 2, 4 and 8 weeks after each reading, with base rates, Wilson intervals and episode counts — records what followed, never claims positioning predicts returns — pure |
 | `hf_replay.py` | Recomputes the four weekly answers for past weeks from the data as it stood then, calling the board's own verdict functions — a question is replayed only when every input that decides it today was public that week — pure |
 | `hf_names.py` | Which stocks the readable books agree on, from the watched managers' own filings — an opaque book is never counted as a view, a put is never counted as ownership, and it says "among their ten largest" rather than "most owned" — pure |
+| `hf_alert.py` | Decides which board changes deserve a notification — on a change never a state, never the same event twice, the first run primes and stays silent, and an anonymous alert can never name a fund — pure |
 | `hf_report.py` | The weekly report: the Pulse, the Named Fund Watch and the press assembled into one stored document, with conflicts printed and a compare-with-week-N diff — pure |
 | `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
 | `tab-hedge.jsx` | Hedge Funds tab: the Pulse (aggregate), the Named Fund Watch (per manager) and the Weekly Report, the first two kept apart on purpose (lazy chunk) |

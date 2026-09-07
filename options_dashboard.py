@@ -5047,6 +5047,7 @@ except Exception as _exc:  # noqa: BLE001
 # of a held name comes from the app's own board first (the user's sector map)
 # and from nothing else — an unmapped position is reported as unmapped.
 try:
+    import hf_alert as _hfalert
     import hf_grade as _hfgrade
     import hf_names as _hfnames
     import hf_press as _hfpress
@@ -5071,6 +5072,14 @@ try:
         # one-way in both directions.
         funds_fn=lambda: _hfwatch.snapshot(),
         positions_fn=lambda: _hfwatch.positions(),
+        # The board decides what deserves a push; this app already
+        # knows how to deliver one.
+        alert_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
+        # A lambda, not the function itself: this block runs at import
+        # and _push_configured is defined much further down the file.
+        # Naming it directly raised at import time, and the whole
+        # hedge feature fell back to 503 unavailable.
+        push_ready_fn=lambda: _push_configured(),
     )
     _hfwatch.configure(
         data_dir=_STABLE_DIR,
@@ -10548,6 +10557,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(_hfscan.replay_now(), no_store=True)
                 elif section == "names":
                     self._send_json(_hfscan.names(), no_store=True)
+                elif section == "alerts":
+                    self._send_json(_hfscan.alerts(), no_store=True)
                 elif section == "press":
                     with _hfscan._LOCK:  # noqa: SLF001
                         board = _hfscan._STATE["board"] or {}  # noqa: SLF001
@@ -10564,6 +10575,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "grade": _hfgrade.HF_GRADE_VERSION,
                                      "replay": _hfreplay.HF_REPLAY_VERSION,
                                      "names": _hfnames.HF_NAMES_VERSION,
+                                     "alerts": _hfalert.HF_ALERT_VERSION,
+                                     "push": _push_configured(),
                                      "x_statements": _hfsrc.x_available(),
                                      "sources": _hfsrc.HF_SOURCES_VERSION,
                                      "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)

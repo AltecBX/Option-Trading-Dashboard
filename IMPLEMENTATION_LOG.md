@@ -3203,3 +3203,36 @@ noticed because `replayed_readings` falls back to the file — the expensive
 path was covered and the cheap one was not, which is why the hole survived
 review and tests. `_load_replay()` now sits beside the three loaders it was
 modelled on, and removing it again fails two of the four new guards.
+
+## v4.90 — Hedge Funds, phase 6: it reaches out
+
+The board stops being only a page you visit. `hf_alert.py` decides what is
+worth a notification; the app's existing push (ntfy, already configured on
+the deployment) delivers it.
+
+The module is mostly rules about NOT sending, because a board that pushes
+too often is a board whose notifications get muted. It fires on a change and
+never on a state, comparing against the state at the last alert rather than
+last week's board. It never sends the same event twice, keying on the event
+rather than the moment it was noticed. The first run records what it finds
+and stays silent, so switching alerts on does not deliver a backlog — and
+everything seen is remembered whether or not it was sent, so a held alert
+never arrives later dressed as new. A quiet week sends nothing and the panel
+says that is correct. The batch is checked against the attribution rule and
+refused entirely if an anonymous row ever carried a fund name. Dates are
+spelled out with their lag: "Filed September 4, 2026 — 3 days ago", and one
+day reads as "yesterday".
+
+**Two bugs the render check caught, both mine, both about claiming something
+had happened when it had not.** The panel said push was set up when it was
+not, because the sender is a lambda that exists either way — and worse,
+alerts were recorded as delivered when nothing had gone anywhere, which
+would have consumed the events that should have fired once push was on.
+`push_ready()` now asks instead of inferring and a sender reports whether it
+actually delivered. And `push_ready_fn=_push_configured` named a function
+defined 1,600 lines further down the file in a block that runs at import, so
+the wiring raised, the try caught it, and every hedge route answered 503.
+One line in the server log said exactly that.
+
+hf_alert 37 · hf_scan 120 (23 more) · UI 182 · render check clean on desktop
+and phone, every header tooltipped, no ISO date, no console errors.

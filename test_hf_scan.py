@@ -19,6 +19,7 @@ from unittest import mock
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import hf_alert as AL
 import hf_grade as GR
 import hf_names as NM
 import hf_pulse as P
@@ -1110,3 +1111,239 @@ class TheStoredReplaySurvivesARestart(Base):
         p.write_text("{not json")
         SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
         self.assertIsNone(SC._STATE["replay"])  # noqa: SLF001
+
+
+class TheAlertLayer(Base):
+    def _wire(self, sender=None, **kw):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: kw.get("funds", self.alert_funds),
+                     alert_fn=sender)
+
+    def setUp(self):
+        super().setUp()
+        self.sent = []
+        self.alert_funds = {"managers": [], "new_filings": [
+            {"form": "SC 13D", "accession": "0001", "manager": "Elliott Management",
+             "key": "elliott", "company": "ACME Corp", "filed": "2026-09-04", "cik": 1}]}
+
+    def _sender(self, title, msg, priority=0):
+        self.sent.append((title, msg, priority))
+
+    def test_the_first_run_records_and_sends_nothing(self):
+        # Switching alerts on must not deliver every open state at once.
+        self._wire(self._sender)
+        out = SC.check_alerts()
+        self.assertEqual(out["n_send"], 0)
+        self.assertEqual(self.sent, [])
+        self.assertTrue(SC.load_alerts()["primed"])
+        self.assertTrue(SC.load_alerts()["sent"], "but it remembered what it saw")
+
+    def test_the_second_run_is_quiet_too_when_nothing_changed(self):
+        self._wire(self._sender)
+        SC.check_alerts()
+        SC.check_alerts()
+        self.assertEqual(self.sent, [], "priming must not merely delay the backlog")
+
+    def test_a_genuinely_new_event_is_sent_after_priming(self):
+        self._wire(self._sender)
+        SC.check_alerts()
+        self.alert_funds["new_filings"].append(
+            {"form": "SC 13D", "accession": "0002", "manager": "Starboard Value",
+             "key": "starboard", "company": "Beta Inc", "filed": "2026-09-05", "cik": 2})
+        out = SC.check_alerts()
+        self.assertEqual(out["n_send"], 1)
+        self.assertEqual(len(self.sent), 1)
+        title, msg, priority = self.sent[0]
+        self.assertEqual(title, "Activist filing")
+        self.assertIn("Starboard Value", msg)
+        self.assertIn("Beta Inc", msg)
+        self.assertEqual(priority, 1)
+
+    def test_and_never_a_second_time(self):
+        self._wire(self._sender)
+        SC.check_alerts()
+        self.alert_funds["new_filings"].append(
+            {"form": "SC 13D", "accession": "0002", "manager": "Starboard Value",
+             "key": "starboard", "company": "Beta Inc", "filed": "2026-09-05", "cik": 2})
+        SC.check_alerts()
+        SC.check_alerts()
+        SC.check_alerts()
+        self.assertEqual(len(self.sent), 1)
+
+    def test_with_no_sender_it_stays_silent_and_still_primes(self):
+        # So configuring push later delivers the next change, not the backlog.
+        self._wire(None)
+        SC.check_alerts()
+        self.assertTrue(SC.load_alerts()["primed"])
+        self._wire(self._sender)
+        SC.check_alerts()
+        self.assertEqual(self.sent, [], "the primed backlog is not replayed")
+
+    def test_a_preview_never_delivers(self):
+        self._wire(self._sender)
+        SC.check_alerts()
+        self.alert_funds["new_filings"].append(
+            {"form": "SC 13D", "accession": "0003", "manager": "Trian", "key": "trian",
+             "company": "Gamma Ltd", "filed": "2026-09-05", "cik": 3})
+        preview = SC.check_alerts(send=False)
+        self.assertEqual(preview["n_send"], 1)
+        self.assertEqual(self.sent, [], "a preview must not push")
+        # And having previewed must not consume the event.
+        out = SC.check_alerts()
+        self.assertEqual(out["n_send"], 1)
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_sender_that_throws_does_not_lose_the_rest(self):
+        calls = []
+
+        def flaky(title, msg, priority=0):
+            calls.append(title)
+            if len(calls) == 1:
+                raise RuntimeError("ntfy is down")
+        self._wire(flaky)
+        SC.check_alerts()
+        for i in (2, 3):
+            self.alert_funds["new_filings"].append(
+                {"form": "SC 13D", "accession": f"x{i}", "manager": f"M{i}", "key": f"m{i}",
+                 "company": f"C{i}", "filed": "2026-09-05", "cik": i})
+        SC.check_alerts()
+        self.assertEqual(len(calls), 2, "the second was still attempted")
+
+    def test_the_crowding_state_is_remembered_between_runs(self):
+        self._wire(self._sender)
+        SC.build()
+        SC.check_alerts()
+        stored = SC.load_alerts()["crowding_state"]
+        self.assertTrue(stored, "the board's markets were recorded")
+        self.assertEqual(stored, AL.crowding_state(SC._STATE["board"]))  # noqa: SLF001
+
+    def test_the_payload_says_whether_it_can_send_at_all(self):
+        self._wire(None)
+        self.assertFalse(SC.alerts()["can_send"])
+        self._wire(self._sender)
+        self.assertTrue(SC.alerts()["can_send"])
+
+    def test_a_batch_that_breaks_the_attribution_rule_is_blocked(self):
+        # A push is the one place a reader cannot click through to check.
+        self._wire(self._sender)
+        SC.check_alerts()
+        with mock.patch.object(AL, "attribution_ok", lambda rows: False):
+            out = SC.check_alerts()
+        self.assertEqual(out["n_send"], 0)
+        self.assertIn("fund name", out["blocked"])
+        self.assertEqual(self.sent, [])
+
+    def test_a_corrupt_store_is_an_empty_one_not_a_crash(self):
+        p = Path(self.tmp.name) / "hf" / "alerts.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{not json")
+        self.assertEqual(SC.load_alerts(), {"sent": [], "crowding_state": {}, "primed": False})
+
+    def test_the_sent_list_is_bounded(self):
+        self._wire(self._sender)
+        SC.check_alerts()
+        store = SC.load_alerts()
+        store["sent"] = [{"key": f"k{i}", "sent": True} for i in range(500)]
+        SC.save_alerts(store)
+        self.alert_funds["new_filings"].append(
+            {"form": "SC 13D", "accession": "cap", "manager": "M", "key": "m",
+             "company": "C", "filed": "2026-09-05", "cik": 9})
+        SC.check_alerts()
+        self.assertLessEqual(len(SC.load_alerts()["sent"]), int(SC._alert_knob("keep_sent")))  # noqa: SLF001
+
+
+class WhetherAPushCouldActuallyBeDelivered(Base):
+    """The sender is injected as a lambda that exists whether or not a
+    provider is configured. Treating its presence as proof of a working
+    provider made the panel claim push was set up when it was not, and
+    recorded alerts as delivered when nothing had gone anywhere."""
+
+    def setUp(self):
+        super().setUp()
+        self.sent = []
+        self.funds_with = {"managers": [], "new_filings": [
+            {"form": "SC 13D", "accession": "Z1", "manager": "Elliott Management",
+             "key": "elliott", "company": "ACME Corp", "filed": "2026-09-04", "cik": 1}]}
+
+    def test_a_sender_that_reports_no_provider_is_not_ready(self):
+        # Exactly the live shape: _push_notify returns this when nothing is set up.
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": False, "configured": False},
+                     push_ready_fn=lambda: False)
+        self.assertFalse(SC.push_ready())
+        self.assertFalse(SC.alerts()["can_send"])
+
+    def test_and_nothing_is_recorded_as_delivered(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": False, "configured": False},
+                     push_ready_fn=lambda: False)
+        SC.check_alerts()
+        self.funds_with["new_filings"].append(
+            {"form": "SC 13D", "accession": "Z2", "manager": "Trian", "key": "trian",
+             "company": "Beta", "filed": "2026-09-05", "cik": 2})
+        SC.check_alerts()
+        self.assertEqual([s for s in SC.load_alerts()["sent"] if s.get("sent")], [],
+                         "nothing went anywhere, so nothing may be recorded as sent")
+
+    def test_and_the_event_still_fires_once_a_provider_appears(self):
+        # The whole point: an undelivered alert is not silently consumed.
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": False, "configured": False},
+                     push_ready_fn=lambda: False)
+        SC.check_alerts()
+        self.funds_with["new_filings"].append(
+            {"form": "SC 13D", "accession": "Z3", "manager": "Icahn", "key": "icahn",
+             "company": "Gamma", "filed": "2026-09-05", "cik": 3})
+        SC.check_alerts()
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: self.sent.append(t) or {"ok": True},
+                     push_ready_fn=lambda: True)
+        self.funds_with["new_filings"].append(
+            {"form": "SC 13D", "accession": "Z4", "manager": "Jana", "key": "jana",
+             "company": "Delta", "filed": "2026-09-06", "cik": 4})
+        SC.check_alerts()
+        self.assertEqual(len(self.sent), 1, "only the new one — the backlog is not replayed")
+
+    def test_a_delivery_that_reports_failure_is_not_recorded_as_sent(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": False, "error": "ntfy 500"},
+                     push_ready_fn=lambda: True)
+        SC.check_alerts()
+        self.funds_with["new_filings"].append(
+            {"form": "SC 13D", "accession": "Z5", "manager": "Trian", "key": "trian",
+             "company": "Beta", "filed": "2026-09-05", "cik": 2})
+        out = SC.check_alerts()
+        self.assertEqual(out["n_send"], 1, "it was selected")
+        self.assertEqual([s for s in SC.load_alerts()["sent"] if s.get("sent")], [],
+                         "but the provider said no, so it is not recorded as delivered")
+
+    def test_a_successful_delivery_is_recorded(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": True},
+                     push_ready_fn=lambda: True)
+        SC.check_alerts()
+        self.funds_with["new_filings"].append(
+            {"form": "SC 13D", "accession": "Z6", "manager": "Trian", "key": "trian",
+             "company": "Beta", "filed": "2026-09-05", "cik": 2})
+        SC.check_alerts()
+        self.assertEqual(len([s for s in SC.load_alerts()["sent"] if s.get("sent")]), 1)
+
+    def test_with_no_probe_injected_the_sender_is_the_answer(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds_with)
+        self.assertFalse(SC.push_ready())
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": True})
+        self.assertTrue(SC.push_ready())
+
+    def test_a_probe_that_throws_is_not_ready(self):
+        def boom():
+            raise RuntimeError("cannot tell")
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds_with,
+                     alert_fn=lambda t, m, priority=0: {"ok": True}, push_ready_fn=boom)
+        self.assertFalse(SC.push_ready())

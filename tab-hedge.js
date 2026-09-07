@@ -119,6 +119,15 @@ const HF_TIP = {
   grade_episodes: "How many separate EVENTS the crowded weeks are. Crowding arrives in runs — a book stays crowded for a month — so forty crowded weeks can be five episodes. The intervals on this page are computed as though every week were an independent draw, which makes them OPTIMISTIC. This is the number that should temper them.",
   grade_horizon: "How far ahead the return is measured, in weeks. Positioning is said to matter over a month or two, so four horizons are shown rather than one.",
   grade_source: "Crowding is computed from the CFTC series and nothing else, so truncating that series at each past week reproduces exactly what the board would have said then, with no data that arrived later. That is why three years can be graded when the board only started storing readings in September 2026.",
+  alerts: "The board is a page you have to go and look at; this is the part that reaches out instead. It fires on a CHANGE, never on a state — a sector that is crowded every week is not news on any of them — and it never sends the same thing twice. Most weeks nothing goes out, and that is the correct answer rather than a failure.",
+  alerts_can_send: "Whether this deployment has a way to send a notification at all. Nothing here is sent if it does not; the board still watches and records, so switching push on later delivers the next real change rather than everything that has piled up.",
+  alerts_primed: "The very first pass records what it finds and stays silent on purpose. Without that, switching alerts on would deliver a dozen notifications describing a board that had been sitting there quietly for weeks.",
+  alerts_would: "What would be sent the next time the board refreshes. Shown here so you can see it coming rather than being surprised by it — and looking at it never sends it.",
+  alerts_quiet: "Nothing is waiting. These alerts fire on changes, and most weeks nothing changes, so silence is the ordinary output.",
+  alerts_sent: "Notifications that actually went out, newest first, with exactly the words that were sent.",
+  alerts_kind: "An ACTIVIST FILING is a SCHEDULE 13D — a stake above 5% with intent, and a five-business-day clock. A CROWDING CHANGE is a market entering or leaving the crowded state. A NEW FILING is a watched manager filing holdings. A REPORT READY is the weekly report.",
+  alerts_held: "Things the board saw and chose not to send: already sent before, a kind you have switched off, more than the per-run limit, or the first pass priming itself. They are remembered either way, so a held one never arrives later dressed as new.",
+  alerts_cap: "The most notifications that may go out in one check. A busy week is spread across checks rather than emptied onto your lock screen at once.",
   names: "The long side of 'which stocks are crowded'. The short side above comes from FINRA and names nobody, because short interest belongs to nobody. This comes from the managers' own quarterly filings, so the funds are named beside each stock. It counts each manager's TEN LARGEST reported positions, so it says how many readable books hold a name among their ten largest — never how many own it, which would need whole books.",
   names_name: "The stock. Where the ticker map knew the CUSIP in the filing, this is a ticker you can click to open the stock; where it did not, it is the issuer name exactly as the filing spelled it.",
   names_counted: "How many of the watched managers were counted, out of how many are watched. A consensus of eleven means one thing out of eleven and quite another out of thirty-two, so both numbers are always shown.",
@@ -1220,6 +1229,8 @@ function PulsePanel({
   }), /*#__PURE__*/React.createElement(HfNames, {
     apiFetch: apiFetch,
     onOpenTicker: onOpenTicker
+  }), /*#__PURE__*/React.createElement(HfAlerts, {
+    apiFetch: apiFetch
   }), d.unavailable && d.unavailable.length ? /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
     title: HF_TIP.pulse_missing
   }, "Sources that had nothing this week"), /*#__PURE__*/React.createElement("ul", {
@@ -1584,6 +1595,113 @@ function HfNames({
   }, (d.limitations || []).map((l, i) => /*#__PURE__*/React.createElement("li", {
     key: i
   }, l))));
+}
+
+// Alerts. The board stops being only a page you visit — but a board that
+// pushes too often is a board whose notifications get muted, so this panel
+// exists mostly to show what was NOT sent and why.
+function HfAlerts({
+  apiFetch
+}) {
+  const [d, setD] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const {
+        d: got,
+        err: readErr
+      } = await hfReadJson(await apiFetch("/api/hf/alerts", {
+        noCache: true
+      }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got);
+      setErr(null);
+    } catch (e) {
+      setErr(String(e && e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [apiFetch]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
+  if (err) return /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.alerts
+  }, "What would reach your phone"), /*#__PURE__*/React.createElement("p", {
+    className: "research-error"
+  }, err));
+  if (!d) return /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.alerts
+  }, "What would reach your phone"), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted"
+  }, busy ? "Checking…" : "—"));
+  return /*#__PURE__*/React.createElement("section", {
+    className: "hf-alerts"
+  }, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.alerts
+  }, "What would reach your phone"), /*#__PURE__*/React.createElement("p", {
+    className: "sl-status"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.alerts_can_send
+  }, d.can_send ? "Push is set up on this deployment" : "No push is set up, so nothing is sent"), /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.alerts_primed
+  }, " · ", d.primed ? "watching for changes" : "not yet primed — the first pass stays silent"), /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.alerts_sent
+  }, " \xB7 ", hfInt(d.n_sent), " sent so far"), /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.alerts_cap
+  }, " \xB7 at most ", hfInt(d.cap_per_run), " at a time"), " ", /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: load,
+    disabled: busy,
+    title: "Check again"
+  }, "reload")), d.would_send && d.would_send.length ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h5", {
+    title: HF_TIP.alerts_would
+  }, "Would go out on the next check"), /*#__PURE__*/React.createElement("ul", {
+    className: "hf-notes"
+  }, d.would_send.map(r => /*#__PURE__*/React.createElement("li", {
+    key: r.key,
+    title: HF_TIP.alerts_would
+  }, /*#__PURE__*/React.createElement(HfTag, {
+    cls: r.class
+  }), " ", /*#__PURE__*/React.createElement("b", null, (r.rendered || {}).title), " \u2014 ", (r.rendered || {}).message)))) : /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.alerts_quiet
+  }, "Nothing is waiting to go out. Most weeks that is the correct answer, not a failure \u2014 these fire on a change, and most weeks nothing changes."), d.sent && d.sent.length ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h5", {
+    title: HF_TIP.alerts_sent
+  }, "Already sent"), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.alerts_sent
+  }, "When"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.alerts_kind
+  }, "Kind"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.alerts_sent
+  }, "What it said"))), /*#__PURE__*/React.createElement("tbody", null, d.sent.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.key
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "When",
+    title: HF_TIP.alerts_sent
+  }, hfDateTime(r.at)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Kind",
+    title: HF_TIP.alerts_kind
+  }, r.kind || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "What it said"
+  }, r.message))))))) : null, d.held && d.held.length ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h5", {
+    title: HF_TIP.alerts_held
+  }, "Seen, and deliberately not sent"), /*#__PURE__*/React.createElement("ul", {
+    className: "hf-notes"
+  }, d.held.slice(0, 8).map(r => /*#__PURE__*/React.createElement("li", {
+    key: r.key,
+    className: "hf-muted",
+    title: HF_TIP.alerts_held
+  }, r.kind, " \u2014 ", r.held)))) : null, /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.alerts
+  }, d.note));
 }
 function HfGrades({
   apiFetch
