@@ -218,10 +218,23 @@ def bank_of(text: str) -> str | None:
     return None
 
 
+def _without_banks(text: str) -> str:
+    """The banks' own names removed, so a bank cannot be read as a place.
+
+    "Bank of America" contains America. A headline reading "Hedge funds sell
+    Asia tech stocks, Bank of America says" therefore matched both the
+    foreign and the US patterns, resolved to US, and became eligible
+    evidence about a market it explicitly was not describing."""
+    t = text
+    for pat in BANKS.values():
+        t = re.sub(pat, " ", t, flags=re.I)
+    return t
+
+
 def region_of(text: str) -> str | None:
     """"US", a named foreign region, or nothing said. A note about Korea is
     not evidence about the American book this board measures."""
-    t = _norm(text)
+    t = _without_banks(_norm(text))
     us, foreign = bool(_US.search(t)), bool(_NON_US.search(t))
     if foreign and not us:
         return "NON-US"

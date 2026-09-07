@@ -71,7 +71,9 @@ def funds(states=("FILED SINCE", "UNKNOWN", "UNKNOWN"), filings=None, keys=None)
     managers = [{"key": k, "name": f"Manager {k}", "style": "activist", "turnover": "READABLE",
                  "status": "FILING",
                  "activity": {"state": st, "since": "2026-06-30",
-                              "items": [{"form": "SC 13D"}] if st == "FILED SINCE" else []}}
+                              "items": ([{"form": "SC 13D", "public_on": "2026-08-02",
+                                          "as_of": "2026-07-30"}]
+                                        if st == "FILED SINCE" else [])}}
                 for k, st in zip(keys, states)]
     return {"managers": managers, "new_filings": filings or []}
 
@@ -171,6 +173,27 @@ class FundActivity(unittest.TestCase):
         self.assertEqual(f["n_acted"], 1)
         self.assertEqual(f["n_unknown"], 2)
         self.assertEqual(f["acted"][0]["since_text"], "June 30, 2026")
+
+    def test_a_filing_from_weeks_earlier_is_not_activity_this_week(self):
+        # FILED SINCE persists until the next 13F arrives, so without a date
+        # filter the same four managers appeared under a heading that says
+        # "this week" for months. Reported live: four managers "acted" in a
+        # week whose new-filing sweep found nothing at all.
+        rep = R.build(board(), funds(), None, None, week="2026-W36",
+                      week_start="2026-08-31")
+        self.assertEqual(rep["funds"]["n_acted"], 0, "the 13D was filed on August 2")
+        self.assertEqual(rep["funds"]["n_filed_since"], 1, "the state is still counted")
+
+    def test_a_filing_inside_the_week_is_activity_this_week(self):
+        f = funds()
+        f["managers"][0]["activity"]["items"] = [{"form": "SC 13D", "public_on": "2026-09-02"}]
+        rep = R.build(board(), f, None, None, week="2026-W36", week_start="2026-08-31")
+        self.assertEqual(rep["funds"]["n_acted"], 1)
+        self.assertEqual(rep["funds"]["acted"][0]["items"][0]["public_on"], "2026-09-02")
+
+    def test_without_a_week_boundary_every_filed_since_manager_is_listed(self):
+        rep = R.build(board(), funds(), None, None, week="2026-W36")
+        self.assertEqual(rep["funds"]["n_acted"], 1)
 
     def test_not_read_yet_is_not_counted_as_unknown(self):
         rep = R.build(board(), funds(("NOT READ YET", "NOT READ YET")), None, None, week="2026-W36")
@@ -372,6 +395,34 @@ class Compare(unittest.TestCase):
 
     def test_comparing_against_nothing_is_refused(self):
         self.assertFalse(R.compare(self.a, None)["ok"])
+
+    def test_watchlist_changes_are_derived_from_the_two_reports_compared(self):
+        # These rows used to be copied from the current report's own
+        # `added`/`removed`, which were computed against the week BEFORE it.
+        # Comparing week 36 with week 38 therefore showed week 38's changes
+        # against week 37, missing what moved in week 37 itself.
+        w36 = R.build(board(week="2026-W36"), funds(keys=["a"], states=("UNKNOWN",)),
+                      None, None, week="2026-W36")
+        w37 = R.build(board(week="2026-W37"), funds(keys=["a", "b"], states=("UNKNOWN",) * 2),
+                      None, w36, week="2026-W37")
+        w38 = R.build(board(week="2026-W38"), funds(keys=["a", "b", "c"], states=("UNKNOWN",) * 3),
+                      None, w37, week="2026-W38")
+        cmp = R.compare(w36, w38)
+        moved = {r["what"] for r in cmp["changed"]["changes"] if r["kind"] == "WATCHLIST"}
+        self.assertEqual(moved, {"Watchlist: Manager b", "Watchlist: Manager c"},
+                         "both weeks' additions, not only the last one's")
+
+    def test_a_removal_across_non_adjacent_weeks_is_seen(self):
+        w36 = R.build(board(week="2026-W36"), funds(keys=["a", "b"], states=("UNKNOWN",) * 2),
+                      None, None, week="2026-W36")
+        w37 = R.build(board(week="2026-W37"), funds(keys=["a", "b"], states=("UNKNOWN",) * 2),
+                      None, w36, week="2026-W37")
+        w38 = R.build(board(week="2026-W38"), funds(keys=["a"], states=("UNKNOWN",)),
+                      None, w37, week="2026-W38")
+        cmp = R.compare(w36, w38)
+        moved = [r for r in cmp["changed"]["changes"] if r["kind"] == "WATCHLIST"]
+        self.assertEqual(len(moved), 1)
+        self.assertEqual(moved[0]["to"], "not watched")
 
 
 class Digest(unittest.TestCase):
