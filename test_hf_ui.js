@@ -236,6 +236,24 @@ ok("the report cadence is published in thresholds",
 ok("the report panel has styles of its own", /\.hf-report/.test(css) && /\.hf-conflicts/.test(css));
 
 
+// Five findings from the post-merge review, each verified against the code
+// before it was fixed.
+ok("a week rollover re-reads the pulse instead of refiling the old week",
+   /board\.get\("week"\) != week_key\(_today\(\)\)/.test(scan)
+   && /must belong to THIS week/.test(scan));
+ok("revision numbers are numbered from builds, not from survivors",
+   /Number from the builds that have HAPPENED/.test(scan));
+ok("watchlist changes are derived from the two reports being compared",
+   /Derived from both reports here/.test(report));
+ok("a bank's name cannot be read as a place",
+   /_without_banks/.test(press) && /contains America/.test(press));
+ok("named activity is filtered to the report's own week",
+   /does NOT mean the event happened this week/.test(report)
+   && /n_filed_since/.test(report) && /n_filed_since/.test(src));
+ok("the count still carrying a filing has its own tooltip",
+   HF_TIPS_OF(src, "report_carrying").length > 40);
+
+
 ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);

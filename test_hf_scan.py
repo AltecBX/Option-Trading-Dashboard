@@ -9,6 +9,7 @@ handed to the fund cards — with no network and no clock.
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import json
 import os
@@ -437,15 +438,55 @@ class TheReportRecord(Base):
         self.assertEqual(SC.report_for("2026-W36")["built_at"], rep["built_at"])
 
     def test_only_the_configured_number_of_revisions_is_kept(self):
-        SC.DEFAULTS["report"]["keep_revisions"] = 2
-        try:
+        # thresholds.json overrides DEFAULTS, so the knob is what has to be
+        # replaced here — setting DEFAULTS alone made this assert nothing.
+        with self._keep(2):
             for _ in range(4):
                 SC.build_report()
-        finally:
-            SC.DEFAULTS["report"]["keep_revisions"] = 12
         doc = json.loads((Path(self.tmp.name) / "hf" / "reports" / "2026-W36.json").read_text())
-        self.assertLessEqual(len(doc["revisions"]), 4)
+        self.assertEqual(len(doc["revisions"]), 2)
         self.assertEqual(doc["n_revisions"], 4, "the count of builds is not lost")
+
+    def test_a_week_rollover_rereads_the_pulse_instead_of_refiling_last_week(self):
+        # The board must belong to THIS week before a report is built from
+        # it. Taking last week's stored reading filed the report under last
+        # week, which _report_stale then judged stale forever — so every
+        # look at the card appended another revision to a week already over.
+        SC.build()
+        self.assertEqual(SC._STATE["board"]["week"], "2026-W36")  # noqa: SLF001
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW + timedelta(days=7),
+                     funds_fn=lambda: self.funds)
+        S.configure(fetch_fn=self.web.fetch, post_fn=self.web.post,
+                    data_dir=self.tmp.name, now_fn=lambda: NOW + timedelta(days=7))
+        rep = SC.build_report()
+        self.assertEqual(rep["week"], "2026-W37", "the report belongs to the current week")
+        self.assertFalse(SC._report_stale(), "and is not immediately stale again")  # noqa: SLF001
+
+    @contextlib.contextmanager
+    def _keep(self, n: int):
+        """Force the retention limit, whatever thresholds.json says."""
+        real = SC._report_knob  # noqa: SLF001
+        SC._report_knob = lambda name: (n if name == "keep_revisions" else real(name))  # noqa: SLF001
+        try:
+            yield
+        finally:
+            SC._report_knob = real  # noqa: SLF001
+
+    def test_revision_numbers_stay_unique_after_trimming(self):
+        # With keep_revisions=2, build 3 stores revisions [2, 3]. Counting
+        # what is on disk then numbered build 4 as revision 3 again, and
+        # asking for revision 3 returned the older of the two.
+        with self._keep(2):
+            for _ in range(4):
+                SC.build_report()
+        doc = json.loads((Path(self.tmp.name) / "hf" / "reports" / "2026-W36.json").read_text())
+        nums = [r["revision"] for r in doc["revisions"]]
+        self.assertEqual(nums, sorted(set(nums)), "no duplicate revision numbers")
+        self.assertEqual(nums, [3, 4])
+        self.assertEqual(doc["n_revisions"], 4, "the count of builds keeps rising")
+        self.assertEqual(SC.report_for("2026-W36", 4)["built_at"],
+                         SC.report_for("2026-W36")["built_at"])
+
 
     def test_a_rebuild_in_the_same_week_diffs_against_last_week_not_itself(self):
         SC.build_report()

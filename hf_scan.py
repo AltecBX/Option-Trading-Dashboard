@@ -665,11 +665,18 @@ def save_report(rep: dict) -> dict | None:
         return None
     doc = _read_week_file(week) or {"week": week, "revisions": []}
     revs = doc.get("revisions") or []
-    revs.append({"revision": len(revs) + 1, "built_at": rep.get("built_at"), "report": rep})
+    # Number from the builds that have HAPPENED, not from the ones still on
+    # disk. Once a week passes the retention limit the list holds only the
+    # survivors, so counting them reused the highest number: build 14 wrote
+    # a second revision 13, and asking for revision 13 returned the older of
+    # the two. The count of builds is its own field for the same reason.
+    built = max([int(doc.get("n_revisions") or 0)]
+                + [int(r.get("revision") or 0) for r in revs]) + 1
+    revs.append({"revision": built, "built_at": rep.get("built_at"), "report": rep})
     keep = int(_report_knob("keep_revisions"))
     doc["revisions"] = revs[-keep:] if keep > 0 else revs
     doc["week"] = week
-    doc["n_revisions"] = len(revs)
+    doc["n_revisions"] = built
     try:
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(doc), encoding="utf-8")
@@ -751,7 +758,12 @@ def build_report() -> dict:
     press, then store it as a new revision."""
     with _LOCK:
         board = _STATE["board"]
-    if not board:
+    # The board must belong to THIS week before a report is built from it.
+    # Taking last week's stored reading here produced a report filed under
+    # last week, which `_report_stale` then judged stale forever — so every
+    # look at the card appended another revision to a week that was already
+    # over, and the pulse was never re-read.
+    if not board or board.get("week") != week_key(_today()):
         board = build()
     week = board.get("week") or week_key(_today())
     rep = RPT.build(board, _funds(), board.get("press"), _prior_report(week),

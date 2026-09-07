@@ -127,6 +127,25 @@ class Region(unittest.TestCase):
     def test_us_wins_when_both_appear(self):
         self.assertEqual(PR.region_of("US and Asian hedge funds"), "US")
 
+    def test_a_bank_name_is_not_a_place(self):
+        # "Bank of America" contains America. Without stripping the bank
+        # names first, this headline matched both the foreign and the US
+        # patterns, resolved to US, and became eligible evidence about a
+        # market it explicitly was not describing.
+        t = "Hedge funds sell Asia tech stocks, Bank of America says"
+        self.assertEqual(PR.region_of(t), "NON-US")
+        row = PR.read(item(t, "Reuters"))
+        self.assertFalse(row["eligible"])
+        self.assertIn("a stated non-US market", row["why_not"])
+
+    def test_stripping_the_bank_does_not_hide_a_real_us_headline(self):
+        self.assertEqual(
+            PR.region_of("Hedge funds sell US tech stocks, Bank of America says"), "US")
+
+    def test_the_bank_is_still_read_from_the_same_headline(self):
+        self.assertEqual(PR.bank_of("Hedge funds sell Asia tech stocks, Bank of America says"),
+                         "Bank of America")
+
     def test_no_region_stated_is_allowed(self):
         self.assertIsNone(PR.region_of("Hedge funds sold equities last week"))
 

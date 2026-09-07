@@ -100,7 +100,8 @@ const HF_TIP = {
   report_conclusion: "One of the four weekly questions, carried across from the Pulse whole: the verdict, how many independent evidence classes agree, how long it has read this way, and every input behind it.",
   report_trend: "How persistent each answer has been over the last 2, 4, 8 and 12 weeks. A verdict in its eighth straight week is a different statement from the same verdict in its first, and both are shown.",
   report_filings: "The filings worth a heading this week. Every SCHEDULE 13D by a watched manager, because that is an event with a five-business-day clock. Every amendment to a holdings report, because a restatement changes a number already shown to you. Passive 13G notices are not activity and are not listed here.",
-  report_activity: "Watched managers with something VERIFIED since their last holdings report. When the list is empty that is the ordinary state, not a failure — a 13F describes one day and arrives 45 days later.",
+  report_activity: "Watched managers who filed something VERIFIED during THIS report's week. When the list is empty that is the ordinary state, not a failure — a 13F describes one day and arrives 45 days later.",
+  report_carrying: "Managers whose most recent verified filing is newer than their last quarterly holdings report. That state lasts until the next quarterly report arrives, which can be months, so most of these managers did not file anything this week. It is counted here and kept out of the 'this week' list on purpose.",
   report_watchlist: "Who is being watched, and who moved on or off the list since the previous report. Without a previous report there is nothing to compare against, and the section says so rather than showing empty lists that look like 'no changes'.",
   report_conflicts: "Every disagreement in one place, never collapsed: inputs pointing opposite ways inside a question, sectors whose inputs split, and banks quoted this week saying opposite things. Disagreement is a finding — it is not averaged away.",
   report_changed: "What reads differently from the STORED report of the previous week. A diff against a record, not a memory. That is the whole reason every report is kept.",
@@ -1541,11 +1542,13 @@ function ReportPanel({
   }, " \xB7 ", f.items.length, " filing", f.items.length === 1 ? "" : "s") : null))) : /*#__PURE__*/React.createElement("p", {
     className: "hf-muted",
     title: HF_TIP.activity
-  }, (d.funds || {}).note), d.funds ? /*#__PURE__*/React.createElement("p", {
+  }, "No watched manager filed anything", (d.funds || {}).since_text ? ` in the week beginning ${d.funds.since_text}` : " this week", ". ", (d.funds || {}).note), d.funds ? /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
   }, /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.activity
-  }, d.funds.n_unknown, " of ", d.funds.n_managers, " watched managers are in the ordinary UNKNOWN state"), d.funds.n_ceased ? /*#__PURE__*/React.createElement("span", {
+  }, d.funds.n_unknown, " of ", d.funds.n_managers, " watched managers are in the ordinary UNKNOWN state"), d.funds.n_filed_since ? /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.report_carrying
+  }, " \xB7 ", d.funds.n_filed_since, " carry a filing newer than their last holdings report") : null, d.funds.n_ceased ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.ceased
   }, " \xB7 ", d.funds.n_ceased, " ceased filing") : null, d.funds.n_not_read ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.refresh

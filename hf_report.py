@@ -162,31 +162,46 @@ def crowding(board: dict) -> dict:
 
 # ── the named layer ─────────────────────────────────────────────────────────
 
-def fund_activity(funds: dict) -> dict:
+def fund_activity(funds: dict, week_start: str | None = None) -> dict:
     """What the watched managers actually did, and how many of them are in
-    the state the reader should expect: nothing new since the last quarter."""
+    the state the reader should expect: nothing new since the last quarter.
+
+    FILED SINCE means an event landed after the manager's last quarterly
+    report — it does NOT mean the event happened this week, and the state
+    persists until the next 13F arrives. Listing every such manager under a
+    heading that says "this week" repeated the same four names for months.
+    So the section is filtered by when each filing became public, and the
+    count of managers still carrying the state is reported separately."""
     managers = (funds or {}).get("managers") or []
-    acted, unknown, ceased, not_read = [], 0, 0, 0
+    acted, filed_since, unknown, ceased, not_read = [], 0, 0, 0, 0
     for m in managers:
-        st = (m.get("activity") or {}).get("state")
+        act = m.get("activity") or {}
+        st = act.get("state")
         if st == "FILED SINCE":
-            acted.append({"key": m.get("key"), "name": m.get("name"),
-                          "style": m.get("style"), "turnover": m.get("turnover"),
-                          "state": st, "since": (m.get("activity") or {}).get("since"),
-                          "since_text": long_date((m.get("activity") or {}).get("since")),
-                          "items": (m.get("activity") or {}).get("items") or [],
-                          "class": S.VERIFIED})
+            filed_since += 1
+            items = [i for i in (act.get("items") or [])
+                     if not week_start or (i.get("public_on") or i.get("as_of") or "") >= week_start]
+            if items:
+                acted.append({"key": m.get("key"), "name": m.get("name"),
+                              "style": m.get("style"), "turnover": m.get("turnover"),
+                              "state": st, "since": act.get("since"),
+                              "since_text": long_date(act.get("since")),
+                              "items": items, "class": S.VERIFIED})
         elif st == "CEASED":
             ceased += 1
         elif st == "NOT READ YET":
             not_read += 1
         else:
             unknown += 1
-    return {"acted": acted, "n_acted": len(acted), "n_unknown": unknown,
-            "n_ceased": ceased, "n_not_read": not_read, "n_managers": len(managers),
-            "class": S.VERIFIED,
+    return {"acted": acted, "n_acted": len(acted), "n_filed_since": filed_since,
+            "n_unknown": unknown, "n_ceased": ceased, "n_not_read": not_read,
+            "n_managers": len(managers), "since": week_start,
+            "since_text": long_date(week_start), "class": S.VERIFIED,
             "note": ("UNKNOWN is the ordinary state. A 13F describes one day, arrives forty-five "
-                     "days later, and says nothing about the weeks since.")}
+                     "days later, and says nothing about the weeks since."),
+            "carrying_note": ("Managers whose last verified filing is newer than their last "
+                              "holdings report. That state lasts until the next quarterly "
+                              "report arrives, so most of them did not file anything this week.")}
 
 
 def new_filings(funds: dict, week_start: str | None = None) -> dict:
@@ -295,10 +310,14 @@ def summary(board: dict, sec: dict, cr: dict, funds_block: dict, press: dict | N
         bullets.append("De-crowding: " + ", ".join(r["market"] for r in cr["decrowding"][:4]) + ".")
     if funds_block.get("n_acted"):
         bullets.append(f"{funds_block['n_acted']} watched manager(s) filed something verifiable "
-                       f"since their last holdings report.")
+                       f"this week.")
     elif funds_block.get("n_unknown") or funds_block.get("n_ceased"):
-        bullets.append(f"No watched manager filed anything new; {funds_block.get('n_unknown', 0)} "
-                       f"remain in the ordinary UNKNOWN state between quarters.")
+        carrying = funds_block.get("n_filed_since") or 0
+        bullets.append(f"No watched manager filed anything this week; "
+                       f"{funds_block.get('n_unknown', 0)} remain in the ordinary UNKNOWN state "
+                       f"between quarters"
+                       + (f", and {carrying} still carry a filing newer than their last holdings "
+                          f"report." if carrying else "."))
     else:
         # Every manager still reads NOT READ YET, which happens on a fresh
         # start before the first EDGAR sweep finishes. Saying "none filed
@@ -351,12 +370,19 @@ def changes(current: dict, prior: dict | None) -> dict:
     for m in sorted(was_cr - now_cr):
         rows.append({"what": f"{m} crowding", "from": P.CROWDED, "to": "no longer crowded",
                      "kind": "CROWDING"})
-    for k in ("added", "removed"):
-        for m in (current.get("watchlist") or {}).get(k) or []:
-            rows.append({"what": f"Watchlist: {m.get('name') or m.get('key')}",
-                         "from": "watched" if k == "removed" else "not watched",
-                         "to": "not watched" if k == "removed" else "watched",
-                         "kind": "WATCHLIST"})
+    # Derived from both reports here rather than reused from the current
+    # report's own `added`/`removed`. Those were computed against whatever
+    # report preceded this one, so comparing two NON-ADJACENT weeks showed
+    # changes from the wrong interval — missing what moved in between and
+    # listing what moved outside it.
+    now_w = (current.get("watchlist") or {}).get("managers") or {}
+    was_w = (prior.get("watchlist") or {}).get("managers") or {}
+    for key in sorted(set(now_w) - set(was_w)):
+        rows.append({"what": f"Watchlist: {(now_w.get(key) or {}).get('name') or key}",
+                     "from": "not watched", "to": "watched", "kind": "WATCHLIST"})
+    for key in sorted(set(was_w) - set(now_w)):
+        rows.append({"what": f"Watchlist: {(was_w.get(key) or {}).get('name') or key}",
+                     "from": "watched", "to": "not watched", "kind": "WATCHLIST"})
     return {"comparable": True, "since": prior.get("week"),
             "since_date": prior.get("as_of"), "since_text": long_date(prior.get("as_of")),
             "changes": rows, "n": len(rows)}
@@ -371,7 +397,7 @@ def build(board: dict, funds: dict | None = None, press: dict | None = None,
     board = board or {}
     funds = funds or {}
     sec, cr = sectors(board), crowding(board)
-    funds_block = fund_activity(funds)
+    funds_block = fund_activity(funds, week_start)
     rep = {
         "version": HF_REPORT_VERSION,
         "pulse_version": board.get("version"),
