@@ -3155,3 +3155,41 @@ hf_replay 36 · hf_scan 92 (23 new) · hf_grade 44 · hf_report 71 · hf_press 5
 hf_watch 28 · hf_registry 18 · hf_sources 32 · hf_pulse 48 · UI 153 ·
 smoke 156/157 · render check clean on desktop and phone, every header
 tooltipped, no ISO week on screen.
+
+## v4.89 — Hedge Funds, phase 5B: the names behind the crowd
+
+The board could say Financials was crowded without naming a stock on the
+long side. The short side already named them — `hf_pulse.crowded_shorts`
+lists the most crowded single-name shorts out of FINRA, anonymously. This is
+the long side, out of the watched managers' own 13Fs, and so attributable.
+
+Four rules keep it honest. An **OPAQUE book is not a view**: multi-strategy
+and quant filings show hedging and index exposure, the fund cards already
+refuse to read them as conviction, and counting them in a consensus would be
+that fiction at scale — in the render fixture Citadel held the largest
+position in the sample and was correctly absent from every row. A **put is
+not ownership**: puts are listed apart rather than folded in backwards, and
+calls are counted but flagged. It **counts what it can see**: only ten
+positions per manager are stored, so every label says "among their ten
+largest" and never "most owned". And **managers file for different
+quarters**, so each row carries a span rather than one date.
+
+The denominator travels with the count — how many were counted, how many
+left out as not readable, how many not read yet — because eleven out of
+eleven is not eleven out of thirty-two.
+
+`hf_watch.positions()` is kept out of `snapshot()`: that payload goes to the
+browser on every load and thirty-two books of position rows would dominate
+it. It reaches `hf_scan` through an injected `positions_fn`, so `hf_scan`
+still never imports `hf_watch`.
+
+The render check earned its keep twice, both times on my own harness rather
+than the product: a server left running from a previous run kept the port
+and served stale records, which looked exactly like a counting bug; and a
+fixture gave an unmapped name only one holder, which is correctly below the
+two-manager floor. Once both were fixed it passed clean on desktop and
+phone — opaque manager absent from every row, the put outside the holdings
+table, spans spelled out, no ISO date on screen, no header without a
+tooltip, zero console errors.
+
+hf_names 30 · hf_scan 97 (5 more) · UI 166.

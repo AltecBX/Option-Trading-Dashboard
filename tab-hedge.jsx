@@ -118,6 +118,19 @@ const HF_TIP = {
   grade_episodes: "How many separate EVENTS the crowded weeks are. Crowding arrives in runs — a book stays crowded for a month — so forty crowded weeks can be five episodes. The intervals on this page are computed as though every week were an independent draw, which makes them OPTIMISTIC. This is the number that should temper them.",
   grade_horizon: "How far ahead the return is measured, in weeks. Positioning is said to matter over a month or two, so four horizons are shown rather than one.",
   grade_source: "Crowding is computed from the CFTC series and nothing else, so truncating that series at each past week reproduces exactly what the board would have said then, with no data that arrived later. That is why three years can be graded when the board only started storing readings in September 2026.",
+  names: "The long side of 'which stocks are crowded'. The short side above comes from FINRA and names nobody, because short interest belongs to nobody. This comes from the managers' own quarterly filings, so the funds are named beside each stock. It counts each manager's TEN LARGEST reported positions, so it says how many readable books hold a name among their ten largest — never how many own it, which would need whole books.",
+  names_name: "The stock. Where the ticker map knew the CUSIP in the filing, this is a ticker you can click to open the stock; where it did not, it is the issuer name exactly as the filing spelled it.",
+  names_counted: "How many of the watched managers were counted, out of how many are watched. A consensus of eleven means one thing out of eleven and quite another out of thirty-two, so both numbers are always shown.",
+  names_opaque: "Multi-strategy and quant books are left out. Their quarterly filing shows hedging, index exposure and the long leg of trades whose short leg never appears in it — the fund cards already refuse to read those as conviction, and counting them here would be the same fiction at a larger scale.",
+  names_unread: "Managers whose filings have not been read yet. They are neither counted nor treated as though they held nothing.",
+  names_held: "Stocks that appear among the ten largest positions of two or more readable books. A name held in eleventh place by every manager would not appear here at all — only the ten largest are kept.",
+  names_bought: "Stocks two or more readable books either bought for the first time or added to last quarter, from the quarter-on-quarter change in their filings.",
+  names_sold: "Stocks two or more readable books trimmed or sold out of entirely last quarter. Selling is not a view about the stock alone — a fund raising cash sells what it can — so this is what happened, not why.",
+  names_puts: "Names held as PUT options, which is a bet AGAINST the stock, not ownership of it. They are listed apart on purpose: folding a put into the holdings tables would report the position exactly backwards.",
+  names_calls: "Some of these managers hold the name as call options rather than shares. A call is still a long bet, so it is counted, but it is flagged because it is not the same thing as owning the stock.",
+  names_who: "The managers holding it. These rows come from filings signed by a named fund, which is the only kind of evidence on this board that may carry a fund's name at all.",
+  names_period: "The date each manager's position was true. A quarterly filing describes ONE day and arrives about 45 days later, and managers do not all file for the same quarter — so where two dates are shown, this row mixes one manager's book with another's from an earlier quarter.",
+  names_unmapped: "The ticker map did not know this position's CUSIP, so it is shown under the issuer name from the filing. It is still counted — a position is never dropped just because the map has a gap.",
   grade_replay: "Most of these weeks were not recorded at the time — the board only began keeping its weekly record in September 2026. They were recomputed afterwards from the data as it stood in each past week: the futures report published that week, the short-interest reading already public, the daily files already out. Nothing that arrived later is allowed in.",
   grade_recorded: "Weeks the board actually stored at the time. These are answers it really published, not reconstructions.",
   grade_replayed: "Weeks recomputed afterwards. A question is only recomputed for a week when every input that decides it today was public that week — rebuilt from fewer inputs it would be a different answer wearing the same name, and grading it would tell you nothing about the answers the board really gives.",
@@ -882,6 +895,7 @@ function PulsePanel({ apiFetch, onOpenTicker }) {
 
       <HfSectorStrip sec={d.sectors} />
       <HfCrowding cr={d.crowding} onOpenTicker={onOpenTicker} />
+      <HfNames apiFetch={apiFetch} onOpenTicker={onOpenTicker} />
 
       {d.unavailable && d.unavailable.length ? (
         <section>
@@ -1114,6 +1128,114 @@ const HF_QUESTION_NAME = {
 const hfWeeks = (n) => `${hfInt(n)} ${Number(n) === 1 ? "week" : "weeks"}`;
 const hfShare = (v) => (v == null || !isFinite(v) ? "—" : `${(Number(v) * 100).toFixed(0)}%`);
 const hfLift = (v) => (v == null || !isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${(Number(v) * 100).toFixed(1)}%`);
+
+
+// The long side of "which stocks are crowded". The short side lives in the
+// crowding block above and is anonymous, because FINRA's short interest
+// belongs to nobody. This one is attributable: every row is a named
+// manager's own 13F, so the funds are named beside it.
+function HfNames({ apiFetch, onOpenTicker }) {
+  const [d, setD] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const { d: got, err: readErr } = await hfReadJson(await apiFetch("/api/hf/names", { noCache: true }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got); setErr(null);
+    } catch (e) { setErr(String((e && e.message) || e)); }
+    finally { setBusy(false); }
+  }, [apiFetch]);
+  React.useEffect(() => { load(); }, [load]);
+
+  if (err) return (
+    <section><h4 title={HF_TIP.names}>Which names the readable books agree on</h4>
+      <p className="research-error">{err}</p></section>
+  );
+  if (!d) return (
+    <section><h4 title={HF_TIP.names}>Which names the readable books agree on</h4>
+      <p className="hf-muted">{busy ? "Reading the filings…" : "—"}</p></section>
+  );
+  const b = d.basis || {};
+  const table = (rows, heading, tip) => (!rows || !rows.length ? null : (
+    <div>
+      <h5 title={tip}>{heading} <HfTag cls="VERIFIED FUND ACTIVITY" /></h5>
+      <div className="scan-table-wrap hf-table-wrap">
+        <table className="scan-table mtable hf-table">
+          <thead>
+            <tr>
+              <th title={HF_TIP.names_name}>Stock</th>
+              <th title={tip}>Managers</th>
+              <th title={HF_TIP.names_who}>Which managers</th>
+              <th title={HF_TIP.names_period}>Positions true as of</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.name}>
+                <td data-label="Stock" title={HF_TIP.names_name}>
+                  {r.symbol
+                    ? <button className="hf-link" onClick={() => onOpenTicker && onOpenTicker(r.symbol)}
+                              title={`Open ${r.symbol}`}>{r.symbol}</button>
+                    : <span title={HF_TIP.names_unmapped}>{r.name}</span>}
+                  {r.n_calls ? <span className="hf-muted" title={HF_TIP.names_calls}> · {r.n_calls} as call options</span> : null}
+                </td>
+                <td data-label="Managers" title={tip}><b>{hfInt(r.n_managers)}</b> of {hfInt(b.n_counted)}</td>
+                <td data-label="Which managers" title={HF_TIP.names_who}>{(r.managers || []).join(", ")}</td>
+                <td data-label="Positions true as of" title={HF_TIP.names_period}>
+                  {r.as_of_first === r.as_of_last
+                    ? hfDate(r.as_of_last)
+                    : `${hfDate(r.as_of_first)} – ${hfDate(r.as_of_last)}`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  ));
+
+  return (
+    <section className="hf-names">
+      <h4 title={HF_TIP.names}>Which names the readable books agree on</h4>
+      <p className={(d.headline || {}).available ? "" : "hf-muted"} title={HF_TIP.names}>
+        {(d.headline || {}).text}
+      </p>
+      <p className="sl-status">
+        <span title={HF_TIP.names_counted}>{hfInt(b.n_counted)} of {hfInt(b.n_managers)} watched managers counted</span>
+        {b.n_opaque ? <span title={HF_TIP.names_opaque}> · {hfInt(b.n_opaque)} left out as not readable</span> : null}
+        {b.n_not_read ? <span title={HF_TIP.names_unread}> · {hfInt(b.n_not_read)} not read yet</span> : null}
+        {" "}<button className="hf-link" onClick={load} disabled={busy} title="Read the filings again">reload</button>
+      </p>
+      {table(d.held, "Held among the ten largest", HF_TIP.names_held)}
+      {table(d.bought, "Added or newly bought last quarter", HF_TIP.names_bought)}
+      {table(d.sold, "Trimmed or sold out of last quarter", HF_TIP.names_sold)}
+      {d.puts && d.puts.length ? (
+        <div>
+          <h5 title={HF_TIP.names_puts}>Held as put options — a bet against <HfTag cls="VERIFIED FUND ACTIVITY" /></h5>
+          <ul className="hf-notes">
+            {d.puts.map((r) => (
+              <li key={r.name} title={HF_TIP.names_puts}>
+                <b>{r.name}</b> — {(r.managers || []).join(", ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {b.n_opaque ? <p className="hf-muted" title={HF_TIP.names_opaque}>{b.why_opaque} Left out: {(b.opaque || []).join(", ")}.</p> : null}
+      {d.unmapped && d.unmapped.n ? (
+        <p className="hf-muted" title={HF_TIP.names_unmapped}>
+          {hfInt(d.unmapped.n)} of {hfInt(d.unmapped.of)} positions had no ticker in the map. {d.unmapped.note}
+        </p>
+      ) : null}
+      <p className="hf-muted" title={HF_TIP.names}>{d.note}</p>
+      <ul className="hf-notes" title={HF_TIP.names}>
+        {(d.limitations || []).map((l, i) => <li key={i}>{l}</li>)}
+      </ul>
+    </section>
+  );
+}
 
 function HfGrades({ apiFetch }) {
   const [d, setD] = React.useState(null);
