@@ -260,6 +260,7 @@ for p in [
     "/api/hf/replay/status",
     "/api/hf/names",
     "/api/hf/alerts",
+    "/api/hf/cache",
     "/api/gap",
     "/api/gap/config",
     "/api/gap/live",
