@@ -500,6 +500,25 @@ class TheReportRecord(Base):
         self.assertTrue(rep["changed"]["comparable"])
         self.assertEqual(rep["changed"]["since"], "2026-W35")
 
+    def test_an_older_stored_report_is_normalised_on_read_not_on_disk(self):
+        SC.build_report()
+        p = Path(self.tmp.name) / "hf" / "reports" / "2026-W36.json"
+        doc = json.loads(p.read_text())
+        # Rewrite the stored revision as a pre-1.1.1 document.
+        doc["revisions"][0]["report"]["version"] = "1.0.0"
+        doc["revisions"][0]["report"]["funds"].pop("sentence", None)
+        doc["revisions"][0]["report"]["funds"].pop("n_filed_since", None)
+        doc["revisions"][0]["report"]["funds"]["n_acted"] = 3
+        p.write_text(json.dumps(doc))
+        got = SC.report_for("2026-W36")
+        self.assertTrue(got["funds"]["sentence"], "the card has something to render")
+        self.assertTrue(got["funds"]["sentence_filled_in"])
+        self.assertIn("newer than their last holdings report", got["funds"]["sentence"])
+        again = json.loads(p.read_text())
+        self.assertNotIn("sentence", again["revisions"][0]["report"]["funds"],
+                         "the stored bytes are untouched")
+
+
     def test_history_lists_every_week_newest_first_with_its_revision_count(self):
         SC.build_report()
         SC.build_report()

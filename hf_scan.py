@@ -687,16 +687,20 @@ def save_report(rep: dict) -> dict | None:
 
 
 def report_for(week: str, revision: int | None = None) -> dict | None:
-    """A stored week's report — the newest revision unless one is named."""
+    """A stored week's report — the newest revision unless one is named.
+
+    Normalised on the way out, never on disk: an older report that predates
+    a field the card reads gets it filled in here, and the stored bytes stay
+    exactly what was written."""
     doc = _read_week_file(week)
     revs = (doc or {}).get("revisions") or []
     if not revs:
         return None
     if revision is None:
-        return revs[-1].get("report")
+        return RPT.normalize(revs[-1].get("report"))
     for r in revs:
         if int(r.get("revision") or 0) == int(revision):
-            return r.get("report")
+            return RPT.normalize(r.get("report"))
     return None
 
 

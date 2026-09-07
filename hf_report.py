@@ -333,6 +333,54 @@ def activity_sentence(f: dict) -> str:
     return f"No watched manager filed anything this week{tail}."
 
 
+def legacy_activity_sentence(f: dict) -> str:
+    """The same sentence for a report stored before the week filter existed.
+
+    Under that rule `n_acted` counted every manager carrying a filing newer
+    than their last holdings report, whenever it was made — not managers who
+    filed during the report's own week. Re-reading such a report with the
+    current wording would put "this week" on a number that never meant it,
+    which is a false statement about a document that is kept forever."""
+    acted, total = f.get("n_acted") or 0, f.get("n_managers") or 0
+    if acted:
+        return (f"{acted} watched manager(s) had a filing newer than their last holdings report. "
+                f"This report predates the weekly filter, so that count is not limited to the "
+                f"week it covers.")
+    if not total:
+        return "No managers are on the watchlist."
+    if (f.get("n_not_read") or 0) == total:
+        return (f"The Named Fund Watch had not finished its first read of EDGAR, so none of the "
+                f"{total} watched managers could be described.")
+    return "No watched manager had a filing newer than their last holdings report."
+
+
+def normalize(rep: dict) -> dict:
+    """Make an older stored report renderable without changing what it said.
+
+    The card renders `funds.sentence` verbatim, and reports written before
+    that field existed have none — so opening one from the history showed no
+    activity line at all. The sentence is filled in on READ, never written
+    back: a stored document stays exactly the bytes that were stored, which
+    is the whole promise of keeping them.
+
+    Which wording is right depends on what `n_acted` meant when the report
+    was written, and the version stamp cannot answer that on its own — one
+    live revision carries the week-filtered counts under a 1.0.0 stamp,
+    because it was built between the filter landing and the version moving.
+    The presence of `n_filed_since` is the reliable tell: it arrived with
+    the filter."""
+    if not isinstance(rep, dict):
+        return rep
+    f = rep.get("funds")
+    if not isinstance(f, dict) or f.get("sentence"):
+        return rep
+    out = dict(rep)
+    out["funds"] = {**f, "sentence": (activity_sentence(f) if "n_filed_since" in f
+                                      else legacy_activity_sentence(f)),
+                    "sentence_filled_in": True}
+    return out
+
+
 def summary(board: dict, sec: dict, cr: dict, funds_block: dict, press: dict | None) -> dict:
     """Plain sentences. Every one of them is a verdict some other module
     reached, and none of them is stronger than that verdict was."""
