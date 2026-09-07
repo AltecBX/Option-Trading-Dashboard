@@ -472,6 +472,22 @@ class ActivitySentence(unittest.TestCase):
         self.assertEqual(s, "No managers are on the watchlist.")
         self.assertNotIn("filed anything", s)
 
+    def test_three_states_take_one_conjunction_not_two(self):
+        # The live card read "27 remain UNKNOWN, and 4 still carry a filing,
+        # and 1 no longer file at all."
+        s, _ = self._sentence(["UNKNOWN", "FILED SINCE", "CEASED"])
+        self.assertEqual(s.count(", and "), 1, s)
+        self.assertTrue(s.endswith("no longer file at all."), s)
+
+    def test_two_states_still_read_naturally(self):
+        s, _ = self._sentence(["UNKNOWN", "CEASED"])
+        self.assertEqual(s.count(", and "), 1, s)
+
+    def test_one_state_takes_no_conjunction(self):
+        s, _ = self._sentence(["UNKNOWN"])
+        self.assertNotIn(", and ", s)
+        self.assertTrue(s.endswith("between quarters."), s)
+
     def test_the_summary_uses_the_same_sentence_the_card_renders(self):
         s, f = self._sentence(["FILED SINCE"] * 2)
         rep = R.build(board(), {"managers": [
