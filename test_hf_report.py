@@ -423,6 +423,65 @@ class Compare(unittest.TestCase):
         moved = [r for r in cmp["changed"]["changes"] if r["kind"] == "WATCHLIST"]
         self.assertEqual(len(moved), 1)
         self.assertEqual(moved[0]["to"], "not watched")
+class ActivitySentence(unittest.TestCase):
+    """One sentence about the named layer that is true in every state.
+
+    The first version tested "unknown or ceased" to decide whether anything
+    had been read, so a watchlist where every manager carried an older
+    filing fell through to the not-read-yet message and told the reader that
+    managers it HAD read could not be described. Each state is pinned here."""
+
+    def _sentence(self, states, item_date="2026-08-02", week_start="2026-08-31"):
+        managers = [{"key": f"k{i}", "name": f"M{i}", "status": "FILING",
+                     "activity": {"state": st, "since": "2026-06-30",
+                                  "items": ([{"form": "SC 13D", "public_on": item_date}]
+                                            if st == "FILED SINCE" else [])}}
+                    for i, st in enumerate(states)]
+        rep = R.build(board(), {"managers": managers}, None, None, week="2026-W36",
+                      week_start=week_start)
+        return rep["funds"]["sentence"], rep["funds"]
+
+    def test_every_manager_unread_says_so(self):
+        s, f = self._sentence(["NOT READ YET"] * 3)
+        self.assertIn("has not finished its first read", s)
+        self.assertEqual(f["n_not_read"], 3)
+
+    def test_managers_that_were_read_are_never_called_unread(self):
+        # The regression: all FILED SINCE with filings older than the week.
+        s, f = self._sentence(["FILED SINCE"] * 3)
+        self.assertNotIn("has not finished its first read", s)
+        self.assertIn("still carry a filing newer than their last holdings report", s)
+        self.assertEqual((f["n_acted"], f["n_filed_since"], f["n_not_read"]), (0, 3, 0))
+
+    def test_a_filing_inside_the_week_leads_the_sentence(self):
+        s, f = self._sentence(["FILED SINCE"], item_date="2026-09-02")
+        self.assertIn("filed something verifiable this week", s)
+        self.assertEqual(f["n_acted"], 1)
+
+    def test_a_partial_read_names_both_states(self):
+        s, _ = self._sentence(["UNKNOWN", "NOT READ YET"])
+        self.assertIn("ordinary UNKNOWN state", s)
+        self.assertIn("have not been read yet", s)
+
+    def test_a_ceased_manager_is_named_as_such(self):
+        s, _ = self._sentence(["UNKNOWN", "CEASED"])
+        self.assertIn("no longer file at all", s)
+
+    def test_an_empty_watchlist_is_not_a_finding(self):
+        s, _ = self._sentence([])
+        self.assertEqual(s, "No managers are on the watchlist.")
+        self.assertNotIn("filed anything", s)
+
+    def test_the_summary_uses_the_same_sentence_the_card_renders(self):
+        s, f = self._sentence(["FILED SINCE"] * 2)
+        rep = R.build(board(), {"managers": [
+            {"key": "k0", "name": "M0", "status": "FILING",
+             "activity": {"state": "FILED SINCE", "since": "2026-06-30",
+                          "items": [{"form": "SC 13D", "public_on": "2026-08-02"}]}}]},
+            None, None, week="2026-W36", week_start="2026-08-31")
+        self.assertIn(rep["funds"]["sentence"], rep["summary"]["bullets"])
+
+
 
 class Versioning(unittest.TestCase):
     """The reports are kept forever, so the stamp has to distinguish the
@@ -437,6 +496,9 @@ class Versioning(unittest.TestCase):
         # those who filed during the report's own week. Two stored documents
         # both stamped 1.0.0 would have meant different things.
         self.assertNotEqual(R.HF_REPORT_VERSION, "1.0.0")
+
+    def test_the_version_moved_again_when_the_funds_block_gained_a_field(self):
+        self.assertNotEqual(R.HF_REPORT_VERSION, "1.1.0")
 
 
 

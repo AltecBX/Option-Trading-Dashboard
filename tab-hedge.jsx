@@ -1176,7 +1176,11 @@ function ReportPanel({ apiFetch }) {
           </ul>
         ) : (
           <p className="hf-muted" title={HF_TIP.activity}>
-            No watched manager filed anything{(d.funds || {}).since_text ? ` in the week beginning ${d.funds.since_text}` : " this week"}. {(d.funds || {}).note}
+            {/* Rendered from the report's own sentence, not re-derived here.
+                Deriving it a second time said "no manager filed anything"
+                while the first EDGAR sweep was still running, which the data
+                did not support. */}
+            {(d.funds || {}).sentence} {(d.funds || {}).note}
           </p>
         )}
         {d.funds ? (

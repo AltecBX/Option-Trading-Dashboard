@@ -1542,7 +1542,7 @@ function ReportPanel({
   }, " \xB7 ", f.items.length, " filing", f.items.length === 1 ? "" : "s") : null))) : /*#__PURE__*/React.createElement("p", {
     className: "hf-muted",
     title: HF_TIP.activity
-  }, "No watched manager filed anything", (d.funds || {}).since_text ? ` in the week beginning ${d.funds.since_text}` : " this week", ". ", (d.funds || {}).note), d.funds ? /*#__PURE__*/React.createElement("p", {
+  }, (d.funds || {}).sentence, " ", (d.funds || {}).note), d.funds ? /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
   }, /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.activity

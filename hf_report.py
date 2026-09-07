@@ -47,7 +47,8 @@ import hf_sources as S
 # reports are kept forever, so a stored document has to say which rule
 # produced it: two reports both stamped 1.0.0 would otherwise mean different
 # things. Bump this whenever the stored shape or a field's meaning changes.
-HF_REPORT_VERSION = "1.1.0"
+# 1.1.1 — the funds block carries `sentence`, which the card renders verbatim.
+HF_REPORT_VERSION = "1.1.1"
 
 # The four aggregate questions, in the order the report tells them, with the
 # heading each one is printed under.
@@ -291,6 +292,40 @@ def conflicts(board: dict, press: dict | None) -> list[dict]:
 
 # ── the summary a person reads first ────────────────────────────────────────
 
+def activity_sentence(f: dict) -> str:
+    """One sentence about the named layer that is true in every state.
+
+    Written as an explicit ladder because the first draft used "unknown or
+    ceased" as the only test for having read anything, and fell through to
+    the not-read-yet message whenever every manager was carrying an older
+    filing — telling the reader that managers it had in fact read could not
+    be described. Each branch below states only what its counts support."""
+    total = f.get("n_managers") or 0
+    acted, carrying = f.get("n_acted") or 0, f.get("n_filed_since") or 0
+    unknown, ceased, unread = (f.get("n_unknown") or 0, f.get("n_ceased") or 0,
+                               f.get("n_not_read") or 0)
+    if acted:
+        return f"{acted} watched manager(s) filed something verifiable this week."
+    if not total:
+        return "No managers are on the watchlist."
+    if unread == total:
+        # A fresh start before the first EDGAR sweep finishes. Saying "none
+        # filed anything" here would report an empty cupboard as a finding.
+        return (f"The Named Fund Watch has not finished its first read of EDGAR, so none of the "
+                f"{total} watched managers can be described yet.")
+    parts = []
+    if unknown:
+        parts.append(f"{unknown} remain in the ordinary UNKNOWN state between quarters")
+    if carrying:
+        parts.append(f"{carrying} still carry a filing newer than their last holdings report")
+    if ceased:
+        parts.append(f"{ceased} no longer file at all")
+    if unread:
+        parts.append(f"{unread} have not been read yet")
+    tail = ("; " + ", and ".join(parts)) if parts else ""
+    return f"No watched manager filed anything this week{tail}."
+
+
 def summary(board: dict, sec: dict, cr: dict, funds_block: dict, press: dict | None) -> dict:
     """Plain sentences. Every one of them is a verdict some other module
     reached, and none of them is stronger than that verdict was."""
@@ -313,23 +348,7 @@ def summary(board: dict, sec: dict, cr: dict, funds_block: dict, press: dict | N
         bullets.append("Crowded: " + ", ".join(r["market"] for r in cr["crowded"][:4]) + ".")
     if cr.get("decrowding"):
         bullets.append("De-crowding: " + ", ".join(r["market"] for r in cr["decrowding"][:4]) + ".")
-    if funds_block.get("n_acted"):
-        bullets.append(f"{funds_block['n_acted']} watched manager(s) filed something verifiable "
-                       f"this week.")
-    elif funds_block.get("n_unknown") or funds_block.get("n_ceased"):
-        carrying = funds_block.get("n_filed_since") or 0
-        bullets.append(f"No watched manager filed anything this week; "
-                       f"{funds_block.get('n_unknown', 0)} remain in the ordinary UNKNOWN state "
-                       f"between quarters"
-                       + (f", and {carrying} still carry a filing newer than their last holdings "
-                          f"report." if carrying else "."))
-    else:
-        # Every manager still reads NOT READ YET, which happens on a fresh
-        # start before the first EDGAR sweep finishes. Saying "none filed
-        # anything" there would report an empty cupboard as a finding.
-        bullets.append(f"The Named Fund Watch has not finished its first read of EDGAR, so none "
-                       f"of the {funds_block.get('n_managers', 0)} watched managers can be "
-                       f"described yet.")
+    bullets.append(activity_sentence(funds_block))
     for q in ((press or {}).get("quotes") or [])[:2]:
         bullets.append(f"{q['bank']}, via {q['outlet']}: {q['text']}")
     return {"bullets": bullets,
@@ -403,6 +422,10 @@ def build(board: dict, funds: dict | None = None, press: dict | None = None,
     funds = funds or {}
     sec, cr = sectors(board), crowding(board)
     funds_block = fund_activity(funds, week_start)
+    # The card renders this verbatim rather than re-deriving it from the
+    # counts, so the panel and the summary can never state different things
+    # about the same week.
+    funds_block["sentence"] = activity_sentence(funds_block)
     rep = {
         "version": HF_REPORT_VERSION,
         "pulse_version": board.get("version"),
