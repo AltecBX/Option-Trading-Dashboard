@@ -1045,6 +1045,16 @@ def build_grades() -> dict:
                  "headline": GR.headline(card),
                  "unavailable": ([] if closes else
                                  ["Weekly closes unavailable, so nothing could be graded."])})
+    if not closes:
+        # Nothing was priced, so nothing was graded. Storing this and
+        # stamping it fresh would cache an outage as a finished answer for a
+        # week: the panel would show an empty table, report itself available,
+        # and never retry once the provider came back. It stays stale and
+        # says why instead.
+        with _LOCK:
+            _STATE["grades_error"] = ("No weekly closes were returned, so the record could not "
+                                      "be graded. Nothing was stored; it will try again.")
+        return card
     save_grades(card)
     with _LOCK:
         _STATE.update({"grades": card, "grades_at": card["as_of"], "grades_error": None})

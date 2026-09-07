@@ -100,6 +100,7 @@ const HF_TIP = {
   report_trend: "How persistent each answer has been over the last 2, 4, 8 and 12 weeks. A verdict in its eighth straight week is a different statement from the same verdict in its first, and both are shown.",
   report_filings: "The filings worth a heading this week. Every SCHEDULE 13D by a watched manager, because that is an event with a five-business-day clock. Every amendment to a holdings report, because a restatement changes a number already shown to you. Passive 13G notices are not activity and are not listed here.",
   report_activity: "Watched managers who filed something VERIFIED during THIS report's week. When the list is empty that is the ordinary state, not a failure — a 13F describes one day and arrives 45 days later.",
+  x_handle: "Optional. The manager's own account on X, without the @. Only fill this in for an account you know is theirs — a guessed handle would attribute words to a manager who never said them, so nothing is derived from the name. Posts are read only when the deployment has an X bearer token, and they are rendered as STATEMENTS: a claim, never a position.",
   report_filled_in: "This report was stored before the card wrote this sentence, so it was composed just now from the counts the report does carry — using the wording that was true when it was written, which is not always today's wording. The stored file itself is untouched: a report is a record of a moment and is never rewritten.",
   report_carrying: "Managers whose most recent verified filing is newer than their last quarterly holdings report. That state lasts until the next quarterly report arrives, which can be months, so most of these managers did not file anything this week. It is counted here and kept out of the 'this week' list on purpose.",
   report_watchlist: "Who is being watched, and who moved on or off the list since the previous report. Without a previous report there is nothing to compare against, and the section says so rather than showing empty lists that look like 'no changes'.",
@@ -514,8 +515,15 @@ function HfWatchlistEditor({ apiFetch, onSaved }) {
     const cik = parseInt(form.cik, 10);
     if (!form.name || !cik) { setMsg("A name and a CIK are required."); return; }
     const key = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    const handle = String(form.x || "").trim().replace(/^@/, "");
     const entry = { key, name: form.name, style: form.style || "fund", turnover: form.turnover,
                     ciks: [{ cik, from: null }], feeds: [], news_query: form.name };
+    // Only written when the user supplies a handle. A guessed one would put
+    // words in a manager's mouth, so nothing is derived from the name.
+    if (handle) {
+      entry.x_handle = handle;
+      entry.x_query = `from:${handle} -is:retweet -is:reply`;
+    }
     save({ managers: [...(overlay.managers || []).filter((m) => m.key !== key), entry], removed: (overlay.removed || []).filter((k) => k !== key) });
   };
   const remove = (key) => save({ managers: (overlay.managers || []).filter((m) => m.key !== key),
@@ -534,6 +542,7 @@ function HfWatchlistEditor({ apiFetch, onSaved }) {
             <select value={form.turnover} onChange={(e) => setForm({ ...form, turnover: e.target.value })} title={HF_TIP.turnover}>
               <option value="READABLE">READABLE</option><option value="OPAQUE">OPAQUE</option>
             </select>
+            <input placeholder="X handle (optional)" value={form.x || ""} onChange={(e) => setForm({ ...form, x: e.target.value })} title={HF_TIP.x_handle} />
             <button className="sl-mode" onClick={add}>Add</button>
           </div>
           {reg ? (
@@ -1216,7 +1225,75 @@ function HfGrades({ apiFetch }) {
         </div>
       ) : null}
 
+      <h4 title={HF_TIP.grade_verdicts}>What followed each weekly answer</h4>
       <p className="hf-muted" title={HF_TIP.grade_verdicts}>{(d.verdicts || {}).note}</p>
+      {(() => {
+        const v = d.verdicts || {};
+        const rows = [];
+        Object.entries(v.by_question || {}).forEach(([q, byVerdict]) => {
+          Object.entries(byVerdict || {}).forEach(([verdict, byH]) => rows.push({ q, verdict, byH }));
+        });
+        if (!rows.length) {
+          return (
+            <p className="hf-muted" title={HF_TIP.grade_verdicts}>
+              Nothing yet. The four weekly questions can only be graded from readings the board
+              has stored, and it has {d.n_readings === 1 ? "one" : d.n_readings} so far. They
+              cannot be reconstructed from history the way crowding can, because they need short
+              interest and flows that are not kept.
+            </p>
+          );
+        }
+        return (
+          <div className="scan-table-wrap hf-table-wrap">
+            <table className="scan-table mtable hf-table">
+              <thead>
+                <tr>
+                  <th title={HF_TIP.grade_verdicts}>Question</th>
+                  <th title={HF_TIP.pulse_verdict}>Answer</th>
+                  {(d.horizons || []).map((h) => (
+                    <th key={h} title={HF_TIP.grade_horizon}>{h}w median · weeks</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td data-label="Question">{r.q}</td>
+                    <td data-label="Answer"><b>{r.verdict}</b></td>
+                    {(d.horizons || []).map((h) => {
+                      const s = (r.byH || {})[String(h)] || {};
+                      return (
+                        <td key={h} data-label={`${h}w`} title={HF_TIP.grade_verdicts}
+                            className={s.median > 0 ? "up" : s.median < 0 ? "down" : ""}>
+                          {s.median == null ? "—" : `${(s.median * 100).toFixed(1)}%`}
+                          <span className="hf-muted"> · {s.n || 0}</span>
+                          {s.n && !s.enough ? <span className="hf-muted" title={HF_TIP.grade_interval}> · too few</span> : null}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr>
+                  <td data-label="Question" title={HF_TIP.grade_base}><b>Every week</b></td>
+                  <td data-label="Answer" className="hf-muted">base</td>
+                  {(d.horizons || []).map((h) => {
+                    const s = (v.base || {})[String(h)] || {};
+                    return (
+                      <td key={h} data-label={`${h}w`} title={HF_TIP.grade_base}>
+                        {s.median == null ? "—" : `${(s.median * 100).toFixed(1)}%`}
+                        <span className="hf-muted"> · {s.n || 0}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+      <p className="hf-muted" title={HF_TIP.grade_proxy}>
+        Measured on {(d.verdicts || {}).proxy || "SPY"}, the broad-market proxy.
+      </p>
       {d.limitations && d.limitations.length ? (
         <ul className="hf-notes" title={HF_TIP.grade}>
           {d.limitations.map((l, i) => <li key={i}>{l}</li>)}

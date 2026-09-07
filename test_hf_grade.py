@@ -146,6 +146,45 @@ class Episodes(unittest.TestCase):
         self.assertEqual((e["total_weeks"], e["total_episodes"]), (6, 3))
         self.assertIn("five episodes are five events", e["note"])
 
+class EpisodesMatchTheGradedSample(unittest.TestCase):
+    """The episode count exists to temper the interval, so it has to
+    describe the same rows the interval was computed from."""
+
+    def _rows(self):
+        weeks = week_span("2025-W01", 30)
+        rows = [{"week": w, "market": "S&P 500", "key": "sp500", "state": "CROWDED",
+                 "side": "long"} for w in weeks[:4]]
+        # VIX is never graded; its episodes must not be counted beside a
+        # sample that contains none of its weeks.
+        rows += [{"week": w, "market": "VIX", "key": "vix", "state": "CROWDED",
+                  "side": "long"} for w in weeks[:6]]
+        return rows, weeks
+
+    def test_an_ungraded_market_does_not_inflate_the_episode_count(self):
+        rows, weeks = self._rows()
+        out = G.grade_crowded_weeks(rows, {"SPY": walk(weeks + week_span("2025-W31", 10))},
+                                    min_n=1)
+        self.assertEqual(out["overall"]["1"]["episodes"], 1, "only the S&P run is graded")
+        self.assertNotIn("vix", out["episodes"]["per_market"])
+
+    def test_an_unmatured_episode_is_not_counted_at_a_horizon_it_missed(self):
+        weeks = week_span("2025-W01", 12)
+        rows = [{"week": w, "market": "S&P 500", "key": "sp500", "state": "CROWDED",
+                 "side": "long"} for w in weeks]
+        # Closes stop at week 12, so the 8-week horizon matures for fewer
+        # weeks than the 1-week horizon does.
+        out = G.grade_crowded_weeks(rows, {"SPY": walk(weeks)}, min_n=1)
+        self.assertGreaterEqual(out["overall"]["1"]["crowded"]["n"],
+                                out["overall"]["8"]["crowded"]["n"])
+        self.assertIn("8", out["episodes"]["per_horizon"])
+
+    def test_each_horizon_reports_its_own_count(self):
+        rows, weeks = self._rows()
+        out = G.grade_crowded_weeks(rows, {"SPY": walk(weeks + week_span("2025-W31", 10))},
+                                    min_n=1)
+        self.assertEqual(set(out["episodes"]["per_horizon"]), {"1", "2", "4", "8"})
+
+
 
 class TheBaseRate(unittest.TestCase):
     """The comparison is the finding. A raw share is not."""

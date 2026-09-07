@@ -313,6 +313,22 @@ ok("the config route reports whether the channel is live",
    /"x_statements": _hfsrc\.x_available\(\)/.test(dash));
 
 
+ok("an ungraded market never inflates the episode count",
+   /Episodes are counted per horizon/.test(grade) && /per_horizon/.test(grade));
+ok("a failed close fetch is not cached as a finished grade",
+   /Storing this and\s*\n?\s*# stamping it fresh/.test(scan)
+   && /No weekly closes were returned/.test(scan) && /it will try again/.test(scan));
+ok("the verdict distributions are rendered, not only computed",
+   /What followed each weekly answer/.test(src) && /verdicts \|\| \{\}/.test(src)
+   && /by_question/.test(src) && /v\.base/.test(src));
+ok("at least one manager can actually use the X channel",
+   JSON.parse(read("hf_watchlist.json")).managers.some((m) => m.x_query));
+ok("a handle is never derived from a name",
+   /guessed handle would put words in a manager's mouth/.test(read("hf_watchlist.json"))
+   && /nothing is derived from the name/.test(src));
+ok("the editor can add a handle, with its own tooltip",
+   /X handle \(optional\)/.test(src) && HF_TIPS_OF(src, "x_handle").length > 40);
+
 ok("the version was bumped", /const APP_VERSION = "4\.88"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
