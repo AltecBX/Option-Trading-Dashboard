@@ -121,6 +121,7 @@ def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, n
     _load_latest()
     _load_latest_report()
     _load_grades()
+    _load_replay()
 
 
 def config() -> dict:
@@ -1494,6 +1495,22 @@ def build_replay() -> dict:
         _STATE.update({"replay": card, "replay_at": card["as_of"],
                        "replay_error": None, "replay_retry_at": None})
     return card
+
+
+def _load_replay() -> None:
+    """Bring the stored replay back into memory at start-up.
+
+    It was missing. `configure` loaded the board, the report and the grades
+    but not this, so every deploy ignored a card on disk that takes minutes
+    to rebuild and immediately rebuilt it. The grader never noticed because
+    `replayed_readings` falls back to the file, which is exactly why the
+    hole survived: the expensive path was covered and the cheap one was
+    not."""
+    card = load_replay()
+    if not card:
+        return
+    with _LOCK:
+        _STATE.update({"replay": card, "replay_at": card.get("as_of")})
 
 
 def _replay_stale() -> bool:

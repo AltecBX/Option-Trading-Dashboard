@@ -874,7 +874,21 @@ build** — forty sessions by default — and resumes rather than restarts, so
 the `shorts` answer reaches further back every week and the panel reports
 the depth it has actually reached rather than one it has not.
 
-### 12f. Routes
+### 12f. A card that did not survive a restart
+
+Shipped broken and found on the next deploy. `configure` loaded the stored
+board, the stored report and the stored grades, and not the stored replay —
+so every restart ignored a card on disk that takes minutes to rebuild, and
+immediately rebuilt it.
+
+The grader never noticed, which is exactly why the hole survived:
+`replayed_readings` falls back to reading the file, so the expensive path
+was covered and the cheap one was not. `/api/hf/replay` reported nothing
+available and kicked a full reconstruction on the first look after a deploy.
+
+`_load_replay()` now sits beside the three loaders it was modelled on.
+
+### 12g. Routes
 
 `/api/hf/replay` · `/api/hf/replay/status` · `/api/hf/replay/build`
 

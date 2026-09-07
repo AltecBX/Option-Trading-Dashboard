@@ -1070,3 +1070,43 @@ class TheNamesBehindTheCrowd(Base):
         self.assertEqual(out["version"], NM.HF_NAMES_VERSION)
         self.assertEqual(out["scan_version"], SC.HF_SCAN_VERSION)
         self.assertEqual(out["as_of"], NOW.isoformat(timespec="seconds"))
+
+
+class TheStoredReplaySurvivesARestart(Base):
+    """Every deploy restarts the process. A card that takes minutes to build
+    and is already on disk must come back with it."""
+
+    def test_configure_brings_the_stored_replay_back(self):
+        SC.build_replay()
+        stored = SC._STATE["replay"]["n_weeks"]  # noqa: SLF001
+        self.assertGreater(stored, 0)
+        # A restart: same data directory, empty memory.
+        with SC._LOCK:  # noqa: SLF001
+            SC._STATE.update({"replay": None, "replay_at": None})  # noqa: SLF001
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
+        self.assertIsNotNone(SC._STATE["replay"], "the card on disk was ignored")  # noqa: SLF001
+        self.assertEqual(SC._STATE["replay"]["n_weeks"], stored)  # noqa: SLF001
+
+    def test_and_it_is_not_rebuilt_on_the_first_look(self):
+        # The bug's visible cost: the route reported nothing and kicked a
+        # multi-minute rebuild while a good card sat on disk.
+        SC.build_replay()
+        with SC._LOCK:  # noqa: SLF001
+            SC._STATE.update({"replay": None, "replay_at": None})  # noqa: SLF001
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
+        self.assertFalse(SC._replay_stale(), "a freshly loaded card is not stale")  # noqa: SLF001
+        out = SC.replay()
+        self.assertTrue(out["available"])
+        self.assertFalse(out["refreshing"])
+
+    def test_no_stored_card_is_still_an_honest_empty(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
+        self.assertIsNone(SC._STATE["replay"])  # noqa: SLF001
+        self.assertTrue(SC._replay_stale())  # noqa: SLF001
+
+    def test_a_corrupt_stored_card_does_not_stop_start_up(self):
+        p = Path(self.tmp.name) / "hf" / "replay.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{not json")
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
+        self.assertIsNone(SC._STATE["replay"])  # noqa: SLF001
