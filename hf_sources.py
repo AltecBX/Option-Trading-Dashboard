@@ -1037,3 +1037,47 @@ def ofr_leverage() -> dict:
                     "prev": pts[-2][1] if len(pts) > 1 else None,
                     "n": len(pts)}
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 3 — the prime-broker channel.
+#
+# Goldman Sachs, Morgan Stanley and JPMorgan tell their prime brokerage
+# clients each week what hedge funds did. That research is not public; the
+# wires quote it, and Reuters runs the quotes as its "HEDGE FLOW" series.
+# This fetches the headlines. `hf_press.py` decides which of them say
+# anything, and refuses the ones that do not.
+# ══════════════════════════════════════════════════════════════════════════
+
+TTL["press"] = 3 * 3600.0        # the notes land Monday and Tuesday mornings
+
+PRIME_BROKER_QUERIES = (
+    '"hedge funds" Goldman Sachs prime brokerage',
+    'Reuters HEDGE FLOW hedge funds Goldman Sachs',
+    '"hedge funds" "Morgan Stanley" prime brokerage positioning',
+    '"hedge funds" JPMorgan positioning equities',
+    'hedge funds net leverage gross exposure Goldman',
+    'hedge funds short covering Goldman Sachs',
+)
+
+
+def prime_broker_news(queries: tuple = PRIME_BROKER_QUERIES) -> list[dict]:
+    """Every headline the prime-broker queries return, deduplicated by title.
+
+    One query is not enough: the wires phrase the same note six ways and
+    Google's ranking drops some of them depending on the words asked for. A
+    query that fails is skipped rather than losing the rest — this channel
+    is corroboration, and a partial read of it is still worth having."""
+    seen, out = set(), []
+    for q in queries:
+        try:
+            items = news_items(q)
+        except Exception:  # noqa: BLE001
+            continue
+        for it in items:
+            key = (it.get("title") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(it)
+    return out

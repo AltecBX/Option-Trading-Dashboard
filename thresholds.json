@@ -1069,7 +1069,7 @@
     }
   },
   "hedge": {
-    "_doc": "Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). `watch` is the Named Fund Watch (hf_watch.py) \u2014 how often a manager's EDGAR trail is re-read and how far back statements, press and 13D events are listed. `pulse` is the aggregate layer (hf_scan.py, hf_pulse.py) \u2014 the weekly cadence, how much history the percentiles use, and what counts as crowded.",
+    "_doc": "Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). `watch` is the Named Fund Watch (hf_watch.py) \u2014 how often a manager's EDGAR trail is re-read and how far back statements, press and 13D events are listed. `pulse` is the aggregate layer (hf_scan.py, hf_pulse.py) \u2014 the weekly cadence, how much history the percentiles use, and what counts as crowded. `report` is the weekly report (hf_report.py, hf_press.py) — how old a prime-broker headline may be and still corroborate, how often the report is rebuilt, and how many revisions of a week are kept.",
     "watch": {
       "refresh_hours": 6,
       "statement_days": 45,
@@ -1084,6 +1084,11 @@
       "sector_min_symbols": 25,
       "crowded_percentile": 90,
       "crowded_inputs": 2
+    },
+    "report": {
+      "press_max_age_days": 10,
+      "rebuild_hours": 24,
+      "keep_revisions": 12
     }
   }
 }

@@ -4,12 +4,21 @@ The stateful half of the aggregate layer. It fetches what the sources will
 give, hands it to the pure `hf_pulse` math, and keeps every weekly answer
 forever so "what changed from last week" is a record rather than a claim.
 
-Three things it is careful about:
+It also assembles the weekly report (`hf_report`) from three inputs — this
+board, the Named Fund Watch and the prime-broker headlines — and keeps every
+build of it.
+
+Four things it is careful about:
 
   * **One reading per week, stored under its ISO week.** The CFTC report is
     the clock: positions as of Tuesday, published Friday at 3:30 PM ET. A
     re-run in the same week overwrites that week's snapshot; a run in a new
     week starts a new one and the previous becomes the comparison.
+
+  * **Reports append, snapshots replace.** The board is a measurement and the
+    latest read of it wins. A report is a record of what was known when it
+    was written, so a rebuild adds a revision beside the old one instead of
+    erasing it.
 
   * **A sector roll-up says what it covers.** Short interest arrives for
     twenty-two thousand symbols and the app can place a few thousand of
@@ -31,10 +40,12 @@ import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import hf_press as PRESS
 import hf_pulse as P
+import hf_report as RPT
 import hf_sources as S
 
-HF_SCAN_VERSION = "1.0.0"
+HF_SCAN_VERSION = "1.1.0"
 
 DEFAULTS = {
     "_doc": ("Hedge Fund Pulse (hf_scan.py, HEDGE_FUND_INTEL.md). The aggregate layer. "
@@ -47,6 +58,11 @@ DEFAULTS = {
         "crowded_percentile": 90,   # at or beyond this, on its own history, an input is crowded
         "crowded_inputs": 2,        # this many crowded inputs makes a crowded trade
     },
+    "report": {
+        "press_max_age_days": 10,   # a prime-broker note describes the week just ended
+        "rebuild_hours": 24,        # a stored week is refreshed at most this often
+        "keep_revisions": 12,       # revisions kept per week before the oldest is dropped
+    },
 }
 
 _DATA_DIR: Path | None = None
@@ -54,9 +70,12 @@ _UW_GETTER = None
 _SECTOR_FN = None            # (symbol) -> sector label | None
 _SECTOR_NORM = None          # (label) -> one of the app's eleven names | None
 _NOW_FN = None
+_FUNDS_FN = None             # () -> the Named Fund Watch snapshot
 _LOCK = threading.RLock()
 _STATE: dict = {"board": None, "as_of": None, "refreshing": False, "thread": None,
-                "error": None, "sources": {}, "week": None}
+                "error": None, "sources": {}, "week": None,
+                "report": None, "report_week": None, "report_at": None,
+                "report_refreshing": False, "report_error": None}
 
 SECTOR_ETFS = {"XLB": "Materials", "XLC": "Communication Services", "XLE": "Energy",
                "XLF": "Financials", "XLI": "Industrials", "XLK": "Technology",
@@ -70,16 +89,24 @@ UW_TIDE_SECTORS = {"Basic Materials": "Materials", "Communication Services": "Co
                    "Technology": "Technology", "Utilities": "Utilities"}
 
 
-def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, now_fn=None) -> None:
-    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN
+def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, now_fn=None,
+              funds_fn=None) -> None:
+    """`funds_fn` is the Named Fund Watch snapshot, injected rather than
+    imported. `hf_watch` must not import `hf_scan`, and the report needs
+    both halves; passing the payload in keeps the dependency one-way and
+    lets a test build a report from a fixture with no watch module at all."""
+    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN, _FUNDS_FN
     _DATA_DIR = Path(data_dir) if data_dir else None
     _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN = uw_getter, sector_fn, sector_norm, now_fn
+    _FUNDS_FN = funds_fn
     if _DATA_DIR is not None:
-        try:
-            (_DATA_DIR / "hf" / "pulse").mkdir(parents=True, exist_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        for sub in ("pulse", "reports"):
+            try:
+                (_DATA_DIR / "hf" / sub).mkdir(parents=True, exist_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
     _load_latest()
+    _load_latest_report()
 
 
 def config() -> dict:
@@ -103,6 +130,13 @@ def _knob(name: str):
         return (config().get("pulse") or {}).get(name, DEFAULTS["pulse"][name])
     except Exception:  # noqa: BLE001
         return DEFAULTS["pulse"][name]
+
+
+def _report_knob(name: str):
+    try:
+        return (config().get("report") or {}).get(name, DEFAULTS["report"][name])
+    except Exception:  # noqa: BLE001
+        return DEFAULTS["report"][name]
 
 
 def _now() -> datetime:
@@ -373,6 +407,21 @@ def gather_short_volume() -> dict | None:
             "percentile": P.percentile(shares, shares[0])}
 
 
+def gather_press() -> dict | None:
+    """The prime-broker channel: what the wires quoted the banks saying about
+    hedge fund positioning this week.
+
+    Corroboration only. `hf_press` throws away most of what comes back — the
+    performance stories, the foreign books, the headlines with no bank cited
+    — and what survives enters a verdict at half weight and can never create
+    one."""
+    items = S.prime_broker_news()
+    if not items:
+        return None
+    got = PRESS.build(items, _today(), max_age_days=int(_report_knob("press_max_age_days")))
+    return got or None
+
+
 def gather() -> dict:
     """Every aggregate source, with whatever failed named rather than
     silently missing."""
@@ -386,6 +435,7 @@ def gather() -> dict:
     for name, fn, key in (("Sector ETF flows", gather_etf_flows, "etf_flows"),
                           ("Sector options tide", gather_tide, "tide"),
                           ("Daily short volume", gather_short_volume, "short_volume"),
+                          ("Prime broker press", gather_press, "press"),
                           ("Form PF leverage", S.ofr_leverage, "ofr")):
         try:
             out[key] = fn()
@@ -412,11 +462,13 @@ def build() -> dict:
     raw = gather()
     week = week_key(_today())
     prior = _prior_snapshot(week)
+    press = raw.get("press") or {}
     board = P.build(
         raw.get("cftc") or {},
         etf_flows=raw.get("etf_flows"), tide=raw.get("tide"),
         short_interest=raw.get("short_interest"), short_volume=raw.get("short_volume"),
-        sector_si=raw.get("sector_si"), ofr=raw.get("ofr"), prior=prior)
+        sector_si=raw.get("sector_si"), ofr=raw.get("ofr"), prior=prior,
+        prime_broker=press.get("quotes"))
     cftc_dates = [m.get("as_of") for m in (raw.get("cftc") or {}).values() if m.get("as_of")]
     board.update({
         "week": week, "as_of": _now().isoformat(timespec="seconds"),
@@ -433,7 +485,11 @@ def build() -> dict:
             "etf_flow_as_of": (raw.get("etf_flows") or {}).get("as_of"),
             "tide_sectors": len(raw.get("tide") or {}),
             "ofr_as_of": (raw.get("ofr") or {}).get("lev_top10", {}).get("as_of"),
+            "press_quotes": press.get("n_quotes") or 0,
+            "press_captured": press.get("n_captured") or 0,
+            "press_banks": press.get("banks") or [],
         },
+        "press": press or None,
         "unavailable": raw.get("_failed") or [],
         "dates": {"cftc_as_of": long_date(max(cftc_dates) if cftc_dates else None),
                   "short_interest": long_date((raw.get("short_interest") or {}).get("settlement")),
@@ -555,4 +611,255 @@ def status() -> dict:
                 "available": bool(b), "weeks_stored": len(history(200)),
                 "cftc_as_of": (b or {}).get("cftc_as_of"),
                 "unavailable": (b or {}).get("unavailable") or [],
+                "online": S.available()}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 3 — the weekly report: assemble, store forever, compare.
+#
+# One document per ISO week under hf/reports/<week>.json. A re-run inside the
+# same week does NOT overwrite: it appends a revision, because a report is a
+# record of what was known at a moment and a later rebuild is a second
+# moment, not a correction of the first. The newest revision is the current
+# report; the older ones stay readable.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _report_dir() -> Path | None:
+    return None if _DATA_DIR is None else _DATA_DIR / "hf" / "reports"
+
+
+def _report_path(week: str) -> Path | None:
+    d = _report_dir()
+    return None if d is None else d / f"{week}.json"
+
+
+def week_start(d: date) -> str:
+    """The Monday of the ISO week — the boundary "filed this week" uses."""
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def _read_week_file(week: str) -> dict | None:
+    p = _report_path(week)
+    if p is None or not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def save_report(rep: dict) -> dict | None:
+    """Append this build as a new revision of its week.
+
+    The attribution check runs again here for the same reason the pulse store
+    runs it: a file on disk outlives the code that wrote it, and a stored row
+    that named a fund against anonymous data would be a permanent error."""
+    rows = []
+    for c in rep.get("conclusions") or []:
+        rows.extend(c.get("inputs") or [])
+    if not S.attribution_ok(rows):
+        raise ValueError("refusing to store a report that attributes anonymous data to a fund")
+    week = rep.get("week")
+    p = _report_path(week) if week else None
+    if p is None:
+        return None
+    doc = _read_week_file(week) or {"week": week, "revisions": []}
+    revs = doc.get("revisions") or []
+    revs.append({"revision": len(revs) + 1, "built_at": rep.get("built_at"), "report": rep})
+    keep = int(_report_knob("keep_revisions"))
+    doc["revisions"] = revs[-keep:] if keep > 0 else revs
+    doc["week"] = week
+    doc["n_revisions"] = len(revs)
+    try:
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(doc), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:  # noqa: BLE001
+        return None
+    return doc
+
+
+def report_for(week: str, revision: int | None = None) -> dict | None:
+    """A stored week's report — the newest revision unless one is named."""
+    doc = _read_week_file(week)
+    revs = (doc or {}).get("revisions") or []
+    if not revs:
+        return None
+    if revision is None:
+        return revs[-1].get("report")
+    for r in revs:
+        if int(r.get("revision") or 0) == int(revision):
+            return r.get("report")
+    return None
+
+
+def report_revisions(week: str) -> list[dict]:
+    doc = _read_week_file(week)
+    return [{"revision": r.get("revision"), "built_at": r.get("built_at"),
+             "built_at_text": RPT.long_date(r.get("built_at"))}
+            for r in (doc or {}).get("revisions") or []]
+
+
+def report_history(limit: int = 60) -> list[dict]:
+    """Every stored week, newest first, one line each."""
+    d = _report_dir()
+    if d is None or not d.exists():
+        return []
+    out = []
+    for p in sorted(d.glob("*.json"), reverse=True)[:limit]:
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        revs = doc.get("revisions") or []
+        if not revs:
+            continue
+        row = RPT.digest(revs[-1].get("report") or {})
+        row["n_revisions"] = doc.get("n_revisions") or len(revs)
+        out.append(row)
+    return out
+
+
+def _prior_report(this_week: str) -> dict | None:
+    """The newest stored report from a DIFFERENT week. Rebuilding inside the
+    same week must diff against last week, never against this week's own
+    earlier revision — otherwise "what changed" would report the noise
+    between two builds an hour apart."""
+    d = _report_dir()
+    if d is None or not d.exists():
+        return None
+    for p in sorted(d.glob("*.json"), reverse=True):
+        if p.stem == this_week:
+            continue
+        rep = report_for(p.stem)
+        if rep:
+            return rep
+    return None
+
+
+def _funds() -> dict:
+    if _FUNDS_FN is None:
+        return {}
+    try:
+        return _FUNDS_FN() or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def build_report() -> dict:
+    """Assemble this week's report from the board, the fund watch and the
+    press, then store it as a new revision."""
+    with _LOCK:
+        board = _STATE["board"]
+    if not board:
+        board = build()
+    week = board.get("week") or week_key(_today())
+    rep = RPT.build(board, _funds(), board.get("press"), _prior_report(week),
+                    week=week, built_at=_now().isoformat(timespec="seconds"),
+                    week_start=week_start(_today()))
+    rep["scan_version"] = HF_SCAN_VERSION
+    save_report(rep)
+    with _LOCK:
+        _STATE.update({"report": rep, "report_week": week, "report_at": rep["built_at"],
+                       "report_error": None})
+    return rep
+
+
+def _report_stale() -> bool:
+    with _LOCK:
+        rep, ts = _STATE["report"], _STATE["report_at"]
+    if not rep or not ts:
+        return True
+    if rep.get("week") != week_key(_today()):
+        return True
+    try:
+        then = datetime.fromisoformat(ts)
+    except ValueError:
+        return True
+    return (_now() - then).total_seconds() > float(_report_knob("rebuild_hours")) * 3600.0
+
+
+def _kick_report() -> None:
+    if not S.available():
+        return
+    with _LOCK:
+        if _STATE["report_refreshing"]:
+            return
+        _STATE["report_refreshing"] = True
+
+    def run():
+        try:
+            build_report()
+        except Exception as exc:  # noqa: BLE001
+            with _LOCK:
+                _STATE["report_error"] = str(exc)[:300]
+        finally:
+            with _LOCK:
+                _STATE["report_refreshing"] = False
+
+    t = threading.Thread(target=run, name="hf-report", daemon=True)
+    t.start()
+
+
+def _load_latest_report() -> None:
+    h = report_history(1)
+    if not h:
+        return
+    rep = report_for(h[0]["week"])
+    if rep:
+        with _LOCK:
+            _STATE.update({"report": rep, "report_week": rep.get("week"),
+                           "report_at": rep.get("built_at")})
+
+
+def report(week: str | None = None, revision: int | None = None) -> dict:
+    """The current report, or a stored week's. Builds lazily on first look."""
+    if week:
+        rep = report_for(week, revision)
+        if not rep:
+            return {"ok": False, "available": False, "week": week,
+                    "error": f"no report stored for {week}",
+                    "history": report_history(60)}
+        return {"ok": True, "available": True, **rep,
+                "revisions": report_revisions(week), "history": report_history(60)}
+    if _report_stale():
+        _kick_report()
+    with _LOCK:
+        rep, refreshing, err = _STATE["report"], _STATE["report_refreshing"], _STATE["report_error"]
+    if not rep:
+        return {"ok": True, "available": False, "refreshing": refreshing, "error": err,
+                "version": RPT.HF_REPORT_VERSION, "scan_version": HF_SCAN_VERSION,
+                "note": ("The weekly report has not been assembled yet. It is built from the "
+                         "Pulse, the Named Fund Watch and the prime-broker headlines, once a "
+                         "week on the CFTC's schedule."),
+                "history": report_history(60)}
+    return {"ok": True, "available": True, "refreshing": refreshing, "error": err,
+            **rep, "revisions": report_revisions(rep.get("week") or ""),
+            "history": report_history(60)}
+
+
+def report_compare(week_a: str, week_b: str) -> dict:
+    a, b = report_for(week_a), report_for(week_b)
+    if not a:
+        return {"ok": False, "error": f"no report stored for {week_a}"}
+    if not b:
+        return {"ok": False, "error": f"no report stored for {week_b}"}
+    return RPT.compare(a, b)
+
+
+def report_now() -> dict:
+    build_report()
+    return report_status()
+
+
+def report_status() -> dict:
+    with _LOCK:
+        rep = _STATE["report"]
+        return {"version": RPT.HF_REPORT_VERSION, "press_version": PRESS.HF_PRESS_VERSION,
+                "scan_version": HF_SCAN_VERSION,
+                "week": _STATE["report_week"], "built_at": _STATE["report_at"],
+                "refreshing": _STATE["report_refreshing"], "error": _STATE["report_error"],
+                "available": bool(rep), "weeks_stored": len(report_history(200)),
+                "n_conflicts": (rep or {}).get("n_conflicts"),
+                "n_quotes": ((rep or {}).get("press") or {}).get("n_quotes"),
                 "online": S.available()}
