@@ -78,7 +78,7 @@ _STATE: dict = {"board": None, "as_of": None, "refreshing": False, "thread": Non
                 "report": None, "report_week": None, "report_at": None,
                 "report_refreshing": False, "report_error": None,
                 "grades": None, "grades_at": None, "grades_refreshing": False,
-                "grades_error": None}
+                "grades_error": None, "grades_retry_at": None}
 
 SECTOR_ETFS = {"XLB": "Materials", "XLC": "Communication Services", "XLE": "Energy",
                "XLF": "Financials", "XLI": "Industrials", "XLK": "Technology",
@@ -903,6 +903,7 @@ DEFAULTS["grade"] = {
     "min_history_weeks": 52,    # a reconstructed week needs this much past to rank against
     "min_graded_weeks": 20,     # below this, no share is offered as a finding
     "rebuild_hours": 168,       # once a week; the inputs move once a week
+    "retry_hours": 1,           # cooldown after a build that priced nothing
     "closes_timeframe": "3Y",   # how much weekly candle history to ask for
 }
 
@@ -1049,21 +1050,40 @@ def build_grades() -> dict:
         # Nothing was priced, so nothing was graded. Storing this and
         # stamping it fresh would cache an outage as a finished answer for a
         # week: the panel would show an empty table, report itself available,
-        # and never retry once the provider came back. It stays stale and
-        # says why instead.
+        # and never retry once the provider came back. So it is not stored.
+        #
+        # But "not stored" alone meant "still stale", and every look at the
+        # panel then started another full reconstruction — the panel polls
+        # every twenty seconds while one is running, so an outage spun the
+        # CFTC and proxy calls continuously instead of waiting for the
+        # provider to come back. The retry stamp below is the wait. An
+        # explicit rebuild ignores it, because a person asking is not a loop.
         with _LOCK:
             _STATE["grades_error"] = ("No weekly closes were returned, so the record could not "
-                                      "be graded. Nothing was stored; it will try again.")
+                                      "be graded. Nothing was stored; it will try again in "
+                                      f"{int(_grade_knob('retry_hours'))} hour(s).")
+            _STATE["grades_retry_at"] = (_now() + timedelta(
+                hours=float(_grade_knob("retry_hours")))).isoformat(timespec="seconds")
         return card
     save_grades(card)
     with _LOCK:
-        _STATE.update({"grades": card, "grades_at": card["as_of"], "grades_error": None})
+        _STATE.update({"grades": card, "grades_at": card["as_of"], "grades_error": None,
+                       "grades_retry_at": None})
     return card
 
 
 def _grades_stale() -> bool:
     with _LOCK:
         card, ts = _STATE.get("grades"), _STATE.get("grades_at")
+        retry_at = _STATE.get("grades_retry_at")
+    # A failed build sets a cooldown. Until it passes the answer is "not
+    # yet", not "try again right now".
+    if retry_at:
+        try:
+            if _now() < datetime.fromisoformat(retry_at):
+                return False
+        except ValueError:
+            pass
     if not card or not ts:
         return True
     try:
@@ -1121,6 +1141,7 @@ def grade_status() -> dict:
                 "as_of": _STATE.get("grades_at"),
                 "refreshing": bool(_STATE.get("grades_refreshing")),
                 "error": _STATE.get("grades_error"),
+                "retry_after": _STATE.get("grades_retry_at"),
                 "available": bool(card),
                 "n_market_weeks": (card or {}).get("n_market_weeks"),
                 "n_crowded_weeks_graded": (card or {}).get("n_crowded_weeks_graded"),

@@ -707,7 +707,45 @@ class AFailedGradeIsNotCached(Base):
         SC.build_grades()
         out = SC.grades()
         self.assertFalse(out["available"])
-        self.assertTrue(SC._grades_stale(), "it stays stale so it retries")  # noqa: SLF001
+        # It waits rather than retrying immediately — the cooldown is what
+        # stops an outage becoming a loop of full reconstructions.
+        self.assertFalse(SC._grades_stale())  # noqa: SLF001
+        self.assertTrue(SC.grade_status()["retry_after"])
+
+    def test_a_failed_build_sets_a_cooldown_instead_of_looping(self):
+        # Leaving it permanently stale meant every look at the panel started
+        # another full reconstruction, and the panel polls every twenty
+        # seconds while one runs.
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: None)
+        SC.build_grades()
+        self.assertFalse(SC._grades_stale(), "it waits instead of retrying at once")  # noqa: SLF001
+        self.assertTrue(SC._STATE["grades_retry_at"])  # noqa: SLF001
+        self.assertIn("try again", SC._STATE["grades_error"])  # noqa: SLF001
+
+    def test_the_cooldown_lifts(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: None)
+        SC.build_grades()
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW + timedelta(hours=3),
+                     funds_fn=lambda: self.funds, uw_getter=lambda: None)
+        self.assertTrue(SC._grades_stale(), "after the cooldown it tries again")  # noqa: SLF001
+
+    def test_a_successful_build_clears_the_cooldown(self):
+        # An explicit rebuild does not consult staleness, so it runs while
+        # the cooldown is still standing — a person asking is not a loop —
+        # and a build that priced something has to take the stamp away with
+        # it, or the next automatic refresh would still be held back.
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: None)
+        SC.build_grades()
+        self.assertTrue(SC._STATE["grades_retry_at"])  # noqa: SLF001
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: FakeUW())
+        SC.build_grades()
+        self.assertIsNone(SC._STATE["grades_retry_at"])  # noqa: SLF001
+        self.assertIsNone(SC.grade_status()["retry_after"])
+        self.assertTrue(SC.grades()["available"])
 
     def test_a_successful_grade_is_stored_and_fresh(self):
         SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,

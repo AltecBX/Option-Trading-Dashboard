@@ -82,6 +82,17 @@ def validate(entry: dict) -> list[str]:
         problems.append(f"turnover must be one of {TURNOVER}")
     if entry.get("status", "FILING") not in STATUS:
         problems.append(f"status must be one of {STATUS}")
+    # A handle reaches an X search, so a malformed one is refused at the
+    # door rather than sanitised later. The overlay is user-editable JSON.
+    # The grammar is imported rather than restated so the two cannot drift,
+    # and imported here rather than at module scope so this file stays a
+    # leaf: reading the registry must not pull in the provider stack.
+    if entry.get("x_handle") is not None:
+        import hf_sources as _S
+        if not _S.x_handle_ok(entry.get("x_handle")):
+            problems.append("x_handle must be 1-15 letters, digits or underscore")
+    if entry.get("x_query") is not None:
+        problems.append("x_query is not accepted; give x_handle and the query is composed")
     ciks = entry.get("ciks") or []
     if not ciks:
         problems.append("at least one CIK is required")

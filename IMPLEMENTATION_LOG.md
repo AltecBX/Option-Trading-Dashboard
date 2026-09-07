@@ -3012,3 +3012,39 @@ reconstructed as deep as its own history allows.
 39 grader guards, 12 more in the scan suite on the backfill and the close
 provider, 17 more source guards, two new routes in the HTTP smoke, and a
 browser render of the panel on desktop and phone.
+
+### v4.88 follow-up — two findings on the grader merge, both mine
+
+**A handle could smuggle a query.** The watchlist stored a free-form
+`x_query` beside `x_handle`, and the handle was interpolated into it
+unvalidated. A handle of `BillAckman OR from:someone_else` produced the
+search `from%3ABillAckman+OR+from%3Asomeone_else+…` — printed from the code
+path to be sure — and a second account's posts came back filed under the
+first manager's own words. A STATEMENT is the strongest thing this board
+says about a person, and a watchlist string could forge one.
+
+The free-form query is gone from the data model. `x_handle` must match
+`^[A-Za-z0-9_]{1,15}$`, which is X's own handle grammar and admits no
+space, colon or `OR`; `hf_sources.x_query_for` composes the search from it
+and returns `None` for anything else. `hf_registry.validate` rejects a bad
+handle and rejects an `x_query` key outright rather than ignoring it, so an
+old watchlist fails loudly instead of quietly dropping a field its author
+believed was doing something. The browser editor applies the same rule.
+
+**A failed grade build retried without limit.** The previous fix stopped an
+empty result being stored as a finished card. But not storing it left it
+stale, and the panel polls every twenty seconds while a build runs, so a
+provider outage turned into a continuous loop of full reconstructions. A
+failed build now stamps `grades_retry_at` an hour out and staleness returns
+false until it passes:
+
+    after a failed build:  stale? False   retry_at 2026-09-07T13:00:00+00:00
+    two hours later:       stale? True
+
+The wait is the `hedge.grade.retry_hours` knob and `/api/hf/grades/status`
+reports it as `retry_after`. `grades_now()` still builds on demand — the
+cooldown holds back the automatic retry, not a person asking for one.
+
+Two guards that had been asserting the old behaviour were updated with the
+code, not around it: a scan test that pinned "always stale after a failure",
+and two frontend guards still looking for `x_query`.

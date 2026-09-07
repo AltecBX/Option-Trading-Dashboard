@@ -1094,6 +1094,7 @@
       "min_history_weeks": 52,
       "min_graded_weeks": 20,
       "rebuild_hours": 168,
+      "retry_hours": 1,
       "closes_timeframe": "3Y"
     }
   }

@@ -10,6 +10,7 @@ index, and Michael Burry's Substack feed. Nothing here touches the network.
 
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 
@@ -265,6 +266,49 @@ class Transport(unittest.TestCase):
             S.configure(fetch_fn=None)
             S._MEM.clear()  # noqa: SLF001
         self.assertEqual(len(calls), 1, "the second read is served from memory")
+
+
+class TheXHandleCannotSmuggleAQuery(unittest.TestCase):
+    """A handle reaches an X search. "BillAckman OR from:someone_else" would
+    have returned a second account's posts, and hf_watch files them under
+    the first manager's OWN words — the attribution rule this whole feature
+    is built on. There is no user-supplied query any more."""
+
+    def test_a_real_handle_is_accepted(self):
+        for good in ("BillAckman", "@BillAckman", "a_b1", "x", "a" * 15):
+            self.assertTrue(S.x_handle_ok(good), good)
+
+    def test_anything_else_is_refused(self):
+        for bad in ("Bill Ackman", "a OR from:b", "", None, "a" * 16, "from:x", "a-b", "a.b"):
+            self.assertFalse(S.x_handle_ok(bad), repr(bad))
+
+    def test_the_query_is_composed_not_accepted(self):
+        self.assertEqual(S.x_query_for("@BillAckman"),
+                         "from:BillAckman -is:retweet -is:reply")
+        self.assertIsNone(S.x_query_for("BillAckman OR from:someone_else"))
+
+    def test_a_hostile_handle_sends_no_request_at_all(self):
+        sent = []
+        S.configure_x(lambda url, tok: sent.append(url) or b"{}")
+        os.environ["X_BEARER_TOKEN"] = "t"
+        try:
+            self.assertEqual(S.x_statements("BillAckman OR from:someone_else"), [])
+            self.assertEqual(sent, [], "nothing reached the network")
+            S.x_statements("BillAckman")
+            self.assertEqual(len(sent), 1)
+            self.assertIn("from%3ABillAckman", sent[0])
+            self.assertNotIn("someone_else", sent[0])
+        finally:
+            os.environ.pop("X_BEARER_TOKEN", None)
+            S.configure_x(None)
+
+    def test_the_registry_refuses_a_bad_handle_and_any_query(self):
+        import hf_registry as R
+        base = {"key": "k", "name": "n", "turnover": "READABLE", "ciks": [{"cik": 1}]}
+        self.assertEqual(R.validate({**base, "x_handle": "BillAckman"}), [])
+        self.assertTrue(R.validate({**base, "x_handle": "a OR from:b"}))
+        self.assertTrue(R.validate({**base, "x_query": "from:x"}),
+                        "a free-form query is not accepted at all")
 
 
 if __name__ == "__main__":
