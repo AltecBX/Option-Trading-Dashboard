@@ -127,7 +127,13 @@ class Base(unittest.TestCase):
                     data_dir=self.tmp.name, now_fn=lambda: NOW)
         SC._STATE.update({"board": None, "as_of": None, "refreshing": False,  # noqa: SLF001
                           "error": None, "week": None, "report": None, "report_week": None,
-                          "report_at": None, "report_refreshing": False, "report_error": None})
+                          "report_at": None, "report_refreshing": False, "report_error": None,
+                          # The grade keys reset too. Without this a stored
+                          # card from an earlier test in the same class
+                          # survives into the next one and the failure looks
+                          # like the product's.
+                          "grades": None, "grades_at": None, "grades_refreshing": False,
+                          "grades_error": None})
         self.funds = {"managers": [{"key": "acme", "name": "Acme Capital", "status": "FILING",
                                     "turnover": "READABLE",
                                     "activity": {"state": "UNKNOWN", "since": "2026-06-30",
@@ -682,6 +688,34 @@ class TheCloseProvider(Base):
         for want in ("SPY", "QQQ", "IWM", "DIA", "XLF", "XLK"):
             self.assertIn(want, syms)
         self.assertEqual(len(syms), len(set(syms)))
+
+
+class AFailedGradeIsNotCached(Base):
+    """An outage must not be stored as a finished answer."""
+
+    def test_no_closes_means_nothing_is_stored(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: None)
+        SC.build_grades()
+        self.assertFalse((Path(self.tmp.name) / "hf" / "grades.json").exists())
+        self.assertIsNone(SC._STATE.get("grades_at"))  # noqa: SLF001
+        self.assertIn("could not be graded", SC._STATE.get("grades_error") or "")  # noqa: SLF001
+
+    def test_the_payload_reports_unavailable_rather_than_an_empty_table(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: None)
+        SC.build_grades()
+        out = SC.grades()
+        self.assertFalse(out["available"])
+        self.assertTrue(SC._grades_stale(), "it stays stale so it retries")  # noqa: SLF001
+
+    def test_a_successful_grade_is_stored_and_fresh(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: FakeUW())
+        SC.build_grades()
+        self.assertTrue((Path(self.tmp.name) / "hf" / "grades.json").exists())
+        self.assertFalse(SC._grades_stale())  # noqa: SLF001
+        self.assertTrue(SC.grades()["available"])
 
 
 

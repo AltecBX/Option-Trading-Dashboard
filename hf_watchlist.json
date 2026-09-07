@@ -1,5 +1,5 @@
 {
-  "_doc": "Named Fund Watch seed (HEDGE_FUND_INTEL.md §5a). Every CIK was verified against EDGAR on September 6, 2026. A manager can carry several EDGAR identities over time — `ciks` is ordered oldest first, and a 13F-NT from the current one triggers a successor lookup rather than a 'stopped filing' verdict. `turnover` is READABLE when quarter-on-quarter changes mean something (concentrated books) and OPAQUE when a 13F shows hedging rather than views (multi-strategy, quant). User edits are stored separately in the data directory and overlay this file.",
+  "_doc": "Named Fund Watch seed (HEDGE_FUND_INTEL.md §5a). Every CIK was verified against EDGAR on September 6, 2026. A manager can carry several EDGAR identities over time — `ciks` is ordered oldest first, and a 13F-NT from the current one triggers a successor lookup rather than a 'stopped filing' verdict. `turnover` is READABLE when quarter-on-quarter changes mean something (concentrated books) and OPAQUE when a 13F shows hedging rather than views (multi-strategy, quant). User edits are stored separately in the data directory and overlay this file. `x_query` and `x_handle` are optional, read only when a bearer token is set, and seeded only for a handle verified to exist and to be the manager's own channel \u2014 a guessed handle would put words in a manager's mouth. Bill Ackman states publicly that he uses X to communicate investment ideas. Michael Burry has no seeded handle on purpose: he deletes and deactivates repeatedly, and his Substack is already read as his own channel.",
   "version": 1,
   "managers": [
     {"key": "citadel", "name": "Citadel Advisors", "people": ["Ken Griffin"], "style": "multi-strategy", "turnover": "OPAQUE",
@@ -15,7 +15,8 @@
     {"key": "pershing", "name": "Pershing Square", "people": ["Bill Ackman"], "style": "activist / concentrated", "turnover": "READABLE",
      "ciks": [{"cik": 1336528, "from": null, "to": "2026-03-31", "note": "Pershing Square Capital Management, L.P. — filed a 13F-NT for June 30, 2026"},
               {"cik": 2026053, "from": "2026-03-31", "note": "Pershing Square Inc. — reports the book from Q1 2026"}],
-     "feeds": [], "news_query": "Pershing Square Ackman"},
+     "feeds": [], "news_query": "Pershing Square Ackman",
+     "x_handle": "BillAckman", "x_query": "from:BillAckman -is:retweet -is:reply"},
     {"key": "scion", "name": "Scion Asset Management", "people": ["Michael Burry"], "style": "concentrated / short", "turnover": "READABLE", "status": "CEASED",
      "ciks": [{"cik": 1649339, "from": null, "to": "2025-09-30", "note": "Last 13F-HR filed November 3, 2025 for September 30, 2025; the fund closed in November 2025"}],
      "feeds": [{"kind": "rss", "label": "Cassandra Unchained (Substack)", "url": "https://michaeljburry.substack.com/feed"}],

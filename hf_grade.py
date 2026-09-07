@@ -214,6 +214,13 @@ def grade_crowded_weeks(weeks: list[dict], closes: dict, horizons=HORIZONS,
     like for like: a sector that fell all year would otherwise look as though
     crowding predicted the fall."""
     per_market, overall = {}, {}
+    # Episodes are counted per horizon, from the rows that horizon actually
+    # graded. Counting them once over every reconstructed row and reusing
+    # the total put VIX's three episodes — never graded at all — beside a
+    # sample containing none of its weeks, and did the same for episodes too
+    # recent to have matured. The number exists to temper the interval, so
+    # it has to describe the same population the interval does.
+    graded_rows: dict[int, list] = {h: [] for h in horizons}
     for h in horizons:
         crowded_hits, crowded_n = 0, 0
         base_hits, base_n = 0, 0
@@ -240,6 +247,7 @@ def grade_crowded_weeks(weeks: list[dict], closes: dict, horizons=HORIZONS,
                 hz["crowded_n"] += 1
                 crowded_n += 1
                 hz["crowded_returns"].append(ret)
+                graded_rows[h].append(row)
                 if verdict == REVERSED:
                     hz["crowded_k"] += 1
                     crowded_hits += 1
@@ -255,11 +263,19 @@ def grade_crowded_weeks(weeks: list[dict], closes: dict, horizons=HORIZONS,
             hz["crowded"] = wilson(hz.pop("crowded_k"), hz.pop("crowded_n"))
             hz["base"] = wilson(hz.pop("base_k"), hz.pop("base_n"))
             hz["returns"] = summarize(hz.pop("crowded_returns"), min_n=min_n)
-    eps = episodes(weeks or [])
+    per_horizon = {str(h): episodes(graded_rows[h]) for h in horizons}
     for h in horizons:
-        overall[str(h)]["episodes"] = eps["total_episodes"]
+        overall[str(h)]["episodes"] = per_horizon[str(h)]["total_episodes"]
+    # The per-market row shows the longest horizon's count, which is the
+    # most conservative of the four and the one a reader should carry.
+    longest = str(max(horizons)) if horizons else None
     for key, slot in per_market.items():
-        slot["episodes"] = (eps["per_market"].get(key) or {}).get("episodes")
+        by_market = (per_horizon.get(longest) or {}).get("per_market") or {}
+        slot["episodes"] = (by_market.get(key) or {}).get("episodes")
+    eps = episodes([r for r in (weeks or [])
+                    if GRADE_PROXY.get(r.get("key"))])
+    eps["graded_only"] = True
+    eps["per_horizon"] = {h: v["total_episodes"] for h, v in per_horizon.items()}
     return {"overall": overall, "markets": per_market, "horizons": list(horizons),
             "min_n": min_n, "episodes": eps,
             "not_graded": {k: v for k, v in NOT_GRADED.items()},
