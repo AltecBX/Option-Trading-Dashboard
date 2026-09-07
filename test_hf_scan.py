@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import hf_grade as GR
+import hf_names as NM
 import hf_pulse as P
 import hf_replay as RP
 import hf_report as RPT
@@ -1016,3 +1017,56 @@ class TheFlowHistory(Base):
     def test_a_bare_list_parses_like_an_envelope(self):
         rows = [{"date": "2026-09-04", "change": 7.0}]
         self.assertEqual(SC.parse_in_outflow(rows), SC.parse_in_outflow({"data": rows}))
+
+
+class TheNamesBehindTheCrowd(Base):
+    def _wire(self, rows):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, positions_fn=lambda: rows)
+
+    def test_it_reads_the_injected_positions_not_an_imported_module(self):
+        self._wire([
+            {"key": "a", "name": "Alpha", "turnover": "READABLE", "as_of": "2026-06-30",
+             "top": [{"symbol": "UBER", "issuer": "Uber", "value": 2e9}], "change": {}},
+            {"key": "b", "name": "Beta", "turnover": "READABLE", "as_of": "2026-06-30",
+             "top": [{"symbol": "UBER", "issuer": "Uber", "value": 1e9}], "change": {}},
+        ])
+        out = SC.names()
+        self.assertTrue(out["available"])
+        self.assertEqual([r["name"] for r in out["held"]], ["UBER"])
+        self.assertEqual(out["held"][0]["managers"], ["Alpha", "Beta"])
+
+    def test_an_opaque_book_is_left_out_even_when_it_is_the_biggest(self):
+        self._wire([
+            {"key": "a", "name": "Alpha", "turnover": "READABLE", "as_of": "2026-06-30",
+             "top": [{"symbol": "UBER", "value": 1.0}], "change": {}},
+            {"key": "b", "name": "Beta", "turnover": "READABLE", "as_of": "2026-06-30",
+             "top": [{"symbol": "UBER", "value": 1.0}], "change": {}},
+            {"key": "c", "name": "Citadel Advisors", "turnover": "OPAQUE", "as_of": "2026-06-30",
+             "top": [{"symbol": "UBER", "value": 9e12}], "change": {}},
+        ])
+        out = SC.names()
+        self.assertEqual(out["held"][0]["n_managers"], 2)
+        self.assertNotIn("Citadel Advisors", out["held"][0]["managers"])
+        self.assertEqual(out["basis"]["n_opaque"], 1)
+
+    def test_with_nothing_injected_it_is_unavailable_not_a_crash(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
+        out = SC.names()
+        self.assertFalse(out["available"])
+        self.assertEqual(out["held"], [])
+        self.assertFalse(out["headline"]["available"])
+
+    def test_a_provider_that_throws_is_an_empty_card(self):
+        def boom():
+            raise RuntimeError("EDGAR is down")
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, positions_fn=boom)
+        self.assertFalse(SC.names()["available"])
+
+    def test_the_card_is_stamped_and_versioned(self):
+        self._wire([])
+        out = SC.names()
+        self.assertEqual(out["version"], NM.HF_NAMES_VERSION)
+        self.assertEqual(out["scan_version"], SC.HF_SCAN_VERSION)
+        self.assertEqual(out["as_of"], NOW.isoformat(timespec="seconds"))

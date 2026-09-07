@@ -880,3 +880,62 @@ the depth it has actually reached rather than one it has not.
 
 The week-by-week rows are hundreds of entries that nothing renders, so the
 payload carries the coverage and the sources and leaves them out.
+
+---
+
+## 13. Phase 5B as built (v4.89) — the names behind the crowd
+
+The Pulse could say Financials was crowded without ever putting a ticker on
+screen for the long side. The **short** side already did:
+`hf_pulse.crowded_shorts` reads FINRA's short interest and lists the most
+crowded single-name shorts, anonymously, because that data belongs to
+nobody. This is the long side, and unlike the short side it is fully
+attributable — every row is a named manager's own 13F, so the funds are
+named beside it.
+
+### 13a. Four rules that keep it from becoming fiction
+
+- **An OPAQUE book is not a view.** A multi-strategy or quant 13F shows
+  hedging, index exposure, and the long leg of trades whose short leg never
+  appears in it. §6 already says the fund cards refuse to summarise those as
+  conviction; counting them in a consensus would be that same fiction at
+  scale. Only READABLE managers are counted, and the card names the ones
+  left out. In testing, Citadel held the largest position in the sample and
+  was still correctly absent from every row.
+- **A put is not ownership.** A 13F lists options beside shares. A manager
+  holding puts is betting against the name, and counting that row as one of
+  the funds "in" the stock would report the position exactly backwards.
+  Puts are listed apart, under their own heading. Calls are counted — a call
+  is still a long bet — but flagged, because it is not the same as owning
+  the stock.
+- **It counts what it can actually see.** Only each manager's ten largest
+  positions are stored, so this measures how many readable books hold a name
+  **among their ten largest** — never "most owned", which would need whole
+  books. A name held in eleventh place by everyone would not appear at all,
+  and the card says so.
+- **Different managers, different quarters.** A 13F describes one day and
+  lands 45 days later, and managers do not file together, so a row can mix
+  one manager's June book with another's March. Every row carries the span
+  rather than a single date that would imply they were all true at once.
+
+### 13b. The denominator travels with the count
+
+"Eleven managers agree" means one thing out of eleven and quite another out
+of thirty-two, so the card always shows both, plus how many were left out as
+not readable and how many have not been read yet. A manager never read is
+not silently treated as holding nothing.
+
+### 13c. Position rows never reach the browser
+
+`hf_watch.positions()` is deliberately separate from `snapshot()`. The
+snapshot goes to the browser on every load of the tab, and thirty-two books
+of position rows would be by far the largest thing on it. The consensus
+layer is the only caller that needs them and asks for them separately,
+through an injected `positions_fn` — `hf_scan` still never imports
+`hf_watch`.
+
+### 13d. Route
+
+`/api/hf/names`. Nothing is stored: a 13F changes four times a year, the
+watch already keeps the filings, and a second copy on disk would only be a
+second thing to keep in step with the first.

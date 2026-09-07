@@ -699,6 +699,31 @@ def _summary(rec: dict) -> dict:
                       "amended_on": long_date(h.get("amended_on"))}}
 
 
+def positions() -> list[dict]:
+    """Each read manager's largest positions and quarter-on-quarter changes,
+    with the tickers already resolved.
+
+    Kept out of `snapshot()` on purpose: that payload goes to the browser on
+    every load of the tab, and thirty-two books of position rows would be by
+    far the largest thing on it. The consensus layer is the only caller that
+    needs them, and it asks for them separately."""
+    reg = registry()
+    with _LOCK:
+        recs = dict(_STATE["records"])
+    out = []
+    for entry in reg.get("managers") or []:
+        rec = recs.get(entry["key"])
+        if not rec:
+            continue
+        h = rec.get("holdings") or {}
+        out.append({"key": rec["key"], "name": rec["name"],
+                    "turnover": rec.get("turnover"), "status": rec.get("status"),
+                    "as_of": h.get("as_of"), "public_on": h.get("public_on"),
+                    "top": rec.get("top") or [],
+                    "change": rec.get("change") or {}})
+    return out
+
+
 def snapshot() -> dict:
     if _stale():
         _kick()

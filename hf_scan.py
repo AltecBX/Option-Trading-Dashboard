@@ -41,6 +41,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import hf_grade as GR
+import hf_names as NM
 import hf_press as PRESS
 import hf_pulse as P
 import hf_replay as RP
@@ -73,6 +74,7 @@ _SECTOR_FN = None            # (symbol) -> sector label | None
 _SECTOR_NORM = None          # (label) -> one of the app's eleven names | None
 _NOW_FN = None
 _FUNDS_FN = None             # () -> the Named Fund Watch snapshot
+_POSITIONS_FN = None         # () -> each read manager's largest positions
 _LOCK = threading.RLock()
 _STATE: dict = {"board": None, "as_of": None, "refreshing": False, "thread": None,
                 "error": None, "sources": {}, "week": None,
@@ -96,15 +98,20 @@ UW_TIDE_SECTORS = {"Basic Materials": "Materials", "Communication Services": "Co
 
 
 def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, now_fn=None,
-              funds_fn=None) -> None:
+              funds_fn=None, positions_fn=None) -> None:
     """`funds_fn` is the Named Fund Watch snapshot, injected rather than
     imported. `hf_watch` must not import `hf_scan`, and the report needs
     both halves; passing the payload in keeps the dependency one-way and
-    lets a test build a report from a fixture with no watch module at all."""
-    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN, _FUNDS_FN
+    lets a test build a report from a fixture with no watch module at all.
+    `positions_fn` is the same arrangement for the position rows the
+    consensus layer reads."""
+    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN, _FUNDS_FN, _POSITIONS_FN
     _DATA_DIR = Path(data_dir) if data_dir else None
     _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN = uw_getter, sector_fn, sector_norm, now_fn
     _FUNDS_FN = funds_fn
+    # Separate from funds_fn because the position rows are far larger than
+    # the summary and only the consensus layer wants them.
+    _POSITIONS_FN = positions_fn
     if _DATA_DIR is not None:
         for sub in ("pulse", "reports"):
             try:
@@ -1567,3 +1574,35 @@ def replay_status() -> dict:
                 "n_readings": (card or {}).get("n_readings"),
                 "sources": (card or {}).get("sources"),
                 "online": S.available()}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 5B — the names behind the crowd (HEDGE_FUND_INTEL.md §13)
+#
+# The Pulse says a market is crowded and the short side already names stocks,
+# anonymously, out of FINRA's short interest. This is the long side, and it
+# is attributable: every row comes from a named manager's own 13F.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _positions() -> list[dict]:
+    if _POSITIONS_FN is None:
+        return []
+    try:
+        return _POSITIONS_FN() or []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def names() -> dict:
+    """Which names the readable books agree on, built fresh from what the
+    Named Fund Watch has read.
+
+    Not stored. A 13F changes four times a year and the watch already keeps
+    the filings; another copy on disk would be a second thing to keep in
+    step with the first, and this costs nothing to recompute."""
+    rows = _positions()
+    card = NM.build(rows, as_of=_now().isoformat(timespec="seconds"))
+    card["headline"] = NM.headline(card)
+    card["scan_version"] = HF_SCAN_VERSION
+    return {"ok": True, "available": bool(card["held"] or card["bought"] or card["sold"]),
+            **card}

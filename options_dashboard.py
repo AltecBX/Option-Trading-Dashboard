@@ -5048,6 +5048,7 @@ except Exception as _exc:  # noqa: BLE001
 # and from nothing else — an unmapped position is reported as unmapped.
 try:
     import hf_grade as _hfgrade
+    import hf_names as _hfnames
     import hf_press as _hfpress
     import hf_pulse as _hfpulse
     import hf_replay as _hfreplay
@@ -5069,6 +5070,7 @@ try:
         # aggregate sentence is handed back, so the dependency stays
         # one-way in both directions.
         funds_fn=lambda: _hfwatch.snapshot(),
+        positions_fn=lambda: _hfwatch.positions(),
     )
     _hfwatch.configure(
         data_dir=_STABLE_DIR,
@@ -10544,6 +10546,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(_hfscan.replay_status(), no_store=True)
                 elif section == "replay/build":
                     self._send_json(_hfscan.replay_now(), no_store=True)
+                elif section == "names":
+                    self._send_json(_hfscan.names(), no_store=True)
                 elif section == "press":
                     with _hfscan._LOCK:  # noqa: SLF001
                         board = _hfscan._STATE["board"] or {}  # noqa: SLF001
@@ -10559,6 +10563,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "press": _hfpress.HF_PRESS_VERSION,
                                      "grade": _hfgrade.HF_GRADE_VERSION,
                                      "replay": _hfreplay.HF_REPLAY_VERSION,
+                                     "names": _hfnames.HF_NAMES_VERSION,
                                      "x_statements": _hfsrc.x_available(),
                                      "sources": _hfsrc.HF_SOURCES_VERSION,
                                      "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)

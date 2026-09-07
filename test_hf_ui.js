@@ -392,6 +392,46 @@ ok("the replay routes are served",
    /section == "replay"/.test(dash) && /section == "replay\/status"/.test(dash)
    && /section == "replay\/build"/.test(dash) && /"replay": _hfreplay/.test(dash));
 
+// ── Phase 5B: the names behind the crowd ──────────────────────────────────
+const namesPy = read("hf_names.py");
+
+ok("an opaque book is never counted as a view",
+   /!= READABLE/.test(namesPy) && /def eligible/.test(namesPy)
+   && /why_opaque/.test(namesPy) && /hedging and index exposure/.test(namesPy));
+ok("a put is never counted as ownership",
+   /def _is_put/.test(namesPy) && /if _is_put\(row\):\n                continue/.test(namesPy)
+   && /report the position exactly\n    backwards/.test(namesPy));
+ok("puts are reported separately rather than dropped",
+   /def _puts/.test(namesPy) && /Held as put options/.test(src));
+ok("it never claims most-owned from ten positions",
+   /not how many own it/.test(namesPy) && /eleventh place/.test(namesPy)
+   && /never "most owned", which would need whole books/.test(namesPy)
+   && /Held among the ten largest/.test(src)
+   && !/Most owned/.test(src));
+ok("a 13F carries no shorts and the card says so",
+   /short sales are not reported in/.test(namesPy));
+ok("the denominator travels with the count",
+   /n_counted/.test(namesPy) && /watched managers counted/.test(src));
+ok("rows are VERIFIED, which is what lets them name a fund",
+   /"class": S\.VERIFIED/.test(namesPy) && /HfTag cls="VERIFIED FUND ACTIVITY"/.test(src));
+ok("an unmapped CUSIP is shown by issuer, not dropped",
+   /def _unmapped/.test(namesPy) && /had no ticker in the map/.test(src));
+ok("mixed quarters are shown as a span, never one date",
+   /as_of_first/.test(namesPy) && /as_of_last/.test(namesPy)
+   && /r\.as_of_first === r\.as_of_last/.test(src));
+ok("the position rows are kept out of the browser payload",
+   /def positions\(\)/.test(watch) && /would be by\n    far the largest thing on it/.test(watch)
+   && /positions_fn/.test(scan));
+ok("hf_scan still never imports hf_watch",
+   !/^import hf_watch/m.test(scan) && /_POSITIONS_FN/.test(scan));
+ok("the names section is mounted with its own tooltips",
+   /<HfNames apiFetch/.test(src) && /function HfNames/.test(src)
+   && ["names", "names_opaque", "names_puts", "names_period", "names_who"]
+        .every((k) => HF_TIPS_OF(src, k).length > 60));
+ok("the names route is served",
+   /section == "names"/.test(dash) && /"names": _hfnames/.test(dash)
+   && /positions_fn=lambda/.test(dash));
+
 ok("the version was bumped", /const APP_VERSION = "4\.89"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
