@@ -18,6 +18,7 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import hf_grade as GR
 import hf_pulse as P
 import hf_report as RPT
 import hf_scan as SC
@@ -589,6 +590,18 @@ class TheReportRecord(Base):
         self.assertEqual(st["week"], "2026-W36")
         self.assertEqual(st["weeks_stored"], 1)
         self.assertEqual(st["version"], RPT.HF_REPORT_VERSION)
+        self.assertEqual(st["code_version"], RPT.HF_REPORT_VERSION)
+
+    def test_the_status_version_describes_the_stored_report_not_the_code(self):
+        # A report written under an older version keeps saying so until it
+        # is rebuilt. Reporting the running module's number instead would
+        # claim a shape the stored document does not have.
+        SC.build_report()
+        with SC._LOCK:  # noqa: SLF001
+            SC._STATE["report"]["version"] = "0.9.0"  # noqa: SLF001
+        st = SC.report_status()
+        self.assertEqual(st["version"], "0.9.0", "it describes what is stored")
+        self.assertEqual(st["code_version"], RPT.HF_REPORT_VERSION)
 
 
 class FakeUW:
@@ -755,6 +768,34 @@ class AFailedGradeIsNotCached(Base):
         self.assertFalse(SC._grades_stale())  # noqa: SLF001
         self.assertTrue(SC.grades()["available"])
 
+    def test_the_status_version_describes_the_stored_card_not_the_code(self):
+        # A grade card is rebuilt weekly, so after a deploy the stored one
+        # can be several versions behind. A status saying the new number
+        # while serving the old card is how a counting bug survived a live
+        # check: the field said 1.0.1, the card was 1.0.0, and the count in
+        # it still meant the old thing.
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: FakeUW())
+        SC.build_grades()
+        with SC._LOCK:  # noqa: SLF001
+            SC._STATE["grades"]["version"] = "0.9.0"  # noqa: SLF001
+        st = SC.grade_status()
+        self.assertEqual(st["version"], "0.9.0", "it describes what is stored")
+        self.assertEqual(st["code_version"], GR.HF_GRADE_VERSION)
+
+    def test_the_status_carries_both_crowded_counts(self):
+        # "33 graded" says nothing without "out of 51 crowded", so the route
+        # has to hand both through. The counts are injected rather than
+        # built: this fixture grades no crowded weeks, so a version of this
+        # test that built a card would have compared 0 against 0 and passed
+        # while carrying nothing.
+        with SC._LOCK:  # noqa: SLF001
+            SC._STATE["grades"] = {"version": GR.HF_GRADE_VERSION, "n_market_weeks": 1303,  # noqa: SLF001
+                                   "n_crowded_weeks": 51, "n_crowded_weeks_graded": 33}
+        st = SC.grade_status()
+        self.assertEqual(st["n_market_weeks"], 1303)
+        self.assertEqual(st["n_crowded_weeks"], 51)
+        self.assertEqual(st["n_crowded_weeks_graded"], 33)
 
 
 class WeekKeys(unittest.TestCase):

@@ -3070,3 +3070,19 @@ weeks against a 60% base on 29 graded weeks in 15 episodes, and the
 limitations say in words that the interval is optimistic because those
 weeks are not independent draws. `x_statements` false — no bearer token on
 this deployment — and no `x_query` anywhere in the funds payload.
+
+**And why it survived a live check.** `/api/hf/grades/status` reported the
+running module's version rather than the stored card's, so after the deploy
+it said 1.0.1 while serving a card built under 1.0.0 whose count still meant
+the old thing. Both status routes now report the version of the document
+they describe, with `code_version` beside it. `/api/hf/report/status` had
+the same shape and got the same fix. The panels were never affected — they
+read the card and report endpoints, which carry the stored document's own
+version.
+
+One of the three tests written for this was wrong in the way I have been
+wrong all session: the grade fixture produces no crowded weeks, so
+asserting `graded <= crowded <= market_weeks` compared 0 to 0 to 0 and
+passed while carrying nothing. It now injects known counts and pins the
+route's pass-through, and dropping the field from the route was confirmed
+to fail it.
