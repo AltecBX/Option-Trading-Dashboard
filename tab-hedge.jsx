@@ -1166,6 +1166,15 @@ function ReportPanel({ apiFetch }) {
 
       <section title={HF_TIP.report_activity}>
         <h4 title={HF_TIP.report_activity}>Named fund activity this week</h4>
+        {/* The caveat on a report written before the weekly filter belongs
+            above the list, not only in the empty branch. Revisions 1 and 2
+            on the live store have four "acted" managers whose filings were
+            never limited to the week this heading names. */}
+        {(d.funds || {}).sentence_filled_in && (d.funds || {}).n_acted ? (
+          <p className="hf-conflict" title={HF_TIP.report_filled_in}>
+            {d.funds.sentence} <span className="hf-muted">· written for this report on reading it</span>
+          </p>
+        ) : null}
         {d.funds && d.funds.n_acted ? (
           <ul className="hf-notes">
             {d.funds.acted.map((f) => (
