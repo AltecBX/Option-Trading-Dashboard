@@ -5047,6 +5047,7 @@ except Exception as _exc:  # noqa: BLE001
 # of a held name comes from the app's own board first (the user's sector map)
 # and from nothing else — an unmapped position is reported as unmapped.
 try:
+    import hf_grade as _hfgrade
     import hf_press as _hfpress
     import hf_pulse as _hfpulse
     import hf_report as _hfreport
@@ -10530,6 +10531,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         return
                     out = _hfscan.report_compare(a, b)
                     self._send_json(out, status=200 if out.get("ok") else 404, no_store=True)
+                elif section == "grades":
+                    self._send_json(_hfscan.grades(), no_store=True)
+                elif section == "grades/status":
+                    self._send_json(_hfscan.grade_status(), no_store=True)
+                elif section == "grades/build":
+                    self._send_json(_hfscan.grades_now(), no_store=True)
                 elif section == "press":
                     with _hfscan._LOCK:  # noqa: SLF001
                         board = _hfscan._STATE["board"] or {}  # noqa: SLF001
@@ -10543,6 +10550,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "pulse": _hfpulse.HF_PULSE_VERSION,
                                      "report": _hfreport.HF_REPORT_VERSION,
                                      "press": _hfpress.HF_PRESS_VERSION,
+                                     "grade": _hfgrade.HF_GRADE_VERSION,
+                                     "x_statements": _hfsrc.x_available(),
                                      "sources": _hfsrc.HF_SOURCES_VERSION,
                                      "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)
                 else:

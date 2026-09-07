@@ -342,6 +342,16 @@ def _statements(entry: dict) -> tuple[list[dict], list[dict]]:
         for it in S.feed_items(f["url"]):
             if (it.get("published") or "") >= cut_own:
                 own.append({**it, "channel": f.get("label") or f["url"]})
+    # A manager's own posts on X, when a bearer token exists. Without one
+    # this returns nothing and the card is unchanged, which is the state of
+    # a deployment that never set the token. A post is the manager's own
+    # words, so it joins `own` and is rendered as a STATEMENT — a claim,
+    # never a position.
+    xq = entry.get("x_query")
+    if xq and S.x_available():
+        for it in S.x_statements(xq, handle=entry.get("x_handle")):
+            if (it.get("published") or "") >= cut_own:
+                own.append({**it, "channel": it.get("outlet") or "X"})
     q = entry.get("news_query")
     if q:
         for it in S.news_items(q):

@@ -254,6 +254,8 @@ for p in [
     "/api/hf/report/history?limit=5",
     "/api/hf/report/compare?a=1999-W01&b=1999-W02",
     "/api/hf/press",
+    "/api/hf/grades",
+    "/api/hf/grades/status",
     "/api/gap",
     "/api/gap/config",
     "/api/gap/live",

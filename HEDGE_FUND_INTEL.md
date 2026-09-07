@@ -393,7 +393,7 @@ thresholds under `hedge` in `thresholds.json`.
 | **1 — Named Fund Watch** — *shipped in v4.85* (`hf_registry.py`, `hf_sources.py`, `hf_watch.py`, `tab-hedge.jsx`) | Registry with successors and turnover class; EDGAR 13F ingestion and quarter diff; 13D/13G/13F-NT capture from the daily index; UW cross-check; statements capture; the fund card with both dates and "UNKNOWN"; tests against captured filings | Nothing new — every source verified |
 | **2 — Pulse** | CFTC equity + sector futures with percentiles; FINRA short interest and short volume with sector roll-up; UW sector tide, ETF flows, borrow; the pure `hf_pulse.py` with streaks, persistence, crowding; the Pulse panel | Phase 1 sector map |
 | **3 — Combined + Weekly Report** — *shipped in v4.87* (`hf_press.py`, `hf_report.py`, the Weekly Report panel) | The combined rule on every fund card; press capture (PRIME BROKER quotes); the report builder, store, history and compare; conflicts and confidence | Phases 1–2 |
-| **4 — optional** | X statements if the token is set; Form SHO when published; SSGA fallback (adds `openpyxl`); outcome grading | — |
+| **4 — optional** — *shipped in v4.88* (`hf_grade.py`, the X channel, the grader panel) | X statements if the token is set; Form SHO when published; SSGA fallback (adds `openpyxl`); outcome grading | Phases 1–3 |
 
 Each phase ships as its own PR with tests and a browser render check, the
 same way the last three features did.
@@ -494,6 +494,13 @@ MODEL INFERENCE, and `options_dashboard.py` injects it into `hf_watch` as
 `trend_fn`. `hf_watch` does not import `hf_scan`. The sentence is rendered
 under its own heading with its own date, and no fund's record is computed
 from it.
+
+### Phase 4, since shipped
+
+Section 11 records what each of the four optional channels actually
+returned when it was checked, and what was built as a result. Form SHO is
+still unpublished and the SSGA fallback was declined as redundant; the X
+channel is wired and dormant without a token; the outcome grader is live.
 
 ### Phase 3, since shipped
 
@@ -614,3 +621,75 @@ each other on screen.
 The stored shape changed with the last of these, so `HF_REPORT_VERSION` moved
 to 1.1.0. Reports are kept forever; two documents both stamped 1.0.0 would
 otherwise mean different things by `n_acted`.
+
+---
+
+## 11. Phase 4 as built (v4.88)
+
+Phase 4 was four optional items. Each was checked before anything was
+written, on September 7, 2026:
+
+| Channel | What the check returned | What was built |
+|---|---|---|
+| **SEC Form SHO** aggregates | Still not published. Three data-library paths returned 404 and the markets-data page lists no short-sale data set. | Nothing. The design's "switched off until it exists" stands, now with a second dated check behind it. |
+| **SSGA sector holdings** | Reachable — a real 23 KB xlsx, after a redirect to a different host. | Nothing. It needs an xlsx reader the app does not have, and Unusual Whales already serves the same ETF flows and answered healthy on the day (291 of 40,000 daily calls used). Adding a dependency for a redundant fallback is a cost with no return. |
+| **X statements** | The token's presence cannot be read from outside the deployment. | Built, gated. `hf_sources.x_statements` returns an empty list whenever no bearer token is set, which is most deployments, and a manager's post joins the card as a STATEMENT — a claim, never a position. `/api/hf/config` reports whether the channel is live. |
+| **Outcome grading** | Unusual Whales returns five years of closes in one call and documents a weekly candle whose date is the ISO week's Monday — the same key the board files readings under. | Built. `hf_grade.py`. |
+
+### 11a. Why three years can be graded when one week is stored
+
+Crowding is computed from the CFTC series **and nothing else**. Truncating
+that series so week W is the newest row reproduces exactly what the board
+would have said in week W, with no data that arrived later. So the record
+can be reconstructed back to 2021 and priced.
+
+The four weekly verdicts cannot be reconstructed that way — they need short
+interest, ETF flows and the options tide, none of which are kept
+historically — so they are graded only from readings stored since the board
+began keeping them. Today that is one week, and the panel says so.
+
+The first reconstruction produced **1,303 market-weeks across 194 weeks,
+2021-W21 to 2026-W36**, of which 51 were crowded.
+
+### 11b. What the grader refuses to do
+
+- **It never scores a verdict right or wrong.** "Hedge funds reduced
+  exposure" is a fact about positioning and implies nothing about what the
+  market does next. Scoring it as a forecast would put a claim in the
+  board's mouth. The four questions get a distribution of forward returns
+  beside the distribution across all weeks, and no hit rate.
+- **It always shows the base rate, on the same market.** A sector that fell
+  all year would otherwise make crowding look predictive; with the base rate
+  beside it the lift is zero, which is the truth. A test pins exactly that.
+- **It does not grade a market with no honest proxy.** VIX is the case: its
+  listed funds roll a futures curve, so an eight-week return measures the
+  roll rather than the index.
+
+### 11c. What a random-walk control exposed
+
+Grading the real 1,303-week history against random prices produced an
+8-week crowded reversal share whose 95% interval excluded the base rate — a
+finding, on data with nothing in it. The cause is real and worth stating on
+the card rather than hiding: **crowded weeks arrive in runs and their
+forward windows overlap**, so the Wilson interval, which assumes independent
+draws, is optimistic.
+
+The 51 crowded weeks are only **23 episodes** — Financials alone is 15 weeks
+in 4 episodes. The episode count now travels beside every share, and the
+limitation says in words that the intervals are optimistic and why.
+
+### 11d. Two bugs the first backfill run caught
+
+- **Every reconstructed week carried the same date.** The window was built
+  as `{**market, "series": series[i:]}`, which left the market's original
+  `as_of` untouched, so 204 rows all landed in 2026-W36. The window's own
+  newest date has to be written in.
+- **The shortest series capped every market.** Taking the minimum depth
+  across all twelve markets cut the S&P's 170 weeks down to the 69 the
+  Communication Services contract has. Each market is now reconstructed as
+  deep as its own history allows: 118 weeks for most, 17 for the newest
+  contract.
+
+### 11e. Routes
+
+`/api/hf/grades` · `/api/hf/grades/status` · `/api/hf/grades/build`

@@ -1089,6 +1089,12 @@
       "press_max_age_days": 10,
       "rebuild_hours": 24,
       "keep_revisions": 12
+    },
+    "grade": {
+      "min_history_weeks": 52,
+      "min_graded_weeks": 20,
+      "rebuild_hours": 168,
+      "closes_timeframe": "3Y"
     }
   }
 }

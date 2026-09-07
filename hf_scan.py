@@ -40,12 +40,13 @@ import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import hf_grade as GR
 import hf_press as PRESS
 import hf_pulse as P
 import hf_report as RPT
 import hf_sources as S
 
-HF_SCAN_VERSION = "1.1.0"
+HF_SCAN_VERSION = "1.2.0"
 
 DEFAULTS = {
     "_doc": ("Hedge Fund Pulse (hf_scan.py, HEDGE_FUND_INTEL.md). The aggregate layer. "
@@ -75,7 +76,9 @@ _LOCK = threading.RLock()
 _STATE: dict = {"board": None, "as_of": None, "refreshing": False, "thread": None,
                 "error": None, "sources": {}, "week": None,
                 "report": None, "report_week": None, "report_at": None,
-                "report_refreshing": False, "report_error": None}
+                "report_refreshing": False, "report_error": None,
+                "grades": None, "grades_at": None, "grades_refreshing": False,
+                "grades_error": None}
 
 SECTOR_ETFS = {"XLB": "Materials", "XLC": "Communication Services", "XLE": "Energy",
                "XLF": "Financials", "XLI": "Industrials", "XLK": "Technology",
@@ -107,6 +110,7 @@ def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, n
                 pass
     _load_latest()
     _load_latest_report()
+    _load_grades()
 
 
 def config() -> dict:
@@ -878,4 +882,238 @@ def report_status() -> dict:
                 "available": bool(rep), "weeks_stored": len(report_history(200)),
                 "n_conflicts": (rep or {}).get("n_conflicts"),
                 "n_quotes": ((rep or {}).get("press") or {}).get("n_quotes"),
+                "online": S.available()}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 4 — the outcome grader: did the reading precede the move?
+#
+# Every limitation section since Phase 2 has carried the line "nothing here
+# is calibrated against outcomes yet." This is that calibration.
+#
+# Crowding can be graded across three years because it is computed from the
+# CFTC series and nothing else: truncating that series at week W reproduces
+# exactly what the board would have said in week W, with no data that
+# arrived later. The four weekly verdicts cannot — they need short interest
+# and flows that are not kept historically — so they are graded only from
+# readings stored since the board started keeping them.
+# ══════════════════════════════════════════════════════════════════════════
+
+DEFAULTS["grade"] = {
+    "min_history_weeks": 52,    # a reconstructed week needs this much past to rank against
+    "min_graded_weeks": 20,     # below this, no share is offered as a finding
+    "rebuild_hours": 168,       # once a week; the inputs move once a week
+    "closes_timeframe": "3Y",   # how much weekly candle history to ask for
+}
+
+
+def _grade_knob(name: str):
+    try:
+        return (config().get("grade") or {}).get(name, DEFAULTS["grade"][name])
+    except Exception:  # noqa: BLE001
+        return DEFAULTS["grade"][name]
+
+
+def grade_symbols() -> list[str]:
+    """Every proxy the grader prices, deduplicated."""
+    return sorted({*GR.GRADE_PROXY.values(), *GR.SECTOR_PROXY.values(), "SPY"})
+
+
+def gather_weekly_closes(symbols: list[str] | None = None) -> dict:
+    """One weekly close per ISO week per proxy.
+
+    Unusual Whales returns weekly candles whose `date` is the Monday of the
+    ISO week, which is the key the board already files readings under, so
+    the two line up without any date arithmetic here."""
+    uw = _uw()
+    if uw is None or not hasattr(uw, "ohlc"):
+        return {}
+    tf = str(_grade_knob("closes_timeframe"))
+    out: dict[str, dict] = {}
+    for sym in (symbols or grade_symbols()):
+        try:
+            data = uw.ohlc(sym, "1w", tf)
+        except Exception:  # noqa: BLE001
+            continue
+        # The client unwraps the envelope for some endpoints and not others,
+        # the same difference that broke the sector tide in v4.86.
+        rows = data.get("data") if isinstance(data, dict) else data
+        if not rows:
+            continue
+        by_week = {}
+        for r in rows:
+            try:
+                d = date.fromisoformat(str(r.get("date"))[:10])
+                close = float(r.get("close"))
+            except (TypeError, ValueError):
+                continue
+            by_week[GR.week_key(d)] = close
+        if by_week:
+            out[sym] = by_week
+    return out
+
+
+def crowded_history(cftc: dict, min_history: int | None = None) -> list[dict]:
+    """Crowding as it would have read in every past week.
+
+    Point in time by construction: for week W the series is truncated so
+    that W is the newest row, and `hf_pulse.crowding` sees exactly the
+    history that existed then. Nothing later can leak into the percentile.
+
+    The CFTC report describes Tuesday of week W and is published that
+    Friday, so a reading dated week W was in hand before week W closed —
+    which is why grading forward from week W's own close is fair rather
+    than a peek."""
+    if not cftc:
+        return []
+    floor = int(min_history if min_history is not None else _grade_knob("min_history_weeks"))
+    rows = []
+    # Market by market, each as deep as its OWN series allows. Slicing every
+    # market together to the shortest one's depth cut all twelve down to the
+    # 69 weeks the Communication Services contract has, throwing away two
+    # years of the S&P's history for no reason.
+    for key, m in (cftc or {}).items():
+        series = m.get("series") or []
+        for i in range(max(0, len(series) - floor)):
+            window = series[i:]
+            # `as_of` has to move with the window. Carrying the market's
+            # original as_of labelled every reconstructed week with today's
+            # date, so 204 rows all landed in the same week.
+            one = {key: {**m, "series": window, "as_of": window[0].get("date")}}
+            try:
+                board = P.crowding(one)
+            except Exception:  # noqa: BLE001
+                continue
+            for r in board.get("markets") or []:
+                as_of = r.get("as_of")
+                try:
+                    wk = GR.week_key(date.fromisoformat(str(as_of)[:10]))
+                except (TypeError, ValueError):
+                    continue
+                rows.append({"week": wk, "market": r.get("market"), "key": r.get("key"),
+                             "state": r.get("state"), "side": r.get("side"), "as_of": as_of})
+    return rows
+
+
+# ── the grade store ─────────────────────────────────────────────────────────
+
+def _grade_path() -> Path | None:
+    return None if _DATA_DIR is None else _DATA_DIR / "hf" / "grades.json"
+
+
+def save_grades(card: dict) -> None:
+    p = _grade_path()
+    if p is None:
+        return
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(card), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _load_grades() -> None:
+    p = _grade_path()
+    if p is None or not p.exists():
+        return
+    try:
+        card = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return
+    with _LOCK:
+        _STATE.update({"grades": card, "grades_at": card.get("as_of")})
+
+
+def build_grades() -> dict:
+    """Reconstruct the crowding history, price it, and grade both layers."""
+    raw_cftc = S.cftc_all()
+    weeks = crowded_history(raw_cftc)
+    closes = gather_weekly_closes()
+    readings = [{"week": h.get("week"), "verdicts": h.get("verdicts") or {}}
+                for h in history(400)]
+    card = GR.build(weeks, readings, closes,
+                    min_n=int(_grade_knob("min_graded_weeks")),
+                    source="CFTC Traders in Financial Futures, reconstructed week by week",
+                    as_of=_now().isoformat(timespec="seconds"))
+    card.update({"scan_version": HF_SCAN_VERSION,
+                 "proxies_priced": sorted(closes),
+                 "n_proxies": len(closes),
+                 "cftc_markets": len(raw_cftc),
+                 "min_history_weeks": int(_grade_knob("min_history_weeks")),
+                 "headline": GR.headline(card),
+                 "unavailable": ([] if closes else
+                                 ["Weekly closes unavailable, so nothing could be graded."])})
+    save_grades(card)
+    with _LOCK:
+        _STATE.update({"grades": card, "grades_at": card["as_of"], "grades_error": None})
+    return card
+
+
+def _grades_stale() -> bool:
+    with _LOCK:
+        card, ts = _STATE.get("grades"), _STATE.get("grades_at")
+    if not card or not ts:
+        return True
+    try:
+        then = datetime.fromisoformat(ts)
+    except ValueError:
+        return True
+    return (_now() - then).total_seconds() > float(_grade_knob("rebuild_hours")) * 3600.0
+
+
+def _kick_grades() -> None:
+    if not S.available():
+        return
+    with _LOCK:
+        if _STATE.get("grades_refreshing"):
+            return
+        _STATE["grades_refreshing"] = True
+
+    def run():
+        try:
+            build_grades()
+        except Exception as exc:  # noqa: BLE001
+            with _LOCK:
+                _STATE["grades_error"] = str(exc)[:300]
+        finally:
+            with _LOCK:
+                _STATE["grades_refreshing"] = False
+
+    threading.Thread(target=run, name="hf-grade", daemon=True).start()
+
+
+def grades() -> dict:
+    if _grades_stale():
+        _kick_grades()
+    with _LOCK:
+        card = _STATE.get("grades")
+        refreshing, err = _STATE.get("grades_refreshing"), _STATE.get("grades_error")
+    if not card:
+        return {"ok": True, "available": False, "refreshing": refreshing, "error": err,
+                "version": GR.HF_GRADE_VERSION, "scan_version": HF_SCAN_VERSION,
+                "note": ("The record has not been graded yet. It reconstructs three years of "
+                         "crowding from the CFTC series and prices what followed, which takes "
+                         "about a minute the first time.")}
+    return {"ok": True, "available": True, "refreshing": refreshing, "error": err, **card}
+
+
+def grades_now() -> dict:
+    build_grades()
+    return grade_status()
+
+
+def grade_status() -> dict:
+    with _LOCK:
+        card = _STATE.get("grades")
+        return {"version": GR.HF_GRADE_VERSION, "scan_version": HF_SCAN_VERSION,
+                "as_of": _STATE.get("grades_at"),
+                "refreshing": bool(_STATE.get("grades_refreshing")),
+                "error": _STATE.get("grades_error"),
+                "available": bool(card),
+                "n_market_weeks": (card or {}).get("n_market_weeks"),
+                "n_crowded_weeks_graded": (card or {}).get("n_crowded_weeks_graded"),
+                "n_readings": (card or {}).get("n_readings"),
+                "n_proxies": (card or {}).get("n_proxies"),
                 "online": S.available()}

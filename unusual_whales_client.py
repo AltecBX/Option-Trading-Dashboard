@@ -102,6 +102,10 @@ ENDPOINTS = {
     "spike": "/api/market/spike",
     # Total options volume by ticker, today.
     "ticker_options_volume": "/api/stock/{ticker}/options-volume",
+    # OHLC candles. `candle_size` 1w returns one row per ISO week whose
+    # `date` is that week's Monday, which is the key the hedge fund board
+    # already files its readings under. Used by the outcome grader.
+    "ohlc": "/api/stock/{ticker}/ohlc/{candle_size}",
     # 13F institutions (Hedge Fund Intelligence). `name` accepts a CIK,
     # which is what the dashboard passes — a partial name can match the
     # wrong manager. Cross-check against EDGAR, not a replacement for it.
@@ -133,6 +137,10 @@ TTL_BY_KEY = {
     "institution_activity": 6 * 3600,
     "institution_sectors": 6 * 3600,
     "institutions_latest_filings": 3600,
+    # A weekly candle closes once a week. The grader reads three years of
+    # them for a dozen symbols, so caching this hard is the difference
+    # between a handful of calls and a few hundred.
+    "ohlc": 6 * 3600,
     "sector_tide": 900,
     "_default": 15,
 }
@@ -272,6 +280,15 @@ class UWClient:
         if date:
             p["date"] = date
         return self._get("sector_tide", p)
+
+    def ohlc(self, ticker: str, candle_size: str = "1w",
+             timeframe: str = "3Y") -> Optional[dict]:
+        """Candles for one ticker. Weekly candles carry the ISO week's Monday
+        as their `date`, so they line up with the hedge fund board's week
+        keys without any date arithmetic on this side."""
+        return self._get("ohlc", {"ticker": str(ticker).upper(),
+                                  "candle_size": str(candle_size),
+                                  "timeframe": str(timeframe)})
 
     def rate_snapshot(self) -> dict[str, Any]:
         """Read-only copy of the latest rate-limit info."""

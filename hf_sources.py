@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import re
 import threading
 import time
@@ -1081,3 +1082,87 @@ def prime_broker_news(queries: tuple = PRIME_BROKER_QUERIES) -> list[dict]:
             seen.add(key)
             out.append(it)
     return out
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 4 — a manager's own posts on X, when a token exists.
+#
+# The design has always listed this as optional, and it stays optional here.
+# Without a bearer token every function below returns nothing and says why,
+# which is the state of most deployments. A post is a STATEMENT — a claim,
+# never a position — and it is carried in the same shape as the RSS channel
+# so `hf_watch` renders it identically and cannot mistake it for a filing.
+# ══════════════════════════════════════════════════════════════════════════
+
+X_SEARCH = "https://api.twitter.com/2/tweets/search/recent"
+TTL["x"] = 30 * 60.0
+
+
+def x_token() -> str:
+    """The bearer token, under either name the app has used."""
+    return (os.environ.get("X_BEARER_TOKEN", "").strip()
+            or os.environ.get("TWITTER_BEARER_TOKEN", "").strip())
+
+
+def x_available() -> bool:
+    return bool(x_token())
+
+
+def _default_x_fetch(url: str, token: str) -> bytes:
+    import urllib.request
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept-Encoding": "identity",
+        "User-Agent": "JerryTrade dashboard (hedge fund intelligence)"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read() if resp.status != 204 else b""
+
+
+_X_FETCH = None
+
+
+def configure_x(fetch_fn=None) -> None:
+    """Injected so a test can exercise the parser without a token."""
+    global _X_FETCH
+    _X_FETCH = fetch_fn
+
+
+def parse_x(raw: bytes, handle: str | None = None) -> list[dict]:
+    """X search results in the same shape the RSS channel produces, so a
+    post and a newsletter entry render through one code path."""
+    try:
+        data = json.loads(raw.decode("utf-8", "replace"))
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for t in (data.get("data") or []):
+        text = re.sub(r"\s+", " ", str(t.get("text") or "")).strip()
+        if not text:
+            continue
+        tid = t.get("id")
+        out.append({"title": text[:180], "summary": text[:400],
+                    "published": (t.get("created_at") or "")[:19] + "+00:00"
+                                 if t.get("created_at") else None,
+                    "link": f"https://x.com/i/web/status/{tid}" if tid else None,
+                    "outlet": f"X · {handle}" if handle else "X"})
+    return out
+
+
+def x_statements(query: str, handle: str | None = None, max_results: int = 10) -> list[dict]:
+    """A manager's recent posts, or nothing at all.
+
+    Returns an empty list on every failure path — no token, a rate limit, a
+    changed schema — because this channel is optional and a fund card must
+    not break when an optional channel is quiet."""
+    token = x_token()
+    if not token or not query:
+        return []
+    url = (f"{X_SEARCH}?query={quote_plus(query)}"
+           f"&max_results={max(10, min(int(max_results), 100))}"
+           f"&tweet.fields=created_at")
+    fetch = _X_FETCH or _default_x_fetch
+    try:
+        raw = fetch(url, token)
+    except Exception:  # noqa: BLE001
+        return []
+    return parse_x(raw or b"", handle)
