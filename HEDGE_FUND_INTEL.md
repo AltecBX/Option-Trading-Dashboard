@@ -734,6 +734,23 @@ reports `retry_after` so the panel can say when it will try again instead of
 looking broken. An explicit rebuild still overrides it — the cooldown holds
 back the automatic retry, not the person asking for one.
 
-### 11g. Routes
+### 11g. One week graded four times
+
+Checking the live card turned up a third instance of the same pattern.
+`n_crowded_weeks_graded` was the **sum** of the four per-horizon counts, so
+a week old enough for every horizon to reach it was counted four times: the
+status route read **127** where **33 distinct weeks** had been graded.
+
+It is now the union of what the horizons actually graded, and
+`n_crowded_weeks` — the crowded total, 51 — travels beside it, because "33
+graded" says nothing without "out of 51 crowded, from 1,303 reconstructed".
+Neither the sum nor the maximum would do: the sum double-counts, and the
+shorter horizons grade recent weeks the eight-week horizon cannot reach
+yet, so no single horizon is a superset of the rest. The number was never
+rendered on the panel — it is a diagnostics field — but it was wrong where
+it was read, which is the whole of the problem. `HF_GRADE_VERSION` moved to
+1.0.1 so two cards do not mean different things by the same key.
+
+### 11h. Routes
 
 `/api/hf/grades` · `/api/hf/grades/status` · `/api/hf/grades/build`

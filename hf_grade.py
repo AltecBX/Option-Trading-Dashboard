@@ -47,7 +47,11 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-HF_GRADE_VERSION = "1.0.0"
+# 1.0.1 — `n_crowded_weeks_graded` was the sum of the four per-horizon counts,
+# so one week graded at every horizon was counted four times: it read 127
+# where 33 distinct weeks had been graded. It is now the union, and the
+# crowded total it should be read against travels beside it.
+HF_GRADE_VERSION = "1.0.1"
 
 # How far ahead to look, in weeks. Four horizons because positioning is said
 # to matter over a month or two, not over a day.
@@ -276,8 +280,14 @@ def grade_crowded_weeks(weeks: list[dict], closes: dict, horizons=HORIZONS,
                     if GRADE_PROXY.get(r.get("key"))])
     eps["graded_only"] = True
     eps["per_horizon"] = {h: v["total_episodes"] for h, v in per_horizon.items()}
+    # Distinct crowded market-weeks that at least one horizon could grade.
+    # Adding the four per-horizon counts would count a week graded at every
+    # horizon four times; the shorter horizons also grade recent weeks the
+    # longer ones cannot reach yet, so neither is a maximum either.
+    n_weeks_graded = len({(r.get("week"), r.get("key"))
+                          for rows in graded_rows.values() for r in rows})
     return {"overall": overall, "markets": per_market, "horizons": list(horizons),
-            "min_n": min_n, "episodes": eps,
+            "min_n": min_n, "episodes": eps, "n_weeks_graded": n_weeks_graded,
             "not_graded": {k: v for k, v in NOT_GRADED.items()},
             "reversal_rule": ("A crowded book has a side. It REVERSED when the market moved "
                               "against that side over the horizon, and HELD when it did not. "
@@ -337,10 +347,14 @@ def build(crowded_weeks: list[dict] | None = None, readings: list[dict] | None =
     closes = closes or {}
     crowd = grade_crowded_weeks(crowded_weeks or [], closes, horizons, min_n)
     verdicts = grade_verdicts(readings or [], closes, horizons, min_n)
-    graded = sum((h.get("crowded") or {}).get("n") or 0 for h in crowd["overall"].values())
     return {"version": HF_GRADE_VERSION, "crowding": crowd, "verdicts": verdicts,
             "as_of": as_of, "source": source, "horizons": list(horizons), "min_n": min_n,
-            "n_crowded_weeks_graded": graded,
+            # Distinct weeks, not the sum of the four horizons: a week graded
+            # at every horizon is one week. The crowded total sits beside it
+            # because "33 graded" only means something against "51 crowded".
+            "n_crowded_weeks_graded": crowd.get("n_weeks_graded") or 0,
+            "n_crowded_weeks": sum(1 for r in (crowded_weeks or [])
+                                   if r.get("state") == "CROWDED"),
             "n_readings": len(readings or []),
             "n_market_weeks": len(crowded_weeks or []),
             "limitations": [

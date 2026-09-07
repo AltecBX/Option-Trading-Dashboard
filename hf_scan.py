@@ -1144,6 +1144,7 @@ def grade_status() -> dict:
                 "retry_after": _STATE.get("grades_retry_at"),
                 "available": bool(card),
                 "n_market_weeks": (card or {}).get("n_market_weeks"),
+                "n_crowded_weeks": (card or {}).get("n_crowded_weeks"),
                 "n_crowded_weeks_graded": (card or {}).get("n_crowded_weeks_graded"),
                 "n_readings": (card or {}).get("n_readings"),
                 "n_proxies": (card or {}).get("n_proxies"),

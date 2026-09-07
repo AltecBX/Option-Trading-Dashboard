@@ -302,6 +302,30 @@ class TheCard(unittest.TestCase):
         self.assertEqual(self.card["n_market_weeks"], 40)
         self.assertGreater(self.card["n_crowded_weeks_graded"], 0)
 
+    def test_a_week_graded_at_every_horizon_is_still_one_week(self):
+        # It was the sum of the four per-horizon counts, so it read four
+        # times the truth for any week old enough for all four to reach it:
+        # 127 where 33 weeks had been graded.
+        crowded = [r for r in self.rows if r["state"] == "CROWDED"]
+        self.assertEqual(self.card["n_crowded_weeks"], len(crowded))
+        per_horizon = sum((h.get("crowded") or {}).get("n") or 0
+                          for h in self.card["crowding"]["overall"].values())
+        self.assertLess(self.card["n_crowded_weeks_graded"], per_horizon,
+                        "the union is smaller than the sum, or nothing was double counted")
+        self.assertLessEqual(self.card["n_crowded_weeks_graded"], len(crowded),
+                             "it can never grade more weeks than were crowded")
+        self.assertGreaterEqual(
+            self.card["n_crowded_weeks_graded"],
+            max((h.get("crowded") or {}).get("n") or 0
+                for h in self.card["crowding"]["overall"].values()),
+            "the union covers at least the busiest single horizon")
+
+    def test_the_crowded_total_counts_only_crowded_rows(self):
+        # 51 crowded out of 1,303 reconstructed market-weeks is the shape of
+        # the real record; "graded" means nothing without it beside.
+        self.assertLess(self.card["n_crowded_weeks"], self.card["n_market_weeks"])
+        self.assertEqual(G.build([], [], {}, min_n=5)["n_crowded_weeks"], 0)
+
     def test_the_limitations_state_the_independence_problem(self):
         blob = " ".join(self.card["limitations"]).lower()
         self.assertIn("optimistic", blob)

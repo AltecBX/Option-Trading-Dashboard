@@ -3048,3 +3048,25 @@ cooldown holds back the automatic retry, not a person asking for one.
 Two guards that had been asserting the old behaviour were updated with the
 code, not around it: a scan test that pinned "always stale after a failure",
 and two frontend guards still looking for `x_query`.
+
+**One week graded four times.** Verifying the live grader after the merge
+turned up a third instance of the session's recurring pattern — a value
+correct where it was computed, wrong where it was reused.
+`n_crowded_weeks_graded` summed the four per-horizon counts, so a week old
+enough for every horizon to reach it counted four times: the status route
+read 127 where 33 distinct weeks had been graded. It is now the union of
+what the horizons graded, with `n_crowded_weeks` (51) beside it, since "33
+graded" means nothing without "out of 51 crowded, from 1,303 reconstructed".
+The sum double-counts and no single horizon is a superset — the shorter ones
+grade recent weeks the eight-week horizon cannot reach yet — so neither the
+sum nor the maximum was available as a shortcut. The field is diagnostics
+only and was never rendered, but it was wrong where it was read.
+`HF_GRADE_VERSION` 1.0.1.
+
+**Live after all three fixes.** 1,303 reconstructed market-weeks
+(2021-W21 → 2026-W36), 51 crowded, 11 markets graded and VIX excluded by
+name. Per-horizon episodes 16 / 16 / 16 / 15. Crowding reversed 76% at eight
+weeks against a 60% base on 29 graded weeks in 15 episodes, and the
+limitations say in words that the interval is optimistic because those
+weeks are not independent draws. `x_statements` false — no bearer token on
+this deployment — and no `x_query` anywhere in the funds payload.
