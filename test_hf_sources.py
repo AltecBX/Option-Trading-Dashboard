@@ -11,6 +11,7 @@ index, and Michael Burry's Substack feed. Nothing here touches the network.
 from __future__ import annotations
 
 import os
+import json
 import unittest
 from pathlib import Path
 
@@ -434,3 +435,101 @@ class TheCachesAreBounded(unittest.TestCase):
         S._get(url, ttl=9999)  # noqa: SLF001
         self.assertEqual(S.cache_stats()["memory_entries"], 1)
         self.assertEqual(S.cache_stats()["memory_bytes"], len(body))
+
+
+class RecompressingTheOldRecords(unittest.TestCase):
+    """Entries that expire get rewritten compactly on their own, but EDGAR
+    filings are cached FOREVER and would stay at double size for the life of
+    the volume. Converting them must not change a single byte of any body."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        S._MEM.clear()  # noqa: SLF001
+        S.configure(data_dir=self.tmp.name)
+        self.d = Path(self.tmp.name) / "hf" / "cache"
+        self.d.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        S.configure(fetch_fn=None, post_fn=None)
+        S._MEM.clear()  # noqa: SLF001
+        self.tmp.cleanup()
+
+    def _hex_record(self, name, body, ts=1234.5, kind="doc", url="u"):
+        import json as _json
+        p = self.d / f"{name}.json"
+        p.write_text(_json.dumps({"ts": ts, "kind": kind, "url": url, "hex": body.hex()}))
+        return p
+
+    def test_the_body_survives_byte_for_byte(self):
+        body = bytes(range(256)) * 400
+        p = self._hex_record("a", body)
+        S.recompress_cache()
+        rec = json.loads(p.read_text())
+        self.assertNotIn("hex", rec)
+        self.assertEqual(S._decode(rec), body, "the bytes are identical")  # noqa: SLF001
+
+    def test_the_timestamp_is_preserved_so_freshness_is_unchanged(self):
+        # A converted entry that looked newly fetched would extend its own
+        # TTL and serve stale data.
+        p = self._hex_record("b", b"body", ts=999.0)
+        S.recompress_cache()
+        self.assertEqual(json.loads(p.read_text())["ts"], 999.0)
+
+    def test_it_actually_shrinks_a_real_shaped_body(self):
+        body = (b"Date|Symbol|ShortVolume|TotalVolume\n"
+                b"20260904|AAPL|500000|1000000\n" * 3000)
+        p = self._hex_record("c", body)
+        before = p.stat().st_size
+        out = S.recompress_cache()
+        self.assertEqual(out["rewritten"], 1)
+        self.assertLess(p.stat().st_size, before / 4)
+        self.assertGreater(out["freed_bytes"], 0)
+
+    def test_it_is_idempotent(self):
+        self._hex_record("d", b"x" * 5000)
+        first = S.recompress_cache()
+        second = S.recompress_cache()
+        self.assertEqual(first["rewritten"], 1)
+        self.assertEqual(second["rewritten"], 0)
+        self.assertEqual(second["already_compact"], 1)
+
+    def test_it_is_batched_and_reports_what_is_left(self):
+        for i in range(10):
+            self._hex_record(f"batch{i}", b"y" * 2000)
+        out = S.recompress_cache(limit=4)
+        self.assertEqual(out["rewritten"], 4)
+        self.assertEqual(out["remaining"], 6)
+        while S.recompress_cache(limit=4)["remaining"]:
+            pass
+        self.assertEqual(S.recompress_cache()["rewritten"], 0, "the run completes")
+
+    def test_an_unreadable_record_is_left_alone_not_deleted(self):
+        # A cache entry nobody can read costs a re-fetch; deleting it on a
+        # guess could throw away the only copy of something.
+        p = self.d / "bad.json"
+        p.write_text('{"ts": 1, "kind": "doc", "hex": "not-hex-at-all"}')
+        S.recompress_cache()
+        self.assertTrue(p.exists())
+
+    def test_a_file_that_is_not_json_is_counted_not_crashed_on(self):
+        (self.d / "junk.json").write_text("{not json")
+        out = S.recompress_cache()
+        self.assertGreaterEqual(out["unreadable"], 1)
+
+    def test_a_converted_record_is_still_served_by_get(self):
+        # The whole point: the cache keeps working across the conversion.
+        body = b"still here"
+        url = "https://example.invalid/converted"
+        p = S._cache_path(url)  # noqa: SLF001
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"ts": __import__("time").time(), "kind": "doc",
+                                 "url": url, "hex": body.hex()}))
+        S.recompress_cache()
+        S._MEM.clear()  # noqa: SLF001
+        S.configure(fetch_fn=lambda u: b"REFETCHED", data_dir=self.tmp.name)
+        self.assertEqual(S._get(url, ttl=9999), body, "served from cache, not re-fetched")  # noqa: SLF001
+
+    def test_an_empty_cache_is_not_an_error(self):
+        out = S.recompress_cache()
+        self.assertEqual((out["scanned"], out["rewritten"], out["remaining"]), (0, 0, 0))

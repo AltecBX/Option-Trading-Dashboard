@@ -261,6 +261,7 @@ for p in [
     "/api/hf/names",
     "/api/hf/alerts",
     "/api/hf/cache",
+    "/api/hf/cache/recompress?limit=1",
     "/api/gap",
     "/api/gap/config",
     "/api/gap/live",

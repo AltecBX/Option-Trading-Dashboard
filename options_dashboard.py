@@ -10561,6 +10561,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(_hfscan.alerts(), no_store=True)
                 elif section == "cache":
                     self._send_json(_hfsrc.cache_stats(), no_store=True)
+                elif section == "cache/recompress":
+                    # Batched: hundreds of files, and an HTTP request should
+                    # not hold a connection open while they are rewritten.
+                    try:
+                        lim = int((qs.get("limit", ["200"])[0] or "200"))
+                    except ValueError:
+                        lim = 200
+                    self._send_json(_hfsrc.recompress_cache(limit=max(1, min(lim, 1000))),
+                                    no_store=True)
                 elif section == "cache/prune":
                     # Drops only cache files above the body ceiling — they
                     # will never be written again and are re-fetchable. A
