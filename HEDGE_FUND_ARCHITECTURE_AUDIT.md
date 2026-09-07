@@ -33,9 +33,11 @@ specific structural facts now limit it:
 3. The **cadence of the whole system is bolted to one 12-hour pulse timer**,
    including the alert layer that should follow the filing clock.
 
-None of this is urgent in the sense of being wrong today. Two items *are*
-urgent: an unbounded in-memory cache that my own Phase 5 work now pushes
-hundreds of megabytes through, and an unconfirmed persistence volume.
+None of this is urgent in the sense of being wrong today. Two items *were*
+urgent, and **both are now closed** (September 7, 2026): the unbounded
+caches are bounded — the disk half turned out to be worse than the memory
+half and this audit had understated it (§D1) — and the persistence volume is
+**confirmed attached at `/data`** (§D2).
 
 **PostgreSQL is not justified today** and I recommend against it — the
 evidence is in §F6. A raw observation log in the existing JSON idiom, with
@@ -326,7 +328,11 @@ The real reliability problems are in §D, and the prompt did not find them.
 
 ## D. Important problems the prompt missed
 
-### D1 · `_MEM` is an unbounded in-process cache of raw response bytes (P0 reliability)
+> **RESOLVED — September 7, 2026.** Both D1 and D2 are closed. D1 was fixed
+> and shipped; D2 was confirmed to be a non-issue. The disk half of D1 was
+> **understated below** — see the correction at the end of D1.
+
+### D1 · `_MEM` is an unbounded in-process cache of raw response bytes (P0 reliability) — **FIXED**
 
 `hf_sources._MEM` (`:85`) maps URL → `(timestamp, raw bytes)` and is written
 on **every** fetch (`:187`, `:228`). Nothing evicts it.
@@ -341,21 +347,56 @@ This is the most likely cause of a future out-of-memory restart on Railway,
 and it is a defect I introduced without noticing. It needs an LRU bound or
 a "do not memoise large bodies" rule.
 
+**Correction — the disk half was worse than the memory half, and this audit
+missed it.** `_get` and `_post` wrote every body to the persistent volume as
+**hex**, which is exactly twice the size of the bytes it encodes. Measured on
+a real cached FINRA short-interest page: a 597 KB body occupied 1,195 KB on
+disk — 2.0x — and the local cache directory from two Phase 5 verification
+runs held **323 MB across 329 files**. That is the same paid volume that
+holds the actual record, and unlike memory it is not reclaimed by a restart.
+
+**What shipped:**
+
+- `_MEM` is now an LRU bounded to `MEM_MAX_BYTES` (32 MB), with a read
+  touching its key so eviction takes the least recently *used*. The byte
+  counter self-heals when the dict is cleared directly, which the suites do.
+- A body over `CACHE_MAX_BODY` (2 MB) is returned to the caller and cached
+  **nowhere** — the big FINRA files are read once for a single number, and
+  `hf_scan.gather_shvol_history` already keeps that number.
+- The disk record is gzip + base64 rather than hex: the same 597 KB page now
+  occupies 235 KB, **5.1x smaller than hex**. Records written in the old hex
+  form are still read, because a cache file outlives the code that wrote it.
+- `cache_stats()` and `prune_cache()` are exposed at `/api/hf/cache` and
+  `/api/hf/cache/prune`. Pruning removes files **only by size, never by
+  age**: an oversized file will never be written again, while a small one
+  may be an EDGAR filing cached forever that saves a round trip on every
+  fund card.
+
+Nine tests in `test_hf_sources.py::TheCachesAreBounded`; removing the bounds
+fails two of them.
+
 ### D2 · Persistence depends on a Railway volume that I could not confirm is attached (P0 data loss)
 
 `storage._stable_data_dir()` (`:29-46`) uses `JERRY_DATA_DIR`, else `/data`
 **if that directory exists**, else `~/.jerry-dashboard` — which is wiped on
 every redeploy.
 
-**UNVERIFIED:** `/api/storage/status` returned `{"error", "path"}` only, so
-I could not confirm from outside which branch the deployment is on. Two
-pieces of indirect evidence suggest a volume *is* attached: stored reports
-survived deploys during Phase 3, and the grade card survived the v4.88
-deploy. But the replay card did **not** survive (that was `093a769`, a
-loading bug, not a storage one).
+**CONFIRMED — September 7, 2026: a volume IS attached, and this is not a
+risk.** `/api/watchlist/diag` (`options_dashboard.py:9736` →
+`storage._watchlist_diag`) reports from the live deployment:
 
-This must be confirmed directly. If the volume is not attached, every
-finding about history is moot.
+```
+data_dir           : /data
+JERRY_DATA_DIR env : /data
+watchlist present  : True | symbols: 1276
+```
+
+Better than the `/data`-exists fallback: `JERRY_DATA_DIR` is set explicitly
+as an environment variable, so the ephemeral branch cannot be reached by
+accident. Storage is persistent and every finding about history stands.
+
+The remaining nit is that the ephemeral fallback is silent — a deployment
+that lost its volume would degrade without saying so. That is P3, not P0.
 
 ### D3 · The replay is expensive and rebuilt whole (P2 performance)
 
@@ -419,8 +460,8 @@ return `None` on failure, `make_input` accepts `None`, verdicts degrade to
 
 | Risk | Evidence | Priority |
 |---|---|---|
-| Unbounded `_MEM` holding raw bodies | `hf_sources.py:85,187,228` | **P0** |
-| Persistence volume unconfirmed | `storage.py:33-41`; UNVERIFIED live | **P0** |
+| ~~Unbounded `_MEM`~~ **FIXED**, and the disk cache with it | `hf_sources.py` LRU + body ceiling | ~~P0~~ |
+| ~~Persistence volume unconfirmed~~ **CONFIRMED attached** | `/api/watchlist/diag` → `/data` | ~~P0~~ |
 | Alerts bound to a 12-hour clock they should not be on | §B3 | P1 |
 | Five daemon threads with no supervision or backpressure | `hf_scan.py:577,854,1212,1576`; `hf_watch.py:667` | P2 |
 | An import-time error takes all 20+ hedge routes to 503 | Observed: `[hf_watch] wiring failed: name '_push_configured' is not defined` | P2 |
@@ -448,7 +489,7 @@ timings indicates request-handling pressure.
 
 ## H. Storage risks
 
-- Volume attachment unconfirmed (**P0**, §D2).
+- ~~Volume attachment unconfirmed~~ — confirmed attached at `/data` (§D2).
 - No raw layer, so the archive cannot answer a question it was not designed
   for (**P1**).
 - Growth is trivial in bytes; the risk is *shape*, not size (§C2).
@@ -556,8 +597,8 @@ and none breaks a live feature.
 
 | # | Step | Priority | Why first |
 |---|---|---|---|
-| 1 | Bound `_MEM` (LRU + skip bodies over ~1 MB) | **P0** | Live memory risk today |
-| 2 | Confirm the Railway volume; make the fallback loud rather than silent | **P0** | Everything else assumes durable storage |
+| 1 | ~~Bound `_MEM`~~ **DONE** — plus the disk half, which this audit missed | ~~P0~~ | Shipped September 7, 2026 |
+| 2 | ~~Confirm the Railway volume~~ **DONE — attached at `/data`** | ~~P0~~ | Confirmed September 7, 2026; making the fallback loud drops to P3 |
 | 3 | Move the two render checks into the repo and CI | P1 | They have caught six defects; they are not running |
 | 4 | Add the raw observation log; **write to it from `gather_all` without reading from it yet** | P1 | Starts accumulating history immediately, changes no behaviour |
 | 5 | Stamp every persisted document with `schema` + `engine` + `created_at`; add a reader that refuses an unknown schema rather than guessing | P1 | Closes the drift class |
@@ -606,10 +647,11 @@ real defects are not in the repo.
 
 ### Top 5 changes I would make
 
-1. **Bound `_MEM`** — the only live P0 in the system, and mine.
-2. **Add the append-only observation log**, written to but not yet read
+1. ~~**Bound `_MEM`**~~ — **done**, along with the disk cache this audit
+   understated.
+2. ~~**Confirm the persistence volume**~~ — **done**, attached at `/data`.
+3. **Add the append-only observation log**, written to but not yet read
    from, so history starts accumulating today.
-3. **Confirm the persistence volume** and make the ephemeral fallback loud.
 4. **Move the render checks into CI** — they have the best defect-per-line
    record of anything in the repo.
 5. **Decouple alerts from the pulse clock.**

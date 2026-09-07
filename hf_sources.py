@@ -25,6 +25,8 @@ Sources (HEDGE_FUND_INTEL.md §2):
 
 from __future__ import annotations
 
+import base64
+import gzip
 import hashlib
 import html
 import json
@@ -82,7 +84,27 @@ _POST = None             # (url, body) -> bytes; injected. FINRA's query API onl
 _DATA_DIR: Path | None = None
 _NOW_FN = None
 _LOCK = threading.RLock()
+# Insertion-ordered on purpose: this is an LRU, and a plain dict has kept
+# insertion order since Python 3.7. A read moves its key to the end.
 _MEM: dict[str, tuple[float, object]] = {}
+_MEM_BYTES = 0
+
+# Two ceilings, both learned from measurement rather than guessed.
+#
+# `_MEM` used to be unbounded and held every response body for the life of
+# the process. The Phase 5 short-volume backfill reads forty FINRA daily
+# files per build, several megabytes each, so a single rebuild could add
+# hundreds of megabytes that were never released — the most likely cause of
+# an out-of-memory restart on a small container.
+MEM_MAX_BYTES = 32 * 1024 * 1024
+
+# And the disk cache wrote every body as HEX, which is exactly twice the
+# size of the bytes it encodes — measured at 2.0x on a 597 KB FINRA page.
+# 329 cached files came to 323 MB, on the same paid volume that holds the
+# actual record. A body over this size is now returned to the caller and
+# cached nowhere: the big ones are read once for a single number, and the
+# layer above already keeps that number.
+CACHE_MAX_BODY = 2 * 1024 * 1024
 
 FOREVER = 10 * 365 * 86400.0
 TTL = {"submissions": 6 * 3600.0, "index_today": 3600.0, "ftd": 15 * 86400.0,
@@ -155,23 +177,140 @@ def _cache_path(key: str) -> Path | None:
     return _DATA_DIR / "hf" / "cache" / (hashlib.sha1(key.encode()).hexdigest() + ".json")
 
 
+# ── the two caches, both bounded ────────────────────────────────────────────
+
+def _mem_get(key: str, now: float, ttl: float):
+    """A hit, and a touch: the key moves to the end so eviction takes the
+    least recently USED rather than the least recently written."""
+    with _LOCK:
+        hit = _MEM.get(key)
+        if not hit or now - hit[0] >= ttl:
+            return None
+        _MEM[key] = _MEM.pop(key)
+        return hit[1]
+
+
+def _mem_put(key: str, ts: float, raw: bytes) -> None:
+    """Remember a body, unless it is too big or the budget says otherwise."""
+    global _MEM_BYTES
+    if raw is None or len(raw) > CACHE_MAX_BODY:
+        return
+    with _LOCK:
+        if not _MEM:
+            # Self-heal: the tests clear _MEM directly, and a stale byte
+            # count would then evict everything on the next write.
+            _MEM_BYTES = 0
+        old = _MEM.pop(key, None)
+        if old is not None:
+            _MEM_BYTES -= len(old[1])
+        _MEM[key] = (ts, raw)
+        _MEM_BYTES += len(raw)
+        while _MEM_BYTES > MEM_MAX_BYTES and len(_MEM) > 1:
+            _, evicted = _MEM.pop(next(iter(_MEM)))
+            _MEM_BYTES -= len(evicted)
+
+
+def _decode(rec: dict) -> bytes | None:
+    """A cached body. `gz` is the current form; `hex` is what earlier
+    versions wrote and is still read, because a cache file outlives the code
+    that wrote it and re-fetching everything on deploy day is the opposite
+    of what a cache is for."""
+    if rec.get("gz"):
+        try:
+            return gzip.decompress(base64.b64decode(rec["gz"]))
+        except Exception:  # noqa: BLE001
+            return None
+    if rec.get("hex"):
+        try:
+            return bytes.fromhex(rec["hex"])
+        except ValueError:
+            return None
+    return None
+
+
+def _encode(raw: bytes) -> str:
+    """Gzip, then base64. Hex doubled every body; this shrinks a FINRA page
+    to roughly a sixth of what hex made of it."""
+    return base64.b64encode(gzip.compress(raw)).decode("ascii")
+
+
+def _disk_put(p: Path | None, raw: bytes, kind: str, key: str, ts: float) -> None:
+    if p is None or raw is None or len(raw) > CACHE_MAX_BODY:
+        return
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"ts": ts, "kind": kind, "url": key,
+                                   "gz": _encode(raw)}), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def cache_stats() -> dict:
+    """What the two caches are holding. Exposed so the ceilings can be seen
+    rather than assumed."""
+    with _LOCK:
+        n_mem, mem_bytes = len(_MEM), _MEM_BYTES
+    d = (_DATA_DIR / "hf" / "cache") if _DATA_DIR else None
+    files, disk_bytes, oversize = 0, 0, 0
+    if d is not None and d.exists():
+        for f in d.glob("*.json"):
+            try:
+                size = f.stat().st_size
+            except OSError:
+                continue
+            files += 1
+            disk_bytes += size
+            if size > CACHE_MAX_BODY:
+                oversize += 1
+    return {"memory_entries": n_mem, "memory_bytes": mem_bytes,
+            "memory_limit_bytes": MEM_MAX_BYTES,
+            "disk_files": files, "disk_bytes": disk_bytes,
+            "disk_oversize_files": oversize,
+            "max_body_bytes": CACHE_MAX_BODY}
+
+
+def prune_cache() -> dict:
+    """Drop cache files no longer worth keeping.
+
+    Only by SIZE, never by age. Bodies over the ceiling will never be
+    written again, so they are dead weight; entries under it may be
+    EDGAR documents cached forever, and those save a round trip every time
+    a fund card is built. Removing one of those to reclaim a few kilobytes
+    would trade something useful for nothing."""
+    d = (_DATA_DIR / "hf" / "cache") if _DATA_DIR else None
+    removed, freed = 0, 0
+    if d is not None and d.exists():
+        for f in list(d.glob("*.json")):
+            try:
+                size = f.stat().st_size
+                if size > CACHE_MAX_BODY:
+                    f.unlink()
+                    removed += 1
+                    freed += size
+            except OSError:
+                continue
+    return {"removed": removed, "freed_bytes": freed, "kept_rule":
+            f"files at or under {CACHE_MAX_BODY} bytes are kept, whatever their age"}
+
+
 def _get(url: str, ttl: float, kind: str = "bytes") -> bytes | None:
     """Memory, then disk, then the network. `kind` is only a label in the
     cache record so a human can read the cache directory."""
     now = time.time()
-    with _LOCK:
-        hit = _MEM.get(url)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
+    hit = _mem_get(url, now, ttl)
+    if hit is not None:
+        return hit
     p = _cache_path(url)
     if p is not None and p.exists():
         try:
             rec = json.loads(p.read_text(encoding="utf-8"))
             if now - float(rec.get("ts") or 0) < ttl:
-                raw = bytes.fromhex(rec["hex"])
-                with _LOCK:
-                    _MEM[url] = (float(rec["ts"]), raw)
-                return raw
+                raw = _decode(rec)
+                if raw is not None:
+                    _mem_put(url, float(rec["ts"]), raw)
+                    return raw
         except Exception:  # noqa: BLE001
             pass
     if not available():
@@ -183,16 +322,8 @@ def _get(url: str, ttl: float, kind: str = "bytes") -> bytes | None:
         return None
     if raw is None:
         return None
-    with _LOCK:
-        _MEM[url] = (now, raw)
-    if p is not None:
-        try:
-            tmp = p.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"ts": now, "kind": kind, "url": url,
-                                       "hex": raw.hex()}), encoding="utf-8")
-            tmp.replace(p)
-        except Exception:  # noqa: BLE001
-            pass
+    _mem_put(url, now, raw)
+    _disk_put(p, raw, kind, url, now)
     return raw
 
 
@@ -200,19 +331,18 @@ def _post(url: str, body: bytes, key: str, ttl: float) -> bytes | None:
     """A cached POST. Keyed by `key` rather than the URL, because every page
     of a FINRA pull hits the same URL with a different body."""
     now = time.time()
-    with _LOCK:
-        hit = _MEM.get(key)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
+    hit = _mem_get(key, now, ttl)
+    if hit is not None:
+        return hit
     p = _cache_path(key)
     if p is not None and p.exists():
         try:
             rec = json.loads(p.read_text(encoding="utf-8"))
             if now - float(rec.get("ts") or 0) < ttl:
-                raw = bytes.fromhex(rec["hex"])
-                with _LOCK:
-                    _MEM[key] = (float(rec["ts"]), raw)
-                return raw
+                raw = _decode(rec)
+                if raw is not None:
+                    _mem_put(key, float(rec["ts"]), raw)
+                    return raw
         except Exception:  # noqa: BLE001
             pass
     if not available():
@@ -224,16 +354,8 @@ def _post(url: str, body: bytes, key: str, ttl: float) -> bytes | None:
         return None
     if raw is None:
         return None
-    with _LOCK:
-        _MEM[key] = (now, raw)
-    if p is not None:
-        try:
-            tmp = p.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"ts": now, "kind": "post", "url": key,
-                                       "hex": raw.hex()}), encoding="utf-8")
-            tmp.replace(p)
-        except Exception:  # noqa: BLE001
-            pass
+    _mem_put(key, now, raw)
+    _disk_put(p, raw, "post", key, now)
     return raw
 
 

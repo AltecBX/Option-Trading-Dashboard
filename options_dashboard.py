@@ -10559,6 +10559,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(_hfscan.names(), no_store=True)
                 elif section == "alerts":
                     self._send_json(_hfscan.alerts(), no_store=True)
+                elif section == "cache":
+                    self._send_json(_hfsrc.cache_stats(), no_store=True)
+                elif section == "cache/prune":
+                    # Drops only cache files above the body ceiling — they
+                    # will never be written again and are re-fetchable. A
+                    # filing cached forever is under the ceiling and stays.
+                    self._send_json(_hfsrc.prune_cache(), no_store=True)
                 elif section == "press":
                     with _hfscan._LOCK:  # noqa: SLF001
                         board = _hfscan._STATE["board"] or {}  # noqa: SLF001

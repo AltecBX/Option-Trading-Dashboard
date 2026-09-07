@@ -313,3 +313,124 @@ class TheXHandleCannotSmuggleAQuery(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheCachesAreBounded(unittest.TestCase):
+    """`_MEM` used to hold every response body for the life of the process,
+    and the disk cache wrote each one as hex — exactly twice its size. A
+    single Phase 5 replay build pushed hundreds of megabytes through both."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        S._MEM.clear()  # noqa: SLF001
+        self.served = {}
+        S.configure(fetch_fn=lambda url: self.served.get(url, b"x"),
+                    data_dir=self.tmp.name)
+
+    def tearDown(self):
+        S.configure(fetch_fn=None, post_fn=None)
+        S._MEM.clear()  # noqa: SLF001
+        self.tmp.cleanup()
+
+    def test_memory_never_grows_past_its_ceiling(self):
+        body = b"a" * (256 * 1024)
+        for i in range(400):                      # 100 MB offered
+            url = f"https://example.invalid/{i}"
+            self.served[url] = body
+            S._get(url, ttl=9999)                 # noqa: SLF001
+        stats = S.cache_stats()
+        self.assertLessEqual(stats["memory_bytes"], S.MEM_MAX_BYTES)
+        self.assertLess(stats["memory_entries"], 400, "it evicted rather than grew")
+
+    def test_a_body_over_the_ceiling_is_returned_but_never_cached(self):
+        huge = b"z" * (S.CACHE_MAX_BODY + 1)
+        url = "https://example.invalid/huge"
+        self.served[url] = huge
+        self.assertEqual(S._get(url, ttl=9999), huge, "the caller still gets it")  # noqa: SLF001
+        self.assertEqual(S.cache_stats()["memory_entries"], 0)
+        self.assertEqual(S.cache_stats()["disk_files"], 0, "and nothing reached the volume")
+
+    def test_the_least_recently_used_is_the_one_evicted(self):
+        body = b"b" * (1024 * 1024)
+        for i in range(40):
+            url = f"https://example.invalid/lru{i}"
+            self.served[url] = body
+            S._get(url, ttl=9999)  # noqa: SLF001
+            if i == 0:
+                continue
+            S._get("https://example.invalid/lru0", ttl=9999)   # keep touching the first  # noqa: SLF001
+        self.assertIn("https://example.invalid/lru0", S._MEM,  # noqa: SLF001
+                      "the constantly used entry survived")
+
+    def test_the_disk_cache_no_longer_doubles_the_body(self):
+        # Hex was measured at exactly 2.0x. Gzip plus base64 must beat the
+        # body itself on compressible text, never mind hex.
+        text = (b"Date|Symbol|ShortVolume|TotalVolume\n"
+                b"20260904|AAPL|500000|1000000\n" * 4000)
+        url = "https://example.invalid/finra"
+        self.served[url] = text
+        S._get(url, ttl=9999)  # noqa: SLF001
+        stats = S.cache_stats()
+        self.assertEqual(stats["disk_files"], 1)
+        self.assertLess(stats["disk_bytes"], len(text),
+                        "the record on disk is smaller than the body, not twice it")
+        self.assertLess(stats["disk_bytes"], len(text) * 2 / 6,
+                        "and far smaller than hex would have been")
+
+    def test_a_record_written_by_the_old_version_is_still_read(self):
+        # A cache file outlives the code that wrote it; re-fetching
+        # everything on deploy day is the opposite of what a cache is for.
+        import json as _json
+        url = "https://example.invalid/legacy"
+        p = S._cache_path(url)  # noqa: SLF001
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_json.dumps({"ts": __import__("time").time(), "kind": "bytes",
+                                  "url": url, "hex": b"legacy body".hex()}))
+        self.assertEqual(S._get(url, ttl=9999), b"legacy body")  # noqa: SLF001
+
+    def test_a_corrupt_record_falls_through_to_the_network(self):
+        import json as _json
+        url = "https://example.invalid/corrupt"
+        self.served[url] = b"fresh"
+        p = S._cache_path(url)  # noqa: SLF001
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_json.dumps({"ts": __import__("time").time(), "gz": "not-base64!!"}))
+        self.assertEqual(S._get(url, ttl=9999), b"fresh")  # noqa: SLF001
+
+    def test_pruning_removes_oversized_files_and_keeps_the_rest(self):
+        d = Path(self.tmp.name) / "hf" / "cache"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "big.json").write_text("x" * (S.CACHE_MAX_BODY + 10))
+        (d / "small.json").write_text("x" * 500)
+        out = S.prune_cache()
+        self.assertEqual(out["removed"], 1)
+        self.assertGreater(out["freed_bytes"], S.CACHE_MAX_BODY)
+        self.assertTrue((d / "small.json").exists(), "an EDGAR document cached forever stays")
+        self.assertFalse((d / "big.json").exists())
+
+    def test_pruning_never_removes_by_age(self):
+        # Entries under the ceiling may be filings cached forever, and each
+        # one saves a round trip every time a fund card is built.
+        d = Path(self.tmp.name) / "hf" / "cache"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / "ancient.json"
+        f.write_text('{"ts": 0, "gz": ""}')
+        S.prune_cache()
+        self.assertTrue(f.exists())
+        self.assertIn("whatever their age", S.prune_cache()["kept_rule"])
+
+    def test_clearing_memory_directly_does_not_confuse_the_budget(self):
+        # The suites clear _MEM between tests; a stale byte count would then
+        # evict everything on the next write.
+        body = b"c" * (512 * 1024)
+        for i in range(10):
+            url = f"https://example.invalid/clr{i}"
+            self.served[url] = body
+            S._get(url, ttl=9999)  # noqa: SLF001
+        S._MEM.clear()  # noqa: SLF001
+        url = "https://example.invalid/after"
+        self.served[url] = body
+        S._get(url, ttl=9999)  # noqa: SLF001
+        self.assertEqual(S.cache_stats()["memory_entries"], 1)
+        self.assertEqual(S.cache_stats()["memory_bytes"], len(body))
