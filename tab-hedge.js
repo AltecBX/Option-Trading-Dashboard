@@ -1532,7 +1532,12 @@ function ReportPanel({
     title: HF_TIP.report_activity
   }, /*#__PURE__*/React.createElement("h4", {
     title: HF_TIP.report_activity
-  }, "Named fund activity this week"), d.funds && d.funds.n_acted ? /*#__PURE__*/React.createElement("ul", {
+  }, "Named fund activity this week"), (d.funds || {}).sentence_filled_in && (d.funds || {}).n_acted ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-conflict",
+    title: HF_TIP.report_filled_in
+  }, d.funds.sentence, " ", /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, "\xB7 written for this report on reading it")) : null, d.funds && d.funds.n_acted ? /*#__PURE__*/React.createElement("ul", {
     className: "hf-notes"
   }, d.funds.acted.map(f => /*#__PURE__*/React.createElement("li", {
     key: f.key

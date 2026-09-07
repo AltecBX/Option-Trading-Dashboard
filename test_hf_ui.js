@@ -268,6 +268,10 @@ ok("a legacy count is not relabelled as this week",
 ok("the filled-in sentence says so, with a tooltip",
    HF_TIPS_OF(src, "report_filled_in").length > 40 && /written for this report on reading it/.test(src));
 
+ok("the legacy caveat renders above the acted list, not only when it is empty",
+   /sentence_filled_in && \(d\.funds \|\| \{\}\)\.n_acted/.test(src)
+   && /belongs\s*\n?\s*above the list, not only in the empty branch/.test(src));
+
 ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
