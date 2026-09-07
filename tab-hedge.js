@@ -119,6 +119,11 @@ const HF_TIP = {
   grade_episodes: "How many separate EVENTS the crowded weeks are. Crowding arrives in runs — a book stays crowded for a month — so forty crowded weeks can be five episodes. The intervals on this page are computed as though every week were an independent draw, which makes them OPTIMISTIC. This is the number that should temper them.",
   grade_horizon: "How far ahead the return is measured, in weeks. Positioning is said to matter over a month or two, so four horizons are shown rather than one.",
   grade_source: "Crowding is computed from the CFTC series and nothing else, so truncating that series at each past week reproduces exactly what the board would have said then, with no data that arrived later. That is why three years can be graded when the board only started storing readings in September 2026.",
+  grade_replay: "Most of these weeks were not recorded at the time — the board only began keeping its weekly record in September 2026. They were recomputed afterwards from the data as it stood in each past week: the futures report published that week, the short-interest reading already public, the daily files already out. Nothing that arrived later is allowed in.",
+  grade_recorded: "Weeks the board actually stored at the time. These are answers it really published, not reconstructions.",
+  grade_replayed: "Weeks recomputed afterwards. A question is only recomputed for a week when every input that decides it today was public that week — rebuilt from fewer inputs it would be a different answer wearing the same name, and grading it would tell you nothing about the answers the board really gives.",
+  grade_replay_span: "The oldest week this question could be recomputed for. The four do not reach equally far back, because they do not read the same things: two are decided by the futures report alone and reach as far as it goes, while the others wait for short interest, the daily short-volume share, or ETF creations.",
+  grade_replay_skipped: "The input that was missing for the weeks this question could not reach, and how many weeks it cost. The daily short-volume history deepens by a few dozen sessions on every rebuild, so that answer reaches further back each week rather than all at once.",
   grade_verdicts: "The four weekly questions are NOT scored as right or wrong. 'Hedge funds reduced exposure' is a fact about positioning and implies nothing about what the market does next; scoring it as a forecast would put a claim in the board's mouth. What is shown is the returns that followed each answer, beside the returns across every week.",
   grade_not_graded: "A market with no honest tradable proxy is not graded at all. VIX is the case: its listed funds roll a futures curve, so an eight-week return measures the roll rather than the index.",
   grade_proxy: "A futures position cannot be priced from the CFTC report, so the grade is measured on the fund that market's participants actually track — the S&P 500 contract against SPY, the Financials contract against XLF, and so on.",
@@ -149,6 +154,22 @@ const hfDateTime = s => {
   })} at ${d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit"
+  })}`;
+};
+// "2023-W35" is how the record keys a week, and it is never what a reader
+// should see. This turns it into the Monday that opened it, spelled out.
+const hfWeekLabel = w => {
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(String(w || ""));
+  if (!m) return w ? String(w) : "—";
+  const jan4 = new Date(Date.UTC(Number(m[1]), 0, 4));
+  // ISO week 1 is the one containing January 4th; Monday is day 1.
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - (jan4.getUTCDay() + 6) % 7 + (Number(m[2]) - 1) * 7);
+  return `week of ${monday.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
   })}`;
 };
 const hfMoney = v => {
@@ -1405,6 +1426,18 @@ function HfCompare({
     title: HF_TIP.pulse_sector
   }, "Sectors that moved: ", cmp.sectors.filter(s => !s.same).map(s => `${s.sector} ${s.older || "—"} → ${s.newer || "—"}`).join(" · ")) : null);
 }
+
+// The record keys the four weekly questions by a short word. Spelled out
+// wherever a reader sees them, the way every other header on this board is.
+const HF_QUESTION_NAME = {
+  exposure: "Increasing or reducing exposure",
+  leverage: "Increasing or reducing leverage",
+  longs: "Reducing longs",
+  shorts: "Adding shorts, or covering"
+};
+// "1 week(s)" is not English. Counts of weeks are spelled the way a
+// person would say them.
+const hfWeeks = n => `${hfInt(n)} ${Number(n) === 1 ? "week" : "weeks"}`;
 const hfShare = v => v == null || !isFinite(v) ? "—" : `${(Number(v) * 100).toFixed(0)}%`;
 const hfLift = v => v == null || !isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${(Number(v) * 100).toFixed(1)}%`;
 function HfGrades({
@@ -1578,7 +1611,48 @@ function HfGrades({
   }, "What followed each weekly answer"), /*#__PURE__*/React.createElement("p", {
     className: "hf-muted",
     title: HF_TIP.grade_verdicts
-  }, (d.verdicts || {}).note), (() => {
+  }, (d.verdicts || {}).note), d.readings_from ? /*#__PURE__*/React.createElement("p", {
+    className: "sl-status",
+    title: HF_TIP.grade_replay
+  }, /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.grade_recorded
+  }, hfWeeks(d.readings_from.recorded), " the board recorded"), /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.grade_replayed
+  }, " \xB7 ", hfWeeks(d.readings_from.replayed), " recomputed from data as it stood then"), d.readings_from.replay_version ? /*#__PURE__*/React.createElement("span", null, " \xB7 replay ", d.readings_from.replay_version) : null) : null, (d.replay_coverage || {}).by_question ? /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_verdicts
+  }, "Question"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_replayed
+  }, "Weeks recomputed"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_replay_span
+  }, "Reaches back to"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_replay_skipped
+  }, "Why it stops there"))), /*#__PURE__*/React.createElement("tbody", null, Object.entries(d.replay_coverage.by_question).map(([q, c]) => /*#__PURE__*/React.createElement("tr", {
+    key: q
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Question"
+  }, HF_QUESTION_NAME[q] || q), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Weeks recomputed",
+    title: HF_TIP.grade_replayed
+  }, hfInt(c.n_weeks)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Reaches back to",
+    title: HF_TIP.grade_replay_span
+  }, c.first ? hfWeekLabel(c.first) : /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, "not yet")), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Why it stops there",
+    title: HF_TIP.grade_replay_skipped
+  }, (c.why_skipped || []).length ? /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, c.why_skipped[0].reason, " (", hfWeeks(c.why_skipped[0].weeks), ")") : /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, "nothing was missing"))))))) : null, (d.replay_coverage || {}).note ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.grade_replay
+  }, d.replay_coverage.note) : null, (() => {
     const v = d.verdicts || {};
     const rows = [];
     Object.entries(v.by_question || {}).forEach(([q, byVerdict]) => {
@@ -1592,7 +1666,7 @@ function HfGrades({
       return /*#__PURE__*/React.createElement("p", {
         className: "hf-muted",
         title: HF_TIP.grade_verdicts
-      }, "Nothing yet. The four weekly questions can only be graded from readings the board has stored, and it has ", d.n_readings === 1 ? "one" : d.n_readings, " so far. They cannot be reconstructed from history the way crowding can, because they need short interest and flows that are not kept.");
+      }, "Nothing yet. The four weekly questions are graded from ", d.n_readings === 1 ? "one week" : `${d.n_readings} weeks`, " of record \u2014 the weeks the board stored, plus every past week it could recompute from the data as it stood then. A question is only recomputed when every input that decides it today was public that week, so some reach further back than others. The table below says how far each got.");
     }
     return /*#__PURE__*/React.createElement("div", {
       className: "scan-table-wrap hf-table-wrap"
@@ -1609,7 +1683,7 @@ function HfGrades({
       key: i
     }, /*#__PURE__*/React.createElement("td", {
       "data-label": "Question"
-    }, r.q), /*#__PURE__*/React.createElement("td", {
+    }, HF_QUESTION_NAME[r.q] || r.q), /*#__PURE__*/React.createElement("td", {
       "data-label": "Answer"
     }, /*#__PURE__*/React.createElement("b", null, r.verdict)), (d.horizons || []).map(h => {
       const s = (r.byH || {})[String(h)] || {};

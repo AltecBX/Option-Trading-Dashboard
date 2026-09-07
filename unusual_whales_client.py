@@ -106,6 +106,7 @@ ENDPOINTS = {
     # `date` is that week's Monday, which is the key the hedge fund board
     # already files its readings under. Used by the outcome grader.
     "ohlc": "/api/stock/{ticker}/ohlc/{candle_size}",
+    "etf_in_outflow": "/api/etfs/{ticker}/in-outflow",
     # 13F institutions (Hedge Fund Intelligence). `name` accepts a CIK,
     # which is what the dashboard passes — a partial name can match the
     # wrong manager. Cross-check against EDGAR, not a replacement for it.
@@ -141,6 +142,7 @@ TTL_BY_KEY = {
     # them for a dozen symbols, so caching this hard is the difference
     # between a handful of calls and a few hundred.
     "ohlc": 6 * 3600,
+    "etf_in_outflow": 6 * 3600,
     "sector_tide": 900,
     "_default": 15,
 }
@@ -289,6 +291,21 @@ class UWClient:
         return self._get("ohlc", {"ticker": str(ticker).upper(),
                                   "candle_size": str(candle_size),
                                   "timeframe": str(timeframe)})
+
+    def etf_in_outflow(self, ticker: str, start_date: str | None = None,
+                       end_date: str | None = None) -> Optional[dict]:
+        """Creations and redemptions for one ETF, optionally over a date range.
+
+        The sector-ETF endpoint the board reads every day has no date
+        parameter, so it can only ever say what happened recently. This one
+        takes start_date and end_date, which is what lets a past week be
+        rebuilt with the flow figure that week actually had."""
+        p: dict[str, Any] = {"ticker": str(ticker).upper()}
+        if start_date:
+            p["start_date"] = str(start_date)
+        if end_date:
+            p["end_date"] = str(end_date)
+        return self._get("etf_in_outflow", p)
 
     def rate_snapshot(self) -> dict[str, Any]:
         """Read-only copy of the latest rate-limit info."""

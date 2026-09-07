@@ -43,6 +43,7 @@ from pathlib import Path
 import hf_grade as GR
 import hf_press as PRESS
 import hf_pulse as P
+import hf_replay as RP
 import hf_report as RPT
 import hf_sources as S
 
@@ -78,7 +79,9 @@ _STATE: dict = {"board": None, "as_of": None, "refreshing": False, "thread": Non
                 "report": None, "report_week": None, "report_at": None,
                 "report_refreshing": False, "report_error": None,
                 "grades": None, "grades_at": None, "grades_refreshing": False,
-                "grades_error": None, "grades_retry_at": None}
+                "grades_error": None, "grades_retry_at": None,
+                "replay": None, "replay_at": None, "replay_refreshing": False,
+                "replay_error": None, "replay_retry_at": None}
 
 SECTOR_ETFS = {"XLB": "Materials", "XLC": "Communication Services", "XLE": "Energy",
                "XLF": "Financials", "XLI": "Industrials", "XLK": "Technology",
@@ -1033,13 +1036,62 @@ def _load_grades() -> None:
         _STATE.update({"grades": card, "grades_at": card.get("as_of")})
 
 
+def data_week(row: dict) -> str | None:
+    """The week a stored reading DESCRIBES, not the week it was built in.
+
+    The board stamps a snapshot with the calendar week it ran in, but the
+    CFTC report it read is dated the Tuesday before and published that
+    Friday — so a board built on Monday of week 37 is reading week 36's
+    data. The crowding backfill has always filed a reading under its data
+    week; the stored verdicts were filed under the build week, and the
+    grader then priced the two from weeks a week apart inside one card. It
+    showed up live as a single reading stamped 2026-W37 whose `cftc_as_of`
+    was 2026-09-01, which is 2026-W36.
+
+    With one stored reading that was invisible. With a replayed record
+    beside it, it would have mis-priced every week."""
+    stamped = row.get("cftc_as_of")
+    try:
+        return GR.week_key(date.fromisoformat(str(stamped)[:10]))
+    except (TypeError, ValueError):
+        return row.get("week")
+
+
+def stored_readings() -> list[dict]:
+    """The weeks the board itself recorded, keyed by the data they describe."""
+    out = []
+    for h in history(400):
+        wk = data_week(h)
+        if wk:
+            out.append({"week": wk, "verdicts": h.get("verdicts") or {}})
+    return out
+
+
+def replayed_readings() -> list[dict]:
+    """The weeks recomputed from data as it stood then.
+
+    A stored week always wins over a replayed one for the same week: the
+    board's own record is what it actually published, and the replay is a
+    reconstruction of what it would have."""
+    with _LOCK:
+        card = _STATE.get("replay")
+    if not card:
+        card = load_replay() or {}
+    have = {r["week"] for r in stored_readings()}
+    return [r for r in (card.get("readings") or []) if r.get("week") not in have]
+
+
 def build_grades() -> dict:
     """Reconstruct the crowding history, price it, and grade both layers."""
     raw_cftc = S.cftc_all()
     weeks = crowded_history(raw_cftc)
     closes = gather_weekly_closes()
-    readings = [{"week": h.get("week"), "verdicts": h.get("verdicts") or {}}
-                for h in history(400)]
+    stored, replayed = stored_readings(), replayed_readings()
+    readings = stored + replayed
+    with _LOCK:
+        replay_card = _STATE.get("replay")
+    if not replay_card:
+        replay_card = load_replay()
     card = GR.build(weeks, readings, closes,
                     min_n=int(_grade_knob("min_graded_weeks")),
                     source="CFTC Traders in Financial Futures, reconstructed week by week",
@@ -1049,6 +1101,15 @@ def build_grades() -> dict:
                  "n_proxies": len(closes),
                  "cftc_markets": len(raw_cftc),
                  "min_history_weeks": int(_grade_knob("min_history_weeks")),
+                 # Where the graded weeks came from. A reader is owed the
+                 # difference: one is what the board published, the other is
+                 # what it would have published had it existed then.
+                 "readings_from": {"recorded": len(stored), "replayed": len(replayed),
+                                   "replay_version": (replay_card or {}).get("version")},
+                 # Carried onto the grade card so the panel reads one payload
+                 # rather than joining two that can disagree about how deep
+                 # each question goes.
+                 "replay_coverage": (replay_card or {}).get("coverage"),
                  "headline": GR.headline(card),
                  "unavailable": ([] if closes else
                                  ["Weekly closes unavailable, so nothing could be graded."])})
@@ -1160,4 +1221,349 @@ def grade_status() -> dict:
                 "n_crowded_weeks_graded": (card or {}).get("n_crowded_weeks_graded"),
                 "n_readings": (card or {}).get("n_readings"),
                 "n_proxies": (card or {}).get("n_proxies"),
+                "online": S.available()}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 5 — replaying the four weekly verdicts (HEDGE_FUND_INTEL.md §12)
+#
+# The grader can price three years of crowding but only the weeks of the four
+# verdicts the board has stored since it began keeping them. `hf_replay`
+# recomputes those verdicts for past weeks from the data as it stood then;
+# this section fetches the three histories it needs and stores the result.
+# ══════════════════════════════════════════════════════════════════════════
+
+DEFAULTS["replay"] = {
+    "min_history_weeks": 12,     # shortest truncated series worth reading a verdict from
+    "rebuild_hours": 168,        # the CFTC moves weekly, so the replay does too
+    "retry_hours": 1,            # after a build that reconstructed nothing
+    "si_settlements": 60,        # short-interest readings to fetch (~2½ years)
+    "shvol_budget_days": 40,     # daily short-volume files per build; the cache deepens
+    "shvol_max_days": 800,       # ceiling on the cached daily shares
+    "flow_days": 900,            # calendar days of ETF creations to ask for
+}
+
+
+def _replay_knob(name: str):
+    try:
+        return (config().get("replay") or {}).get(name, DEFAULTS["replay"][name])
+    except Exception:  # noqa: BLE001
+        return DEFAULTS["replay"][name]
+
+
+# ── the daily short-volume share, cached one number per session ─────────────
+
+def _shvol_path() -> Path | None:
+    return None if _DATA_DIR is None else _DATA_DIR / "hf" / "shvol_daily.json"
+
+
+def load_shvol() -> dict:
+    """The cached short share of volume, {session: share}.
+
+    Each FINRA daily file is several megabytes and yields exactly one number
+    the verdict reads. Fetching them again on every rebuild would move
+    gigabytes to recompute a few hundred floats, so the numbers are kept and
+    the files are not."""
+    p = _shvol_path()
+    if p is None or not p.exists():
+        return {}
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        return {k: float(v) for k, v in (doc.get("shares") or {}).items() if v is not None}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_shvol(shares: dict) -> None:
+    p = _shvol_path()
+    if p is None:
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"shares": shares, "n": len(shares),
+                               "saved_at": _now().isoformat(timespec="seconds")}),
+                   encoding="utf-8")
+    tmp.replace(p)
+
+
+def gather_shvol_history(budget: int | None = None) -> dict:
+    """Deepen the cached daily short-volume shares, a bounded number per run.
+
+    Deliberately incremental. Reading eight hundred daily files in one build
+    would take most of an hour and hold a worker the whole time, so each
+    build walks back over the sessions it does not yet have and stops at its
+    budget. The `shorts` question therefore starts shallow and reaches
+    further back every week, and the panel reports how far it got rather
+    than pretending to a depth it has not reached."""
+    import market_calendar as _cal
+    shares = load_shvol()
+    budget = int(budget if budget is not None else _replay_knob("shvol_budget_days"))
+    ceiling = int(_replay_knob("shvol_max_days"))
+    fetched = 0
+    d = _today()
+    # Walk back until the budget is spent or the ceiling is reached, skipping
+    # sessions already cached — a resumed walk, not a restarted one.
+    for _ in range(ceiling * 2):
+        if fetched >= budget or len(shares) >= ceiling:
+            break
+        d = _cal.previous_session(d)
+        key = d.isoformat()
+        if key in shares:
+            continue
+        got = S.finra_short_volume(d)
+        fetched += 1
+        if got and got.get("market_share") is not None:
+            shares[key] = float(got["market_share"])
+    if fetched:
+        save_shvol(shares)
+    return shares
+
+
+# ── short interest, one aggregate per settlement ────────────────────────────
+
+def gather_si_history(n: int | None = None) -> list[dict]:
+    """The market-wide short-interest total for each published settlement.
+
+    Only the total, its change and the symbol count reach the verdict, so
+    the per-symbol rows are summed and dropped rather than stored. Each
+    reading carries the date it became public, because that — not the
+    settlement date — decides which week could have read it."""
+    n = int(n if n is not None else _replay_knob("si_settlements"))
+    out = []
+    for sett in S.finra_settlements(_today(), n=n):
+        rows = S.finra_short_interest(sett)
+        if not rows:
+            continue
+        total = sum(r["short"] for r in rows.values() if r.get("short") is not None)
+        prev = sum(r["short_prev"] for r in rows.values() if r.get("short_prev") is not None)
+        out.append({"settlement": sett, "public_on": S.finra_public_on(sett),
+                    "total": total, "prev": prev, "change": total - prev,
+                    "n_symbols": len(rows)})
+    return out
+
+
+# ── ETF creations, per session ──────────────────────────────────────────────
+
+def parse_in_outflow(data) -> dict[str, float]:
+    """One ETF's creations minus redemptions, by session.
+
+    Written tolerantly on purpose: this endpoint is not one the board reads
+    daily, and the field carrying the figure is confirmed only against the
+    live deployment. Anything without a date and a number is skipped rather
+    than guessed at, and the caller reports how many rows survived so a
+    silent zero cannot pass for a quiet week."""
+    rows = data.get("data") if isinstance(data, dict) else data
+    out: dict[str, float] = {}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        day = str(r.get("date") or r.get("session") or "")[:10]
+        if not day:
+            continue
+        for field in ("change", "net_flow", "flow", "in_out_flow", "net"):
+            v = r.get(field)
+            if v is None:
+                continue
+            try:
+                out[day] = out.get(day, 0.0) + float(v)
+            except (TypeError, ValueError):
+                continue
+            break
+    return out
+
+
+def gather_flow_history() -> tuple[dict, dict]:
+    """Net ETF creations per session, across the same tickers the live board
+    sums, and a note on what was actually fetched.
+
+    The universe is read from the daily endpoint rather than assumed. The
+    live gatherer adds up every row that endpoint returns — SPY and anything
+    else alongside the eleven sector funds — so a replay built from the
+    eleven alone would produce a different `net_all` and therefore a
+    different answer wearing the same name."""
+    uw = _uw()
+    if uw is None or not hasattr(uw, "etf_in_outflow"):
+        return {}, {"available": False, "why": "no ETF in-and-out-flow endpoint on this client"}
+    tickers = []
+    try:
+        snap = uw.sector_flow() if hasattr(uw, "sector_flow") else None
+        rows = (snap or {}).get("data") if isinstance(snap, dict) else snap
+        tickers = [str(r.get("ticker") or "").upper() for r in (rows or []) if r.get("ticker")]
+    except Exception:  # noqa: BLE001
+        tickers = []
+    if not tickers:
+        # Without the live universe the sum cannot be the same sum.
+        return {}, {"available": False,
+                    "why": "the daily sector-ETF endpoint did not say which funds it sums"}
+    end = _today()
+    start = end - timedelta(days=int(_replay_knob("flow_days")))
+    daily: dict[str, float] = {}
+    got, empty = 0, []
+    for t in tickers:
+        try:
+            data = uw.etf_in_outflow(t, start_date=start.isoformat(), end_date=end.isoformat())
+        except Exception:  # noqa: BLE001
+            empty.append(t)
+            continue
+        per_day = parse_in_outflow(data)
+        if not per_day:
+            empty.append(t)
+            continue
+        got += 1
+        for day, v in per_day.items():
+            daily[day] = daily.get(day, 0.0) + v
+    note = {"available": bool(daily), "n_tickers": len(tickers), "n_with_rows": got,
+            "no_rows": sorted(empty), "n_sessions": len(daily),
+            "first": min(daily) if daily else None, "last": max(daily) if daily else None,
+            "why": None if daily else "the in-and-out-flow endpoint returned no dated rows"}
+    if got and got < len(tickers):
+        # A partial universe is a different sum, so it is refused rather than
+        # quietly summed over whichever funds happened to answer.
+        return {}, {**note, "available": False,
+                    "why": f"only {got} of {len(tickers)} funds returned rows, so the "
+                           "total would not be the total the board adds up"}
+    return daily, note
+
+
+# ── the replayed record ─────────────────────────────────────────────────────
+
+def _replay_path() -> Path | None:
+    return None if _DATA_DIR is None else _DATA_DIR / "hf" / "replay.json"
+
+
+def save_replay(card: dict) -> None:
+    p = _replay_path()
+    if p is None:
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(card), encoding="utf-8")
+    tmp.replace(p)
+
+
+def load_replay() -> dict | None:
+    p = _replay_path()
+    if p is None or not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def build_replay() -> dict:
+    """Recompute the four weekly verdicts for every week the record reaches."""
+    cftc = S.cftc_all()
+    settlements = gather_si_history()
+    shvol = gather_shvol_history()
+    flows, flow_note = gather_flow_history()
+    card = RP.build(cftc, settlements=settlements, short_volume_daily=shvol,
+                    etf_flow_daily=flows,
+                    min_history=int(_replay_knob("min_history_weeks")),
+                    as_of=_now().isoformat(timespec="seconds"),
+                    source="CFTC, FINRA and ETF creations, each read as of the week replayed")
+    card.update({"scan_version": HF_SCAN_VERSION,
+                 "sources": {"cftc_markets": len(cftc),
+                             "si_settlements": len(settlements),
+                             "si_first": min((s["public_on"] for s in settlements
+                                              if s.get("public_on")), default=None),
+                             "shvol_days": len(shvol),
+                             "shvol_first": min(shvol) if shvol else None,
+                             "etf_flows": flow_note}})
+    if not card.get("n_readings"):
+        # Nothing was reconstructed, so there is nothing to store. Stamping
+        # this fresh would cache an outage as a finished record for a week —
+        # the same trap the grader fell into — and leaving it merely stale
+        # would rebuild it on every look, so it waits.
+        with _LOCK:
+            _STATE["replay_error"] = (
+                "No week could be replayed, so nothing was stored. It will try again in "
+                f"{int(_replay_knob('retry_hours'))} hour(s).")
+            _STATE["replay_retry_at"] = (_now() + timedelta(
+                hours=float(_replay_knob("retry_hours")))).isoformat(timespec="seconds")
+        return card
+    save_replay(card)
+    with _LOCK:
+        _STATE.update({"replay": card, "replay_at": card["as_of"],
+                       "replay_error": None, "replay_retry_at": None})
+    return card
+
+
+def _replay_stale() -> bool:
+    with _LOCK:
+        card, ts = _STATE.get("replay"), _STATE.get("replay_at")
+        retry_at = _STATE.get("replay_retry_at")
+    if retry_at:
+        try:
+            if _now() < datetime.fromisoformat(retry_at):
+                return False
+        except ValueError:
+            pass
+    if not card or not ts:
+        return True
+    try:
+        then = datetime.fromisoformat(ts)
+    except ValueError:
+        return True
+    return (_now() - then).total_seconds() > float(_replay_knob("rebuild_hours")) * 3600.0
+
+
+def _kick_replay() -> None:
+    if not S.available():
+        return
+    with _LOCK:
+        if _STATE.get("replay_refreshing"):
+            return
+        _STATE["replay_refreshing"] = True
+
+    def run():
+        try:
+            build_replay()
+        except Exception as exc:  # noqa: BLE001
+            with _LOCK:
+                _STATE["replay_error"] = str(exc)[:300]
+        finally:
+            with _LOCK:
+                _STATE["replay_refreshing"] = False
+
+    threading.Thread(target=run, name="hf-replay", daemon=True).start()
+
+
+def replay() -> dict:
+    if _replay_stale():
+        _kick_replay()
+    with _LOCK:
+        card = _STATE.get("replay")
+        refreshing, err = _STATE.get("replay_refreshing"), _STATE.get("replay_error")
+    if not card:
+        return {"ok": True, "available": False, "refreshing": refreshing, "error": err,
+                "version": RP.HF_REPLAY_VERSION, "scan_version": HF_SCAN_VERSION,
+                "note": ("The four weekly answers have not been replayed yet. It recomputes "
+                         "them for every past week from the data as it stood in that week, "
+                         "which takes a few minutes the first time.")}
+    # The weeks themselves are hundreds of rows and nothing renders them, so
+    # the payload carries the coverage and the sources and leaves them out.
+    slim = {k: v for k, v in card.items() if k != "weeks"}
+    return {"ok": True, "available": True, "refreshing": refreshing, "error": err, **slim}
+
+
+def replay_now() -> dict:
+    build_replay()
+    return replay_status()
+
+
+def replay_status() -> dict:
+    with _LOCK:
+        card = _STATE.get("replay")
+        return {"version": (card or {}).get("version") or RP.HF_REPLAY_VERSION,
+                "code_version": RP.HF_REPLAY_VERSION,
+                "scan_version": HF_SCAN_VERSION,
+                "as_of": _STATE.get("replay_at"),
+                "refreshing": bool(_STATE.get("replay_refreshing")),
+                "error": _STATE.get("replay_error"),
+                "retry_after": _STATE.get("replay_retry_at"),
+                "available": bool(card),
+                "n_weeks": (card or {}).get("n_weeks"),
+                "n_readings": (card or {}).get("n_readings"),
+                "sources": (card or {}).get("sources"),
                 "online": S.available()}

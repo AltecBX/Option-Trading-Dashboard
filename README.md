@@ -76,6 +76,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `hf_scan.py` | Hedge Fund Pulse: gathers CFTC Leveraged Funds, FINRA short interest and short volume, ETF flows, sector tide, Form PF and the prime-broker headlines; stores one reading and every report revision a week, forever |
 | `hf_press.py` | The prime-broker channel: turns wire headlines quoting Goldman, Morgan Stanley and JPMorgan into evidence rows, and refuses the return stories, the foreign books and the headlines that cite no bank — pure |
 | `hf_grade.py` | The outcome grader: what the market did over the 1, 2, 4 and 8 weeks after each reading, with base rates, Wilson intervals and episode counts — records what followed, never claims positioning predicts returns — pure |
+| `hf_replay.py` | Recomputes the four weekly answers for past weeks from the data as it stood then, calling the board's own verdict functions — a question is replayed only when every input that decides it today was public that week — pure |
 | `hf_report.py` | The weekly report: the Pulse, the Named Fund Watch and the press assembled into one stored document, with conflicts printed and a compare-with-week-N diff — pure |
 | `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
 | `tab-hedge.jsx` | Hedge Funds tab: the Pulse (aggregate), the Named Fund Watch (per manager) and the Weekly Report, the first two kept apart on purpose (lazy chunk) |

@@ -394,6 +394,7 @@ thresholds under `hedge` in `thresholds.json`.
 | **2 — Pulse** | CFTC equity + sector futures with percentiles; FINRA short interest and short volume with sector roll-up; UW sector tide, ETF flows, borrow; the pure `hf_pulse.py` with streaks, persistence, crowding; the Pulse panel | Phase 1 sector map |
 | **3 — Combined + Weekly Report** — *shipped in v4.87* (`hf_press.py`, `hf_report.py`, the Weekly Report panel) | The combined rule on every fund card; press capture (PRIME BROKER quotes); the report builder, store, history and compare; conflicts and confidence | Phases 1–2 |
 | **4 — optional** — *shipped in v4.88* (`hf_grade.py`, the X channel, the grader panel) | X statements if the token is set; Form SHO when published; SSGA fallback (adds `openpyxl`); outcome grading | Phases 1–3 |
+| **5 — the record deepens** — *shipped in v4.89* (`hf_replay.py`) | The four weekly answers recomputed for every past week the data allows, so they are graded on years rather than on the weeks stored since September 2026; the crowded single names the board never used to put a ticker on | Phase 4 |
 
 Each phase ships as its own PR with tests and a browser render check, the
 same way the last three features did.
@@ -762,3 +763,120 @@ The panels were never affected — they read `/api/hf/grades` and
 ### 11h. Routes
 
 `/api/hf/grades` · `/api/hf/grades/status` · `/api/hf/grades/build`
+
+---
+
+## 12. Phase 5A as built (v4.89) — the four answers, recomputed
+
+Phase 4 shipped a grader that could price **1,303 market-weeks of crowding**
+and exactly **one week** of the four weekly answers, and §11a said the four
+could never be reconstructed because they need short interest, flows and the
+tide, none of which the board kept.
+
+That was too pessimistic. Checked on September 7, 2026:
+
+| Input | Depth actually available |
+|---|---|
+| CFTC leveraged-fund futures | 170 weeks |
+| FINRA consolidated short interest | every settlement back past 2022 |
+| FINRA daily short volume | daily files back past 2022 |
+| OFR Form PF leverage | 53 quarters, 2013 → 2026 |
+| ETF creations | `/api/etfs/{ticker}/in-outflow` takes `start_date` and `end_date` |
+
+### 12a. Which answers need what
+
+Removing each optional input and counting what the verdict was actually
+built from settles it — this is measured, not assumed:
+
+| Question | Inputs with everything | Futures only | Needs |
+|---|---|---|---|
+| Increasing or reducing exposure | 5 | 4 | ETF creations |
+| Increasing or reducing leverage | 3 | **3** | nothing else |
+| Reducing longs | 3 | **3** | nothing else |
+| Adding shorts, or covering | 5 | 3 | short interest **and** the short-volume share |
+
+Form PF never enters the leverage verdict — it is carried as `context`
+beside it, labelled with its own date. So **leverage and longs are decided
+by the futures report alone** and replay to the full depth of the CFTC
+series with no other source at all. That is why Phase 5A delivers a real
+record even on a deployment where every optional history fails.
+
+### 12b. The rule that makes a replay honest
+
+**Input-complete or not at all.** A question is recomputed for a week only
+when every input that decides it today was public that week. Rebuilt from
+fewer inputs it is a different answer wearing the same name, and grading it
+would say nothing about the answers the board actually publishes.
+
+The rule is enforced in three places:
+
+- `REQUIRES` names each question's non-futures inputs; a week missing one is
+  skipped for that question, with the reason recorded.
+- A **half-filled window is refused**. The flat band on the short-volume
+  input is drawn from the spread of its own history, so three sessions and
+  twenty do not merely differ in confidence — they hand `build_verdict` a
+  different band. Same for the five-session ETF total.
+- A **partial ETF universe is refused**. The live board sums every fund the
+  daily endpoint returns, so the replay reads that endpoint to learn the
+  universe and refuses to sum whichever funds happened to answer.
+
+And the replay calls `hf_pulse.exposure`, `hf_pulse.leverage` and
+`hf_pulse.longs_and_shorts` — the board's own functions. A reimplementation
+would drift the first time either changed and would then be grading a board
+that does not exist. A test asserts the verdict maths appears nowhere in
+`hf_replay.py`.
+
+### 12c. It reproduces the live board exactly
+
+The strongest check available: replay the current week and compare it with
+what the deployment is publishing right now.
+
+```
+question    replayed W36     live board  match?  inputs
+leverage          RISING         RISING  True    3/3
+longs             ADDING         ADDING  True    3/3
+```
+
+The first real run replayed **158 weeks, 2023-W35 → 2026-W36**, with
+genuinely varied answers rather than one repeated verdict: leverage 77
+RISING / 70 FALLING / 11 MIXED, longs 80 ADDING / 65 REDUCING / 13 MIXED.
+
+### 12d. A week-key bug this uncovered
+
+Comparing the replay against the live board exposed a real defect in the
+**shipped** Phase 4 grader. The board stamps a snapshot with the calendar
+week it ran in; the CFTC report it read is dated the Tuesday before and
+published that Friday. Live, right now:
+
+```
+board week : 2026-W37
+cftc_as_of : 2026-09-01   ->  2026-W36
+```
+
+The crowding backfill has always filed a reading under its **data** week.
+The stored verdicts were filed under the **build** week. So inside a single
+grade card the two layers were priced from weeks a week apart. With one
+stored reading that was invisible; with 158 replayed weeks beside it, every
+week would have been mis-priced. `data_week()` now keys a reading by the
+data it describes, falling back to the stamp for older rows that predate
+`cftc_as_of`.
+
+A stored week always beats a replayed one for the same week: the board's own
+record is what it published, the replay only what it would have.
+
+### 12e. The daily files are read once and thrown away
+
+Each FINRA short-volume file is several megabytes and yields exactly one
+number the verdict reads. Fetching eight hundred of them on every rebuild
+would move gigabytes to recompute a few hundred floats, so the numbers are
+cached one per session and the files are not. The walk is **bounded per
+build** — forty sessions by default — and resumes rather than restarts, so
+the `shorts` answer reaches further back every week and the panel reports
+the depth it has actually reached rather than one it has not.
+
+### 12f. Routes
+
+`/api/hf/replay` · `/api/hf/replay/status` · `/api/hf/replay/build`
+
+The week-by-week rows are hundreds of entries that nothing renders, so the
+payload carries the coverage and the sources and leaves them out.

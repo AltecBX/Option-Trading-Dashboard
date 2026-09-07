@@ -881,6 +881,24 @@ def cftc_all() -> dict[str, dict]:
 
 # ── FINRA consolidated short interest ───────────────────────────────────────
 
+def finra_public_on(settlement, lag_business_days: int = 8) -> str | None:
+    """When a settlement's short-interest report became public.
+
+    Split out of `finra_settlements`, which computed the same walk privately
+    and threw it away. A replay of a past week needs it: a settlement dated
+    inside week W is not public for another eight business days, so keying a
+    reconstructed week on the settlement date would hand it a number nobody
+    could have read that week."""
+    import market_calendar as _cal
+    try:
+        d = date.fromisoformat(str(settlement)[:10])
+    except (TypeError, ValueError):
+        return None
+    for _ in range(int(lag_business_days)):
+        d = _cal.next_session(d)
+    return d.isoformat()
+
+
 def finra_settlements(today: date, n: int = 8, lag_business_days: int = 8) -> list[str]:
     """The settlement dates whose short-interest report should be public.
 
