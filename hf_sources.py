@@ -271,6 +271,62 @@ def cache_stats() -> dict:
             "max_body_bytes": CACHE_MAX_BODY}
 
 
+def recompress_cache(limit: int = 200) -> dict:
+    """Rewrite hex cache records in the compact form, a batch at a time.
+
+    The old writer stored every body as hex — exactly twice the bytes it
+    encodes. Entries that expire get rewritten compactly on their own, but
+    EDGAR filings are cached FOREVER and would stay at double size for the
+    life of the volume, so they are converted in place.
+
+    Nothing is re-fetched and no body changes: each record is decoded and
+    re-encoded, and the timestamp is preserved so a converted entry keeps
+    exactly the freshness it had. Batched and restartable because there are
+    hundreds of files and an HTTP request should not hold a connection open
+    while they are rewritten; the caller repeats until `remaining` is zero.
+
+    A file that will not decode is LEFT ALONE rather than deleted — a cache
+    entry nobody can read costs a re-fetch, and deleting it on a guess could
+    throw away the only copy of something."""
+    d = (_DATA_DIR / "hf" / "cache") if _DATA_DIR else None
+    out = {"scanned": 0, "rewritten": 0, "already_compact": 0, "unreadable": 0,
+           "bytes_before": 0, "bytes_after": 0, "remaining": 0, "limit": int(limit)}
+    if d is None or not d.exists():
+        return out
+    todo = []
+    for f in sorted(d.glob("*.json")):
+        try:
+            rec = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            out["unreadable"] += 1
+            continue
+        out["scanned"] += 1
+        if rec.get("gz"):
+            out["already_compact"] += 1
+        elif rec.get("hex"):
+            todo.append((f, rec))
+    out["remaining"] = max(0, len(todo) - int(limit))
+    for f, rec in todo[:int(limit)]:
+        raw = _decode(rec)
+        if raw is None:
+            out["unreadable"] += 1
+            continue
+        try:
+            before = f.stat().st_size
+            tmp = f.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"ts": rec.get("ts") or 0, "kind": rec.get("kind"),
+                                       "url": rec.get("url"), "gz": _encode(raw)}),
+                           encoding="utf-8")
+            tmp.replace(f)
+            out["rewritten"] += 1
+            out["bytes_before"] += before
+            out["bytes_after"] += f.stat().st_size
+        except OSError:
+            out["unreadable"] += 1
+    out["freed_bytes"] = out["bytes_before"] - out["bytes_after"]
+    return out
+
+
 def prune_cache() -> dict:
     """Drop cache files no longer worth keeping.
 

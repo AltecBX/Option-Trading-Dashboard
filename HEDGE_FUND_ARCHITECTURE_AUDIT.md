@@ -375,6 +375,28 @@ holds the actual record, and unlike memory it is not reclaimed by a restart.
 Nine tests in `test_hf_sources.py::TheCachesAreBounded`; removing the bounds
 fails two of them.
 
+**The backlog was cleared too.** Stopping the growth left 612.9 MB across
+1,348 files already on the volume — most of it EDGAR filings cached FOREVER,
+which expire never and so would have stayed at double size for the life of
+the volume. `recompress_cache(limit)` rewrites hex records in the compact
+form, batched and restartable because an HTTP request should not hold a
+connection open while hundreds of files are rewritten. Nothing is
+re-fetched, the timestamp is preserved so a converted entry keeps exactly
+the freshness it had, and a record that will not decode is left alone rather
+than deleted.
+
+Proved lossless on a real copy of the cache before it touched the volume —
+every body SHA-256'd before and after:
+
+```
+before 323 MB / 329 files  ->  after 67 MB      256.2 MB freed
+bodies that changed: 0
+```
+
+Ten more tests in `RecompressingTheOldRecords`, including byte-for-byte
+survival, timestamp preservation, idempotency, and that a converted entry is
+still served from cache rather than re-fetched.
+
 ### D2 · Persistence depends on a Railway volume that I could not confirm is attached (P0 data loss)
 
 `storage._stable_data_dir()` (`:29-46`) uses `JERRY_DATA_DIR`, else `/data`
