@@ -3193,3 +3193,13 @@ table, spans spelled out, no ISO date on screen, no header without a
 tooltip, zero console errors.
 
 hf_names 30 · hf_scan 97 (5 more) · UI 166.
+
+**A Phase 5A card that did not survive a restart.** `configure` loaded the
+stored board, report and grades, and not the stored replay, so every deploy
+ignored a card on disk that takes minutes to rebuild and rebuilt it. Found
+by checking the live board after the merge: `available: false, refreshing:
+true` with a good card sitting in the data directory. The grader never
+noticed because `replayed_readings` falls back to the file — the expensive
+path was covered and the cheap one was not, which is why the hole survived
+review and tests. `_load_replay()` now sits beside the three loaders it was
+modelled on, and removing it again fails two of the four new guards.
