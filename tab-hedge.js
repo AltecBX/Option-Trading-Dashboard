@@ -101,7 +101,7 @@ const HF_TIP = {
   report_trend: "How persistent each answer has been over the last 2, 4, 8 and 12 weeks. A verdict in its eighth straight week is a different statement from the same verdict in its first, and both are shown.",
   report_filings: "The filings worth a heading this week. Every SCHEDULE 13D by a watched manager, because that is an event with a five-business-day clock. Every amendment to a holdings report, because a restatement changes a number already shown to you. Passive 13G notices are not activity and are not listed here.",
   report_activity: "Watched managers who filed something VERIFIED during THIS report's week. When the list is empty that is the ordinary state, not a failure — a 13F describes one day and arrives 45 days later.",
-  x_handle: "Optional. The manager's own account on X, without the @. Only fill this in for an account you know is theirs — a guessed handle would attribute words to a manager who never said them, so nothing is derived from the name. Posts are read only when the deployment has an X bearer token, and they are rendered as STATEMENTS: a claim, never a position.",
+  x_handle: "Optional. The manager's own account on X, without the @ — letters, digits and underscore only. The search is composed from it on the server and never sent from this form, so a handle cannot smuggle in a second account. Only fill this in for an account you know is theirs — a guessed handle would attribute words to a manager who never said them, so nothing is derived from the name. Posts are read only when the deployment has an X bearer token, and they are rendered as STATEMENTS: a claim, never a position.",
   report_filled_in: "This report was stored before the card wrote this sentence, so it was composed just now from the counts the report does carry — using the wording that was true when it was written, which is not always today's wording. The stored file itself is untouched: a report is a record of a moment and is never rewritten.",
   report_carrying: "Managers whose most recent verified filing is newer than their last quarterly holdings report. That state lasts until the next quarterly report arrives, which can be months, so most of these managers did not file anything this week. It is counted here and kept out of the 'this week' list on purpose.",
   report_watchlist: "Who is being watched, and who moved on or off the list since the previous report. Without a previous report there is nothing to compare against, and the section says so rather than showing empty lists that look like 'no changes'.",
@@ -692,6 +692,15 @@ function HfWatchlistEditor({
     }
     const key = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     const handle = String(form.x || "").trim().replace(/^@/, "");
+    // A handle reaches an X search, so anything but a real one is refused
+    // here rather than sanitised later. "BillAckman OR from:someone_else"
+    // would have returned a second account's posts and filed them under
+    // this manager's own words. The search itself is composed on the
+    // server from the handle; no query is ever sent from here.
+    if (handle && !/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+      setMsg("That X handle is not valid. Use letters, digits and underscore only, up to 15.");
+      return;
+    }
     const entry = {
       key,
       name: form.name,
@@ -704,12 +713,9 @@ function HfWatchlistEditor({
       feeds: [],
       news_query: form.name
     };
-    // Only written when the user supplies a handle. A guessed one would put
+    // Only written when the user supplies one. A guessed handle would put
     // words in a manager's mouth, so nothing is derived from the name.
-    if (handle) {
-      entry.x_handle = handle;
-      entry.x_query = `from:${handle} -is:retweet -is:reply`;
-    }
+    if (handle) entry.x_handle = handle;
     save({
       managers: [...(overlay.managers || []).filter(m => m.key !== key), entry],
       removed: (overlay.removed || []).filter(k => k !== key)

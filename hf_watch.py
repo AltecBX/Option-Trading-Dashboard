@@ -347,9 +347,12 @@ def _statements(entry: dict) -> tuple[list[dict], list[dict]]:
     # a deployment that never set the token. A post is the manager's own
     # words, so it joins `own` and is rendered as a STATEMENT — a claim,
     # never a position.
-    xq = entry.get("x_query")
-    if xq and S.x_available():
-        for it in S.x_statements(xq, handle=entry.get("x_handle")):
+    # The handle is the only thing taken from the watchlist; the query is
+    # composed in hf_sources from a validated handle. A free-form query
+    # could name a second account and file its posts under this manager.
+    xh = entry.get("x_handle")
+    if xh and S.x_available():
+        for it in S.x_statements(xh):
             if (it.get("published") or "") >= cut_own:
                 own.append({**it, "channel": it.get("outlet") or "X"})
     q = entry.get("news_query")

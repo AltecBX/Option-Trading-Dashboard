@@ -633,7 +633,7 @@ written, on September 7, 2026:
 |---|---|---|
 | **SEC Form SHO** aggregates | Still not published. Three data-library paths returned 404 and the markets-data page lists no short-sale data set. | Nothing. The design's "switched off until it exists" stands, now with a second dated check behind it. |
 | **SSGA sector holdings** | Reachable — a real 23 KB xlsx, after a redirect to a different host. | Nothing. It needs an xlsx reader the app does not have, and Unusual Whales already serves the same ETF flows and answered healthy on the day (291 of 40,000 daily calls used). Adding a dependency for a redundant fallback is a cost with no return. |
-| **X statements** | The token's presence cannot be read from outside the deployment. | Built, gated. `hf_sources.x_statements` returns an empty list whenever no bearer token is set, which is most deployments, and a manager's post joins the card as a STATEMENT — a claim, never a position. `/api/hf/config` reports whether the channel is live. |
+| **X statements** | The token's presence cannot be read from outside the deployment. | Built, gated. `hf_sources.x_statements` returns an empty list whenever no bearer token is set, which is most deployments, and a manager's post joins the card as a STATEMENT — a claim, never a position. The search is composed in code from a validated handle; the watchlist cannot supply a query (§11e). `/api/hf/config` reports whether the channel is live. |
 | **Outcome grading** | Unusual Whales returns five years of closes in one call and documents a weekly candle whose date is the ISO week's Monday — the same key the board files readings under. | Built. `hf_grade.py`. |
 
 ### 11a. Why three years can be graded when one week is stored
@@ -690,6 +690,50 @@ limitation says in words that the intervals are optimistic and why.
   deep as its own history allows: 118 weeks for most, 17 for the newest
   contract.
 
-### 11e. Routes
+### 11e. A handle cannot smuggle a query
+
+The first build stored two fields per manager: `x_handle` and a free-form
+`x_query` that went to the search verbatim. That is a hole in the one rule
+this whole feature rests on. A handle of
+
+    BillAckman OR from:someone_else
+
+was interpolated into the query actually sent —
+
+    from%3ABillAckman+OR+from%3Asomeone_else+-is%3Aretweet+-is%3Areply
+
+— and the second account's posts came back filed under the first manager's
+**own words**. A STATEMENT is the strongest thing the board can say about a
+person, and a watchlist string could forge one.
+
+So there is no free-form query any more. `x_handle` must match
+`^[A-Za-z0-9_]{1,15}$` — X's own handle grammar, which cannot contain a
+space, a colon or the word `OR` — and `hf_sources.x_query_for` composes the
+search from it. The registry rejects a bad handle **and rejects an
+`x_query` key outright** rather than ignoring it, so an old watchlist that
+carries one fails loudly instead of quietly losing a field the author
+thought was doing something. The editor applies the same rule in the
+browser.
+
+### 11f. A grade that priced nothing waits an hour
+
+An earlier fix stopped a build that returned no closes from being saved as
+a finished card — otherwise an outage froze an empty grader for a week.
+But "not saved" also meant "still stale", and the next request rebuilt
+immediately: a provider outage became a retry storm against the same dead
+endpoint, once per page load.
+
+A failed build now records `grades_retry_at` an hour out, and staleness
+returns false until that passes. Proven both ways:
+
+    after a failed build:  stale? False   retry_at 2026-09-07T13:00:00+00:00
+    two hours later:       stale? True
+
+The wait is the `hedge.grade.retry_hours` knob, and `/api/hf/grades/status`
+reports `retry_after` so the panel can say when it will try again instead of
+looking broken. An explicit rebuild still overrides it — the cooldown holds
+back the automatic retry, not the person asking for one.
+
+### 11g. Routes
 
 `/api/hf/grades` · `/api/hf/grades/status` · `/api/hf/grades/build`

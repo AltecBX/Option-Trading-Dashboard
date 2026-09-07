@@ -1148,13 +1148,37 @@ def parse_x(raw: bytes, handle: str | None = None) -> list[dict]:
     return out
 
 
-def x_statements(query: str, handle: str | None = None, max_results: int = 10) -> list[dict]:
+# X handles are 1-15 characters of letters, digits and underscore. Nothing
+# else may reach the query string.
+X_HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
+
+
+def x_handle_ok(handle) -> bool:
+    return bool(X_HANDLE_RE.match(str(handle or "").strip().lstrip("@")))
+
+
+def x_query_for(handle) -> str | None:
+    """The search for one account's own posts, composed here and never taken
+    from the caller.
+
+    An earlier version accepted a free-form query from the watchlist. A
+    handle of "BillAckman OR from:someone_else" then produced a search
+    returning a second account's posts, which `_statements` filed under the
+    first manager's OWN words. The attribution rule this whole feature is
+    built on cannot survive a user-supplied query string, so there is no
+    longer one: only a validated handle goes in."""
+    h = str(handle or "").strip().lstrip("@")
+    return f"from:{h} -is:retweet -is:reply" if x_handle_ok(h) else None
+
+
+def x_statements(handle: str, max_results: int = 10) -> list[dict]:
     """A manager's recent posts, or nothing at all.
 
-    Returns an empty list on every failure path — no token, a rate limit, a
-    changed schema — because this channel is optional and a fund card must
-    not break when an optional channel is quiet."""
+    Returns an empty list on every failure path — no token, a bad handle, a
+    rate limit, a changed schema — because this channel is optional and a
+    fund card must not break when an optional channel is quiet."""
     token = x_token()
+    query = x_query_for(handle)
     if not token or not query:
         return []
     url = (f"{X_SEARCH}?query={quote_plus(query)}"
@@ -1165,4 +1189,4 @@ def x_statements(query: str, handle: str | None = None, max_results: int = 10) -
         raw = fetch(url, token)
     except Exception:  # noqa: BLE001
         return []
-    return parse_x(raw or b"", handle)
+    return parse_x(raw or b"", str(handle or "").strip().lstrip("@"))

@@ -322,12 +322,29 @@ ok("the verdict distributions are rendered, not only computed",
    /What followed each weekly answer/.test(src) && /verdicts \|\| \{\}/.test(src)
    && /by_question/.test(src) && /v\.base/.test(src));
 ok("at least one manager can actually use the X channel",
-   JSON.parse(read("hf_watchlist.json")).managers.some((m) => m.x_query));
+   JSON.parse(read("hf_watchlist.json")).managers.some((m) => m.x_handle));
 ok("a handle is never derived from a name",
    /guessed handle would put words in a manager's mouth/.test(read("hf_watchlist.json"))
    && /nothing is derived from the name/.test(src));
 ok("the editor can add a handle, with its own tooltip",
    /X handle \(optional\)/.test(src) && HF_TIPS_OF(src, "x_handle").length > 40);
+
+// The wiring, not the wording: the stamp is written, staleness reads it, the
+// status route hands it to the panel, and the wait is a knob rather than a
+// number buried in the code. An earlier version of this guard pinned a
+// sentence in a comment and failed when the comment was rewritten.
+ok("a failed grade waits instead of looping",
+   /_STATE\["grades_retry_at"\] = /.test(scan) && /retry_at = _STATE\.get\("grades_retry_at"\)/.test(scan)
+   && /"retry_after": _STATE\.get\("grades_retry_at"\)/.test(scan)
+   && /_grade_knob\("retry_hours"\)/.test(scan) && /"retry_hours"/.test(read("thresholds.json")));
+ok("an X handle cannot smuggle a second account into a manager's own words",
+   /X_HANDLE_RE/.test(sources) && /def x_query_for/.test(sources)
+   && /cannot survive a user-supplied query string/.test(sources));
+ok("the watchlist stores a handle, never a query",
+   !/x_query/.test(read("hf_watchlist.json").replace(/"_doc":[^\n]*/, ""))
+   && /x_query is not accepted/.test(registry));
+ok("the editor refuses a handle that is not one",
+   /\^\[A-Za-z0-9_\]\{1,15\}\$/.test(src) && /not valid/.test(src));
 
 ok("the version was bumped", /const APP_VERSION = "4\.88"/.test(appSrc));
 
