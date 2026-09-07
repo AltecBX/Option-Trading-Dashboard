@@ -2940,3 +2940,75 @@ with nothing behind it. The rows are carried whole now.
 45 report guards, 50 press guards, 18 more on the store and the press
 channel in the scan suite, 25 more source guards on the card and routes,
 six new routes in the HTTP smoke.
+
+## v4.88 — Hedge Funds, phase 4: has any of this mattered?
+
+Phase 4 was four optional items. Every one was checked before anything was
+written, and two of the four were declined on the evidence.
+
+**Form SHO** is still not published: three SEC data-library paths returned
+404 and the markets-data page lists no short-sale data set. The design's
+"switched off until it exists" stands with a second dated check behind it.
+
+**The SSGA fallback** is reachable — a real 23 KB spreadsheet, after a
+redirect to another host — and was declined anyway. It needs an xlsx reader
+the app does not have, and Unusual Whales already serves the same ETF flows
+and answered healthy that day on 291 of its 40,000 daily calls. A new
+dependency for a redundant fallback is a cost with no return.
+
+**X statements** are wired and dormant. The token's presence cannot be read
+from outside a deployment, so the channel is gated: with no bearer token
+`x_statements` returns an empty list and the fund cards are unchanged, which
+is the state of most deployments. A post joins the card as a STATEMENT — a
+claim, never a position — and `/api/hf/config` reports whether the channel
+is live.
+
+**The outcome grader** is the real work. Every limitation section since
+Phase 2 has carried the line "nothing here is calibrated against outcomes
+yet." That line is now false.
+
+The insight that made it possible: **crowding is computed from the CFTC
+series and nothing else.** Truncating that series so week W is the newest
+row reproduces exactly what the board would have said in week W, with
+nothing that arrived later. So three years can be graded even though the
+board has stored exactly one week. The four weekly verdicts cannot be
+reconstructed — they need short interest, flows and the options tide, none
+kept historically — so they are graded only from stored readings, and the
+panel says so.
+
+The first reconstruction: 1,303 market-weeks across 194 weeks, 2021-W21 to
+2026-W36, of which 51 were crowded.
+
+What the grader refuses to do matters more than what it does:
+
+- **It never scores a verdict right or wrong.** "Hedge funds reduced
+  exposure" is a fact about positioning and implies nothing about the market
+  next week. Scoring it as a forecast would put a claim in the board's
+  mouth. The four questions get a distribution of forward returns beside the
+  distribution across all weeks, and no hit rate. A test asserts the words
+  "correct", "hit", "accuracy" and "score" appear nowhere in that block.
+- **The base rate is always the same market.** A sector that fell all year
+  would otherwise make crowding look predictive. With the base rate beside
+  it the lift is exactly zero, and a test pins that case.
+- **VIX is not graded at all.** Its listed funds roll a futures curve, so an
+  eight-week return measures the roll rather than the index.
+
+**A random-walk control earned its keep.** Grading the real 1,303-week
+history against random prices produced an eight-week crowded reversal share
+whose 95% interval excluded the base rate — a finding, on data containing
+nothing. The cause is real: crowded weeks arrive in runs and their forward
+windows overlap, so a Wilson interval, which assumes independent draws, is
+optimistic. The 51 crowded weeks are only 23 episodes; Financials alone is
+15 weeks in 4 episodes. The episode count now travels beside every share and
+the limitations say plainly that the intervals are optimistic and why.
+
+**Two bugs the first backfill run caught.** The window was built as
+`{**market, "series": series[i:]}`, which left the market's original `as_of`
+untouched, so 204 reconstructed rows all landed in the same week. And taking
+the minimum series depth across all twelve markets cut the S&P's 170 weeks
+down to the 69 the Communication Services contract has; each market is now
+reconstructed as deep as its own history allows.
+
+39 grader guards, 12 more in the scan suite on the backfill and the close
+provider, 17 more source guards, two new routes in the HTTP smoke, and a
+browser render of the panel on desktop and phone.

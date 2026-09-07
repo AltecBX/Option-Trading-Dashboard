@@ -108,6 +108,18 @@ const HF_TIP = {
   report_history: "Every week ever assembled, newest first. Pick one to read it, or compare two to watch positioning evolve.",
   report_compare: "Two stored weeks side by side. Verdicts that match are marked the same; the rest show what moved. Compare uses the same diff as 'what changed', so the two views can never disagree.",
   report_limits: "What this report cannot do, stated plainly, so a confident-looking verdict is never read as more than it is.",
+  // ── The outcome grader (v4.88) ──
+  grade: "The only honest answer to 'has any of this mattered?'. For every past week the board can reconstruct, it looks up what the matching market did over the following 1, 2, 4 and 8 weeks, and keeps the record. It does NOT claim positioning predicts returns — it records what followed, with the sample size and the interval attached so you can see how much to believe.",
+  grade_reversal: "A crowded book has a SIDE, so 'reversal' has a meaning: the market moved against the side the crowd was on. That is the one place a hit rate is defined here, and it is the question you asked for in those words.",
+  grade_base: "The same market's rate across EVERY week, crowded or not. This is the number that matters. 'Crowded weeks reversed 55% of the time' means nothing until you know an ordinary week reversed 52% of the time — the comparison is the finding, not the raw share.",
+  grade_lift: "The crowded rate minus the base rate. Zero means crowding told you nothing you did not already get from the market itself. A market that fell all year would show a high crowded rate and an equally high base rate, which is exactly why both are shown.",
+  grade_interval: "The 95% interval around the share. It is wide, and it stays wide for a long time. A share without an interval invites reading three out of four as a finding.",
+  grade_episodes: "How many separate EVENTS the crowded weeks are. Crowding arrives in runs — a book stays crowded for a month — so forty crowded weeks can be five episodes. The intervals on this page are computed as though every week were an independent draw, which makes them OPTIMISTIC. This is the number that should temper them.",
+  grade_horizon: "How far ahead the return is measured, in weeks. Positioning is said to matter over a month or two, so four horizons are shown rather than one.",
+  grade_source: "Crowding is computed from the CFTC series and nothing else, so truncating that series at each past week reproduces exactly what the board would have said then, with no data that arrived later. That is why three years can be graded when the board only started storing readings in September 2026.",
+  grade_verdicts: "The four weekly questions are NOT scored as right or wrong. 'Hedge funds reduced exposure' is a fact about positioning and implies nothing about what the market does next; scoring it as a forecast would put a claim in the board's mouth. What is shown is the returns that followed each answer, beside the returns across every week.",
+  grade_not_graded: "A market with no honest tradable proxy is not graded at all. VIX is the case: its listed funds roll a futures curve, so an eight-week return measures the roll rather than the index.",
+  grade_proxy: "A futures position cannot be priced from the CFTC report, so the grade is measured on the fund that market's participants actually track — the S&P 500 contract against SPY, the Financials contract against XLF, and so on.",
   press: "PRIME BROKER AGGREGATE DATA. Goldman Sachs, Morgan Stanley and JPMorgan tell their prime brokerage clients each week what hedge funds did; the wires quote those notes. Secondhand by definition — a bank's summary of its own clients, retold by a reporter. It can raise confidence in what the measured data already says and can never create a verdict alone.",
   press_quote: "A quoted claim that survived every filter: the sentence names hedge funds, cites a bank as the SOURCE (not merely mentions one), is about positioning rather than returns, is not about a foreign market, and points unambiguously one way.",
   press_carried: "How many outlets carried this same claim. When five outlets repeat one Goldman note, that is one note — the claim counts once, and this is how widely it travelled.",
@@ -1058,6 +1070,162 @@ function HfCompare({ cmp }) {
   );
 }
 
+const hfShare = (v) => (v == null || !isFinite(v) ? "—" : `${(Number(v) * 100).toFixed(0)}%`);
+const hfLift = (v) => (v == null || !isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${(Number(v) * 100).toFixed(1)}%`);
+
+function HfGrades({ apiFetch }) {
+  const [d, setD] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const { d: got, err: readErr } = await hfReadJson(await apiFetch("/api/hf/grades", { noCache: true }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got); setErr(got.error || null);
+    } catch (e) { setErr(String(e && e.message || e)); }
+    finally { setBusy(false); }
+  }, [apiFetch]);
+  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    if (!(d && d.refreshing)) return;
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [d && d.refreshing, load]);
+
+  if (!d) {
+    return (
+      <section title={HF_TIP.grade}>
+        <h4 title={HF_TIP.grade}>Has any of this mattered yet?</h4>
+        {err ? <p className="research-error">{err}</p>
+             : <p className="hf-muted">{busy ? "Grading the record…" : "—"}</p>}
+      </section>
+    );
+  }
+  if (!d.available) {
+    return (
+      <section title={HF_TIP.grade}>
+        <h4 title={HF_TIP.grade}>Has any of this mattered yet?</h4>
+        <p className="hf-muted">{d.note}{d.refreshing ? " Working on it now." : ""}</p>
+        <button className="sl-mode" onClick={load} disabled={busy}>{busy ? "Loading…" : "Check again"}</button>
+      </section>
+    );
+  }
+  const crowd = d.crowding || {};
+  const eps = crowd.episodes || {};
+  const head = d.headline || {};
+  return (
+    <section className="hf-grade" title={HF_TIP.grade}>
+      <h4 title={HF_TIP.grade}>Has any of this mattered yet?</h4>
+      <p className={head.available ? "" : "hf-muted"} title={HF_TIP.grade_reversal}>{head.text}</p>
+      <p className="sl-status">
+        <span title={HF_TIP.grade_source}>{d.n_market_weeks} market-weeks reconstructed</span>
+        <span title={HF_TIP.grade_episodes}> · {eps.total_weeks || 0} crowded weeks in {eps.total_episodes || 0} episodes</span>
+        <span title={HF_TIP.grade_proxy}> · {d.n_proxies} proxies priced</span>
+        <span> · grader {d.version}</span>
+        {" "}<button className="hf-link" onClick={load} disabled={busy} title="Grade the record again">reload</button>
+      </p>
+
+      <div className="scan-table-wrap hf-table-wrap">
+        <table className="scan-table mtable hf-table">
+          <thead>
+            <tr>
+              <th title={HF_TIP.grade_horizon}>Weeks ahead</th>
+              <th title={HF_TIP.grade_reversal}>Crowded reversed</th>
+              <th title={HF_TIP.grade_interval}>95% interval</th>
+              <th title={HF_TIP.grade_base}>Ordinary week</th>
+              <th title={HF_TIP.grade_lift}>Difference</th>
+              <th title={HF_TIP.grade_episodes}>Weeks · episodes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(d.horizons || []).map((h) => {
+              const o = (crowd.overall || {})[String(h)] || {};
+              const c = o.crowded, b = o.base;
+              return (
+                <tr key={h}>
+                  <td data-label="Weeks ahead">{h}</td>
+                  <td data-label="Crowded reversed" title={HF_TIP.grade_reversal}>
+                    {c ? hfShare(c.share) : "—"}
+                    {c ? <span className="hf-muted"> ({c.k} of {c.n})</span> : null}
+                  </td>
+                  <td data-label="95% interval" title={HF_TIP.grade_interval}>
+                    {c ? `${hfShare(c.low)} – ${hfShare(c.high)}` : "—"}
+                  </td>
+                  <td data-label="Ordinary week" title={HF_TIP.grade_base}>
+                    {b ? hfShare(b.share) : "—"}
+                    {b ? <span className="hf-muted"> ({hfInt(b.n)} weeks)</span> : null}
+                  </td>
+                  <td data-label="Difference" title={HF_TIP.grade_lift}
+                      className={o.lift > 0.02 ? "up" : o.lift < -0.02 ? "down" : ""}>
+                    {hfLift(o.lift)}
+                  </td>
+                  <td data-label="Weeks · episodes" title={HF_TIP.grade_episodes}>
+                    {c ? c.n : "—"} · {o.episodes == null ? "—" : o.episodes}
+                    {!o.enough ? <span className="hf-muted" title={HF_TIP.grade_interval}> · too few</span> : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="hf-muted" title={HF_TIP.grade_episodes}>{eps.note}</p>
+
+      {Object.keys(crowd.not_graded || {}).length ? (
+        <p className="hf-muted" title={HF_TIP.grade_not_graded}>
+          Not graded: {Object.entries(crowd.not_graded).map(([k, why]) => `${k} — ${why}`).join(" ")}
+        </p>
+      ) : null}
+
+      <button className="hf-link" onClick={() => setOpen(!open)} title={HF_TIP.grade_proxy}>
+        {open ? "Hide" : "Show"} each market
+      </button>
+      {open ? (
+        <div className="scan-table-wrap hf-table-wrap">
+          <table className="scan-table mtable hf-table">
+            <thead>
+              <tr>
+                <th>Market</th><th title={HF_TIP.grade_proxy}>Priced on</th>
+                <th title={HF_TIP.grade_episodes}>Crowded episodes</th>
+                {(d.horizons || []).map((h) => <th key={h} title={HF_TIP.grade_reversal}>{h}w reversed</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(crowd.markets || {}).map(([key, m]) => (
+                <tr key={key}>
+                  <td data-label="Market">{m.market}</td>
+                  <td data-label="Priced on">{m.proxy}</td>
+                  <td data-label="Crowded episodes">{m.episodes == null ? "—" : m.episodes}</td>
+                  {(d.horizons || []).map((h) => {
+                    const c = ((m.horizons || {})[String(h)] || {}).crowded;
+                    return (
+                      <td key={h} data-label={`${h}w reversed`}>
+                        {c && c.n ? `${hfShare(c.share)}` : "—"}
+                        {c && c.n ? <span className="hf-muted"> ({c.n})</span> : null}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      <p className="hf-muted" title={HF_TIP.grade_verdicts}>{(d.verdicts || {}).note}</p>
+      {d.limitations && d.limitations.length ? (
+        <ul className="hf-notes" title={HF_TIP.grade}>
+          {d.limitations.map((l, i) => <li key={i}>{l}</li>)}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 function ReportPanel({ apiFetch }) {
   const [d, setD] = React.useState(null);
   const [err, setErr] = React.useState(null);
@@ -1160,6 +1328,7 @@ function ReportPanel({ apiFetch }) {
       </div>
 
       <HfTrendTable trends={d.trends} />
+      <HfGrades apiFetch={apiFetch} />
       <HfSectorStrip sec={d.sectors} />
       <HfPressQuotes press={d.press} />
       <HfReportConflicts rows={d.conflicts} />

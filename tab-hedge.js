@@ -109,6 +109,18 @@ const HF_TIP = {
   report_history: "Every week ever assembled, newest first. Pick one to read it, or compare two to watch positioning evolve.",
   report_compare: "Two stored weeks side by side. Verdicts that match are marked the same; the rest show what moved. Compare uses the same diff as 'what changed', so the two views can never disagree.",
   report_limits: "What this report cannot do, stated plainly, so a confident-looking verdict is never read as more than it is.",
+  // ── The outcome grader (v4.88) ──
+  grade: "The only honest answer to 'has any of this mattered?'. For every past week the board can reconstruct, it looks up what the matching market did over the following 1, 2, 4 and 8 weeks, and keeps the record. It does NOT claim positioning predicts returns — it records what followed, with the sample size and the interval attached so you can see how much to believe.",
+  grade_reversal: "A crowded book has a SIDE, so 'reversal' has a meaning: the market moved against the side the crowd was on. That is the one place a hit rate is defined here, and it is the question you asked for in those words.",
+  grade_base: "The same market's rate across EVERY week, crowded or not. This is the number that matters. 'Crowded weeks reversed 55% of the time' means nothing until you know an ordinary week reversed 52% of the time — the comparison is the finding, not the raw share.",
+  grade_lift: "The crowded rate minus the base rate. Zero means crowding told you nothing you did not already get from the market itself. A market that fell all year would show a high crowded rate and an equally high base rate, which is exactly why both are shown.",
+  grade_interval: "The 95% interval around the share. It is wide, and it stays wide for a long time. A share without an interval invites reading three out of four as a finding.",
+  grade_episodes: "How many separate EVENTS the crowded weeks are. Crowding arrives in runs — a book stays crowded for a month — so forty crowded weeks can be five episodes. The intervals on this page are computed as though every week were an independent draw, which makes them OPTIMISTIC. This is the number that should temper them.",
+  grade_horizon: "How far ahead the return is measured, in weeks. Positioning is said to matter over a month or two, so four horizons are shown rather than one.",
+  grade_source: "Crowding is computed from the CFTC series and nothing else, so truncating that series at each past week reproduces exactly what the board would have said then, with no data that arrived later. That is why three years can be graded when the board only started storing readings in September 2026.",
+  grade_verdicts: "The four weekly questions are NOT scored as right or wrong. 'Hedge funds reduced exposure' is a fact about positioning and implies nothing about what the market does next; scoring it as a forecast would put a claim in the board's mouth. What is shown is the returns that followed each answer, beside the returns across every week.",
+  grade_not_graded: "A market with no honest tradable proxy is not graded at all. VIX is the case: its listed funds roll a futures curve, so an eight-week return measures the roll rather than the index.",
+  grade_proxy: "A futures position cannot be priced from the CFTC report, so the grade is measured on the fund that market's participants actually track — the S&P 500 contract against SPY, the Financials contract against XLF, and so on.",
   press: "PRIME BROKER AGGREGATE DATA. Goldman Sachs, Morgan Stanley and JPMorgan tell their prime brokerage clients each week what hedge funds did; the wires quote those notes. Secondhand by definition — a bank's summary of its own clients, retold by a reporter. It can raise confidence in what the measured data already says and can never create a verdict alone.",
   press_quote: "A quoted claim that survived every filter: the sentence names hedge funds, cites a bank as the SOURCE (not merely mentions one), is about positioning rather than returns, is not about a foreign market, and points unambiguously one way.",
   press_carried: "How many outlets carried this same claim. When five outlets repeat one Goldman note, that is one note — the claim counts once, and this is how widely it travelled.",
@@ -1371,6 +1383,184 @@ function HfCompare({
     title: HF_TIP.pulse_sector
   }, "Sectors that moved: ", cmp.sectors.filter(s => !s.same).map(s => `${s.sector} ${s.older || "—"} → ${s.newer || "—"}`).join(" · ")) : null);
 }
+const hfShare = v => v == null || !isFinite(v) ? "—" : `${(Number(v) * 100).toFixed(0)}%`;
+const hfLift = v => v == null || !isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${(Number(v) * 100).toFixed(1)}%`;
+function HfGrades({
+  apiFetch
+}) {
+  const [d, setD] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const {
+        d: got,
+        err: readErr
+      } = await hfReadJson(await apiFetch("/api/hf/grades", {
+        noCache: true
+      }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got);
+      setErr(got.error || null);
+    } catch (e) {
+      setErr(String(e && e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [apiFetch]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
+  React.useEffect(() => {
+    if (!(d && d.refreshing)) return;
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [d && d.refreshing, load]);
+  if (!d) {
+    return /*#__PURE__*/React.createElement("section", {
+      title: HF_TIP.grade
+    }, /*#__PURE__*/React.createElement("h4", {
+      title: HF_TIP.grade
+    }, "Has any of this mattered yet?"), err ? /*#__PURE__*/React.createElement("p", {
+      className: "research-error"
+    }, err) : /*#__PURE__*/React.createElement("p", {
+      className: "hf-muted"
+    }, busy ? "Grading the record…" : "—"));
+  }
+  if (!d.available) {
+    return /*#__PURE__*/React.createElement("section", {
+      title: HF_TIP.grade
+    }, /*#__PURE__*/React.createElement("h4", {
+      title: HF_TIP.grade
+    }, "Has any of this mattered yet?"), /*#__PURE__*/React.createElement("p", {
+      className: "hf-muted"
+    }, d.note, d.refreshing ? " Working on it now." : ""), /*#__PURE__*/React.createElement("button", {
+      className: "sl-mode",
+      onClick: load,
+      disabled: busy
+    }, busy ? "Loading…" : "Check again"));
+  }
+  const crowd = d.crowding || {};
+  const eps = crowd.episodes || {};
+  const head = d.headline || {};
+  return /*#__PURE__*/React.createElement("section", {
+    className: "hf-grade",
+    title: HF_TIP.grade
+  }, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.grade
+  }, "Has any of this mattered yet?"), /*#__PURE__*/React.createElement("p", {
+    className: head.available ? "" : "hf-muted",
+    title: HF_TIP.grade_reversal
+  }, head.text), /*#__PURE__*/React.createElement("p", {
+    className: "sl-status"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.grade_source
+  }, d.n_market_weeks, " market-weeks reconstructed"), /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.grade_episodes
+  }, " \xB7 ", eps.total_weeks || 0, " crowded weeks in ", eps.total_episodes || 0, " episodes"), /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.grade_proxy
+  }, " \xB7 ", d.n_proxies, " proxies priced"), /*#__PURE__*/React.createElement("span", null, " \xB7 grader ", d.version), " ", /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: load,
+    disabled: busy,
+    title: "Grade the record again"
+  }, "reload")), /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_horizon
+  }, "Weeks ahead"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_reversal
+  }, "Crowded reversed"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_interval
+  }, "95% interval"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_base
+  }, "Ordinary week"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_lift
+  }, "Difference"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_episodes
+  }, "Weeks \xB7 episodes"))), /*#__PURE__*/React.createElement("tbody", null, (d.horizons || []).map(h => {
+    const o = (crowd.overall || {})[String(h)] || {};
+    const c = o.crowded,
+      b = o.base;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: h
+    }, /*#__PURE__*/React.createElement("td", {
+      "data-label": "Weeks ahead"
+    }, h), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Crowded reversed",
+      title: HF_TIP.grade_reversal
+    }, c ? hfShare(c.share) : "—", c ? /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted"
+    }, " (", c.k, " of ", c.n, ")") : null), /*#__PURE__*/React.createElement("td", {
+      "data-label": "95% interval",
+      title: HF_TIP.grade_interval
+    }, c ? `${hfShare(c.low)} – ${hfShare(c.high)}` : "—"), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Ordinary week",
+      title: HF_TIP.grade_base
+    }, b ? hfShare(b.share) : "—", b ? /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted"
+    }, " (", hfInt(b.n), " weeks)") : null), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Difference",
+      title: HF_TIP.grade_lift,
+      className: o.lift > 0.02 ? "up" : o.lift < -0.02 ? "down" : ""
+    }, hfLift(o.lift)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Weeks \xB7 episodes",
+      title: HF_TIP.grade_episodes
+    }, c ? c.n : "—", " \xB7 ", o.episodes == null ? "—" : o.episodes, !o.enough ? /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted",
+      title: HF_TIP.grade_interval
+    }, " \xB7 too few") : null));
+  })))), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.grade_episodes
+  }, eps.note), Object.keys(crowd.not_graded || {}).length ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.grade_not_graded
+  }, "Not graded: ", Object.entries(crowd.not_graded).map(([k, why]) => `${k} — ${why}`).join(" ")) : null, /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: () => setOpen(!open),
+    title: HF_TIP.grade_proxy
+  }, open ? "Hide" : "Show", " each market"), open ? /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Market"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_proxy
+  }, "Priced on"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.grade_episodes
+  }, "Crowded episodes"), (d.horizons || []).map(h => /*#__PURE__*/React.createElement("th", {
+    key: h,
+    title: HF_TIP.grade_reversal
+  }, h, "w reversed")))), /*#__PURE__*/React.createElement("tbody", null, Object.entries(crowd.markets || {}).map(([key, m]) => /*#__PURE__*/React.createElement("tr", {
+    key: key
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Market"
+  }, m.market), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Priced on"
+  }, m.proxy), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Crowded episodes"
+  }, m.episodes == null ? "—" : m.episodes), (d.horizons || []).map(h => {
+    const c = ((m.horizons || {})[String(h)] || {}).crowded;
+    return /*#__PURE__*/React.createElement("td", {
+      key: h,
+      "data-label": `${h}w reversed`
+    }, c && c.n ? `${hfShare(c.share)}` : "—", c && c.n ? /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted"
+    }, " (", c.n, ")") : null);
+  })))))) : null, /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.grade_verdicts
+  }, (d.verdicts || {}).note), d.limitations && d.limitations.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "hf-notes",
+    title: HF_TIP.grade
+  }, d.limitations.map((l, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, l))) : null);
+}
 function ReportPanel({
   apiFetch
 }) {
@@ -1522,6 +1712,8 @@ function ReportPanel({
     }
   }))), /*#__PURE__*/React.createElement(HfTrendTable, {
     trends: d.trends
+  }), /*#__PURE__*/React.createElement(HfGrades, {
+    apiFetch: apiFetch
   }), /*#__PURE__*/React.createElement(HfSectorStrip, {
     sec: d.sectors
   }), /*#__PURE__*/React.createElement(HfPressQuotes, {

@@ -272,7 +272,48 @@ ok("the legacy caveat renders above the acted list, not only when it is empty",
    /sentence_filled_in && \(d\.funds \|\| \{\}\)\.n_acted/.test(src)
    && /belongs\s*\n?\s*above the list, not only in the empty branch/.test(src));
 
-ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
+// ── 8. the outcome grader (v4.88) ───────────────────────────────────────
+const grade = read("hf_grade.py");
+
+ok("the grader is a panel with a tooltip on every column",
+   /function HfGrades/.test(src) && /<HfGrades apiFetch/.test(src)
+   && ["grade","grade_reversal","grade_base","grade_lift","grade_interval","grade_episodes",
+       "grade_horizon","grade_source","grade_verdicts","grade_not_graded","grade_proxy"]
+      .every((k) => HF_TIPS_OF(src, k).length > 40));
+ok("a verdict is never scored right or wrong",
+   /not a forecast of returns/.test(grade) && /never a hit rate/.test(grade));
+ok("the base rate is the same market, so a falling year is not a finding",
+   /base rate is every week of the same market/.test(grade) && /grade_base/.test(src));
+ok("every share carries its sample size and interval",
+   /def wilson/.test(grade) && /95% interval/.test(src));
+ok("clustered episodes are counted and the optimism disclosed",
+   /def episodes/.test(grade) && /OPTIMISTIC/.test(grade) && /grade_episodes/.test(src));
+ok("crowding is graded point in time, with no lookahead",
+   /Point in time by construction/.test(scan) && /as_of` has to move with the window/.test(scan));
+ok("each market is reconstructed as deep as its own series",
+   /each as deep as its OWN series allows/.test(scan));
+ok("a market with no honest proxy is not graded",
+   /NOT_GRADED/.test(grade) && /roll a futures\s*\n?\s*curve/.test(grade) && /grade_not_graded/.test(src));
+ok("the grader is pure — no I/O, no clock",
+   !/datetime\.now|urllib|json\.load|[^.\w]open\(/.test(grade));
+ok("/api/hf/grades routes exist", /section == "grades"/.test(dash)
+   && /section == "grades\/status"/.test(dash) && /section == "grades\/build"/.test(dash));
+ok("the grade routes are in the HTTP smoke", /"\/api\/hf\/grades"/.test(smoke));
+ok("the grade cadence is published in thresholds",
+   /"grade"/.test(read("thresholds.json")) && /min_history_weeks/.test(read("thresholds.json")));
+
+// The X channel is optional and must be a no-op without a token.
+ok("X statements are gated on a bearer token",
+   /def x_available/.test(sources) && /S\.x_available\(\)/.test(watch));
+ok("no token means an empty answer, never an error",
+   /Returns an empty list on every failure path/.test(sources));
+ok("a post is a statement, never a position",
+   /never a position/.test(sources) && /own\.append/.test(watch));
+ok("the config route reports whether the channel is live",
+   /"x_statements": _hfsrc\.x_available\(\)/.test(dash));
+
+
+ok("the version was bumped", /const APP_VERSION = "4\.88"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

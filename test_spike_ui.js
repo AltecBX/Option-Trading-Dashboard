@@ -155,7 +155,7 @@ ok("and that line has a tooltip", /SK_TIP\.calendar/.test(src)
    && /calendar: "What today is on the market's own calendar/.test(src));
 ok("the calendar note spells its dates out too",
    /strftime\('%B'\)/.test(scan) && !/"next_session": .*isoformat/.test(scan));
-ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
+ok("the version was bumped", /const APP_VERSION = "4\.88"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

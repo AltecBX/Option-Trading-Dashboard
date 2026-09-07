@@ -585,6 +585,105 @@ class TheReportRecord(Base):
         self.assertEqual(st["version"], RPT.HF_REPORT_VERSION)
 
 
+class FakeUW:
+    """Only the two methods the grader touches."""
+    def __init__(self, envelope=True, rows=None):
+        self.envelope, self.calls = envelope, []
+        self.rows = rows if rows is not None else [
+            {"date": "2026-08-31", "close": "110.5"},
+            {"date": "2026-08-24", "close": "108.0"},
+            {"date": "not a date", "close": "1"},
+            {"date": "2026-08-17", "close": None},
+        ]
+
+    def ohlc(self, ticker, candle_size="1w", timeframe="3Y"):
+        self.calls.append((ticker, candle_size, timeframe))
+        return {"data": self.rows, "date": "2026-08-31"} if self.envelope else self.rows
+
+
+class TheCrowdingBackfill(Base):
+    """Crowding is CFTC-only, so a truncated series reproduces exactly what
+    the board would have said in that week — which is what makes three years
+    gradeable when only one week has ever been stored."""
+
+    def test_each_reconstructed_week_carries_its_own_date(self):
+        # The first cut carried the market's original as_of into every
+        # window, so 204 reconstructed rows all landed in the same week.
+        cftc = S.cftc_all()
+        rows = SC.crowded_history(cftc, min_history=12)
+        weeks = {r["week"] for r in rows}
+        self.assertGreater(len(weeks), 1, "every week collapsed onto one key")
+        self.assertEqual(len(weeks), len({r["as_of"] for r in rows}))
+
+    def test_a_window_never_sees_a_week_that_came_later(self):
+        cftc = S.cftc_all()
+        rows = SC.crowded_history(cftc, min_history=12)
+        newest = max(r["as_of"] for r in rows)
+        self.assertEqual(newest, cftc["sp500"]["as_of"],
+                         "the newest reconstructed week is the newest real one")
+
+    def test_each_market_goes_as_deep_as_its_own_history(self):
+        # Slicing every market to the shortest one's depth threw away two
+        # years of the S&P for the sake of a contract with 12 weeks.
+        cftc = S.cftc_all()
+        short_key = sorted(cftc)[0]
+        cftc[short_key] = {**cftc[short_key], "series": cftc[short_key]["series"][:14]}
+        rows = SC.crowded_history(cftc, min_history=12)
+        per = {}
+        for r in rows:
+            per[r["key"]] = per.get(r["key"], 0) + 1
+        self.assertLessEqual(per.get(short_key, 0), 2)
+        self.assertGreater(max(per.values()), 10, "the long series is not capped by the short one")
+
+    def test_every_row_carries_a_state_and_a_side(self):
+        rows = SC.crowded_history(S.cftc_all(), min_history=12)
+        self.assertTrue(rows)
+        for r in rows[:20]:
+            self.assertIn(r["state"], ("CROWDED", "DE-CROWDING", "NORMAL"))
+            self.assertIn(r["side"], ("long", "short"))
+
+    def test_no_cftc_data_is_not_a_crash(self):
+        self.assertEqual(SC.crowded_history({}), [])
+
+
+class TheCloseProvider(Base):
+    def test_the_envelope_shape_is_read(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     uw_getter=lambda: FakeUW(envelope=True))
+        got = SC.gather_weekly_closes(["SPY"])
+        self.assertEqual(got["SPY"]["2026-W36"], 110.5)
+        self.assertEqual(got["SPY"]["2026-W35"], 108.0)
+
+    def test_the_bare_list_shape_is_read_too(self):
+        # The same difference that broke the sector tide in v4.86.
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     uw_getter=lambda: FakeUW(envelope=False))
+        got = SC.gather_weekly_closes(["SPY"])
+        self.assertEqual(got["SPY"]["2026-W36"], 110.5)
+
+    def test_unparseable_rows_are_skipped_not_guessed(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     uw_getter=lambda: FakeUW(envelope=True))
+        got = SC.gather_weekly_closes(["SPY"])
+        self.assertEqual(len(got["SPY"]), 2, "the bad date and the null close are dropped")
+
+    def test_weekly_candles_are_requested_not_daily(self):
+        uw = FakeUW()
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, uw_getter=lambda: uw)
+        SC.gather_weekly_closes(["SPY", "QQQ"])
+        self.assertEqual([c[1] for c in uw.calls], ["1w", "1w"])
+
+    def test_no_client_is_an_empty_answer_not_a_crash(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, uw_getter=lambda: None)
+        self.assertEqual(SC.gather_weekly_closes(["SPY"]), {})
+
+    def test_every_graded_proxy_is_asked_for(self):
+        syms = SC.grade_symbols()
+        for want in ("SPY", "QQQ", "IWM", "DIA", "XLF", "XLK"):
+            self.assertIn(want, syms)
+        self.assertEqual(len(syms), len(set(syms)))
+
+
 
 class WeekKeys(unittest.TestCase):
     def test_iso_weeks(self):
