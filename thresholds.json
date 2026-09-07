@@ -1069,7 +1069,7 @@
     }
   },
   "hedge": {
-    "_doc": "Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). `watch` is the Named Fund Watch (hf_watch.py) \u2014 how often a manager's EDGAR trail is re-read and how far back statements, press and 13D events are listed. `pulse` is the aggregate layer (hf_scan.py, hf_pulse.py) \u2014 the weekly cadence, how much history the percentiles use, and what counts as crowded. `report` is the weekly report (hf_report.py, hf_press.py) — how old a prime-broker headline may be and still corroborate, how often the report is rebuilt, and how many revisions of a week are kept.",
+    "_doc": "Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). `watch` is the Named Fund Watch (hf_watch.py) \u2014 how often a manager's EDGAR trail is re-read and how far back statements, press and 13D events are listed. `pulse` is the aggregate layer (hf_scan.py, hf_pulse.py) \u2014 the weekly cadence, how much history the percentiles use, and what counts as crowded. `report` is the weekly report (hf_report.py, hf_press.py) — how old a prime-broker headline may be and still corroborate, how often the report is rebuilt, and how many revisions of a week are kept. `grade` is the outcome grader (hf_grade.py) \u2014 how much history a reading needs before it is graded and how often the record is re-priced. `replay` recomputes the four weekly answers for past weeks (hf_replay.py) \u2014 how many short-interest settlements to read, how many daily short-volume files to add per build, and how far back to ask for ETF creations.",
     "watch": {
       "refresh_hours": 6,
       "statement_days": 45,
@@ -1096,6 +1096,15 @@
       "rebuild_hours": 168,
       "retry_hours": 1,
       "closes_timeframe": "3Y"
+    },
+    "replay": {
+      "min_history_weeks": 12,
+      "rebuild_hours": 168,
+      "retry_hours": 1,
+      "si_settlements": 60,
+      "shvol_budget_days": 40,
+      "shvol_max_days": 800,
+      "flow_days": 900
     }
   }
 }

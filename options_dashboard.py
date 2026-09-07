@@ -5050,6 +5050,7 @@ try:
     import hf_grade as _hfgrade
     import hf_press as _hfpress
     import hf_pulse as _hfpulse
+    import hf_replay as _hfreplay
     import hf_report as _hfreport
     import hf_scan as _hfscan
     import hf_sources as _hfsrc
@@ -10537,6 +10538,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     self._send_json(_hfscan.grade_status(), no_store=True)
                 elif section == "grades/build":
                     self._send_json(_hfscan.grades_now(), no_store=True)
+                elif section == "replay":
+                    self._send_json(_hfscan.replay(), no_store=True)
+                elif section == "replay/status":
+                    self._send_json(_hfscan.replay_status(), no_store=True)
+                elif section == "replay/build":
+                    self._send_json(_hfscan.replay_now(), no_store=True)
                 elif section == "press":
                     with _hfscan._LOCK:  # noqa: SLF001
                         board = _hfscan._STATE["board"] or {}  # noqa: SLF001
@@ -10551,6 +10558,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                                      "report": _hfreport.HF_REPORT_VERSION,
                                      "press": _hfpress.HF_PRESS_VERSION,
                                      "grade": _hfgrade.HF_GRADE_VERSION,
+                                     "replay": _hfreplay.HF_REPLAY_VERSION,
                                      "x_statements": _hfsrc.x_available(),
                                      "sources": _hfsrc.HF_SOURCES_VERSION,
                                      "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)

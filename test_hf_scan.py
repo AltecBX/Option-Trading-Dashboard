@@ -15,11 +15,13 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import hf_grade as GR
 import hf_pulse as P
+import hf_replay as RP
 import hf_report as RPT
 import hf_scan as SC
 import hf_sources as S
@@ -134,7 +136,9 @@ class Base(unittest.TestCase):
                           # survives into the next one and the failure looks
                           # like the product's.
                           "grades": None, "grades_at": None, "grades_refreshing": False,
-                          "grades_error": None})
+                          "grades_error": None, "grades_retry_at": None,
+                          "replay": None, "replay_at": None, "replay_refreshing": False,
+                          "replay_error": None, "replay_retry_at": None})
         self.funds = {"managers": [{"key": "acme", "name": "Acme Capital", "status": "FILING",
                                     "turnover": "READABLE",
                                     "activity": {"state": "UNKNOWN", "since": "2026-06-30",
@@ -810,3 +814,205 @@ class WeekKeys(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWeekAReadingDescribes(Base):
+    """The board stamps a snapshot with the week it RAN in; the CFTC report
+    it read is dated the Tuesday before. Crowding has always been filed
+    under the data week, so filing the verdicts under the build week priced
+    the two from weeks a week apart inside a single card."""
+
+    def test_a_reading_is_keyed_by_its_data_not_its_build_week(self):
+        # Exactly the live shape: built in 2026-W37, reading data dated
+        # 2026-09-01, which is 2026-W36.
+        row = {"week": "2026-W37", "cftc_as_of": "2026-09-01", "verdicts": {"longs": "ADDING"}}
+        self.assertEqual(SC.data_week(row), "2026-W36")
+        self.assertNotEqual(SC.data_week(row), row["week"])
+
+    def test_a_reading_with_no_data_date_keeps_its_stamp(self):
+        # Older stored weeks predate cftc_as_of. Dropping them would lose
+        # real record; guessing a week for them would invent one.
+        self.assertEqual(SC.data_week({"week": "2026-W20", "cftc_as_of": None}), "2026-W20")
+        self.assertEqual(SC.data_week({"week": "2026-W20"}), "2026-W20")
+
+    def test_a_broken_data_date_falls_back_rather_than_crashing(self):
+        self.assertEqual(SC.data_week({"week": "2026-W20", "cftc_as_of": "not-a-date"}),
+                         "2026-W20")
+
+    def test_the_stored_readings_the_grader_sees_use_the_data_week(self):
+        SC.build()
+        rows = SC.stored_readings()
+        self.assertTrue(rows)
+        for r in rows:
+            self.assertEqual(set(r), {"week", "verdicts"})
+        weeks = {r["week"] for r in rows}
+        # The board built at NOW reads CFTC dated 2026-09-01 (2026-W36).
+        self.assertIn("2026-W36", weeks)
+
+
+class TheReplayWiring(Base):
+    def _cftc(self):
+        return S.cftc_all()
+
+    def test_a_replay_is_built_stored_and_read_back(self):
+        card = SC.build_replay()
+        self.assertGreater(card["n_weeks"], 0)
+        self.assertTrue((Path(self.tmp.name) / "hf" / "replay.json").exists())
+        again = SC.load_replay()
+        self.assertEqual(again["n_weeks"], card["n_weeks"])
+
+    def test_the_payload_leaves_the_week_by_week_rows_out(self):
+        # Hundreds of rows nothing renders would be the largest thing on the
+        # wire on this board.
+        SC.build_replay()
+        out = SC.replay()
+        self.assertTrue(out["available"])
+        self.assertNotIn("weeks", out)
+        self.assertIn("coverage", out)
+        self.assertIn("sources", out)
+
+    def test_the_status_describes_the_stored_card_not_the_code(self):
+        SC.build_replay()
+        with SC._LOCK:  # noqa: SLF001
+            SC._STATE["replay"]["version"] = "0.9.0"  # noqa: SLF001
+        st = SC.replay_status()
+        self.assertEqual(st["version"], "0.9.0")
+        self.assertEqual(st["code_version"], RP.HF_REPLAY_VERSION)
+
+    def test_the_replayed_weeks_reach_the_grader(self):
+        SC.build_replay()
+        replayed = SC.replayed_readings()
+        self.assertGreater(len(replayed), 1, "more than the single stored week")
+        for r in replayed:
+            self.assertEqual(set(r), {"week", "verdicts"})
+
+    def test_a_stored_week_beats_a_replayed_one_for_the_same_week(self):
+        # The board's own record is what it published; the replay is only
+        # what it would have published. They must never both be graded.
+        SC.build()
+        SC.build_replay()
+        stored = SC.stored_readings()
+        replayed = SC.replayed_readings()
+        overlap = {r["week"] for r in stored} & {r["week"] for r in replayed}
+        self.assertEqual(overlap, set(), "a week is graded once")
+
+    def test_the_grade_card_says_where_its_readings_came_from(self):
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: FakeUW())
+        SC.build()
+        SC.build_replay()
+        card = SC.build_grades()
+        src = card["readings_from"]
+        self.assertGreaterEqual(src["recorded"], 1)
+        self.assertGreater(src["replayed"], 1)
+        self.assertEqual(card["n_readings"], src["recorded"] + src["replayed"])
+
+    def test_a_replay_that_reconstructed_nothing_waits_instead_of_looping(self):
+        SC.build_replay()          # a real one first, to prove the contrast
+        with SC._LOCK:             # noqa: SLF001
+            SC._STATE.update({"replay": None, "replay_at": None,  # noqa: SLF001
+                              "replay_retry_at": None})
+        # No CFTC at all: nothing can be reconstructed.
+        with mock.patch.object(S, "cftc_all", lambda: {}):
+            card = SC.build_replay()
+        self.assertEqual(card["n_readings"], 0)
+        self.assertFalse(SC._replay_stale(), "it waits rather than rebuilding on every look")  # noqa: SLF001
+        self.assertTrue(SC.replay_status()["retry_after"])
+        self.assertIn("try again", SC._STATE["replay_error"])  # noqa: SLF001
+
+    def test_the_cooldown_lifts(self):
+        with mock.patch.object(S, "cftc_all", lambda: {}):
+            SC.build_replay()
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW + timedelta(hours=3),
+                     funds_fn=lambda: self.funds)
+        self.assertTrue(SC._replay_stale())  # noqa: SLF001
+
+
+class TheShortVolumeCache(Base):
+    def test_it_keeps_one_number_per_session_not_the_files(self):
+        shares = SC.gather_shvol_history(budget=3)
+        self.assertTrue(shares)
+        p = Path(self.tmp.name) / "hf" / "shvol_daily.json"
+        self.assertTrue(p.exists())
+        doc = json.loads(p.read_text())
+        self.assertEqual(set(doc), {"shares", "n", "saved_at"})
+        for v in doc["shares"].values():
+            self.assertIsInstance(v, float)
+
+    def test_a_second_run_resumes_rather_than_refetching(self):
+        first = SC.gather_shvol_history(budget=2)
+        calls_before = len([u for u in self.web.calls if "CNMSshvol" in u])
+        second = SC.gather_shvol_history(budget=2)
+        calls_after = len([u for u in self.web.calls if "CNMSshvol" in u])
+        self.assertGreaterEqual(len(second), len(first), "the cache only deepens")
+        self.assertGreater(calls_after, calls_before, "it walked further back, not over the same days")
+        # Nothing already cached was asked for twice.
+        fetched = [u for u in self.web.calls if "CNMSshvol" in u]
+        self.assertEqual(len(fetched), len(set(fetched)))
+
+    def test_a_corrupt_cache_is_an_empty_one_not_a_crash(self):
+        p = Path(self.tmp.name) / "hf" / "shvol_daily.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{not json")
+        self.assertEqual(SC.load_shvol(), {})
+
+
+class TheFlowHistory(Base):
+    def test_no_client_is_reported_not_guessed(self):
+        daily, note = SC.gather_flow_history()
+        self.assertEqual(daily, {})
+        self.assertFalse(note["available"])
+        self.assertIn("endpoint", note["why"])
+
+    def test_a_partial_universe_is_refused(self):
+        # The live board sums every fund the daily endpoint returns. Summing
+        # whichever ones happened to answer is a different total.
+        class Partial:
+            def sector_flow(self):
+                return {"data": [{"ticker": "SPY"}, {"ticker": "XLF"}, {"ticker": "XLK"}]}
+
+            def etf_in_outflow(self, ticker, start_date=None, end_date=None):
+                if ticker != "SPY":
+                    return {"data": []}
+                return {"data": [{"date": "2026-09-04", "change": 1000.0}]}
+
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: Partial())
+        daily, note = SC.gather_flow_history()
+        self.assertEqual(daily, {})
+        self.assertFalse(note["available"])
+        self.assertIn("would not be the total", note["why"])
+        self.assertEqual(note["n_with_rows"], 1)
+
+    def test_the_whole_universe_sums_per_session(self):
+        class Whole:
+            def sector_flow(self):
+                return {"data": [{"ticker": "SPY"}, {"ticker": "XLF"}]}
+
+            def etf_in_outflow(self, ticker, start_date=None, end_date=None):
+                return {"data": [{"date": "2026-09-04", "change": 100.0},
+                                 {"date": "2026-09-03", "change": 50.0}]}
+
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW,
+                     funds_fn=lambda: self.funds, uw_getter=lambda: Whole())
+        daily, note = SC.gather_flow_history()
+        self.assertTrue(note["available"])
+        self.assertAlmostEqual(daily["2026-09-04"], 200.0, msg="both funds counted")
+        self.assertEqual(note["n_with_rows"], 2)
+
+    def test_the_parser_skips_rows_it_cannot_read_rather_than_guessing(self):
+        got = SC.parse_in_outflow({"data": [
+            {"date": "2026-09-04", "change": 10.0},
+            {"date": "2026-09-04", "change": 5.0},      # same session, added
+            {"date": "2026-09-03"},                      # no figure
+            {"change": 99.0},                            # no date
+            "not a row",
+            {"date": "2026-09-02", "change": "not a number"},
+        ]})
+        self.assertAlmostEqual(got["2026-09-04"], 15.0)
+        self.assertNotIn("2026-09-03", got)
+        self.assertNotIn("2026-09-02", got)
+
+    def test_a_bare_list_parses_like_an_envelope(self):
+        rows = [{"date": "2026-09-04", "change": 7.0}]
+        self.assertEqual(SC.parse_in_outflow(rows), SC.parse_in_outflow({"data": rows}))

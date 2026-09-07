@@ -256,6 +256,8 @@ for p in [
     "/api/hf/press",
     "/api/hf/grades",
     "/api/hf/grades/status",
+    "/api/hf/replay",
+    "/api/hf/replay/status",
     "/api/gap",
     "/api/gap/config",
     "/api/gap/live",

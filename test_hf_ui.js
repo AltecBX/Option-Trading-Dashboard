@@ -346,7 +346,53 @@ ok("the watchlist stores a handle, never a query",
 ok("the editor refuses a handle that is not one",
    /\^\[A-Za-z0-9_\]\{1,15\}\$/.test(src) && /not valid/.test(src));
 
-ok("the version was bumped", /const APP_VERSION = "4\.88"/.test(appSrc));
+// ── Phase 5A: the four weekly answers, recomputed for past weeks ──────────
+const replay = read("hf_replay.py");
+
+ok("the replay calls the board's own verdict functions instead of copying them",
+   /P\.exposure\(/.test(replay) && /P\.leverage\(/.test(replay)
+   && /P\.longs_and_shorts\(/.test(replay)
+   && !/def build_verdict/.test(replay));
+ok("a verdict is only recomputed when every input that decides it is there",
+   /REQUIRES/.test(replay) && /"exposure": \("etf_flows",\)/.test(replay)
+   && /"shorts": \("short_interest", "short_volume"\)/.test(replay)
+   && /"leverage": \(\)/.test(replay));
+ok("short interest is keyed on when it was published, not when it settled",
+   /public_on/.test(replay) && /never on the settlement date/.test(replay));
+ok("a half-filled window is refused rather than averaged",
+   /len\(window\) < days/.test(replay) && /len\(window\) < sessions/.test(replay));
+ok("a reading is graded under the week it describes",
+   /def data_week/.test(scan) && /cftc_as_of/.test(scan)
+   && /def stored_readings/.test(scan) && /def replayed_readings/.test(scan));
+ok("a stored week is never graded twice",
+   /have = \{r\["week"\] for r in stored_readings\(\)\}/.test(scan));
+ok("the daily short-volume cache keeps numbers, not files",
+   /def load_shvol/.test(scan) && /def gather_shvol_history/.test(scan)
+   && /shvol_budget_days/.test(read("thresholds.json")));
+ok("a partial ETF universe is refused, not summed",
+   /would not be the total the board adds up/.test(scan));
+ok("the panel says where its graded weeks came from",
+   /readings_from/.test(src) && /recomputed from data as it stood then/.test(src)
+   && /replay_coverage/.test(src));
+ok("the panel no longer claims the four answers cannot be reconstructed",
+   !/cannot be reconstructed from history/.test(src));
+ok("each question shows how far back it reaches, and why it stops",
+   /Reaches back to/.test(src) && /Why it stops there/.test(src)
+   && /why_skipped/.test(src));
+ok("an ISO week is never shown to the reader",
+   /const hfWeekLabel/.test(src) && /week of \$\{monday\.toLocaleDateString/.test(src)
+   && /hfWeekLabel\(c\.first\)/.test(src));
+ok("the four questions are spelled out, never shown as keys",
+   /HF_QUESTION_NAME/.test(src) && /Adding shorts, or covering/.test(src)
+   && /HF_QUESTION_NAME\[r\.q\]/.test(src));
+ok("every new tooltip is written and long enough to say something",
+   ["grade_replay", "grade_recorded", "grade_replayed", "grade_replay_span",
+    "grade_replay_skipped"].every((k) => HF_TIPS_OF(src, k).length > 60));
+ok("the replay routes are served",
+   /section == "replay"/.test(dash) && /section == "replay\/status"/.test(dash)
+   && /section == "replay\/build"/.test(dash) && /"replay": _hfreplay/.test(dash));
+
+ok("the version was bumped", /const APP_VERSION = "4\.89"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

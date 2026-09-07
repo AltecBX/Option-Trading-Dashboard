@@ -3086,3 +3086,72 @@ asserting `graded <= crowded <= market_weeks` compared 0 to 0 to 0 and
 passed while carrying nothing. It now injects known counts and pins the
 route's pass-through, and dropping the field from the route was confirmed
 to fail it.
+
+## v4.89 — Hedge Funds, phase 5A: the four answers, recomputed
+
+Phase 4 shipped a grader that priced 1,303 market-weeks of crowding and
+exactly **one** week of the four weekly answers, and the design said the
+four could never be reconstructed because they need short interest, flows
+and the tide, none of which the board kept.
+
+That was too pessimistic, and checking rather than assuming settled it.
+FINRA serves consolidated short interest per settlement back past 2022 and
+daily short-volume files over the same span; the OFR carries Form PF
+leverage as 53 quarterly points from 2013; and while the sector-ETF endpoint
+the board reads daily has no date parameter, `/api/etfs/{ticker}/in-outflow`
+takes `start_date` and `end_date`.
+
+**Which answers need what — measured, not assumed.** Removing each optional
+input and counting what the verdict was built from gives exposure 5 -> 4,
+leverage 3 -> 3, longs 3 -> 3, shorts 5 -> 3. Form PF never enters the
+leverage verdict; it is carried as context beside it. So leverage and longs
+are decided by the futures report alone and replay to the full depth of the
+CFTC series with no other source at all, which is why this delivers a real
+record even where every optional history fails.
+
+**The rule.** A question is recomputed for a week only when every input that
+decides it today was public that week. Rebuilt from fewer inputs it is a
+different answer wearing the same name, and grading it would say nothing
+about the answers the board actually publishes. Three things enforce it: a
+`REQUIRES` table per question; a refusal of half-filled windows, because the
+flat band is drawn from the spread of the input's own history and three
+sessions hand `build_verdict` a different band than twenty; and a refusal of
+a partial ETF universe, since the live board sums every fund its daily
+endpoint returns and summing whichever ones answered is a different total.
+
+The replay calls `hf_pulse.exposure`, `leverage` and `longs_and_shorts` — the
+board's own functions. A copy would drift the first time either changed and
+would then be grading a board that does not exist; a test asserts the verdict
+maths appears nowhere in `hf_replay.py`.
+
+**It reproduces the live board exactly.** Replaying the current week and
+comparing against the deployment: leverage RISING/RISING, longs
+ADDING/ADDING, 3 inputs each. The first real run replayed 158 weeks,
+2023-W35 to 2026-W36, with varied answers rather than one repeated verdict —
+leverage 77 RISING / 70 FALLING / 11 MIXED, longs 80 ADDING / 65 REDUCING /
+13 MIXED.
+
+**A week-key bug it uncovered in the shipped grader.** The board stamps a
+snapshot with the calendar week it ran in; the CFTC report it read is dated
+the Tuesday before. Live: board week 2026-W37, `cftc_as_of` 2026-09-01, which
+is 2026-W36. Crowding has always been filed under the data week, the stored
+verdicts under the build week — so inside one grade card the two layers were
+priced from weeks a week apart. Invisible with one stored reading; with 158
+replayed weeks beside it, every week would have been mis-priced. `data_week()`
+now keys a reading by the data it describes, and a stored week always beats a
+replayed one for the same week.
+
+**The daily files are read once and thrown away.** Each FINRA short-volume
+file is megabytes and yields one number the verdict reads, so the numbers are
+cached one per session and the files are not. The walk is bounded per build
+and resumes rather than restarts, so `shorts` reaches further back every week
+and the panel reports the depth reached rather than one it has not.
+
+Two of my own fixtures were wrong before the code was: a settlement published
+July 27 is not in hand in a week that closed July 26, and the module was right
+to refuse it.
+
+hf_replay 36 · hf_scan 92 (23 new) · hf_grade 44 · hf_report 71 · hf_press 53 ·
+hf_watch 28 · hf_registry 18 · hf_sources 32 · hf_pulse 48 · UI 153 ·
+smoke 156/157 · render check clean on desktop and phone, every header
+tooltipped, no ISO week on screen.
