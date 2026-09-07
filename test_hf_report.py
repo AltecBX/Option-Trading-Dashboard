@@ -498,6 +498,69 @@ class ActivitySentence(unittest.TestCase):
         self.assertIn(rep["funds"]["sentence"], rep["summary"]["bullets"])
 
 
+class OlderStoredReports(unittest.TestCase):
+    """The history view opens documents written by earlier versions. They
+    must render, and they must not be made to say something they never said.
+
+    The stored file is never rewritten: `normalize` fills the field in on
+    the way out only. That is the whole promise of keeping the reports."""
+
+    LEGACY = {"version": "1.0.0",
+              "funds": {"n_acted": 4, "n_managers": 32, "n_unknown": 27,
+                        "n_ceased": 1, "n_not_read": 0}}
+    FILTERED = {"version": "1.0.0",
+                "funds": {"n_acted": 0, "n_filed_since": 4, "n_managers": 32,
+                          "n_unknown": 27, "n_ceased": 1, "n_not_read": 0}}
+
+    def test_a_legacy_report_gains_a_sentence(self):
+        out = R.normalize(self.LEGACY)
+        self.assertTrue(out["funds"]["sentence"])
+        self.assertTrue(out["funds"]["sentence_filled_in"])
+
+    def test_a_legacy_count_is_not_relabelled_as_this_week(self):
+        # Under 1.0.0, n_acted counted every manager carrying a filing newer
+        # than their last holdings report, whenever it was made.
+        s = R.normalize(self.LEGACY)["funds"]["sentence"]
+        self.assertIn("newer than their last holdings report", s)
+        self.assertNotIn("filed something verifiable this week", s)
+        self.assertIn("predates the weekly filter", s)
+
+    def test_the_week_filtered_counts_decide_the_wording_not_the_version(self):
+        # One live revision carries the filtered counts under a 1.0.0 stamp,
+        # because it was built between the filter landing and the version
+        # moving. n_filed_since is the reliable tell.
+        s = R.normalize(self.FILTERED)["funds"]["sentence"]
+        self.assertIn("filed anything this week", s)
+
+    def test_a_report_that_already_has_one_is_left_alone(self):
+        rep = {"version": "1.1.1", "funds": {"n_acted": 0, "sentence": "kept as written."}}
+        out = R.normalize(rep)
+        self.assertEqual(out["funds"]["sentence"], "kept as written.")
+        self.assertNotIn("sentence_filled_in", out["funds"])
+
+    def test_normalize_never_mutates_the_stored_object(self):
+        stored = {"version": "1.0.0", "funds": dict(self.LEGACY["funds"])}
+        R.normalize(stored)
+        self.assertNotIn("sentence", stored["funds"])
+        self.assertNotIn("sentence_filled_in", stored["funds"])
+
+    def test_a_report_with_no_funds_block_is_returned_unchanged(self):
+        rep = {"version": "1.0.0"}
+        self.assertIs(R.normalize(rep), rep)
+
+    def test_a_legacy_report_with_nothing_carrying(self):
+        s = R.normalize({"version": "1.0.0",
+                         "funds": {"n_acted": 0, "n_managers": 32, "n_unknown": 31,
+                                   "n_ceased": 1, "n_not_read": 0}})["funds"]["sentence"]
+        self.assertEqual(s, "No watched manager had a filing newer than their last holdings report.")
+
+    def test_a_legacy_report_taken_mid_first_read(self):
+        s = R.normalize({"version": "1.0.0",
+                         "funds": {"n_acted": 0, "n_managers": 32, "n_not_read": 32,
+                                   "n_unknown": 0, "n_ceased": 0}})["funds"]["sentence"]
+        self.assertIn("had not finished its first read", s)
+
+
 
 class Versioning(unittest.TestCase):
     """The reports are kept forever, so the stamp has to distinguish the

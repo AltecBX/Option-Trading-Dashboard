@@ -260,6 +260,14 @@ ok("the card renders the report's own activity sentence, not its own",
 ok("every activity state produces a true sentence",
    /def activity_sentence/.test(report) && /explicit ladder/.test(report));
 
+ok("an older stored report still renders an activity line",
+   /def normalize/.test(report) && /filled in on READ, never written/.test(report)
+   && /sentence_filled_in/.test(src) && /RPT\.normalize/.test(scan));
+ok("a legacy count is not relabelled as this week",
+   /def legacy_activity_sentence/.test(report) && /predates the weekly filter/.test(report));
+ok("the filled-in sentence says so, with a tooltip",
+   HF_TIPS_OF(src, "report_filled_in").length > 40 && /written for this report on reading it/.test(src));
+
 ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
