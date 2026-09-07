@@ -590,3 +590,27 @@ lost the inputs behind each sector, so a week read back later would show a
 verdict with nothing behind it. The rows are carried whole now. This is the
 second time a browser render has caught something no static check could —
 the first was Phase 1's `apiFetch` returning an unread `Response`.
+
+### 10f. Five findings from the post-merge review
+
+A review bot filed five findings on the Phase 3 pull request after it
+merged. All five reproduced against the code and all five are fixed. Four of
+them share a shape worth naming: **a value that was correct where it was
+computed became wrong where it was reused.**
+
+| Finding | What it did |
+|---|---|
+| The report looped on an old week | `build_report()` took whatever board was in memory. After a week rollover that was last week's reading, so the report was filed under last week — which `_report_stale` then judged stale forever, appending a revision on every look at the card and never re-reading the pulse. |
+| Revision numbers collided | The next number came from counting what was on disk, but retention means only the survivors are there. Build 14 wrote a second revision 13, and asking for revision 13 returned the older of the two. |
+| Compare showed the wrong week's watchlist changes | Those rows were copied from the current report's own `added`/`removed`, computed against the report that preceded it. Comparing two non-adjacent weeks missed what moved in between. |
+| A bank's name was read as a place | "Bank of America" contains *America*, so a headline about Asia matched the US pattern too and became eligible evidence about a market it was not describing. |
+| "Activity this week" was not this week | `FILED SINCE` persists until the next 13F, which is months. The first live report showed four managers as having acted in a week whose new-filing sweep found nothing at all. |
+
+The fifth was visible in the very first production reading and I had read
+past it: four managers "acted" while the new-filings section directly below
+said nothing had been filed since August 31. The two numbers contradicted
+each other on screen.
+
+The stored shape changed with the last of these, so `HF_REPORT_VERSION` moved
+to 1.1.0. Reports are kept forever; two documents both stamped 1.0.0 would
+otherwise mean different things by `n_acted`.

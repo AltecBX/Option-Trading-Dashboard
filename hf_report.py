@@ -42,7 +42,12 @@ import hf_press as PRESS
 import hf_pulse as P
 import hf_sources as S
 
-HF_REPORT_VERSION = "1.0.0"
+# 1.1.0 — `n_acted` counts managers who filed something during THIS report's
+# week, where 1.0.0 counted every manager carrying the FILED SINCE state. The
+# reports are kept forever, so a stored document has to say which rule
+# produced it: two reports both stamped 1.0.0 would otherwise mean different
+# things. Bump this whenever the stored shape or a field's meaning changes.
+HF_REPORT_VERSION = "1.1.0"
 
 # The four aggregate questions, in the order the report tells them, with the
 # heading each one is printed under.
