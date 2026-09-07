@@ -432,7 +432,52 @@ ok("the names route is served",
    /section == "names"/.test(dash) && /"names": _hfnames/.test(dash)
    && /positions_fn=lambda/.test(dash));
 
-ok("the version was bumped", /const APP_VERSION = "4\.89"/.test(appSrc));
+// ── Phase 6: alerts ───────────────────────────────────────────────────────
+const alertPy = read("hf_alert.py");
+
+ok("an alert fires on a change, never on a state",
+   /def crowding_changes/.test(alertPy) && /was == state/.test(alertPy)
+   && /is not news on any of them/.test(alertPy));
+ok("a wobble that never touches the crowded state is not an event",
+   /if CROWDED not in \(state, was\)/.test(alertPy));
+ok("the first run primes and sends nothing",
+   /the first run records what it finds and sends nothing/.test(alertPy)
+   && /primed/.test(scan) && /store\.get\("primed"\)/.test(scan));
+ok("everything seen is remembered, sent or not",
+   /"remember": \[r\["key"\] for r in \(rows or \(\)\)\]|"remember": \[r\["key"\] for r in \(rows or \[\]\)\]/.test(alertPy)
+   && /must never arrive later dressed as new/.test(scan));
+ok("nothing is ever sent twice",
+   /already sent/.test(alertPy) && /sent_keys/.test(alertPy));
+ok("a crowding alert can never name a fund",
+   /def attribution_ok/.test(alertPy) && /cannot click through to check/.test(alertPy)
+   && /an alert carried a fund name on anonymous evidence/.test(scan));
+ok("a 13G is never an alert",
+   /form\.startswith\("SC 13G"\)/.test(alertPy));
+ok("a push never shows an ISO date",
+   /def long_date/.test(alertPy) && /%B %-d, %Y/.test(alertPy)
+   && /never an ISO string, on a phone least of all/.test(alertPy));
+ok("the report push names the week it covers",
+   /def week_start/.test(alertPy) && /week the report is not about/.test(alertPy));
+ok("a backlog does not empty onto a lock screen",
+   /cap/.test(alertPy) && /cap_per_run/.test(read("thresholds.json")));
+ok("building a board is never a way to send a push",
+   /building a board must never be a way to\n            # send somebody a push/.test(scan));
+ok("hf_scan is told how to send, never how push works",
+   /_ALERT_FN/.test(scan) && !/pushover|ntfy/i.test(scan)
+   && /alert_fn=lambda title/.test(dash));
+ok("the panel shows what was NOT sent and why",
+   /Seen, and deliberately not sent/.test(src) && /would_send/.test(src)
+   && /Would go out on the next check/.test(src));
+ok("a quiet week is shown as correct, not as a failure",
+   /that is the correct answer, not a failure/.test(src));
+ok("every alert tooltip is written and long enough to say something",
+   ["alerts", "alerts_can_send", "alerts_primed", "alerts_would", "alerts_sent",
+    "alerts_kind", "alerts_held", "alerts_cap"].every((k) => HF_TIPS_OF(src, k).length > 60));
+ok("the alerts route is served and the config reports push",
+   /section == "alerts"/.test(dash) && /"alerts": _hfalert/.test(dash)
+   && /"push": _push_configured\(\)/.test(dash));
+
+ok("the version was bumped", /const APP_VERSION = "4\.90"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

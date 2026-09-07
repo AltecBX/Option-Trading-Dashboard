@@ -394,6 +394,7 @@ thresholds under `hedge` in `thresholds.json`.
 | **2 — Pulse** | CFTC equity + sector futures with percentiles; FINRA short interest and short volume with sector roll-up; UW sector tide, ETF flows, borrow; the pure `hf_pulse.py` with streaks, persistence, crowding; the Pulse panel | Phase 1 sector map |
 | **3 — Combined + Weekly Report** — *shipped in v4.87* (`hf_press.py`, `hf_report.py`, the Weekly Report panel) | The combined rule on every fund card; press capture (PRIME BROKER quotes); the report builder, store, history and compare; conflicts and confidence | Phases 1–2 |
 | **4 — optional** — *shipped in v4.88* (`hf_grade.py`, the X channel, the grader panel) | X statements if the token is set; Form SHO when published; SSGA fallback (adds `openpyxl`); outcome grading | Phases 1–3 |
+| **6 — it reaches out** — *shipped in v4.90* (`hf_alert.py`) | The board stops being only a page you visit: an activist 13D, a market entering or leaving the crowded state, a watched manager's new filing, the weekly report — pushed, on a change and never on a state | Phase 5 |
 | **5 — the record deepens** — *shipped in v4.89* (`hf_replay.py`) | The four weekly answers recomputed for every past week the data allows, so they are graded on years rather than on the weeks stored since September 2026; the crowded single names the board never used to put a ticker on | Phase 4 |
 
 Each phase ships as its own PR with tests and a browser render check, the
@@ -953,3 +954,76 @@ through an injected `positions_fn` — `hf_scan` still never imports
 `/api/hf/names`. Nothing is stored: a 13F changes four times a year, the
 watch already keeps the filings, and a second copy on disk would only be a
 second thing to keep in step with the first.
+
+---
+
+## 14. Phase 6 as built (v4.90) — alerts
+
+Every phase so far put facts on a page you had to go and look at. This
+decides which of them should reach a phone instead — a different problem,
+and a harder one, because **a board that pushes too often is a board whose
+notifications get muted**, at which point it is worth less than the page it
+came from. So `hf_alert.py` is mostly rules about not sending.
+
+### 14a. The rules
+
+- **A change, never a state.** "Financials is crowded" is true for weeks and
+  is news on none of them. The comparison is against the state at the **last
+  alert**, not against last week's board — otherwise two rebuilds inside one
+  week fire twice, and a week the board never ran hides the change entirely.
+  A NORMAL ↔ DECROWDING wobble never crossed the line that matters and is
+  not an event.
+- **Never twice.** Every alert carries a key derived from the event, not
+  from the moment it was noticed: a 13D filed on the 3rd is the same event
+  whether seen on the 4th or the 6th.
+- **The first run primes and sends nothing.** Switching alerts on would
+  otherwise deliver every open state at once. The first pass records what it
+  found and stays silent, so the first thing that ever arrives is a genuine
+  change. Everything **seen** is remembered, sent or not — a held alert must
+  never arrive later dressed as new.
+- **A quiet week sends nothing, and that is success**, not a failure to
+  report. The panel says so in those words.
+- **An anonymous class still cannot name a fund.** Crowding comes from CFTC
+  futures, which say nothing about who is in them. The batch is checked
+  against the same attribution rule the evidence layer keeps, and a batch
+  that fails it is not sent at all — a push is the one place a reader cannot
+  click through and check.
+- **Both dates, spelled out.** A 13D found today may have been filed three
+  days ago; the push says "Filed September 4, 2026 — 3 days ago" rather than
+  reading as though it just happened. One day is "yesterday", not "1 days
+  ago", and no ISO string ever reaches a lock screen.
+- **A cap per run**, so a busy week is spread across checks rather than
+  emptied onto a lock screen.
+
+### 14b. Two bugs the render check caught
+
+Both were mine, and both were about claiming something had happened when it
+had not.
+
+**The panel said push was set up when it was not.** The sender is injected
+as a lambda that exists whether or not a provider is configured, so its mere
+presence proved nothing. Worse than the wrong label: alerts were being
+recorded as **delivered** when nothing had gone anywhere, which would have
+consumed the very events that should have fired once push was switched on.
+`push_ready()` now asks rather than infers, a sender reports whether it
+actually delivered, and only a real delivery is recorded as one.
+
+**The whole feature fell back to 503.** `push_ready_fn=_push_configured`
+named a function defined 1,600 lines further down the file, and that block
+runs at import. The wiring raised, the `try` around it caught, and every
+hedge route answered "unavailable". The server log said so in one line:
+`[hf_watch] wiring failed: name '_push_configured' is not defined`.
+
+### 14c. Where the decision lives
+
+`hf_scan` decides **what** deserves a push and never learns how one is
+delivered: both the sender and the "can anything be delivered right now"
+probe are injected, and a test asserts the words `pushover` and `ntfy`
+appear nowhere in it. Alerts are checked in the refresh thread rather than
+inside `build()`, because building a board must never be a way to send
+somebody a notification — the tests call `build()` directly.
+
+### 14d. Route
+
+`/api/hf/alerts` — what has been sent, and what would fire right now.
+Looking at it never sends it.

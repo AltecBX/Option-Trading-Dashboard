@@ -40,6 +40,7 @@ import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import hf_alert as AL
 import hf_grade as GR
 import hf_names as NM
 import hf_press as PRESS
@@ -75,6 +76,8 @@ _SECTOR_NORM = None          # (label) -> one of the app's eleven names | None
 _NOW_FN = None
 _FUNDS_FN = None             # () -> the Named Fund Watch snapshot
 _POSITIONS_FN = None         # () -> each read manager's largest positions
+_ALERT_FN = None             # (title, message, priority) -> a result, or None
+_PUSH_READY_FN = None        # () -> can anything actually be delivered right now
 _LOCK = threading.RLock()
 _STATE: dict = {"board": None, "as_of": None, "refreshing": False, "thread": None,
                 "error": None, "sources": {}, "week": None,
@@ -98,20 +101,31 @@ UW_TIDE_SECTORS = {"Basic Materials": "Materials", "Communication Services": "Co
 
 
 def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, now_fn=None,
-              funds_fn=None, positions_fn=None) -> None:
+              funds_fn=None, positions_fn=None, alert_fn=None,
+              push_ready_fn=None) -> None:
     """`funds_fn` is the Named Fund Watch snapshot, injected rather than
     imported. `hf_watch` must not import `hf_scan`, and the report needs
     both halves; passing the payload in keeps the dependency one-way and
     lets a test build a report from a fixture with no watch module at all.
     `positions_fn` is the same arrangement for the position rows the
     consensus layer reads."""
-    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN, _FUNDS_FN, _POSITIONS_FN
+    global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN, _FUNDS_FN
+    global _POSITIONS_FN, _ALERT_FN, _PUSH_READY_FN
     _DATA_DIR = Path(data_dir) if data_dir else None
     _UW_GETTER, _SECTOR_FN, _SECTOR_NORM, _NOW_FN = uw_getter, sector_fn, sector_norm, now_fn
     _FUNDS_FN = funds_fn
     # Separate from funds_fn because the position rows are far larger than
     # the summary and only the consensus layer wants them.
     _POSITIONS_FN = positions_fn
+    # Injected too: this module decides WHAT deserves a push and never
+    # learns how one is delivered.
+    _ALERT_FN = alert_fn
+    # And separately, whether a push could be delivered AT ALL right now.
+    # The sender is a lambda that exists whether or not a provider is
+    # configured, so its mere presence proved nothing — the panel claimed
+    # push was set up when it was not, and worse, alerts were recorded as
+    # delivered when nothing had gone anywhere.
+    _PUSH_READY_FN = push_ready_fn
     if _DATA_DIR is not None:
         for sub in ("pulse", "reports"):
             try:
@@ -544,6 +558,15 @@ def _kick() -> None:
     def run():
         try:
             build()
+            # Alerts are decided here rather than inside build(), which the
+            # tests call directly: building a board must never be a way to
+            # send somebody a push.
+            if _alert_knob("enabled"):
+                try:
+                    check_alerts()
+                except Exception as exc:  # noqa: BLE001
+                    with _LOCK:
+                        _STATE["alert_error"] = str(exc)[:300]
         except Exception as exc:  # noqa: BLE001
             with _LOCK:
                 _STATE["error"] = str(exc)[:300]
@@ -1623,3 +1646,155 @@ def names() -> dict:
     card["scan_version"] = HF_SCAN_VERSION
     return {"ok": True, "available": bool(card["held"] or card["bought"] or card["sold"]),
             **card}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 6 — alerts (HEDGE_FUND_INTEL.md §14)
+#
+# The board stops being only a page you visit. `hf_alert` decides what is
+# worth a push; this keeps the record of what was already sent and hands the
+# words to whatever the app uses to deliver them.
+# ══════════════════════════════════════════════════════════════════════════
+
+DEFAULTS["alerts"] = {
+    "enabled": True,
+    "cap_per_run": 6,             # pushes per run, however much is waiting
+    "keep_sent": 200,             # how many sent alerts are remembered
+    "kinds": list(AL.DEFAULT_KINDS),
+}
+
+
+def _alert_knob(name):
+    try:
+        return (config().get("alerts") or {}).get(name, DEFAULTS["alerts"][name])
+    except Exception:  # noqa: BLE001
+        return DEFAULTS["alerts"][name]
+
+
+def _alerts_path() -> Path | None:
+    return None if _DATA_DIR is None else _DATA_DIR / "hf" / "alerts.json"
+
+
+def load_alerts() -> dict:
+    p = _alerts_path()
+    if p is None or not p.exists():
+        return {"sent": [], "crowding_state": {}, "primed": False}
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"sent": [], "crowding_state": {}, "primed": False}
+    return {"sent": doc.get("sent") or [], "crowding_state": doc.get("crowding_state") or {},
+            "primed": bool(doc.get("primed"))}
+
+
+def save_alerts(doc: dict) -> None:
+    p = _alerts_path()
+    if p is None:
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(doc), encoding="utf-8")
+    tmp.replace(p)
+
+
+def push_ready() -> bool:
+    """Can a notification actually be delivered right now?
+
+    Asked rather than inferred from the sender existing: the sender is
+    injected as a lambda that is present either way, so treating it as proof
+    of a configured provider marked undelivered alerts as sent."""
+    if _PUSH_READY_FN is not None:
+        try:
+            return bool(_PUSH_READY_FN())
+        except Exception:  # noqa: BLE001
+            return False
+    return _ALERT_FN is not None
+
+
+def check_alerts(send: bool = True) -> dict:
+    """Decide what deserves a push, send it, and remember that it went.
+
+    `send=False` answers the same question without delivering anything,
+    which is what the panel calls to show what would fire.
+
+    A run with no sender configured still records everything and stays
+    silent. That is deliberate: it means switching push on later delivers
+    the next genuine change rather than every state that has been sitting
+    there quietly since the board started."""
+    store = load_alerts()
+    board = _STATE.get("board") or {}
+    with _LOCK:
+        report = _STATE.get("report")
+    funds = _funds()
+    card = AL.build(board, funds, report,
+                    last_crowding=store.get("crowding_state"),
+                    sent_keys=[s.get("key") for s in store.get("sent") or []],
+                    # Not primed until a pass has run AND there is something
+                    # to send with. `send` is deliberately NOT part of this:
+                    # priming decides what WOULD fire, delivery is the early
+                    # return below. Folding them together made the panel's
+                    # preview claim a quiet week during a noisy one.
+                    primed=bool(store.get("primed")) and push_ready(),
+                    cap=int(_alert_knob("cap_per_run")),
+                    kinds=tuple(_alert_knob("kinds") or AL.DEFAULT_KINDS),
+                    today=_today(),
+                    as_of=_now().isoformat(timespec="seconds"))
+    if not card.get("attribution_ok"):
+        # Never send a batch that breaks the attribution rule. A push is the
+        # one place a reader cannot click through to check.
+        card["send"], card["n_send"] = [], 0
+        card["blocked"] = "an alert carried a fund name on anonymous evidence"
+        return card
+    if not send:
+        return card
+    delivered = []
+    for row in card["send"]:
+        words = row.get("rendered") or AL.render(row)
+        ok = False
+        if _ALERT_FN is not None:
+            try:
+                res = _ALERT_FN(words["title"], words["message"], words.get("priority", 0))
+                # A sender that could not deliver says so in its result. Only
+                # a real delivery is recorded as one; anything else stays
+                # unsent so it can go out once a provider exists.
+                ok = bool(res.get("ok")) if isinstance(res, dict) else res is not None
+            except Exception as exc:  # noqa: BLE001
+                row["error"] = str(exc)[:200]
+        delivered.append({"key": row["key"], "kind": row["kind"],
+                          "at": card["as_of"], "sent": ok,
+                          "title": words["title"], "message": words["message"]})
+    # Everything SEEN is remembered, not only what was delivered — a held
+    # alert must never arrive later dressed as new.
+    keep = int(_alert_knob("keep_sent"))
+    already = {s.get("key") for s in store["sent"]}
+    for key in card["remember"]:
+        if key not in already:
+            row = next((d for d in delivered if d["key"] == key), None)
+            store["sent"].append(row or {"key": key, "at": card["as_of"], "sent": False,
+                                         "kind": next((c["kind"] for c in card["send"] + card["held"]
+                                                       if c["key"] == key), None)})
+    store["sent"] = store["sent"][-keep:]
+    store["crowding_state"] = card["crowding_state"]
+    store["primed"] = True
+    save_alerts(store)
+    card["delivered"] = delivered
+    return card
+
+
+def alerts() -> dict:
+    """What has been sent, and what would fire right now."""
+    store = load_alerts()
+    preview = check_alerts(send=False)
+    sent = [s for s in store["sent"] if s.get("sent")]
+    return {"ok": True, "version": AL.HF_ALERT_VERSION, "scan_version": HF_SCAN_VERSION,
+            "enabled": bool(_alert_knob("enabled")),
+            "can_send": push_ready(),
+            "primed": bool(store.get("primed")),
+            "n_sent": len(sent), "sent": list(reversed(sent))[:40],
+            "n_seen": len(store["sent"]),
+            "would_send": [{**r, "rendered": AL.render(r)} for r in preview["send"]],
+            "held": preview["held"][:20],
+            "crowding_state": store.get("crowding_state") or {},
+            "kinds": list(_alert_knob("kinds") or AL.DEFAULT_KINDS),
+            "cap_per_run": int(_alert_knob("cap_per_run")),
+            "note": preview.get("note")}
