@@ -322,7 +322,14 @@ def activity_sentence(f: dict) -> str:
         parts.append(f"{ceased} no longer file at all")
     if unread:
         parts.append(f"{unread} have not been read yet")
-    tail = ("; " + ", and ".join(parts)) if parts else ""
+    # One "and", at the end. Joining every pair with ", and " produced
+    # "27 remain UNKNOWN, and 4 still carry a filing, and 1 no longer file"
+    # on the live card.
+    if len(parts) > 1:
+        joined = ", ".join(parts[:-1]) + ", and " + parts[-1]
+    else:
+        joined = parts[0] if parts else ""
+    tail = f"; {joined}" if joined else ""
     return f"No watched manager filed anything this week{tail}."
 
 
