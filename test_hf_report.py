@@ -424,6 +424,21 @@ class Compare(unittest.TestCase):
         self.assertEqual(len(moved), 1)
         self.assertEqual(moved[0]["to"], "not watched")
 
+class Versioning(unittest.TestCase):
+    """The reports are kept forever, so the stamp has to distinguish the
+    rules that produced them."""
+
+    def test_every_report_carries_the_version_that_built_it(self):
+        rep = R.build(board(), funds(), None, None, week="2026-W36")
+        self.assertEqual(rep["version"], R.HF_REPORT_VERSION)
+
+    def test_the_version_moved_when_n_acted_changed_meaning(self):
+        # 1.0.0 counted every manager carrying FILED SINCE; 1.1.0 counts only
+        # those who filed during the report's own week. Two stored documents
+        # both stamped 1.0.0 would have meant different things.
+        self.assertNotEqual(R.HF_REPORT_VERSION, "1.0.0")
+
+
 
 class Digest(unittest.TestCase):
     def test_the_history_line_carries_the_four_verdicts(self):
