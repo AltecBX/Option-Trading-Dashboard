@@ -751,6 +751,14 @@ rendered on the panel — it is a diagnostics field — but it was wrong where
 it was read, which is the whole of the problem. `HF_GRADE_VERSION` moved to
 1.0.1 so two cards do not mean different things by the same key.
 
+And the reason it survived a live check: `/api/hf/grades/status` reported
+the **running module's** version, not the stored card's. After the deploy it
+said 1.0.1 while serving a card built under 1.0.0, whose count still meant
+the old thing. Both status routes now report the version of the document
+they are describing, with `code_version` beside it for the running module.
+The panels were never affected — they read `/api/hf/grades` and
+`/api/hf/report`, which carry the stored document's own version.
+
 ### 11h. Routes
 
 `/api/hf/grades` · `/api/hf/grades/status` · `/api/hf/grades/build`

@@ -875,7 +875,13 @@ def report_now() -> dict:
 def report_status() -> dict:
     with _LOCK:
         rep = _STATE["report"]
-        return {"version": RPT.HF_REPORT_VERSION, "press_version": PRESS.HF_PRESS_VERSION,
+        # `version` describes the document being served, not the code doing
+        # the serving. Between a deploy and the next rebuild those differ,
+        # and a status that reported the running module's number claimed a
+        # shape the stored document did not have.
+        return {"version": (rep or {}).get("version") or RPT.HF_REPORT_VERSION,
+                "code_version": RPT.HF_REPORT_VERSION,
+                "press_version": PRESS.HF_PRESS_VERSION,
                 "scan_version": HF_SCAN_VERSION,
                 "week": _STATE["report_week"], "built_at": _STATE["report_at"],
                 "refreshing": _STATE["report_refreshing"], "error": _STATE["report_error"],
@@ -1137,7 +1143,13 @@ def grades_now() -> dict:
 def grade_status() -> dict:
     with _LOCK:
         card = _STATE.get("grades")
-        return {"version": GR.HF_GRADE_VERSION, "scan_version": HF_SCAN_VERSION,
+        # The card's version, not the module's. A grade card is rebuilt
+        # weekly, so after a deploy the stored one can be several versions
+        # behind — and a status saying 1.0.1 while serving a 1.0.0 card is
+        # how a counting bug survived a live check.
+        return {"version": (card or {}).get("version") or GR.HF_GRADE_VERSION,
+                "code_version": GR.HF_GRADE_VERSION,
+                "scan_version": HF_SCAN_VERSION,
                 "as_of": _STATE.get("grades_at"),
                 "refreshing": bool(_STATE.get("grades_refreshing")),
                 "error": _STATE.get("grades_error"),
