@@ -254,6 +254,12 @@ ok("the count still carrying a filing has its own tooltip",
    HF_TIPS_OF(src, "report_carrying").length > 40);
 
 
+ok("the card renders the report's own activity sentence, not its own",
+   /d\.funds \|\| \{\}\)\.sentence/.test(src) && /not re-derived here/.test(src)
+   && /card renders this verbatim/.test(report));
+ok("every activity state produces a true sentence",
+   /def activity_sentence/.test(report) && /explicit ladder/.test(report));
+
 ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
