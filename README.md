@@ -73,9 +73,11 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `hf_sources.py` | Named Fund Watch: EDGAR 13F tables, cover pages, 13F-NT successors, structured 13D XML, daily index, CUSIP→symbol, feeds — evidence rows with two dates |
 | `hf_watch.py` | Named Fund Watch: per-manager record, quarter diff, UNKNOWN rule, lazy refresh, watchlist overlay |
 | `hf_pulse.py` | Hedge Fund Pulse: the weekly questions answered — streaks, 2/4/8/12-week persistence, percentiles, crowding, confidence by evidence class — pure |
-| `hf_scan.py` | Hedge Fund Pulse: gathers CFTC Leveraged Funds, FINRA short interest and short volume, ETF flows, sector tide and Form PF; stores one reading a week forever |
+| `hf_scan.py` | Hedge Fund Pulse: gathers CFTC Leveraged Funds, FINRA short interest and short volume, ETF flows, sector tide, Form PF and the prime-broker headlines; stores one reading and every report revision a week, forever |
+| `hf_press.py` | The prime-broker channel: turns wire headlines quoting Goldman, Morgan Stanley and JPMorgan into evidence rows, and refuses the return stories, the foreign books and the headlines that cite no bank — pure |
+| `hf_report.py` | The weekly report: the Pulse, the Named Fund Watch and the press assembled into one stored document, with conflicts printed and a compare-with-week-N diff — pure |
 | `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
-| `tab-hedge.jsx` | Hedge Funds tab: the Pulse (aggregate) and the Named Fund Watch (per manager), kept apart on purpose (lazy chunk) |
+| `tab-hedge.jsx` | Hedge Funds tab: the Pulse (aggregate), the Named Fund Watch (per manager) and the Weekly Report, the first two kept apart on purpose (lazy chunk) |
 | `SPIKE_FADE.md` | What was measured about spikes, why sigma is the ruler, and what the feature refuses |
 | `HEDGE_FUND_INTEL.md` | Hedge fund intelligence: source audit (verified September 6, 2026), what updates daily/weekly/quarterly, evidence classes, and the three-phase design |
 | `assets/app-logo.png` | Brand logo |

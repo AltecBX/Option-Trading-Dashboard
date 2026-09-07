@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import hf_pulse as P
+import hf_report as RPT
 import hf_scan as SC
 import hf_sources as S
 
@@ -67,6 +68,21 @@ OFR_JSON = {"timeseries": {
 }}
 
 
+# One Reuters headline in the shape Google News actually returns: the outlet
+# in <source> and appended to the title after a dash.
+GNEWS_RSS = (
+    '<?xml version="1.0"?><rss version="2.0"><channel>'
+    "<item><title>Goldman Says Hedge Funds Sell US Tech Stocks at Record Pace - Reuters</title>"
+    "<link>https://example.invalid/a</link>"
+    "<pubDate>Fri, 04 Sep 2026 07:00:00 GMT</pubDate>"
+    "<source>Reuters</source></item>"
+    "<item><title>Hedge funds had their worst month in twenty years - CNBC</title>"
+    "<link>https://example.invalid/b</link>"
+    "<pubDate>Thu, 03 Sep 2026 07:00:00 GMT</pubDate>"
+    "<source>CNBC</source></item>"
+    "</channel></rss>")
+
+
 class FakeWeb:
     def __init__(self, si_published=("2026-08-14",)):
         self.calls, self.posts = [], []
@@ -87,6 +103,8 @@ class FakeWeb:
             return SHVOL.encode()
         if "financialresearch.gov" in url:
             return gzip.compress(json.dumps(OFR_JSON).encode())   # the OFR always gzips
+        if "news.google.com" in url:
+            return GNEWS_RSS.encode()
         raise RuntimeError(f"no fixture for {url}")
 
     def post(self, url: str, body: bytes) -> bytes:
@@ -107,10 +125,16 @@ class Base(unittest.TestCase):
         S.configure(fetch_fn=self.web.fetch, post_fn=self.web.post,
                     data_dir=self.tmp.name, now_fn=lambda: NOW)
         SC._STATE.update({"board": None, "as_of": None, "refreshing": False,  # noqa: SLF001
-                          "error": None, "week": None})
+                          "error": None, "week": None, "report": None, "report_week": None,
+                          "report_at": None, "report_refreshing": False, "report_error": None})
+        self.funds = {"managers": [{"key": "acme", "name": "Acme Capital", "status": "FILING",
+                                    "turnover": "READABLE",
+                                    "activity": {"state": "UNKNOWN", "since": "2026-06-30",
+                                                 "items": []}}],
+                      "new_filings": []}
         SC.configure(data_dir=self.tmp.name, sector_fn=lambda s: {"AAPL": "Technology",
                                                                   "MSFT": "Technology"}.get(s),
-                     now_fn=lambda: NOW)
+                     now_fn=lambda: NOW, funds_fn=lambda: self.funds)
 
     def tearDown(self):
         S.configure(fetch_fn=None, post_fn=None)
@@ -354,6 +378,152 @@ class TheHeadline(Base):
     def test_it_never_carries_a_fund_key(self):
         SC.build()
         self.assertNotIn("fund", SC.headline())
+
+
+class ThePressChannel(Base):
+    """The prime-broker headlines reach the board, and only as support."""
+
+    def test_the_feed_is_read_and_filtered(self):
+        got = SC.gather_press()
+        self.assertEqual(got["n_quotes"], 1, "one of the two headlines is positioning")
+        self.assertEqual(got["quotes"][0]["bank"], "Goldman Sachs")
+        self.assertEqual(got["quotes"][0]["about"], "exposure")
+        self.assertEqual(got["n_captured"], 2, "both were read; one was not counted")
+
+    def test_a_quote_enters_the_board_as_supporting_evidence_only(self):
+        b = SC.build()
+        rows = [i for i in b["exposure"]["inputs"] if i["class"] == S.PRIME_BROKER]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["weight"], 0.5, "a bank quote can corroborate, never decide")
+
+    def test_the_board_reports_what_the_press_gave_it(self):
+        b = SC.build()
+        self.assertEqual(b["sources"]["press_quotes"], 1)
+        self.assertEqual(b["sources"]["press_banks"], ["Goldman Sachs"])
+        self.assertNotIn("Prime broker press unavailable", b["unavailable"])
+
+    def test_a_dead_feed_is_named_rather_than_silently_missing(self):
+        real = S.prime_broker_news
+        S.prime_broker_news = lambda *a, **k: []
+        try:
+            b = SC.build()
+        finally:
+            S.prime_broker_news = real
+        self.assertIn("Prime broker press unavailable", b["unavailable"])
+        self.assertEqual(b["sources"]["press_quotes"], 0)
+
+
+class TheReportRecord(Base):
+    """A report is a record of what was known when it was written, so a
+    rebuild adds a revision rather than erasing the earlier one."""
+
+    def test_a_report_is_stored_under_its_iso_week(self):
+        rep = SC.build_report()
+        self.assertEqual(rep["week"], "2026-W36")
+        p = Path(self.tmp.name) / "hf" / "reports" / "2026-W36.json"
+        self.assertTrue(p.exists())
+        self.assertEqual(json.loads(p.read_text())["week"], "2026-W36")
+
+    def test_a_rebuild_appends_a_revision_and_never_overwrites(self):
+        first = SC.build_report()
+        SC.build_report()
+        doc = json.loads((Path(self.tmp.name) / "hf" / "reports" / "2026-W36.json").read_text())
+        self.assertEqual([r["revision"] for r in doc["revisions"]], [1, 2])
+        self.assertEqual(SC.report_for("2026-W36", 1)["built_at"], first["built_at"])
+
+    def test_the_newest_revision_is_the_current_report(self):
+        SC.build_report()
+        rep = SC.build_report()
+        self.assertEqual(SC.report_for("2026-W36")["built_at"], rep["built_at"])
+
+    def test_only_the_configured_number_of_revisions_is_kept(self):
+        SC.DEFAULTS["report"]["keep_revisions"] = 2
+        try:
+            for _ in range(4):
+                SC.build_report()
+        finally:
+            SC.DEFAULTS["report"]["keep_revisions"] = 12
+        doc = json.loads((Path(self.tmp.name) / "hf" / "reports" / "2026-W36.json").read_text())
+        self.assertLessEqual(len(doc["revisions"]), 4)
+        self.assertEqual(doc["n_revisions"], 4, "the count of builds is not lost")
+
+    def test_a_rebuild_in_the_same_week_diffs_against_last_week_not_itself(self):
+        SC.build_report()
+        prior = SC.report_for("2026-W36")
+        prior["week"] = "2026-W35"
+        prior["conclusions"][0]["verdict"] = "ADDING"
+        (Path(self.tmp.name) / "hf" / "reports" / "2026-W35.json").write_text(
+            json.dumps({"week": "2026-W35", "n_revisions": 1,
+                        "revisions": [{"revision": 1, "built_at": "x", "report": prior}]}))
+        rep = SC.build_report()
+        self.assertTrue(rep["changed"]["comparable"])
+        self.assertEqual(rep["changed"]["since"], "2026-W35")
+
+    def test_history_lists_every_week_newest_first_with_its_revision_count(self):
+        SC.build_report()
+        SC.build_report()
+        h = SC.report_history()
+        self.assertEqual([x["week"] for x in h], ["2026-W36"])
+        self.assertEqual(h[0]["n_revisions"], 2)
+        self.assertIn("exposure", h[0]["verdicts"])
+
+    def test_the_report_carries_the_named_layer_it_was_given(self):
+        rep = SC.build_report()
+        self.assertEqual(rep["funds"]["n_managers"], 1)
+        self.assertEqual(rep["watchlist"]["n"], 1)
+
+    def test_the_store_refuses_a_smuggled_attribution(self):
+        rep = {"week": "2026-W36",
+               "conclusions": [{"inputs": [{"class": S.REGULATORY, "fund": "Citadel"}]}]}
+        with self.assertRaises(ValueError):
+            SC.save_report(rep)
+
+    def test_a_new_week_makes_the_stored_report_stale(self):
+        SC.build_report()
+        self.assertFalse(SC._report_stale())  # noqa: SLF001
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW + timedelta(days=7),
+                     funds_fn=lambda: self.funds)
+        self.assertTrue(SC._report_stale())  # noqa: SLF001
+
+    def test_a_stored_report_is_reloaded_on_start(self):
+        SC.build_report()
+        SC._STATE.update({"report": None, "report_week": None, "report_at": None})  # noqa: SLF001
+        SC.configure(data_dir=self.tmp.name, now_fn=lambda: NOW, funds_fn=lambda: self.funds)
+        self.assertEqual(SC._STATE["report_week"], "2026-W36")  # noqa: SLF001
+
+    def test_comparing_two_stored_weeks(self):
+        SC.build_report()
+        rep = SC.report_for("2026-W36")
+        rep = json.loads(json.dumps(rep))
+        rep["week"] = "2026-W35"
+        rep["conclusions"][0]["verdict"] = "ADDING"
+        (Path(self.tmp.name) / "hf" / "reports" / "2026-W35.json").write_text(
+            json.dumps({"week": "2026-W35", "n_revisions": 1,
+                        "revisions": [{"revision": 1, "built_at": "x", "report": rep}]}))
+        cmp = SC.report_compare("2026-W37", "2026-W36")
+        self.assertFalse(cmp["ok"], "a week with no stored report cannot be compared")
+        cmp = SC.report_compare("2026-W35", "2026-W36")
+        self.assertTrue(cmp["ok"])
+        self.assertEqual(cmp["older"]["week"], "2026-W35")
+        self.assertEqual(cmp["n_different"], 1)
+
+    def test_the_week_start_is_the_monday_of_the_iso_week(self):
+        self.assertEqual(SC.week_start(date(2026, 9, 6)), "2026-08-31")   # a Sunday
+        self.assertEqual(SC.week_start(date(2026, 9, 7)), "2026-09-07")   # a Monday
+
+    def test_asking_for_a_week_that_was_never_stored(self):
+        out = SC.report(week="2099-W01")
+        self.assertFalse(out["ok"])
+        self.assertIn("2099-W01", out["error"])
+
+    def test_status_reports_what_is_stored(self):
+        SC.build_report()
+        st = SC.report_status()
+        self.assertTrue(st["available"])
+        self.assertEqual(st["week"], "2026-W36")
+        self.assertEqual(st["weeks_stored"], 1)
+        self.assertEqual(st["version"], RPT.HF_REPORT_VERSION)
+
 
 
 class WeekKeys(unittest.TestCase):

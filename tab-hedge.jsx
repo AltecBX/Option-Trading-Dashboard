@@ -89,7 +89,29 @@ const HF_TIP = {
   pulse_history: "Every week ever read, kept forever, so you can watch positioning evolve rather than only see today.",
   pulse_week: "The ISO week this reading belongs to. The CFTC publishes once a week, so a week is the natural unit of the record; re-reading within the same week replaces that week's entry.",
   pulse_dates: "What each source is AS OF. They are not the same date and never will be: futures positions are Tuesday's, short interest is a fortnight old, Form PF is a quarter old. Every figure carries the date it describes.",
-  view: "Two layers, kept apart. THE PULSE is the whole universe from anonymous data. NAMED FUNDS is what specific managers have actually filed. The Pulse never becomes part of a fund's record — that is the rule the whole feature is built on.",
+  view: "Three panels. THE PULSE is the whole universe from anonymous data. NAMED FUNDS is what specific managers have actually filed. THE WEEKLY REPORT assembles both into one document and keeps it forever. The Pulse never becomes part of a fund's record — that is the rule the whole feature is built on.",
+  // ── The weekly report (v4.87) ──
+  report: "One document a week, built from the Pulse, the Named Fund Watch and the prime-broker headlines. Nothing in it is measured here: every figure was computed by one of those three and carried across with its date and its evidence class. Each build is kept forever, so you can read any past week and compare two of them.",
+  report_week: "The ISO week this report covers. The CFTC publishes once a week and that sets the rhythm. Rebuilding inside the same week ADDS a revision rather than replacing one — a report records what was known when it was written, so an older build is still true about its own moment.",
+  report_revision: "Which build of this week you are reading. Revision 1 is the first time the report was assembled that week; later revisions saw more filings or more headlines. Older revisions are never deleted.",
+  report_built: "When this revision was assembled. Different from the 'as of' dates inside it — those belong to the sources, and every one of them is older than this.",
+  report_summary: "The short version. Every line here is a verdict reached in a section below, at the confidence stated there, and nothing in this summary is stronger than the section it came from.",
+  report_conclusion: "One of the four weekly questions, carried across from the Pulse whole: the verdict, how many independent evidence classes agree, how long it has read this way, and every input behind it.",
+  report_trend: "How persistent each answer has been over the last 2, 4, 8 and 12 weeks. A verdict in its eighth straight week is a different statement from the same verdict in its first, and both are shown.",
+  report_filings: "The filings worth a heading this week. Every SCHEDULE 13D by a watched manager, because that is an event with a five-business-day clock. Every amendment to a holdings report, because a restatement changes a number already shown to you. Passive 13G notices are not activity and are not listed here.",
+  report_activity: "Watched managers with something VERIFIED since their last holdings report. When the list is empty that is the ordinary state, not a failure — a 13F describes one day and arrives 45 days later.",
+  report_watchlist: "Who is being watched, and who moved on or off the list since the previous report. Without a previous report there is nothing to compare against, and the section says so rather than showing empty lists that look like 'no changes'.",
+  report_conflicts: "Every disagreement in one place, never collapsed: inputs pointing opposite ways inside a question, sectors whose inputs split, and banks quoted this week saying opposite things. Disagreement is a finding — it is not averaged away.",
+  report_changed: "What reads differently from the STORED report of the previous week. A diff against a record, not a memory. That is the whole reason every report is kept.",
+  report_history: "Every week ever assembled, newest first. Pick one to read it, or compare two to watch positioning evolve.",
+  report_compare: "Two stored weeks side by side. Verdicts that match are marked the same; the rest show what moved. Compare uses the same diff as 'what changed', so the two views can never disagree.",
+  report_limits: "What this report cannot do, stated plainly, so a confident-looking verdict is never read as more than it is.",
+  press: "PRIME BROKER AGGREGATE DATA. Goldman Sachs, Morgan Stanley and JPMorgan tell their prime brokerage clients each week what hedge funds did; the wires quote those notes. Secondhand by definition — a bank's summary of its own clients, retold by a reporter. It can raise confidence in what the measured data already says and can never create a verdict alone.",
+  press_quote: "A quoted claim that survived every filter: the sentence names hedge funds, cites a bank as the SOURCE (not merely mentions one), is about positioning rather than returns, is not about a foreign market, and points unambiguously one way.",
+  press_carried: "How many outlets carried this same claim. When five outlets repeat one Goldman note, that is one note — the claim counts once, and this is how widely it travelled.",
+  press_period: "Prime-broker headlines say 'last week' or 'for a fourth consecutive week' rather than giving dates, so the period is not machine-readable and is never guessed. Only the publication date is claimed here.",
+  press_captured: "Headlines that were read and NOT counted as evidence, with the reason. Shown because 'we saw this and did not use it' is worth as much as the list of what was used.",
+  press_outlet: "Which outlet carried it. Only wire services and the banks' own publications count as evidence; anything else is captured and shown but raises no confidence.",
 };
 
 const hfDate = (s) => {
@@ -850,6 +872,433 @@ function PulsePanel({ apiFetch, onOpenTicker }) {
   );
 }
 
+function HfPressQuotes({ press }) {
+  const [open, setOpen] = React.useState(false);
+  if (!press) return null;
+  const quotes = press.quotes || [];
+  const captured = press.captured || [];
+  return (
+    <section className="hf-press" title={HF_TIP.press}>
+      <h4 title={HF_TIP.press}>What the banks were quoted saying</h4>
+      <p className="hf-muted" title={HF_TIP.press}>{press.note}</p>
+      {quotes.length ? (
+        <div className="scan-table-wrap hf-table-wrap">
+          <table className="scan-table mtable hf-table">
+            <thead>
+              <tr>
+                <th title={HF_TIP.press_quote}>Claim</th>
+                <th title={HF_TIP.report_conclusion}>Question</th>
+                <th title={HF_TIP.press_outlet}>Bank and outlet</th>
+                <th title={HF_TIP.press_period}>Published</th>
+                <th title={HF_TIP.press_carried}>Outlets carrying it</th>
+                <th title={HF_TIP.evidence}>Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quotes.map((q, i) => (
+                <tr key={i}>
+                  <td data-label="Claim" title={q.note || ""}>
+                    <span className={q.direction > 0 ? "up" : "down"}>{q.label}</span>
+                    <div className="hf-muted">“{q.text}”</div>
+                  </td>
+                  <td data-label="Question">{q.about}</td>
+                  <td data-label="Bank and outlet" title={HF_TIP.press_outlet}>
+                    {q.bank}
+                    <div className="hf-muted">{q.outlet || "—"}{q.tier ? ` · ${q.tier}` : ""}</div>
+                  </td>
+                  <td data-label="Published" title={HF_TIP.press_period}>{hfDate(q.public_on)}</td>
+                  <td data-label="Outlets carrying it" title={HF_TIP.press_carried}>{q.carried_by || 1}</td>
+                  <td data-label="Evidence"><HfTag cls={q.class || "PRIME BROKER AGGREGATE DATA"} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="hf-muted" title={HF_TIP.press_quote}>
+          No headline this week cleared every filter. That is common: most of what the feed returns is
+          about returns rather than positions, cites no bank as the source, or describes a foreign market.
+        </p>
+      )}
+      {captured.length ? (
+        <React.Fragment>
+          <button className="hf-link" onClick={() => setOpen(!open)} title={HF_TIP.press_captured}>
+            {open ? "Hide" : "Show"} the {captured.length} headline{captured.length === 1 ? "" : "s"} read but not counted
+          </button>
+          {open ? (
+            <ul className="hf-notes" title={HF_TIP.press_captured}>
+              {captured.filter((c) => !c.eligible).map((c, i) => (
+                <li key={i}>
+                  {c.title}
+                  <span className="hf-muted"> — {c.outlet || "unknown outlet"}, {hfDate(c.public_on)} · not counted: {(c.why_not || []).join("; ")}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </React.Fragment>
+      ) : null}
+    </section>
+  );
+}
+
+function HfReportConflicts({ rows }) {
+  // Never collapsed by default: the brief asks for conflicting signals to be
+  // visible without a click, because a hidden disagreement reads as agreement.
+  return (
+    <section className="hf-conflicts" title={HF_TIP.report_conflicts}>
+      <h4 title={HF_TIP.report_conflicts}>Where the sources disagree</h4>
+      {rows && rows.length ? (
+        <ul className="hf-notes">
+          {rows.map((c, i) => (
+            <li key={i}>
+              <b>{c.where}</b> <span className="hf-muted">· {c.kind}</span>
+              {c.verdict ? <span className="hf-muted"> · verdict reads {c.verdict}</span> : null}
+              <ul>
+                {(c.rows || []).map((r, j) => (
+                  <li key={j}>
+                    <span className={r.direction > 0 ? "up" : r.direction < 0 ? "down" : ""}>{r.label}</span>
+                    {r.class ? <span className="hf-muted"> · {r.class}</span> : null}
+                    {r.as_of ? <span className="hf-muted"> · as of {hfDate(r.as_of)}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="hf-muted">Nothing disagreed this week. Every input that spoke pointed the same way as its verdict.</p>
+      )}
+    </section>
+  );
+}
+
+function HfTrendTable({ trends }) {
+  if (!trends || !trends.length) return null;
+  return (
+    <section>
+      <h4 title={HF_TIP.report_trend}>How long each answer has read this way</h4>
+      <div className="scan-table-wrap hf-table-wrap">
+        <table className="scan-table mtable hf-table">
+          <thead>
+            <tr>
+              <th title={HF_TIP.report_conclusion}>Question</th>
+              <th title={HF_TIP.pulse_verdict}>This week</th>
+              <th title={HF_TIP.pulse_streak}>Streak</th>
+              {[2, 4, 8, 12].map((w) => <th key={w} title={HF_TIP.report_trend}>{w} weeks</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {trends.map((t) => (
+              <tr key={t.key}>
+                <td data-label="Question">{t.title}</td>
+                <td data-label="This week"><b>{t.verdict}</b></td>
+                <td data-label="Streak">{t.streak || "—"}</td>
+                {(t.windows || []).map((w) => (
+                  <td key={w.weeks} data-label={`${w.weeks} weeks`} title={HF_TIP.report_trend}>
+                    {w.same == null ? "—" : `${w.same}/${w.of}`}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function HfCompare({ cmp }) {
+  if (!cmp || !cmp.ok) return null;
+  return (
+    <section className="hf-compare" title={HF_TIP.report_compare}>
+      <h4 title={HF_TIP.report_compare}>
+        {cmp.older.week} compared with {cmp.newer.week}
+      </h4>
+      <p className="sl-status">
+        <span title={HF_TIP.as_of}>{cmp.older.week}: positions as of {cmp.older.as_of_text || "—"}</span>
+        <span title={HF_TIP.as_of}> · {cmp.newer.week}: positions as of {cmp.newer.as_of_text || "—"}</span>
+        <span title={HF_TIP.report_compare}> · {cmp.n_same} of 4 answers unchanged</span>
+      </p>
+      <div className="scan-table-wrap hf-table-wrap">
+        <table className="scan-table mtable hf-table">
+          <thead>
+            <tr>
+              <th title={HF_TIP.report_conclusion}>Question</th>
+              <th title={HF_TIP.report_week}>{cmp.older.week}</th>
+              <th title={HF_TIP.report_week}>{cmp.newer.week}</th>
+              <th title={HF_TIP.report_compare}>Moved</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(cmp.conclusions || []).map((c) => (
+              <tr key={c.key}>
+                <td data-label="Question">{c.title}</td>
+                <td data-label={cmp.older.week}>
+                  {c.older.verdict || "—"}
+                  {c.older.confidence ? <span className="hf-muted"> · {c.older.confidence}</span> : null}
+                </td>
+                <td data-label={cmp.newer.week}>
+                  {c.newer.verdict || "—"}
+                  {c.newer.confidence ? <span className="hf-muted"> · {c.newer.confidence}</span> : null}
+                </td>
+                <td data-label="Moved">{c.same ? <span className="hf-muted">unchanged</span> : <b>changed</b>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {(cmp.sectors || []).some((s) => !s.same) ? (
+        <p className="hf-notes" title={HF_TIP.pulse_sector}>
+          Sectors that moved: {cmp.sectors.filter((s) => !s.same).map((s) => `${s.sector} ${s.older || "—"} → ${s.newer || "—"}`).join(" · ")}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ReportPanel({ apiFetch }) {
+  const [d, setD] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [week, setWeek] = React.useState("");
+  const [cmp, setCmp] = React.useState(null);
+  const [cmpA, setCmpA] = React.useState("");
+  const [cmpB, setCmpB] = React.useState("");
+
+  const load = React.useCallback(async (wk) => {
+    setBusy(true);
+    try {
+      const q = wk ? `?week=${encodeURIComponent(wk)}` : "";
+      const { d: got, err: readErr } = await hfReadJson(await apiFetch(`/api/hf/report${q}`, { noCache: true }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got); setErr(got.error || null);
+    } catch (e) { setErr(String(e && e.message || e)); }
+    finally { setBusy(false); }
+  }, [apiFetch]);
+  React.useEffect(() => { load(week); }, [load, week]);
+  React.useEffect(() => {
+    if (!(d && d.refreshing)) return;
+    const t = setInterval(() => load(week), 20000);
+    return () => clearInterval(t);
+  }, [d && d.refreshing, load, week]);
+
+  const runCompare = React.useCallback(async () => {
+    if (!cmpA || !cmpB) return;
+    try {
+      const { d: got } = await hfReadJson(await apiFetch(
+        `/api/hf/report/compare?a=${encodeURIComponent(cmpA)}&b=${encodeURIComponent(cmpB)}`, { noCache: true }));
+      setCmp(got || null);
+    } catch (e) { setCmp({ ok: false, error: String(e && e.message || e) }); }
+  }, [apiFetch, cmpA, cmpB]);
+
+  if (busy && !d) {
+    return <div className="st-loading" aria-busy="true"><div className="skel skel-line" style={{ width: "45%" }} /><div className="skel skel-line" style={{ width: "90%" }} /></div>;
+  }
+  if (err && !d) {
+    return (
+      <React.Fragment>
+        <div className="research-error">{err}</div>
+        <button className="card-error-btn st-retry" onClick={() => load(week)}>Try again</button>
+      </React.Fragment>
+    );
+  }
+  if (d && !d.available) {
+    return (
+      <div className="hf-report">
+        <p className="hf-muted" title={HF_TIP.report}>{d.note || d.error}{d.refreshing ? " Assembling now — this takes about a minute the first time." : ""}</p>
+        <button className="sl-mode" onClick={() => load(week)} disabled={busy}>{busy ? "Loading…" : "Check again"}</button>
+      </div>
+    );
+  }
+  if (!d) return null;
+  const history = d.history || [];
+  const weeks = history.map((h) => h.week);
+  return (
+    <div className="hf-report" title={HF_TIP.report}>
+      <p className="sl-status">
+        <span title={HF_TIP.report_week}>Week {d.week}</span>
+        {d.dates && d.dates.as_of ? <span title={HF_TIP.pulse_cftc}> · futures positions as of {d.dates.as_of}</span> : null}
+        {d.built_at ? <span title={HF_TIP.report_built}> · assembled {hfDateTime(d.built_at)}</span> : null}
+        {d.revisions && d.revisions.length > 1 ? (
+          <span title={HF_TIP.report_revision}> · revision {d.revisions.length} of this week</span>
+        ) : null}
+        {d.refreshing ? <span className="sl-live"> · assembling</span> : null}
+        <span> · report {d.version || ""}</span>
+        {" "}<button className="hf-link" onClick={() => load(week)} disabled={busy} title="Read it again">reload</button>
+        {week ? <span> · <button className="hf-link" onClick={() => setWeek("")}>back to the current week</button></span> : null}
+      </p>
+
+      {d.summary ? (
+        <section className="hf-summary" title={HF_TIP.report_summary}>
+          <h4 title={HF_TIP.report_summary}>The short version</h4>
+          <ul className="hf-notes">
+            {(d.summary.bullets || []).map((b, i) => <li key={i}>{b}</li>)}
+          </ul>
+          <p className="hf-muted">{d.summary.note}</p>
+        </section>
+      ) : null}
+
+      {d.changed ? (
+        <section className="hf-changed" title={HF_TIP.report_changed}>
+          <h4 title={HF_TIP.report_changed}>What changed since the last stored report</h4>
+          {d.changed.comparable ? (
+            d.changed.n ? (
+              <ul className="hf-notes">
+                {d.changed.changes.map((c, i) => (
+                  <li key={i}><b>{c.what}</b>: {c.from} → <b>{c.to}</b> <span className="hf-muted">· {c.kind}</span></li>
+                ))}
+              </ul>
+            ) : <p className="hf-muted">Nothing changed since {d.changed.since}. That is itself a finding.</p>
+          ) : <p className="hf-muted">{d.changed.note}</p>}
+        </section>
+      ) : null}
+
+      <div className="hf-questions">
+        {(d.conclusions || []).map((c) => <HfQuestion key={c.key} q={{ ...c, question: c.title }} />)}
+      </div>
+
+      <HfTrendTable trends={d.trends} />
+      <HfSectorStrip sec={d.sectors} />
+      <HfPressQuotes press={d.press} />
+      <HfReportConflicts rows={d.conflicts} />
+
+      <section title={HF_TIP.report_activity}>
+        <h4 title={HF_TIP.report_activity}>Named fund activity this week</h4>
+        {d.funds && d.funds.n_acted ? (
+          <ul className="hf-notes">
+            {d.funds.acted.map((f) => (
+              <li key={f.key}>
+                <b>{f.name}</b> <HfTag cls={f.class} /> — filed something describing a date after {hfDate(f.since)}
+                {(f.items || []).length ? <span className="hf-muted"> · {f.items.length} filing{f.items.length === 1 ? "" : "s"}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="hf-muted" title={HF_TIP.activity}>{(d.funds || {}).note}</p>
+        )}
+        {d.funds ? (
+          <p className="hf-muted">
+            <span title={HF_TIP.activity}>{d.funds.n_unknown} of {d.funds.n_managers} watched managers are in the ordinary UNKNOWN state</span>
+            {d.funds.n_ceased ? <span title={HF_TIP.ceased}> · {d.funds.n_ceased} ceased filing</span> : null}
+            {d.funds.n_not_read ? <span title={HF_TIP.refresh}> · {d.funds.n_not_read} not read yet</span> : null}
+          </p>
+        ) : null}
+      </section>
+
+      {d.new_filings ? (
+        <section title={HF_TIP.report_filings}>
+          <h4 title={HF_TIP.report_filings}>Major new filings</h4>
+          <p className="hf-muted">{d.new_filings.note}</p>
+          {(d.new_filings.events.length + d.new_filings.amendments.length + d.new_filings.notices.length) ? (
+            <ul className="hf-notes">
+              {[].concat(d.new_filings.events, d.new_filings.amendments, d.new_filings.notices).map((r, i) => (
+                <li key={i}>
+                  <b>{r.form}</b> — {r.manager || r.company} <span className="hf-muted">· filed {hfDate(r.filed)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hf-muted">No watched manager filed a 13D, an amendment or a notice{d.new_filings.since_text ? ` since ${d.new_filings.since_text}` : ""}.</p>
+          )}
+        </section>
+      ) : null}
+
+      {d.watchlist ? (
+        <section title={HF_TIP.report_watchlist}>
+          <h4 title={HF_TIP.report_watchlist}>Watchlist</h4>
+          {d.watchlist.comparable ? (
+            (d.watchlist.added.length + d.watchlist.removed.length + d.watchlist.status_changes.length) ? (
+              <ul className="hf-notes">
+                {d.watchlist.added.map((m) => <li key={`a${m.key}`}>Added: <b>{m.name || m.key}</b></li>)}
+                {d.watchlist.removed.map((m) => <li key={`r${m.key}`}>Removed: <b>{m.name || m.key}</b></li>)}
+                {d.watchlist.status_changes.map((m) => <li key={`s${m.key}`}><b>{m.name}</b>: {m.from} → <b>{m.to}</b></li>)}
+              </ul>
+            ) : <p className="hf-muted">{d.watchlist.n} managers watched, unchanged since the last report.</p>
+          ) : <p className="hf-muted">{d.watchlist.note} {d.watchlist.n} managers are being watched.</p>}
+        </section>
+      ) : null}
+
+      {d.unavailable && d.unavailable.length ? (
+        <section>
+          <h4 title={HF_TIP.pulse_missing}>Sources that had nothing this week</h4>
+          <ul className="hf-notes">{d.unavailable.map((u, i) => <li key={i}>{u}</li>)}</ul>
+        </section>
+      ) : null}
+
+      {d.limitations && d.limitations.length ? (
+        <section title={HF_TIP.report_limits}>
+          <h4 title={HF_TIP.report_limits}>What this report cannot tell you</h4>
+          <ul className="hf-notes">{d.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul>
+        </section>
+      ) : null}
+
+      {history.length ? (
+        <section title={HF_TIP.report_history}>
+          <h4 title={HF_TIP.report_history}>Every report kept</h4>
+          <div className="scan-table-wrap hf-table-wrap">
+            <table className="scan-table mtable hf-table">
+              <thead>
+                <tr>
+                  <th title={HF_TIP.report_week}>Week</th>
+                  <th title={HF_TIP.as_of}>Positions as of</th>
+                  <th>Exposure</th><th>Leverage</th><th>Longs</th><th>Shorts</th>
+                  <th title={HF_TIP.report_conflicts}>Conflicts</th>
+                  <th title={HF_TIP.press_quote}>Bank quotes</th>
+                  <th title={HF_TIP.report_revision}>Revisions</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={h.week}>
+                    <td data-label="Week">{h.week}</td>
+                    <td data-label="Positions as of">{h.as_of_text || hfDate(h.as_of)}</td>
+                    <td data-label="Exposure">{(h.verdicts || {}).exposure || "—"}</td>
+                    <td data-label="Leverage">{(h.verdicts || {}).leverage || "—"}</td>
+                    <td data-label="Longs">{(h.verdicts || {}).longs || "—"}</td>
+                    <td data-label="Shorts">{(h.verdicts || {}).shorts || "—"}</td>
+                    <td data-label="Conflicts">{h.n_conflicts == null ? "—" : h.n_conflicts}</td>
+                    <td data-label="Bank quotes">{h.n_quotes == null ? "—" : h.n_quotes}</td>
+                    <td data-label="Revisions">{h.n_revisions || 1}</td>
+                    <td data-label="">
+                      <button className="hf-link" onClick={() => setWeek(h.week)} title={HF_TIP.report_history}>read</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {weeks.length > 1 ? (
+        <section title={HF_TIP.report_compare}>
+          <h4 title={HF_TIP.report_compare}>Compare two weeks</h4>
+          <div className="hf-compare-pick">
+            <label title={HF_TIP.report_compare}>
+              Earlier week{" "}
+              <select value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
+                <option value="">choose a week</option>
+                {weeks.map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+            </label>
+            <label title={HF_TIP.report_compare}>
+              Later week{" "}
+              <select value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
+                <option value="">choose a week</option>
+                {weeks.map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+            </label>
+            <button className="sl-mode" onClick={runCompare} disabled={!cmpA || !cmpB} title={HF_TIP.report_compare}>Compare</button>
+          </div>
+          {cmp && !cmp.ok ? <p className="research-error">{cmp.error}</p> : null}
+          <HfCompare cmp={cmp} />
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 const HF_SORTS = {
   public: { label: "Newest filing first", fn: (a, b) => String(b.last_public_on || "").localeCompare(String(a.last_public_on || "")) },
   changes: { label: "Most lines changed", fn: (a, b) => ((b.n_new || 0) + (b.n_increased || 0) + (b.n_reduced || 0) + (b.n_exited || 0)) - ((a.n_new || 0) + (a.n_increased || 0) + (a.n_reduced || 0) + (a.n_exited || 0)) },
@@ -923,13 +1372,16 @@ function HedgeTab({ apiFetch, onOpenTicker }) {
           <p className="hf-muted">
             {view === "pulse"
               ? "What the whole universe appears to be doing, from anonymous official data. Never about any one fund."
-              : "What is verified about each manager, and when. Between filings: UNKNOWN."}
+              : view === "report"
+                ? "Both layers assembled into one document a week, kept forever, with every disagreement printed."
+                : "What is verified about each manager, and when. Between filings: UNKNOWN."}
           </p>
         </div>
         <div className="hf-controls">
           <div className="hf-views" title={HF_TIP.view}>
             <button className={`sl-mode ${view === "pulse" ? "sl-mode-on" : ""}`} onClick={() => setView("pulse")}>The Pulse</button>
             <button className={`sl-mode ${view === "funds" ? "sl-mode-on" : ""}`} onClick={() => setView("funds")}>Named Funds</button>
+            <button className={`sl-mode ${view === "report" ? "sl-mode-on" : ""}`} onClick={() => setView("report")}>Weekly Report</button>
           </div>
           {view === "funds" ? (
             <React.Fragment>
@@ -944,6 +1396,7 @@ function HedgeTab({ apiFetch, onOpenTicker }) {
       </div>
 
       {view === "pulse" ? <PulsePanel apiFetch={apiFetch} onOpenTicker={onOpenTicker} /> : null}
+      {view === "report" ? <ReportPanel apiFetch={apiFetch} /> : null}
 
       {view === "funds" && data ? (
         <p className="sl-status">

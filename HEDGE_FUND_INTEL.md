@@ -392,7 +392,7 @@ thresholds under `hedge` in `thresholds.json`.
 |---|---|---|
 | **1 — Named Fund Watch** — *shipped in v4.85* (`hf_registry.py`, `hf_sources.py`, `hf_watch.py`, `tab-hedge.jsx`) | Registry with successors and turnover class; EDGAR 13F ingestion and quarter diff; 13D/13G/13F-NT capture from the daily index; UW cross-check; statements capture; the fund card with both dates and "UNKNOWN"; tests against captured filings | Nothing new — every source verified |
 | **2 — Pulse** | CFTC equity + sector futures with percentiles; FINRA short interest and short volume with sector roll-up; UW sector tide, ETF flows, borrow; the pure `hf_pulse.py` with streaks, persistence, crowding; the Pulse panel | Phase 1 sector map |
-| **3 — Combined + Weekly Report** | The combined rule on every fund card; press capture (PRIME BROKER quotes); the report builder, store, history and compare; conflicts and confidence | Phases 1–2 |
+| **3 — Combined + Weekly Report** — *shipped in v4.87* (`hf_press.py`, `hf_report.py`, the Weekly Report panel) | The combined rule on every fund card; press capture (PRIME BROKER quotes); the report builder, store, history and compare; conflicts and confidence | Phases 1–2 |
 | **4 — optional** | X statements if the token is set; Form SHO when published; SSGA fallback (adds `openpyxl`); outcome grading | — |
 
 Each phase ships as its own PR with tests and a browser render check, the
@@ -495,12 +495,14 @@ MODEL INFERENCE, and `options_dashboard.py` injects it into `hf_watch` as
 under its own heading with its own date, and no fund's record is computed
 from it.
 
-### Still Phase 3
+### Phase 3, since shipped
 
-The prime-broker channel (Reuters "HEDGE FLOW" and equivalents quoting
-Goldman, Morgan Stanley, JPMorgan) is wired into `hf_pulse.build()` and
-tested, but nothing populates it yet. The weekly report assembly, its
-history view and the compare-with-week-N view are Phase 3.
+The prime-broker channel now populates the parameter `hf_pulse.build()` had
+been holding open, the weekly report assembles both layers into one stored
+document, and the history and compare-with-week-N views are on the card.
+Section 10 records what the live headlines taught. What remains unbuilt is
+Phase 4: X statements if a token is set, Form SHO when it is published, the
+SSGA fallback, and outcome grading.
 
 **Follow-up, same day.** The first production reading (week 2026-W36, CFTC
 as of September 1, 2026) worked except for one source: the Unusual Whales
@@ -509,3 +511,82 @@ while the raw endpoint returns `{data, date}`. The gather assumed the
 second shape and raised `'list' object has no attribute 'get'`, which the
 board correctly reported as the source being unavailable rather than
 silently dropping it. Both shapes are now read, and guarded.
+
+---
+
+## 10. Phase 3 as built (v4.87)
+
+Two new modules and a third panel. Nothing in Phase 3 measures anything: it
+reads a channel that was designed for and left empty, and it assembles what
+Phases 1 and 2 already computed.
+
+### 10a. `hf_press.py` — the prime-broker channel
+
+Written against 319 real Google News headlines captured on September 6,
+2026. Sixteen of them cleared every filter. The other 303 are the reason
+the module exists, and each refusal below is a real headline from that
+capture:
+
+| Refused | Because |
+|---|---|
+| *JPMorgan Chase & Co. Shares Purchased by Smith Group Asset Management* | The bank is the subject, not the source. A bank counts only where the sentence cites it: "Goldman says", "JPMorgan data shows", "says Morgan Stanley". |
+| *Goldman says hedge funds suffered worst underperformance vs S&P 500 in July* | Returns, not positions. Any return word rejects the item — that loses a few genuine positioning headlines and is the cheaper mistake. |
+| *Hedge funds cut Asia tech holdings in second-largest selloff* | A stated non-US market. True, and not evidence about the book this board measures. |
+| *Hedge funds ditch tech and buy essentials, Goldman Sachs says* | A rotation. The first pass read this as BUYING with the sector Technology, which is exactly backwards. Both directions in one question now yield none. |
+| *Hedge funds squeezed from short bets amid surging meme stocks* | A squeeze forces funds OUT of shorts. Counting the words "short bets" read it the wrong way round. |
+| *Hedge Funds Cut Tech Holdings at Record Pace, Goldman Data Shows* — carried by Briefs Finance | Only a wire service or the bank's own publication counts. The same claim from Reuters does count. |
+
+Two rules beyond the filters:
+
+- **The period is never invented.** Headlines say "last week" or "for a
+  fourth consecutive week". None of that is machine-readable, so `as_of`
+  stays empty and only the publication date is claimed. The headline itself
+  is carried so the reader sees what was actually said.
+- **One note carried by five outlets is one note.** Quotes are deduplicated
+  by bank, question and direction, and how widely a claim travelled is
+  reported as its own number. Same lesson as the crowding fix: the same
+  fact must not vote twice.
+
+A surviving quote enters a verdict at weight 0.5 and cannot create one.
+
+### 10b. `hf_report.py` — the weekly report
+
+Pure: dictionaries in, a dictionary out, no clock, so any week rebuilds
+identically from stored inputs. Contents follow §5e exactly. Two
+distinctions the code holds:
+
+- **"Nothing to compare against" is not "nothing changed."** Without a
+  prior stored report the section says so, instead of showing empty lists
+  that read as agreement.
+- **Disagreement survives assembly.** Conflicts are their own section, are
+  never collapsed by default, and carry the warning colour.
+
+### 10c. The store
+
+`hf/reports/<week>.json`. A rebuild inside the same week APPENDS a
+revision rather than overwriting. The board is a measurement and the latest
+read wins; a report records what was known when it was written, so an older
+build stays true about its own moment. A rebuild diffs against the previous
+WEEK, never against its own earlier revision — otherwise "what changed"
+would report the noise between two builds an hour apart. The compare view
+reuses the same diff as "what changed", so the two can never disagree.
+
+`hf_scan` does not import `hf_watch`, just as `hf_watch` does not import
+`hf_scan`. The fund payload arrives as an injected `funds_fn`, the mirror of
+the `trend_fn` that carries the aggregate sentence the other way.
+
+### 10d. Routes
+
+`/api/hf/report` (optionally `?week=` and `?revision=`) ·
+`/api/hf/report/history` · `/api/hf/report/build` · `/api/hf/report/status` ·
+`/api/hf/report/compare?a=&b=` · `/api/hf/press`
+
+### 10e. What the render check caught
+
+Every static layer passed while the sector table drew a dash in its
+confidence and streak columns. The report had flattened both to scalars and
+the shared component reads them as objects. It also meant a stored report
+lost the inputs behind each sector, so a week read back later would show a
+verdict with nothing behind it. The rows are carried whole now. This is the
+second time a browser render has caught something no static check could —
+the first was Phase 1's `apiFetch` returning an unread `Response`.

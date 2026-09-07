@@ -2794,3 +2794,149 @@ disagreement. The check now compares WHICH names are largest: seven of
 the ten biggest positions by value in common is agreement, fewer is a
 conflict, and too few mapped names to compare is inconclusive rather than
 a conflict. Four more guards.
+
+## v4.86 — Hedge Funds, phase 2: the Pulse
+
+The other layer. Phase 1 answered "what has this manager filed"; this
+answers "what is the whole universe doing", from sources that are official
+and anonymous. `hf_pulse.py` is pure math and `hf_scan.py` gathers and
+remembers. The two layers meet in exactly one place: `hf_scan.headline()`
+produces one sentence, `options_dashboard.py` injects it into `hf_watch` as
+`trend_fn`, and `hf_watch` does not import `hf_scan` at all.
+
+Four weekly questions, each answered separately because a net figure hides
+both legs: overall exposure, leverage, the long book, the short book. The
+inputs are CFTC Traders in Financial Futures (the only weekly, official,
+hedge-fund-specific positioning data that exists), FINRA short interest and
+daily short volume, sector ETF creations, the Unusual Whales sector tide,
+and Form PF leverage from the Treasury's Office of Financial Research.
+
+Six things the live data taught that the design had not:
+
+- **FINRA caps days-to-cover at 1000, and 4,133 of the 22,482 rows in the
+  August 14, 2026 report sit at the cap.** They are OTC foreign ordinaries
+  with almost no volume, where the ratio is arithmetic rather than a trade.
+  With floors on volume and shares short the crowded-shorts list is names
+  like NFE and OCGN; without them it is entirely untradeable tickers.
+- **Net position, gross position and one-sidedness are not three
+  independent measures.** One-sidedness is |net| ÷ gross, so whenever gross
+  is steady a rising net drags one-sidedness up with it and the same fact
+  votes twice. Crowded now needs LEAN and SIZE — two different facts.
+- **A series with no spread has no percentile.** Counting ties put a
+  perfectly flat history at the 100th percentile and flagged every quiet
+  market as crowded, which is the opposite of what the number means.
+- **The sector futures contracts differ in size by more than tenfold**, so
+  ranking sectors by raw contracts put Financials on top every week
+  regardless of what happened. Each sector's move is now divided by its own
+  contract's typical weekly move.
+- **The OFR host gzips its JSON whatever Accept-Encoding asks for**, and
+  urllib does not decompress. Sniffing the magic bytes is the only reliable
+  test; the Content-Encoding header is not always set.
+- **Only seven of the eleven sectors have a leveraged-fund futures
+  contract.** Technology, Materials, Real Estate and Consumer Discretionary
+  are read from flows and short interest alone, and every sector row says
+  how many inputs it had.
+
+Confidence counts independent evidence classes and is not a probability.
+One source, however official, is LOW. Two classes agreeing is MODERATE.
+Disagreement makes the verdict MIXED and both sides are printed. Every
+reading is stored under its ISO week forever, so "what changed from last
+week" is a comparison against a record rather than a claim.
+
+First production reading, week 2026-W36, CFTC as of September 1, 2026:
+exposure REDUCING, leverage RISING, longs ADDING, shorts MIXED; Utilities
+bought at 1.6× its typical weekly move, Energy sold; Health Care
+de-crowding; crowded shorts NFE 28.6 days to cover, NTST 27.9, SVRA 27.1,
+OCGN 23.9. 48 pure-math guards, 31 on the offline pipeline, 25 more on the
+card.
+
+**Follow-up, same day.** The first reading populated every source but one:
+the Unusual Whales client unwraps the JSON envelope and hands the tide rows
+back as a bare list, while the raw endpoint returns `{data, date}`. The
+gather assumed the second shape and raised `'list' object has no attribute
+'get'`, which the board correctly reported as a source being unavailable
+rather than silently dropping it. Both shapes are read now, and guarded.
+Eleven sectors gained the input they were missing and seven of them moved
+from LOW to MODERATE confidence.
+
+## v4.87 — Hedge Funds, phase 3: the weekly report
+
+The two layers assembled into one document a week, kept forever, plus the
+prime-broker channel that Phase 2 had wired and left empty.
+
+**`hf_press.py` — the banks, read strictly.** Goldman Sachs, Morgan Stanley
+and JPMorgan tell their prime brokerage clients each week what hedge funds
+did. That research is not public; the wires quote it, and Reuters runs the
+quotes as its "HEDGE FLOW" series. The parser was written against 319 real
+headlines captured on September 6, 2026, and 303 of them are rejected. The
+traps are all real:
+
+- **A bank named as the subject is not a source.** "JPMorgan Chase & Co.
+  Shares Purchased by Smith Group Asset Management" names a bank and a
+  purchase and has nothing to do with hedge fund positioning. A bank counts
+  only where the sentence cites it — "Goldman says", "JPMorgan data shows".
+- **Performance is not positioning.** "Hedge funds suffered their worst
+  month against the S&P 500 in twenty years" is a fact about returns. Any
+  return word rejects the item, which loses a few genuine headlines and is
+  the cheaper mistake.
+- **A foreign book is not the American one.** "Hedge funds cut Asia tech
+  holdings" is true and is not evidence about the market this board
+  measures. It stays visible and does not count.
+- **A rotation headline has no direction.** "Hedge funds ditch tech and buy
+  essentials" was read as BUYING with the sector Technology on the first
+  pass — precisely backwards. Both directions in one question now yield no
+  direction at all.
+- **A squeeze is not adding shorts.** "Hedge funds squeezed from short bets"
+  means forced out of them; counting the words "short bets" read it the
+  wrong way round.
+- **Five outlets carrying one Goldman note is one note.** Quotes are
+  deduplicated by bank, question and direction, and the count of how widely
+  a claim travelled is reported separately. This is the same lesson the
+  crowding fix taught: the same fact must not vote twice.
+
+The period is never invented. Headlines say "last week" or "for a fourth
+consecutive week", none of which is machine-readable, so `as_of` stays empty
+and only the publication date is ever claimed. A surviving quote enters a
+verdict at half weight and cannot create one.
+
+**`hf_report.py` — the document.** Pure: dictionaries in, a dictionary out,
+no clock, so any week rebuilds identically from stored inputs. It measures
+nothing. Every figure in it was computed by the Pulse, the Named Fund Watch
+or the press channel and is carried across with its date and its evidence
+class. Sections follow the brief exactly: the summary, the four
+conclusions with their inputs, 2/4/8/12-week trends, sectors bought and
+sold, crowding and de-crowding, named-fund activity, major new filings,
+watchlist changes, conflicts, and what the report cannot tell you.
+
+Two distinctions the code holds:
+
+- **"Nothing to compare against" is not "nothing changed."** Without a
+  prior stored report the section says so, rather than showing empty lists
+  that read as agreement.
+- **Disagreement survives assembly.** Conflicts get their own section, are
+  never collapsed by default, and carry the warning colour — a hidden
+  disagreement between sources reads to a person as agreement.
+
+**The store.** Reports live in `hf/reports/<week>.json`. A rebuild inside
+the same week APPENDS a revision rather than overwriting: the board is a
+measurement where the latest read wins, but a report records what was known
+when it was written, so an older build stays true about its own moment. A
+rebuild diffs against the previous WEEK, never against its own earlier
+revision. The compare view reuses the same diff as "what changed", so the
+two can never disagree.
+
+`hf_scan` does not import `hf_watch` any more than `hf_watch` imports
+`hf_scan`: the fund payload is injected as `funds_fn` from
+`options_dashboard.py`, the same way the aggregate sentence is injected the
+other way.
+
+The browser render check earned its place again. Every static layer passed
+while the sector table drew a dash in its confidence and streak columns:
+the report had flattened those two fields to scalars and the shared
+component reads them as objects. It also meant a stored report lost the
+inputs behind each sector, so a week read back later would show a verdict
+with nothing behind it. The rows are carried whole now.
+
+45 report guards, 50 press guards, 18 more on the store and the press
+channel in the scan suite, 25 more source guards on the card and routes,
+six new routes in the HTTP smoke.

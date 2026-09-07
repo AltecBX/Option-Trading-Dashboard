@@ -170,7 +170,73 @@ ok("/api/hf/pulse routes exist", /section == "pulse"/.test(dash) && /section == 
 ok("the pulse routes are in the HTTP smoke", /"\/api\/hf\/pulse"/.test(smoke));
 ok("the pulse cadence is published in thresholds", /"pulse"/.test(read("thresholds.json")));
 
-ok("the version was bumped", /const APP_VERSION = "4\.86"/.test(appSrc));
+// ── 7. the weekly report and the prime-broker channel (v4.87) ───────────
+const press = read("hf_press.py");
+const report = read("hf_report.py");
+
+ok("the Weekly Report is a third panel with its own view",
+   /setView\("report"\)/.test(src) && /Weekly Report/.test(src) && /<ReportPanel/.test(src));
+ok("the report panel reads /api/hf/report", /\/api\/hf\/report/.test(src));
+ok("every report section carries a tooltip",
+   ["report", "report_week", "report_revision", "report_summary", "report_conclusion",
+    "report_trend", "report_filings", "report_activity", "report_watchlist",
+    "report_conflicts", "report_changed", "report_history", "report_compare",
+    "report_limits", "press", "press_quote", "press_carried", "press_period",
+    "press_captured", "press_outlet"].every((k) => HF_TIPS_OF(src, k).length > 40));
+ok("the conflicts section is never collapsed by default",
+   /never collapsed/.test(src) && !/useState\(false\)[\s\S]{0,200}HfReportConflicts/.test(src));
+ok("dates in the report are spelled out, never ISO",
+   /long_date/.test(report) && /%B/.test(report) && /as_of_text/.test(src));
+
+// The press channel refuses more than it accepts, and each refusal is a
+// real headline from the captured corpus.
+ok("a bank must be cited as the source, not merely mentioned",
+   /_ATTRIBUTION/.test(press) && /Mention is not attribution/.test(press));
+ok("returns are not positioning", /_PERFORMANCE/.test(press) && /about returns, not positioning/.test(press));
+ok("a stated non-US market is captured and not counted",
+   /_NON_US/.test(press) && /a stated non-US market/.test(press));
+ok("an ambiguous direction produces no evidence",
+   /no unambiguous direction/.test(press) && /does not say which/.test(press));
+ok("the period is never invented — only the publication date is claimed",
+   /"as_of": None/.test(press) && /period in words rather than dates/.test(press));
+ok("one note carried by five outlets counts once",
+   /carried_by/.test(press) && /cannot vote five times/.test(press));
+ok("only a wire or the bank itself counts as evidence",
+   /WIRES/.test(press) && /FIRST_PARTY/.test(press) && /outlet is not a wire/.test(press));
+ok("a prime-broker quote is supporting evidence at half weight",
+   /weight=0\.5/.test(pulse) && /can only\s*\n?\s*ever corroborate/.test(pulse));
+ok("the press channel is pure — no I/O, no clock",
+   !/datetime\.now|urllib|json\.load|[^.\w]open\(/.test(press));
+ok("the report is pure — no I/O, no clock",
+   !/datetime\.now|urllib|json\.load|[^.\w]open\(/.test(report));
+
+// The store: a report records a moment, so a rebuild adds to it.
+ok("a rebuild appends a revision rather than overwriting",
+   /revisions/.test(scan) && /Reports append, snapshots replace/.test(scan));
+ok("a rebuild in the same week diffs against last week, not itself",
+   /must diff against last week/.test(scan));
+ok("the report store refuses a smuggled attribution",
+   /refusing to store a report that attributes anonymous data to a fund/.test(scan));
+ok("the two layers meet by injection in both directions — no cross import",
+   !/import hf_watch/.test(scan) && !/import hf_scan/.test(watch)
+   && /funds_fn=lambda: _hfwatch\.snapshot\(\)/.test(dash));
+ok("nothing to compare against is not the same as nothing changed",
+   /first stored report/.test(report) && /comparable/.test(src));
+ok("compare and what-changed use the same diff",
+   /reuses `changes`/.test(report) || /It reuses `changes`/.test(report));
+
+ok("/api/hf/report routes exist",
+   /section == "report"/.test(dash) && /section == "report\/history"/.test(dash)
+   && /section == "report\/compare"/.test(dash) && /section == "report\/build"/.test(dash)
+   && /section == "press"/.test(dash));
+ok("the report routes are in the HTTP smoke", /"\/api\/hf\/report"/.test(smoke)
+   && /report\/compare/.test(smoke));
+ok("the report cadence is published in thresholds",
+   /"report"/.test(read("thresholds.json")) && /press_max_age_days/.test(read("thresholds.json")));
+ok("the report panel has styles of its own", /\.hf-report/.test(css) && /\.hf-conflicts/.test(css));
+
+
+ok("the version was bumped", /const APP_VERSION = "4\.87"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

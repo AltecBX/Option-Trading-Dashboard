@@ -5047,7 +5047,9 @@ except Exception as _exc:  # noqa: BLE001
 # of a held name comes from the app's own board first (the user's sector map)
 # and from nothing else — an unmapped position is reported as unmapped.
 try:
+    import hf_press as _hfpress
     import hf_pulse as _hfpulse
+    import hf_report as _hfreport
     import hf_scan as _hfscan
     import hf_sources as _hfsrc
     import hf_watch as _hfwatch
@@ -5060,6 +5062,11 @@ try:
         sector_norm=lambda name: ((_mstate.SECTOR_BY_ETF.get(_mstate.sector_etf(name)) or {}).get("name")
                                   if "_mstate" in globals() and _mstate is not None else str(name)),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+        # The weekly report needs both layers. hf_scan does not import
+        # hf_watch either — the payload is handed over the same way the
+        # aggregate sentence is handed back, so the dependency stays
+        # one-way in both directions.
+        funds_fn=lambda: _hfwatch.snapshot(),
     )
     _hfwatch.configure(
         data_dir=_STABLE_DIR,
@@ -10501,11 +10508,41 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     out = _hfscan.snapshot_for(wk) if wk else None
                     self._send_json(out or {"error": f"no reading stored for {wk!r}"},
                                     status=200 if out else 404, no_store=True)
+                elif section == "report":
+                    wk = (qs.get("week", [""])[0] or "").strip()
+                    rv = (qs.get("revision", [""])[0] or "").strip()
+                    out = _hfscan.report(week=wk or None,
+                                         revision=int(rv) if rv.isdigit() else None)
+                    self._send_json(out, status=200 if out.get("ok") else 404, no_store=True)
+                elif section == "report/history":
+                    self._send_json({"weeks": _hfscan.report_history(
+                        int((qs.get("limit", ["60"])[0] or "60"))), "ok": True}, no_store=True)
+                elif section == "report/build":
+                    self._send_json(_hfscan.report_now(), no_store=True)
+                elif section == "report/status":
+                    self._send_json(_hfscan.report_status(), no_store=True)
+                elif section == "report/compare":
+                    a = (qs.get("a", [""])[0] or "").strip()
+                    b = (qs.get("b", [""])[0] or "").strip()
+                    if not a or not b:
+                        self._send_json({"ok": False, "error": "two weeks are required"},
+                                        status=400)
+                        return
+                    out = _hfscan.report_compare(a, b)
+                    self._send_json(out, status=200 if out.get("ok") else 404, no_store=True)
+                elif section == "press":
+                    with _hfscan._LOCK:  # noqa: SLF001
+                        board = _hfscan._STATE["board"] or {}  # noqa: SLF001
+                    self._send_json({"ok": True, "available": bool(board.get("press")),
+                                     "week": board.get("week"),
+                                     **(board.get("press") or {})}, no_store=True)
                 elif section == "config":
                     self._send_json({"config": {**_hfwatch.config(), **_hfscan.config()},
                                      "version": _hfwatch.HF_WATCH_VERSION,
                                      "scan": _hfscan.HF_SCAN_VERSION,
                                      "pulse": _hfpulse.HF_PULSE_VERSION,
+                                     "report": _hfreport.HF_REPORT_VERSION,
+                                     "press": _hfpress.HF_PRESS_VERSION,
                                      "sources": _hfsrc.HF_SOURCES_VERSION,
                                      "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)
                 else:
