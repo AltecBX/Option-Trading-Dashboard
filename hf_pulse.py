@@ -16,7 +16,7 @@ Four ideas do the work:
     and the level appears only as a percentile of its own history.
 
   * **A verdict is worth what its inputs are worth.** Confidence is the
-    count of independent evidence CLASSES that agree — not a probability,
+    count of corroborating evidence CLASSES that agree — not a probability,
     and not a number that can be tuned. A prime-broker quote can raise
     confidence in something the data already says; it can never create a
     verdict alone. An inference is never evidence for another inference.
@@ -166,13 +166,21 @@ def _deciding(inputs):
 
 
 def confidence(inputs: list[dict]) -> dict:
-    """How much a verdict is worth: the number of INDEPENDENT evidence
+    """How much a verdict is worth: the number of CORROBORATING evidence
     classes that agree, never a probability.
 
     A single source, however official, is one source. Two classes agreeing
     is the first point at which the answer is not an artefact of one
     provider. Supporting inputs are counted for corroboration but can never
-    lift a verdict that no deciding input carries."""
+    lift a verdict that no deciding input carries.
+
+    The word is CORROBORATING and not "independent", and the change is
+    deliberate. Independence is a statistical claim this code does not
+    establish: ETF creations, the short-volume share, the CFTC futures
+    position and a Goldman note can all be four views of the SAME
+    liquidation. What the count actually measures is how many separate KINDS
+    of evidence point the same way, which is a real and useful thing and is
+    not independence. The maths is unchanged — only the claim it makes."""
     deciding = _deciding(inputs)
     if not deciding:
         return {"level": "NONE", "classes": 0, "agree": 0, "disagree": 0,
@@ -195,7 +203,7 @@ def confidence(inputs: list[dict]) -> dict:
     else:
         level = "LOW"
     names = ", ".join(sorted(agree_classes | supporting))
-    why = (f"{n_classes} independent evidence class{'es' if n_classes != 1 else ''} agree ({names})"
+    why = (f"{n_classes} corroborating evidence class{'es' if n_classes != 1 else ''} agree ({names})"
            + (f"; {disagree} input{'s' if disagree != 1 else ''} disagree" if disagree else ""))
     return {"level": level, "classes": n_classes, "agree": len(deciding) - disagree,
             "disagree": disagree, "direction": majority, "why": why}

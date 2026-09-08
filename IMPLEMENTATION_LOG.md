@@ -3292,3 +3292,156 @@ checks the wiring instead.
 process, so a shifted clock never reaches the code under test and the run
 would spend two minutes of browser time proving nothing.
 
+
+## v4.91 — the raw observation log, and a stamp on every stored document
+
+Migration steps 4 and 5.
+
+**Step 4 — `hf_obs.py`.** Everything durable in the hedge layer was DERIVED.
+`hf/pulse/{week}.json` is a finished board, and the numbers that produced it
+were thrown away the moment it was written. That has a measured cost: a
+change to how confidence is computed cannot be applied to history because
+there is nothing left to recompute it from; `hf_replay` exists only to work
+around that and only reaches back where a provider keeps an archive of its
+own; and `gather_shvol_history` re-downloads FINRA daily files the board
+already read and discarded.
+
+So: one JSON object per line, appended, never edited, in monthly files under
+`hf/obs/YYYY-MM.jsonl`. Every line carries both dates (`as_of` — what it
+describes; `public_on` — when it could first be read), its evidence class,
+its units, the engine that wrote it, and a `schema` stamp. The attribution
+rule is enforced at the point of record: an anonymous class that names a fund
+RAISES rather than writing a line, because a bad line in an append-only log
+cannot be taken back. There is no zero-fill — a provider that returned
+nothing writes a HEALTH line saying so, which is a different fact from a
+reading of zero.
+
+A build now writes ~72 lines against the offline fixtures: five CFTC figures
+per market (both legs and open interest as well as net and gross, because a
+net that did not move can hide two legs that did), market-wide and per-sector
+short interest, the short share of volume, both Form PF series, ETF creations
+per sector, sector tide, each prime-broker claim, and one health line per
+provider per attempt. `gather()` now returns `_health` beside `_failed`: the
+same attempt in a shape a query can use, which is what step 6 will read.
+
+Nothing reads the log yet. That is deliberate — it changes no answer on the
+page, and the daily pulse and source-health views are only worth building on
+a record that already has depth. Writing it can never cost a build: the
+append is wrapped, and a board that was gathered and answered is worth
+keeping even if the disk refused the record of it.
+
+**Step 5 — the stamps.** Seven kinds of document are persisted here and they
+carried between one and zero version stamps each. `hf_report.normalize`
+exists because an older stored shape had to be reinterpreted, and it detects
+the version by the PRESENCE OF A FIELD rather than by a stamp — its own
+comment says so.
+
+Every writer now stamps `doc`, `doc_schema`, `doc_engine` and `created_at`;
+every reader now checks. An UNSTAMPED document is accepted, because every
+file on disk today is unstamped and refusing it would throw away history to
+enforce a rule about the future. A document stamped with a schema this build
+does not know is REFUSED rather than reinterpreted — that is the case where
+guessing has actually gone wrong.
+
+24 new guards in `test_hf_obs.py`. Mutating the two load-bearing lines — the
+append call and the accept check — fails five of them.
+
+## v4.92 — reading the log back, and four things the audit asked for
+
+Migration steps 6, 7, 8, 9, 10 and 11.
+
+**Step 6 — `hf_health.py`, source health as a query.** There was no
+per-provider record of last success, last failure, expected cadence or
+staleness. `gather()` collected free-text failure strings and the board
+showed them as "sources that had nothing this week" — which reads the same
+whether a provider is down, has never been configured, or genuinely had
+nothing new to say. The third is a NORMAL, frequent answer for a source that
+publishes twice a month.
+
+Five states, and the distinctions are the point. WORKING: it answered and its
+newest reading is current for how often it publishes. STALE: it answers, but
+keeps handing back the same old period — the failure that is invisible unless
+both dates are compared. NOT ANSWERING, with how long since it last did. NOT
+CONFIGURED: no key, which is a decision rather than a fault and must never be
+reported as a breakage. NOT CHECKED, which is not "fine".
+
+Every cadence in the table is the provider's own published schedule with its
+source in a comment, not a guess, and the grace period is what separates "has
+not published yet" from "has stopped publishing" — a report due Friday is not
+late on Friday morning. The module is PURE: it is handed records and a moment.
+It is a query over the log rather than a structure kept beside it, because a
+parallel structure has to be updated in the same places the readings are
+written, and the failure mode of that is a health panel that is confidently
+out of date.
+
+`gather()` also now marks the two Unusual Whales channels AUTH_MISSING rather
+than UNAVAILABLE when no key is configured.
+
+**Step 9 — the day-by-day record.** Two of the board's inputs move every day
+and were only ever seen at the moment a weekly build happened to look. `daily()`
+reads them back out of the log — one point per date a reading DESCRIBES, not
+per time it was read, because a source read twice in a day said the same thing
+twice and counting it twice would invent a trend. A prime-broker claim carries
+no `as_of` by design ("last week" names no day) and is kept out of a day view
+rather than given an invented date. Every answer states its own depth: "the
+record is less than two days old", "reaches back 6 days, not 14". The log
+began on the deploy that shipped it, and a short history there is a young
+record rather than a broken one.
+
+**Step 7 — the alert layer gets its own clock.** `check_alerts` had exactly
+one caller: the pulse worker, gated by a twelve-hour staleness check. The
+EDGAR sweep runs every six hours, so a SCHEDULE 13D already in hand could wait
+half a day for a clock it has nothing to do with — a mismatch of clocks, not a
+tuning problem. `alerts_check()` is now the public entry point; `hf_watch`
+calls it through an injected `after_sweep_fn` (never an import — that
+dependency stays one-way), and `/api/hf/alerts/check` makes it look on demand.
+A listener that throws cannot mark a successful sweep as failed.
+
+**Step 8 — "independent" becomes "corroborating".** Independence is a
+statistical claim the code does not establish: ETF creations, the short-volume
+share, the CFTC futures position and a Goldman note can all be four views of
+the SAME liquidation. What the count measures is how many separate KINDS of
+evidence point the same way, which is real and useful and is not independence.
+The maths is untouched — a guard proves LOW / MODERATE / HIGH still fall where
+they did, and that a supporting input still cannot create a verdict alone.
+
+**Steps 10 and 11 — one small file for two problems.** The board is a
+measurement and the latest read wins, so a week was overwritten roughly
+fourteen times and only the last survived: a Monday reading that reversed by
+Thursday left no trace. And `history()` opened every stored week's full 62.8 KB
+board to keep five fields — `build_grades` calls `history(400)`, so a mature
+store meant parsing ~25 MB to extract a couple of thousand values, on every
+grade build.
+
+`hf/pulse/index.jsonl` answers both: one appended line per BUILD with exactly
+the fields a summary needs. Every revision is kept because nothing is ever
+rewritten, and reading it is one small file instead of four hundred large ones.
+The full boards stay exactly where they were, in the shape every existing
+reader expects. `revisions(week)` is the new view. A store written before the
+index falls back to the old scan for the weeks it does not cover, and
+`/api/hf/pulse/reindex` fills it in. The index rows carry their own schema
+stamp and are checked where they are read.
+
+**Not done, and why.** Step 13 (calibrated confidence) needs steps 4 and 9 to
+have run for a while — the log is one deploy old, and calibrating on it today
+would be a confident number computed from nothing. Step 14 (splitting
+`tab-hedge.jsx`) the audit explicitly recommends against at 2,025 lines; the
+threshold it set was ~3,000.
+
+**Step 12 — `hf_routes.py`.** `options_dashboard.py` is 12,000 lines and its
+request handler is one long `if parsed.path == ...` chain. The hedge layer had
+grown to thirty-four branches inside it, so a change to a hedge route meant
+editing the file that also serves the chart, the journal, the scanner and the
+broker. A blast-radius problem, not a load one.
+
+The split is deliberately shallow. `hf_routes.handle(section, qs)` answers one
+question — what body and status — and knows nothing about HTTP; a guard asserts
+that `self.`, `_send_json`, `no_store` and `send_header` appear nowhere in it.
+The handler keeps the socket, headers, cache directive and log line, and is now
+nine lines where it was 143. Nine engine modules that were imported into the
+dashboard only so the handler could reach them are gone from it.
+
+The routes can now be tested by calling a function, and `test_hf_obs` does:
+eighteen sections answer with a document and a 200, an undeclared section is a
+404 rather than a crash, and a route that needs an argument says so rather than
+guessing.

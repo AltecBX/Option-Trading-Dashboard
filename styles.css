@@ -13345,6 +13345,17 @@ a.tabsheet-btn.site { text-decoration: none; }
 .hf-dates dd { margin: 0; font-weight: 600; }
 .hf-facts { margin: 0; font-size: 12.5px; color: var(--fg-2); }
 .hf-refusal { margin: 0; font-size: 12.5px; color: var(--warn, var(--fg-2)); border-left: 3px solid var(--warn, var(--line)); padding-left: 8px; }
+
+/* Source health (v4.92). The state word carries the colour, not the row:
+   a table of coloured rows reads as an alarm, and NOT CONFIGURED is a
+   decision rather than a fault. */
+.hf-health .hf-state { font-weight: 700; font-size: 11.5px; letter-spacing: .02em; white-space: nowrap; }
+.hf-health .hf-state.hf-ok { color: var(--up); }
+.hf-health .hf-state.hf-warn { color: var(--warn, var(--fg-2)); }
+.hf-health .hf-state.hf-bad { color: var(--down); }
+.hf-health .hf-state.hf-muted-state { color: var(--fg-2); }
+.hf-daily { margin-top: 8px; }
+.hf-daily h5 { margin: 0 0 4px; font-size: 13px; }
 .hf-refusal-small { font-size: 12px; }
 .hf-note-line { margin: 0; }
 .hf-card-actions { display: flex; gap: 8px; }

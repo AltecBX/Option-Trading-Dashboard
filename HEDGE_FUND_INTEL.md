@@ -470,7 +470,9 @@ changed the code:
   date, never the weekly picture.
 - **The two legs are answered separately.** "Reducing longs?" and "adding
   shorts?" are different questions and a net figure hides both.
-- **Confidence counts independent evidence classes**, not a probability.
+- **Confidence counts corroborating evidence classes**, not a probability.
+  Not "independent": independence is a statistical claim the code does not
+  establish, and four channels can be four views of one liquidation.
   One source is one source (LOW); two classes agreeing is the first point
   the answer is not an artefact of one provider (MODERATE); three with no
   dissent is HIGH. A prime-broker quote can raise confidence in what the
@@ -1027,3 +1029,101 @@ somebody a notification — the tests call `build()` directly.
 
 `/api/hf/alerts` — what has been sent, and what would fire right now.
 Looking at it never sends it.
+
+---
+
+## 15. §5g — the raw observation log (v4.91)
+
+**File:** `hf_obs.py` · **Store:** `hf/obs/YYYY-MM.jsonl` · **Read by:** §5h
+
+Everything else this system stores is DERIVED. `hf/pulse/{week}.json` is a
+finished board; the numbers that produced it used to be thrown away the moment
+it was written. That cost is measurable: a change to how confidence is computed
+could not be applied to history, `hf_replay` exists only to work around it, and
+`gather_shvol_history` re-downloaded FINRA daily files the board had already
+read and discarded.
+
+One JSON object per line, appended, never edited, in monthly files.
+
+```json
+{"schema": 1, "observed_at": "2026-09-06T12:00:00+00:00",
+ "as_of": "2026-09-01", "public_on": "2026-09-04",
+ "source": "cftc.tff", "class": "REGULATORY POSITIONING DATA",
+ "market": "sp500", "sector": null, "symbol": null,
+ "metric": "lev_net", "value": -330000, "prev": -318000, "change": -12000,
+ "units": "contracts", "quality": "OK", "engine": "hf_scan 1.2.0"}
+```
+
+**The rules it keeps.** Append only — a derived document may be rebuilt at
+will; a raw observation is what was seen. Two dates, always. Attribution
+enforced at the point of record: an anonymous class that names a fund RAISES
+rather than writing a line, because a bad line in an append-only log cannot be
+taken back. No zero-fill — a provider that returned nothing writes a HEALTH
+line, which is a different fact from a reading of zero. Schema stamped, and a
+reader REFUSES a schema it does not know rather than guessing.
+
+**Seven qualities:** OK, STALE, PARTIAL, RATE_LIMITED, AUTH_MISSING,
+SHAPE_CHANGED, UNAVAILABLE.
+
+**What a build writes:** five CFTC figures per market (both legs and open
+interest as well as net and gross — a net that did not move can hide two legs
+that did), market-wide and per-sector short interest, the short share of
+volume, both Form PF series, ETF creations per sector, the sector tide, each
+prime-broker claim, and one health line per provider per attempt.
+
+**How fast it grows.** Measured, not estimated: 72 lines and 24,743 bytes per
+build on the offline fixtures. The board rebuilds every 12 hours, so ~730
+builds and **~18 MB a year** — the audit's original ~4 MB figure assumed one
+reading per week per source and was wrong by four and a half times. That is
+still small against the volume, and the log is never trimmed, because a raw
+record that gets trimmed is not a raw record.
+
+**Document stamps.** The same module declares the seven persisted document
+kinds and stamps each with `doc`, `doc_schema`, `doc_engine` and `created_at`.
+An UNSTAMPED document is accepted — every file written before this shipped is
+unstamped and refusing it would throw away history to enforce a rule about the
+future. A document from a schema this build does not know is REFUSED rather
+than reinterpreted.
+
+## 16. §5h — is each source working? (v4.92)
+
+**File:** `hf_health.py` (PURE) · **Route:** `/api/hf/health` · **Panel:** "Are
+the sources working?"
+
+| State | Means |
+|---|---|
+| WORKING | It answered, and its newest reading is current for how often it publishes |
+| STALE | It answers, but keeps handing back the same old period |
+| NOT ANSWERING | The last attempt got nothing, with how long since it last did |
+| NOT CONFIGURED | No key is set for it — a decision, never reported as a fault |
+| NOT CHECKED | No attempt is on record yet. Not "fine" |
+
+Cadences are the providers' own published schedules: the CFTC on Friday
+afternoon, FINRA short interest twice a month, the daily short-volume file
+every trading evening, Form PF once a quarter and months behind. The grace
+period separates "has not published yet" from "has stopped publishing".
+
+`/api/hf/daily` reads the same log for the day-by-day record, one point per
+date a reading DESCRIBES, and states its own depth rather than implying one.
+
+## 17. What the architecture audit asked for, and what was done
+
+`HEDGE_FUND_ARCHITECTURE_AUDIT.md` (September 7, 2026) set fourteen migration
+steps. Twelve are shipped:
+
+| # | Step | Shipped |
+|---|---|---|
+| 1 | Bound `_MEM`, and the disk half | v4.90 (PR #367) |
+| 2 | Confirm the Railway volume | v4.90 — attached at `/data` |
+| 3 | Render checks in the repo and CI | v4.91 |
+| 4 | The raw observation log | v4.91 |
+| 5 | Schema stamps on every stored document | v4.91 |
+| 6 | Source health derived from the log | v4.92 |
+| 7 | Alerts decoupled from the pulse clock | v4.92 |
+| 8 | "independent" → "corroborating" | v4.92 |
+| 9 | The day-by-day view from the log | v4.92 |
+| 10 | Every build of a week kept as a revision | v4.92 |
+| 11 | An index so `history()` stops parsing ~25 MB | v4.92 |
+| 12 | Hedge routes extracted from the monolith | v4.92 |
+| 13 | Calibrated confidence | **NOT DONE** — needs steps 4 and 9 to have run for a while. The log is days old; calibrating on it now would be a confident number computed from nothing |
+| 14 | Split `tab-hedge.jsx` | **NOT DONE** — the audit recommends against it below ~3,000 lines, and it is at 2,163 |

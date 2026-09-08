@@ -594,6 +594,22 @@ Monthly files keep any single file small; JSONL appends are atomic for a
 single writer at typical line sizes and need no rewrite. Estimated volume
 with market-wide and sector granularity only: **~15,000 lines/year, ~4 MB**.
 
+> **Correction, September 8, 2026 — this estimate was wrong.** It assumed one
+> reading per source per week. The board rebuilds every `pulse.refresh_hours`
+> (12), so it writes ~730 times a year, not 52. Measured on the offline
+> fixtures at 72 lines and 24,743 bytes per build, that is **~53,000 lines and
+> ~18 MB a year** — four and a half times the figure above, and more than that
+> live, because the two Unusual Whales channels are unconfigured in the
+> fixtures and add sector rows when they answer.
+>
+> 18 MB a year is still small against a volume with ~500 MB free after the
+> cache prune, so nothing is done about it now. What would change that: if the
+> log ever reaches per-symbol granularity, or if `refresh_hours` drops. The
+> fix at that point is a write-side skip when a reading is identical to the
+> last one for the same key and `as_of` — the health line must still be
+> written every time, because "it answered again" is the fact that layer
+> exists to record.
+
 **Three explicit tiers** (Finding 12): RAW never changes; DERIVED may be
 recomputed from RAW at any time; REPORT is immutable and stamped.
 
@@ -621,21 +637,22 @@ and none breaks a live feature.
 |---|---|---|---|
 | 1 | ~~Bound `_MEM`~~ **DONE** — plus the disk half, which this audit missed | ~~P0~~ | Shipped September 7, 2026 |
 | 2 | ~~Confirm the Railway volume~~ **DONE — attached at `/data`** | ~~P0~~ | Confirmed September 7, 2026; making the fallback loud drops to P3 |
-| 3 | Move the two render checks into the repo and CI | P1 | They have caught six defects; they are not running |
-| 4 | Add the raw observation log; **write to it from `gather_all` without reading from it yet** | P1 | Starts accumulating history immediately, changes no behaviour |
-| 5 | Stamp every persisted document with `schema` + `engine` + `created_at`; add a reader that refuses an unknown schema rather than guessing | P1 | Closes the drift class |
-| 6 | Source health derived from the log; surface on the panel | P1 | Ends silent degradation |
-| 7 | Decouple alerts from the pulse clock — run `check_alerts` after the **watch** sweep too, and add `/api/hf/alerts/check` | P1 | Fixes B3 |
-| 8 | Rename "independent" → "corroborating" in `confidence`; keep the maths | P1 | One-line honesty fix |
-| 9 | Daily pulse derived from the log | P2 | Only possible after step 4 has run for a while |
-| 10 | Stop overwriting the weekly board: keep every build as a revision, as reports already do | P2 | Cheap once step 4 exists |
-| 11 | Index `hf/pulse` so `history()` stops parsing 25 MB | P2 | Performance |
-| 12 | Extract the hedge routes from `options_dashboard.py` into `hf_routes.py` | P2 | Blast radius, not load |
-| 13 | Calibrated confidence from `hf_grade`/`hf_replay` — persistence, not returns | P2 | Needs steps 4 and 9 |
-| 14 | Split `tab-hedge.jsx` if it passes ~3,000 lines | P3 | Not yet painful |
+| 3 | ~~Move the two render checks into the repo and CI~~ **DONE** | ~~P1~~ | Shipped September 8, 2026 (v4.91). Failed on its first run and found two standing rules broken |
+| 4 | ~~Add the raw observation log~~ **DONE** | ~~P1~~ | Shipped v4.91 — `hf_obs.py`, written from `gather()`, read by nothing yet |
+| 5 | ~~Stamp every persisted document~~ **DONE** | ~~P1~~ | Shipped v4.91 — all seven kinds; an unknown schema is refused, an unstamped document is still read |
+| 6 | ~~Source health derived from the log~~ **DONE** | ~~P1~~ | Shipped v4.92 — `hf_health.py`, five states, panel on the Pulse |
+| 7 | ~~Decouple alerts from the pulse clock~~ **DONE** | ~~P1~~ | Shipped v4.92 — `alerts_check()`, `after_sweep_fn`, `/api/hf/alerts/check` |
+| 8 | ~~"independent" → "corroborating"~~ **DONE** | ~~P1~~ | Shipped v4.92 — the maths is unchanged and a guard proves it |
+| 9 | ~~Daily view derived from the log~~ **DONE** | ~~P2~~ | Shipped v4.92 — states its own depth rather than implying one |
+| 10 | ~~Stop overwriting the weekly board~~ **DONE** | ~~P2~~ | Shipped v4.92 — every build appends to `hf/pulse/index.jsonl` |
+| 11 | ~~Index `hf/pulse`~~ **DONE** | ~~P2~~ | Shipped v4.92 — the same file; `history()` no longer opens the boards |
+| 12 | ~~Extract the hedge routes~~ **DONE** | ~~P2~~ | Shipped v4.92 — `hf_routes.py`; the handler is 9 lines where it was 143 |
+| 13 | Calibrated confidence from `hf_grade`/`hf_replay` — persistence, not returns | P2 | **NOT DONE.** Needs steps 4 and 9 to have run for a while. The log is days old; calibrating on it now would be a confident number computed from nothing |
+| 14 | Split `tab-hedge.jsx` if it passes ~3,000 lines | P3 | **NOT DONE, deliberately.** 2,163 lines |
 
-**Steps 1–3 should ship before any refactor.** They are small, they address
-the only P0s, and step 3 protects everything that follows.
+**Steps 1–12 are shipped.** 13 and 14 are the two this audit itself says to
+wait on, and the reasons have not changed.
+
 
 ---
 

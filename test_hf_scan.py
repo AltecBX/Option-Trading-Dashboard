@@ -937,7 +937,12 @@ class TheShortVolumeCache(Base):
         p = Path(self.tmp.name) / "hf" / "shvol_daily.json"
         self.assertTrue(p.exists())
         doc = json.loads(p.read_text())
-        self.assertEqual(set(doc), {"shares", "n", "saved_at"})
+        # The point of this cache: one float per session, never the daily
+        # files it read them from. The stamp (doc/doc_schema/doc_engine/
+        # created_at) is the only other thing allowed in.
+        self.assertEqual(set(doc), {"shares", "n", "saved_at",
+                                    "doc", "doc_schema", "doc_engine", "created_at"})
+        self.assertEqual(doc["doc"], "shvol")
         for v in doc["shares"].values():
             self.assertIsInstance(v, float)
 

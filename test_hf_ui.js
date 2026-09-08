@@ -38,6 +38,9 @@ const watch = read("hf_watch.py");
 const sources = read("hf_sources.py");
 const registry = read("hf_registry.py");
 const dash = read("options_dashboard.py");
+// v4.92: every hedge branch moved into hf_routes.py. The guards below
+// read the routes where they now live; `dash` still holds the wiring.
+const routes = read("hf_routes.py");
 const smoke = read("test_http_smoke.py");
 const seed = JSON.parse(read("hf_watchlist.json"));
 const pulse = read("hf_pulse.py");
@@ -119,8 +122,8 @@ ok("the worker is lazy and offline-safe", /def _kick/.test(watch) && /if not S\.
 ok("a parsed filing is kept forever", /FOREVER/.test(sources) && /"doc": FOREVER/.test(sources));
 
 // ── 5. routes ───────────────────────────────────────────────────────────
-ok("/api/hf routes exist", /parsed\.path == "\/api\/hf"/.test(dash) && /section == "fund"/.test(dash)
-   && /section == "watchlist"/.test(dash) && /section == "config"/.test(dash));
+ok("/api/hf routes exist", /parsed\.path == "\/api\/hf"/.test(dash) && /section == "fund"/.test(routes)
+   && /section == "watchlist"/.test(routes) && /section == "config"/.test(routes));
 ok("the watchlist is writable", /parsed\.path == "\/api\/hf\/watchlist"/.test(dash) && /set_watchlist\(payload\)/.test(dash));
 ok("the routes are in the HTTP smoke", /"\/api\/hf"/.test(smoke) && /"\/api\/hf\/fund\?key=pershing"/.test(smoke));
 ok("EDGAR is the record; UW is a cross-check, not a source", /Unusual Whales is a cross-check/.test(dash) && /institution_holdings/.test(read("unusual_whales_client.py")));
@@ -155,8 +158,8 @@ ok("the change is the signal, not the level — said in code and on the card",
    /structurally net short/.test(pulse) && /HF_TIP\.pulse_unusual/.test(src));
 ok("leverage reads gross, and Form PF is context with its own date",
    /lev_gross/.test(pulse) && /five months behind/.test(pulse) && /HF_TIP\.pulse_ofr/.test(src));
-ok("confidence counts independent classes and cannot be created by a quote",
-   /independent evidence class/.test(pulse) && /cannot create one on their own/.test(pulse)
+ok("confidence counts CORROBORATING classes and cannot be created by a quote",
+   /corroborating evidence class/.test(pulse) && /cannot create one on their own/.test(pulse)
    && /can never create a\s*\n?\s*verdict alone/.test(pulse));
 ok("the pulse is pure — no I/O, no clock", !/datetime\.now|urllib|json\.load|open\(/.test(pulse));
 ok("the aggregate layer never names a fund",
@@ -165,8 +168,8 @@ ok("the fund cards receive the trend injected, not imported",
    /trend_fn/.test(watch) && !/import hf_scan/.test(watch) && /trend_fn=lambda: _hfscan\.headline\(\)/.test(dash));
 ok("the broader block on a fund card carries the Pulse's date and class",
    /bt\.as_of_text/.test(src) && /HfTag cls=\{\(bt && bt\.class\)/.test(src));
-ok("/api/hf/pulse routes exist", /section == "pulse"/.test(dash) && /section == "pulse\/history"/.test(dash)
-   && /section == "pulse\/week"/.test(dash));
+ok("/api/hf/pulse routes exist", /section == "pulse"/.test(routes) && /section == "pulse\/history"/.test(routes)
+   && /section == "pulse\/week"/.test(routes));
 ok("the pulse routes are in the HTTP smoke", /"\/api\/hf\/pulse"/.test(smoke));
 ok("the pulse cadence is published in thresholds", /"pulse"/.test(read("thresholds.json")));
 
@@ -226,9 +229,9 @@ ok("compare and what-changed use the same diff",
    /reuses `changes`/.test(report) || /It reuses `changes`/.test(report));
 
 ok("/api/hf/report routes exist",
-   /section == "report"/.test(dash) && /section == "report\/history"/.test(dash)
-   && /section == "report\/compare"/.test(dash) && /section == "report\/build"/.test(dash)
-   && /section == "press"/.test(dash));
+   /section == "report"/.test(routes) && /section == "report\/history"/.test(routes)
+   && /section == "report\/compare"/.test(routes) && /section == "report\/build"/.test(routes)
+   && /section == "press"/.test(routes));
 ok("the report routes are in the HTTP smoke", /"\/api\/hf\/report"/.test(smoke)
    && /report\/compare/.test(smoke));
 ok("the report cadence is published in thresholds",
@@ -296,8 +299,8 @@ ok("a market with no honest proxy is not graded",
    /NOT_GRADED/.test(grade) && /roll a futures\s*\n?\s*curve/.test(grade) && /grade_not_graded/.test(src));
 ok("the grader is pure — no I/O, no clock",
    !/datetime\.now|urllib|json\.load|[^.\w]open\(/.test(grade));
-ok("/api/hf/grades routes exist", /section == "grades"/.test(dash)
-   && /section == "grades\/status"/.test(dash) && /section == "grades\/build"/.test(dash));
+ok("/api/hf/grades routes exist", /section == "grades"/.test(routes)
+   && /section == "grades\/status"/.test(routes) && /section == "grades\/build"/.test(routes));
 ok("the grade routes are in the HTTP smoke", /"\/api\/hf\/grades"/.test(smoke));
 ok("the grade cadence is published in thresholds",
    /"grade"/.test(read("thresholds.json")) && /min_history_weeks/.test(read("thresholds.json")));
@@ -310,7 +313,7 @@ ok("no token means an empty answer, never an error",
 ok("a post is a statement, never a position",
    /never a position/.test(sources) && /own\.append/.test(watch));
 ok("the config route reports whether the channel is live",
-   /"x_statements": _hfsrc\.x_available\(\)/.test(dash));
+   /"x_statements": hf_sources\.x_available\(\)/.test(routes));
 
 
 ok("an ungraded market never inflates the episode count",
@@ -395,8 +398,8 @@ ok("every new tooltip is written and long enough to say something",
    ["grade_replay", "grade_recorded", "grade_replayed", "grade_replay_span",
     "grade_replay_skipped"].every((k) => HF_TIPS_OF(src, k).length > 60));
 ok("the replay routes are served",
-   /section == "replay"/.test(dash) && /section == "replay\/status"/.test(dash)
-   && /section == "replay\/build"/.test(dash) && /"replay": _hfreplay/.test(dash));
+   /section == "replay"/.test(routes) && /section == "replay\/status"/.test(routes)
+   && /section == "replay\/build"/.test(routes) && /"replay": hf_replay\.HF_REPLAY_VERSION/.test(routes));
 
 // ── Phase 5B: the names behind the crowd ──────────────────────────────────
 const namesPy = read("hf_names.py");
@@ -435,7 +438,7 @@ ok("the names section is mounted with its own tooltips",
    && ["names", "names_opaque", "names_puts", "names_period", "names_who"]
         .every((k) => HF_TIPS_OF(src, k).length > 60));
 ok("the names route is served",
-   /section == "names"/.test(dash) && /"names": _hfnames/.test(dash)
+   /section == "names"/.test(routes) && /"names": hf_names\.HF_NAMES_VERSION/.test(routes)
    && /positions_fn=lambda/.test(dash));
 
 // ── Phase 6: alerts ───────────────────────────────────────────────────────
@@ -480,8 +483,92 @@ ok("every alert tooltip is written and long enough to say something",
    ["alerts", "alerts_can_send", "alerts_primed", "alerts_would", "alerts_sent",
     "alerts_kind", "alerts_held", "alerts_cap"].every((k) => HF_TIPS_OF(src, k).length > 60));
 ok("the alerts route is served and the config reports push",
-   /section == "alerts"/.test(dash) && /"alerts": _hfalert/.test(dash)
-   && /"push": _push_configured\(\)/.test(dash));
+   /section == "alerts"/.test(routes) && /"alerts": hf_alert\.HF_ALERT_VERSION/.test(routes)
+   && /"push": _push_configured\(\)/.test(routes));
+
+// ── the audit's migration steps 4-11 ──────────────────────────────────────
+const obsPy = read("hf_obs.py");
+const healthPy = read("hf_health.py");
+
+ok("the observation log is append only and never rewrites",
+   /def append/.test(obsPy) && /open\(p, "a"/.test(obsPy)
+   && !/def (delete|prune|trim|rewrite)/.test(obsPy));
+ok("a line cannot name a fund on anonymous evidence",
+   /cannot be attributed to a fund/.test(obsPy) && /raise ValueError/.test(obsPy));
+ok("every line carries both dates and a schema stamp",
+   /"as_of": as_of, "public_on": public_on/.test(obsPy) && /"schema": SCHEMA/.test(obsPy));
+ok("a line from an unknown schema is skipped, not guessed at",
+   /def readable/.test(obsPy) && /rec\.get\("schema"\) == SCHEMA/.test(obsPy));
+ok("all seven stored documents are declared, stamped and checked",
+   ["pulse", "report", "grades", "replay", "alerts", "shvol", "fund"]
+     .every((k) => new RegExp(`"${k}": 1`).test(obsPy))
+   && /def stamp/.test(obsPy) && /def accept/.test(obsPy)
+   && /_stamped\(board, "pulse"\)/.test(scan) && /_read_doc\(p, "pulse"\)/.test(scan)
+   && /OBS\.accept\(rec, "fund"\)/.test(watch));
+ok("an unstamped document written before the stamp is still read",
+   /if got is None:\n        return True/.test(obsPy));
+ok("the board writes the raw readings and a health line per provider",
+   /def observations/.test(scan) && /OBS\.append\(observations/.test(scan)
+   && /OBS\.health\(source/.test(scan) && /"_health"\] = health/.test(scan));
+ok("the log can never cost a build",
+   /except Exception as exc:[\s\S]{0,200}board\["observations_logged"\] = 0/.test(scan));
+
+ok("source health is a query over the log, not a structure beside it",
+   /def source_health/.test(scan) && /OBS\.read\(/.test(scan)
+   && /[Aa] query over the log rather than a structure/.test(scan));
+ok("hf_health is pure — no I/O, no clock",
+   !/(?<![A-Za-z_.])open\s*\(|urllib|json\.load|datetime\.now/.test(healthPy));
+ok("every gathered source has a published cadence on file",
+   ["cftc.tff", "finra.short_interest", "finra.short_volume", "ofr.form_pf",
+    "uw.etf_creations", "uw.sector_tide", "press.prime_broker"]
+     .every((k) => healthPy.includes(`"${k}"`)));
+ok("a missing key is a decision, never reported as a breakage",
+   /NOT_CONFIGURED = "NOT CONFIGURED"/.test(healthPy)
+   && /a decision, not a fault/.test(healthPy)
+   && /AUTH_MISSING, "no Unusual Whales key is configured"/.test(scan));
+ok("a source that answers with a frozen period reads as STALE",
+   /STALE = "STALE"/.test(healthPy) && /keeps handing back the same/.test(healthPy));
+ok("the daily view states its own depth rather than implying one",
+   /def daily/.test(scan) && /def _depth_note/.test(scan)
+   && /less than two days old/.test(scan));
+ok("the health panel is drawn and mounted on the Pulse",
+   /function HfHealth/.test(src) && /<HfHealth apiFetch=\{apiFetch\} \/>/.test(src)
+   && /Are the sources working\?/.test(src));
+ok("the health and daily routes are served",
+   /section == "health"/.test(routes) && /section == "daily"/.test(routes)
+   && /section == "obs"/.test(routes));
+
+ok("the alert layer can be told to look, without the pulse clock",
+   /def alerts_check/.test(scan) && /section == "alerts\/check"/.test(routes)
+   && /after_sweep_fn=lambda: _hfscan\.alerts_check\(\)/.test(dash));
+ok("the watch sweep tells it, injected and never imported",
+   /after_sweep_fn/.test(watch) && /_AFTER_SWEEP_FN\(\)/.test(watch)
+   && !/import hf_scan/.test(watch));
+ok("every build of a week is kept, not only the last",
+   /def revisions/.test(scan) && /def _append_index/.test(scan)
+   && /a mid-week reversal survives/.test(scan));
+ok("history reads the index instead of every stored board",
+   /def index_rows/.test(scan) && /def rebuild_index/.test(scan)
+   && /section == "pulse\/revisions"/.test(routes));
+ok("every new tooltip is written and long enough to say something",
+   ["health", "health_state", "health_cadence", "health_last", "health_newest",
+    "daily", "daily_depth", "daily_points", "obs"]
+     .every((k) => HF_TIPS_OF(src, k).length > 60));
+
+// ── step 12: the routes left the monolith ─────────────────────────────────
+ok("hf_routes answers a section and knows nothing about HTTP",
+   /def handle\(section: str, qs: dict\)/.test(routes)
+   && !/self\.|_send_json|no_store|BaseHTTPRequestHandler/.test(routes));
+// The dashboard still dispatches other feature families by section, so a raw
+// count proves nothing. What matters is that no HEDGE section is left in it.
+ok("the monolith keeps one hedge branch, not thirty",
+   /_hfroutes\.handle\(section, qs\)/.test(dash)
+   && ["pulse/history", "grades/build", "replay/status", "names",
+       "alerts/check", "report/compare", "cache/recompress"].every((k) =>
+         routes.includes(`section == "${k}"`) && !dash.includes(`section == "${k}"`)));
+ok("whether push is configured is asked, never inferred",
+   /push_configured_fn/.test(routes)
+   && /_hfroutes\.configure\(push_configured_fn=/.test(dash));
 
 ok("the version was bumped", /const APP_VERSION = "4\.91"/.test(appSrc));
 

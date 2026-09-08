@@ -62,6 +62,15 @@ const HF_TIP = {
   notes: "Anything the card had to say about how this manager's record was assembled — a successor it followed, a quarter that is missing, a position whose CUSIP no ticker could be found for. Kept in view rather than tidied away, because a gap in the record is part of the record.",
   manager: "The manager on your watchlist that this filing belongs to.",
   filed_as: "The exact registered name the filing was made under. A book often files through a subsidiary or a management company, so this can differ from the name on your list — the card matches on the EDGAR identifier, not the name.",
+  health: "Whether each source is ACTUALLY WORKING, from the record of what it did rather than from a structure kept beside it. Every attempt to read a source writes a line to the observation log — which source, whether it answered, and if not why — so this is a question about the record and can never be quietly out of date. A source that publishes twice a month having nothing new today is normal; a source that has stopped answering is not, and only this can tell the two apart.",
+  health_state: "WORKING: it answered, and the newest reading it gave is current for how often it publishes. STALE: it answers, but keeps handing back the same old period — the failure that is invisible unless you compare both dates. NOT ANSWERING: the last attempt got nothing. NOT CONFIGURED: no key is set for it, which is a decision rather than a fault. NOT CHECKED: no attempt is on record yet.",
+  health_cadence: "How often this source publishes something new. Every one of these is the provider's own published schedule, not an estimate: the CFTC on Friday afternoon, FINRA short interest twice a month, the daily short-volume file every trading evening, Form PF once a quarter and months behind.",
+  health_last: "When this source last ANSWERED, and when it was last asked. The gap between them is how long a problem has been going on.",
+  health_newest: "The newest date this source has actually given data for. A source that answers every time but whose newest date stopped moving is stale, and this is the column that shows it.",
+  daily: "Two of the board's inputs move EVERY day, and until the observation log existed they were only ever seen at the moment a weekly build happened to look. This is what each measured source has said, day by day, read back out of that record. It reaches back exactly as far as the record does and says so — it does not pretend to a history it has not kept yet.",
+  daily_depth: "How deep the record actually is. The log began on the deploy that shipped it and grows on every build; nothing is ever removed from it. A short history here is a young record, not a broken one.",
+  daily_points: "One point per date the reading DESCRIBES, not per time it was read. A source read twice in one day said the same thing twice, and counting it twice would invent a trend that is not there.",
+  obs: "The raw observation log: one line per reading, appended and never edited, under hf/obs. Everything else the board stores is DERIVED from readings — this is the readings themselves, kept so a later change to how an answer is computed can be applied to weeks already gone.",
   cusips: "How many CUSIP → symbol pairs are on file, from the SEC's fails-to-deliver list. A 13F names securities by CUSIP, not ticker; this is how a line becomes a clickable symbol.",
   refresh: "Re-read this manager's EDGAR trail now. Normally it is re-read every six hours — a filing trail cannot change faster than that matters.",
   watchlist: "Add or remove managers. A manager needs a name, an EDGAR CIK, and a turnover class. Edits are stored separately from the shipped list, so a rebuild never loses them.",
@@ -72,7 +81,7 @@ const HF_TIP = {
   // ── Hedge Fund Pulse (v4.86) ──
   pulse: "THE OTHER LAYER. What the hedge fund universe as a whole appears to be doing, from sources that are official but anonymous — nobody's name is on any of it. Read once a week, on the CFTC's schedule. It is never about any one fund, and no fund's card is ever built from it.",
   pulse_verdict: "The answer to one weekly question, from every source that had something to say. ADDING or REDUCING is the direction the majority of the deciding inputs moved. MIXED means they genuinely disagreed — the card shows both sides rather than averaging them into a consensus that does not exist. NO DATA means nothing answered.",
-  pulse_conf: "Not a probability, and not tunable. It counts how many INDEPENDENT evidence classes agree. One source, however official, is one source (LOW). Two classes agreeing is the first point the answer is not an artefact of one provider (MODERATE). Three with no dissent is HIGH. A prime-broker quote can raise confidence in what the data already says; it can never create a verdict on its own.",
+  pulse_conf: "Not a probability, and not tunable. It counts how many CORROBORATING evidence classes agree. One source, however official, is one source (LOW). Two classes agreeing is the first point the answer is not an artefact of one provider (MODERATE). Three with no dissent is HIGH. A prime-broker quote can raise confidence in what the data already says; it can never create a verdict on its own. The word is corroborating and not independent on purpose: ETF creations, the short-volume share, the futures position and a bank note can all be four views of the SAME liquidation, so what this counts is how many KINDS of evidence point the same way — which is a real thing, and is not independence.",
   pulse_streak: "How many consecutive weeks this has moved the same way — the 'fourth consecutive week of selling' shape. A week whose move is inside the noise band ends a streak without starting one the other way, so four weeks means four weeks.",
   pulse_persist: "How much of the recent past agrees with this week, at 2, 4, 8 and 12 weeks. 'Three of the last four weeks' is a trend; 'two of the last twelve' is this week and noise. A window with less history than it needs says nothing rather than padding.",
   pulse_unusual: "Where the current LEVEL sits in its own three-year range. Leveraged funds are structurally net short index futures — they hedge long stock books — so a big net short is normal and only its percentile is informative. The change is the signal; the level is context.",
@@ -101,7 +110,7 @@ const HF_TIP = {
   report_revision: "Which build of this week you are reading. Revision 1 is the first time the report was assembled that week; later revisions saw more filings or more headlines. Older revisions are never deleted.",
   report_built: "When this revision was assembled. Different from the 'as of' dates inside it — those belong to the sources, and every one of them is older than this.",
   report_summary: "The short version. Every line here is a verdict reached in a section below, at the confidence stated there, and nothing in this summary is stronger than the section it came from.",
-  report_conclusion: "One of the four weekly questions, carried across from the Pulse whole: the verdict, how many independent evidence classes agree, how long it has read this way, and every input behind it.",
+  report_conclusion: "One of the four weekly questions, carried across from the Pulse whole: the verdict, how many corroborating evidence classes agree, how long it has read this way, and every input behind it.",
   report_trend: "How persistent each answer has been over the last 2, 4, 8 and 12 weeks. A verdict in its eighth straight week is a different statement from the same verdict in its first, and both are shown.",
   report_filings: "The filings worth a heading this week. Every SCHEDULE 13D by a watched manager, because that is an event with a five-business-day clock. Every amendment to a holdings report, because a restatement changes a number already shown to you. Passive 13G notices are not activity and are not listed here.",
   report_activity: "Watched managers who filed something VERIFIED during THIS report's week. When the list is empty that is the ordinary state, not a failure — a 13F describes one day and arrives 45 days later.",
@@ -1263,6 +1272,8 @@ function PulsePanel({
     onOpenTicker: onOpenTicker
   }), /*#__PURE__*/React.createElement(HfAlerts, {
     apiFetch: apiFetch
+  }), /*#__PURE__*/React.createElement(HfHealth, {
+    apiFetch: apiFetch
   }), d.unavailable && d.unavailable.length ? /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
     title: HF_TIP.pulse_missing
   }, "Sources that had nothing this week"), /*#__PURE__*/React.createElement("ul", {
@@ -1742,6 +1753,168 @@ function HfAlerts({
     className: "hf-muted",
     title: HF_TIP.alerts
   }, d.note));
+}
+const HF_HEALTH_CLASS = {
+  "WORKING": "hf-ok",
+  "STALE": "hf-warn",
+  "NOT ANSWERING": "hf-bad",
+  "NOT CONFIGURED": "hf-muted-state",
+  "NOT CHECKED": "hf-muted-state"
+};
+function HfHealth({
+  apiFetch
+}) {
+  const [d, setD] = React.useState(null);
+  const [daily, setDaily] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const {
+        d: got,
+        err: readErr
+      } = await hfReadJson(await apiFetch("/api/hf/health", {
+        noCache: true
+      }));
+      if (!got) throw new Error(readErr || "no data");
+      setD(got);
+      setErr(null);
+      const {
+        d: day
+      } = await hfReadJson(await apiFetch("/api/hf/daily", {
+        noCache: true
+      }));
+      setDaily(day || null);
+    } catch (e) {
+      setErr(String(e && e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  }, [apiFetch]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
+  if (err) return /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.health
+  }, "Are the sources working?"), /*#__PURE__*/React.createElement("p", {
+    className: "research-error"
+  }, err));
+  if (!d) return /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.health
+  }, "Are the sources working?"), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted"
+  }, busy ? "Checking…" : "—"));
+  return /*#__PURE__*/React.createElement("section", {
+    className: "hf-health"
+  }, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.health
+  }, "Are the sources working?"), /*#__PURE__*/React.createElement("p", {
+    className: "sl-status"
+  }, /*#__PURE__*/React.createElement("span", {
+    title: HF_TIP.health
+  }, d.headline), /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted",
+    title: HF_TIP.obs
+  }, " · ", hfInt((d.log || {}).n_lines), " readings on record"), " ", /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: load,
+    disabled: busy,
+    title: "Ask again"
+  }, "reload")), d.note ? /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.health
+  }, d.note) : null, /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.health
+  }, "Source"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.health_state
+  }, "State"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.health_cadence
+  }, "Publishes"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.health_newest
+  }, "Newest data"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.health_last
+  }, "Last answered"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.health_state
+  }, "What that means"))), /*#__PURE__*/React.createElement("tbody", null, (d.rows || []).map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.source
+  }, /*#__PURE__*/React.createElement("td", {
+    "data-label": "Source"
+  }, r.label), /*#__PURE__*/React.createElement("td", {
+    "data-label": "State",
+    title: HF_TIP.health_state
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `hf-state ${HF_HEALTH_CLASS[r.state] || ""}`
+  }, r.state)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Publishes",
+    title: HF_TIP.health_cadence
+  }, r.cadence || "—"), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Newest data",
+    title: HF_TIP.health_newest
+  }, hfDate(r.newest_as_of)), /*#__PURE__*/React.createElement("td", {
+    "data-label": "Last answered",
+    title: HF_TIP.health_last
+  }, r.last_ok ? hfDateTime(r.last_ok) : /*#__PURE__*/React.createElement("span", {
+    className: "hf-muted"
+  }, "never")), /*#__PURE__*/React.createElement("td", {
+    "data-label": "What that means"
+  }, r.why)))))), /*#__PURE__*/React.createElement("button", {
+    className: "hf-link",
+    onClick: () => setOpen(!open),
+    title: HF_TIP.daily
+  }, open ? "hide the day-by-day record" : "show the day-by-day record"), open ? /*#__PURE__*/React.createElement("div", {
+    className: "hf-daily"
+  }, /*#__PURE__*/React.createElement("h5", {
+    title: HF_TIP.daily
+  }, "What each source has said, day by day"), /*#__PURE__*/React.createElement("p", {
+    className: "hf-muted",
+    title: HF_TIP.daily_depth
+  }, (daily || {}).depth_note || "—"), daily && daily.rows && daily.rows.length ? /*#__PURE__*/React.createElement("div", {
+    className: "scan-table-wrap hf-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "scan-table mtable hf-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.daily
+  }, "Measure"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.evidence
+  }, "Evidence"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.daily_points
+  }, "Days on record"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.as_of
+  }, "Reaches back to"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.as_of
+  }, "Newest"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.daily
+  }, "Latest reading"))), /*#__PURE__*/React.createElement("tbody", null, daily.rows.map(r => {
+    const last = r.points && r.points.length ? r.points[r.points.length - 1] : null;
+    return /*#__PURE__*/React.createElement("tr", {
+      key: `${r.source}:${r.metric}`
+    }, /*#__PURE__*/React.createElement("td", {
+      "data-label": "Measure"
+    }, r.label, " ", /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted"
+    }, r.metric)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Evidence"
+    }, /*#__PURE__*/React.createElement(HfTag, {
+      cls: r.class
+    })), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Days on record",
+      title: HF_TIP.daily_points
+    }, hfInt(r.n_days)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Reaches back to"
+    }, hfDate(r.first)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Newest"
+    }, hfDate(r.last)), /*#__PURE__*/React.createElement("td", {
+      "data-label": "Latest reading"
+    }, last && last.value != null ? hfInt(last.value) : "—", last && last.change != null ? /*#__PURE__*/React.createElement("span", {
+      className: "hf-muted"
+    }, " (", hfSigned(last.change), ")") : null));
+  })))) : null) : null);
 }
 function HfGrades({
   apiFetch
