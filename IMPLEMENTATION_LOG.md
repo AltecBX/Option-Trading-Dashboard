@@ -3445,3 +3445,34 @@ The routes can now be tested by calling a function, and `test_hf_obs` does:
 eighteen sections answer with a document and a 200, an undeclared section is a
 404 rather than a crash, and a route that needs an argument says so rather than
 guessing.
+
+## v4.92a — the health panel could never report STALE
+
+Found by looking at the live board an hour after the merge, not by a test.
+
+`/api/hf/health` came back "7 of 7 sources are working" with **no newest date
+on any row**. `source_health()` passed `metric=OBS.HEALTH` to the log query, so
+`hf_health.assess` received only the "did it answer?" lines and none of the
+readings. `newest_as_of` was therefore always None, and — the part that
+matters — so was `hours_since_data`, which is what the staleness comparison
+gates on:
+
+```python
+if stale_after and age is not None and age > stale_after:
+```
+
+With `age` permanently None, **the STALE branch was unreachable in
+production**. The one state the module exists for — "it answers every time,
+but the period it hands back stopped moving" — could not be reached, while the
+panel said everything was fine. That is precisely the silent degradation the
+audit's finding B6 was about, reintroduced by the code written to fix it.
+
+The pure module was correct. The wiring around it threw half the record away.
+Seven of this project's bugs now share that shape: a value right where it was
+computed, wrong where it was reused, across a boundary.
+
+The unit tests passed because they call `HL.assess` directly and hand it both
+kinds of line. Two new guards go through `SC.source_health()` instead — one
+asserts every row carries a newest date and a computable age, the other
+freezes a source's `as_of` in the past and requires STALE to come back out of
+the real wiring. Both fail against the old query.

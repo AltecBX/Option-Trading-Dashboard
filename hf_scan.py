@@ -1011,8 +1011,17 @@ def source_health() -> dict:
     A query over the log rather than a structure kept beside it. A parallel
     structure has to be updated in the same places the readings are written,
     and the failure mode of that is a health panel that is confidently out of
-    date — which is the exact failure it exists to catch."""
-    recs = OBS.read(since=_window(HEALTH_WINDOW_DAYS), metric=OBS.HEALTH)
+    date — which is the exact failure it exists to catch.
+
+    BOTH kinds of line are read, and that is not an optimisation to undo. The
+    first version passed `metric=OBS.HEALTH` and read only the attempts. It
+    looked right and shipped green, because the unit tests call `HL.assess`
+    directly and hand it both kinds. On the live board every row came back
+    with no newest date — and, far worse, `hours_since_data` was always None,
+    so the STALE branch could never be reached. The one state worth having,
+    "it answers but its data stopped moving", was unreachable in production
+    while the panel said everything was working."""
+    recs = OBS.read(since=_window(HEALTH_WINDOW_DAYS))
     card = HL.card(recs, _now().isoformat(timespec="seconds"))
     card["window_days"] = HEALTH_WINDOW_DAYS
     st = OBS.stats()
