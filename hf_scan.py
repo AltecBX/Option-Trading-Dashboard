@@ -42,7 +42,9 @@ from pathlib import Path
 
 import hf_alert as AL
 import hf_grade as GR
+import hf_health as HL
 import hf_names as NM
+import hf_obs as OBS
 import hf_press as PRESS
 import hf_pulse as P
 import hf_replay as RP
@@ -127,11 +129,16 @@ def configure(data_dir=None, uw_getter=None, sector_fn=None, sector_norm=None, n
     # delivered when nothing had gone anywhere.
     _PUSH_READY_FN = push_ready_fn
     if _DATA_DIR is not None:
-        for sub in ("pulse", "reports"):
+        for sub in ("pulse", "reports", "obs"):
             try:
                 (_DATA_DIR / "hf" / sub).mkdir(parents=True, exist_ok=True)
             except Exception:  # noqa: BLE001
                 pass
+    # The raw observation log shares this module's directory and clock. It is
+    # configured here rather than by the dashboard so a test that configures
+    # the board gets a log too, and neither can be pointed somewhere else by
+    # accident.
+    OBS.configure(data_dir=data_dir, now_fn=now_fn)
     _load_latest()
     _load_latest_report()
     _load_grades()
@@ -209,6 +216,33 @@ def _snap_path(week: str) -> Path | None:
     return None if d is None else d / f"{week}.json"
 
 
+# ── stamping and reading a stored document ──────────────────────────────────
+#
+# Seven kinds of document are persisted here, and they used to carry between
+# one and zero version stamps each. `hf_report.normalize` exists because an
+# older stored shape had to be reinterpreted, and it detects the version by
+# the PRESENCE OF A FIELD rather than by a stamp. Every writer below now
+# stamps; every reader below now checks.
+
+def _stamped(doc: dict, kind: str) -> dict:
+    return OBS.stamp(doc, kind, engine=f"hf_scan {HF_SCAN_VERSION}",
+                     created_at=_now().isoformat(timespec="seconds"))
+
+
+def _read_doc(p, kind: str):
+    """One stored document, or None.
+
+    A document written before stamping is read normally — refusing it would
+    throw away history to enforce a rule about the future. A document stamped
+    with a schema this build does not know is REFUSED rather than
+    reinterpreted, because that is the case where guessing has gone wrong."""
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return doc if OBS.accept(doc, kind) else None
+
+
 def _save_snapshot(board: dict) -> None:
     if not S.attribution_ok(_all_inputs(board)):
         raise ValueError("refusing to store a pulse reading that attributes anonymous data to a fund")
@@ -217,10 +251,14 @@ def _save_snapshot(board: dict) -> None:
         return
     try:
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(board), encoding="utf-8")
+        tmp.write_text(json.dumps(_stamped(board, "pulse")), encoding="utf-8")
         tmp.replace(p)
     except Exception:  # noqa: BLE001
-        pass
+        return
+    # The board itself is overwritten — it is a measurement and the latest
+    # read wins. The SUMMARY of every build is appended, so a week rebuilt
+    # fourteen times keeps fourteen rows and a mid-week reversal survives.
+    _append_index(board)
 
 
 def _all_inputs(board: dict) -> list[dict]:
@@ -232,34 +270,160 @@ def _all_inputs(board: dict) -> list[dict]:
     return rows
 
 
+# ── the build index: every revision, and a cheap history ────────────────────
+#
+# Two problems, one small file.
+#
+# The board is a MEASUREMENT and the latest read of it wins, so `_save_snapshot`
+# overwrites `hf/pulse/{week}.json`. With a 12-hour refresh a week is rebuilt
+# roughly fourteen times and only the last survives — so a Monday reading that
+# reversed by Thursday leaves no trace that it ever said anything else.
+#
+# And `history()` used to open every stored week's full 62.8 KB board to keep
+# five fields from each. `build_grades` calls `history(400)`, so a mature store
+# meant parsing ~25 MB of JSON to extract a couple of thousand values, on every
+# grade build.
+#
+# `hf/pulse/index.jsonl` answers both: one APPENDED line per build, holding
+# exactly the fields a summary needs. Every revision is kept because nothing is
+# ever rewritten, and reading it is one small file instead of four hundred
+# large ones. The full boards stay exactly where they were, in the shape every
+# existing reader expects.
+
+def _index_path() -> Path | None:
+    d = _pulse_dir()
+    return None if d is None else d / "index.jsonl"
+
+
+def _summary_of(board: dict) -> dict:
+    """The five fields `history()` keeps, plus what makes a revision
+    identifiable. Deliberately small: this file is read whole."""
+    return {
+        # Its own stamp: the index is a second document with a second shape,
+        # and it is checked where it is read rather than where the board is.
+        "schema": OBS.SCHEMA,
+        "week": board.get("week"), "as_of": board.get("as_of"),
+        "cftc_as_of": board.get("cftc_as_of"),
+        "verdicts": {k: (board.get(k) or {}).get("verdict")
+                     for k in ("exposure", "leverage", "longs", "shorts")},
+        "confidence": {k: ((board.get(k) or {}).get("confidence") or {}).get("level")
+                       for k in ("exposure", "leverage", "longs", "shorts")},
+        "crowded": [r.get("market")
+                    for r in ((board.get("crowding") or {}).get("crowded") or [])],
+        "n_changes": (board.get("changed") or {}).get("n"),
+        "pulse_version": board.get("version"),
+        "scan_version": board.get("scan_version"),
+    }
+
+
+def _append_index(board: dict) -> None:
+    p = _index_path()
+    if p is None:
+        return
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(_summary_of(board), separators=(",", ":")) + "\n")
+            fh.flush()
+    except Exception:  # noqa: BLE001
+        pass          # the index is a convenience; the board itself is the record
+
+
+def index_rows() -> list[dict]:
+    """Every build ever recorded, oldest first."""
+    p = _index_path()
+    if p is None or not p.exists():
+        return []
+    out = []
+    try:
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                # A row from a schema this build does not know is skipped,
+                # not guessed at — the same rule the log itself keeps. The
+                # week's full board is still on disk and `_scan_history`
+                # picks it up.
+                if row.get("week") and OBS.readable(row):
+                    out.append(row)
+    except Exception:  # noqa: BLE001
+        return []
+    return out
+
+
+def revisions(week: str) -> list[dict]:
+    """Every build of one week, oldest first.
+
+    This is what the overwrite used to destroy: a week rebuilt fourteen times
+    now has fourteen rows here, and a verdict that reversed mid-week is
+    visible instead of gone."""
+    return [r for r in index_rows() if r.get("week") == week]
+
+
+def _scan_history(weeks: list[str]) -> list[dict]:
+    """Summaries read the expensive way, for weeks the index does not cover.
+    Every store written before the index existed lands here exactly once."""
+    out = []
+    for wk in weeks:
+        p = _snap_path(wk)
+        if p is None or not p.exists():
+            continue
+        b = _read_doc(p, "pulse")
+        if b is not None:
+            out.append(_summary_of(b))
+    return out
+
+
 def history(limit: int = 60) -> list[dict]:
-    """Every stored week, newest first — the record of how positioning moved."""
+    """Every stored week, newest first — the record of how positioning moved.
+
+    One row per WEEK, showing that week's latest build. `revisions()` is where
+    the earlier builds of a week live."""
     d = _pulse_dir()
     if d is None or not d.exists():
         return []
-    out = []
-    for p in sorted(d.glob("*.json"), reverse=True)[:limit]:
-        try:
-            b = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+    latest: dict[str, dict] = {}
+    for row in index_rows():          # oldest first, so the last write wins
+        latest[row["week"]] = row
+    stored = {p.stem for p in d.glob("*.json")}
+    for row in _scan_history(sorted(stored - set(latest))):
+        if row.get("week"):
+            latest[row["week"]] = row
+    # A week in the index whose file has since been removed is not a stored
+    # week any more, and history() has always described what is stored.
+    rows = [r for wk, r in latest.items() if wk in stored]
+    rows.sort(key=lambda r: r.get("week") or "", reverse=True)
+    return rows[:limit]
+
+
+def rebuild_index() -> dict:
+    """Write one index line per stored board, for a store that predates the
+    index. Appends, like everything else here — a board already in the index
+    is skipped rather than duplicated."""
+    d, p = _pulse_dir(), _index_path()
+    if d is None or p is None or not d.exists():
+        return {"ok": False, "error": "no data directory is configured"}
+    have = {(r.get("week"), r.get("as_of")) for r in index_rows()}
+    added = 0
+    for f in sorted(d.glob("*.json")):
+        b = _read_doc(f, "pulse")
+        if b is None or (b.get("week"), b.get("as_of")) in have:
             continue
-        out.append({"week": b.get("week"), "as_of": b.get("as_of"),
-                    "cftc_as_of": b.get("cftc_as_of"),
-                    "verdicts": {k: (b.get(k) or {}).get("verdict") for k in
-                                 ("exposure", "leverage", "longs", "shorts")},
-                    "crowded": [r.get("market") for r in ((b.get("crowding") or {}).get("crowded") or [])],
-                    "n_changes": (b.get("changed") or {}).get("n")})
-    return out
+        _append_index(b)
+        added += 1
+    return {"ok": True, "added": added, "n_rows": len(index_rows())}
 
 
 def snapshot_for(week: str) -> dict | None:
     p = _snap_path(week)
     if p is None or not p.exists():
         return None
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return None
+    return _read_doc(p, "pulse")
 
 
 def _prior_snapshot(this_week: str) -> dict | None:
@@ -271,10 +435,9 @@ def _prior_snapshot(this_week: str) -> dict | None:
     for p in sorted(d.glob("*.json"), reverse=True):
         if p.stem == this_week:
             continue
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            continue
+        b = _read_doc(p, "pulse")
+        if b is not None:
+            return b
     return None
 
 
@@ -453,12 +616,39 @@ def gather_press() -> dict | None:
 
 def gather() -> dict:
     """Every aggregate source, with whatever failed named rather than
-    silently missing."""
+    silently missing.
+
+    Two records come out of one sweep. `_failed` is the sentence a reader
+    sees. `_health` is the same attempt in a shape a query can use: which
+    provider, did it answer, and if not, why — so a source that quietly
+    starts returning nothing stops being indistinguishable from a quiet
+    market. Both are kept: one is for the panel, the other for the log."""
     out, failed = {}, []
+    health: dict[str, dict] = {}
+
+    # A paid channel with no key is NOT a breakage — it is a decision, and
+    # reporting it as one would train a reader to ignore the panel. The two
+    # Unusual Whales channels are the only ones that can be in that state.
+    no_key = _uw() is None
+
+    def mark(key: str, ok: bool, note: str | None = None, exc: bool = False) -> None:
+        if ok:
+            quality = OBS.OK
+        elif exc:
+            quality = OBS.SHAPE_CHANGED
+        elif no_key and key in ("etf_flows", "tide"):
+            quality, note = OBS.AUTH_MISSING, "no Unusual Whales key is configured"
+        else:
+            quality = OBS.UNAVAILABLE
+        health[key] = {"quality": quality, "note": note}
+
     try:
         out["cftc"] = S.cftc_all()
+        mark("cftc", bool(out["cftc"]),
+             None if out["cftc"] else "returned nothing")
     except Exception as exc:  # noqa: BLE001
         out["cftc"], _ = {}, failed.append(f"CFTC: {exc}")
+        mark("cftc", False, str(exc), exc=True)
     if not out.get("cftc"):
         failed.append("CFTC Traders in Financial Futures returned nothing")
     for name, fn, key in (("Sector ETF flows", gather_etf_flows, "etf_flows"),
@@ -468,20 +658,157 @@ def gather() -> dict:
                           ("Form PF leverage", S.ofr_leverage, "ofr")):
         try:
             out[key] = fn()
+            mark(key, bool(out[key]), None if out[key] else "returned nothing")
         except Exception as exc:  # noqa: BLE001
             out[key] = None
             failed.append(f"{name}: {exc}")
+            mark(key, False, str(exc), exc=True)
         if not out.get(key):
             failed.append(f"{name} unavailable")
     try:
         out["short_interest"], out["sector_si"] = gather_short_interest()
+        mark("short_interest", bool(out["short_interest"]),
+             None if out["short_interest"] else "no settled period published yet")
     except Exception as exc:  # noqa: BLE001
         out["short_interest"], out["sector_si"] = None, None
         failed.append(f"Short interest: {exc}")
+        mark("short_interest", False, str(exc), exc=True)
     if not out.get("short_interest"):
         failed.append("FINRA short interest not published yet for a settled period")
     out["_failed"] = failed
+    out["_health"] = health
     return out
+
+
+# ── the raw observation log ─────────────────────────────────────────────────
+#
+# The board that gets stored is DERIVED. These lines are what the providers
+# actually said, written once per build and never rewritten, so a later change
+# to how a verdict is computed can be applied to weeks already gone. Nothing
+# reads them yet — that is deliberate, and it is why this can ship without
+# changing a single answer on the page.
+
+# Which provider each raw key came from, and the evidence class it carries.
+# The classes match `hf_pulse` exactly: a reading may not change class on its
+# way into the record.
+OBS_SOURCES = {
+    "cftc": ("cftc.tff", S.REGULATORY),
+    "short_interest": ("finra.short_interest", S.REGULATORY),
+    "short_volume": ("finra.short_volume", S.FLOW_PROXY),
+    "ofr": ("ofr.form_pf", S.REGULATORY),
+    "etf_flows": ("uw.etf_creations", S.FLOW_PROXY),
+    "tide": ("uw.sector_tide", S.FLOW_PROXY),
+    "press": ("press.prime_broker", S.PRIME_BROKER),
+}
+
+# The CFTC figures worth keeping per market. `lev_net` and `lev_gross` are
+# what the verdicts read; the two legs and open interest are kept because a
+# net that did not move can hide two legs that did, and no later question can
+# recover them once they are gone.
+CFTC_METRICS = ("lev_net", "lev_gross", "lev_long", "lev_short", "open_interest")
+
+
+def observations(raw: dict, at: str) -> list[dict]:
+    """Every raw reading in this sweep, as observation lines.
+
+    Pure: it takes the gathered dict and the moment, and returns records. No
+    file is touched here, so the whole shape is unit-testable without a
+    store — which is how the attribution and two-date rules are proved."""
+    recs: list[dict] = []
+    engine = f"hf_scan {HF_SCAN_VERSION}"
+
+    def add(key: str, metric: str, value, **kw):
+        source, cls = OBS_SOURCES[key]
+        recs.append(OBS.observation(source, cls, metric, value, observed_at=at,
+                                    engine=engine, **kw))
+
+    for mkey, m in (raw.get("cftc") or {}).items():
+        series = m.get("series") or []
+        if not series:
+            continue
+        now_row, prev_row = series[0], (series[1] if len(series) > 1 else {})
+        as_of = now_row.get("date")
+        public_on = S.cftc_public_on(as_of)
+        for metric in CFTC_METRICS:
+            if now_row.get(metric) is None:
+                continue          # missing stays missing; no zero-fill
+            add("cftc", metric, now_row[metric], as_of=as_of, public_on=public_on,
+                market=mkey, sector=m.get("sector"), prev=prev_row.get(metric),
+                units="contracts")
+
+    si = raw.get("short_interest") or {}
+    if si.get("total") is not None:
+        sett = si.get("settlement")
+        add("short_interest", "shares_short", si["total"], as_of=sett,
+            public_on=S.finra_public_on(sett), prev=si.get("prev"),
+            units="shares", note=f"{si.get('n_symbols')} symbols reported")
+    for sector, row in (raw.get("sector_si") or {}).items():
+        add("short_interest", "shares_short", row.get("short"),
+            as_of=row.get("settlement"), public_on=S.finra_public_on(row.get("settlement")),
+            sector=sector, prev=row.get("prev"), units="shares",
+            quality=OBS.PARTIAL,
+            note=f"{row.get('n_symbols')} symbols placed in this sector")
+
+    sv = raw.get("short_volume") or {}
+    if sv.get("share") is not None:
+        prev = (sv["share"] - sv["change"]) if sv.get("change") is not None else None
+        # A daily FINRA file is public the same evening it describes.
+        add("short_volume", "short_share_of_volume", sv["share"],
+            as_of=sv.get("session"), public_on=sv.get("session"), prev=prev,
+            units="fraction", note=f"{sv.get('n_days')} sessions in the window")
+
+    for key, row in (raw.get("ofr") or {}).items():
+        if row.get("value") is None:
+            continue
+        add("ofr", key, row["value"], as_of=row.get("as_of"), public_on=None,
+            prev=row.get("prev"), units=None, note=row.get("name"))
+
+    flows = raw.get("etf_flows") or {}
+    for sector, row in (flows.get("by_sector") or {}).items():
+        add("etf_flows", "net_creations", row.get("net"), as_of=row.get("as_of"),
+            public_on=row.get("as_of"), sector=sector, symbol=row.get("etf"),
+            units="dollars", note=f"{row.get('days')} sessions")
+    if flows.get("net_all") is not None:
+        add("etf_flows", "net_creations", flows["net_all"], as_of=flows.get("as_of"),
+            public_on=flows.get("as_of"), units="dollars",
+            note=f"{flows.get('n_etfs')} exchange traded funds")
+
+    for sector, row in (raw.get("tide") or {}).items():
+        add("tide", "net_options_premium", row.get("net_premium"),
+            as_of=row.get("as_of"), public_on=row.get("as_of"), sector=sector,
+            units="dollars", note=f"{row.get('points')} points")
+
+    press = raw.get("press") or {}
+    for q in (press.get("quotes") or []):
+        # A quote is a claim, so its VALUE is the direction it asserts, and it
+        # is stamped PRIME BROKER rather than measured.
+        # `as_of` is None by design in hf_press: a note that says "last week"
+        # names no date, and inventing one would be the fabrication this whole
+        # layer refuses. `public_on` — when the outlet ran it — is real.
+        add("press", "prime_broker_claim", q.get("direction"),
+            as_of=q.get("as_of"), public_on=q.get("public_on"),
+            units="direction", note=(q.get("bank") or None))
+
+    # One health line per provider per attempt, in the same log — so "was this
+    # source working?" is a question about the record rather than about a
+    # separate structure someone has to remember to update.
+    for key, h in (raw.get("_health") or {}).items():
+        source, cls = OBS_SOURCES[key]
+        recs.append(OBS.health(source, h.get("quality") or OBS.UNAVAILABLE,
+                               observed_at=at, evidence_class=cls,
+                               engine=engine, note=h.get("note"),
+                               n=_counted(raw.get(key))))
+    return recs
+
+
+def _counted(got) -> int | None:
+    """How much a provider returned, when that is a countable thing. None
+    when it is not — an absent count is not a count of zero."""
+    if isinstance(got, dict):
+        return len(got)
+    if isinstance(got, list):
+        return len(got)
+    return None
 
 
 # ── building ────────────────────────────────────────────────────────────────
@@ -525,6 +852,18 @@ def build() -> dict:
                   "short_volume": long_date((raw.get("short_volume") or {}).get("session")),
                   "ofr": long_date((raw.get("ofr") or {}).get("lev_top10", {}).get("as_of"))},
     })
+    # The RAW readings, appended before the derived board is stored. Wrapped
+    # because the log must never be able to cost a build: a board that was
+    # gathered and answered is worth keeping even if the disk refused the
+    # record of it. The count is stamped so a log that silently stopped
+    # writing shows up on the board rather than in nobody's log.
+    try:
+        board["observations_logged"] = OBS.append(observations(raw, board["as_of"]))
+    except Exception as exc:  # noqa: BLE001
+        board["observations_logged"] = 0
+        board["unavailable"] = list(board.get("unavailable") or []) + [
+            f"Observation log: {exc}"]
+
     # The full short-interest table is thousands of rows and is not part of
     # the answer — only the crowded names it produced are kept.
     _save_snapshot(board)
@@ -652,6 +991,136 @@ def status() -> dict:
                 "online": S.available()}
 
 
+# ── reading the log back: source health, and the daily view ─────────────────
+#
+# The log has been written since v4.91 and read by nothing. These are the two
+# questions it was built to answer. Both are honest about their own depth: an
+# answer from a record one day deep says so rather than looking confident.
+
+HEALTH_WINDOW_DAYS = 30
+DAILY_DAYS = 14
+
+
+def _window(days: int) -> str:
+    return (_now() - timedelta(days=int(days))).isoformat(timespec="seconds")
+
+
+def source_health() -> dict:
+    """Which sources are working, from the record of what they actually did.
+
+    A query over the log rather than a structure kept beside it. A parallel
+    structure has to be updated in the same places the readings are written,
+    and the failure mode of that is a health panel that is confidently out of
+    date — which is the exact failure it exists to catch."""
+    recs = OBS.read(since=_window(HEALTH_WINDOW_DAYS), metric=OBS.HEALTH)
+    card = HL.card(recs, _now().isoformat(timespec="seconds"))
+    card["window_days"] = HEALTH_WINDOW_DAYS
+    st = OBS.stats()
+    card["log"] = st
+    if not st.get("available"):
+        card["note"] = ("No data directory is configured, so nothing has been "
+                        "recorded and nothing can be said about the sources.")
+    elif not recs:
+        card["note"] = (f"The record holds no attempt in the last "
+                        f"{HEALTH_WINDOW_DAYS} days. The log began on the "
+                        "deploy that shipped it, so this is what a new record "
+                        "looks like, not a fault.")
+    return card
+
+
+
+def daily(days: int | None = None) -> dict:
+    """What each measured source has said, day by day.
+
+    The board answers once a week because the CFTC publishes once a week. Two
+    of its inputs move EVERY day and were only ever seen at the moment a
+    weekly build happened to look. This is those readings, in order, from the
+    record — and it can only reach as far back as the record does, which it
+    states rather than implies."""
+    n = int(days or DAILY_DAYS)
+    recs = [r for r in OBS.read(since=_window(n)) if r.get("metric") != OBS.HEALTH]
+    by_source: dict[str, dict] = {}
+    for r in recs:
+        # One row per source and metric, at market-wide granularity: a daily
+        # view of eleven sectors times seven metrics is a spreadsheet, not an
+        # answer.
+        if r.get("sector") or r.get("symbol") or r.get("market") not in (None, RP.ANCHOR):
+            continue
+        # A day view is built on the date a reading DESCRIBES. A prime-broker
+        # claim has none by design — "last week" names no day — so it belongs
+        # in the weekly report, not here.
+        if not r.get("as_of"):
+            continue
+        key = f"{r['source']}:{r['metric']}"
+        row = by_source.setdefault(key, {
+            "source": r["source"], "metric": r["metric"],
+            "label": HL.LABELS.get(r["source"], r["source"]),
+            "class": r.get("class"), "units": r.get("units"), "points": []})
+        row["points"].append({"as_of": r.get("as_of"), "public_on": r.get("public_on"),
+                              "observed_at": r.get("observed_at"),
+                              "value": r.get("value"), "change": r.get("change")})
+    rows = []
+    for row in by_source.values():
+        # One point per as_of: a source read twice in a day said the same
+        # thing twice, and counting it twice would invent a trend.
+        seen, points = set(), []
+        for p in sorted(row["points"], key=lambda x: (x.get("as_of") or "",
+                                                      x.get("observed_at") or "")):
+            if p.get("as_of") in seen:
+                points[-1] = p          # the later reading of the same day wins
+                continue
+            seen.add(p.get("as_of"))
+            points.append(p)
+        row["points"] = points
+        row["n_days"] = len({p.get("as_of") for p in points if p.get("as_of")})
+        row["first"] = points[0].get("as_of") if points else None
+        row["last"] = points[-1].get("as_of") if points else None
+        rows.append(row)
+    rows.sort(key=lambda r: (-r["n_days"], r["label"], r["metric"]))
+    st = OBS.stats()
+    depth = _log_depth_days(st)
+    return {
+        "available": bool(rows), "window_days": n, "rows": rows,
+        "n_rows": len(rows), "log": st, "log_depth_days": depth,
+        "version": HF_SCAN_VERSION,
+        # The honest sentence, always present, whether or not there are rows.
+        "depth_note": _depth_note(depth, n),
+    }
+
+
+def _log_depth_days(st: dict) -> int | None:
+    """How many days of record exist at all. None when there is no log."""
+    if not st.get("available") or not st.get("first_month"):
+        return None
+    first = OBS.read(limit=1)
+    if not first:
+        return None
+    at = first[0].get("observed_at")
+    try:
+        started = datetime.fromisoformat(str(at))
+    except (TypeError, ValueError):
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return max(0, (_now() - started).days)
+
+
+def _depth_note(depth: int | None, window: int) -> str:
+    if depth is None:
+        return ("Nothing has been recorded yet, so there is no daily view. "
+                "The record starts on the first build after this deploy.")
+    if depth < 2:
+        return ("The record is less than two days old, so there is nothing to "
+                "compare day against day yet. It deepens by itself: every "
+                "build appends, and nothing is ever removed.")
+    if depth < window:
+        return (f"The record reaches back {depth} day"
+                f"{'' if depth == 1 else 's'}, not {window}. It began on the "
+                "deploy that shipped it and deepens on every build.")
+    return (f"The record reaches back {depth} days; this view shows the last "
+            f"{window}.")
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # PHASE 3 — the weekly report: assemble, store forever, compare.
 #
@@ -680,10 +1149,7 @@ def _read_week_file(week: str) -> dict | None:
     p = _report_path(week)
     if p is None or not p.exists():
         return None
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return None
+    return _read_doc(p, "report")
 
 
 def save_report(rep: dict) -> dict | None:
@@ -715,6 +1181,7 @@ def save_report(rep: dict) -> dict | None:
     doc["revisions"] = revs[-keep:] if keep > 0 else revs
     doc["week"] = week
     doc["n_revisions"] = built
+    doc = _stamped(doc, "report")
     try:
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(doc), encoding="utf-8")
@@ -1049,7 +1516,7 @@ def save_grades(card: dict) -> None:
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(card), encoding="utf-8")
+        tmp.write_text(json.dumps(_stamped(card, "grades")), encoding="utf-8")
         tmp.replace(p)
     except Exception:  # noqa: BLE001
         pass
@@ -1298,10 +1765,12 @@ def load_shvol() -> dict:
     p = _shvol_path()
     if p is None or not p.exists():
         return {}
+    doc = _read_doc(p, "shvol")
+    if doc is None:
+        return {}
     try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
         return {k: float(v) for k, v in (doc.get("shares") or {}).items() if v is not None}
-    except (OSError, ValueError, AttributeError):
+    except (ValueError, AttributeError):
         return {}
 
 
@@ -1311,9 +1780,10 @@ def save_shvol(shares: dict) -> None:
         return
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"shares": shares, "n": len(shares),
-                               "saved_at": _now().isoformat(timespec="seconds")}),
-                   encoding="utf-8")
+    tmp.write_text(json.dumps(_stamped(
+        {"shares": shares, "n": len(shares),
+         "saved_at": _now().isoformat(timespec="seconds")}, "shvol")),
+        encoding="utf-8")
     tmp.replace(p)
 
 
@@ -1468,7 +1938,7 @@ def save_replay(card: dict) -> None:
         return
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(card), encoding="utf-8")
+    tmp.write_text(json.dumps(_stamped(card, "replay")), encoding="utf-8")
     tmp.replace(p)
 
 
@@ -1476,10 +1946,7 @@ def load_replay() -> dict | None:
     p = _replay_path()
     if p is None or not p.exists():
         return None
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    return _read_doc(p, "replay")
 
 
 def build_replay() -> dict:
@@ -1679,9 +2146,8 @@ def load_alerts() -> dict:
     p = _alerts_path()
     if p is None or not p.exists():
         return {"sent": [], "crowding_state": {}, "primed": False}
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    doc = _read_doc(p, "alerts")
+    if doc is None:
         return {"sent": [], "crowding_state": {}, "primed": False}
     return {"sent": doc.get("sent") or [], "crowding_state": doc.get("crowding_state") or {},
             "primed": bool(doc.get("primed"))}
@@ -1693,7 +2159,7 @@ def save_alerts(doc: dict) -> None:
         return
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(doc), encoding="utf-8")
+    tmp.write_text(json.dumps(_stamped(doc, "alerts")), encoding="utf-8")
     tmp.replace(p)
 
 
@@ -1779,6 +2245,37 @@ def check_alerts(send: bool = True) -> dict:
     save_alerts(store)
     card["delivered"] = delivered
     return card
+
+
+def alerts_check() -> dict:
+    """Look now, and send whatever has become true since the last look.
+
+    The public entry point for anything that has just learned something —
+    the EDGAR sweep, the route below, a future scheduler. Before this the
+    ONLY caller of `check_alerts` was the pulse worker, gated by a
+    twelve-hour staleness check, so a SCHEDULE 13D that the six-hourly watch
+    sweep already had in hand could wait half a day for a clock it has
+    nothing to do with. A filing has its own clock and this is it.
+
+    Honours the enabled knob, and reports the reason rather than pretending
+    to have looked when it did not."""
+    if not _alert_knob("enabled"):
+        return {"ok": True, "checked": False, "n_sent": 0,
+                "note": "Alerts are switched off in the thresholds file."}
+    try:
+        card = check_alerts()
+    except Exception as exc:  # noqa: BLE001
+        with _LOCK:
+            _STATE["alert_error"] = str(exc)[:300]
+        return {"ok": False, "checked": True, "error": str(exc)[:300]}
+    with _LOCK:
+        _STATE["alert_error"] = None
+    return {"ok": True, "checked": True,
+            "n_sent": len(card.get("delivered") or []),
+            "n_would_send": card.get("n_send") or 0,
+            "n_held": len(card.get("held") or []),
+            "can_send": push_ready(),
+            "note": card.get("note")}
 
 
 def alerts() -> dict:

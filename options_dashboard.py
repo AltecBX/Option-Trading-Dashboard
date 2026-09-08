@@ -5047,13 +5047,11 @@ except Exception as _exc:  # noqa: BLE001
 # of a held name comes from the app's own board first (the user's sector map)
 # and from nothing else — an unmapped position is reported as unmapped.
 try:
-    import hf_alert as _hfalert
-    import hf_grade as _hfgrade
-    import hf_names as _hfnames
-    import hf_press as _hfpress
-    import hf_pulse as _hfpulse
-    import hf_replay as _hfreplay
-    import hf_report as _hfreport
+    # Nine engine modules used to be imported here only so the request
+    # handler could reach them. They now belong to hf_routes, which is the
+    # single place that answers a hedge request; this file keeps the three it
+    # actually wires and nothing else.
+    import hf_routes as _hfroutes
     import hf_scan as _hfscan
     import hf_sources as _hfsrc
     import hf_watch as _hfwatch
@@ -5092,8 +5090,18 @@ try:
         # The aggregate layer's sentence, handed over finished. hf_watch does
         # not import hf_scan: the two layers meet here and nowhere else.
         trend_fn=lambda: _hfscan.headline(),
+        # And the other direction, also injected: the EDGAR sweep runs every
+        # six hours and the pulse worker every twelve, so an activist filing
+        # used to wait on a clock it has nothing to do with. Now the sweep
+        # tells the alert layer as soon as the filings are in hand.
+        after_sweep_fn=lambda: _hfscan.alerts_check(),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
     )
+    # Whether a notification provider is configured is the app's business,
+    # not the hedge layer's — and it is ASKED rather than inferred, because
+    # inferring it from a sender that exists either way is what made the
+    # panel claim push was set up when it was not.
+    _hfroutes.configure(push_configured_fn=lambda: _push_configured())
     _HF_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001
     print(f"[hf_watch] wiring failed: {_exc}", file=sys.stderr)
@@ -5101,7 +5109,7 @@ except Exception as _exc:  # noqa: BLE001
     _hfwatch = None  # type: ignore
     _hfsrc = None  # type: ignore
     _hfscan = None  # type: ignore
-    _hfpulse = None  # type: ignore
+    _hfroutes = None  # type: ignore
 
 # ── Natural-language backtesting lab (v3.43) ────────────────────────────────
 import backtest as _backtest
@@ -10490,114 +10498,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             section = parsed.path[len("/api/hf"):].lstrip("/")
             qs = parse_qs(parsed.query)
             try:
-                if section == "":
-                    self._send_json(_hfwatch.snapshot(), no_store=True)
-                elif section == "fund":
-                    key = (qs.get("key", [""])[0] or "").strip()
-                    if not key:
-                        self._send_json({"error": "key required"}, status=400)
-                        return
-                    out = _hfwatch.fund(key)
-                    self._send_json(out, status=404 if not out.get("ok") else 200, no_store=True)
-                elif section == "refresh":
-                    key = (qs.get("key", [""])[0] or "").strip()
-                    self._send_json(_hfwatch.refresh_now([key] if key else None), no_store=True)
-                elif section == "status":
-                    self._send_json(_hfwatch.status(), no_store=True)
-                elif section == "watchlist":
-                    self._send_json({"registry": _hfwatch.registry(),
-                                     "overlay": _hfwatch._load_overlay()}, no_store=True)  # noqa: SLF001
-                elif section == "pulse":
-                    self._send_json(_hfscan.snapshot(), no_store=True)
-                elif section == "pulse/status":
-                    self._send_json(_hfscan.status(), no_store=True)
-                elif section == "pulse/refresh":
-                    self._send_json(_hfscan.refresh_now(), no_store=True)
-                elif section == "pulse/history":
-                    self._send_json({"weeks": _hfscan.history(
-                        int((qs.get("limit", ["60"])[0] or "60"))), "ok": True}, no_store=True)
-                elif section == "pulse/week":
-                    wk = (qs.get("week", [""])[0] or "").strip()
-                    out = _hfscan.snapshot_for(wk) if wk else None
-                    self._send_json(out or {"error": f"no reading stored for {wk!r}"},
-                                    status=200 if out else 404, no_store=True)
-                elif section == "report":
-                    wk = (qs.get("week", [""])[0] or "").strip()
-                    rv = (qs.get("revision", [""])[0] or "").strip()
-                    out = _hfscan.report(week=wk or None,
-                                         revision=int(rv) if rv.isdigit() else None)
-                    self._send_json(out, status=200 if out.get("ok") else 404, no_store=True)
-                elif section == "report/history":
-                    self._send_json({"weeks": _hfscan.report_history(
-                        int((qs.get("limit", ["60"])[0] or "60"))), "ok": True}, no_store=True)
-                elif section == "report/build":
-                    self._send_json(_hfscan.report_now(), no_store=True)
-                elif section == "report/status":
-                    self._send_json(_hfscan.report_status(), no_store=True)
-                elif section == "report/compare":
-                    a = (qs.get("a", [""])[0] or "").strip()
-                    b = (qs.get("b", [""])[0] or "").strip()
-                    if not a or not b:
-                        self._send_json({"ok": False, "error": "two weeks are required"},
-                                        status=400)
-                        return
-                    out = _hfscan.report_compare(a, b)
-                    self._send_json(out, status=200 if out.get("ok") else 404, no_store=True)
-                elif section == "grades":
-                    self._send_json(_hfscan.grades(), no_store=True)
-                elif section == "grades/status":
-                    self._send_json(_hfscan.grade_status(), no_store=True)
-                elif section == "grades/build":
-                    self._send_json(_hfscan.grades_now(), no_store=True)
-                elif section == "replay":
-                    self._send_json(_hfscan.replay(), no_store=True)
-                elif section == "replay/status":
-                    self._send_json(_hfscan.replay_status(), no_store=True)
-                elif section == "replay/build":
-                    self._send_json(_hfscan.replay_now(), no_store=True)
-                elif section == "names":
-                    self._send_json(_hfscan.names(), no_store=True)
-                elif section == "alerts":
-                    self._send_json(_hfscan.alerts(), no_store=True)
-                elif section == "cache":
-                    self._send_json(_hfsrc.cache_stats(), no_store=True)
-                elif section == "cache/recompress":
-                    # Batched: hundreds of files, and an HTTP request should
-                    # not hold a connection open while they are rewritten.
-                    try:
-                        lim = int((qs.get("limit", ["200"])[0] or "200"))
-                    except ValueError:
-                        lim = 200
-                    self._send_json(_hfsrc.recompress_cache(limit=max(1, min(lim, 1000))),
-                                    no_store=True)
-                elif section == "cache/prune":
-                    # Drops only cache files above the body ceiling — they
-                    # will never be written again and are re-fetchable. A
-                    # filing cached forever is under the ceiling and stays.
-                    self._send_json(_hfsrc.prune_cache(), no_store=True)
-                elif section == "press":
-                    with _hfscan._LOCK:  # noqa: SLF001
-                        board = _hfscan._STATE["board"] or {}  # noqa: SLF001
-                    self._send_json({"ok": True, "available": bool(board.get("press")),
-                                     "week": board.get("week"),
-                                     **(board.get("press") or {})}, no_store=True)
-                elif section == "config":
-                    self._send_json({"config": {**_hfwatch.config(), **_hfscan.config()},
-                                     "version": _hfwatch.HF_WATCH_VERSION,
-                                     "scan": _hfscan.HF_SCAN_VERSION,
-                                     "pulse": _hfpulse.HF_PULSE_VERSION,
-                                     "report": _hfreport.HF_REPORT_VERSION,
-                                     "press": _hfpress.HF_PRESS_VERSION,
-                                     "grade": _hfgrade.HF_GRADE_VERSION,
-                                     "replay": _hfreplay.HF_REPLAY_VERSION,
-                                     "names": _hfnames.HF_NAMES_VERSION,
-                                     "alerts": _hfalert.HF_ALERT_VERSION,
-                                     "push": _push_configured(),
-                                     "x_statements": _hfsrc.x_available(),
-                                     "sources": _hfsrc.HF_SOURCES_VERSION,
-                                     "evidence_classes": list(_hfsrc.EVIDENCE_CLASSES)}, no_store=True)
-                else:
-                    self._send_json({"error": f"unknown hf section {section}"}, status=404)
+                # Every hedge branch now lives in hf_routes. This handler keeps
+                # what it owns — the socket, the headers, the cache directive
+                # and the log line — and nothing else.
+                payload, status = _hfroutes.handle(section, qs)
+                self._send_json(payload, status=status, no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/hf", exc)
                 self._send_json({"error": str(exc), "managers": []}, status=500)

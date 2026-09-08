@@ -35,6 +35,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import hf_obs as OBS
 import hf_registry as R
 import hf_sources as S
 
@@ -80,6 +81,7 @@ _UW_GETTER = None                # () -> UWClient | None
 _SECTOR_FN = None                # (symbol) -> sector name | None
 _SECTOR_NORM = None              # (any sector label) -> one of the app's sector names | None
 _NOW_FN = None
+_AFTER_SWEEP_FN = None   # called after the EDGAR sweep; see configure()
 _TREND_FN = None                 # () -> the Pulse's sentence for the combined block
 _SEED_PATH: Path | None = None
 _LOCK = threading.RLock()
@@ -88,12 +90,23 @@ _STATE: dict = {"records": {}, "as_of": None, "refreshing": False, "thread": Non
 
 
 def configure(data_dir=None, uw_getter=None, sector_fn=None, now_fn=None, seed_path=None,
-              sector_norm=None, trend_fn=None) -> None:
+              sector_norm=None, trend_fn=None, after_sweep_fn=None) -> None:
+    """`after_sweep_fn` is called once the EDGAR sweep has finished, and is
+    how the alert layer learns that a filing has landed.
+
+    Injected, not imported, for the same reason `trend_fn` is: this module
+    must not import `hf_scan`. Before it existed, alerts were decided only
+    inside the pulse worker on a twelve-hour clock, while this sweep runs
+    every six — so a SCHEDULE 13D could sit unnoticed for half a day after
+    the filing was already in hand. That was a mismatch of clocks, not a
+    tuning problem."""
     global _DATA_DIR, _UW_GETTER, _SECTOR_FN, _NOW_FN, _SEED_PATH, _SECTOR_NORM, _TREND_FN
+    global _AFTER_SWEEP_FN
     _DATA_DIR = Path(data_dir) if data_dir else None
     _UW_GETTER, _SECTOR_FN, _NOW_FN = uw_getter, sector_fn, now_fn
     _SECTOR_NORM = sector_norm
     _TREND_FN = trend_fn
+    _AFTER_SWEEP_FN = after_sweep_fn
     _SEED_PATH = Path(seed_path) if seed_path else None
     if _DATA_DIR is not None:
         try:
@@ -199,7 +212,11 @@ def _load_records() -> None:
             # an older shape (the first cross-check compared row counts).
             # Leaving it out means the next look re-reads the manager, which
             # costs a handful of cached EDGAR calls and never shows a stale
-            # verdict under a new label.
+            # verdict under a new label. The schema stamp is the second gate:
+            # a record from a FUTURE build is refused rather than read with
+            # today's meaning applied to tomorrow's fields.
+            if not OBS.accept(rec, "fund"):
+                continue
             if rec.get("key") and rec.get("watch_version") == HF_WATCH_VERSION:
                 with _LOCK:
                     _STATE["records"][rec["key"]] = rec
@@ -215,7 +232,9 @@ def _save_record(rec: dict) -> None:
         return
     try:
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(rec), encoding="utf-8")
+        tmp.write_text(json.dumps(OBS.stamp(
+            rec, "fund", engine=f"hf_watch {HF_WATCH_VERSION}",
+            created_at=_now().isoformat(timespec="seconds"))), encoding="utf-8")
         tmp.replace(p)
     except Exception:  # noqa: BLE001
         pass
@@ -636,6 +655,16 @@ def _refresh(keys: list[str] | None = None) -> None:
             _STATE["errors"]["_sweep"] = str(exc)[:200]
     with _LOCK:
         _STATE["as_of"] = _now().isoformat(timespec="seconds")
+    # The filings are in hand; whoever cares about them should hear now
+    # rather than on somebody else's clock. Wrapped, because a sweep that
+    # read EDGAR successfully must not be recorded as failed because a
+    # downstream listener threw.
+    if _AFTER_SWEEP_FN is not None:
+        try:
+            _AFTER_SWEEP_FN()
+        except Exception as exc:  # noqa: BLE001
+            with _LOCK:
+                _STATE["errors"]["_after_sweep"] = str(exc)[:200]
 
 
 def _stale() -> bool:

@@ -940,6 +940,23 @@ OFR_FPF = "https://data.financialresearch.gov/hf/v1/series/dataset?dataset=fpf"
 # and thinly held. The change and the percentile are the signal; the level is
 # not. History depth is reported per market because it is not uniform — the
 # Communication contract has traded for barely a year.
+CFTC_PUBLICATION_LAG_DAYS = 3      # Tuesday positions, Friday publication
+
+
+def cftc_public_on(report_date) -> str | None:
+    """When a CFTC report describing `report_date` became public.
+
+    Every fact in this system carries both dates, and until now the CFTC's
+    second one was only in a comment. It is a fixed weekly lag, not a walk
+    over business days: positions are as of Tuesday and the report is out on
+    the Friday of that same week."""
+    try:
+        d = date.fromisoformat(str(report_date)[:10])
+    except (TypeError, ValueError):
+        return None
+    return (d + timedelta(days=CFTC_PUBLICATION_LAG_DAYS)).isoformat()
+
+
 CFTC_MARKETS = [
     {"key": "sp500", "market": "E-MINI S&P 500", "label": "S&P 500", "kind": "index"},
     {"key": "nasdaq", "market": "NASDAQ-100 Consolidated", "label": "Nasdaq 100", "kind": "index"},

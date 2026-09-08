@@ -28,7 +28,7 @@ def question(name, verdict, *, level="MODERATE", classes=2, inputs=None, conflic
              streak_weeks=3, missing=None):
     return {"question": name, "verdict": verdict,
             "confidence": {"level": level, "classes": classes, "agree": 2, "disagree": 0,
-                           "direction": 1, "why": "2 independent evidence classes agree"},
+                           "direction": 1, "why": "2 corroborating evidence classes agree"},
             "streak": {"weeks": streak_weeks, "direction": 1,
                        "word": f"{streak_weeks} consecutive weeks"},
             "persistence": {"2": {"same": 2, "of": 2, "text": "2 of the last 2 weeks"},
