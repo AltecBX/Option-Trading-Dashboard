@@ -469,6 +469,41 @@ class TheDailyViewSaysHowDeepItIs(unittest.TestCase):
         self.assertEqual(by["uw.sector_tide"]["state"], HL.NOT_CONFIGURED)
         self.assertGreater(card["n_records"], 0)
 
+    def test_the_health_card_carries_the_newest_date_each_source_gave(self):
+        # The live board caught this and the unit tests did not. `source_health`
+        # filtered the query to health lines only, so `assess` saw no readings:
+        # every row came back with no newest date, and `hours_since_data` was
+        # always None — which made the STALE branch unreachable in production
+        # while the panel cheerfully said everything was working. The pure
+        # module was right; the wiring around it threw half the record away.
+        with offline_fixtures():
+            SC.build()
+        rows = {r["source"]: r for r in SC.source_health()["rows"]}
+        for src in ("cftc.tff", "finra.short_interest", "finra.short_volume"):
+            self.assertTrue(rows[src]["newest_as_of"],
+                            f"{src} reported no newest date through the wiring")
+            self.assertIsNotNone(rows[src]["hours_since_data"],
+                                 f"{src} could never be judged stale")
+
+    def test_a_source_frozen_in_the_past_reads_as_stale_through_the_wiring(self):
+        # End to end, not against hf_health directly: a reading whose date
+        # stopped moving must reach the panel AS stale.
+        with offline_fixtures():
+            SC.build()
+        at = SC._now().isoformat(timespec="seconds")          # noqa: SLF001
+        OBS.append([OBS.observation("cftc.tff", S.REGULATORY, "lev_net", 1,
+                                    observed_at=at, as_of="2026-01-05",
+                                    public_on="2026-01-08", market="sp500")])
+        # Drop the current readings so only the frozen one is left for cftc.
+        p = Path(self.tmp.name, "hf", "obs", "2026-09.jsonl")
+        keep = [ln for ln in p.read_text().splitlines()
+                if '"source":"cftc.tff"' not in ln or '"as_of":"2026-01-05"' in ln
+                or '"metric":"health"' in ln]
+        p.write_text("\n".join(keep) + "\n")
+        row = {r["source"]: r for r in SC.source_health()["rows"]}["cftc.tff"]
+        self.assertEqual(row["state"], HL.STALE, row["why"])
+        self.assertIn("old", row["why"])
+
     def test_with_no_log_health_says_nothing_was_checked_not_all_is_well(self):
         card = SC.source_health()
         self.assertEqual(card["n_broken"], 0)
