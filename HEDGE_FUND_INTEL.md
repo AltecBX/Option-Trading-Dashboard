@@ -1071,6 +1071,13 @@ that did), market-wide and per-sector short interest, the short share of
 volume, both Form PF series, ETF creations per sector, the sector tide, each
 prime-broker claim, and one health line per provider per attempt.
 
+**How fast it grows.** Measured, not estimated: 72 lines and 24,743 bytes per
+build on the offline fixtures. The board rebuilds every 12 hours, so ~730
+builds and **~18 MB a year** — the audit's original ~4 MB figure assumed one
+reading per week per source and was wrong by four and a half times. That is
+still small against the volume, and the log is never trimmed, because a raw
+record that gets trimmed is not a raw record.
+
 **Document stamps.** The same module declares the seven persisted document
 kinds and stamps each with `doc`, `doc_schema`, `doc_engine` and `created_at`.
 An UNSTAMPED document is accepted — every file written before this shipped is

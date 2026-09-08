@@ -594,6 +594,22 @@ Monthly files keep any single file small; JSONL appends are atomic for a
 single writer at typical line sizes and need no rewrite. Estimated volume
 with market-wide and sector granularity only: **~15,000 lines/year, ~4 MB**.
 
+> **Correction, September 8, 2026 — this estimate was wrong.** It assumed one
+> reading per source per week. The board rebuilds every `pulse.refresh_hours`
+> (12), so it writes ~730 times a year, not 52. Measured on the offline
+> fixtures at 72 lines and 24,743 bytes per build, that is **~53,000 lines and
+> ~18 MB a year** — four and a half times the figure above, and more than that
+> live, because the two Unusual Whales channels are unconfigured in the
+> fixtures and add sector rows when they answer.
+>
+> 18 MB a year is still small against a volume with ~500 MB free after the
+> cache prune, so nothing is done about it now. What would change that: if the
+> log ever reaches per-symbol granularity, or if `refresh_hours` drops. The
+> fix at that point is a write-side skip when a reading is identical to the
+> last one for the same key and `as_of` — the health line must still be
+> written every time, because "it answered again" is the fact that layer
+> exists to record.
+
 **Three explicit tiers** (Finding 12): RAW never changes; DERIVED may be
 recomputed from RAW at any time; REPORT is immutable and stamped.
 
