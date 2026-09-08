@@ -58,6 +58,10 @@ const HF_TIP = {
   broader: "THE OTHER LAYER, kept apart on purpose. What the hedge fund universe as a whole appears to be doing, from anonymous aggregate sources (CFTC, short interest, flows, prime-broker quotes). It is NOT about this fund and never becomes part of a fund's block — it is rendered here, under its own heading, in its own evidence class, and nothing on the fund's card is computed from it.",
   new_filings: "Every 13D, 13G and 13F-family filing by any watched manager in the last week, read from EDGAR's daily index. This is the raw stream the cards are built from.",
   evidence: "The evidence class of this row. VERIFIED FUND ACTIVITY is a filing (FILING), the manager's own words (STATEMENT), or an outlet's report (PRESS). The four anonymous classes can never carry a fund's name — the code refuses to store such a row.",
+  form: "The kind of SEC filing. 13F-HR is the quarterly table of every reportable holding; 13F-HR/A amends one that was already filed; 13F-NT is a notice that some other filer reports the book; SCHEDULE 13D is an activist stake above 5% with intent; SCHEDULE 13G is a passive one.",
+  notes: "Anything the card had to say about how this manager's record was assembled — a successor it followed, a quarter that is missing, a position whose CUSIP no ticker could be found for. Kept in view rather than tidied away, because a gap in the record is part of the record.",
+  manager: "The manager on your watchlist that this filing belongs to.",
+  filed_as: "The exact registered name the filing was made under. A book often files through a subsidiary or a management company, so this can differ from the name on your list — the card matches on the EDGAR identifier, not the name.",
   cusips: "How many CUSIP → symbol pairs are on file, from the SEC's fails-to-deliver list. A 13F names securities by CUSIP, not ticker; this is how a line becomes a clickable symbol.",
   refresh: "Re-read this manager's EDGAR trail now. Normally it is re-read every six hours — a filing trail cannot change faster than that matters.",
   watchlist: "Add or remove managers. A manager needs a name, an EDGAR CIK, and a turnover class. Edits are stored separately from the shipped list, so a rebuild never loses them.",
@@ -88,12 +92,12 @@ const HF_TIP = {
   pulse_dtc: "Days to cover: shares short divided by average daily volume. The measure that separates a crowded short from a merely large one.",
   pulse_changed: "Every verdict that reads differently from the stored reading a week ago. This is the only place a previous conclusion is allowed to matter, and it is what makes the board a record rather than a snapshot.",
   pulse_history: "Every week ever read, kept forever, so you can watch positioning evolve rather than only see today.",
-  pulse_week: "The ISO week this reading belongs to. The CFTC publishes once a week, so a week is the natural unit of the record; re-reading within the same week replaces that week's entry.",
+  pulse_week: "The week this reading belongs to, named by the Monday it opened. The CFTC publishes once a week, so a week is the natural unit of the record; re-reading within the same week replaces that week's entry.",
   pulse_dates: "What each source is AS OF. They are not the same date and never will be: futures positions are Tuesday's, short interest is a fortnight old, Form PF is a quarter old. Every figure carries the date it describes.",
   view: "Three panels. THE PULSE is the whole universe from anonymous data. NAMED FUNDS is what specific managers have actually filed. THE WEEKLY REPORT assembles both into one document and keeps it forever. The Pulse never becomes part of a fund's record — that is the rule the whole feature is built on.",
   // ── The weekly report (v4.87) ──
   report: "One document a week, built from the Pulse, the Named Fund Watch and the prime-broker headlines. Nothing in it is measured here: every figure was computed by one of those three and carried across with its date and its evidence class. Each build is kept forever, so you can read any past week and compare two of them.",
-  report_week: "The ISO week this report covers. The CFTC publishes once a week and that sets the rhythm. Rebuilding inside the same week ADDS a revision rather than replacing one — a report records what was known when it was written, so an older build is still true about its own moment.",
+  report_week: "The week this report covers, named by the Monday it opened. The CFTC publishes once a week and that sets the rhythm. Rebuilding inside the same week ADDS a revision rather than replacing one — a report records what was known when it was written, so an older build is still true about its own moment.",
   report_revision: "Which build of this week you are reading. Revision 1 is the first time the report was assembled that week; later revisions saw more filings or more headlines. Older revisions are never deleted.",
   report_built: "When this revision was assembled. Different from the 'as of' dates inside it — those belong to the sources, and every one of them is older than this.",
   report_summary: "The short version. Every line here is a verdict reached in a section below, at the confidence stated there, and nothing in this summary is stronger than the section it came from.",
@@ -187,7 +191,7 @@ const hfWeekLabel = w => {
   // ISO week 1 is the one containing January 4th; Monday is day 1.
   const monday = new Date(jan4);
   monday.setUTCDate(jan4.getUTCDate() - (jan4.getUTCDay() + 6) % 7 + (Number(m[2]) - 1) * 7);
-  return `week of ${monday.toLocaleDateString("en-US", {
+  return `Week of ${monday.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -353,14 +357,16 @@ function HfBroader({
   return /*#__PURE__*/React.createElement("section", {
     className: "hf-broader",
     title: HF_TIP.broader
-  }, /*#__PURE__*/React.createElement("h4", null, "Broader hedge fund trend ", /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.broader
+  }, "Broader hedge fund trend ", /*#__PURE__*/React.createElement("span", {
     className: "hf-muted"
   }, "(not about any one fund)"), " ", /*#__PURE__*/React.createElement(HfTag, {
     cls: bt && bt.class || "MODEL INFERENCE"
   })), bt && bt.available ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", null, bt.text), /*#__PURE__*/React.createElement("p", {
     className: "hf-muted",
     title: HF_TIP.pulse_dates
-  }, bt.as_of_text ? `Futures positions as of ${bt.as_of_text}` : null, bt.week ? ` · week ${bt.week}` : null, bt.confidence ? ` · confidence ${bt.confidence}` : null), /*#__PURE__*/React.createElement("p", {
+  }, bt.as_of_text ? `Futures positions as of ${bt.as_of_text}` : null, bt.week ? ` · ${hfWeekLabel(bt.week)}` : null, bt.confidence ? ` · confidence ${bt.confidence}` : null), /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
   }, bt.note)) : /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
@@ -517,13 +523,19 @@ function FundDetail({
     className: "scan-table-wrap hf-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable hf-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Form"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.form
+  }, "Form"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.as_of
   }, "Describes"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.public_on
   }, "Public on"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.amended
-  }, "Amendment"), /*#__PURE__*/React.createElement("th", null, "Lines"), /*#__PURE__*/React.createElement("th", null, "Value"))), /*#__PURE__*/React.createElement("tbody", null, d.filings.map(f => /*#__PURE__*/React.createElement("tr", {
+  }, "Amendment"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.positions
+  }, "Lines"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.value
+  }, "Value"))), /*#__PURE__*/React.createElement("tbody", null, d.filings.map(f => /*#__PURE__*/React.createElement("tr", {
     key: f.accession
   }, /*#__PURE__*/React.createElement("td", {
     "data-label": "Form"
@@ -546,7 +558,9 @@ function FundDetail({
     title: HF_TIP.crosscheck
   }, "Largest positions in common: ", hfInt(d.crosscheck.top_overlap), " of ", hfInt(d.crosscheck.top_compared), " \xB7 EDGAR ", hfInt(d.crosscheck.n_edgar), " positions (", hfInt(d.crosscheck.n_edgar_lines), " lines) \xB7 Unusual Whales ", hfInt(d.crosscheck.n_uw), " rows \xB7", " ", d.crosscheck.agree === true ? "agree" : d.crosscheck.agree === false ? "CONFLICT — shown, not resolved" : "too few mapped names to compare") : /*#__PURE__*/React.createElement("p", {
     className: "hf-muted"
-  }, "Unusual Whales had no parse of this filing.")) : null, d.notes && d.notes.length ? /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", null, "Notes"), /*#__PURE__*/React.createElement("ul", {
+  }, "Unusual Whales had no parse of this filing.")) : null, d.notes && d.notes.length ? /*#__PURE__*/React.createElement("section", null, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.notes
+  }, "Notes"), /*#__PURE__*/React.createElement("ul", {
     className: "hf-notes"
   }, d.notes.map((n, i) => /*#__PURE__*/React.createElement("li", {
     key: i
@@ -660,7 +674,15 @@ function HfNewFilings({
     className: "scan-table-wrap hf-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable hf-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Public on"), /*#__PURE__*/React.createElement("th", null, "Manager"), /*#__PURE__*/React.createElement("th", null, "Form"), /*#__PURE__*/React.createElement("th", null, "Filed as"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.public_on
+  }, "Public on"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.manager
+  }, "Manager"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.form
+  }, "Form"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.filed_as
+  }, "Filed as"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
     key: `${r.accession}|${r.cik}`
   }, /*#__PURE__*/React.createElement("td", {
     "data-label": "Public on"
@@ -991,7 +1013,9 @@ function HfSectorStrip({
     className: "scan-table-wrap hf-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable hf-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Sector"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_sector
+  }, "Sector"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_verdict
   }, "Verdict"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_sector_rank
@@ -1044,7 +1068,9 @@ function HfCrowding({
     className: "scan-table-wrap hf-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable hf-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Market"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_cftc
+  }, "Market"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_crowd
   }, "State"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_unusual
@@ -1081,7 +1107,11 @@ function HfCrowding({
     className: "scan-table-wrap hf-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable hf-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", null, "Name"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_crowd_names
+  }, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_crowd_names
+  }, "Name"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_dtc
   }, "Days to cover"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_si
@@ -1190,7 +1220,7 @@ function PulsePanel({
     className: "sl-status"
   }, /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.pulse_week
-  }, "Week ", d.week), dates.cftc_as_of ? /*#__PURE__*/React.createElement("span", {
+  }, hfWeekLabel(d.week)), dates.cftc_as_of ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.pulse_cftc
   }, " \xB7 futures positions as of ", dates.cftc_as_of) : null, dates.short_interest ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.pulse_si
@@ -1208,7 +1238,9 @@ function PulsePanel({
   }, "reload")), d.changed ? /*#__PURE__*/React.createElement("section", {
     className: "hf-changed",
     title: HF_TIP.pulse_changed
-  }, /*#__PURE__*/React.createElement("h4", null, "What changed since last week"), d.changed.available ? d.changed.n ? /*#__PURE__*/React.createElement("ul", {
+  }, /*#__PURE__*/React.createElement("h4", {
+    title: HF_TIP.pulse_changed
+  }, "What changed since last week"), d.changed.available ? d.changed.n ? /*#__PURE__*/React.createElement("ul", {
     className: "hf-notes"
   }, d.changed.changes.map((c, i) => /*#__PURE__*/React.createElement("li", {
     key: i
@@ -1245,7 +1277,15 @@ function PulsePanel({
     className: "scan-table mtable hf-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_week
-  }, "Week"), /*#__PURE__*/React.createElement("th", null, "Exposure"), /*#__PURE__*/React.createElement("th", null, "Leverage"), /*#__PURE__*/React.createElement("th", null, "Longs"), /*#__PURE__*/React.createElement("th", null, "Shorts"), /*#__PURE__*/React.createElement("th", {
+  }, "Week"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.exposure
+  }, "Exposure"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.leverage
+  }, "Leverage"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.longs
+  }, "Longs"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.shorts
+  }, "Shorts"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_crowd
   }, "Crowded"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.pulse_changed
@@ -1253,7 +1293,7 @@ function PulsePanel({
     key: h.week
   }, /*#__PURE__*/React.createElement("td", {
     "data-label": "Week"
-  }, h.week), /*#__PURE__*/React.createElement("td", {
+  }, hfWeekLabel(h.week)), /*#__PURE__*/React.createElement("td", {
     "data-label": "Exposure"
   }, (h.verdicts || {}).exposure || "—"), /*#__PURE__*/React.createElement("td", {
     "data-label": "Leverage"
@@ -1412,13 +1452,13 @@ function HfCompare({
     title: HF_TIP.report_compare
   }, /*#__PURE__*/React.createElement("h4", {
     title: HF_TIP.report_compare
-  }, cmp.older.week, " compared with ", cmp.newer.week), /*#__PURE__*/React.createElement("p", {
+  }, hfWeekLabel(cmp.older.week), " compared with ", hfWeekLabel(cmp.newer.week)), /*#__PURE__*/React.createElement("p", {
     className: "sl-status"
   }, /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.as_of
-  }, cmp.older.week, ": positions as of ", cmp.older.as_of_text || "—"), /*#__PURE__*/React.createElement("span", {
+  }, hfWeekLabel(cmp.older.week), ": positions as of ", cmp.older.as_of_text || "—"), /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.as_of
-  }, " \xB7 ", cmp.newer.week, ": positions as of ", cmp.newer.as_of_text || "—"), /*#__PURE__*/React.createElement("span", {
+  }, " \xB7 ", hfWeekLabel(cmp.newer.week), ": positions as of ", cmp.newer.as_of_text || "—"), /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.report_compare
   }, " \xB7 ", cmp.n_same, " of 4 answers unchanged")), /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap hf-table-wrap"
@@ -1428,20 +1468,20 @@ function HfCompare({
     title: HF_TIP.report_conclusion
   }, "Question"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.report_week
-  }, cmp.older.week), /*#__PURE__*/React.createElement("th", {
+  }, hfWeekLabel(cmp.older.week)), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.report_week
-  }, cmp.newer.week), /*#__PURE__*/React.createElement("th", {
+  }, hfWeekLabel(cmp.newer.week)), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.report_compare
   }, "Moved"))), /*#__PURE__*/React.createElement("tbody", null, (cmp.conclusions || []).map(c => /*#__PURE__*/React.createElement("tr", {
     key: c.key
   }, /*#__PURE__*/React.createElement("td", {
     "data-label": "Question"
   }, c.title), /*#__PURE__*/React.createElement("td", {
-    "data-label": cmp.older.week
+    "data-label": hfWeekLabel(cmp.older.week)
   }, c.older.verdict || "—", c.older.confidence ? /*#__PURE__*/React.createElement("span", {
     className: "hf-muted"
   }, " \xB7 ", c.older.confidence) : null), /*#__PURE__*/React.createElement("td", {
-    "data-label": cmp.newer.week
+    "data-label": hfWeekLabel(cmp.newer.week)
   }, c.newer.verdict || "—", c.newer.confidence ? /*#__PURE__*/React.createElement("span", {
     className: "hf-muted"
   }, " \xB7 ", c.newer.confidence) : null), /*#__PURE__*/React.createElement("td", {
@@ -1846,7 +1886,9 @@ function HfGrades({
     className: "scan-table-wrap hf-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable hf-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Market"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.pulse_cftc
+  }, "Market"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.grade_proxy
   }, "Priced on"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.grade_episodes
@@ -2086,7 +2128,7 @@ function ReportPanel({
     className: "sl-status"
   }, /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.report_week
-  }, "Week ", d.week), d.dates && d.dates.as_of ? /*#__PURE__*/React.createElement("span", {
+  }, hfWeekLabel(d.week)), d.dates && d.dates.as_of ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.pulse_cftc
   }, " \xB7 futures positions as of ", d.dates.as_of) : null, d.built_at ? /*#__PURE__*/React.createElement("span", {
     title: HF_TIP.report_built
@@ -2235,17 +2277,27 @@ function ReportPanel({
     title: HF_TIP.report_week
   }, "Week"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.as_of
-  }, "Positions as of"), /*#__PURE__*/React.createElement("th", null, "Exposure"), /*#__PURE__*/React.createElement("th", null, "Leverage"), /*#__PURE__*/React.createElement("th", null, "Longs"), /*#__PURE__*/React.createElement("th", null, "Shorts"), /*#__PURE__*/React.createElement("th", {
+  }, "Positions as of"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.exposure
+  }, "Exposure"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.leverage
+  }, "Leverage"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.longs
+  }, "Longs"), /*#__PURE__*/React.createElement("th", {
+    title: HF_QUESTION_NAME.shorts
+  }, "Shorts"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.report_conflicts
   }, "Conflicts"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.press_quote
   }, "Bank quotes"), /*#__PURE__*/React.createElement("th", {
     title: HF_TIP.report_revision
-  }, "Revisions"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, history.map(h => /*#__PURE__*/React.createElement("tr", {
+  }, "Revisions"), /*#__PURE__*/React.createElement("th", {
+    title: HF_TIP.report_history
+  }))), /*#__PURE__*/React.createElement("tbody", null, history.map(h => /*#__PURE__*/React.createElement("tr", {
     key: h.week
   }, /*#__PURE__*/React.createElement("td", {
     "data-label": "Week"
-  }, h.week), /*#__PURE__*/React.createElement("td", {
+  }, hfWeekLabel(h.week)), /*#__PURE__*/React.createElement("td", {
     "data-label": "Positions as of"
   }, h.as_of_text || hfDate(h.as_of)), /*#__PURE__*/React.createElement("td", {
     "data-label": "Exposure"
@@ -2283,7 +2335,7 @@ function ReportPanel({
   }, "choose a week"), weeks.map(w => /*#__PURE__*/React.createElement("option", {
     key: w,
     value: w
-  }, w)))), /*#__PURE__*/React.createElement("label", {
+  }, hfWeekLabel(w))))), /*#__PURE__*/React.createElement("label", {
     title: HF_TIP.report_compare
   }, "Later week", " ", /*#__PURE__*/React.createElement("select", {
     value: cmpB,
@@ -2293,7 +2345,7 @@ function ReportPanel({
   }, "choose a week"), weeks.map(w => /*#__PURE__*/React.createElement("option", {
     key: w,
     value: w
-  }, w)))), /*#__PURE__*/React.createElement("button", {
+  }, hfWeekLabel(w))))), /*#__PURE__*/React.createElement("button", {
     className: "sl-mode",
     onClick: runCompare,
     disabled: !cmpA || !cmpB,

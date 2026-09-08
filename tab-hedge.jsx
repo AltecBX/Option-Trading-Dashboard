@@ -57,6 +57,10 @@ const HF_TIP = {
   broader: "THE OTHER LAYER, kept apart on purpose. What the hedge fund universe as a whole appears to be doing, from anonymous aggregate sources (CFTC, short interest, flows, prime-broker quotes). It is NOT about this fund and never becomes part of a fund's block — it is rendered here, under its own heading, in its own evidence class, and nothing on the fund's card is computed from it.",
   new_filings: "Every 13D, 13G and 13F-family filing by any watched manager in the last week, read from EDGAR's daily index. This is the raw stream the cards are built from.",
   evidence: "The evidence class of this row. VERIFIED FUND ACTIVITY is a filing (FILING), the manager's own words (STATEMENT), or an outlet's report (PRESS). The four anonymous classes can never carry a fund's name — the code refuses to store such a row.",
+  form: "The kind of SEC filing. 13F-HR is the quarterly table of every reportable holding; 13F-HR/A amends one that was already filed; 13F-NT is a notice that some other filer reports the book; SCHEDULE 13D is an activist stake above 5% with intent; SCHEDULE 13G is a passive one.",
+  notes: "Anything the card had to say about how this manager's record was assembled — a successor it followed, a quarter that is missing, a position whose CUSIP no ticker could be found for. Kept in view rather than tidied away, because a gap in the record is part of the record.",
+  manager: "The manager on your watchlist that this filing belongs to.",
+  filed_as: "The exact registered name the filing was made under. A book often files through a subsidiary or a management company, so this can differ from the name on your list — the card matches on the EDGAR identifier, not the name.",
   cusips: "How many CUSIP → symbol pairs are on file, from the SEC's fails-to-deliver list. A 13F names securities by CUSIP, not ticker; this is how a line becomes a clickable symbol.",
   refresh: "Re-read this manager's EDGAR trail now. Normally it is re-read every six hours — a filing trail cannot change faster than that matters.",
   watchlist: "Add or remove managers. A manager needs a name, an EDGAR CIK, and a turnover class. Edits are stored separately from the shipped list, so a rebuild never loses them.",
@@ -87,12 +91,12 @@ const HF_TIP = {
   pulse_dtc: "Days to cover: shares short divided by average daily volume. The measure that separates a crowded short from a merely large one.",
   pulse_changed: "Every verdict that reads differently from the stored reading a week ago. This is the only place a previous conclusion is allowed to matter, and it is what makes the board a record rather than a snapshot.",
   pulse_history: "Every week ever read, kept forever, so you can watch positioning evolve rather than only see today.",
-  pulse_week: "The ISO week this reading belongs to. The CFTC publishes once a week, so a week is the natural unit of the record; re-reading within the same week replaces that week's entry.",
+  pulse_week: "The week this reading belongs to, named by the Monday it opened. The CFTC publishes once a week, so a week is the natural unit of the record; re-reading within the same week replaces that week's entry.",
   pulse_dates: "What each source is AS OF. They are not the same date and never will be: futures positions are Tuesday's, short interest is a fortnight old, Form PF is a quarter old. Every figure carries the date it describes.",
   view: "Three panels. THE PULSE is the whole universe from anonymous data. NAMED FUNDS is what specific managers have actually filed. THE WEEKLY REPORT assembles both into one document and keeps it forever. The Pulse never becomes part of a fund's record — that is the rule the whole feature is built on.",
   // ── The weekly report (v4.87) ──
   report: "One document a week, built from the Pulse, the Named Fund Watch and the prime-broker headlines. Nothing in it is measured here: every figure was computed by one of those three and carried across with its date and its evidence class. Each build is kept forever, so you can read any past week and compare two of them.",
-  report_week: "The ISO week this report covers. The CFTC publishes once a week and that sets the rhythm. Rebuilding inside the same week ADDS a revision rather than replacing one — a report records what was known when it was written, so an older build is still true about its own moment.",
+  report_week: "The week this report covers, named by the Monday it opened. The CFTC publishes once a week and that sets the rhythm. Rebuilding inside the same week ADDS a revision rather than replacing one — a report records what was known when it was written, so an older build is still true about its own moment.",
   report_revision: "Which build of this week you are reading. Revision 1 is the first time the report was assembled that week; later revisions saw more filings or more headlines. Older revisions are never deleted.",
   report_built: "When this revision was assembled. Different from the 'as of' dates inside it — those belong to the sources, and every one of them is older than this.",
   report_summary: "The short version. Every line here is a verdict reached in a section below, at the confidence stated there, and nothing in this summary is stronger than the section it came from.",
@@ -176,7 +180,7 @@ const hfWeekLabel = (w) => {
   // ISO week 1 is the one containing January 4th; Monday is day 1.
   const monday = new Date(jan4);
   monday.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + (Number(m[2]) - 1) * 7);
-  return `week of ${monday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
+  return `Week of ${monday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
 };
 const hfMoney = (v) => {
   if (v == null || !isFinite(v)) return "—";
@@ -295,13 +299,13 @@ function HfPositionsTable({ rows, kind, onOpenTicker, showDelta }) {
 function HfBroader({ bt }) {
   return (
     <section className="hf-broader" title={HF_TIP.broader}>
-      <h4>Broader hedge fund trend <span className="hf-muted">(not about any one fund)</span> <HfTag cls={(bt && bt.class) || "MODEL INFERENCE"} /></h4>
+      <h4 title={HF_TIP.broader}>Broader hedge fund trend <span className="hf-muted">(not about any one fund)</span> <HfTag cls={(bt && bt.class) || "MODEL INFERENCE"} /></h4>
       {bt && bt.available ? (
         <React.Fragment>
           <p>{bt.text}</p>
           <p className="hf-muted" title={HF_TIP.pulse_dates}>
             {bt.as_of_text ? `Futures positions as of ${bt.as_of_text}` : null}
-            {bt.week ? ` · week ${bt.week}` : null}
+            {bt.week ? ` · ${hfWeekLabel(bt.week)}` : null}
             {bt.confidence ? ` · confidence ${bt.confidence}` : null}
           </p>
           <p className="hf-muted">{bt.note}</p>
@@ -421,7 +425,7 @@ function FundDetail({ d, onOpenTicker }) {
         {d.filings && d.filings.length ? (
           <div className="scan-table-wrap hf-table-wrap">
             <table className="scan-table mtable hf-table">
-              <thead><tr><th>Form</th><th title={HF_TIP.as_of}>Describes</th><th title={HF_TIP.public_on}>Public on</th><th title={HF_TIP.amended}>Amendment</th><th>Lines</th><th>Value</th></tr></thead>
+              <thead><tr><th title={HF_TIP.form}>Form</th><th title={HF_TIP.as_of}>Describes</th><th title={HF_TIP.public_on}>Public on</th><th title={HF_TIP.amended}>Amendment</th><th title={HF_TIP.positions}>Lines</th><th title={HF_TIP.value}>Value</th></tr></thead>
               <tbody>
                 {d.filings.map((f) => (
                   <tr key={f.accession}>
@@ -454,7 +458,7 @@ function FundDetail({ d, onOpenTicker }) {
 
       {d.notes && d.notes.length ? (
         <section>
-          <h4>Notes</h4>
+          <h4 title={HF_TIP.notes}>Notes</h4>
           <ul className="hf-notes">{d.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
         </section>
       ) : null}
@@ -509,7 +513,7 @@ function HfNewFilings({ rows }) {
       {rows && rows.length ? (
         <div className="scan-table-wrap hf-table-wrap">
           <table className="scan-table mtable hf-table">
-            <thead><tr><th>Public on</th><th>Manager</th><th>Form</th><th>Filed as</th></tr></thead>
+            <thead><tr><th title={HF_TIP.public_on}>Public on</th><th title={HF_TIP.manager}>Manager</th><th title={HF_TIP.form}>Form</th><th title={HF_TIP.filed_as}>Filed as</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={`${r.accession}|${r.cik}`}>
@@ -728,7 +732,7 @@ function HfSectorStrip({ sec }) {
         <table className="scan-table mtable hf-table">
           <thead>
             <tr>
-              <th>Sector</th><th title={HF_TIP.pulse_verdict}>Verdict</th>
+              <th title={HF_TIP.pulse_sector}>Sector</th><th title={HF_TIP.pulse_verdict}>Verdict</th>
               <th title={HF_TIP.pulse_sector_rank}>Size of this week's move</th>
               <th title={HF_TIP.pulse_streak}>Streak</th>
               <th title={HF_TIP.pulse_sector}>Inputs</th>
@@ -774,7 +778,7 @@ function HfCrowding({ cr, onOpenTicker }) {
         <table className="scan-table mtable hf-table">
           <thead>
             <tr>
-              <th>Market</th><th title={HF_TIP.pulse_crowd}>State</th>
+              <th title={HF_TIP.pulse_cftc}>Market</th><th title={HF_TIP.pulse_crowd}>State</th>
               <th title={HF_TIP.pulse_unusual}>Net</th><th title={HF_TIP.pulse_gross}>Gross</th>
               <th title={HF_TIP.pulse_crowd}>One-sidedness</th><th title={HF_TIP.as_of}>As of</th>
             </tr>
@@ -802,7 +806,7 @@ function HfCrowding({ cr, onOpenTicker }) {
           <div className="scan-table-wrap hf-table-wrap">
             <table className="scan-table mtable hf-table">
               <thead>
-                <tr><th>Symbol</th><th>Name</th><th title={HF_TIP.pulse_dtc}>Days to cover</th>
+                <tr><th title={HF_TIP.pulse_crowd_names}>Symbol</th><th title={HF_TIP.pulse_crowd_names}>Name</th><th title={HF_TIP.pulse_dtc}>Days to cover</th>
                     <th title={HF_TIP.pulse_si}>Shares short</th><th title={HF_TIP.pulse_si}>Change</th>
                     <th title={HF_TIP.as_of}>Settled</th></tr>
               </thead>
@@ -873,7 +877,7 @@ function PulsePanel({ apiFetch, onOpenTicker }) {
   return (
     <div className="hf-pulse" title={HF_TIP.pulse}>
       <p className="sl-status">
-        <span title={HF_TIP.pulse_week}>Week {d.week}</span>
+        <span title={HF_TIP.pulse_week}>{hfWeekLabel(d.week)}</span>
         {dates.cftc_as_of ? <span title={HF_TIP.pulse_cftc}> · futures positions as of {dates.cftc_as_of}</span> : null}
         {dates.short_interest ? <span title={HF_TIP.pulse_si}> · short interest settled {dates.short_interest}</span> : null}
         {dates.short_volume ? <span title={HF_TIP.pulse_shvol}> · short volume {dates.short_volume}</span> : null}
@@ -885,7 +889,7 @@ function PulsePanel({ apiFetch, onOpenTicker }) {
 
       {d.changed ? (
         <section className="hf-changed" title={HF_TIP.pulse_changed}>
-          <h4>What changed since last week</h4>
+          <h4 title={HF_TIP.pulse_changed}>What changed since last week</h4>
           {d.changed.available ? (
             d.changed.n ? (
               <ul className="hf-notes">
@@ -919,11 +923,11 @@ function PulsePanel({ apiFetch, onOpenTicker }) {
           <h4 title={HF_TIP.pulse_history}>Every week read so far</h4>
           <div className="scan-table-wrap hf-table-wrap">
             <table className="scan-table mtable hf-table">
-              <thead><tr><th title={HF_TIP.pulse_week}>Week</th><th>Exposure</th><th>Leverage</th><th>Longs</th><th>Shorts</th><th title={HF_TIP.pulse_crowd}>Crowded</th><th title={HF_TIP.pulse_changed}>Changes</th></tr></thead>
+              <thead><tr><th title={HF_TIP.pulse_week}>Week</th><th title={HF_QUESTION_NAME.exposure}>Exposure</th><th title={HF_QUESTION_NAME.leverage}>Leverage</th><th title={HF_QUESTION_NAME.longs}>Longs</th><th title={HF_QUESTION_NAME.shorts}>Shorts</th><th title={HF_TIP.pulse_crowd}>Crowded</th><th title={HF_TIP.pulse_changed}>Changes</th></tr></thead>
               <tbody>
                 {d.history.map((h) => (
                   <tr key={h.week}>
-                    <td data-label="Week">{h.week}</td>
+                    <td data-label="Week">{hfWeekLabel(h.week)}</td>
                     <td data-label="Exposure">{(h.verdicts || {}).exposure || "—"}</td>
                     <td data-label="Leverage">{(h.verdicts || {}).leverage || "—"}</td>
                     <td data-label="Longs">{(h.verdicts || {}).longs || "—"}</td>
@@ -1081,11 +1085,11 @@ function HfCompare({ cmp }) {
   return (
     <section className="hf-compare" title={HF_TIP.report_compare}>
       <h4 title={HF_TIP.report_compare}>
-        {cmp.older.week} compared with {cmp.newer.week}
+        {hfWeekLabel(cmp.older.week)} compared with {hfWeekLabel(cmp.newer.week)}
       </h4>
       <p className="sl-status">
-        <span title={HF_TIP.as_of}>{cmp.older.week}: positions as of {cmp.older.as_of_text || "—"}</span>
-        <span title={HF_TIP.as_of}> · {cmp.newer.week}: positions as of {cmp.newer.as_of_text || "—"}</span>
+        <span title={HF_TIP.as_of}>{hfWeekLabel(cmp.older.week)}: positions as of {cmp.older.as_of_text || "—"}</span>
+        <span title={HF_TIP.as_of}> · {hfWeekLabel(cmp.newer.week)}: positions as of {cmp.newer.as_of_text || "—"}</span>
         <span title={HF_TIP.report_compare}> · {cmp.n_same} of 4 answers unchanged</span>
       </p>
       <div className="scan-table-wrap hf-table-wrap">
@@ -1093,8 +1097,8 @@ function HfCompare({ cmp }) {
           <thead>
             <tr>
               <th title={HF_TIP.report_conclusion}>Question</th>
-              <th title={HF_TIP.report_week}>{cmp.older.week}</th>
-              <th title={HF_TIP.report_week}>{cmp.newer.week}</th>
+              <th title={HF_TIP.report_week}>{hfWeekLabel(cmp.older.week)}</th>
+              <th title={HF_TIP.report_week}>{hfWeekLabel(cmp.newer.week)}</th>
               <th title={HF_TIP.report_compare}>Moved</th>
             </tr>
           </thead>
@@ -1102,11 +1106,11 @@ function HfCompare({ cmp }) {
             {(cmp.conclusions || []).map((c) => (
               <tr key={c.key}>
                 <td data-label="Question">{c.title}</td>
-                <td data-label={cmp.older.week}>
+                <td data-label={hfWeekLabel(cmp.older.week)}>
                   {c.older.verdict || "—"}
                   {c.older.confidence ? <span className="hf-muted"> · {c.older.confidence}</span> : null}
                 </td>
-                <td data-label={cmp.newer.week}>
+                <td data-label={hfWeekLabel(cmp.newer.week)}>
                   {c.newer.verdict || "—"}
                   {c.newer.confidence ? <span className="hf-muted"> · {c.newer.confidence}</span> : null}
                 </td>
@@ -1468,7 +1472,7 @@ function HfGrades({ apiFetch }) {
           <table className="scan-table mtable hf-table">
             <thead>
               <tr>
-                <th>Market</th><th title={HF_TIP.grade_proxy}>Priced on</th>
+                <th title={HF_TIP.pulse_cftc}>Market</th><th title={HF_TIP.grade_proxy}>Priced on</th>
                 <th title={HF_TIP.grade_episodes}>Crowded episodes</th>
                 {(d.horizons || []).map((h) => <th key={h} title={HF_TIP.grade_reversal}>{h}w reversed</th>)}
               </tr>
@@ -1676,7 +1680,7 @@ function ReportPanel({ apiFetch }) {
   return (
     <div className="hf-report" title={HF_TIP.report}>
       <p className="sl-status">
-        <span title={HF_TIP.report_week}>Week {d.week}</span>
+        <span title={HF_TIP.report_week}>{hfWeekLabel(d.week)}</span>
         {d.dates && d.dates.as_of ? <span title={HF_TIP.pulse_cftc}> · futures positions as of {d.dates.as_of}</span> : null}
         {d.built_at ? <span title={HF_TIP.report_built}> · assembled {hfDateTime(d.built_at)}</span> : null}
         {d.revisions && d.revisions.length > 1 ? (
@@ -1821,17 +1825,17 @@ function ReportPanel({ apiFetch }) {
                 <tr>
                   <th title={HF_TIP.report_week}>Week</th>
                   <th title={HF_TIP.as_of}>Positions as of</th>
-                  <th>Exposure</th><th>Leverage</th><th>Longs</th><th>Shorts</th>
+                  <th title={HF_QUESTION_NAME.exposure}>Exposure</th><th title={HF_QUESTION_NAME.leverage}>Leverage</th><th title={HF_QUESTION_NAME.longs}>Longs</th><th title={HF_QUESTION_NAME.shorts}>Shorts</th>
                   <th title={HF_TIP.report_conflicts}>Conflicts</th>
                   <th title={HF_TIP.press_quote}>Bank quotes</th>
                   <th title={HF_TIP.report_revision}>Revisions</th>
-                  <th />
+                  <th title={HF_TIP.report_history} />
                 </tr>
               </thead>
               <tbody>
                 {history.map((h) => (
                   <tr key={h.week}>
-                    <td data-label="Week">{h.week}</td>
+                    <td data-label="Week">{hfWeekLabel(h.week)}</td>
                     <td data-label="Positions as of">{h.as_of_text || hfDate(h.as_of)}</td>
                     <td data-label="Exposure">{(h.verdicts || {}).exposure || "—"}</td>
                     <td data-label="Leverage">{(h.verdicts || {}).leverage || "—"}</td>
@@ -1859,14 +1863,14 @@ function ReportPanel({ apiFetch }) {
               Earlier week{" "}
               <select value={cmpA} onChange={(e) => setCmpA(e.target.value)}>
                 <option value="">choose a week</option>
-                {weeks.map((w) => <option key={w} value={w}>{w}</option>)}
+                {weeks.map((w) => <option key={w} value={w}>{hfWeekLabel(w)}</option>)}
               </select>
             </label>
             <label title={HF_TIP.report_compare}>
               Later week{" "}
               <select value={cmpB} onChange={(e) => setCmpB(e.target.value)}>
                 <option value="">choose a week</option>
-                {weeks.map((w) => <option key={w} value={w}>{w}</option>)}
+                {weeks.map((w) => <option key={w} value={w}>{hfWeekLabel(w)}</option>)}
               </select>
             </label>
             <button className="sl-mode" onClick={runCompare} disabled={!cmpA || !cmpB} title={HF_TIP.report_compare}>Compare</button>

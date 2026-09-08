@@ -3236,3 +3236,59 @@ One line in the server log said exactly that.
 
 hf_alert 37 · hf_scan 120 (23 more) · UI 182 · render check clean on desktop
 and phone, every header tooltipped, no ISO date, no console errors.
+
+## v4.91 — the render checks move into the repo, and find two things
+
+Migration step 3 from the architecture audit, taken first because it protects
+every step after it.
+
+`verify_frontend.js` loads every file and mounts the app, but it never runs a
+component's render body. Six real defects have lived in that gap — the panel
+that was blank because `apiFetch` returns a `Response` nobody unwrapped, the
+sector table of dashes, the caveat that rendered only in the empty branch,
+the alerts panel that said push was configured when it was not, the
+import-time `NameError` that took every hedge route to 503. Each was caught
+by a browser harness that lived in a scratchpad and ran when I remembered.
+
+`test_hf_render.py` is that harness, in the repo. It boots the real server on
+a free port against a store seeded from the same offline fixtures the rest of
+the suite uses, draws the tab in Chromium, and asserts seven things: the
+Pulse panel and its sections draw; an OPAQUE book never reaches a consensus
+row; every header carries a tooltip; no ISO date reaches the screen; the
+weekly report draws; it draws on a phone without scrolling sideways; and no
+JavaScript error occurs. React and React-DOM are served from
+`fixtures/vendor`, **verified byte-identical to the SRI hashes pinned in
+`index.html`** — so the browser runs exactly what production runs and CI
+never depends on a CDN being up. Without Playwright or Chromium it SKIPS
+rather than fails; CI installs both, which is what turns the skip into a
+check.
+
+**It failed on its first run, twice, on rules that have been standing since
+Phase 1.**
+
+*Nine headers carried no tooltip* — "What changed since last week", the
+Sector, Market, Symbol and Name columns, and the four question columns in the
+history table. Fixed, along with the ones the Pulse panel does not reach:
+Form, Lines, Notes, Manager, Filed as. Four new tooltips were written for
+them; every `<th>`, `<h4>` and `<h5>` on the tab now carries one.
+
+*An ISO week reached the screen.* `hfWeekLabel` — which turns `2026-W36`
+into "Week of August 31, 2026" — existed and was used in exactly one place
+out of thirteen. The other twelve printed the record key: the Pulse header,
+the report header, both history tables, the compare panel's heading, status
+line, column headers and mobile row labels, and both week pickers. All now go
+through the label.
+
+Two smaller things the same run surfaced. The seed built an EMPTY board under
+CI's `JERRY_NO_NET=1`, which every content check would have passed — the flag
+is now lifted for the seed (the fake transport is the offline guarantee) and
+restored immediately, with the server still getting `JERRY_NO_NET=1` in its
+own environment, and a new assertion fails if no reading reaches the panel.
+And the `test_hf_ui.js` guard for this rule pinned the label's exact wording,
+so it broke when the wording changed while the rule was still kept; it now
+checks the wiring instead.
+
+`test_time_travel.py` skips this module: the server runs in a separate
+process, so a shifted clock never reaches the code under test and the run
+would spend two minutes of browser time proving nothing.
+
