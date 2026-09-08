@@ -15,6 +15,7 @@ in it is permanent. These guards are weighted accordingly:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -31,6 +32,44 @@ import hf_sources as S
 import test_hf_scan as F
 
 AT = "2026-09-06T12:00:00+00:00"
+
+
+def stay_offline(case):
+    """Hold JERRY_NO_NET=1 for the whole test, whatever the caller set.
+
+    Not just tidiness. `hf_watch.snapshot()` kicks a real EDGAR sweep in a
+    daemon thread when the flag is absent, and the routes test calls it. A
+    test whose hermeticity depends on how it was launched is not hermetic —
+    running this file directly must be as offline as CI is."""
+    was = os.environ.get("JERRY_NO_NET")
+    os.environ["JERRY_NO_NET"] = "1"
+
+    def restore():
+        if was is None:
+            os.environ.pop("JERRY_NO_NET", None)
+        else:
+            os.environ["JERRY_NO_NET"] = was
+    case.addCleanup(restore)
+
+
+@contextlib.contextmanager
+def offline_fixtures():
+    """Lift JERRY_NO_NET for the fake transport, and put it straight back.
+
+    The providers refuse to fetch while the flag is set, so a fixture-driven
+    build needs it lifted — but `hf_watch.snapshot()` ALSO reads it, and with
+    the flag gone it kicks a real EDGAR sweep in a daemon thread. CI caught
+    that as `OSError: Directory not empty` when the temporary store was torn
+    down underneath a thread still writing fund records into it. The deeper
+    problem was worse than the race: a test that clears the flag for its whole
+    run can reach the real network, which is the one thing JERRY_NO_NET
+    exists to prevent. So the window is exactly the calls that need it."""
+    was = os.environ.pop("JERRY_NO_NET", None)
+    try:
+        yield
+    finally:
+        if was is not None:
+            os.environ["JERRY_NO_NET"] = was
 
 
 class TheRecordKeepsItsRules(unittest.TestCase):
@@ -87,6 +126,7 @@ class TheRecordKeepsItsRules(unittest.TestCase):
 
 class TheLogOnlyEverAppends(unittest.TestCase):
     def setUp(self):
+        stay_offline(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         OBS.configure(data_dir=self.tmp.name)
@@ -183,7 +223,7 @@ class TheBoardWritesTheLog(unittest.TestCase):
     tests."""
 
     def setUp(self):
-        os.environ.pop("JERRY_NO_NET", None)
+        stay_offline(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.web = F.FakeWeb()
@@ -196,7 +236,8 @@ class TheBoardWritesTheLog(unittest.TestCase):
         self.addCleanup(lambda: S.configure(fetch_fn=None, post_fn=None))
 
     def test_a_build_writes_the_raw_readings_and_says_how_many(self):
-        board = SC.build()
+        with offline_fixtures():
+            board = SC.build()
         recs = OBS.read()
         self.assertGreater(board["observations_logged"], 20)
         self.assertEqual(len(recs), board["observations_logged"])
@@ -212,13 +253,15 @@ class TheBoardWritesTheLog(unittest.TestCase):
     def test_the_two_legs_are_kept_not_only_the_net(self):
         # A net that did not move can hide two legs that did, and no later
         # question can recover them once they are gone.
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         metrics = {r["metric"] for r in OBS.read() if r["source"] == "cftc.tff"}
         self.assertLessEqual({"lev_net", "lev_gross", "lev_long", "lev_short",
                               "open_interest"}, metrics)
 
     def test_every_provider_writes_a_health_line_whether_or_not_it_answered(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         health = {r["source"]: r for r in OBS.read() if r["metric"] == OBS.HEALTH}
         self.assertEqual(set(health), {src for src, _ in SC.OBS_SOURCES.values()})
         # The fixtures answer for CFTC and say nothing for the paid channels.
@@ -238,13 +281,15 @@ class TheBoardWritesTheLog(unittest.TestCase):
         self.assertEqual(SC.OBS_SOURCES["short_volume"][1], S.FLOW_PROXY)
         self.assertEqual(SC.OBS_SOURCES["etf_flows"][1], S.FLOW_PROXY)
         self.assertEqual(SC.OBS_SOURCES["press"][1], S.PRIME_BROKER)
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         for r in OBS.read():
             self.assertIn(r["class"], S.EVIDENCE_CLASSES)
             self.assertNotIn("fund", r)
 
     def test_building_the_records_touches_no_file(self):
-        raw = SC.gather()
+        with offline_fixtures():
+            raw = SC.gather()
         before = sorted(Path(self.tmp.name).rglob("*"))
         recs = SC.observations(raw, AT)
         self.assertTrue(recs)
@@ -255,7 +300,8 @@ class TheBoardWritesTheLog(unittest.TestCase):
             raise OSError("disk is full")
         real, OBS.append = OBS.append, boom
         try:
-            board = SC.build()
+            with offline_fixtures():
+                board = SC.build()
         finally:
             OBS.append = real
         self.assertEqual(board["observations_logged"], 0)
@@ -263,8 +309,9 @@ class TheBoardWritesTheLog(unittest.TestCase):
         self.assertTrue(board.get("questions"), "the board itself was lost")
 
     def test_the_stored_documents_carry_their_stamps(self):
-        SC.build()
-        SC.build_report()
+        with offline_fixtures():
+            SC.build()
+            SC.build_report()
         pulse = json.loads(Path(self.tmp.name, "hf", "pulse",
                                 f"{SC.week_key(F.NOW.date())}.json").read_text())
         self.assertEqual(pulse["doc"], "pulse")
@@ -273,7 +320,8 @@ class TheBoardWritesTheLog(unittest.TestCase):
         self.assertTrue(pulse["created_at"])
 
     def test_a_stored_board_from_a_future_schema_is_refused_not_guessed_at(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         p = Path(self.tmp.name, "hf", "pulse", f"{SC.week_key(F.NOW.date())}.json")
         doc = json.loads(p.read_text())
         doc["doc_schema"] = OBS.DOC_SCHEMAS["pulse"] + 1
@@ -373,7 +421,7 @@ class SourceHealthIsAQueryOverTheLog(unittest.TestCase):
 
 class TheDailyViewSaysHowDeepItIs(unittest.TestCase):
     def setUp(self):
-        os.environ.pop("JERRY_NO_NET", None)
+        stay_offline(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.web = F.FakeWeb()
@@ -390,27 +438,31 @@ class TheDailyViewSaysHowDeepItIs(unittest.TestCase):
         self.assertIn("Nothing has been recorded", d["depth_note"])
 
     def test_a_young_record_says_how_young(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         d = SC.daily()
         self.assertTrue(d["rows"])
         self.assertIn("less than two days old", d["depth_note"])
 
     def test_two_reads_of_one_day_are_one_point_not_two(self):
-        SC.build()
-        SC.build()
+        with offline_fixtures():
+            SC.build()
+            SC.build()
         d = SC.daily()
         row = [r for r in d["rows"] if r["metric"] == "lev_net"][0]
         self.assertEqual(row["n_days"], 1, "the same day was counted twice")
         self.assertEqual(len(row["points"]), 1)
 
     def test_an_undated_claim_stays_out_of_a_day_view(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         d = SC.daily()
         self.assertFalse([r for r in d["rows"] if r["metric"] == "prime_broker_claim"],
                          "a claim with no as_of was drawn as a daily reading")
 
     def test_source_health_reads_the_log_the_board_wrote(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         card = SC.source_health()
         by = {r["source"]: r for r in card["rows"]}
         self.assertEqual(by["cftc.tff"]["state"], HL.HEALTHY)
@@ -426,7 +478,7 @@ class TheDailyViewSaysHowDeepItIs(unittest.TestCase):
 
 class TheBoardKeepsEveryBuild(unittest.TestCase):
     def setUp(self):
-        os.environ.pop("JERRY_NO_NET", None)
+        stay_offline(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.web = F.FakeWeb()
@@ -440,14 +492,16 @@ class TheBoardKeepsEveryBuild(unittest.TestCase):
     def test_three_builds_of_one_week_leave_three_revisions(self):
         # The overwrite used to destroy this: a week rebuilt fourteen times
         # kept only the last, so a mid-week reversal vanished.
-        for _ in range(3):
-            SC.build()
+        with offline_fixtures():
+            for _ in range(3):
+                SC.build()
         week = SC.week_key(F.NOW.date())
         self.assertEqual(len(SC.revisions(week)), 3)
         self.assertEqual(len(SC.history()), 1, "history shows one row per week")
 
     def test_history_reads_the_index_not_four_hundred_boards(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         idx = Path(self.tmp.name, "hf", "pulse", "index.jsonl")
         self.assertTrue(idx.exists())
         # Break every stored board. If history() were still opening them it
@@ -457,20 +511,23 @@ class TheBoardKeepsEveryBuild(unittest.TestCase):
         self.assertEqual(len(SC.history()), 1)
 
     def test_a_store_written_before_the_index_still_reads(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         Path(self.tmp.name, "hf", "pulse", "index.jsonl").unlink()
         rows = SC.history()
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]["verdicts"]["exposure"])
 
     def test_reindexing_an_old_store_appends_without_duplicating(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         Path(self.tmp.name, "hf", "pulse", "index.jsonl").unlink()
         self.assertEqual(SC.rebuild_index()["added"], 1)
         self.assertEqual(SC.rebuild_index()["added"], 0, "a board was indexed twice")
 
     def test_a_week_whose_file_is_gone_is_not_still_history(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         week = SC.week_key(F.NOW.date())
         Path(self.tmp.name, "hf", "pulse", f"{week}.json").unlink()
         self.assertEqual(SC.history(), [])
@@ -480,7 +537,7 @@ class TheBoardKeepsEveryBuild(unittest.TestCase):
 
 class TheAlertLayerHasItsOwnClock(unittest.TestCase):
     def setUp(self):
-        os.environ.pop("JERRY_NO_NET", None)
+        stay_offline(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.web = F.FakeWeb()
@@ -493,7 +550,8 @@ class TheAlertLayerHasItsOwnClock(unittest.TestCase):
         self.addCleanup(lambda: S.configure(fetch_fn=None, post_fn=None))
 
     def test_it_can_be_asked_to_look_without_waiting_for_the_pulse(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         out = SC.alerts_check()
         self.assertTrue(out["ok"])
         self.assertTrue(out["checked"])
@@ -553,7 +611,7 @@ class TheRoutesLeftTheMonolith(unittest.TestCase):
     whole point of taking them out of a 12,000-line request handler."""
 
     def setUp(self):
-        os.environ.pop("JERRY_NO_NET", None)
+        stay_offline(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.web = F.FakeWeb()
@@ -568,7 +626,8 @@ class TheRoutesLeftTheMonolith(unittest.TestCase):
         self.addCleanup(lambda: S.configure(fetch_fn=None, post_fn=None))
 
     def test_every_section_answers_with_a_body_and_a_status(self):
-        SC.build()
+        with offline_fixtures():
+            SC.build()
         for section in ("", "status", "pulse", "pulse/status", "pulse/history",
                         "grades", "grades/status", "replay", "replay/status",
                         "names", "alerts", "health", "daily", "obs", "cache",
@@ -594,6 +653,23 @@ class TheRoutesLeftTheMonolith(unittest.TestCase):
             self.assertTrue(body.get(k), f"config did not report {k}")
         # Asked, never inferred from a sender that exists either way.
         self.assertFalse(body["push"])
+
+    def test_asking_a_route_never_starts_a_background_sweep(self):
+        # CI caught this as `OSError: Directory not empty` — a daemon EDGAR
+        # sweep was still writing fund records while the temporary store was
+        # being torn down. The race was the symptom. The cause was that the
+        # test had cleared JERRY_NO_NET for its whole run, so a route could
+        # reach the real network, which is the one thing that flag exists to
+        # prevent. Both are now impossible, and this is what proves it.
+        import threading
+        before = {t.name for t in threading.enumerate()}
+        for section in ("", "status", "pulse", "health"):
+            RT.handle(section, {})
+        started = {t.name for t in threading.enumerate()} - before
+        self.assertFalse([n for n in started if n.startswith(("hf-watch", "hf-pulse"))],
+                         f"a route started a live sweep: {started}")
+        self.assertEqual(os.environ.get("JERRY_NO_NET"), "1",
+                         "the offline flag was not held for the test")
 
     def test_it_knows_nothing_about_http(self):
         src = Path(__file__).resolve().parent.joinpath("hf_routes.py").read_text()
