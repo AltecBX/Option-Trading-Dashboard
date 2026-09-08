@@ -43,7 +43,12 @@ DEFAULT_DAYS = 400
 # already measured with time.monotonic() there; the TTL arithmetic is the part
 # that cannot be made clock-agnostic, and a shifted clock tells us nothing
 # about it. The normal suite runs it against the real clock.
-SKIP_MODULES = {"test_schedules", "test_provider_latency"}
+# test_hf_render drives a real browser against a real server running in a
+# SEPARATE PROCESS. freeze_time patches this process only, so the shifted
+# clock never reaches the code under test — the run would spend two minutes
+# of browser time proving nothing. The normal suite runs it against the real
+# clock, and the dates it asserts about come from fixtures, not from today.
+SKIP_MODULES = {"test_schedules", "test_provider_latency", "test_hf_render"}
 
 
 def main() -> int:

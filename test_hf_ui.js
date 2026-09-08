@@ -379,9 +379,15 @@ ok("the panel no longer claims the four answers cannot be reconstructed",
 ok("each question shows how far back it reaches, and why it stops",
    /Reaches back to/.test(src) && /Why it stops there/.test(src)
    && /why_skipped/.test(src));
+// This used to pin the label's exact wording, and broke the day the wording
+// changed while the rule it guards was still kept. It now checks the WIRING:
+// the label exists, and no raw week key reaches the screen anywhere. A
+// browser check (test_hf_render.py) asserts the same rule on the drawn page.
 ok("an ISO week is never shown to the reader",
-   /const hfWeekLabel/.test(src) && /week of \$\{monday\.toLocaleDateString/.test(src)
-   && /hfWeekLabel\(c\.first\)/.test(src));
+   /const hfWeekLabel/.test(src) && /monday\.toLocaleDateString/.test(src)
+   && !/>\{(d|h|w|cmp\.older|cmp\.newer)\.week\}/.test(src)
+   && !/<option key=\{w\} value=\{w\}>\{w\}</.test(src)
+   && (src.match(/hfWeekLabel\(/g) || []).length >= 12);
 ok("the four questions are spelled out, never shown as keys",
    /HF_QUESTION_NAME/.test(src) && /Adding shorts, or covering/.test(src)
    && /HF_QUESTION_NAME\[r\.q\]/.test(src));
@@ -477,7 +483,7 @@ ok("the alerts route is served and the config reports push",
    /section == "alerts"/.test(dash) && /"alerts": _hfalert/.test(dash)
    && /"push": _push_configured\(\)/.test(dash));
 
-ok("the version was bumped", /const APP_VERSION = "4\.90"/.test(appSrc));
+ok("the version was bumped", /const APP_VERSION = "4\.91"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

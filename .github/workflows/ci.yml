@@ -65,6 +65,16 @@ jobs:
       - name: JS tests (recommendation, journal, weather, BS fixture match)
         run: npm test
 
+      - name: Browser for the render check
+        # verify_frontend.js loads every file and mounts the app, but it never
+        # runs a component's render body. Six real defects lived in that gap.
+        # test_hf_render draws the tab in a real browser and skips itself when
+        # this step has not run, so installing Chromium here is what turns it
+        # from a skip into a check.
+        run: |
+          pip install playwright
+          python3 -m playwright install --with-deps chromium
+
       - name: Python tests (deterministic — no live network)
         env:
           JERRY_NO_NET: "1"
