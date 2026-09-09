@@ -3530,3 +3530,56 @@ silently wipes the board getter — the test helper now takes everything in one
 call. And a name with no bars at all never becomes a candidate, so the case
 that actually reaches the refusal is a CACHED sigma with the bars provider
 failing later; the test models that rather than the impossible one.
+
+## v4.92c — the health panel's first false alarm was its own threshold
+
+Checking the live board the morning after v4.92a shipped: the STALE branch now
+reaches, which is what the fix was for — and the first thing it said was
+**"Answering, but out of date: Form PF leverage, via the Treasury's OFR."**
+
+It was wrong, and it was wrong in my model rather than in the data.
+
+Verified before blaming anything: the OFR fetch succeeded (health line OK) and
+returned March 31 as the newest `as_of` across all five of its series. So the
+provider is working and genuinely has nothing newer. Form PF is quarterly AND
+reaches the OFR about five months later, so on September 9 a March 31 reading
+was **162 days old and completely current** — and it legitimately ages to ~244
+days before the June 30 quarter lands in late November.
+
+The threshold was `every_hours + grace_hours` = 91 + 61 = **152 days**. That
+number conflated two quantities that are not the same thing:
+
+| | answers |
+|---|---|
+| `every_hours` | how often a NEW reading arrives — the period it covers |
+| `lag_hours` | how far BEHIND that period a reading already is when it arrives |
+| `grace_hours` | how much later than that before it is worth saying |
+
+I had folded part of the publication lag into the grace. That works while the
+lag is small relative to the period (CFTC: 3 days against 7) and fails badly
+where the lag dwarfs it (Form PF: 150 days against 91).
+
+`lag_hours` is now its own declared number for every source, and staleness is
+`every + lag + grace`:
+
+| source | period | lag | grace | stale after |
+|---|---|---|---|---|
+| CFTC Traders in Financial Futures | 7d | 3d | 3d | 13d |
+| FINRA short interest | 15d | 12d | 7d | 34d |
+| FINRA daily short volume | 1d | 1d | 4d | 6d |
+| Form PF via the OFR | 91d | 150d | 30d | 271d |
+| Sector ETF creations | 1d | 1d | 4d | 6d |
+| Sector options tide | 1d | 1d | 4d | 6d |
+| Prime broker notes | 7d | 1d | 7d | 15d |
+
+Every live reading now sits inside its window, Form PF at 162 days against 271.
+
+Three new guards: a source months behind BY DESIGN is not stale (at 162 days
+and again at the 244-day worst case), a Form PF reading two years old still IS
+stale so the wider window has not swallowed a real freeze, and every source
+must declare a lag apart from its grace. Dropping the lag term again fails the
+first.
+
+**A false alarm on a working source is not a small bug in a health panel.** It
+is the failure that teaches a reader to stop looking at it — the same reason
+the panel refuses to say "fine" about a source it has never checked.

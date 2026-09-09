@@ -400,6 +400,45 @@ class SourceHealthIsAQueryOverTheLog(unittest.TestCase):
         self.assertEqual(HL.assess("finra.short_volume", recs, self.NOW)["state"],
                          HL.HEALTHY)
 
+    def test_a_source_that_is_months_behind_by_design_is_not_stale(self):
+        # The live panel's first day called Form PF STALE. It was not: the OFR
+        # publishes it quarterly and about five months late, so its newest
+        # reading is ROUTINELY five to eight months old and was 162 days old
+        # that morning. A false alarm on a working source is how a health
+        # panel teaches its reader to ignore it.
+        now = "2026-09-09T06:00:00+00:00"
+        recs = [OBS.health("ofr.form_pf", OBS.OK, observed_at=now,
+                           evidence_class=S.REGULATORY),
+                OBS.observation("ofr.form_pf", S.REGULATORY, "lev_top10", 23.7,
+                                observed_at=now, as_of="2026-03-31")]
+        self.assertEqual(HL.assess("ofr.form_pf", recs, now)["state"], HL.HEALTHY)
+        # And still fine right before the next quarter is due to land.
+        later = "2026-11-30T06:00:00+00:00"
+        recs[0]["observed_at"] = recs[1]["observed_at"] = later
+        self.assertEqual(HL.assess("ofr.form_pf", recs, later)["state"], HL.HEALTHY)
+
+    def test_a_quarterly_source_that_really_did_freeze_is_still_caught(self):
+        # The widened window must not swallow a genuine freeze: a Form PF
+        # reading two years old is not a publication lag.
+        now = "2026-09-09T06:00:00+00:00"
+        recs = [OBS.health("ofr.form_pf", OBS.OK, observed_at=now,
+                           evidence_class=S.REGULATORY),
+                OBS.observation("ofr.form_pf", S.REGULATORY, "lev_top10", 23.7,
+                                observed_at=now, as_of="2024-06-30")]
+        self.assertEqual(HL.assess("ofr.form_pf", recs, now)["state"], HL.STALE)
+
+    def test_the_publication_lag_is_declared_apart_from_the_grace(self):
+        # Folding the lag into the grace is what produced the false alarm.
+        # They answer different questions and must stay separate numbers.
+        for src, spec in HL.EXPECTED.items():
+            self.assertIn("lag_hours", spec, f"{src} has no declared publication lag")
+            self.assertGreaterEqual(spec["lag_hours"], 0)
+            self.assertGreater(spec["grace_hours"], 0)
+        # The one source whose lag dwarfs its period.
+        pf = HL.EXPECTED["ofr.form_pf"]
+        self.assertGreater(pf["lag_hours"], pf["every_hours"],
+                           "Form PF arrives further behind than its own period")
+
     def test_every_source_the_board_gathers_has_a_declared_cadence(self):
         # A source with no cadence can never be called stale, so a new
         # provider that skips this table would be silently unmonitored.
