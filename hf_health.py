@@ -44,30 +44,48 @@ DOWN = "NOT ANSWERING"
 NOT_CONFIGURED = "NOT CONFIGURED"
 UNKNOWN = "NOT CHECKED"
 
-# How often each provider publishes something NEW, in hours, and how long
-# after that it is still reasonable to be waiting. Both are facts about the
-# provider's own schedule.
+# Three separate numbers per provider, and keeping them separate is the whole
+# point. Staleness is judged on the age of the newest `as_of` a source has
+# given, and that age is the sum of THREE things:
+#
+#   every_hours  how often a NEW reading arrives (the period it covers)
+#   lag_hours    how far BEHIND that period a reading already is when it
+#                arrives — the publication lag
+#   grace_hours  how much later than that it may be before it is worth saying
+#
+# The first version folded the lag into the grace and got it badly wrong for
+# the one source where the lag dwarfs the period: Form PF is quarterly but
+# reaches the OFR about five months later, so its newest reading is ROUTINELY
+# five to eight months old. The live panel duly called it STALE on its first
+# day — a false alarm on a source that was working perfectly, which is exactly
+# how a health panel teaches its reader to ignore it.
+#
+# Every number below is the provider's own published schedule, not a guess.
 EXPECTED = {
-    # Positions as of Tuesday, published the following Friday at 3:30 PM ET.
-    "cftc.tff": {"every_hours": 168, "grace_hours": 72,
+    # Positions as of Tuesday, published the following Friday at 3:30 PM ET —
+    # the same three days `hf_sources.CFTC_PUBLICATION_LAG_DAYS` applies.
+    "cftc.tff": {"every_hours": 168, "lag_hours": 72, "grace_hours": 72,
                  "cadence": "once a week, on Friday afternoon"},
-    # Settled twice a month, published about eight business days later.
-    "finra.short_interest": {"every_hours": 360, "grace_hours": 120,
-                             "cadence": "twice a month"},
-    # One file per trading session, posted the same evening. The grace covers
-    # a long weekend, which is why it is not 24.
-    "finra.short_volume": {"every_hours": 24, "grace_hours": 96,
+    # Settled twice a month; published about eight BUSINESS days later, which
+    # is the twelve calendar days `hf_sources.finra_public_on` walks.
+    "finra.short_interest": {"every_hours": 360, "lag_hours": 288,
+                             "grace_hours": 168, "cadence": "twice a month"},
+    # One file per trading session, posted that evening. The grace covers a
+    # long weekend, which is why it is not 24.
+    "finra.short_volume": {"every_hours": 24, "lag_hours": 24, "grace_hours": 96,
                            "cadence": "every trading day"},
-    # Form PF is quarterly and reaches the OFR about five months later.
-    "ofr.form_pf": {"every_hours": 2184, "grace_hours": 1460,
-                    "cadence": "once a quarter, and months behind"},
-    "uw.etf_creations": {"every_hours": 24, "grace_hours": 96,
+    # Quarterly, and about five months behind — so between one publication and
+    # the next, the newest reading ages from ~150 days to ~240 days, and none
+    # of that is a fault.
+    "ofr.form_pf": {"every_hours": 2184, "lag_hours": 3600, "grace_hours": 720,
+                    "cadence": "once a quarter, and about five months behind"},
+    "uw.etf_creations": {"every_hours": 24, "lag_hours": 24, "grace_hours": 96,
                          "cadence": "every trading day"},
-    "uw.sector_tide": {"every_hours": 24, "grace_hours": 96,
+    "uw.sector_tide": {"every_hours": 24, "lag_hours": 24, "grace_hours": 96,
                        "cadence": "every trading day"},
     # The banks send their notes weekly and the wires quote them; a week with
     # no quoted note is ordinary, not a failure.
-    "press.prime_broker": {"every_hours": 168, "grace_hours": 168,
+    "press.prime_broker": {"every_hours": 168, "lag_hours": 24, "grace_hours": 168,
                            "cadence": "weekly, when a wire quotes one"},
 }
 
@@ -155,7 +173,9 @@ def assess(source: str, records: list[dict], now: str) -> dict:
     # It answered. The second question is whether what it answered with has
     # moved on — a provider that keeps handing back the same period is the
     # failure that is invisible without both dates.
-    stale_after = float(spec.get("every_hours") or 0) + float(spec.get("grace_hours") or 0)
+    stale_after = (float(spec.get("every_hours") or 0)
+                   + float(spec.get("lag_hours") or 0)
+                   + float(spec.get("grace_hours") or 0))
     age = _age_hours(card["newest_public_on"] or card["newest_as_of"], now)
     card["hours_since_data"] = age
     if stale_after and age is not None and age > stale_after:
