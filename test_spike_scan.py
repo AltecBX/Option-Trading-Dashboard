@@ -70,11 +70,18 @@ def _board(rows):
     return {"rows": rows}
 
 
-def _wire(rows, now_hour=14, catalyst=None):
+def _wire(rows, now_hour=14, catalyst=None, bars_fn=None):
+    # configure() ASSIGNS every global, so calling it twice to change one knob
+    # silently wipes the others (the board getter included, which leaves
+    # stage1 with nothing to scan). Everything a test needs goes in one call.
     sk._TABLES.clear()
     sk._SIGMAS.clear()
     sk.configure(
-        board_getter=lambda: _board(rows), bars_fn=lambda s: BARS.get(s),
+        board_getter=lambda: _board(rows),
+        # A test passes False to mean "no provider at all"; None means
+        # "use the default fixture".
+        bars_fn=(None if bars_fn is False else
+                 bars_fn if bars_fn is not None else (lambda s: BARS.get(s))),
         market_open_fn=lambda: True, catalyst_fn=catalyst,
         now_fn=lambda: datetime(TODAY.year, TODAY.month, TODAY.day, now_hour, 0).astimezone())
 
@@ -301,6 +308,133 @@ class Refusals(unittest.TestCase):
         keep, refused = sk.qualify(res["rows"], cfg)
         self.assertEqual(keep, [])
         self.assertTrue(any("thin" in " ".join(r["why"]) for r in refused))
+
+
+class WhyItCouldNotLook(unittest.TestCase):
+    """The refusal used to say "no chain or no bars" for four different
+    things — two of them ordinary and two of them faults — and the headline
+    said "no same-day call clears the floors" whatever had happened. A reader
+    could not tell a quiet Tuesday from a broken feed."""
+
+    class FakeBroker:
+        def __init__(self, result):
+            self.result = result
+
+        def get_option_chain(self, sym, **kw):
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    def _run(self, chain_result, bars_fn=None):
+        _wire([{"symbol": "RUN", "last": 118.0, "change": 18.0, "avg_volume": 5e6}])
+        if bars_fn is not None:
+            # stage1 needs bars to compute a sigma, so a name with no bars at
+            # all never becomes a candidate and never reaches the refusal.
+            # The case that DOES reach it is the real one: the sigma is
+            # already cached (it has a four-day life) and the bars provider
+            # has since started failing. Warm the cache, then break only the
+            # provider — configure() would reset every other global.
+            sk.stage1(sk.config())
+            sk._BARS_FN = bars_fn                          # noqa: SLF001
+        sk._scan(self.FakeBroker(chain_result))            # noqa: SLF001
+        return list(sk._STATE["refused"])                  # noqa: SLF001
+
+    def test_a_stock_with_no_option_expiring_today_says_exactly_that(self):
+        # The common case on any day but Friday, and NOT a fault.
+        ref = self._run({"underlying": {"last": 118.0}, "expirations": [], "chains": {}})
+        self.assertEqual([r["gate"] for r in ref], ["expiry"])
+        why = " ".join(ref[0]["why"])
+        self.assertIn("no options on this name expire", why)
+        self.assertNotIn("no chain", why)
+        # Dates are spelled out, never ISO.
+        self.assertRegex(why, r"[A-Z][a-z]+ \d{1,2}, \d{4}")
+        self.assertNotRegex(why, r"\d{4}-\d{2}-\d{2}")
+
+    def test_a_feed_that_did_not_answer_is_called_a_fault(self):
+        ref = self._run(None)
+        self.assertEqual([r["gate"] for r in ref], ["data"])
+        self.assertIn("did not answer", " ".join(ref[0]["why"]))
+
+    def test_a_feed_that_raised_names_the_error(self):
+        ref = self._run(RuntimeError("connection reset"))
+        self.assertEqual([r["gate"] for r in ref], ["data"])
+        self.assertIn("connection reset", " ".join(ref[0]["why"]))
+
+    def test_missing_price_history_is_not_confused_with_a_missing_chain(self):
+        ref = self._run(_chain(118.0), bars_fn=lambda s: None)
+        self.assertEqual([r["gate"] for r in ref], ["data"])
+        why = " ".join(ref[0]["why"])
+        self.assertIn("price history", why)
+        self.assertNotIn("options", why)
+
+    def test_price_history_that_is_not_wired_up_says_so(self):
+        _wire([], bars_fn=False)                # False -> configure gets None
+        bars, why = sk._bars_with_reason("RUN")            # noqa: SLF001
+        self.assertIsNone(bars)
+        self.assertIn("not wired up", why)
+
+    def test_price_history_that_raised_is_not_reported_as_absent(self):
+        def boom(_sym):
+            raise RuntimeError("boom")
+        _wire([], bars_fn=boom)
+        bars, why = sk._bars_with_reason("RUN")            # noqa: SLF001
+        self.assertIsNone(bars)
+        self.assertIn("boom", why)
+
+    def test_an_expiry_exists_but_no_call_clears_reads_differently(self):
+        # Not a data problem at all: the chain is there and was priced.
+        ref = self._run(_chain(118.0, rich=0.25))
+        self.assertFalse([r for r in ref if r.get("gate") == "data"],
+                         "a priced chain was reported as missing data")
+
+    def test_both_chain_shapes_count_as_having_an_expiry(self):
+        # The Schwab normalizer fills `expirations`; a fixture fills `chains`.
+        self.assertEqual(sk._chain_expiries({"expirations": ["2026-09-09"]}),   # noqa: SLF001
+                         ["2026-09-09"])
+        self.assertEqual(sk._chain_expiries({"chains": {"2026-09-09": {}}}),    # noqa: SLF001
+                         ["2026-09-09"])
+        self.assertEqual(sk._chain_expiries({"expirations": [], "chains": {}}), [])  # noqa: SLF001
+        self.assertEqual(sk._chain_expiries(None), [])                          # noqa: SLF001
+
+
+class TheHeadlineNamesTheRightReason(unittest.TestCase):
+    W = "on September 9, 2026"
+
+    def setUp(self):
+        self.cands = [{"symbol": s} for s in ("AAA", "BBB", "CCC")]
+
+    def test_nothing_ran_is_its_own_answer(self):
+        out = sk._why_nothing([], [], self.W)              # noqa: SLF001
+        self.assertIn("Nothing has run far enough", out)
+
+    def test_every_name_lacking_an_expiry_blames_the_calendar(self):
+        out = sk._why_nothing(self.cands, [{"gate": "expiry"}] * 3, self.W)   # noqa: SLF001
+        self.assertIn("no options expiring", out)
+        self.assertIn("calendar, not the scanner", out)
+        self.assertNotIn("clears the floors", out)
+
+    def test_a_single_data_fault_leads_the_headline(self):
+        # One fault among ordinary refusals must not be buried: it is the only
+        # one that means something is actually wrong.
+        out = sk._why_nothing(self.cands,                                      # noqa: SLF001
+                              [{"gate": "expiry"}, {"gate": "expiry"},
+                               {"gate": "data"}], self.W)
+        self.assertIn("could not be checked at all", out)
+        self.assertIn("fault rather than a quiet market", out)
+
+    def test_floors_are_still_floors_when_the_data_was_all_there(self):
+        out = sk._why_nothing(self.cands, [{"gate": "select"}] * 3, self.W)   # noqa: SLF001
+        self.assertIn("no call cleared the floors", out)
+        self.assertNotIn("fault", out)
+
+    def test_the_window_phrase_is_spelled_out_and_follows_max_dte(self):
+        sk.configure(now_fn=lambda: datetime(2026, 9, 9, 14, 0).astimezone())
+        one_day = sk._expiry_window_words({"select": {"max_dte": 0}})          # noqa: SLF001
+        self.assertEqual(one_day, "on September 9, 2026")
+        spread = sk._expiry_window_words({"select": {"max_dte": 3}})           # noqa: SLF001
+        self.assertIn("between September 9, 2026 and September 12, 2026", spread)
+        for words in (one_day, spread):
+            self.assertNotRegex(words, r"\d{4}-\d{2}-\d{2}")
 
 
 class Board(unittest.TestCase):

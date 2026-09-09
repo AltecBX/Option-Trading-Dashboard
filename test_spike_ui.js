@@ -155,6 +155,22 @@ ok("and that line has a tooltip", /SK_TIP\.calendar/.test(src)
    && /calendar: "What today is on the market's own calendar/.test(src));
 ok("the calendar note spells its dates out too",
    /strftime\('%B'\)/.test(scan) && !/"next_session": .*isoformat/.test(scan));
+// A refusal used to be one message, "no chain or no bars", for four
+// different things — two ordinary, two faults. These pin the RULE (the
+// reasons are separated, and the fault is the one that leads) rather than
+// any particular sentence, so rewording is free and collapsing is not.
+ok("a missing expiry, a dead feed and missing bars are three different answers",
+   !/no chain or no bars/.test(scan)
+   && /def _bars_with_reason/.test(scan)
+   && /"gate": "expiry"/.test(scan)
+   && /did not answer/.test(scan));
+ok("the ordinary reason is not worded as a fault",
+   /calendar, not the scanner/.test(scan) && /def _why_nothing/.test(scan));
+ok("a data fault leads the headline rather than being buried",
+   /if n_data:/.test(scan) && /fault rather than a quiet market/.test(scan));
+ok("the refusal window is spelled out, never ISO",
+   /def _expiry_window_words/.test(scan) && /_long_date\(d0\)/.test(scan));
+
 ok("the version was bumped", /const APP_VERSION = "4\.91"/.test(appSrc));
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -3476,3 +3476,57 @@ kinds of line. Two new guards go through `SC.source_health()` instead — one
 asserts every row carries a newest date and a computable age, the other
 freezes a source's `as_of` in the past and requires STALE to come back out of
 the real wiring. Both fail against the old query.
+
+## v4.92b — four different things stop pretending to be one
+
+The Sold Into Strength board refused all fourteen of Tuesday's candidates with
+the same sentence: **"no chain or no bars"**. That one message covered four
+situations, two of them completely ordinary and two of them faults:
+
+| What happened | Ordinary? |
+|---|---|
+| This stock has no option expiring in the window | **Yes** — most stocks list options only on Fridays |
+| The chain was read and priced, no call sits above the price | **Yes** |
+| The options feed did not answer, or raised | No — a fault |
+| Price history is missing, failed, or was never wired up | No — a fault |
+
+And the headline said *"Names have run, but no same-day call on them clears the
+floors"* whatever had happened — including when the true answer was "it is
+Tuesday" or "the data never arrived".
+
+This is the same blindness the architecture audit's B6 named on the hedge side
+and that v4.92a had just fixed there: **a source that returns nothing is
+indistinguishable from a quiet market**. The log already records an earlier
+round of it on this same board (v3.x, "no chain came back for X when the
+broker is genuinely connected"). It keeps coming back because collapsing an
+empty answer and a failed one into `if not x` is the shortest thing to write.
+
+Now:
+
+- `get_option_chain` returning `None` means the provider **did not answer** —
+  a stock with no option in the window comes back as a chain with no
+  expirations in it, which is a different branch with a different sentence.
+  `_chain_expiries` reads both payload shapes (the Schwab normalizer fills
+  `expirations`; other providers fill only `chains`) so an empty answer always
+  means empty, never "arrived in the other shape".
+- `_bars_with_reason` splits the three causes behind a bare `None`: not wired
+  up, raised, or answered with nothing.
+- A new `expiry` gate carries the ordinary case, worded as the calendar rather
+  than a failure, with the date spelled out — *"no options on this name expire
+  on September 9, 2026"*.
+- `_why_nothing` picks the headline: a data fault **leads**, because it is the
+  only one that means something is wrong; otherwise the calendar, the floors,
+  or "nothing ran", each in its own words.
+
+Both tooltips now explain the difference where the reader hovers.
+
+Sixteen new guards. Three of them fail if the collapsed message is put back,
+and the JS guards pin the RULE — the reasons are separated, the fault leads —
+rather than any sentence, so rewording stays free.
+
+Two things the tests taught me while writing them, both worth keeping:
+`configure()` ASSIGNS every global, so calling it twice to change one knob
+silently wipes the board getter — the test helper now takes everything in one
+call. And a name with no bars at all never becomes a candidate, so the case
+that actually reaches the refusal is a CACHED sigma with the bars provider
+failing later; the test models that rather than the impossible one.
