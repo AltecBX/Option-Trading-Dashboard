@@ -166,6 +166,65 @@ def _long_date(d) -> str:
     return f"{d.strftime('%B')} {d.day}, {d.year}"
 
 
+def _chain_expiries(chain) -> list:
+    """Which expiry dates a chain payload actually carries.
+
+    Two shapes reach here: the Schwab normalizer fills `expirations` AND
+    `chains`, while a fixture or another provider may fill only `chains`.
+    Reading both means an empty answer always means the payload really is
+    empty — never that it arrived in the other shape."""
+    if not isinstance(chain, dict):
+        return []
+    return list(chain.get("expirations") or (chain.get("chains") or {}).keys())
+
+
+def _why_nothing(cands: list, refused: list, window_words: str) -> str:
+    """The headline when the board is empty, and it must name the RIGHT
+    reason.
+
+    It used to say "no same-day call on them clears the floors" whatever had
+    happened — including when the real answer was "these stocks have no option
+    expiring today" (the calendar, and the common case on any day but Friday)
+    or "the data never arrived" (a fault). Those three deserve three
+    sentences. A board that reports a broken feed in the same words as a quiet
+    Tuesday teaches its reader to ignore it."""
+    if not cands:
+        return ("Nothing has run far enough today to be worth selling into. Most "
+                "sessions are like this; a board that always has something on it "
+                "is not measuring anything.")
+    gates = [r.get("gate") for r in (refused or [])]
+    n_data = sum(1 for g in gates if g == "data")
+    n_expiry = sum(1 for g in gates if g == "expiry")
+    n = len(cands)
+    if n_data:
+        # Loudest, because it is the only one that means something is wrong.
+        return (f"{n_data} of {n} names could not be checked at all — the data for "
+                "them did not arrive. That is a fault rather than a quiet market, "
+                "and the reason for each one is listed below.")
+    if n_expiry and n_expiry == len(gates):
+        return (f"All {n} names that ran have no options expiring {window_words}. "
+                "Most stocks list options only on Fridays, so on any other day "
+                "there is nothing to sell — that is the calendar, not the scanner.")
+    if n_expiry:
+        return (f"{n_expiry} of {n} names have no options expiring {window_words}; "
+                "on the rest, no call cleared the floors. Each reason is listed "
+                "below.")
+    return ("Names have run, and options on them do expire " + window_words
+            + ", but no call cleared the floors — see what was refused and why.")
+
+
+def _expiry_window_words(cfg: dict | None = None) -> str:
+    """The window the scanner asks its provider for, spelled out."""
+    cfg = cfg or config()
+    try:
+        dte = int((cfg.get("select") or {}).get("max_dte") or 0)
+    except (TypeError, ValueError):
+        dte = 0
+    d0 = _now().date()
+    return (f"on {_long_date(d0)}" if dte <= 0
+            else f"between {_long_date(d0)} and {_long_date(d0 + timedelta(days=dte))}")
+
+
 def _calendar_note() -> dict:
     """What today is, in the calendar's terms, for the card to show."""
     d = _now().date()
@@ -266,13 +325,26 @@ def session_profile(refresh: bool = False) -> list | None:
 
 
 # ── per-symbol caches ───────────────────────────────────────────────────────
-def _bars(sym: str) -> list | None:
+def _bars_with_reason(sym: str) -> tuple[list | None, str | None]:
+    """The bars, and — when there are none — WHY there are none.
+
+    Three different facts used to arrive as the same bare None: no price
+    history wired up at all, a provider that raised, and a provider that
+    answered with nothing. Only the last is ordinary, and a reader who is told
+    "no bars" cannot tell which one happened."""
     if not _BARS_FN:
-        return None
+        return None, "price history is not wired up on this deployment"
     try:
-        return _BARS_FN(sym)
-    except Exception:  # noqa: BLE001
-        return None
+        bars = _BARS_FN(sym)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"price history could not be read: {exc}"
+    if not bars:
+        return None, "no price history for this name yet"
+    return bars, None
+
+
+def _bars(sym: str) -> list | None:
+    return _bars_with_reason(sym)[0]
 
 
 def _table_for(sym: str, bars: list) -> dict | None:
@@ -564,6 +636,9 @@ def _scan(sc) -> None:
     profile = session_profile()
     today = n.date().isoformat()
     to_date = (n.date() + timedelta(days=int(st["max_dte"]))).isoformat()
+    # Spelled out, because "2026-09-08" is a record key and not a date a
+    # reader should ever be shown. The headline uses the same phrase.
+    window_words = _expiry_window_words(cfg)
     per_symbol, all_rows, refused_all = {}, [], []
 
     def one(c):
@@ -571,18 +646,41 @@ def _scan(sc) -> None:
         stop = _catalyst_refusal(sym, cfg)
         if stop:
             return sym, None, [{"symbol": sym, "why": [stop], "gate": "event"}]
+        # Four different things used to arrive as one message, "no chain or
+        # no bars", and a reader could not tell them apart. Two of them are
+        # ORDINARY — most stocks have no option expiring today, and it is not
+        # this board's job to imply otherwise — and two are FAULTS. A board
+        # that reports a broken feed in the same words as a Tuesday is the
+        # silent degradation this app refuses everywhere else.
         try:
             chain = sc.get_option_chain(sym, expiration=today, to_date=to_date,
                                         strike_count=int(st["strike_count"]))
         except Exception as exc:  # noqa: BLE001
-            return sym, None, [{"symbol": sym, "why": [f"chain unavailable: {exc}"],
+            return sym, None, [{"symbol": sym,
+                                "why": [f"the options feed could not be read: {exc}"],
                                 "gate": "data"}]
-        bars = _bars(sym)
-        if not chain or not bars:
-            return sym, None, [{"symbol": sym, "why": ["no chain or no bars"], "gate": "data"}]
+        if chain is None:
+            # A FAULT. The provider answers a stock that simply has no option
+            # expiring in the window with a chain that has no expirations in
+            # it — handled next — so None means it did not answer at all.
+            return sym, None, [{"symbol": sym,
+                                "why": ["the options feed did not answer for this name"],
+                                "gate": "data"}]
+        if not _chain_expiries(chain):
+            # ORDINARY, and the common case. Most stocks list options only on
+            # Fridays, so on any other day there is nothing to sell — which is
+            # the calendar, not a problem with the scanner.
+            return sym, None, [{"symbol": sym,
+                                "why": [f"no options on this name expire {window_words}"],
+                                "gate": "expiry"}]
+        bars, bars_why = _bars_with_reason(sym)
+        if bars is None:
+            return sym, None, [{"symbol": sym, "why": [bars_why], "gate": "data"}]
         res = analyze(c, chain, bars, cfg, n, profile)
         if not res:
-            return sym, None, [{"symbol": sym, "why": ["no same-day calls above the price"],
+            return sym, None, [{"symbol": sym,
+                                "why": [f"options expire {window_words}, but no call "
+                                        "sits above the price"],
                                 "gate": "select"}]
         keep, ref = qualify(res["rows"], cfg)
         res["rows"] = keep
@@ -679,13 +777,8 @@ def snapshot(top_n: int | None = None) -> dict:
     if not out["rows"]:
         out["no_trade"] = True
         out["no_trade_reason"] = (
-            _closed_reason()
-            if not open_now else
-            "Nothing has run far enough today to be worth selling into. Most sessions "
-            "are like this; a board that always has something on it is not measuring "
-            "anything." if not cands else
-            "Names have run, but no same-day call on them clears the floors — see what "
-            "was refused and why.")
+            _closed_reason() if not open_now
+            else _why_nothing(cands, refused, _expiry_window_words()))
     else:
         out["no_trade"] = False
     return out
