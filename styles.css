@@ -14150,3 +14150,26 @@ body { overflow: hidden; overscroll-behavior: none; }
   .opp-ribbon { margin-top: 5px; }
   .frame-body { padding-top: 9px; }
 }
+
+/* ── The tool picker opens INSIDE the workspace ──────────────────────────
+   It used to cover the whole screen, including the ten charts the frame
+   exists to keep on screen. It now occupies exactly the workspace box —
+   the market is still readable while you choose where to go. */
+.tabsheet-overlay { display: none; }
+@media (max-width: 900px), (max-height: 520px) {
+  .tabsheet-overlay {
+    display: block; position: fixed; z-index: 260;
+    top: var(--frame-top-h, 0px); left: 0; right: 0;
+    bottom: var(--frame-bottom-h, 0px);
+    background: color-mix(in oklch, var(--bg) 78%, transparent);
+    backdrop-filter: blur(3px);
+  }
+  .tabsheet {
+    position: absolute; inset: 6px 8px;
+    display: flex; flex-direction: column; min-height: 0;
+    max-height: none; overflow: hidden;
+    border-radius: 14px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+  }
+}
