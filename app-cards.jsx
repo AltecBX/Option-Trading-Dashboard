@@ -95,13 +95,28 @@ function mkoRegime(items) {
 // Top-of-page macro command strip: futures, VIX, 10Y, gold, oil, bitcoin.
 function MarketOverview({ apiFetch, onSwitchTicker }) {
   const [items, setItems] = useState([]);
+  // "loading" until the first answer, then "ok" or "down". This used to be
+  // absent, and `if (!items.length) return null` meant a strip that failed to
+  // load looked EXACTLY like a strip that had been removed — the whole frame
+  // silently lost its ten charts and jumped 200px. A source that does not
+  // answer has to say so.
+  const [state, setState] = useState("loading");
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
       try {
         const d = await sharedJson(apiFetch, "/api/market_overview", 12000);
-        if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
-      } catch (_) { /* strip is best-effort */ }
+        if (!stop && d && Array.isArray(d.instruments)) {
+          setItems(d.instruments);
+          setState("ok");
+        } else if (!stop) {
+          setState(s => (s === "ok" ? "ok" : "down"));
+        }
+      } catch (_) {
+        // Keep the last good strip on screen rather than blanking it; only a
+        // failure with nothing to show becomes "not answering".
+        if (!stop) setState(s => (s === "ok" ? "ok" : "down"));
+      }
       if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
     };
     load();
@@ -110,7 +125,28 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
     return () => { stop = true; if (t) clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, []);
   const regime = useMemo(() => mkoRegime(items), [items]);
-  if (!items.length) return null;
+  if (!items.length) {
+    // Ten placeholders, so the frame keeps its exact height and the charts
+    // never appear to have been taken away.
+    const down = state === "down";
+    return (
+      <div className={`mko-grid mko-grid-skel${down ? " mko-down" : ""}`}
+           aria-label="Market overview"
+           aria-busy={down ? undefined : "true"}
+           title={down
+             ? "The market strip did not answer. That is a fault on our side, not a quiet market — the ten instruments are still configured; their prices could not be fetched."
+             : "Loading the ten market instruments…"}>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div className="mko-tile mko-empty" key={i} aria-hidden="true">
+            <div className="mko-head"><span className="mko-label">
+              {down ? "Not answering" : "Loading…"}</span></div>
+            <div className="mko-row2"><span className="mko-price">—</span></div>
+            <div className="skel skel-line mko-spark" />
+          </div>
+        ))}
+      </div>
+    );
+  }
   const fmt = (v, suffix) => v == null ? "—"
     : Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (suffix || "");
   return (
@@ -4838,12 +4874,17 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
     onReorder(ids);
     setDragId(null); setOverId(null);
   };
-  // Row split (v3.38): the app's own sections on line 1; the embedded
-  // partner sites (Finviz / TradingView / Unusual Whales) on line 2 so the
-  // bar reads as "my app" vs "linked sites" instead of one crowded wrap.
-  const EXT = { finviz: 1, tview: 1, whales: 1, swst: 1 };
-  const appTabs = list.filter(t => !EXT[t.id]);
-  const extTabs = list.filter(t => EXT[t.id]);
+  // Grouped rows (v4.92). This used to be two rows — "my sections" and
+  // "sites" — which meant twenty-six equal-looking buttons wrapping across
+  // three lines, and finding one meant reading all of them. TAB_GROUPS in
+  // app-lib is a partition, so every destination still appears exactly once
+  // and none has been moved behind a menu; only the labels are new. The saved
+  // drag order still decides the sequence WITHIN a group, which is why the
+  // rows are built by filtering `list` rather than by iterating group.ids.
+  const groupOf = (id) => {
+    for (const g of TAB_GROUPS) if (g.ids.includes(id)) return g.id;
+    return null;
+  };
   const renderBtn = (t) => (
     <button key={t.id} type="button" role="tab"
             aria-selected={active === t.id}
@@ -4851,41 +4892,49 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
             onClick={() => onChange(t.id)}
             draggable={!!onReorder}
             onDragStart={(e) => { setDragId(t.id); try { e.dataTransfer.effectAllowed = "move"; } catch (_) {} }}
-            onDragOver={(e) => { if (dragId) { e.preventDefault(); setOverId(t.id); } }}
-            onDrop={(e) => { e.preventDefault(); drop(t.id); }}
+            onDragOver={(e) => {
+              // Only a same-group target accepts the drop: the groups are what
+              // make the bar readable, and a drag that silently moved a tool
+              // out of its group would undo that without saying so.
+              if (dragId && groupOf(dragId) === groupOf(t.id)) { e.preventDefault(); setOverId(t.id); }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (groupOf(dragId) === groupOf(t.id)) drop(t.id);
+              else { setDragId(null); setOverId(null); }
+            }}
             onDragEnd={() => { setDragId(null); setOverId(null); }}
-            title={`Show the ${t.label} section. Drag to reorder.`}>
+            title={`Show the ${t.label} section. Drag to reorder it within its group; the order is saved to all your devices.`}>
       {t.label}
     </button>
   );
   return (
-    <div ref={barRef} className="tab-bar tab-bar-2row" role="tablist" aria-label="Dashboard sections"
-         title="Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads.">
-      <div className="tab-row">
-        {appTabs.map(renderBtn)}
-      </div>
-      {(extTabs.length > 0 || hasEarn) && (
-        <div className="tab-row tab-row-ext">
-          {extTabs.length > 0 && (
-            <React.Fragment>
-              <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways. All four need the Site Helper extension to lift their frame-blocking headers.">Sites -</span>
-              {extTabs.map(renderBtn)}
-              <HelperDownloadChip />
-            </React.Fragment>
-          )}
-          {/* Earnings chip rides the Sites row (right-aligned) instead of
-              claiming its own line — reclaims the empty space above it. */}
-          {hasEarn && (
-            <div className={`tab-earn ${soon ? "soon" : ""}`}
-                 title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
-              <span className="tab-earn-lbl">{ticker} earnings</span>
-              <b>{fmtSwingDate(earnDate)}</b>
-              {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+    <nav ref={barRef} className="tab-bar tab-bar-grouped" role="tablist" aria-label="Dashboard sections"
+         title="Every tool in the app, grouped by what it is for. Nothing is hidden behind a menu. Panels stay live in the background, so switching is instant and nothing reloads.">
+      {TAB_GROUPS.map((g) => {
+        const rowTabs = list.filter(t => g.ids.includes(t.id));
+        if (!rowTabs.length) return null;
+        const isConnected = g.id === "connected";
+        return (
+          <div className={`tab-row tab-row-${g.id}`} key={g.id}>
+            <span className="tab-glbl" title={g.tip}>{g.label}</span>
+            <div className="tab-row-btns">
+              {rowTabs.map(renderBtn)}
+              {isConnected && <HelperDownloadChip />}
             </div>
-          )}
-        </div>
-      )}
-    </div>
+            {/* Earnings chip rides the last row, right-aligned. */}
+            {isConnected && hasEarn && (
+              <div className={`tab-earn ${soon ? "soon" : ""}`}
+                   title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
+                <span className="tab-earn-lbl">{ticker} earnings</span>
+                <b>{fmtSwingDate(earnDate)}</b>
+                {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -11064,6 +11113,7 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
   const atBottom = placement === "bottom";
   const [items, setItems] = useState([]);
   const [quotes, setQuotes] = useState({});   // SYM -> {last, chg}
+  const [feedState, setFeedState] = useState("loading");   // loading | ok | down
   const stackRef = useRef(null);
 
   useEffect(() => {
@@ -11072,8 +11122,15 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
       try {
         const r = await apiFetch("/api/finviz_news?limit=60");
         const d = await r.json();
-        if (!stop) setItems(Array.isArray(d && d.items) ? d.items : []);
-      } catch (_) { /* keep last items */ }
+        if (!stop) {
+          const rows = Array.isArray(d && d.items) ? d.items : [];
+          setItems(rows);
+          setFeedState(rows.length ? "ok" : "down");
+        }
+      } catch (_) {
+        /* keep last items — only a failure with nothing to show says "down" */
+        if (!stop) setFeedState(s => (s === "ok" ? "ok" : "down"));
+      }
       if (!stop) timer = setTimeout(tick, 60000);
     };
     tick();
@@ -11134,7 +11191,30 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
     return () => { document.documentElement.style.setProperty("--mn-h", "0px"); };
   });
 
-  if (!items.length) return null;  // unconfigured / empty → no strip
+  // The two bottom rows are part of the frame now: their height is reserved
+  // by the layout, so vanishing would move every other row on the page and
+  // would say "there is no news" when what happened is "the feed did not
+  // answer". It keeps its frame and says which.
+  if (!items.length) {
+    return (
+      <div className={`mn-stack${atBottom ? " mn-bottom" : ""}`} ref={stackRef}
+           aria-label="Market news and ticker tape">
+        <div className="newsticker" aria-label="Market news feed">
+          <div className="nt-badge" title="Live market news feed"><span>Market</span><span>News</span></div>
+          <div className="nt-viewport">
+            <div className="nt-quiet"
+                 title={feedState === "down"
+                   ? "The headline feed did not answer. That is a fault on our side, not a quiet news day."
+                   : "Fetching headlines…"}>
+              {feedState === "down"
+                ? "The news feed is not answering right now — this is a fetch problem, not an empty tape."
+                : "Loading headlines…"}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const dur = Math.max(55, items.length * 6.5);
   const Seq = ({ hidden }) => (
@@ -11284,8 +11364,14 @@ const RAIL_CFG = {
   },
 };
 
-function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
+function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
   const cfg = RAIL_CFG[kind];
+  // "panel" draws the SAME rows as a plain list inside a card instead of the
+  // fixed marquee column. It exists because on a phone the four rails were
+  // display:none — the data was fetched, the component was mounted, and four
+  // of the app's most-used lists were simply unreachable. Same rows, same
+  // gates, same tooltips; only the frame around them differs.
+  const asPanel = variant === "panel";
   const isScan = cfg.source === "scan";
   const [scanRows, setScanRows] = useState([]);   // scan kinds: candidates
   const [srvRows, setSrvRows] = useState([]);     // server kinds: final rows
@@ -11412,7 +11498,16 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
 
   if (!rows.length) {
     // Daily rails keep their frame with a note (pre-open nothing qualifies —
-    // vanishing read as a missing feature); 52W rails simply hide.
+    // vanishing read as a missing feature); 52W rails simply hide. In panel
+    // form nothing may vanish: the tab you picked must answer, even if the
+    // answer is "no names yet".
+    if (asPanel) {
+      return (
+        <div className="hlc-list hlc-empty" title={cfg.emptyTip || cfg.headTip}>
+          {cfg.emptyNote || "No names on this list right now."}
+        </div>
+      );
+    }
     if (!cfg.emptyNote) return null;
     return (
       <div className={cfg.wrapCls} aria-label={cfg.aria}>
@@ -11454,6 +11549,18 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
       })}
     </div>
   );
+  if (asPanel) {
+    return (
+      <div className="hlc-list" aria-label={cfg.aria}>
+        {topTag && (
+          <div className="hlc-subtag" title={cfg.subtagTip(topTag)}>
+            Most common tag: {topTag.tag} · {topTag.n}
+          </div>
+        )}
+        <Col />
+      </div>
+    );
+  }
   return (
     <div className={cfg.wrapCls} aria-label={cfg.aria}>
       <div className={cfg.titleCls} title={cfg.headTip}>{cfg.heading}</div>
@@ -11467,6 +11574,59 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
           <Col inner />
           <Col hidden />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Highs and lows, on a phone (v4.92) ─────────────────────────────────────
+//
+// The four rails only exist above a 2080px viewport; below it they were hidden
+// entirely, so on the device Jerry actually carries, four of the lists he uses
+// most had no route at all. Here they are one card with four tabs, inside the
+// workspace, with the same rows and the same gates. Only the SELECTED list
+// mounts — so this polls less than the four hidden rails it replaces, not
+// more.
+const HIGHLOW_TABS = [
+  { kind: "low52", label: "Near 52W Low", cls: "low",
+    tip: "Watchlist stocks within 3% of their 52-week low." },
+  { kind: "dailyLow", label: "Daily Low", cls: "lowdaily",
+    tip: "Watchlist stocks at or within 1% of today's session low." },
+  { kind: "dailyHigh", label: "Daily High", cls: "daily",
+    tip: "Watchlist stocks at or within 1% of today's session high." },
+  { kind: "high52", label: "Near 52W High", cls: "high",
+    tip: "Watchlist stocks within 3% of their 52-week high." },
+];
+const HIGHLOW_KEY = "jerry_highlow_tab_v1";
+
+function HighLowCard({ apiFetch, onSwitchTicker }) {
+  const [kind, setKind] = useState(() => {
+    try { return localStorage.getItem(HIGHLOW_KEY) || "dailyHigh"; }
+    catch (e) { return "dailyHigh"; }
+  });
+  const pick = (k) => {
+    setKind(k);
+    try { localStorage.setItem(HIGHLOW_KEY, k); } catch (e) {}
+  };
+  const cur = HIGHLOW_TABS.find(t => t.kind === kind) || HIGHLOW_TABS[2];
+  return (
+    <div className="card hlc-card">
+      <div className="kicker" title="The same four high/low lists that flank the desktop layout. On a wide screen they are always-on side columns; here they share one card so all four stay reachable.">
+        Highs &amp; Lows
+      </div>
+      <div className="hlc-tabs" role="tablist" aria-label="High and low lists">
+        {HIGHLOW_TABS.map(t => (
+          <button key={t.kind} type="button" role="tab"
+                  aria-selected={t.kind === kind}
+                  className={`hlc-tab hlc-${t.cls}${t.kind === kind ? " on" : ""}`}
+                  title={t.tip} onClick={() => pick(t.kind)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="hlc-body" title={cur.tip}>
+        <ExtremeRail kind={kind} variant="panel" apiFetch={apiFetch}
+                     onSwitchTicker={onSwitchTicker} />
       </div>
     </div>
   );
@@ -14990,7 +15150,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard),
   NewsHub: _memo(NewsHub), SchwabReconnect: _memo(SchwabReconnect),
   WatchlistStreaksCard: _memo(WatchlistStreaksCard),
-  ExtremeRail: _memo(ExtremeRail),
+  ExtremeRail: _memo(ExtremeRail), HighLowCard: _memo(HighLowCard),
   MarketOverview: _memo(MarketOverview), MarketPosture: _memo(MarketPosture) });
 
 // ── Weekly Option Selling Setup (v3.48) ─────────────────────────────────────
