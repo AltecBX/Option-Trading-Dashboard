@@ -212,6 +212,25 @@ function LiveClock() {
   }
 }
 
+// ── Which part of the Trade screen a panel belongs to (v4.92) ──────────────
+//
+// Trade is one page about four different questions, and the review measured
+// it at roughly twelve thousand pixels tall. These labels only group the
+// jump list — no panel moves, and a panel that matches nothing still appears,
+// ungrouped, rather than dropping out of the index. Matching is by PREFIX
+// because most of these headings carry live detail: "Net Greeks · Short
+// Strangle", "IV by strike · Fri, Sep 11", "Position sizing · Calendar
+// Spread". Pinning the whole string would silently unfile a panel the first
+// time you picked a different strategy.
+const TRADE_SECTION_GROUPS = [["Opportunities", ["sold into strength", "best sales today", "best setup", "worth selling today", "this week's setup"]], ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]], ["Contracts & strategies", ["decision engine", "where the premium goes", "iv by strike", "strategy menu", "p/l at expiration", "options chain"]], ["Risk & management", ["dealer gamma", "net greeks", "roll candidates", "position sizing"]]];
+function tradeSectionGroup(heading) {
+  const h = String(heading || "").toLowerCase();
+  for (const [label, prefixes] of TRADE_SECTION_GROUPS) {
+    for (const p of prefixes) if (h.startsWith(p)) return label;
+  }
+  return "";
+}
+
 // The app bar's clock (v4.92). Same reading as LiveClock, said the way every
 // date in this app is said — the month spelled out, never 2026-09-10 — plus
 // whether the regular session is running right now. It ticks once a MINUTE:
@@ -2458,9 +2477,16 @@ function App() {
     if (!shell) return;
     const top = shell.querySelector(".frame-top");
     const bottom = shell.querySelector(".frame-bottom");
+    const ws = shell.querySelector(".main");
     const apply = () => {
       if (top) shell.style.setProperty("--frame-top-h", `${Math.round(top.offsetHeight)}px`);
       if (bottom) shell.style.setProperty("--frame-bottom-h", `${Math.round(bottom.offsetHeight)}px`);
+      // --ws-h is how tall the WORKSPACE is. Panels used to size themselves
+      // in vh — an embedded partner chart asked for `100vh - 170px` — and
+      // that was right when the page itself scrolled. Now the workspace is
+      // shorter than the viewport by the whole frame, so a vh-sized panel
+      // overflows its own scroll box by a few hundred pixels.
+      if (ws) shell.style.setProperty("--ws-h", `${Math.round(ws.clientHeight)}px`);
     };
     apply();
     let ro = null;
@@ -2468,6 +2494,7 @@ function App() {
       ro = new ResizeObserver(apply);
       if (top) ro.observe(top);
       if (bottom) ro.observe(bottom);
+      if (ws) ro.observe(ws);
     } catch (e) {/* older browser: the fallbacks in the CSS apply */}
     window.addEventListener("resize", apply);
     const t = setTimeout(apply, 1200);
@@ -4561,12 +4588,23 @@ function App() {
   }, /*#__PURE__*/React.createElement(SchwabReconnect, {
     apiFetch: apiFetch,
     placement: "banner"
-  })), isPhone && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+  })), isPhone && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Highs and lows"
   }, /*#__PURE__*/React.createElement(HighLowCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }))), dataPending ? /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Section navigation"
+  }, /*#__PURE__*/React.createElement(SectionNav, {
+    tab: "trade",
+    active: activeTab === "trade" && !dataPending,
+    groups: tradeSectionGroup,
+    label: "Trade sections"
+  }), /*#__PURE__*/React.createElement(SectionNav, {
+    tab: "scanners",
+    active: activeTab === "scanners",
+    label: "Scanner tools"
+  })), dataPending ? /*#__PURE__*/React.createElement("div", {
     className: `card sym-pending${loadError ? " sym-pending-failed" : ""}`,
     "aria-busy": loadError ? undefined : "true",
     title: loadError ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.` : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`

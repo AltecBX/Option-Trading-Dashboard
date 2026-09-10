@@ -912,28 +912,54 @@ function SectionNav({
   const [items, setItems] = useState([]);
   const [here, setHere] = useState(null);
   const scan = React.useCallback(() => {
-    const root = document.querySelector(`.tab-panel[data-tab="${tab}"]`);
-    if (!root) {
+    // A destination is not one panel: Trade alone is nine separate
+    // `<TabPanel tab="trade">` blocks interleaved with other tabs, so this
+    // walks ALL of them in document order.
+    const roots = document.querySelectorAll(`.tab-panel[data-tab="${tab}"]`);
+    if (!roots.length) {
       setItems([]);
       return;
     }
     const out = [];
     const seen = new Set();
-    root.querySelectorAll(".card").forEach(card => {
+    roots.forEach(root => root.querySelectorAll(".card").forEach(card => {
       if (card.closest(".card") !== card) return; // top-level cards only
+      if (!card.getClientRects().length) return; // not on screen at all
       const h = card.querySelector(".kicker, h2, h3, .card-title");
       const text = h ? (h.textContent || "").trim() : "";
-      if (!text || text.length > 44 || seen.has(text)) return;
+      if (!text || seen.has(text)) return;
       if (!card.id) {
         card.id = "sec-" + text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       }
       seen.add(text);
+      // Long headings carry live detail — "Roll candidates · if you're
+      // already short the suggested strike" is sixty-two characters. A length
+      // cap dropped exactly those two panels out of the index while leaving
+      // them on the page, which is the failure this component exists to
+      // avoid. The CHIP is shortened; the entry is never discarded, and the
+      // full heading stays in the tooltip.
+      const short = text.length > 34 ? text.slice(0, 32).replace(/[\s·—-]+$/, "") + "…" : text;
       out.push({
         id: card.id,
         text,
+        short,
         group: groups && groups(text) || ""
       });
-    });
+    }));
+    // Ordered by group, then by where the panel sits on the page. The natural
+    // document order interleaves the four groups, so an index that followed it
+    // printed "Opportunities" three separate times.
+    if (groups) {
+      const rank = new Map();
+      out.forEach(it => {
+        if (it.group && !rank.has(it.group)) rank.set(it.group, rank.size);
+      });
+      // A panel this map does not know still appears — at the end, under no
+      // label. Falling through to "not in the index" is how a new panel would
+      // quietly stop being reachable from here.
+      const at = g => g && rank.has(g) ? rank.get(g) : rank.size + 1;
+      out.sort((a, b) => at(a.group) - at(b.group));
+    }
     setItems(out);
   }, [tab, groups]);
   useEffect(() => {
@@ -1001,7 +1027,7 @@ function SectionNav({
       className: `secnav-btn${here === it.id ? " on" : ""}`,
       onClick: () => go(it.id),
       title: `Jump to ${it.text}`
-    }, it.text));
+    }, it.short || it.text));
   })));
 }
 

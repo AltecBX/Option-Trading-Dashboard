@@ -148,6 +148,34 @@ function LiveClock() {
   }
 }
 
+// ── Which part of the Trade screen a panel belongs to (v4.92) ──────────────
+//
+// Trade is one page about four different questions, and the review measured
+// it at roughly twelve thousand pixels tall. These labels only group the
+// jump list — no panel moves, and a panel that matches nothing still appears,
+// ungrouped, rather than dropping out of the index. Matching is by PREFIX
+// because most of these headings carry live detail: "Net Greeks · Short
+// Strangle", "IV by strike · Fri, Sep 11", "Position sizing · Calendar
+// Spread". Pinning the whole string would silently unfile a panel the first
+// time you picked a different strategy.
+const TRADE_SECTION_GROUPS = [
+  ["Opportunities", ["sold into strength", "best sales today", "best setup",
+                     "worth selling today", "this week's setup"]],
+  ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]],
+  ["Contracts & strategies", ["decision engine", "where the premium goes",
+                              "iv by strike", "strategy menu", "p/l at expiration",
+                              "options chain"]],
+  ["Risk & management", ["dealer gamma", "net greeks", "roll candidates",
+                         "position sizing"]],
+];
+function tradeSectionGroup(heading) {
+  const h = String(heading || "").toLowerCase();
+  for (const [label, prefixes] of TRADE_SECTION_GROUPS) {
+    for (const p of prefixes) if (h.startsWith(p)) return label;
+  }
+  return "";
+}
+
 // The app bar's clock (v4.92). Same reading as LiveClock, said the way every
 // date in this app is said — the month spelled out, never 2026-09-10 — plus
 // whether the regular session is running right now. It ticks once a MINUTE:
@@ -1952,9 +1980,16 @@ function App() {
     if (!shell) return;
     const top = shell.querySelector(".frame-top");
     const bottom = shell.querySelector(".frame-bottom");
+    const ws = shell.querySelector(".main");
     const apply = () => {
       if (top) shell.style.setProperty("--frame-top-h", `${Math.round(top.offsetHeight)}px`);
       if (bottom) shell.style.setProperty("--frame-bottom-h", `${Math.round(bottom.offsetHeight)}px`);
+      // --ws-h is how tall the WORKSPACE is. Panels used to size themselves
+      // in vh — an embedded partner chart asked for `100vh - 170px` — and
+      // that was right when the page itself scrolled. Now the workspace is
+      // shorter than the viewport by the whole frame, so a vh-sized panel
+      // overflows its own scroll box by a few hundred pixels.
+      if (ws) shell.style.setProperty("--ws-h", `${Math.round(ws.clientHeight)}px`);
     };
     apply();
     let ro = null;
@@ -1962,6 +1997,7 @@ function App() {
       ro = new ResizeObserver(apply);
       if (top) ro.observe(top);
       if (bottom) ro.observe(bottom);
+      if (ws) ro.observe(ws);
     } catch (e) { /* older browser: the fallbacks in the CSS apply */ }
     window.addEventListener("resize", apply);
     const t = setTimeout(apply, 1200);
@@ -3599,8 +3635,12 @@ function App() {
           <SchwabReconnect apiFetch={apiFetch} placement="banner" />
         </CardErrorBoundary>
         {/* On a phone the market band and the four high/low lists live at the
-            top of the workspace instead of in the frame — see marketBand. */}
-        {isPhone && (
+            top of the workspace instead of in the frame — see marketBand.
+            Only on Trade, though: putting them above every tool would just
+            move the "the first screen never reaches the actual tool" problem
+            from the frame into the workspace, which is the thing this whole
+            change is undoing. Trade is the home screen; one tap gets here. */}
+        {isPhone && activeTab === "trade" && (
           <React.Fragment>
             {marketBand}
             <CardErrorBoundary label="Highs and lows">
@@ -3616,6 +3656,18 @@ function App() {
             first mock preset in data.js, which is Apple. This branch is the
             only way to make "no data yet" mean no data, rather than another
             company's. */}
+        {/* Local navigation for the two pages long enough to get lost on:
+            Trade is roughly twelve thousand pixels tall and Scanners stacks
+            thirteen tools. Nothing is removed or collapsed — this only moves
+            you to a panel that was always there. The index is read from the
+            rendered page, so a panel added later appears in it without
+            anyone remembering to update a list. */}
+        <CardErrorBoundary label="Section navigation">
+          <SectionNav tab="trade" active={activeTab === "trade" && !dataPending}
+                      groups={tradeSectionGroup} label="Trade sections" />
+          <SectionNav tab="scanners" active={activeTab === "scanners"}
+                      label="Scanner tools" />
+        </CardErrorBoundary>
         {dataPending ? (
           <div className={`card sym-pending${loadError ? " sym-pending-failed" : ""}`}
                aria-busy={loadError ? undefined : "true"}

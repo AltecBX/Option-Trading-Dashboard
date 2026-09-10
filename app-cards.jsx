@@ -2990,6 +2990,42 @@ function computeTicket(r, acct, riskPct) {
 // across tab switches / remounts.
 let _wlLastAutoScan = 0;
 
+// ── Watchlist column presets (v4.92) ───────────────────────────────────────
+//
+// The stocks table has forty-six columns and measures about 3,500 CSS pixels
+// wide — inside a 440-pixel phone that is eight screens of sideways scrolling
+// to read one row. These presets are VIEWS OVER THE SAME COLUMNS: nothing is
+// deleted, "All columns" is always one click away, sorting and filtering are
+// untouched, and the chooser can put any column back. Symbol is in every
+// preset and pinned, because a wide table you have scrolled sideways stops
+// telling you which stock each row is.
+const WL_PRESETS = [
+  { id: "overview", label: "Overview",
+    tip: "What the name is and what it did today: price, change, the flow edge and the suggested side.",
+    cols: ["symbol", "company", "tag", "last", "change", "from_open", "edge",
+           "setup", "prem_sell", "market_cap", "sector"] },
+  { id: "flow", label: "Options flow",
+    tip: "Everything the options tape says: premium by side, sweeps, alerts, conviction and the verdict.",
+    cols: ["symbol", "last", "edge", "flow_net", "flow_agree", "flow_bull", "flow_bear",
+           "call_prem", "put_prem", "net_prem", "pc_ratio", "ask_call_prem", "ask_put_prem",
+           "call_sweeps", "put_sweeps", "flow_alerts", "flow_quality", "flow_cc_risk",
+           "flow_verdict"] },
+  { id: "technicals", label: "Technicals",
+    tip: "Where price sits: momentum, relative volume, distance from the moving averages, and period returns.",
+    cols: ["symbol", "last", "change", "from_open", "rsi", "rel_vol", "rvol_rank",
+           "from_ma20", "from_ma50", "from_ma200", "wtd", "mtd", "qtd", "ytd",
+           "swing_dir", "swing_stage"] },
+  { id: "earnings", label: "Earnings & value",
+    tip: "The calendar and the fundamentals: next report, multiples, size and classification.",
+    cols: ["symbol", "company", "next_earnings", "pe", "forward_pe", "market_cap",
+           "sector", "industry", "weekly", "tag"] },
+  { id: "all", label: "All columns",
+    tip: "Every one of the forty-six columns, for a deliberate side-by-side comparison.",
+    cols: null },
+];
+const WL_PRESET_KEY = "jerry_wl_preset_v1";
+const WL_HIDDEN_KEY = "jerry_wl_hidden_v1";
+
 function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, watchlistSymbols }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -3158,6 +3194,60 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   useEffect(() => { try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(colOrder)); } catch (_) {} }, [colOrder]);
   const _colByKey = {}; COLS.forEach(c => { _colByKey[c.k] = c; });
   const orderedCols = colOrder.map(k => _colByKey[k]).filter(Boolean);
+
+  // Which of the forty-six are on screen. A preset picks a set; the chooser
+  // edits it and the picker then reads "Custom". Symbol is never removable —
+  // it is what tells you whose row you are looking at.
+  const [wlPreset, setWlPreset] = useState(() => {
+    try { return localStorage.getItem(WL_PRESET_KEY) || "overview"; }
+    catch (e) { return "overview"; }
+  });
+  const [wlHidden, setWlHidden] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(WL_HIDDEN_KEY) || "[]")); }
+    catch (e) { return new Set(); }
+  });
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [wlDetail, setWlDetail] = useState(null);        // phone: expanded row
+  const wlIsPhone = useIsPhone();
+  // The PRESET decides which columns are on screen; `wlHidden` only applies
+  // once you have edited one, at which point the picker reads "Custom". The
+  // first version derived the visible set from `wlHidden` alone, so a
+  // remembered preset name showed all forty-six columns until you clicked
+  // the preset again — the label said one thing and the table did another.
+  const visibleCols = useMemo(() => {
+    const p = WL_PRESETS.find(x => x.id === wlPreset);
+    if (p && p.cols) {
+      const keep = new Set(p.cols);
+      return orderedCols.filter(c => c.k === "symbol" || keep.has(c.k));
+    }
+    if (wlPreset === "custom") {
+      return orderedCols.filter(c => c.k === "symbol" || !wlHidden.has(c.k));
+    }
+    return orderedCols;                     // "All columns"
+  }, [colOrder, wlPreset, wlHidden]);
+
+  const pickPreset = (id) => {
+    setWlPreset(id);
+    try { localStorage.setItem(WL_PRESET_KEY, id); } catch (e) {}
+  };
+  const toggleCol = (k) => {
+    if (k === "symbol") return;             // it is what names the row
+    // Editing a preset starts Custom FROM what is currently on screen, not
+    // from all forty-six — otherwise unticking one column would add the
+    // thirty-five the preset was hiding.
+    const base = wlPreset === "custom"
+      ? new Set(wlHidden)
+      : new Set(orderedCols.map(c => c.k).filter(x => !visibleCols.some(v => v.k === x)));
+    if (base.has(k)) base.delete(k); else base.add(k);
+    setWlHidden(base);
+    setWlPreset("custom");
+    try {
+      localStorage.setItem(WL_HIDDEN_KEY, JSON.stringify([...base]));
+      localStorage.setItem(WL_PRESET_KEY, "custom");
+    } catch (e) {}
+  };
+  const presetLabel = (WL_PRESETS.find(p => p.id === wlPreset) || {}).label || "Custom";
+
   const dragColKey = useRef(null);
   const onColDrop = (targetK) => {
     const from = dragColKey.current; dragColKey.current = null;
@@ -3700,15 +3790,112 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           </div>
         ) : (!scanning && status.last_scan && <div className="ab-empty">No flow data to aggregate yet — run a scan.</div>)
       ) : filtered.length > 0 ? (
+        <React.Fragment>
+        {/* Which columns are on screen. Nothing here removes data — every
+            preset is a view over the same forty-six columns, "All columns"
+            is one click away, and the chooser puts any of them back. */}
+        <div className="wl-cols" style={{ marginTop: 10 }}>
+          <span className="wl-cols-lbl" title="Named sets of columns for a particular question. Sorting, filtering and your column order are unaffected.">Columns</span>
+          {WL_PRESETS.map(p => (
+            <button key={p.id} type="button" title={p.tip}
+                    className={`wl-preset${wlPreset === p.id ? " on" : ""}`}
+                    onClick={() => pickPreset(p.id)}>{p.label}</button>
+          ))}
+          <button type="button"
+                  className={`wl-preset wl-chooser-btn${wlPreset === "custom" ? " on" : ""}`}
+                  title="Pick exactly which columns to show. Symbol always stays."
+                  onClick={() => setChooserOpen(o => !o)}>
+            Choose… <span className="wl-cols-n">{visibleCols.length}/{orderedCols.length}</span>
+          </button>
+          {chooserOpen && (
+            <div className="wl-chooser" role="dialog" aria-label="Choose columns">
+              <div className="wl-chooser-head">
+                <span>Showing {visibleCols.length} of {orderedCols.length} columns</span>
+                <button type="button" className="wl-chooser-x" aria-label="Close"
+                        onClick={() => setChooserOpen(false)}>✕</button>
+              </div>
+              <div className="wl-chooser-grid">
+                {orderedCols.map(c => (
+                  <label key={c.k} className={`wl-chooser-item${c.k === "symbol" ? " locked" : ""}`}
+                         title={c.k === "symbol"
+                           ? "Symbol identifies the row, so it cannot be hidden."
+                           : (COL_TIPS[c.k] || c.label)}>
+                    <input type="checkbox" checked={c.k === "symbol" || !wlHidden.has(c.k)}
+                           disabled={c.k === "symbol"}
+                           onChange={() => toggleCol(c.k)} />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        {wlIsPhone ? (
+          /* A 3,500-pixel-wide table inside a 440-pixel phone is eight
+             screens of sideways scrolling to read one row. Same rows, same
+             order, same sort — summarised, with EVERY field behind Details.
+             Nothing is dropped; the wide table is still there on a desktop
+             and through "All columns". */
+          <div className="wl-cards" ref={wlScrollRef} onScroll={onWlScroll}>
+            {shown.map(r => {
+              const open = wlDetail === r.symbol;
+              return (
+                <div key={r.symbol} className="wl-card">
+                  <button type="button" className="wl-card-head"
+                          onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                          title={`Open ${r.symbol}`}>
+                    <span className="wl-card-sym">
+                      {isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}
+                      {r.symbol}
+                    </span>
+                    <span className="wl-card-co">{r.company || "—"}</span>
+                    <span className="wl-card-px">{fmtUsd(liveLast(r), 2)}</span>
+                    <span className={`wl-card-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
+                      {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`}
+                    </span>
+                  </button>
+                  <div className="wl-card-meta">
+                    <span title={COL_TIPS.edge}>Edge <b>{r.edge != null ? r.edge : "—"}</b></span>
+                    <span title={COL_TIPS.setup}>{r.setup || "—"}</span>
+                    <span title={COL_TIPS.tag}>{r.tag || "no tag"}</span>
+                  </div>
+                  <button type="button" className="wl-card-more"
+                          aria-expanded={open}
+                          title={`Every one of the ${orderedCols.length} columns for ${r.symbol}, including the ones this summary leaves out.`}
+                          onClick={() => setWlDetail(open ? null : r.symbol)}>
+                    {open ? "Hide details" : `All ${orderedCols.length} fields`}
+                  </button>
+                  {open && (
+                    <table className="scan-table wl-detail-table">
+                      <tbody>
+                        {orderedCols.map(c => (
+                          <tr key={c.k}>
+                            <th title={COL_TIPS[c.k] || c.label}>{c.label}</th>
+                            {renderCell(c, r)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
+            {visN < filtered.length && (
+              <div className="wl-more" onClick={() => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))}>
+                Showing {visN} of {filtered.length} — scroll or tap for more
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }} ref={wlScrollRef} onScroll={onWlScroll}>
           <table className="scan-table wl-table">
             <thead><tr>
-              {orderedCols.map(c => (
+              {visibleCols.map(c => (
                 <th key={c.k} draggable
                     onDragStart={(e) => { dragColKey.current = c.k; e.dataTransfer.effectAllowed = "move"; }}
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
                     onDrop={(e) => { e.preventDefault(); onColDrop(c.k); }}
-                    className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`}
+                    className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}${c.k === "symbol" ? " wl-pin" : ""}`}
                     onClick={() => setSortKey(c.k)}
                     title={`${COL_TIPS[c.k] || c.label} · click to sort · drag to reorder`}>
                   {c.label}{sort.key === c.k ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
@@ -3720,7 +3907,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                 <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                     onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, symbol: r.symbol }); }}
                     title={`Open ${r.symbol} · right-click to remove`}>
-                  {orderedCols.map(c => renderCell(c, r))}
+                  {visibleCols.map(c => renderCell(c, r))}
                 </tr>
               ))}
             </tbody>
@@ -3731,6 +3918,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
             </div>
           )}
         </div>
+        )}
+        </React.Fragment>
       ) : (!scanning && status.last_scan && <div className="ab-empty">No stocks match these filters.</div>)}
       {ctx && (
         <div className="wl-ctx" onClick={e => e.stopPropagation()}
