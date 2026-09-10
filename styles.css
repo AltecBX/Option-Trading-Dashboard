@@ -14173,3 +14173,6 @@ body { overflow: hidden; overscroll-behavior: none; }
     box-shadow: 0 10px 40px rgba(0,0,0,0.55);
   }
 }
+
+/* Momentum scrolling inside the workspace on older iOS. */
+.main { -webkit-overflow-scrolling: touch; }
