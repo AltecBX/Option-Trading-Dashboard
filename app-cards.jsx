@@ -4938,12 +4938,32 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
   );
 }
 
-function TabPanel({ tab, active, children }) {
+function TabPanel({ tab, active, children, pending, pendingLabel }) {
   // Lazy-mount: render children only after the tab is first activated, then
   // keep them mounted (hidden) so they stay live. Avoids paying the mount /
   // fetch cost for sections you never open — faster initial load on mobile.
   const seen = useRef(active === tab);
   if (active === tab) seen.current = true;
+  // `pending` = the payload for the selected SYMBOL has not arrived. These
+  // panels are built entirely from it, and the alternative to a skeleton is
+  // not "an empty panel" — it is another symbol's numbers under this
+  // symbol's name, which is what used to happen. One gate here covers every
+  // card inside instead of auditing each one for a null it cannot survive.
+  if (pending && active === tab) {
+    return (
+      <div className={`tab-panel tp-in tp-pending`} role="tabpanel" data-tab={tab}
+           aria-busy="true">
+        <div className="card lz-loading"
+             title={`Waiting for ${pendingLabel || "this symbol"}'s data. Nothing is drawn until the numbers belong to it — a price from another symbol would be worse than no price.`}>
+          <div className="kicker">Loading {pendingLabel || "this symbol"}</div>
+          <div className="skel skel-line" style={{ width: "36%" }} />
+          <div className="skel skel-line" style={{ width: "84%" }} />
+          <div className="skel skel-line" style={{ width: "70%" }} />
+          <div className="skel skel-line" style={{ width: "78%" }} />
+        </div>
+      </div>
+    );
+  }
   // tp-in re-applies on every activation → the enter animation (a 180ms fade
   // + rise, reduced-motion safe) replays on each tab switch.
   return (

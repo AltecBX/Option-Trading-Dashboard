@@ -2650,22 +2650,41 @@ function App() {
   }, [tickerInput, ticker]);
 
   // Compute data
+  //
+  // `PRESETS[ticker]` exists once EITHER the live payload has landed
+  // (bootstrapLive writes the symbol in) or the symbol is one of the six
+  // demo presets data.js ships with. Until then there is nothing to draw.
+  //
+  // This used to answer "nothing yet" by building the frame out of
+  // `Object.keys(PRESETS)[0]` — which is AAPL. So every cold load of a
+  // symbol outside those six painted Apple's company name, Apple's $234.18
+  // and an option chain struck around Apple's price, under the ticker you
+  // actually asked for. The review caught it on AEHR; it was every symbol.
+  //
+  // A placeholder now carries the SHAPE and none of the content: no rows, no
+  // bars, no chain, no name, no price. Everything downstream that shows a
+  // symbol-specific number is gated on `dataPending` below, the same way it
+  // is already gated on `loadError` — a number that does not belong to this
+  // symbol is worse than no number.
   const dataset = useMemo(() => {
     const have = window.MockData?.PRESETS?.[ticker];
     if (!have) {
-      const fallback = Object.keys(window.MockData?.PRESETS || {})[0];
-      const t = fallback || ticker;
-      const {
-        rows,
-        current
-      } = window.MockData.buildWeekly(t, weeks);
-      const daily = window.MockData.buildDaily(t, 90);
-      const chain = window.MockData.buildOptionChain(t, current.current);
       return {
-        rows,
-        current,
-        daily,
-        chain
+        rows: [],
+        daily: [],
+        chain: {
+          calls: [],
+          puts: []
+        },
+        current: {
+          baseline: null,
+          current: null,
+          week_start: null,
+          earnings: false,
+          name: null,
+          sector: null
+        },
+        placeholder: true
       };
     }
     const {
@@ -2687,6 +2706,9 @@ function App() {
     daily: _payloadDaily,
     chain
   } = dataset;
+  // "This symbol's data has not arrived." Distinct from loadError, which
+  // means it tried and failed; this one is still on its way.
+  const dataPending = !!dataset.placeholder;
 
   // Build a "today" candle from the live quote — same as ThinkorSwim/TV.
   // Tracks intraday high/low across ticks. Resets at midnight ET.
@@ -4280,8 +4302,9 @@ function App() {
     className: "sb-search-ex"
   }, r.exchange))))), /*#__PURE__*/React.createElement("div", {
     className: "sb-ticker-name-line"
-  }, loadError ? /*#__PURE__*/React.createElement("span", {
-    className: "muted"
+  }, loadError || dataPending ? /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    title: dataPending ? `Waiting for ${ticker}'s data — the company name is not filled in from anywhere else.` : undefined
   }, "\u2014") : current.name), !loadError && (() => {
     const wlEntry = watchlistData.symbols.find(s => s.symbol === ticker);
     const wlTags = wlEntry ? Array.from(new Set([...(wlEntry.tags || []), ...(wlEntry.tag ? [wlEntry.tag] : [])])).filter(Boolean) : [];
@@ -4293,7 +4316,7 @@ function App() {
       key: t,
       className: "sb-symtag"
     }, t)));
-  })(), !loadError && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
+  })(), !loadError && !dataPending && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
     className: "sb-divyield",
     title: `Trailing annual dividend yield for ${ticker}, from the stock's last close.`
   }, "Div yield ", current.dividend_yield.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
@@ -4302,14 +4325,15 @@ function App() {
     ticker: ticker
   }), /*#__PURE__*/React.createElement("div", {
     className: "sb-ticker-price-row"
-  }, loadError ?
+  }, loadError || dataPending ?
   /*#__PURE__*/
   // When the active ticker fetch failed, hide the stale
   // price/change display so user doesn't think they're
   // seeing live data for the bad symbol. The error
   // message is already shown elsewhere in the sidebar.
   React.createElement("span", {
-    className: "sb-price muted"
+    className: "sb-price muted",
+    title: dataPending && !loadError ? `Waiting for ${ticker}'s price. It stays blank until the number belongs to ${ticker}.` : undefined
   }, "\u2014") : (() => {
     // currentPrice is already live (overridden in App scope
     // with getLivePrice(ticker)). Live change_pct preferred
@@ -4337,7 +4361,7 @@ function App() {
     }, " \xB7 stale"))), /*#__PURE__*/React.createElement("span", {
       className: `delta ${displayChg >= 0 ? "up" : "down"}`
     }, displayChg >= 0 ? "▲" : "▼", " ", Math.abs(displayChg).toFixed(2), "%"));
-  })()), !loadError && (current.pe != null || current.forward_pe != null) && /*#__PURE__*/React.createElement("div", {
+  })()), !loadError && !dataPending && (current.pe != null || current.forward_pe != null) && /*#__PURE__*/React.createElement("div", {
     className: "sb-pe",
     title: "Trailing and forward price-to-earnings ratio"
   }, "P/E ", current.pe != null ? current.pe : "—", " \xB7 Fwd ", current.forward_pe != null ? current.forward_pe : "—")))), /*#__PURE__*/React.createElement("div", {
@@ -4542,7 +4566,34 @@ function App() {
   }, /*#__PURE__*/React.createElement(HighLowCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }))), /*#__PURE__*/React.createElement(TabPanel, {
+  }))), dataPending ? /*#__PURE__*/React.createElement("div", {
+    className: `card sym-pending${loadError ? " sym-pending-failed" : ""}`,
+    "aria-busy": loadError ? undefined : "true",
+    title: loadError ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.` : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, loadError ? `No data for ${ticker}` : `Loading ${ticker}`), /*#__PURE__*/React.createElement("div", {
+    className: "sym-pending-msg"
+  }, loadError ? /*#__PURE__*/React.createElement(React.Fragment, null, loadError, " ", "The panels on this screen are built entirely from ", ticker, "\u2019s own history, quote and option chain, so there is nothing to show until that arrives. Pick another symbol, or use the button below to try again.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Fetching this symbol\u2019s history, quote and option chain. Panels stay blank until the numbers belong to ", ticker, ".")), loadError ? /*#__PURE__*/React.createElement("button", {
+    className: "card-error-btn",
+    onClick: refreshData,
+    title: `Ask for ${ticker} again.`
+  }, "Try again") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "38%"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "86%"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "72%"
+    }
+  }))) : (() => /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TabPanel, {
     tab: "discover",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
@@ -4952,7 +5003,9 @@ function App() {
     }, "\u2192 View positions"));
   })(), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Sold into strength"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4965,7 +5018,9 @@ function App() {
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Best sales today"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4978,7 +5033,9 @@ function App() {
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Best setup"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4990,7 +5047,9 @@ function App() {
     onOpenTab: changeTab
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Worth selling today"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -5004,13 +5063,17 @@ function App() {
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(WatchlistAlertsCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, rec && (() => {
     const mode = strategyMode || "both";
     const cc = rec.cc || (rec.title ? {
@@ -6027,7 +6090,9 @@ function App() {
     onOpenEarnOps: () => changeTab("earnops")
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Valuation"
   }, /*#__PURE__*/React.createElement(ValuationCard, {
@@ -6316,7 +6381,9 @@ function App() {
     uwHealth: uwHealth
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement("div", {
     id: "jump-analyst",
     className: "jump-anchor",
@@ -6339,7 +6406,9 @@ function App() {
     ticker: ticker
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement("div", {
     id: "jump-builder",
     className: "jump-anchor",
@@ -6375,7 +6444,9 @@ function App() {
     livePrice: getLivePrice(ticker) ?? currentPrice
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(PullbackProfileCard, {
     ticker: ticker,
     currentPrice: currentPrice,
@@ -8992,7 +9063,9 @@ function App() {
     className: "research-empty"
   }, "No valid weekly cycles in the selected window.")))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Dealer Gamma Exposure"
   }, (() => {
@@ -9772,7 +9845,9 @@ function App() {
     }, closed.map(renderRow))));
   })())), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Strategies"
   }, /*#__PURE__*/React.createElement("div", {
@@ -10418,7 +10493,7 @@ function App() {
         setManualPutWing(null);
       }
     }, "Reset to auto")));
-  })()))), Tweaks && /*#__PURE__*/React.createElement(Tweaks, {
+  })())))))(), Tweaks && /*#__PURE__*/React.createElement(Tweaks, {
     title: "Tweaks"
   }, /*#__PURE__*/React.createElement(TweakSection, {
     label: "Color"

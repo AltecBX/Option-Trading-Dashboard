@@ -2112,15 +2112,31 @@ function App() {
   }, [tickerInput, ticker]);
 
   // Compute data
+  //
+  // `PRESETS[ticker]` exists once EITHER the live payload has landed
+  // (bootstrapLive writes the symbol in) or the symbol is one of the six
+  // demo presets data.js ships with. Until then there is nothing to draw.
+  //
+  // This used to answer "nothing yet" by building the frame out of
+  // `Object.keys(PRESETS)[0]` — which is AAPL. So every cold load of a
+  // symbol outside those six painted Apple's company name, Apple's $234.18
+  // and an option chain struck around Apple's price, under the ticker you
+  // actually asked for. The review caught it on AEHR; it was every symbol.
+  //
+  // A placeholder now carries the SHAPE and none of the content: no rows, no
+  // bars, no chain, no name, no price. Everything downstream that shows a
+  // symbol-specific number is gated on `dataPending` below, the same way it
+  // is already gated on `loadError` — a number that does not belong to this
+  // symbol is worse than no number.
   const dataset = useMemo(() => {
     const have = window.MockData?.PRESETS?.[ticker];
     if (!have) {
-      const fallback = Object.keys(window.MockData?.PRESETS || {})[0];
-      const t = fallback || ticker;
-      const { rows, current } = window.MockData.buildWeekly(t, weeks);
-      const daily = window.MockData.buildDaily(t, 90);
-      const chain = window.MockData.buildOptionChain(t, current.current);
-      return { rows, current, daily, chain };
+      return {
+        rows: [], daily: [], chain: { calls: [], puts: [] },
+        current: { baseline: null, current: null, week_start: null,
+                   earnings: false, name: null, sector: null },
+        placeholder: true,
+      };
     }
     const { rows, current } = window.MockData.buildWeekly(ticker, weeks);
     const daily = window.MockData.buildDaily(ticker, 90);
@@ -2129,6 +2145,9 @@ function App() {
   }, [ticker, weeks, dataVersion]);
 
   const { rows, current, daily: _payloadDaily, chain } = dataset;
+  // "This symbol's data has not arrived." Distinct from loadError, which
+  // means it tried and failed; this one is still on its way.
+  const dataPending = !!dataset.placeholder;
 
   // Build a "today" candle from the live quote — same as ThinkorSwim/TV.
   // Tracks intraday high/low across ticks. Resets at midnight ET.
@@ -3323,7 +3342,11 @@ function App() {
                   </div>
                 )}
               </div>
-              <div className="sb-ticker-name-line">{loadError ? <span className="muted">—</span> : current.name}</div>
+              <div className="sb-ticker-name-line">
+                {loadError || dataPending
+                  ? <span className="muted" title={dataPending ? `Waiting for ${ticker}'s data — the company name is not filled in from anywhere else.` : undefined}>—</span>
+                  : current.name}
+              </div>
               {/* v3.56: the symbol's watchlist tag(s) sit under the name,
                   with the dividend yield below them. */}
               {!loadError && (() => {
@@ -3338,7 +3361,7 @@ function App() {
                   </div>
                 );
               })()}
-              {!loadError && current.dividend_yield != null && current.dividend_yield > 0 && (
+              {!loadError && !dataPending && current.dividend_yield != null && current.dividend_yield > 0 && (
                 <div className="sb-divyield" title={`Trailing annual dividend yield for ${ticker}, from the stock's last close.`}>
                   Div yield {current.dividend_yield.toFixed(2)}%
                 </div>
@@ -3347,12 +3370,15 @@ function App() {
             <div className="sb-ticker-display">
               <TickerLogo ticker={ticker} />
               <div className="sb-ticker-price-row">
-                {loadError ? (
+                {loadError || dataPending ? (
                   // When the active ticker fetch failed, hide the stale
                   // price/change display so user doesn't think they're
                   // seeing live data for the bad symbol. The error
                   // message is already shown elsewhere in the sidebar.
-                  <span className="sb-price muted">—</span>
+                  <span className="sb-price muted"
+                        title={dataPending && !loadError
+                          ? `Waiting for ${ticker}'s price. It stays blank until the number belongs to ${ticker}.`
+                          : undefined}>—</span>
                 ) : (() => {
                   // currentPrice is already live (overridden in App scope
                   // with getLivePrice(ticker)). Live change_pct preferred
@@ -3388,7 +3414,7 @@ function App() {
                   );
                 })()}
               </div>
-              {!loadError && (current.pe != null || current.forward_pe != null) && (
+              {!loadError && !dataPending && (current.pe != null || current.forward_pe != null) && (
                 <div className="sb-pe" title="Trailing and forward price-to-earnings ratio">
                   P/E {current.pe != null ? current.pe : "—"} · Fwd {current.forward_pe != null ? current.forward_pe : "—"}
                 </div>
@@ -3582,6 +3608,50 @@ function App() {
             </CardErrorBoundary>
           </React.Fragment>
         )}
+        {/* Nothing below is drawn until the payload belongs to the SELECTED
+            symbol. Every panel here reads `rows`, `chain` and `current`, and
+            JSX children are evaluated eagerly — so a panel that is merely
+            hidden has still already computed itself from whatever was in
+            scope. What used to be in scope before the payload landed was the
+            first mock preset in data.js, which is Apple. This branch is the
+            only way to make "no data yet" mean no data, rather than another
+            company's. */}
+        {dataPending ? (
+          <div className={`card sym-pending${loadError ? " sym-pending-failed" : ""}`}
+               aria-busy={loadError ? undefined : "true"}
+               title={loadError
+                 ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.`
+                 : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`}>
+            <div className="kicker">
+              {loadError ? `No data for ${ticker}` : `Loading ${ticker}`}
+            </div>
+            <div className="sym-pending-msg">
+              {loadError ? (
+                <React.Fragment>
+                  {loadError}
+                  {" "}The panels on this screen are built entirely from {ticker}&rsquo;s own
+                  history, quote and option chain, so there is nothing to show until that
+                  arrives. Pick another symbol, or use the button below to try again.
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  Fetching this symbol&rsquo;s history, quote and option chain. Panels stay
+                  blank until the numbers belong to {ticker}.
+                </React.Fragment>
+              )}
+            </div>
+            {loadError
+              ? <button className="card-error-btn" onClick={refreshData}
+                        title={`Ask for ${ticker} again.`}>Try again</button>
+              : (
+                <React.Fragment>
+                  <div className="skel skel-line" style={{ width: "38%" }} />
+                  <div className="skel skel-line" style={{ width: "86%" }} />
+                  <div className="skel skel-line" style={{ width: "72%" }} />
+                </React.Fragment>
+              )}
+          </div>
+        ) : (() => (<React.Fragment>
         <TabPanel tab="discover" active={activeTab}>
           <CardErrorBoundary label="Discovery screeners">
             <ScreenersHub
@@ -3904,7 +3974,7 @@ function App() {
         {/* Sold into strength (v4.82) — the time-critical one, so it sits
             first: a spike's premium decays by the minute, and this board is
             only worth anything while the move is live. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Sold into strength">
             <LazyTab chunk="tab-spike" component="SpikeCard" label="Sold into strength"
                      apiFetch={apiFetch}
@@ -3916,7 +3986,7 @@ function App() {
             evidence of expiring worthless while still paying for the risk.
             Sits above everything else on the Trade tab because it is the
             first thing to read; NO TRADE is a valid answer here. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Best sales today">
             <LazyTab chunk="tab-sell" component="SellBestCard" label="Best sales today"
                      apiFetch={apiFetch}
@@ -3926,7 +3996,7 @@ function App() {
         {/* Best Setup (v4.58) — one explained recommendation built from
             every layer the app already computes, so the answer arrives
             without visiting five tabs and combining them by hand. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Best setup">
             <LazyTab chunk="tab-setup" component="BestSetupCard" label="Best setup"
                      apiFetch={apiFetch} ticker={ticker} onOpenTab={changeTab} />
@@ -3935,14 +4005,14 @@ function App() {
         {/* Which names are worth selling today. Clicking a row loads that
             symbol into the card above, so the shortlist and the explained
             recommendation are one workflow rather than two. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Worth selling today">
             <LazyTab chunk="tab-setup" component="SellBoardCard"
                      label="Worth selling today" apiFetch={apiFetch}
                      onPickTicker={(t) => { setTicker(t); setTickerInput(t); }} />
           </CardErrorBoundary>
         </TabPanel>
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <WatchlistAlertsCard
             apiFetch={apiFetch}
             onSwitchTicker={switchTicker}
@@ -3952,7 +4022,7 @@ function App() {
         {/* Roll Manager — only renders if the active ticker has open
             short calls. Computes 3 roll choices (same strike +1wk,
             +$5 +1wk, +$10 +1wk) plus buy-back close, with net credit. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         {rec && (() => {
           const mode = strategyMode || "both";
           const cc = rec.cc || (rec.title ? { kind: rec.kind, title: rec.title } : null);
@@ -4775,7 +4845,7 @@ function App() {
         </TabPanel>
 
         {/* Median statistics */}
-        <TabPanel tab="analyze" active={activeTab}>
+        <TabPanel tab="analyze" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         {/* Valuation vs history & peers — is today's multiple cheap? */}
         <CardErrorBoundary label="Valuation">
           <ValuationCard apiFetch={apiFetch} ticker={ticker} />
@@ -4941,7 +5011,7 @@ function App() {
         </TabPanel>
 
         {/* Analyst price targets, ratings, and catalyst signals */}
-        <TabPanel tab="analyze" active={activeTab}>
+        <TabPanel tab="analyze" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <div id="jump-analyst" className="jump-anchor" aria-hidden="true"></div>
         <AnalystCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} onData={setAnalystData} strategyMode={strategyMode} />
         {/* Priced for Perfection (v3.67): pre-earnings module — how much
@@ -4962,7 +5032,7 @@ function App() {
             recommendation severity, and earnings proximity to surface
             ONE specific actionable trade for each strategy (CC + CSP)
             with all the math worked out. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <div id="jump-builder" className="jump-anchor" aria-hidden="true"></div>
         <TradeBuilderCard
           ticker={ticker}
@@ -4998,7 +5068,7 @@ function App() {
           livePrice={getLivePrice(ticker) ?? currentPrice}
         />
         </TabPanel>
-        <TabPanel tab="analyze" active={activeTab}>
+        <TabPanel tab="analyze" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <PullbackProfileCard ticker={ticker} currentPrice={currentPrice} livePrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} />
 
         {/* IV vs Hist + Probabilities */}
@@ -7201,7 +7271,7 @@ function App() {
         </TabPanel>
 
         {/* Dealer Gamma Exposure (GEX) */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <CardErrorBoundary label="Dealer Gamma Exposure">
         {(() => {
           if (!calls.length && !puts.length) return null;
@@ -7957,7 +8027,7 @@ function App() {
         </TabPanel>
 
         {/* Strategies */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <CardErrorBoundary label="Strategies">
         <div className="card" style={{marginBottom: "var(--row-gap)"}}>
           <div className="card-head">
@@ -8428,6 +8498,7 @@ function App() {
         </CardErrorBoundary>
         </TabPanel>
 
+        </React.Fragment>))()}
         {/* Tweaks panel */}
         {Tweaks && (
           <Tweaks title="Tweaks">
