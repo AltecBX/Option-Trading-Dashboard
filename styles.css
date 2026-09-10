@@ -14094,3 +14094,59 @@ body { overflow: hidden; overscroll-behavior: none; }
 .panel-method-body p:last-child { margin-bottom: 0; }
 /* The status line carries the badge, so it needs to sit on the baseline. */
 .sl-status { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHORT VIEWPORTS
+   A narrow window and a short window are different problems, and the layout
+   only knew about narrow. An iPhone 16 Pro Max in LANDSCAPE is 956 CSS
+   pixels wide — past every max-width:900px rule — and 440 tall, so it took
+   the full desktop frame and left a fifty-pixel workspace with both feeds
+   below the fold. The band moves into the workspace (see bandInWorkspace);
+   these rules take the rest of the height out of the frame itself.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-height: 700px) {
+  .appbar { height: 38px; margin-bottom: 6px; }
+  .frame-top { padding-bottom: 4px; }
+  .frame-body { padding-top: 8px; }
+  .mko-tile  { min-height: 0; padding: 4px 9px 3px; }
+  .mko-price { font-size: 15px; }
+  .mko-spark { height: 14px; margin-top: 2px; }
+  .mko-label { font-size: 11px; }
+  .tab-bar-grouped { padding: 2px 7px; gap: 0; }
+  .tab-bar-grouped .tab-btn { font-size: 12px; padding: 3px 9px; }
+  .tab-row + .tab-row { padding-top: 0; }
+  .secnav { padding: 4px 8px; }
+}
+/* Shorter still — a phone on its side. The four navigation rows are the
+   biggest single block left, so they come out and the app bar carries a
+   button to the same grouped, searchable picker. Nothing is unreachable;
+   it is one tap instead of zero. */
+@media (max-height: 520px) {
+  .tab-bar, .tab-bar-grouped { display: none !important; }
+  .ab-tools { display: inline-flex !important; }
+  .appbar { height: 34px; margin-bottom: 4px; }
+  .mko-grid, .mko-grid-skel { grid-template-columns: repeat(5, 1fr) !important; gap: 4px; }
+  .mko-tile  { padding: 3px 7px 2px; border-radius: 8px; }
+  .mko-price { font-size: 13px; }
+  .mko-spark { height: 9px; }
+  .mko-chg, .mko-pts { font-size: 9px; }
+  .frame-top { padding: 4px 12px 3px; }
+  .frame-body { padding: 6px 12px 0; }
+  .frame-bottom { padding: 2px 12px 0; }
+  .statusline { display: none; }
+  .lrail { display: none; }     /* no room to flank a 440px-tall window */
+}
+/* The tools door only exists where the rows are gone. */
+.ab-tools { display: none; }
+
+/* A 1440x900 laptop is not "short" enough to move the band, but four full
+   navigation rows plus a 46-pixel app bar still cost the workspace about
+   sixty pixels it can use. Trim the chrome, keep every row. */
+@media (min-width: 1081px) and (max-height: 920px) {
+  .appbar { height: 40px; margin-bottom: 7px; }
+  .tab-bar-grouped { padding: 3px 8px; gap: 0; }
+  .tab-bar-grouped .tab-btn { font-size: 12px; padding: 4px 10px; }
+  .tab-row + .tab-row { padding-top: 0; }
+  .opp-ribbon { margin-top: 5px; }
+  .frame-body { padding-top: 9px; }
+}

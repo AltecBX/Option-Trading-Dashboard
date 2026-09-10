@@ -525,6 +525,15 @@ function App() {
   // cannot move a node from the frame into the workspace — and on a phone
   // that move is the whole point.
   const isPhone = useIsPhone();
+  // A SHORT viewport is a different problem from a narrow one, and the layout
+  // only knew about narrow. An iPhone 16 Pro Max in landscape is 956 CSS
+  // pixels wide — past every max-width:900px rule in the file — and 440 tall,
+  // so it took the full desktop frame: app bar, posture, ten charts, context,
+  // ribbon and four rows of navigation, 712 pixels of frame in a 440-pixel
+  // window. Measured, the workspace came out FIFTY pixels tall and both feeds
+  // sat below the fold. Height has to be part of the question.
+  const shortView = useMediaQuery("(max-height: 700px)");
+  const bandInWorkspace = isPhone || shortView;
   const [helpOpen, setHelpOpen] = useState(false); // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -4008,7 +4017,12 @@ function App() {
     className: "ab-kbd"
   }, "\u2318K")), /*#__PURE__*/React.createElement("div", {
     className: "ab-right"
-  }, /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "ab-icon ab-tools",
+    onClick: () => setTabSheetOpen(true),
+    "aria-label": "All tools",
+    title: "Every destination, grouped and searchable."
+  }, "\u25A6"), /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
     className: "ab-icon",
     onClick: () => setHelpOpen(true),
     "aria-label": "Keyboard shortcuts",
@@ -4052,7 +4066,7 @@ function App() {
   }), /*#__PURE__*/React.createElement(MarketOverview, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), !isPhone && marketBand, /*#__PURE__*/React.createElement(TabBar, {
+  }), !bandInWorkspace && marketBand, /*#__PURE__*/React.createElement(TabBar, {
     active: activeTab,
     onChange: changeTab,
     ticker: ticker,
@@ -4588,7 +4602,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(SchwabReconnect, {
     apiFetch: apiFetch,
     placement: "banner"
-  })), isPhone && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, isPhone && /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Highs and lows"
   }, /*#__PURE__*/React.createElement(HighLowCard, {
     apiFetch: apiFetch,

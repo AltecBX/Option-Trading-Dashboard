@@ -379,6 +379,15 @@ function App() {
   // cannot move a node from the frame into the workspace — and on a phone
   // that move is the whole point.
   const isPhone = useIsPhone();
+  // A SHORT viewport is a different problem from a narrow one, and the layout
+  // only knew about narrow. An iPhone 16 Pro Max in landscape is 956 CSS
+  // pixels wide — past every max-width:900px rule in the file — and 440 tall,
+  // so it took the full desktop frame: app bar, posture, ten charts, context,
+  // ribbon and four rows of navigation, 712 pixels of frame in a 440-pixel
+  // window. Measured, the workspace came out FIFTY pixels tall and both feeds
+  // sat below the fold. Height has to be part of the question.
+  const shortView = useMediaQuery("(max-height: 700px)");
+  const bandInWorkspace = isPhone || shortView;
   const [helpOpen, setHelpOpen] = useState(false);    // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0);  // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -3131,6 +3140,12 @@ function App() {
           <kbd className="ab-kbd">⌘K</kbd>
         </button>
         <div className="ab-right">
+          {/* Short viewports hide the four navigation rows to give the
+              workspace its height back, so the picker needs a visible door
+              here — every destination stays one tap away. */}
+          <button className="ab-icon ab-tools" onClick={() => setTabSheetOpen(true)}
+                  aria-label="All tools"
+                  title="Every destination, grouped and searchable.">▦</button>
           <MarketClock />
           <button className="ab-icon" onClick={() => setHelpOpen(true)}
                   aria-label="Keyboard shortcuts"
@@ -3163,7 +3178,7 @@ function App() {
           frame rather than the workspace — 5×2 on a wide desktop, 2×5 in
           portrait on a phone. */}
       <MarketOverview apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      {!isPhone && marketBand}
+      {!bandInWorkspace && marketBand}
 
       {/* Tab bar (v1.25) — full-width section switcher, spans both columns */}
       <TabBar active={activeTab} onChange={changeTab} ticker={ticker}
@@ -3640,12 +3655,14 @@ function App() {
             move the "the first screen never reaches the actual tool" problem
             from the frame into the workspace, which is the thing this whole
             change is undoing. Trade is the home screen; one tap gets here. */}
-        {isPhone && activeTab === "trade" && (
+        {bandInWorkspace && activeTab === "trade" && (
           <React.Fragment>
             {marketBand}
-            <CardErrorBoundary label="Highs and lows">
-              <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-            </CardErrorBoundary>
+            {isPhone && (
+              <CardErrorBoundary label="Highs and lows">
+                <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+              </CardErrorBoundary>
+            )}
           </React.Fragment>
         )}
         {/* Nothing below is drawn until the payload belongs to the SELECTED
