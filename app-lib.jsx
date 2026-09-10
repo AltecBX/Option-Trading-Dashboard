@@ -581,6 +581,39 @@ function DataStatus({ kind, at, note, label }) {
   );
 }
 
+// ── Long explanations, out of the way but not gone (v4.92) ─────────────────
+//
+// Several boards spend the top of the panel — the most valuable space on the
+// screen — explaining themselves, and put the verdict underneath. The review
+// measured this on Sold Into Strength: an introduction, then scan metadata,
+// then the actual answer. The explanation is not noise and must not be cut;
+// it just should not come first. This is a plain <details>, so it is
+// keyboard-reachable, findable by the browser's own search when open, and
+// costs one line when closed.
+function PanelMethod({ label, children, open }) {
+  return (
+    <details className="panel-method" open={open || undefined}>
+      <summary title="The reasoning behind this board — what it measures, and what it refuses to claim.">
+        {label || "Method — what this board measures"}
+      </summary>
+      <div className="panel-method-body">{children}</div>
+    </details>
+  );
+}
+
+// One compact line for a board's answer: the verdict, why, and what to do
+// next. Everything else on the panel is supporting material.
+function PanelVerdict({ tone, verdict, reason, at, tip, children }) {
+  return (
+    <div className={`panel-verdict pv-${tone || "neutral"}`} title={tip}>
+      <span className="pv-badge">{verdict}</span>
+      {reason && <span className="pv-reason">{reason}</span>}
+      {at && <span className="pv-at" title="When this answer was worked out.">{fmtStatusAt(at)}</span>}
+      {children && <span className="pv-actions">{children}</span>}
+    </div>
+  );
+}
+
 // ── Local section navigation for long pages (v4.92) ────────────────────────
 //
 // Trade is ~12,000 CSS pixels tall and Scanners stacks thirteen tools, so a
@@ -741,4 +774,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, useMediaQuery, useIsPhone, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, useMediaQuery, useIsPhone, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });

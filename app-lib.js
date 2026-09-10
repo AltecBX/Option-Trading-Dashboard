@@ -894,6 +894,55 @@ function DataStatus({
   }, when));
 }
 
+// ── Long explanations, out of the way but not gone (v4.92) ─────────────────
+//
+// Several boards spend the top of the panel — the most valuable space on the
+// screen — explaining themselves, and put the verdict underneath. The review
+// measured this on Sold Into Strength: an introduction, then scan metadata,
+// then the actual answer. The explanation is not noise and must not be cut;
+// it just should not come first. This is a plain <details>, so it is
+// keyboard-reachable, findable by the browser's own search when open, and
+// costs one line when closed.
+function PanelMethod({
+  label,
+  children,
+  open
+}) {
+  return /*#__PURE__*/React.createElement("details", {
+    className: "panel-method",
+    open: open || undefined
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "The reasoning behind this board \u2014 what it measures, and what it refuses to claim."
+  }, label || "Method — what this board measures"), /*#__PURE__*/React.createElement("div", {
+    className: "panel-method-body"
+  }, children));
+}
+
+// One compact line for a board's answer: the verdict, why, and what to do
+// next. Everything else on the panel is supporting material.
+function PanelVerdict({
+  tone,
+  verdict,
+  reason,
+  at,
+  tip,
+  children
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: `panel-verdict pv-${tone || "neutral"}`,
+    title: tip
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pv-badge"
+  }, verdict), reason && /*#__PURE__*/React.createElement("span", {
+    className: "pv-reason"
+  }, reason), at && /*#__PURE__*/React.createElement("span", {
+    className: "pv-at",
+    title: "When this answer was worked out."
+  }, fmtStatusAt(at)), children && /*#__PURE__*/React.createElement("span", {
+    className: "pv-actions"
+  }, children));
+}
+
 // ── Local section navigation for long pages (v4.92) ────────────────────────
 //
 // Trade is ~12,000 CSS pixels tall and Scanners stacks thirteen tools, so a
@@ -1123,6 +1172,8 @@ Object.assign(window, {
   DATA_STATUS,
   DataStatus,
   fmtStatusAt,
-  SectionNav
+  SectionNav,
+  PanelMethod,
+  PanelVerdict
 });
 })();

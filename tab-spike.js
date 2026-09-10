@@ -242,18 +242,26 @@ function SpikeCard({
     title: SK_TIP.card
   }, "Sold into strength"), /*#__PURE__*/React.createElement("h3", {
     className: "card-title"
-  }, "What today\u2019s runs pay for selling above them"), /*#__PURE__*/React.createElement("p", {
-    className: "card-sub"
-  }, "Stocks that have moved hard in their OWN volatility, and every same-day call above the level they reached, all expiring TODAY \u2014 ranked by the credit minus what that call has historically settled for. A big mover finishes at its high about one time in fifteen; the seller is paid for the run being over, not for a reversal.")), /*#__PURE__*/React.createElement("div", {
+  }, "What today\u2019s runs pay for selling above them")), /*#__PURE__*/React.createElement("div", {
     className: "toolbar"
   }, /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
     onClick: load,
     disabled: busy,
     title: "Re-read the board"
-  }, busy ? "Reading…" : "Refresh"))), data ? /*#__PURE__*/React.createElement("p", {
+  }, busy ? "Reading…" : "Refresh"))), data && !err && data.no_trade ? /*#__PURE__*/React.createElement(PanelVerdict, {
+    tone: "stop",
+    verdict: "No trade",
+    reason: data.no_trade_reason,
+    at: data.as_of,
+    tip: SK_TIP.no_trade
+  }) : null, data ? /*#__PURE__*/React.createElement("p", {
     className: "sl-status"
-  }, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(DataStatus, {
+    kind: data.scanning ? "loading" : data.as_of ? "cached" : "none",
+    at: data.as_of,
+    note: "Boards are stored results. Nothing is re-measured until you refresh or the next scan runs."
+  }), /*#__PURE__*/React.createElement("span", {
     title: SK_TIP.stale
   }, data.as_of ? `Scanned ${skDate(data.as_of)} at ${skTime(data.as_of)}` : "No scan yet"), /*#__PURE__*/React.createElement("span", {
     title: SK_TIP.session
@@ -269,7 +277,9 @@ function SpikeCard({
     title: SK_TIP.candidates
   }, " \xB7 ", data.scanned, " of ", data.universe, " names have run"), data.prior ? /*#__PURE__*/React.createElement("span", {
     title: SK_TIP.prior
-  }, " \xB7 measured on ", (data.prior.n_sessions || 0).toLocaleString(), " sessions across ", data.prior.n_names, " names") : null, /*#__PURE__*/React.createElement("span", null, " \xB7 ", data.version)) : null, busy && !data ? /*#__PURE__*/React.createElement("div", {
+  }, " \xB7 measured on ", (data.prior.n_sessions || 0).toLocaleString(), " sessions across ", data.prior.n_names, " names") : null, /*#__PURE__*/React.createElement("span", null, " \xB7 ", data.version)) : null, /*#__PURE__*/React.createElement(PanelMethod, {
+    label: "Method \u2014 what this board measures, and what it refuses"
+  }, /*#__PURE__*/React.createElement("p", null, "Stocks that have moved hard in their OWN volatility, and every same-day call above the level they reached, all expiring TODAY \u2014 ranked by the credit minus what that call has historically settled for. A big mover finishes at its high about one time in fifteen; the seller is paid for the run being over, not for a reversal."), /*#__PURE__*/React.createElement("p", null, "Takeover and merger spikes are never listed here \u2014 that is the one move that does not come back.")), busy && !data ? /*#__PURE__*/React.createElement("div", {
     className: "st-loading",
     "aria-busy": "true"
   }, /*#__PURE__*/React.createElement("div", {
@@ -287,10 +297,7 @@ function SpikeCard({
   }, err), /*#__PURE__*/React.createElement("button", {
     className: "card-error-btn st-retry",
     onClick: load
-  }, "Try again")) : null, data && !err && data.no_trade ? /*#__PURE__*/React.createElement("div", {
-    className: "su-refused sl-notrade",
-    title: SK_TIP.no_trade
-  }, /*#__PURE__*/React.createElement("b", null, "Nothing to sell into."), " ", data.no_trade_reason) : null, rows.length ? /*#__PURE__*/React.createElement("div", {
+  }, "Try again")) : null, rows.length ? /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap sk-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table mtable sk-table"
@@ -380,10 +387,7 @@ function SpikeCard({
     title: SK_TIP.refused
   }, (x.why || []).join(" · ")))))) : /*#__PURE__*/React.createElement("p", {
     className: "sl-muted"
-  }, "Nothing was refused.") : null) : null, /*#__PURE__*/React.createElement("p", {
-    className: "sl-muted",
-    title: SK_TIP.takeover
-  }, "Takeover and merger spikes are never listed here \u2014 that is the one move that does not come back."));
+  }, "Nothing was refused.") : null) : null);
 }
 
 // Chunk registration (house pattern — verify_frontend checks this).

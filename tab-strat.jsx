@@ -194,6 +194,9 @@ function StLoading({ label }) {
 function StError({ error, onRetry }) {
   return (
     <div className="card">
+      {/* Says WHICH kind of nothing this is: a source that did not answer,
+          not a market with nothing in it. */}
+      <DataStatus kind="none" />
       <div className="research-error">{String(error)}</div>
       {onRetry ? (
         <button className="card-error-btn st-retry" onClick={onRetry}>Try again</button>
@@ -1288,7 +1291,11 @@ function GexTab({ apiFetch, ticker, onOpenTicker }) {
 
       {err ? <StError error={err} onRetry={reload} /> : null}
       {!data && !err ? <StLoading label="the option chain" /> : null}
-      {data && !data.ok ? (
+      {/* `err` is the request failing and `data.error` is the payload saying
+          it has nothing — but the server answers a missing chain with BOTH,
+          carrying the same sentence, so the panel printed that sentence
+          twice. One refusal, said once. */}
+      {!err && data && !data.ok ? (
         <div className="card"><StEmpty>{data.error
           || "No gamma exposure could be built for this symbol."}</StEmpty></div>
       ) : null}

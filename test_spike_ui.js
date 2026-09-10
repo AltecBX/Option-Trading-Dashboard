@@ -124,7 +124,16 @@ ok("the survivorship hole is disclosed on the card",
    /acquired and never came back/.test(src));
 ok("no bid is no trade", /min_bid/.test(scan) && /no real bid/.test(scan));
 ok("refusals keep their reason", /"why": why/.test(scan) && /SK_TIP\.refused/.test(src));
-ok("NO TRADE renders as a finding", /Nothing to sell into/.test(src) && /no_trade_reason/.test(scan));
+// Pins the RULE, not the sentence. This used to require the literal words
+// "Nothing to sell into", and went red when the panel was recomposed around
+// a shared verdict component while still saying exactly the same thing in
+// exactly the same place. What matters is that a no-trade state is rendered
+// as a verdict, and that the verdict carries the engine's own reason —
+// which is the part that distinguishes a quiet market from a broken feed.
+ok("NO TRADE renders as a finding, with the engine's reason attached",
+   /<PanelVerdict[\s\S]{0,200}?verdict="No trade"/.test(src)
+   && /reason=\{data\.no_trade_reason\}/.test(src)
+   && /no_trade_reason/.test(scan));
 ok("the funnel of what ran is shown", /what has run today/.test(src) && /candidates/.test(scan));
 
 // ── 7. backend contract + cadence ───────────────────────────────────────

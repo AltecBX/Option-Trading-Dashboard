@@ -10721,6 +10721,7 @@ function App() {
       className: "tabsheet-grid"
     }, shown.map(t => /*#__PURE__*/React.createElement("button", {
       key: t.id,
+      "data-tab": t.id,
       className: `tabsheet-btn ${activeTab === t.id ? "on" : ""}`,
       title: `Open ${t.label}`,
       onClick: () => {

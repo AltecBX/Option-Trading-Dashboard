@@ -7372,6 +7372,7 @@ function TabBar({
     key: t.id,
     type: "button",
     role: "tab",
+    "data-tab": t.id,
     "aria-selected": active === t.id,
     className: `tab-btn ${active === t.id ? "active" : ""}${dragId === t.id ? " dragging" : ""}${overId === t.id && dragId && overId !== dragId ? " drop-target" : ""}`,
     onClick: () => onChange(t.id),

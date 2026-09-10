@@ -14053,3 +14053,44 @@ body { overflow: hidden; overscroll-behavior: none; }
   .fv-card.fv-live { height: auto; min-height: 0; }
   .fv-card.fv-live .fv-frame { flex: 0 0 auto; height: 380px; min-height: 380px; }
 }
+
+/* ── One shape for a panel's answer, and one for its reasoning ───────────── */
+.panel-verdict {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 8px 0 6px; padding: 8px 12px;
+  border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: var(--radius-sm); background: var(--bg-2);
+  font-size: 13px; line-height: 1.5;
+}
+.pv-badge {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
+.pv-reason { color: var(--fg-2); min-width: 0; }
+.pv-at { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-4); cursor: help; white-space: nowrap; }
+.pv-actions { display: inline-flex; gap: 6px; align-items: center; }
+.pv-stop    { border-left-color: var(--down); }  .pv-stop .pv-badge    { color: var(--down); }
+.pv-go      { border-left-color: var(--up); }    .pv-go .pv-badge      { color: var(--up); }
+.pv-caution { border-left-color: var(--warn); }  .pv-caution .pv-badge { color: var(--warn); }
+.pv-neutral { border-left-color: var(--line-2); } .pv-neutral .pv-badge { color: var(--fg-3); }
+
+.panel-method { margin: 4px 0 10px; }
+.panel-method > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-4);
+  padding: 3px 0; min-height: 26px;
+}
+.panel-method > summary::-webkit-details-marker { display: none; }
+.panel-method > summary::before { content: "▸"; font-size: 9px; transition: transform 140ms var(--ease); }
+.panel-method[open] > summary::before { transform: rotate(90deg); }
+.panel-method > summary:hover { color: var(--fg-2); }
+.panel-method-body {
+  font-size: 13px; line-height: 1.55; color: var(--fg-3);
+  max-width: 92ch; padding: 4px 0 2px 14px;
+  border-left: 1px solid var(--line);
+}
+.panel-method-body p { margin: 0 0 8px; }
+.panel-method-body p:last-child { margin-bottom: 0; }
+/* The status line carries the badge, so it needs to sit on the baseline. */
+.sl-status { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }

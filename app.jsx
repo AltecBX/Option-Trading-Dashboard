@@ -8655,7 +8655,8 @@ function App() {
                     <div className="tabsheet-glbl" title={g.tip}>{g.label}</div>
                     <div className="tabsheet-grid">
                       {shown.map(t => (
-                        <button key={t.id} className={`tabsheet-btn ${activeTab === t.id ? "on" : ""}`}
+                        <button key={t.id} data-tab={t.id}
+                                className={`tabsheet-btn ${activeTab === t.id ? "on" : ""}`}
                                 title={`Open ${t.label}`}
                                 onClick={() => { changeTab(t.id); setTabSheetOpen(false); setToolFind(""); }}>
                           {t.label}
