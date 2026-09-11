@@ -570,7 +570,13 @@ ok("whether push is configured is asked, never inferred",
    /push_configured_fn/.test(routes)
    && /_hfroutes\.configure\(push_configured_fn=/.test(dash));
 
-ok("the version was bumped", /const APP_VERSION = "4\.91"/.test(appSrc));
+// The literal "4.91" used to be pinned here, in three separate files, so a
+// version bump went red in three unrelated suites. Pin the rule instead —
+// see test_sell_ui.js for the long version of why.
+ok("the app version only ever goes forward", (() => {
+  const m = appSrc.match(/const APP_VERSION = "(\d+)\.(\d+)"/);
+  return !!m && Number(m[1]) * 1000 + Number(m[2]) >= 4091;
+})());
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

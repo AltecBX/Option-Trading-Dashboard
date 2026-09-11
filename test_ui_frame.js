@@ -202,6 +202,60 @@ ok("the sidebar's identity and price are gated on it too",
 ok("a failed fetch says so in the same place instead of drawing empty panels",
    /`No data for \$\{ticker\}`/.test(app));
 
+// ── 12. nothing in the frame hangs off a position that moved ──────────────
+//
+// The weather pill was `position: absolute` pinned to the sidebar's corner.
+// The frame made the sidebar `position: static`, so the pill had nothing to
+// hang from, went to the corner of the WINDOW, and hid under a fixed rail.
+// It rendered the whole time; it was simply somewhere nobody looks. The rule
+// worth keeping is that it lives in a bar as an ordinary inline control, and
+// that exactly one of them is ever mounted — display:none does not unmount a
+// component, so two would mean two forecast fetches and two geolocation
+// prompts with a toggle that only moved one of them.
+ok("the weather is in a bar, not hung off some ancestor's position",
+   /<WeatherBadge variant="bar" \/>/.test(app)
+   && /\.sb-weather-pill\.wx-inline\s*\{[^}]*position:\s*static/.test(css));
+ok("exactly one weather pill is mounted, chosen by the same 900px line",
+   /\{!isPhone && <WeatherBadge variant="bar" \/>\}/.test(app)
+   && /\{isPhone && <WeatherBadge variant="bar" \/>\}/.test(app)
+   && (app.match(/<WeatherBadge/g) || []).length === 2);
+
+// ── 13. the two clocks agree ──────────────────────────────────────────────
+//
+// The app bar's clock said 3:30 AM while the clock beside the Schwab badge
+// said 3:30:53 — two clocks on one screen, disagreeing about what time it is.
+// Same seconds, same one-second tick, same green-while-open tell.
+ok("the app bar clock shows seconds, like the one beside the Schwab badge",
+   /second: "2-digit"/.test(app.slice(app.indexOf("function MarketClock"),
+                                      app.indexOf("function MarketClock") + 2200)));
+ok("it ticks every second and stops while the tab is hidden",
+   /setInterval\(\(\) => \{ if \(!document\.hidden\) setNow\(Date\.now\(\)\); \}, 1000\)/
+     .test(app.slice(app.indexOf("function MarketClock"),
+                     app.indexOf("function MarketClock") + 2200)));
+ok("and turns green during the regular session, like the other one",
+   /className=\{`ab-time\$\{open \? " mkt-open" : ""\}`\}/.test(app)
+   && /\.ab-time\.mkt-open\s*\{[^}]*var\(--up\)/.test(css)
+   && /\.lc-time\.mkt-open\s*\{[^}]*var\(--up\)/.test(css));
+
+// ── 14. the content column uses what the rails leave ──────────────────────
+//
+// The rails are FIXED to the window edges; the content was capped at a fixed
+// 1600px and centred. Those two numbers only line up at one screen width —
+// past about 2400px the rails stop growing and the leftover margin is dead.
+// The rule: one definition of the rail width, and the content's cap is
+// derived from it rather than being a second hard-coded number.
+ok("the rail width is defined once, not copied into two formulas",
+   (css.match(/--rail-w:\s*min\(calc\(\(100vw - 1600px\)/g) || []).length === 1);
+ok("the content column is sized from what the rails leave over",
+   /\.frame-top, \.frame-body \{\s*\n?\s*max-width: calc\(100vw - 2 \* \(2 \* var\(--rail-w\)/
+     .test(css));
+// The first draft wrote `min(2200px, calc(100vw - …))`. Above 2988px the cap
+// won, the rails stayed at 190px, and the dead band came straight back — 438px
+// on each side at 3840px. A second hard-coded number is the bug, not a
+// safeguard against it.
+ok("and not re-capped at some other fixed number that would bring the band back",
+   !/\.frame-top, \.frame-body \{[^}]*max-width:[^;]*min\(\s*\d+px/.test(css));
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

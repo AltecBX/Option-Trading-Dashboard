@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.91";
+const APP_VERSION = "4.93";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -231,11 +231,14 @@ function tradeSectionGroup(heading) {
   return "";
 }
 
-// The app bar's clock (v4.92). Same reading as LiveClock, said the way every
-// date in this app is said — the month spelled out, never 2026-09-10 — plus
-// whether the regular session is running right now. It ticks once a MINUTE:
-// the app bar is on screen on every destination, and a second hand there is a
-// re-render per second for a number nobody reads to the second.
+// The app bar's clock (v4.93). The same reading as the LiveClock beside the
+// Schwab badge, and now by the same rules: it ticks once a SECOND, shows the
+// seconds, and turns green while the regular session is running. Two clocks on
+// one screen that disagree about the time are worse than no clock, and the one
+// in the app bar is the one you see on every destination. The tick is cheap for
+// the same reason LiveClock's is — this component is isolated, so a second hand
+// re-renders this node and nothing else, and it stops while the tab is hidden.
+// Only the date is said differently: spelled out here, because there is room.
 function MarketClock() {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
@@ -243,7 +246,7 @@ function MarketClock() {
     const start = () => {
       if (!timer) timer = setInterval(() => {
         if (!document.hidden) setNow(Date.now());
-      }, 30000);
+      }, 1000);
     };
     const stop = () => {
       if (timer) {
@@ -277,6 +280,7 @@ function MarketClock() {
       timeZone: "America/New_York",
       hour: "numeric",
       minute: "2-digit",
+      second: "2-digit",
       hour12: true
     }).format(d);
     const p = new Intl.DateTimeFormat("en-US", {
@@ -300,7 +304,7 @@ function MarketClock() {
     }, /*#__PURE__*/React.createElement("span", {
       className: "ab-date"
     }, dateFmt), /*#__PURE__*/React.createElement("span", {
-      className: "ab-time"
+      className: `ab-time${open ? " mkt-open" : ""}`
     }, timeFmt, " ET"), /*#__PURE__*/React.createElement("span", {
       className: `ab-mkt ab-mkt-${cls}`
     }, /*#__PURE__*/React.createElement("span", {
@@ -4022,7 +4026,9 @@ function App() {
     onClick: () => setTabSheetOpen(true),
     "aria-label": "All tools",
     title: "Every destination, grouped and searchable."
-  }, "\u25A6"), /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
+  }, "\u25A6"), !isPhone && /*#__PURE__*/React.createElement(WeatherBadge, {
+    variant: "bar"
+  }), /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
     className: "ab-icon",
     onClick: () => setHelpOpen(true),
     "aria-label": "Keyboard shortcuts",
@@ -4048,7 +4054,9 @@ function App() {
     className: `mh-chg ${_mhChg >= 0 ? "up" : "down"}`
   }, _mhChg >= 0 ? "▲" : "▼", " ", Math.abs(_mhChg).toFixed(2), "%"))), /*#__PURE__*/React.createElement("span", {
     className: "mh-section"
-  }, loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel), /*#__PURE__*/React.createElement("button", {
+  }, loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel), isPhone && /*#__PURE__*/React.createElement(WeatherBadge, {
+    variant: "bar"
+  }), /*#__PURE__*/React.createElement("button", {
     className: "mh-btn mh-ask",
     "aria-label": "Ask AI",
     title: "Ask AI \u2014 describe a scan, backtest, or alert in plain English.",
@@ -4079,7 +4087,7 @@ function App() {
     className: "frame-body"
   }, /*#__PURE__*/React.createElement("aside", {
     className: `sidebar${navOpen ? " nav-open" : ""}`
-  }, /*#__PURE__*/React.createElement(WeatherBadge, null), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     className: "sb-section sb-brand"
   }, /*#__PURE__*/React.createElement("img", {
     className: "brand-mark",
@@ -10643,12 +10651,6 @@ function App() {
     className: "sl-note",
     title: "Quotes can be delayed depending on which source answered. Each panel says which source and which moment its own numbers came from."
   }, "Market data may be delayed"), /*#__PURE__*/React.createElement("span", {
-    className: "sl-sep",
-    "aria-hidden": "true"
-  }, "\xB7"), /*#__PURE__*/React.createElement("span", {
-    className: "sl-note",
-    title: "Nothing here is advice. Every board shows what was measured or modelled so you can judge it yourself."
-  }, "Educational use only"), /*#__PURE__*/React.createElement("span", {
     className: "sl-spacer"
   }), /*#__PURE__*/React.createElement("button", {
     className: "sl-link",

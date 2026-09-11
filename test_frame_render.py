@@ -186,6 +186,12 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 shell: box('.shell'), top: box('.frame-top'),
                 body: box('.frame-body'), bottom: box('.frame-bottom'),
                 charts: box('.mko-grid'), main: box('.main'),
+                appbar: box('.appbar'),
+                // The INNER rail on each side — Daily Low on the left, Daily
+                // High on the right. The gap between these and the first card
+                // is the band that has to stay small.
+                railL: box('.lrail.lrail--daily:not(.rrail)'),
+                railR: box('.rrail.rrail--daily'),
                 tiles: document.querySelectorAll('.mko-tile').length,
                 headlines: document.querySelectorAll('.nt-item, .newsticker a').length,
                 bodyScrollW: Math.round(document.documentElement.scrollWidth),
@@ -231,6 +237,54 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def test_the_frame_is_on_screen_on_a_wide_desktop(self):
         self._check(2160, 1200)
+
+    def _check_gutter(self, width, height):
+        """The rails are fixed to the window edges and the content column is
+        centred between them. Those are two independent sums, and when they
+        disagree the difference shows up as a stripe of plain background
+        between the inner rail and the first card — 34px of it at 2152x1117,
+        and up to 88px on a 2560px monitor, because the content was capped at
+        a hard-coded 1600px while the rails stopped growing at 190px. The cap
+        is now derived from the rail width, so this measures the thing you
+        can actually see: how much dead space is left over."""
+        geo, errors, handles = self._measure(width, height)
+        try:
+            self.assertFalse(errors, f"page errors at {width}x{height}: {errors[:3]}")
+            bar = geo["appbar"]
+            self.assertIsNotNone(bar, f"the app bar is missing at {width}x{height}")
+            for side, rail in (("left", geo["railL"]), ("right", geo["railR"])):
+                self.assertIsNotNone(rail, f"the inner {side} rail is missing at "
+                                           f"{width}x{height} — it should show above 2080px")
+                # box() returns left and width, not a right edge.
+                gap = (bar["l"] - (rail["l"] + rail["w"])) if side == "left" \
+                    else (rail["l"] - (bar["l"] + bar["w"]))
+                self.assertGreaterEqual(
+                    gap, 0,
+                    f"the content column runs UNDER the {side} rail at {width}x{height}")
+                self.assertLessEqual(
+                    gap, 20,
+                    f"{gap}px of dead background between the {side} rail and the "
+                    f"first card at {width}x{height} — the content column's width "
+                    "no longer follows the rails'")
+        finally:
+            self._close(handles)
+
+    def test_no_dead_band_between_the_rails_and_the_content(self):
+        self._check_gutter(2152, 1117)
+
+    def test_no_dead_band_on_a_monitor_wide_enough_to_cap_the_rails(self):
+        # Past ~2400px the rails stop growing at 190px. This is the width where
+        # a fixed 1600px content column left the most room unused.
+        self._check_gutter(2560, 1400)
+
+    def test_no_dead_band_on_a_4k_monitor(self):
+        # The fix for the two widths above was first written with a second cap,
+        # `min(2200px, …)`. Above 2988px that cap won over the subtraction, the
+        # rails stayed at 190px, and the band came back at 438px a side — worse
+        # than the 34px the fix was for. Neither of the checks above could see
+        # it, because neither is wide enough to reach the crossover. This one
+        # is: 3840 is a 4K monitor, and it is the width a cap fails at.
+        self._check_gutter(3840, 1600)
 
     def test_the_frame_is_on_screen_on_a_laptop(self):
         self._check(1440, 900)

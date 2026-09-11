@@ -139,7 +139,16 @@ ok("row fields the card reads are written by the scanner",
     "sell_quality", "confidence", "data_source", "greeks", "quote_age_s", "data_ts", "earnings_date", "vrp_ratio"]
      .every((k) => new RegExp(`"${k}":`).test(scan)));
 ok("the forward grader labels its outcomes", /"finish": "MEASURED"/.test(forward) && /"pnl": "MODELED/.test(forward) && /"early_profit_targets": "UNAVAILABLE/.test(forward));
-ok("the app version was bumped", /const APP_VERSION = "4\.91"/.test(appSrc));
+// This used to read `/const APP_VERSION = "4\.91"/` — a guard pinned to the
+// literal version that shipped with this feature, so it went red on the very
+// next bump, on a change that had nothing to do with it. Pin the RULE instead:
+// there is exactly one version, the build reads it from here, and it only ever
+// goes forward. (v4.91 is the release this file was written against.)
+const _ver = appSrc.match(/const APP_VERSION = "(\d+)\.(\d+)"/);
+ok("app.jsx carries the one version the build stamps everything with",
+   !!_ver && (appSrc.match(/const APP_VERSION = /g) || []).length === 1);
+ok("the app version has not gone backwards",
+   !!_ver && (Number(_ver[1]) * 1000 + Number(_ver[2])) >= 4 * 1000 + 91);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

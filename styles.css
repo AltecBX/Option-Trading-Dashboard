@@ -10049,8 +10049,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    the available space without overlapping, at any zoom, with no manual tuning. */
 .lrail { display: none; }
 @media (min-width: 2080px) {
+  /* --rail-w is defined once, on :root, at the end of this file — the frame's
+     width has to do the same arithmetic, and two copies of a formula are two
+     chances for them to disagree. .lrail inherits it. */
   .lrail {
-    --rail-w: min(calc((100vw - 1600px) / 4 - 10px), 190px);
     position: fixed; left: 6px; top: 10px; bottom: 10px; width: var(--rail-w); z-index: 30;
     display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line);
     border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; max-height: calc(100vh - 20px); }
@@ -14204,3 +14206,81 @@ body { overflow: hidden; overscroll-behavior: none; }
 .newsticker { min-width: 0; max-width: 100%; }
 .nt-viewport { min-width: 0; }
 .statusline { min-width: 0; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   v4.93 — four things Jerry found on the live app
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The weather pill, back where it can be seen ───────────────────────────
+   It was `position: absolute; top: 3px; right: 3px`, hung from the sidebar.
+   The frame made the sidebar `position: static`, so it had nothing to hang
+   from any more and went to the corner of the WINDOW instead — underneath the
+   fixed 52-week-high rail, which is drawn later and on a higher z-index. It
+   now sits in the app bar (and the mobile header) as an ordinary inline
+   control, so no ancestor's `position` can move it again. */
+.sb-weather-pill.wx-inline {
+  position: static;
+  top: auto; right: auto;
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.sb-weather-pill.wx-inline .wx-icon { font-size: 13px; }
+
+/* ── The app bar's clock: the same rules as the one by the Schwab badge ────
+   Seconds, ticking once a second, and green while the regular session runs.
+   Same token as .lc-time.mkt-open, so the two clocks cannot drift apart in
+   appearance any more than they can in reading. */
+.ab-time.mkt-open { color: var(--up); }
+
+/* ── Use the space between the rails, not a fixed 1600px column ────────────
+   The rails are FIXED to the window edges while the content column was capped
+   at 1600px and centred. Those two numbers only meet at one screen width. The
+   rails auto-size to (100vw − 1600)/4 capped at 190px, so past about a 2400px
+   window they stop growing and the leftover margin is simply dead — up to
+   several hundred pixels on each side that nothing uses.
+
+   So the content is now told what is actually left over: the window, minus
+   both rails, their 6px edge gap, their 6px inter-rail gap and 2px of
+   clearance. Below 2080px there are no rails, so it is the window minus a
+   28px gutter.
+
+   The band Jerry pointed at is the one between the INNER rail (Daily Low on
+   the left, Daily High on the right) and the first card. It was 34px of plain
+   background on each side: 24px of the frame's own horizontal padding plus the
+   10px the centring left over. The padding drops to 10px here and the
+   clearance to 2px, so the gap is 12px — enough to read as a separation
+   between two different things, and not a stripe.
+
+   THERE IS DELIBERATELY NO SECOND CAP ON THE CONTENT. The first draft of this
+   read `min(2200px, …)`, reasoning that a chart row stretched across a 4K
+   monitor is not more readable, only wider. But a cap is exactly the
+   hard-coded number this rule exists to remove: above 2988px the cap won over
+   the subtraction, the rails stayed at 190px, and the stripe came back — 438px
+   of it on each side at 3840px, thirteen times the one that was reported.
+   Either the content follows the rails at every width or it does not follow
+   them at all. If a very wide workspace ever needs reining in, rein in the
+   panels inside it; do not put a second number here.
+
+   A phone is excluded on purpose: below 901px the frame is already full
+   width with its own 10px gutter, and this rule would fight it. */
+@media (min-width: 901px) {
+  .frame-top, .frame-body {
+    /* No rails below 2080px, so this is just the window less a gutter. */
+    max-width: calc(100vw - 28px);
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+@media (min-width: 2080px) {
+  /* One definition of the rail width, on :root, so the frame can do the same
+     arithmetic the rails do. .lrail inherits it.
+
+     A side's rails occupy `6px edge gap + rail-w + 6px inter-rail gap +
+     rail-w` — that is the `2 * var(--rail-w) + 12px` below. The extra 2px is
+     the clearance; the visible gap is that plus the 10px padding above. */
+  :root { --rail-w: min(calc((100vw - 1600px) / 4 - 10px), 190px); }
+  .frame-top, .frame-body {
+    max-width: calc(100vw - 2 * (2 * var(--rail-w) + 14px));
+  }
+}

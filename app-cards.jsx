@@ -5163,7 +5163,13 @@ function TabPanel({ tab, active, children, pending, pendingLabel }) {
   );
 }
 
-function WeatherBadge() {
+// variant "bar" (v4.93) is the pill sitting in a row of other controls — the
+// app bar on a desktop, the mobile header on a phone. The original pill hung in
+// the sidebar's top-right corner on `position: absolute`, which stopped working
+// the moment the frame made the sidebar a plain scrolling box: with nothing
+// positioned to hang from, it flew to the corner of the window and hid under
+// the 52-week-high rail. In a bar it is just an inline-flex button.
+function WeatherBadge({ variant }) {
   const WX_KEY = "jerry_weather_v1";
   const persisted = (() => {
     try { return JSON.parse(localStorage.getItem(WX_KEY)) || {}; }
@@ -5220,7 +5226,9 @@ function WeatherBadge() {
     : `${meta ? meta.label : "Loading"}, ${temp} at ${place}. Source Open-Meteo. Tap to ${useGeo ? "switch to Yonkers" : "use your location"}.`;
 
   return (
-    <button type="button" className={`sb-weather-pill${err ? " wx-err" : ""}`} onClick={toggleGeo} title={title}>
+    <button type="button"
+            className={`sb-weather-pill${variant === "bar" ? " wx-inline" : ""}${err ? " wx-err" : ""}`}
+            onClick={toggleGeo} title={title}>
       <span className="wx-icon">{err ? "⚠️" : (meta ? meta.icon : "🌡️")}</span>
       <span className="wx-temp">{err ? "wx" : temp}</span>
     </button>

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.91";
+const APP_VERSION = "4.93";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -176,16 +176,19 @@ function tradeSectionGroup(heading) {
   return "";
 }
 
-// The app bar's clock (v4.92). Same reading as LiveClock, said the way every
-// date in this app is said — the month spelled out, never 2026-09-10 — plus
-// whether the regular session is running right now. It ticks once a MINUTE:
-// the app bar is on screen on every destination, and a second hand there is a
-// re-render per second for a number nobody reads to the second.
+// The app bar's clock (v4.93). The same reading as the LiveClock beside the
+// Schwab badge, and now by the same rules: it ticks once a SECOND, shows the
+// seconds, and turns green while the regular session is running. Two clocks on
+// one screen that disagree about the time are worse than no clock, and the one
+// in the app bar is the one you see on every destination. The tick is cheap for
+// the same reason LiveClock's is — this component is isolated, so a second hand
+// re-renders this node and nothing else, and it stops while the tab is hidden.
+// Only the date is said differently: spelled out here, because there is room.
 function MarketClock() {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     let timer = null;
-    const start = () => { if (!timer) timer = setInterval(() => { if (!document.hidden) setNow(Date.now()); }, 30000); };
+    const start = () => { if (!timer) timer = setInterval(() => { if (!document.hidden) setNow(Date.now()); }, 1000); };
     const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
     const onVis = () => { if (document.hidden) stop(); else { setNow(Date.now()); start(); } };
     document.addEventListener("visibilitychange", onVis);
@@ -199,7 +202,8 @@ function MarketClock() {
       day: "numeric", year: "numeric",
     }).format(d);
     const timeFmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true,
+      timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
+      second: "2-digit", hour12: true,
     }).format(d);
     const p = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "numeric", hour12: false,
@@ -215,7 +219,9 @@ function MarketClock() {
     return (
       <span className="ab-clock" title={`New York time. The regular session runs 9:30 AM to 4:00 PM Eastern on trading days. Right now: ${state}.`}>
         <span className="ab-date">{dateFmt}</span>
-        <span className="ab-time">{timeFmt} ET</span>
+        {/* Green while the regular session runs — the same tell the LiveClock
+            beside the Schwab badge uses, so both clocks say the same thing. */}
+        <span className={`ab-time${open ? " mkt-open" : ""}`}>{timeFmt} ET</span>
         <span className={`ab-mkt ab-mkt-${cls}`}>
           <span className="ab-mkt-dot" aria-hidden="true" />{state}
         </span>
@@ -3146,6 +3152,12 @@ function App() {
           <button className="ab-icon ab-tools" onClick={() => setTabSheetOpen(true)}
                   aria-label="All tools"
                   title="Every destination, grouped and searchable.">▦</button>
+          {/* Exactly one weather pill is ever mounted. The app bar and the
+              mobile header swap at the same 900px line useIsPhone() reads, and
+              display:none does not unmount a component — two of these would be
+              two forecast fetches, two geolocation prompts, and a "use my
+              location" toggle that only moved one of them. */}
+          {!isPhone && <WeatherBadge variant="bar" />}
           <MarketClock />
           <button className="ab-icon" onClick={() => setHelpOpen(true)}
                   aria-label="Keyboard shortcuts"
@@ -3165,6 +3177,7 @@ function App() {
           )}
         </button>
         <span className="mh-section">{loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel}</span>
+        {isPhone && <WeatherBadge variant="bar" />}
         <button className="mh-btn mh-ask" aria-label="Ask AI"
                 title="Ask AI — describe a scan, backtest, or alert in plain English."
                 onClick={() => changeTab("ask")}>✦</button>
@@ -3191,7 +3204,13 @@ function App() {
       <div className="frame-body">
       {/* ── SIDEBAR ───────────────────────────────────────────────────────── */}
       <aside className={`sidebar${navOpen ? " nav-open" : ""}`}>
-        <WeatherBadge />
+        {/* The weather pill used to hang here, pinned to the sidebar's top
+            right corner. The frame made the sidebar a plain scrolling box
+            (position: static), so an absolutely-positioned child no longer had
+            it to hang from and flew to the corner of the window, underneath the
+            52-week-high rail. It now lives in the app bar and in the mobile
+            header — somewhere that is on screen on every destination, and that
+            does not scroll away with the sidebar's contents. */}
         <div className="sb-section sb-brand">
           <img className="brand-mark" src="/assets/app-logo.png" alt="Jerry" />
           <div className="sb-brand-text">
@@ -8612,10 +8631,6 @@ function App() {
         <span className="sl-sep" aria-hidden="true">·</span>
         <span className="sl-note" title="Quotes can be delayed depending on which source answered. Each panel says which source and which moment its own numbers came from.">
           Market data may be delayed
-        </span>
-        <span className="sl-sep" aria-hidden="true">·</span>
-        <span className="sl-note" title="Nothing here is advice. Every board shows what was measured or modelled so you can judge it yourself.">
-          Educational use only
         </span>
         <span className="sl-spacer" />
         <button className="sl-link" onClick={() => setHelpOpen(true)}

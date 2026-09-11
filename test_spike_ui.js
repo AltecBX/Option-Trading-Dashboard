@@ -180,7 +180,13 @@ ok("a data fault leads the headline rather than being buried",
 ok("the refusal window is spelled out, never ISO",
    /def _expiry_window_words/.test(scan) && /_long_date\(d0\)/.test(scan));
 
-ok("the version was bumped", /const APP_VERSION = "4\.91"/.test(appSrc));
+// The literal "4.91" used to be pinned here, in three separate files, so a
+// version bump went red in three unrelated suites. Pin the rule instead —
+// see test_sell_ui.js for the long version of why.
+ok("the app version only ever goes forward", (() => {
+  const m = appSrc.match(/const APP_VERSION = "(\d+)\.(\d+)"/);
+  return !!m && Number(m[1]) * 1000 + Number(m[2]) >= 4091;
+})());
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }
