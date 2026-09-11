@@ -14176,3 +14176,28 @@ body { overflow: hidden; overscroll-behavior: none; }
 
 /* Momentum scrolling inside the workspace on older iOS. */
 .main { -webkit-overflow-scrolling: touch; }
+
+/* ── Track inflation, again ───────────────────────────────────────────────
+   A `1fr` grid track does not cap its item: it grows to the item's
+   MIN-CONTENT width. The bottom feeds are one long unbroken line of
+   headlines, so with a real news payload `.frame-bottom` measured 111,668
+   pixels wide, the shell's single column grew with it, and `.frame-top` and
+   `.frame-body` — which centre themselves in that column — ended up at
+   x=55,034. The whole app was off screen; only the fixed rails and the tapes
+   were visible. It never showed in the sandbox because the feed there is
+   empty, so the tape had no width to inflate with. This file already carries
+   the same lesson for the mobile breakpoint; the new grid needed it too.
+
+   minmax(0, 1fr) lets the track collapse back to the container, and the
+   min-width:0 chain lets each scroll container actually clip instead of
+   reporting its content's width upward. */
+.shell { grid-template-columns: minmax(0, 1fr); }
+/* min-width only — a max-width here is MORE specific than .frame-top's own
+   1600px cap and would silently make the content column full-bleed, which
+   puts it under the fixed rails. */
+.shell > * { min-width: 0; }
+.frame-bottom { min-width: 0; overflow: hidden; }
+.mn-stack, .mn-stack.mn-bottom { min-width: 0; max-width: 100%; overflow: hidden; }
+.newsticker { min-width: 0; max-width: 100%; }
+.nt-viewport { min-width: 0; }
+.statusline { min-width: 0; }

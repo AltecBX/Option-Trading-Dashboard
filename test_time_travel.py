@@ -48,7 +48,11 @@ DEFAULT_DAYS = 400
 # clock never reaches the code under test — the run would spend two minutes
 # of browser time proving nothing. The normal suite runs it against the real
 # clock, and the dates it asserts about come from fixtures, not from today.
-SKIP_MODULES = {"test_schedules", "test_provider_latency", "test_hf_render"}
+SKIP_MODULES = {"test_schedules", "test_provider_latency", "test_hf_render",
+                # Browser renders: they start a real server and drive Chromium,
+                # so running them a second time under a shifted clock costs
+                # minutes and measures the same layout.
+                "test_frame_render"}
 
 
 def main() -> int:
