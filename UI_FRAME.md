@@ -285,9 +285,23 @@ the frame. Letting everything *around* them outweigh the workspace is not.
 
 Nothing was removed. The chrome was measured and trimmed: a 34px app bar
 instead of 46 plus a 10px margin, tiles at 74px instead of 88 with a 26px
-sparkline instead of 30, one line per context strip (eleven rotation chips used
-to wrap to a third row and silently cost another sixteen pixels), navigation
-rows at 23px instead of 34, and 10px of frame padding instead of 24.
+sparkline instead of 30, one line per context strip, navigation rows at 23px
+instead of 34, and 10px of frame padding instead of 24.
+
+The context strips are worth a note. The rotation ribbon draws a chip per
+sector with three or more names — eleven on a busy day — and it wrapped onto a
+third row, which is the extra line visible in the review screenshot. The first
+fix put `nowrap` on `.mctx-line`, the gamma-and-catalysts row; a review bot
+pointed out that the chips are in the sibling `.mctx-ribbon`, which still
+wrapped. **And the test could not have caught it**: with no watchlist data the
+sandbox draws *"rotation pending scan…"*, one short line that can never wrap,
+so a height check on that element would have passed with the bug in place —
+the same shape of blindness as §7's news tape. `test_frame_render.py` now
+serves a populated board (eleven sectors, three names each), asserts the chip
+count **first** so an empty ribbon cannot make the check vacuous, and then
+asserts the ribbon is one row. Reverting the fix gives
+`43 not less than or equal to 32 : the rotation ribbon is 43px tall with 11
+chips`.
 
 The short-viewport ladder was re-tuned at the same time: three of its steps had
 been written against the old, taller base and were now *larger* than it, so a

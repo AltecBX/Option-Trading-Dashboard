@@ -55,6 +55,27 @@ HEADLINES = [{
     "ts": 1781056495,
 } for i in range(60)]
 
+# And what a populated watchlist looks like to the market-context bar: eleven
+# sectors, three names each, every one carrying flow. The rotation ribbon draws
+# a chip per sector with at least three names, so this is the payload that made
+# it spill onto a third row on the live app. Same lesson as HEADLINES above —
+# the frame's height depends on the DATA, so a test with no data cannot see it.
+_SECTORS = ["Technology", "Financial", "Healthcare", "Energy", "Industrials",
+            "Consumer Cyclical", "Consumer Defensive", "Basic Materials",
+            "Real Estate", "Utilities", "Communication Services"]
+ROTATION_ROWS = [{
+    "symbol": f"{s[:2].upper()}{i}",
+    "sector": s,
+    "flow_available": True,
+    "call_prem": 900000 + 10000 * i, "put_prem": 300000 + 5000 * i,
+    "ask_call_prem": 500000, "ask_put_prem": 120000,
+    "call_sweeps": 8 + i, "put_sweeps": 2,
+    "net_prem": 600000, "market_cap": 5.0e10,
+    "flow_net": 30, "flow_quality": 70, "flow_alerts": 6, "rel_vol": 1.6,
+    "from_ma50": 4.0, "flow_agree": "agrees",
+    "last": 100.0 + i, "change_pct": 1.0,
+} for s in _SECTORS for i in range(3)]
+
 _SKIP: list = []
 
 
@@ -157,6 +178,13 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"items": HEADLINES}))
                 return
+            # A POPULATED rotation ribbon. Without this the sandbox draws
+            # "rotation pending scan…" — one short line that can never wrap,
+            # so a check on the frame's height would pass with the bug in it.
+            if "/api/watchlist_table" in url:
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"rows": ROTATION_ROWS}))
+                return
             if "/api/quote" in url:
                 syms = []
                 if "tickers=" in url:
@@ -194,6 +222,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 railL: box('.lrail.lrail--daily:not(.rrail)'),
                 railR: box('.rrail.rrail--daily'),
                 tiles: document.querySelectorAll('.mko-tile').length,
+                mctx: box('.mctx'), ribbon: box('.mctx-ribbon'),
+                chips: document.querySelectorAll('.mctx-chip').length,
                 headlines: document.querySelectorAll('.nt-item, .newsticker a').length,
                 bodyScrollW: Math.round(document.documentElement.scrollWidth),
               };
@@ -273,6 +303,41 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "it has grown back. The floor is a regression line, not a "
                 "target: if this is a deliberate change, say why the frame "
                 "needs the height rather than lowering the number.")
+        finally:
+            self._close(handles)
+
+    def test_the_market_strips_stay_one_line_each_when_busy(self):
+        """The supporting strips are the frame's most data-dependent part, and
+        the frame's height comes straight off the workspace. The rotation
+        ribbon draws a chip per sector with three or more names — eleven of
+        them on a busy day — and it used to wrap onto a third row and quietly
+        take another sixteen pixels.
+
+        The chip count is asserted FIRST and separately. Without the populated
+        payload the ribbon reads "rotation pending scan…", one short line that
+        cannot wrap, and a height check on it would pass no matter what the CSS
+        said. That is exactly how the grid-track defect this file exists for
+        got through."""
+        geo, errors, handles = self._measure(2152, 1117)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertGreaterEqual(
+                geo["chips"], 8,
+                f"the rotation ribbon drew {geo['chips']} chips; with an empty "
+                "ribbon this check cannot see the wrap it exists for")
+            ribbon = geo["ribbon"]
+            self.assertIsNotNone(ribbon, "the rotation ribbon is missing")
+            # One row of chips is about 20px. Two rows would be ~45.
+            self.assertLessEqual(
+                ribbon["h"], 32,
+                f"the rotation ribbon is {ribbon['h']}px tall with "
+                f"{geo['chips']} chips — it has wrapped onto another row, and "
+                "every row it takes comes out of the workspace")
+            mctx = geo["mctx"]
+            self.assertLessEqual(
+                mctx["h"], 60,
+                f"the market context strip is {mctx['h']}px tall; it is two "
+                "lines plus padding, and a third line is the workspace's")
         finally:
             self._close(handles)
 

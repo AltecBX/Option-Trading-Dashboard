@@ -9636,7 +9636,16 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-weight: 800; font-size: 11px; padding: 0 5px; border-radius: 5px; cursor: pointer; }
 .mctx-earn-sym small { color: var(--warn); font-size: 9px; font-weight: 700; }
 .mctx-earn-sym:hover { border-color: var(--warn); }
-.mctx-ribbon { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; cursor: pointer; }
+/* v4.94: ONE line, like .mctx-line above it — and this is the row that
+   actually wrapped. The rotation ribbon draws up to fourteen sector chips, so
+   on a busy day it spilled to a third row and took another sixteen pixels off
+   the workspace. The nowrap first landed only on .mctx-line, which is the
+   gamma/catalysts row; a review bot pointed out that the chips are in this
+   sibling. Nothing is dropped — it scrolls sideways. */
+.mctx-ribbon { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
+  cursor: pointer; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.mctx-ribbon::-webkit-scrollbar { display: none; }
+.mctx-ribbon > * { flex: 0 0 auto; }
 .mctx-rlbl { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-4); margin-right: 3px; }
 .mctx-chip { display: inline-flex; align-items: baseline; gap: 5px; font-size: 11px; font-weight: 600;
   font-family: inherit; cursor: pointer;
