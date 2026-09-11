@@ -1071,7 +1071,10 @@ function SectionNav({
     title: "Jump to a panel on this page. Every panel is still here \u2014 this only moves you to it."
   }, /*#__PURE__*/React.createElement("span", {
     className: "secnav-lbl"
-  }, "On this page"), /*#__PURE__*/React.createElement("div", {
+  }, "On this page"), /*#__PURE__*/React.createElement("span", {
+    className: "secnav-lbl-sm",
+    "aria-hidden": "true"
+  }, "Jump to"), /*#__PURE__*/React.createElement("div", {
     className: "secnav-row"
   }, items.map(it => {
     const head = it.group && it.group !== lastGroup ? /*#__PURE__*/React.createElement("span", {

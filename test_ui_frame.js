@@ -256,6 +256,135 @@ ok("the content column is sized from what the rails leave over",
 ok("and not re-capped at some other fixed number that would bring the band back",
    !/\.frame-top, \.frame-body \{[^}]*max-width:[^;]*min\(\s*\d+px/.test(css));
 
+// ── 15. the text tiers are readable, by measurement ───────────────────────
+//
+// "Secondary labels are still faint" is not a matter of taste — it is a
+// contrast ratio, and two of the four tiers failed WCAG AA against the
+// surfaces they sit on. --fg-4 in particular carries the SMALLEST type in the
+// app: the nine- and ten-pixel mono captions. This computes the real ratio
+// from the tokens, so the next person to nudge a lightness gets told.
+function oklchToSrgb(L, C, H) {
+  const h = (H * Math.PI) / 180;
+  const a = C * Math.cos(h), b = C * Math.sin(h);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const lin = [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ];
+  return lin.map(v => Math.min(1, Math.max(0, v)));
+}
+const relLum = (rgbLinear) =>
+  0.2126 * rgbLinear[0] + 0.7152 * rgbLinear[1] + 0.0722 * rgbLinear[2];
+function hexLum(hex) {
+  const h = hex.replace("#", "");
+  const ch = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+  return relLum(ch.map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)));
+}
+const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+// Read the tokens straight out of the stylesheet — a hard-coded copy here
+// would pass while the app got darker.
+function token(block, name) {
+  const m = block.match(
+    new RegExp("--" + name + ":\\s*oklch\\(([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\)"));
+  return m ? [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])] : null;
+}
+function surfaces(block, names) {
+  const out = {};
+  for (const n of names) {
+    const m = block.match(new RegExp("--" + n + ":\\s*(#[0-9a-fA-F]{6})"));
+    if (m) out[n] = m[1];
+  }
+  return out;
+}
+// The token blocks, sliced by their opening selector rather than matched with
+// a brace-counting regex: styles.css has many `:root` rules, and only the one
+// that declares --bg is the palette.
+function paletteBlock(selector) {
+  let i = -1;
+  for (;;) {
+    i = css.indexOf(selector + " {", i + 1);
+    if (i < 0) return "";
+    const end = css.indexOf("\n}", i);
+    const block = css.slice(i, end < 0 ? css.length : end);
+    if (/--bg:\s*#/.test(block) && /--fg-4:/.test(block)) return block;
+  }
+}
+const LIGHT = paletteBlock(":root");
+const DARK = paletteBlock('[data-theme="dark"]');
+// Every tier is checked against the WORST surface it lands on. A chip
+// (--bg-3) is lower contrast than a card, and the small mono captions sit
+// on chips, so checking only the card would miss exactly the text at issue.
+for (const [themeName, scope] of [["light", LIGHT], ["dark", DARK]]) {
+  const surf = surfaces(scope, ["bg", "bg-2", "bg-3"]);
+  const surfLums = Object.values(surf).map(hexLum);
+  ok(`${themeName}: the three text surfaces are declared as hex`,
+     Object.keys(surf).length === 3);
+  for (const tier of ["fg-2", "fg-3", "fg-4"]) {
+    const t = token(scope, tier);
+    if (!t) { ok(`${themeName}: --${tier} is an oklch token`, false); continue; }
+    const lum = relLum(oklchToSrgb(t[0], t[1], t[2]));
+    const worst = Math.min(...surfLums.map(s => contrast(lum, s)));
+    ok(`${themeName}: --${tier} clears WCAG AA on every surface `
+       + `(${worst.toFixed(2)}:1)`, worst >= 4.5);
+  }
+  // The tiers must still be a LADDER: fixing contrast by flattening them into
+  // one colour would pass the check above and destroy the hierarchy it is for.
+  const ls = ["fg-2", "fg-3", "fg-4"].map(t => (token(scope, t) || [0])[0]);
+  ok(`${themeName}: the quiet tiers stay distinguishable from each other`,
+     Math.abs(ls[0] - ls[1]) >= 0.04 && Math.abs(ls[1] - ls[2]) >= 0.04);
+}
+
+// ── 16. a panel's four jobs are not four equal voices ─────────────────────
+ok("the answer is set larger than the prose around it",
+   /\.panel-verdict \{[^}]*font-size: 14px/.test(css)
+   && /\.card-sub \{[^}]*font-size: 11\.5px/.test(css));
+ok("the heading is the full-strength colour, not a secondary tier",
+   /\.card-title \{[^}]*color: var\(--fg\);/.test(css));
+ok("methodology is a disclosure, not a permanent paragraph",
+   (cards.match(/className="panel-method fv-method"/g) || []).length >= 4
+   && !/className="fv-hint"[^>]*title="If TradingView/.test(cards));
+
+// ── 17. the empty analyst board does not own the first screen ─────────────
+ok("an analyst board with nothing on it collapses to one line",
+   /const quiet = sorted\.length === 0 && !isScanning;/.test(cards)
+   && /<details className="card waa-card waa-quiet">/.test(cards));
+ok("and its controls, filters and history are inside that line, not dropped",
+   /<div className="waa-quiet-body">\s*\n\s*\{controls\}/.test(cards)
+   && /const controls = \(/.test(cards));
+
+// ── 18. the jump control is reachable without scrolling ───────────────────
+//
+// It sat below the market band and the Highs & Lows card — about a screen and
+// a half on a phone — so the control whose purpose is to save you scrolling
+// was itself something you scrolled to find.
+ok("section navigation is mounted before the mobile market band",
+   app.indexOf('<SectionNav tab="trade"') > -1
+   && app.indexOf('<SectionNav tab="trade"')
+      < app.indexOf("{bandInWorkspace && activeTab === \"trade\" && ("));
+ok("and it names itself on a phone, where it is the first thing you see",
+   /className="secnav-lbl-sm"/.test(lib)
+   && /\.secnav-lbl-sm \{ display: inline; \}/.test(css));
+
+// ── 19. everything that overlays a phone stops at the frame ───────────────
+//
+// The tool picker already did. The settings drawer did not: `inset: 0` put it
+// over the ten charts the frame exists to keep on screen.
+for (const sel of [".tabsheet-overlay", ".mobile-overlay"]) {
+  const block = css.match(new RegExp(`\\${sel} \\{[^}]*\\}`, "g")) || [];
+  const bounded = block.some(b => /var\(--frame-top-h/.test(b)
+                                  && /var\(--frame-bottom-h/.test(b));
+  ok(`${sel} is bounded by the frame, not the window`, bounded);
+}
+ok("the drawer itself is bounded too, not just its backdrop",
+   /\.sidebar \{[^}]*top: var\(--frame-top-h[^}]*bottom: var\(--frame-bottom-h/.test(css));
+ok("the version is present on a phone, not only on a desktop",
+   !/@media \(max-width: 900px\)[\s\S]{0,8000}?\.statusline \{ display: none; \}/.test(css)
+   && /\.statusline \{\s*\n\s*display: flex;/.test(css));
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

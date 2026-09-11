@@ -714,7 +714,11 @@ function SectionNav({ tab, active, groups, label }) {
   return (
     <nav className="secnav" aria-label={label || "Sections on this page"}
          title="Jump to a panel on this page. Every panel is still here — this only moves you to it.">
+      {/* Two labels, one element: a phone has no room for "On this page" and
+          the control needs to say what it is, because on a phone it is the
+          first thing in the workspace rather than a bar under a heading. */}
       <span className="secnav-lbl">On this page</span>
+      <span className="secnav-lbl-sm" aria-hidden="true">Jump to</span>
       <div className="secnav-row">
         {items.map((it) => {
           const head = it.group && it.group !== lastGroup

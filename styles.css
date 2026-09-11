@@ -43,10 +43,22 @@
   --bg-3: #f1f0eb;
   --line: oklch(0.92 0.005 90);
   --line-2: oklch(0.88 0.005 90);
+  /* Four text tiers, measured against the card they sit on rather than picked
+     by eye (v4.94). WCAG AA wants 4.5:1 for normal text; the quiet tiers were
+     at 4.28:1 and 2.67:1 here, and --fg-4 carries the SMALLEST type in the app
+     — the 9 and 10 pixel mono captions. A tier that is "de-emphasis" still has
+     to be readable, so the ladder is compressed at the quiet end instead of
+     running off it. Checked on all three surfaces these tiers land on —
+     page, card and chip — because a chip is the lowest-contrast of the
+     three and is exactly where the small mono captions sit.
+     The steps also have to stay far enough apart to still BE a hierarchy:
+     fixing contrast by flattening the tiers into one grey would pass a
+     contrast check and destroy the thing the tiers are for.
+     On a card: 18.1 / 8.8 / 6.7 / 5.3 : 1; on a chip, 4.6:1 at worst. */
   --fg: oklch(0.20 0.01 90);
-  --fg-2: oklch(0.42 0.01 90);
-  --fg-3: oklch(0.58 0.01 90);
-  --fg-4: oklch(0.70 0.008 90);   /* faintest tier — captions, "—", de-emphasis */
+  --fg-2: oklch(0.40 0.01 90);
+  --fg-3: oklch(0.47 0.01 90);
+  --fg-4: oklch(0.53 0.008 90);   /* faintest tier — captions, "—", de-emphasis */
 
   --shadow-card: 0 1px 0 rgba(0,0,0,0.02), 0 1px 2px rgba(15,15,15,0.04), 0 8px 24px -12px rgba(15,15,15,0.06);
   --shadow-hover: 0 1px 0 rgba(0,0,0,0.03), 0 2px 6px rgba(15,15,15,0.06), 0 18px 40px -18px rgba(15,15,15,0.14);
@@ -75,10 +87,13 @@
   --bg-3: #1c2030;
   --line: oklch(0.30 0.012 250);     /* a touch crisper card edges */
   --line-2: oklch(0.37 0.014 250);
+  /* On a card: 15.6 / 9.4 / 6.6 / 5.4 : 1; on a chip, 5.0:1 at worst.
+     --fg-4 was 3.19:1, which fails AA on the smallest type in the app.
+     See the light block above for the method. */
   --fg: oklch(0.96 0.005 250);
-  --fg-2: oklch(0.80 0.01 250);      /* slightly brighter secondary text */
-  --fg-3: oklch(0.65 0.012 250);     /* brighter tertiary — flagged as faint */
-  --fg-4: oklch(0.52 0.012 250);     /* faintest tier */
+  --fg-2: oklch(0.80 0.01 250);      /* secondary text */
+  --fg-3: oklch(0.70 0.012 250);     /* tertiary */
+  --fg-4: oklch(0.65 0.012 250);     /* faintest tier — still AA at 9px */
   --accent-soft: oklch(0.28 0.06 var(--accent-h));
   --accent-ring: color-mix(in oklch, var(--accent), transparent 55%);
   /* Softer, more diffuse elevation — premium depth without heavy borders. */
@@ -336,8 +351,11 @@ input, select, textarea {
 /* Regular session in progress -> same green as the "Schwab live" badge, so a
    glance at the clock says the market is open. */
 .lc-time.mkt-open { color: var(--up); font-weight: 700; }
+/* v4.94: the app bar carries the brand now. A second 78px roundel in the
+   sidebar was the same badge twice, and the sidebar's own contents — ticker,
+   watchlist, presets — are what you actually work in. */
 .brand-mark {
-  width: 78px; height: 78px;
+  width: 34px; height: 34px;
   object-fit: contain;
   flex-shrink: 0;
   transform: translateY(-2px);
@@ -427,15 +445,28 @@ input, select, textarea {
 .card .card-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px; flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
+/* ── A panel says four things, and they are not equally important ────────
+   The heading, the explanation of what the panel measures, the controls and
+   the answer were all set at roughly the same size and weight, so a big panel
+   read as an undifferentiated wall and you had to look for the number. The
+   order of importance is: the ANSWER, then the controls next to it, then the
+   heading that names it, then the explanation of how it was reached. Size and
+   weight now say that. Nothing is hidden — the explanation is still on the
+   page, at the size an explanation deserves. */
 .card-title {
   font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  font-size: 15.5px;
+  color: var(--fg);
+  line-height: 1.25;
 }
-.card-sub { font-size: 12px; color: var(--fg-3); font-weight: 400; }
+.card-sub {
+  font-size: 11.5px; color: var(--fg-3); font-weight: 400;
+  line-height: 1.5; max-width: 88ch;
+}
 
 .kicker {
   text-transform: uppercase;
@@ -444,7 +475,7 @@ input, select, textarea {
   color: var(--fg-3);
   font-weight: 600;
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   line-height: 1;
 }
 .card-head > div { display: flex; flex-direction: column; gap: 4px; }
@@ -2109,8 +2140,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   }
   .sb-section { margin-bottom: 14px; }
 
-  /* Brand row: shrink logo a bit on mobile, keep buttons touch-sized */
-  .brand-mark { width: 48px !important; height: 48px !important; }
+  /* Brand row: the mark is a marker here, not a hero — the mobile header
+     already carries the ticker and the frame carries the app's identity.
+     Buttons stay touch-sized. */
+  .brand-mark { width: 34px !important; height: 34px !important; }
   .sb-icon-btn {
     width: 38px !important; height: 38px !important;
     border-radius: 9px !important;
@@ -6478,9 +6511,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    inside card-head where it wrapped into a tall vertical stack). */
 .fv-head { margin-bottom: 0 !important; }
 .fv-upd { color: var(--warn); font-weight: 800; text-decoration: underline; cursor: pointer; }
-.fv-row2 { margin-top: 6px; }
+.fv-row2 { margin-top: 4px; }
 .fv-star { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--fg-2);
-  background: var(--bg-3); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px;
   cursor: pointer; transition: border-color 80ms, color 80ms; }
 .fv-star:hover { border-color: var(--warn); }
 .fv-star-static { cursor: help; }
@@ -6488,17 +6521,25 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: color-mix(in oklch, var(--warn) 10%, transparent); }
 .fv-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 2px; }
 .fv-chip { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--fg-2);
-  background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
   cursor: pointer; transition: border-color 80ms, color 80ms; }
 .fv-chip:hover { border-color: var(--accent); color: var(--fg); }
-.fv-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
-  flex-direction: row; width: 100%; margin-top: 8px; }
+.fv-toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  flex-direction: row; width: 100%; margin-top: 5px; }
 .fv-now { font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: var(--fg);
-  border: 1px solid var(--accent); border-radius: 8px; padding: 5px 12px; cursor: help;
+  border: 1px solid var(--accent); border-radius: 8px; padding: 3px 11px; cursor: help;
   background: color-mix(in oklch, var(--accent) 10%, transparent); }
 .fv-frame { width: 100%; height: calc(100vh - 170px); min-height: 560px; border: 1px solid var(--line);
-  border-radius: 10px; background: #fff; margin-top: 10px; }
+  border-radius: 10px; background: #fff; margin-top: 6px; }
 .fv-hint { margin-top: 8px; font-size: 12px; color: var(--fg-3); cursor: help; }
+/* A partner panel's help, folded. The chart is the panel; the note about
+   signing in is not worth three permanent lines of it. flex:0 keeps it from
+   stretching inside .fv-card.fv-live, which is a flex column. */
+.fv-method { flex: 0 0 auto; margin: 4px 0 0; }
+.fv-method > summary { min-height: 20px; padding: 1px 0; }
+.fv-card.fv-live .fv-method[open] > .panel-method-body {
+  max-height: 140px; overflow-y: auto;
+}
 .fv-ext-link { text-decoration: none; display: inline-flex; align-items: center; }
 .fv-setup { font-size: 13.5px; color: var(--fg-2); max-width: 680px; }
 .fv-setup p { margin: 8px 0; }
@@ -8596,9 +8637,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .mh-section { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-3); white-space: nowrap; }
   .mh-refresh { font-size: 22px; }
 
-  /* ── Drawer overlay ────────────────────────────────────────────────── */
+  /* ── Drawer overlay ──────────────────────────────────────────────────
+     Bounded by the frame, exactly like the tool picker (v4.94). It used to be
+     `inset: 0` — full screen — so opening the settings drawer covered the ten
+     charts the frame exists to keep on screen, and the two feeds under them.
+     The picker already got this right; this is the same rule, applied. */
   .mobile-overlay {
-    display: block; position: fixed; inset: 0; z-index: 250;
+    display: block; position: fixed; z-index: 250;
+    top: var(--frame-top-h, 0px); left: 0; right: 0;
+    bottom: var(--frame-bottom-h, 0px);
     background: rgba(0,0,0,0.55);
     opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
   }
@@ -8607,9 +8654,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   /* ── Sidebar as off-canvas drawer (overrides the stacked mobile rule) ─ */
   .sidebar {
     position: fixed !important;
-    top: 0 !important; left: 0 !important; bottom: 0 !important;
+    top: var(--frame-top-h, 0px) !important; left: 0 !important;
+    bottom: var(--frame-bottom-h, 0px) !important;
     width: min(86vw, 330px) !important;
-    height: 100dvh !important; max-height: 100dvh !important;
+    height: auto !important; max-height: none !important;
     margin: 0 !important; border-radius: 0 14px 14px 0 !important;
     overflow-y: auto !important;
     z-index: 300 !important;
@@ -9382,8 +9430,8 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (min-width: 1601px) { .mko-grid { grid-template-columns: repeat(5, 1fr); } }
 .mko-tile {
   position: relative; overflow: hidden;
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 13px 7px; min-height: 88px;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 7px 12px 5px; min-height: 74px;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--radius); box-shadow: var(--shadow-card);
 }
@@ -9408,7 +9456,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mko-price { font-family: var(--font-mono); font-size: 22px; font-weight: 800;
   color: var(--fg); letter-spacing: -0.01em; line-height: 1.1; }
 .mko-pts { font-family: var(--font-mono); font-size: 11px; font-weight: 600; white-space: nowrap; }
-.mko-spark { width: 100%; height: 30px; margin-top: 5px; display: block; }
+.mko-spark { width: 100%; height: 26px; margin-top: 3px; display: block; }
 .mko-tile.mko-empty { opacity: 0.45; }
 /* Clickable tiles → load the tradable proxy on the chart. */
 .mko-tile.mko-click { cursor: pointer; }
@@ -9423,7 +9471,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mko-regime {
   grid-column: 2 / -1;
   display: flex; align-items: center; gap: 8px;
-  font-size: 12.5px; color: var(--fg-2); margin: 0 0 8px;
+  font-size: 12.5px; color: var(--fg-2); margin: 0 0 4px;
 }
 .mko-regime b { font-weight: 800; }
 .mko-regime-why { color: var(--fg-3); }
@@ -9539,7 +9587,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* ── Opportunity ribbon (v3.64) — one line, terminal-flat, no new page ── */
 .opp-ribbon { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 5px 13px; margin: -8px 0 14px; background: var(--bg-2); border: 1px solid var(--line);
+  padding: 3px 12px; margin: -8px 0 10px; background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--radius); min-width: 0; }
 .opp-title { font-family: var(--font-mono); font-size: 9px; font-weight: 800;
   letter-spacing: 0.07em; color: var(--fg-4); cursor: help; white-space: nowrap; }
@@ -9558,11 +9606,18 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   scrollbar-width: none; } .opp-ribbon::-webkit-scrollbar { display: none; } }
 
 /* ── Market Context bar (gamma · catalysts · rotation) ─────────────────── */
-.mctx { grid-column: 1 / -1; display: flex; flex-direction: column; justify-content: center; gap: 7px;
-  padding: 9px 13px; margin: 0 0 14px; background: var(--bg-2); border: 1px solid var(--line);
+.mctx { grid-column: 1 / -1; display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  padding: 5px 12px; margin: 0 0 10px; background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--radius); box-shadow: var(--shadow-card); min-width: 0; overflow: hidden; }
 .mctx-skel { min-height: 60px; opacity: 0.5; }
-.mctx-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+/* v4.94: each context line is ONE line. On a busy day the rotation chips —
+   eleven sectors — wrapped to a third row, and a supporting strip silently
+   took another sixteen pixels off the tool you are actually using. They
+   scroll sideways instead; nothing is dropped. */
+.mctx-line { display: flex; align-items: center; gap: 14px; flex-wrap: nowrap;
+  font-size: 12px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.mctx-line::-webkit-scrollbar { display: none; }
+@media (max-width: 900px) { .mctx-line { gap: 10px; } }
 .mctx-gamma { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px;
   font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); cursor: help; white-space: nowrap; }
 .mctx-gamma b { font-size: 11.5px; }
@@ -9581,7 +9636,16 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-weight: 800; font-size: 11px; padding: 0 5px; border-radius: 5px; cursor: pointer; }
 .mctx-earn-sym small { color: var(--warn); font-size: 9px; font-weight: 700; }
 .mctx-earn-sym:hover { border-color: var(--warn); }
-.mctx-ribbon { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; cursor: pointer; }
+/* v4.94: ONE line, like .mctx-line above it — and this is the row that
+   actually wrapped. The rotation ribbon draws up to fourteen sector chips, so
+   on a busy day it spilled to a third row and took another sixteen pixels off
+   the workspace. The nowrap first landed only on .mctx-line, which is the
+   gamma/catalysts row; a review bot pointed out that the chips are in this
+   sibling. Nothing is dropped — it scrolls sideways. */
+.mctx-ribbon { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
+  cursor: pointer; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.mctx-ribbon::-webkit-scrollbar { display: none; }
+.mctx-ribbon > * { flex: 0 0 auto; }
 .mctx-rlbl { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-4); margin-right: 3px; }
 .mctx-chip { display: inline-flex; align-items: baseline; gap: 5px; font-size: 11px; font-weight: 600;
   font-family: inherit; cursor: pointer;
@@ -9818,6 +9882,42 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
 .waa-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
 .waa-empty { color: var(--fg-3); font-size: 13px; padding: 22px 0; text-align: center; }
+
+/* ── A board with nothing on it is one line (v4.94) ────────────────────────
+   Analyst Actions renders above the watchlist's stocks. With no actions it
+   still drew a heading, a Today/Recent switch, a sort box, a Scan button,
+   eight filter pills and a centred notice — about 300px, which on a phone is
+   the whole first screen. The stocks, which are the point of the Watchlist,
+   started below the fold. Collapsed it is ~34px; open it is exactly the panel
+   it was, so no control and no history is lost. */
+.waa-card.waa-quiet { padding: 0; margin-bottom: 12px; }
+.waa-quiet > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px; min-height: 34px;
+}
+.waa-quiet > summary::-webkit-details-marker { display: none; }
+.waa-quiet > summary::before {
+  content: "▸"; font-size: 9px; color: var(--fg-4);
+  transition: transform 140ms var(--ease); align-self: center;
+}
+.waa-quiet[open] > summary::before { transform: rotate(90deg); }
+.waa-quiet > summary:hover { background: var(--bg-3); border-radius: var(--radius); }
+.waa-quiet-title {
+  font-family: var(--font-display); font-weight: 600; font-size: 13.5px;
+  letter-spacing: -0.01em; color: var(--fg-2);
+}
+.waa-quiet-note { font-size: 12px; color: var(--fg-3); }
+.waa-quiet-scanned {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; color: var(--fg-4); margin-left: auto;
+}
+.waa-quiet-body { padding: 0 14px 12px; }
+.waa-empty-slim { padding: 10px 0 2px; text-align: left; }
+@media (max-width: 900px) {
+  .waa-quiet > summary { padding: 9px 12px; }
+  .waa-quiet-scanned { margin-left: 0; }
+}
 
 .waa-table-wrap { overflow: auto; max-height: calc(100vh - 200px); -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 10px; }
@@ -13520,7 +13620,7 @@ body { overflow: hidden; overscroll-behavior: none; }
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
-  padding: 0 24px 8px;
+  padding: 0 24px 4px;
   min-width: 0;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
@@ -13541,23 +13641,25 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 
 /* ── The desktop app bar ─────────────────────────────────────────────────── */
+/* v4.94: 46px + a 10px margin was 56px of frame for a brand, a search box and
+   a clock. The workspace is the scarce thing on this screen, not the app bar. */
 .appbar {
-  display: flex; align-items: center; gap: 14px;
-  height: 46px; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 12px;
+  height: 34px; flex: 0 0 auto;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 10px;
+  margin-bottom: 5px;
 }
 .ab-brand {
   display: inline-flex; align-items: center; gap: 9px;
   background: none; border: 0; padding: 0; cursor: pointer; color: var(--fg);
-  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  font-family: var(--font-display); font-weight: 700; font-size: 13.5px;
   letter-spacing: -0.01em; white-space: nowrap;
 }
-.ab-mark { width: 26px; height: 26px; border-radius: 7px; object-fit: cover; }
+.ab-mark { width: 21px; height: 21px; border-radius: 6px; object-fit: cover; }
 .ab-search {
   flex: 1 1 auto; min-width: 0; max-width: 560px;
-  display: inline-flex; align-items: center; gap: 9px;
-  padding: 7px 12px; cursor: pointer; text-align: left;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 11px; cursor: pointer; text-align: left;
   background: var(--bg-2); color: var(--fg-3);
   border: 1px solid var(--line); border-radius: 999px;
   font-size: 12.5px;
@@ -13581,7 +13683,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 .ab-mkt-ext  { color: var(--warn); } .ab-mkt-ext .ab-mkt-dot   { background: var(--warn); }
 .ab-mkt-shut { color: var(--fg-3); } .ab-mkt-shut .ab-mkt-dot  { background: var(--fg-4); }
 .ab-icon {
-  width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
   background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-3);
   font-weight: 700; font-size: 13px; line-height: 1;
 }
@@ -13755,7 +13857,17 @@ body { overflow: hidden; overscroll-behavior: none; }
     padding: 3px 2px 4px; border-top: 1px solid var(--line);
     background: transparent; backdrop-filter: none;
   }
-  .statusline { display: none; }      /* the version rides the sidebar on phones */
+  /* v4.94: this said "the version rides the sidebar on phones" — and it did,
+     until the duplicate sidebar pill was removed so the version appeared once.
+     Removing one of two copies left zero on a phone. It is back, in the frame
+     where the version belongs, trimmed to the one thing it is for: the note
+     and the two links go, because Search is already in the bar below it. */
+  .statusline {
+    display: flex; flex-wrap: nowrap; justify-content: center;
+    padding: 2px 2px 3px; margin-top: 3px; font-size: 10px;
+  }
+  .statusline .sl-note, .statusline .sl-sep,
+  .statusline .sl-spacer, .statusline .sl-link { display: none; }
   .shell { padding-bottom: 0 !important; }
   .mbb-btn { min-height: 40px; }
 
@@ -13770,19 +13882,19 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 
 /* ── Grouped navigation ──────────────────────────────────────────────────── */
-.tab-bar-grouped { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; }
+.tab-bar-grouped { display: flex; flex-direction: column; gap: 0; padding: 2px 8px; }
 .tab-row {
-  display: grid; grid-template-columns: 92px minmax(0, 1fr) auto;
+  display: grid; grid-template-columns: 84px minmax(0, 1fr) auto;
   align-items: center; gap: 8px; flex-wrap: nowrap;
 }
-.tab-row + .tab-row { border-top: 1px dashed var(--line); padding-top: 2px; }
+.tab-row + .tab-row { border-top: 1px dashed var(--line); padding-top: 1px; }
 .tab-glbl {
   font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
   letter-spacing: 0.09em; text-transform: uppercase; color: var(--fg-4);
   cursor: help; text-align: right; white-space: nowrap;
 }
 .tab-row-btns { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; min-width: 0; }
-.tab-bar-grouped .tab-btn { font-size: 12.5px; padding: 5px 11px; border-radius: 8px; }
+.tab-bar-grouped .tab-btn { font-size: 12px; padding: 3px 10px; border-radius: 7px; }
 /* An unmistakable selected state: filled, and marked underneath so the
    grouping still reads at a glance on a big screen. */
 .tab-bar-grouped .tab-btn.active {
@@ -13866,13 +13978,18 @@ body { overflow: hidden; overscroll-behavior: none; }
 .secnav {
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; gap: 10px;
-  margin: 0 0 var(--row-gap); padding: 6px 10px;
+  margin: 0 0 8px; padding: 3px 10px;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: 10px; box-shadow: var(--shadow-card);
 }
 .secnav-lbl {
   flex: 0 0 auto; font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
   letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4);
+}
+.secnav-lbl-sm {
+  display: none; flex: 0 0 auto;
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3);
 }
 .secnav-row {
   display: flex; align-items: center; gap: 4px; min-width: 0;
@@ -13889,14 +14006,18 @@ body { overflow: hidden; overscroll-behavior: none; }
   flex: 0 0 auto; cursor: pointer; white-space: nowrap;
   font-size: 11.5px; font-weight: 600; color: var(--fg-3);
   background: transparent; border: 1px solid transparent;
-  border-radius: 7px; padding: 4px 9px;
+  border-radius: 7px; padding: 3px 9px;
 }
 .secnav-btn:hover { color: var(--fg); background: var(--bg-3); }
 .secnav-btn.on { color: var(--accent-text); background: var(--accent); }
 @media (max-width: 900px) {
-  .secnav { padding: 5px 8px; }
+  .secnav { padding: 4px 8px; }
   .secnav-lbl { display: none; }
-  .secnav-btn { min-height: 36px; font-size: 12.5px; }
+  /* The phone's version of the label. On a phone this bar is the FIRST thing
+     in the workspace, above the market band, so it has to say what it is —
+     "On this page" does not fit next to a scrolling row of chips. */
+  .secnav-lbl-sm { display: inline; }
+  .secnav-btn { min-height: 34px; font-size: 12.5px; }
 }
 
 /* ── Frame corrections, declared last on purpose ─────────────────────────── */
@@ -14062,16 +14183,17 @@ body { overflow: hidden; overscroll-behavior: none; }
 /* ── One shape for a panel's answer, and one for its reasoning ───────────── */
 .panel-verdict {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  margin: 8px 0 6px; padding: 8px 12px;
-  border: 1px solid var(--line); border-left-width: 3px;
+  margin: 8px 0 8px; padding: 10px 13px;
+  border: 1px solid var(--line-2); border-left-width: 4px;
   border-radius: var(--radius-sm); background: var(--bg-2);
-  font-size: 13px; line-height: 1.5;
+  font-size: 14px; line-height: 1.5;
+  box-shadow: var(--shadow-card);
 }
 .pv-badge {
-  font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 800;
   letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
 }
-.pv-reason { color: var(--fg-2); min-width: 0; }
+.pv-reason { color: var(--fg); min-width: 0; font-weight: 500; }
 .pv-at { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-4); cursor: help; white-space: nowrap; }
 .pv-actions { display: inline-flex; gap: 6px; align-items: center; }
 .pv-stop    { border-left-color: var(--down); }  .pv-stop .pv-badge    { color: var(--down); }
@@ -14110,17 +14232,17 @@ body { overflow: hidden; overscroll-behavior: none; }
    these rules take the rest of the height out of the frame itself.
    ══════════════════════════════════════════════════════════════════════════ */
 @media (max-height: 700px) {
-  .appbar { height: 38px; margin-bottom: 6px; }
+  .appbar { height: 28px; margin-bottom: 4px; }
   .frame-top { padding-bottom: 4px; }
   .frame-body { padding-top: 8px; }
   .mko-tile  { min-height: 0; padding: 4px 9px 3px; }
   .mko-price { font-size: 15px; }
   .mko-spark { height: 14px; margin-top: 2px; }
   .mko-label { font-size: 11px; }
-  .tab-bar-grouped { padding: 2px 7px; gap: 0; }
-  .tab-bar-grouped .tab-btn { font-size: 12px; padding: 3px 9px; }
+  .tab-bar-grouped { padding: 1px 7px; gap: 0; }
+  .tab-bar-grouped .tab-btn { font-size: 11.5px; padding: 2px 8px; }
   .tab-row + .tab-row { padding-top: 0; }
-  .secnav { padding: 4px 8px; }
+  .secnav { padding: 2px 8px; }
 }
 /* Shorter still — a phone on its side. The four navigation rows are the
    biggest single block left, so they come out and the app bar carries a
@@ -14129,7 +14251,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 @media (max-height: 520px) {
   .tab-bar, .tab-bar-grouped { display: none !important; }
   .ab-tools { display: inline-flex !important; }
-  .appbar { height: 34px; margin-bottom: 4px; }
+  .appbar { height: 26px; margin-bottom: 3px; }
   .mko-grid, .mko-grid-skel { grid-template-columns: repeat(5, 1fr) !important; gap: 4px; }
   .mko-tile  { padding: 3px 7px 2px; border-radius: 8px; }
   .mko-price { font-size: 13px; }
@@ -14138,7 +14260,11 @@ body { overflow: hidden; overscroll-behavior: none; }
   .frame-top { padding: 4px 12px 3px; }
   .frame-body { padding: 6px 12px 0; }
   .frame-bottom { padding: 2px 12px 0; }
-  .statusline { display: none; }
+  /* Kept, not hidden (v4.94). It used to go here to buy back thirteen pixels,
+     which made the version present in three of the app's four shapes — and
+     "which build am I on" is a question you ask in whatever shape you happen
+     to be holding. Thirteen pixels is a cheaper answer than an inconsistency. */
+  .statusline { margin-top: 1px; padding: 1px 2px 2px; font-size: 9.5px; }
   .lrail { display: none; }     /* no room to flank a 440px-tall window */
 }
 /* The tools door only exists where the rows are gone. */
@@ -14148,12 +14274,17 @@ body { overflow: hidden; overscroll-behavior: none; }
    navigation rows plus a 46-pixel app bar still cost the workspace about
    sixty pixels it can use. Trim the chrome, keep every row. */
 @media (min-width: 1081px) and (max-height: 920px) {
-  .appbar { height: 40px; margin-bottom: 7px; }
-  .tab-bar-grouped { padding: 3px 8px; gap: 0; }
-  .tab-bar-grouped .tab-btn { font-size: 12px; padding: 4px 10px; }
+  .appbar { height: 30px; margin-bottom: 4px; }
+  .ab-icon { width: 22px; height: 22px; }
+  .tab-bar-grouped { padding: 1px 8px; gap: 0; }
+  .tab-bar-grouped .tab-btn { font-size: 11.5px; padding: 2px 9px; }
   .tab-row + .tab-row { padding-top: 0; }
-  .opp-ribbon { margin-top: 5px; }
-  .frame-body { padding-top: 9px; }
+  .mko-tile  { min-height: 0; padding: 5px 10px 4px; }
+  .mko-spark { height: 20px; margin-top: 2px; }
+  .opp-ribbon { margin-top: 4px; padding: 2px 11px; }
+  .mctx { padding: 4px 11px; gap: 3px; }
+  .frame-body { padding-top: 7px; }
+  .secnav { padding: 2px 9px; }
 }
 
 /* ── The tool picker opens INSIDE the workspace ──────────────────────────
@@ -14225,7 +14356,7 @@ body { overflow: hidden; overscroll-behavior: none; }
   font-size: 12px;
   padding: 3px 10px;
 }
-.sb-weather-pill.wx-inline .wx-icon { font-size: 13px; }
+.sb-weather-pill.wx-inline .wx-icon { font-size: 12px; }
 
 /* ── The app bar's clock: the same rules as the one by the Schwab badge ────
    Seconds, ticking once a second, and green while the regular session runs.

@@ -10852,6 +10852,64 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"],
     ["high", "High impact"], ["multi", "Multi-firm"]];
 
+  // A board with nothing on it is a one-line note, not a full panel (v4.94).
+  // On a phone the heading, the Today/Recent switch, the sort box, the Scan
+  // button, eight filter pills and a centred "no actions" message filled the
+  // entire first screen of the Watchlist — so the stocks, which are what the
+  // Watchlist is, began below the fold. Everything here is still present and
+  // one tap away inside the summary; only the empty table is gone.
+  const quiet = sorted.length === 0 && !isScanning;
+  const quietLine = actions.length === 0
+    ? "nothing scanned yet"
+    : (scope === "today" && type === "all")
+      ? `no actions today · ${actions.length} recent`
+      : "nothing matches this filter";
+
+  const controls = (
+    <>
+      <div className="waa-head-controls">
+        <div className="seg">
+          <button className={scope === "today" ? "active" : ""} onClick={() => setScope("today")}>Today</button>
+          <button className={scope === "recent" ? "active" : ""} onClick={() => setScope("recent")}>Recent</button>
+        </div>
+        <select value={sortKey} onChange={e => setSortKey(e.target.value)} title="Sort actions">
+          <option value="impact">Sort: Impact</option>
+          <option value="upside">Sort: Upside</option>
+          <option value="date">Sort: Action date</option>
+          <option value="symbol">Sort: Symbol</option>
+        </select>
+        <button className="scan-run-btn" onClick={startScan} disabled={isScanning}>{isScanning ? "Scanning…" : "Scan now"}</button>
+      </div>
+      <div className="waa-filters">
+        {FILTERS.map(([k, lbl]) => (
+          <button key={k} className={`preset-pill ${type === k ? "active" : ""}`} onClick={() => setType(k)}>{lbl}</button>
+        ))}
+      </div>
+    </>
+  );
+
+  if (quiet) {
+    return (
+      <details className="card waa-card waa-quiet">
+        <summary title="No analyst action on your watchlist right now. Open this for the Today/Recent switch, the sort, the eight filters and a fresh scan.">
+          <span className="waa-quiet-title">Analyst Actions</span>
+          <span className="waa-quiet-note">{quietLine}</span>
+          {detected ? <span className="waa-quiet-scanned">scanned {detected}</span> : null}
+        </summary>
+        <div className="waa-quiet-body">
+          {controls}
+          <div className="waa-empty waa-empty-slim">
+            {actions.length === 0
+              ? <>No analyst actions cached yet — <button className="wl-rescan-link" onClick={startScan}>Scan now</button> to build today&rsquo;s board.</>
+              : (scope === "today" && type === "all")
+                ? <>No actions dated today — {actions.length} recent {actions.length === 1 ? "action" : "actions"} on your watchlist. <button className="wl-rescan-link" onClick={() => setScope("recent")}>Show recent</button></>
+                : "No actions match this filter."}
+          </div>
+        </div>
+      </details>
+    );
+  }
+
   return (
     <div className="card waa-card">
       <div className="card-head waa-head">
@@ -10880,15 +10938,10 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
         ))}
       </div>
 
+      {/* Every other empty case is handled by the collapsed summary above, so
+          the only way to be here with no rows is mid-scan. */}
       {sorted.length === 0 ? (
-        <div className="waa-empty">
-          {isScanning ? "Scanning for analyst actions…"
-            : actions.length === 0
-              ? <>No analyst actions cached yet — <button className="wl-rescan-link" onClick={startScan}>Scan now</button> to build today's board.</>
-              : (scope === "today" && type === "all")
-                ? <>No analyst actions dated today yet — {actions.length} recent {actions.length === 1 ? "action" : "actions"} on your watchlist. <button className="wl-rescan-link" onClick={() => setScope("recent")}>Show recent</button></>
-                : "No actions match this filter."}
-        </div>
+        <div className="waa-empty">Scanning for analyst actions…</div>
       ) : (
         <div className="waa-table-wrap">
           <table className="waa-table">
@@ -14510,9 +14563,16 @@ function UWPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
       </div>
       <iframe key={nonce} className="fv-frame" src={src} title="Unusual Whales"
               referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write; fullscreen" />
-      <div className="fv-hint" title="It's the real unusualwhales.com with your account. If the login doesn't stick between visits, update the Site Helper to v2.1+ — it applies the same cookie handling that keeps Finviz and TradingView signed in.">
-        Log into UW inside the frame once — account, watchlists and alert settings are all yours. Flow/sweeps/OI/IV live on the stock page's own tabs.
-      </div>
+      <details className="panel-method fv-method">
+        <summary title="It's the real unusualwhales.com with your account.">Signed out inside the frame?</summary>
+        <div className="panel-method-body">
+          Log into UW inside the frame once — account, watchlists and alert
+          settings are all yours. Flow, sweeps, OI and IV live on the stock
+          page's own tabs. If the login doesn't stick between visits, update the
+          Site Helper to v2.1+: it applies the same cookie handling that keeps
+          Finviz and TradingView signed in.
+        </div>
+      </details>
     </div>
   );
 }
@@ -14889,9 +14949,18 @@ function SWSTPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
                 title="Simply Wall St"
                 referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write; fullscreen" />
       )}
-      <div className="fv-hint" title="Simply Wall St sends X-Frame-Options: SAMEORIGIN, so the Site Helper extension must remove it on frame responses — the same mechanism that lets TradingView and Unusual Whales render here. The page itself is fetched by your own browser with your own session.">
-        Real simplywall.st inside the dashboard — needs Site Helper v2.8+ to render, and v3.0+ for the Google/email login to STICK (v3.0 lets the frame send their session cookie). Log in inside the frame once and your account, watchlist and portfolio are all yours.
-      </div>
+      <details className="panel-method fv-method">
+        <summary title="The page is fetched by your own browser with your own session.">How this renders, and making the login stick</summary>
+        <div className="panel-method-body">
+          Real simplywall.st inside the dashboard. Simply Wall St sends
+          X-Frame-Options: SAMEORIGIN, so the Site Helper must remove it on
+          frame responses — the same mechanism that lets TradingView and
+          Unusual Whales render here. Needs Site Helper v2.8+ to render, and
+          v3.0+ for the Google/email login to STICK (v3.0 lets the frame send
+          their session cookie). Log in inside the frame once and your account,
+          watchlist and portfolio are all yours.
+        </div>
+      </details>
     </div>
   );
 }
@@ -15066,9 +15135,22 @@ function TVPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
         </div>
         <iframe key={nonce} className="fv-frame" src={src} title="TradingView"
                 referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write; fullscreen" />
-        <div className="fv-hint" title="If TradingView shows you logged out inside the frame while a normal tab is logged in, reload this tab once — the helper upgrades existing login cookies on install and as they change. Alerts fire server-side on TradingView regardless of where the chart is open.">
-          Asked to log in repeatedly? Use 'Sign in ↗' above once — it signs you in on a normal TradingView page, and the embedded view (helper v2.3+) picks the session up automatically. Layouts, indicators and alerts are your real account.
-        </div>
+        {/* v4.94: this was three permanent lines of help under the chart, in a
+            panel where the chart is the whole point. Same words, one line away.
+            A <details> stays keyboard-reachable and findable by browser search
+            — it is folded, not removed. */}
+        <details className="panel-method fv-method">
+          <summary title="If TradingView shows you logged out inside the frame while a normal tab is logged in, reload this tab once — the helper upgrades existing login cookies on install and as they change.">
+            Asked to log in repeatedly?
+          </summary>
+          <div className="panel-method-body">
+            Use &lsquo;Sign in ↗&rsquo; above once — it signs you in on a normal
+            TradingView page, and the embedded view (helper v2.3+) picks the
+            session up automatically. Layouts, indicators and alerts are your
+            real account. Alerts fire server-side on TradingView regardless of
+            where the chart is open.
+          </div>
+        </details>
       </div>
     );
   }
@@ -15286,9 +15368,17 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
         {toolbar2}
         <iframe key={nonce} className="fv-frame" src={src} title="Finviz"
                 referrerPolicy="no-referrer-when-downgrade" allow="clipboard-write" />
-        <div className="fv-hint" title="If Finviz shows you as logged out inside this frame while a normal Finviz tab is logged in, your browser is isolating third-party cookies. Either allow cookies for finviz.com in the browser's settings, or simply log in once right here — most browsers keep an in-frame login alive across visits.">
-          Log into Elite inside the frame once if prompted — it's the real finviz.com, so your account, screens and watchlists are all there.
-        </div>
+        <details className="panel-method fv-method">
+          <summary title="It's the real finviz.com, with your account.">Showing you logged out?</summary>
+          <div className="panel-method-body">
+            Log into Elite inside the frame once if prompted — it's the real
+            finviz.com, so your account, screens and watchlists are all there.
+            If a normal Finviz tab is logged in and this one isn't, your browser
+            is isolating third-party cookies: either allow cookies for
+            finviz.com in the browser's settings, or just log in right here —
+            most browsers keep an in-frame login alive across visits.
+          </div>
+        </details>
       </div>
     );
   }
