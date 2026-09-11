@@ -146,8 +146,15 @@ ok("no connection status was invented beside it",
 // ── 8. the shared vocabulary exists and is used ───────────────────────────
 ok("there is one data-status vocabulary",
    /const DATA_STATUS = \{/.test(lib)
-   && ["live", "close", "cached", "modeled", "measured", "loading", "none"]
+   && ["live", "close", "cached", "modeled", "measured", "loading", "none", "pending"]
         .every(k => new RegExp(`\\b${k}:\\s*\\{ label:`).test(lib)));
+// "Nothing has run yet" and "the source refused to answer" are different
+// claims, and the second one is an alarm. A board that has simply not been
+// scanned yet must not wear the fault wording.
+ok("a board that has not run yet is not called unavailable",
+   /kind=\{data\.scanning \? "loading" : data\.as_of \? "cached" : "pending"\}/.test(
+     read("tab-spike.jsx"))
+   && /pending:\s*\{ label: "Not scanned yet"/.test(lib));
 ok("a status carries the time the RESULT belongs to",
    /function DataStatus\(\{ kind, at, note, label \}\)/.test(lib));
 ok("dates in it are spelled out, never ISO",

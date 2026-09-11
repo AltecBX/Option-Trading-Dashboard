@@ -13856,6 +13856,9 @@ body { overflow: hidden; overscroll-behavior: none; }
 .ds-measured { color: var(--rail-tag); } .ds-measured .ds-dot { background: var(--rail-tag); }
 .ds-loading  { color: var(--fg-4); } .ds-loading .ds-dot  { background: var(--fg-4); animation: mko-pulse 1.6s ease-out infinite; }
 .ds-none     { color: var(--down); } .ds-none .ds-dot     { background: var(--down); }
+/* Not run yet is an ordinary state, so it gets the neutral tier — not the
+   red that means a source refused to answer. */
+.ds-pending  { color: var(--fg-3); }  .ds-pending .ds-dot  { background: var(--fg-4); }
 
 /* ── Local section navigation on long pages ──────────────────────────────── */
 .secnav {

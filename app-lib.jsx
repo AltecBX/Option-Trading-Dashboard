@@ -552,6 +552,13 @@ const DATA_STATUS = {
               tip: "Still fetching. Nothing here is final until it lands." },
   none:     { label: "Unavailable", cls: "ds-none",
               tip: "The source did not answer. That is a fault on our side, not a quiet market." },
+  // "Has not run yet" is NOT "unavailable". A board that nobody has asked to
+  // scan yet is the ordinary state before the open; a source that refused to
+  // answer is a fault. Showing the fault wording for the ordinary state is
+  // the same mistake in the opposite direction from the one this vocabulary
+  // exists to prevent — it manufactures alarm instead of hiding it.
+  pending:  { label: "Not scanned yet", cls: "ds-pending",
+              tip: "Nothing has been scanned for this board yet. That is ordinary — the scan runs on its own schedule during the session, and you can run it now with Refresh." },
 };
 
 // `at` is the time the RESULT belongs to — spelled out, never ISO on screen.

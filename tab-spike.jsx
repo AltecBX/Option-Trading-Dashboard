@@ -287,7 +287,7 @@ function SpikeCard({ apiFetch, onPickTicker }) {
 
       {data ? (
         <p className="sl-status">
-          <DataStatus kind={data.scanning ? "loading" : data.as_of ? "cached" : "none"}
+          <DataStatus kind={data.scanning ? "loading" : data.as_of ? "cached" : "pending"}
                       at={data.as_of}
                       note="Boards are stored results. Nothing is re-measured until you refresh or the next scan runs." />
           <span title={SK_TIP.stale}>
