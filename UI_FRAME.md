@@ -303,6 +303,21 @@ asserts the ribbon is one row. Reverting the fix gives
 `43 not less than or equal to 32 : the rotation ribbon is 43px tall with 11
 chips`.
 
+And then a third pass, found by checking the merged build on the live site
+rather than trusting the sandbox: the strip still measured **82px live against
+44 here**. `nowrap` on `.mctx-line` stops its *direct* children being pushed to
+a new line; it does nothing about a child that grows taller by wrapping inside
+itself. `.mctx-events` is exactly that — one flex item holding every catalyst
+and the whole earnings list. Fixed, and `/api/market_context` is now stubbed
+too, with **eight** catalysts rather than a quiet day's four: a row that fits
+inside the column cannot wrap, so a payload that fits is a payload that proves
+nothing. The first version of that stub used four and passed with the bug
+reverted.
+
+Three elements of this frame take their height from data — the news tape, the
+rotation ribbon, and the catalysts row — and all three were found the same way:
+not by a test, but by looking at the running app. The tests now feed all three.
+
 The short-viewport ladder was re-tuned at the same time: three of its steps had
 been written against the old, taller base and were now *larger* than it, so a
 1440×900 laptop was being given a **bigger** app bar than a 2560×1440 monitor.

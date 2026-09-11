@@ -76,6 +76,30 @@ ROTATION_ROWS = [{
     "last": 100.0 + i, "change_pct": 1.0,
 } for s in _SECTORS for i in range(3)]
 
+# And what /api/market_context returns on a CPI morning: four macro events and
+# a handful of watchlist names reporting. This is the payload that kept the
+# strip at 82px on the live app while the empty sandbox showed 44 — the third
+# element in this frame whose height comes from data the sandbox does not have.
+MARKET_CONTEXT = {
+    "gamma": {"regime": "short", "net_gex": "-2.4"},
+    # Eight, not the four a quiet day brings: this row has to be WIDER than the
+    # column or it cannot wrap, and a payload that fits is a payload that
+    # proves nothing. The first version of this used four and passed with the
+    # bug reverted.
+    "macro": [
+        {"event": "CPI YY", "today": True, "time": "2:00 AM"},
+        {"event": "EndYear CPI Fcst/Cb Svy", "today": True, "time": "3:00 AM"},
+        {"event": "Core CPI YY, NSA", "today": True, "time": "8:30 AM"},
+        {"event": "CPI MM, SA", "today": True, "time": "8:30 AM"},
+        {"event": "Initial Jobless Claims", "today": True, "time": "8:30 AM"},
+        {"event": "Fed Funds Target Upper", "today": True, "time": "2:00 PM"},
+        {"event": "U Mich Sentiment Prelim", "today": False, "time": ""},
+        {"event": "Retail Sales Ex-Autos MM", "today": False, "time": ""},
+    ],
+    "earnings_soon": [{"sym": s, "days": d} for s, d in
+                      [("ORCL", 0), ("ADBE", 0), ("CPRT", 0), ("DSGX", 0), ("M", 0)]],
+}
+
 _SKIP: list = []
 
 
@@ -181,6 +205,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             # A POPULATED rotation ribbon. Without this the sandbox draws
             # "rotation pending scan…" — one short line that can never wrap,
             # so a check on the frame's height would pass with the bug in it.
+            if "/api/market_context" in url:
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(MARKET_CONTEXT))
+                return
             if "/api/watchlist_table" in url:
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"rows": ROTATION_ROWS}))
@@ -223,7 +251,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 railR: box('.rrail.rrail--daily'),
                 tiles: document.querySelectorAll('.mko-tile').length,
                 mctx: box('.mctx'), ribbon: box('.mctx-ribbon'),
+                mctxLine: box('.mctx-line'),
                 chips: document.querySelectorAll('.mctx-chip').length,
+                catalysts: document.querySelectorAll('.mctx-ev').length,
+                earnSyms: document.querySelectorAll('.mctx-earn-sym').length,
                 headlines: document.querySelectorAll('.nt-item, .newsticker a').length,
                 bodyScrollW: Math.round(document.documentElement.scrollWidth),
               };
@@ -321,10 +352,34 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         geo, errors, handles = self._measure(2152, 1117)
         try:
             self.assertFalse(errors, f"page errors: {errors[:3]}")
+            # Every one of these counts is asserted BEFORE the heights. Each
+            # of the three payloads has to have actually arrived, or the
+            # element it feeds is a short placeholder that cannot wrap and the
+            # height check below means nothing.
             self.assertGreaterEqual(
                 geo["chips"], 8,
                 f"the rotation ribbon drew {geo['chips']} chips; with an empty "
                 "ribbon this check cannot see the wrap it exists for")
+            self.assertGreaterEqual(
+                geo["catalysts"], 8,
+                f"the catalysts row drew {geo['catalysts']} events; the row has "
+                "to be wider than the column or it cannot wrap, and a payload "
+                "that fits proves nothing")
+            self.assertGreaterEqual(
+                geo["earnSyms"], 5,
+                f"the earnings list drew {geo['earnSyms']} symbols; with an "
+                "empty list this check cannot see the wrap it exists for")
+            # nowrap on .mctx-line only stops its DIRECT children moving to a
+            # new line. .mctx-events is one child holding every catalyst and
+            # the whole earnings list, and it wrapped inside itself — which is
+            # why the live app measured 82px here while the sandbox showed 44.
+            line = geo["mctxLine"]
+            self.assertIsNotNone(line, "the catalysts row is missing")
+            self.assertLessEqual(
+                line["h"], 26,
+                f"the catalysts row is {line['h']}px tall with "
+                f"{geo['catalysts']} events and {geo['earnSyms']} earnings "
+                "symbols — something inside it is wrapping")
             ribbon = geo["ribbon"]
             self.assertIsNotNone(ribbon, "the rotation ribbon is missing")
             # One row of chips is about 20px. Two rows would be ~45.
