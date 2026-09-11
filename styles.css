@@ -9625,12 +9625,22 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .mctx-g-long b { color: var(--up); } .mctx-g-long .mctx-dot { background: var(--up); }
 .mctx-g-short b { color: var(--down); } .mctx-g-short .mctx-dot { background: var(--down); }
 .mctx-g-na b { color: var(--fg-4); }
-.mctx-events { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
+/* v4.94, third pass. nowrap on .mctx-line stops its DIRECT children being
+   pushed to a new line; it does nothing about a child that grows taller by
+   wrapping inside itself. .mctx-events is one such child and holds every macro
+   catalyst plus the earnings list, which is why the strip still measured 82px
+   on the live app with real data while the sandbox showed 44. Each of these
+   scrolls sideways; nothing is dropped. */
+.mctx-events { display: inline-flex; align-items: center; gap: 14px;
+  flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.mctx-events::-webkit-scrollbar { display: none; }
+.mctx-events > * { flex: 0 0 auto; }
+.mctx-line > * { flex: 0 1 auto; }
 .mctx-quiet { color: var(--fg-3); font-size: 11.5px; }
 .mctx-ev { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); font-size: 11.5px; white-space: nowrap; cursor: help; }
 .mctx-ev-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 .mctx-ev b { color: var(--fg); font-weight: 700; }
-.mctx-earn { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-size: 11.5px; font-weight: 600; cursor: help; flex-wrap: wrap; }
+.mctx-earn { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-size: 11.5px; font-weight: 600; cursor: help; flex-wrap: nowrap; }
 .mctx-earn-sym { display: inline-flex; align-items: baseline; gap: 3px; border: 1px solid color-mix(in oklch, var(--warn), transparent 60%);
   background: color-mix(in oklch, var(--warn), transparent 88%); color: var(--fg); font-family: var(--font-mono);
   font-weight: 800; font-size: 11px; padding: 0 5px; border-radius: 5px; cursor: pointer; }
