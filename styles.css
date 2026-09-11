@@ -9923,6 +9923,13 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   letter-spacing: 0.04em; color: var(--fg-4); margin-left: auto;
 }
 .waa-quiet-body { padding: 0 14px 12px; }
+/* The populated board folds on a phone too (v4.95b), and what opens is the
+   whole card — so the outer disclosure must not pad, border and shadow it a
+   second time. Same board, one frame around it. */
+.waa-fold-body { padding: 0; }
+.waa-fold-body > .waa-card {
+  border: 0; border-radius: 0; box-shadow: none; margin: 0; background: none;
+}
 .waa-empty-slim { padding: 10px 0 2px; text-align: left; }
 @media (max-width: 900px) {
   .waa-quiet > summary { padding: 9px 12px; }

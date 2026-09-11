@@ -1,4 +1,4 @@
-# The permanent frame (v4.95)
+# The permanent frame (v4.96)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -460,6 +460,27 @@ a race.** Rows or no rows is the whole question; a scan in progress is a word in
 the summary line, not a reason to reopen an empty panel. The test now pins
 `scanning: true` in its stub so it exercises the worse of the two every time —
 a check whose answer depends on timing is not a check.
+
+**And a sixth, which only the live deployment could show.** Everything above was
+measured against a sandbox whose analyst endpoint returns nothing. The real one
+does not. Measured on the deployment at 440×956 with Jerry's actual watchlist:
+
+| | Sandbox | Live |
+|---|---|---|
+| Analyst board | 64px, collapsed | **629px**, a thirteen-column table |
+| First stock card | +325 | **+957** in a 415px workspace |
+
+The fix folded the board when it was **empty**, so it fixed the screenshot and
+not the destination — on any ordinary morning the board has rows and still owned
+the first two screens. Now the populated board folds on a phone too: the same
+card, the same table, the same filters, behind a summary that leads with the
+count (`6 actions today`), which is the part worth a glance at 7am.
+
+The lesson is the one this document keeps re-learning, in a new place: **a stub
+gentler than production is a stub that passes a broken page.** `ANALYST_ACTIONS`
+in `test_frame_render.py` is now a populated board *mid-scan* — both hard cases
+at once. Reverting the fold against it gives `894 not less than 415`; against
+the old empty stub it gave nothing at all.
 
 ### Rotating the phone brought the desktop back
 

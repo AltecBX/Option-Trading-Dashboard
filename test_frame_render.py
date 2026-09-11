@@ -115,6 +115,18 @@ WATCHLIST_ROWS = [{
 } for i, s in enumerate(
     "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX CRM ORCL ADBE".split())]
 
+# A board with rows on it, because that is what the live one has on any
+# ordinary morning. Nine is a normal day's worth; the defect this guards
+# against needs only that the board be non-empty.
+ANALYST_ACTIONS = [{
+    "symbol": s, "company": f"{s} Holdings Incorporated",
+    "firm": "Morgan Stanley", "action_type": "upgrade",
+    "action_date": "2026-09-11", "rating_from": "Equal-Weight",
+    "rating_to": "Overweight", "prev_target": 180.0, "new_target": 240.0,
+    "current_price": 200.0, "upside_pct": 20.0, "impact_score": 78,
+    "direction": "up", "fresh_today": True, "source": "Benzinga",
+} for s in "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX".split()]
+
 _SKIP: list = []
 
 
@@ -230,15 +242,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"rows": rows}))
                 return
-            # The analyst board sits above the stocks, and whether it was
-            # SCANNING decided whether it collapsed — so which load you got
-            # was a coin flip. It measured 329px in one run and 668px in the
-            # next with identical code. Pinning `scanning: True` here makes
-            # this test exercise the worse of the two every time, because the
-            # worse one is the one that regressed.
+            # The analyst board sits above the stocks, and it had TWO ways to
+            # be tall. Whether it was SCANNING decided whether it collapsed,
+            # so which load you got was a coin flip: 329px on one run, 668px
+            # on the next with identical code. And an empty stub hid the case
+            # that actually matters — the live board usually HAS rows, and
+            # measured on the deployment it was 629px of thirteen-column
+            # table with the first stock 957px down a 415px workspace. A stub
+            # gentler than production is a stub that passes a broken page, so
+            # this one is a populated board mid-scan: both at once.
             if "/api/watchlist_analyst" in url:
                 r.fulfill(status=200, content_type="application/json",
-                          body=json.dumps({"actions": [], "scanning": True}))
+                          body=json.dumps({"actions": ANALYST_ACTIONS,
+                                           "scanning": True,
+                                           "detected_at": "2026-09-11T09:31:00Z"}))
                 return
             if "/api/quote" in url:
                 syms = []

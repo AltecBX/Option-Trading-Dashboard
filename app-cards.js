@@ -14049,6 +14049,9 @@ function WatchlistAnalystCard({
   apiFetch,
   onSwitchTicker
 }) {
+  // On a phone this board stands between you and the stock list, so it opens
+  // folded here whether or not it has rows — see the `quiet` gate below.
+  const waaPhone = useIsPhone();
   const [data, setData] = useState(null);
   const [scope, setScope] = useState("today"); // today | recent
   const [type, setType] = useState("all"); // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
@@ -14178,8 +14181,14 @@ function WatchlistAnalystCard({
   // load you got was a race. A board with no rows is a board with no rows; the
   // scan is a state the summary line can carry, and the Scanning… button is
   // still one tap inside.
+  // …and the LIVE board is not usually empty, which the sandbox never showed:
+  // measured on the deployment with a real watchlist, this card was 629px tall
+  // with rows in it and the first stock card began 957px down a 415px
+  // workspace. Folding only the EMPTY case fixed the screenshot and not the
+  // destination. On a phone this board is always a summary line — the count is
+  // the part you want at a glance, and the board itself is one tap under it.
   const quiet = sorted.length === 0;
-  const quietLine = isScanning ? "scanning…" : actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
+  const quietLine = isScanning ? "scanning…" : sorted.length > 0 ? `${sorted.length} ${sorted.length === 1 ? "action" : "actions"}` + (scope === "today" ? " today" : " recent") : actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
   const controls = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "waa-head-controls"
   }, /*#__PURE__*/React.createElement("div", {
@@ -14236,7 +14245,7 @@ function WatchlistAnalystCard({
       onClick: () => setScope("recent")
     }, "Show recent")) : "No actions match this filter.")));
   }
-  return /*#__PURE__*/React.createElement("div", {
+  const fullBoard = /*#__PURE__*/React.createElement("div", {
     className: "card waa-card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-head waa-head"
@@ -14380,6 +14389,27 @@ function WatchlistAnalystCard({
   }, a.impact_score != null ? Math.round(a.impact_score) : "—")), /*#__PURE__*/React.createElement("td", {
     className: "waa-src"
   }, a.source)))))));
+
+  // A board WITH rows is the live case, and on a phone it is 629 pixels of
+  // thirteen-column table between you and the stock list. Same card, same
+  // table, same everything — behind a summary line that leads with the count,
+  // which is the part you actually want at a glance in the morning.
+  if (waaPhone && sorted.length > 0) {
+    return /*#__PURE__*/React.createElement("details", {
+      className: "card waa-card waa-quiet waa-fold"
+    }, /*#__PURE__*/React.createElement("summary", {
+      title: "Analyst upgrades, downgrades and price-target changes on your watchlist. Open for the full board, its filters and a fresh scan."
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "waa-quiet-title"
+    }, "Analyst Actions"), /*#__PURE__*/React.createElement("span", {
+      className: "waa-quiet-note"
+    }, quietLine), detected ? /*#__PURE__*/React.createElement("span", {
+      className: "waa-quiet-scanned"
+    }, "scanned ", detected) : null), /*#__PURE__*/React.createElement("div", {
+      className: "waa-quiet-body waa-fold-body"
+    }, fullBoard));
+  }
+  return fullBoard;
 }
 
 // Company profile (Yahoo "Profile" page) — shown inside the News tab so it

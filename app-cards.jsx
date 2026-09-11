@@ -10835,6 +10835,9 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker, onOpenEarnOps }) {
 // for watchlist names, drawn from the morning analyst-board scan. Today's
 // actions are highlighted so the morning read is instant.
 function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
+  // On a phone this board stands between you and the stock list, so it opens
+  // folded here whether or not it has rows — see the `quiet` gate below.
+  const waaPhone = useIsPhone();
   const [data, setData] = useState(null);
   const [scope, setScope] = useState("today");   // today | recent
   const [type, setType] = useState("all");        // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
@@ -10927,14 +10930,23 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
   // load you got was a race. A board with no rows is a board with no rows; the
   // scan is a state the summary line can carry, and the Scanning… button is
   // still one tap inside.
+  // …and the LIVE board is not usually empty, which the sandbox never showed:
+  // measured on the deployment with a real watchlist, this card was 629px tall
+  // with rows in it and the first stock card began 957px down a 415px
+  // workspace. Folding only the EMPTY case fixed the screenshot and not the
+  // destination. On a phone this board is always a summary line — the count is
+  // the part you want at a glance, and the board itself is one tap under it.
   const quiet = sorted.length === 0;
   const quietLine = isScanning
     ? "scanning…"
-    : actions.length === 0
-      ? "nothing scanned yet"
-      : (scope === "today" && type === "all")
-        ? `no actions today · ${actions.length} recent`
-        : "nothing matches this filter";
+    : sorted.length > 0
+      ? `${sorted.length} ${sorted.length === 1 ? "action" : "actions"}`
+        + (scope === "today" ? " today" : " recent")
+      : actions.length === 0
+        ? "nothing scanned yet"
+        : (scope === "today" && type === "all")
+          ? `no actions today · ${actions.length} recent`
+          : "nothing matches this filter";
 
   const controls = (
     <>
@@ -10981,7 +10993,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     );
   }
 
-  return (
+  const fullBoard = (
     <div className="card waa-card">
       <div className="card-head waa-head">
         <div>
@@ -11072,6 +11084,25 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
       )}
     </div>
   );
+
+  // A board WITH rows is the live case, and on a phone it is 629 pixels of
+  // thirteen-column table between you and the stock list. Same card, same
+  // table, same everything — behind a summary line that leads with the count,
+  // which is the part you actually want at a glance in the morning.
+  if (waaPhone && sorted.length > 0) {
+    return (
+      <details className="card waa-card waa-quiet waa-fold">
+        <summary title="Analyst upgrades, downgrades and price-target changes on your watchlist. Open for the full board, its filters and a fresh scan.">
+          <span className="waa-quiet-title">Analyst Actions</span>
+          <span className="waa-quiet-note">{quietLine}</span>
+          {detected ? <span className="waa-quiet-scanned">scanned {detected}</span> : null}
+        </summary>
+        <div className="waa-quiet-body waa-fold-body">{fullBoard}</div>
+      </details>
+    );
+  }
+
+  return fullBoard;
 }
 
 // Company profile (Yahoo "Profile" page) — shown inside the News tab so it
