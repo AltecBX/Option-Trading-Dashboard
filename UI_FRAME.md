@@ -300,16 +300,22 @@ height, not its empty-sandbox one:
 | | Before | After |
 |---|---|---|
 | Workspace, 2152×1117 | 481 px (43%) | **578 px (52%)** |
-| Workspace, 1440×900 | 340 px (38%) | **416 px (46%)** |
+| Workspace, 1440×900 | 340 px (38%) | **404–416 px (45–46%)** |
 | Frame top, 2152×1117 | 522 px | **425 px** |
+
+The spread on the laptop row is this sandbox versus the CI runner: the frame's
+height is a sum of type and padding, so it is renderer-dependent by a percent
+or two. The guard's floors sit in the gap between the before and after values
+rather than just under the after value — the first version of them didn't, and
+went red on CI for measuring the runner instead of the layout.
 
 Inside a partner panel, two toolbar rows and a permanent three-line paragraph
 about signing in sat between the heading and the chart. The paragraph is now a
 `<details>` — same words, keyboard-reachable, findable by browser search, one
 line instead of three. All four partner panels got the same treatment.
 
-`test_frame_render.py` asserts the workspace is at least 45% of a 1440×900
-window and 50% of a 2152×1117 one, and in the same check asserts the ten charts
+`test_frame_render.py` asserts the workspace is at least 42% of a 1440×900
+window and 47% of a 2152×1117 one, and in the same check asserts the ten charts
 are still all there — so the floor can never be met by dropping them.
 
 ## 10. Four more things the review found

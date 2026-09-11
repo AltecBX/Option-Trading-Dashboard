@@ -247,7 +247,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         an embedded partner chart got 278 of those. Keeping the charts is the
         point of the frame; letting the chrome around them outweigh the
         workspace is not. This is the rule, not any one of the paddings that
-        add up to it."""
+        add up to it.
+
+        `floor` is a REGRESSION line, not a target. The first version of this
+        sat eleven pixels under a locally measured value and went red on CI,
+        which renders the same page twelve pixels taller — different font
+        metrics, same stylesheet. The frame's height is a sum of type and
+        padding, so it is renderer-dependent by a percent or two, and a floor
+        that tight measures the runner rather than the layout. Each floor is
+        therefore placed in the gap between what the old chrome left and what
+        the new chrome leaves, with room on both sides."""
         geo, errors, handles = self._measure(width, height)
         try:
             self.assertFalse(errors, f"page errors at {width}x{height}: {errors[:3]}")
@@ -260,19 +269,21 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertGreaterEqual(
                 share, floor,
                 f"the workspace is {main['h']}px of a {geo['vh']}px window "
-                f"({share:.0%}); the frame around it has grown back")
+                f"({share:.0%}), under the {floor:.0%} floor — the frame around "
+                "it has grown back. The floor is a regression line, not a "
+                "target: if this is a deliberate change, say why the frame "
+                "needs the height rather than lowering the number.")
         finally:
             self._close(handles)
 
     def test_the_workspace_gets_most_of_a_laptop_screen(self):
-        # Measured in this harness: 416/900 = 46% after, 340/900 = 38% before.
-        # The floor sits below the measured value with room for a pixel or
-        # two of font-metric drift, and well above what the old chrome left.
-        self._check_workspace_share(1440, 900, 0.45)
+        # Before: 340/900 = 38%. After: 404-416/900 = 45-46%, the spread being
+        # this sandbox versus the CI runner. The floor sits between the two.
+        self._check_workspace_share(1440, 900, 0.42)
 
     def test_the_workspace_gets_most_of_a_big_screen(self):
-        # Measured in this harness: 578/1117 = 52% after, 481/1117 = 43% before.
-        self._check_workspace_share(2152, 1117, 0.50)
+        # Before: 481/1117 = 43%. After: 578/1117 = 52% here.
+        self._check_workspace_share(2152, 1117, 0.47)
 
     def _check_gutter(self, width, height):
         """The rails are fixed to the window edges and the content column is
