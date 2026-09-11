@@ -70,6 +70,43 @@ const skTime = (s) => {
 };
 const skRowKey = (r) => `${r.symbol}|${r.expiration}|${r.strike}`;
 
+// Which kind of nothing, said in one word. The board is empty for four quite
+// different reasons and only one of them means "today happened and paid
+// nothing" — the phase comes from spike_scan.market_phase, the same clock the
+// app bar reads, so the two can no longer disagree.
+const SK_PHASE_VERDICT = { pre: "Pre-market", post: "Market closed", holiday: "Market closed" };
+const SK_PHASE_TONE = { pre: "neutral", post: "neutral", holiday: "neutral" };
+
+// The scan's own facts, written once. They read inline under a board with
+// rows on it and fold behind a summary under a board without, but they are
+// the same sentence either way — two copies would drift.
+function skStatusFacts(data) {
+  return (
+    <React.Fragment>
+      <span title={SK_TIP.stale}>
+        {data.as_of ? `Scanned ${skDate(data.as_of)} at ${skTime(data.as_of)}`
+                    : "No scan yet"}
+      </span>
+      <span title={SK_TIP.session}> · {skPct0(data.elapsed, 0)} of the session gone</span>
+      <span title={SK_TIP.session_basis}> · session left {data.session_profile}</span>
+      {data.calendar && (!data.calendar.is_session || data.calendar.early_close) ? (
+        <span className="sl-cal" title={SK_TIP.calendar}>
+          {" "}· {data.calendar.early_close
+            ? `Short session — closes ${data.calendar.closes_at}`
+            : `${data.calendar.note} Next session ${data.calendar.next_session}`}
+        </span>
+      ) : null}
+      {data.scanning ? <span className="sl-live" title={SK_TIP.scanning}> · scanning</span> : null}
+      <span title={SK_TIP.candidates}> · {data.scanned} of {data.universe} names have run</span>
+      {data.prior ? (
+        <span title={SK_TIP.prior}> · measured on {(data.prior.n_sessions || 0).toLocaleString()} sessions
+          across {data.prior.n_names} names</span>
+      ) : null}
+      <span> · {data.version}</span>
+    </React.Fragment>
+  );
+}
+
 async function skReadJson(r) {
   const text = await r.text();
   try { return { d: JSON.parse(text) }; }
@@ -278,39 +315,42 @@ function SpikeCard({ apiFetch, onPickTicker }) {
           than three lines above it — the review measured this panel spending
           its most valuable space introducing itself and putting the verdict
           underneath. Nothing was cut; Method opens in place. */}
+      {/* The verdict names WHICH kind of nothing, and the clock is part of
+          that. "No trade" at 7:26 in the morning is true but useless, and the
+          reason underneath used to say the market was closed FOR THE DAY while
+          the app bar said Pre-market — the app contradicting itself. */}
       {data && !err && data.no_trade ? (
-        <PanelVerdict tone="stop" verdict="No trade"
+        <PanelVerdict tone={SK_PHASE_TONE[data.phase] || "stop"}
+                      verdict={SK_PHASE_VERDICT[data.phase] || "No trade"}
                       reason={data.no_trade_reason}
                       at={data.as_of}
                       tip={SK_TIP.no_trade} />
       ) : null}
 
+      {/* Nine facts about the scan. On a phone they wrapped to three lines
+          above a board with nothing on it. When there IS something to read
+          they stay inline, because then they qualify what you are reading;
+          when there is not, they fold behind the one that matters. */}
       {data ? (
-        <p className="sl-status">
-          <DataStatus kind={data.scanning ? "loading" : data.as_of ? "cached" : "pending"}
-                      at={data.as_of}
-                      note="Boards are stored results. Nothing is re-measured until you refresh or the next scan runs." />
-          <span title={SK_TIP.stale}>
-            {data.as_of ? `Scanned ${skDate(data.as_of)} at ${skTime(data.as_of)}`
-                        : "No scan yet"}
-          </span>
-          <span title={SK_TIP.session}> · {skPct0(data.elapsed, 0)} of the session gone</span>
-          <span title={SK_TIP.session_basis}> · session left {data.session_profile}</span>
-          {data.calendar && (!data.calendar.is_session || data.calendar.early_close) ? (
-            <span className="sl-cal" title={SK_TIP.calendar}>
-              {" "}· {data.calendar.early_close
-                ? `Short session — closes ${data.calendar.closes_at}`
-                : `${data.calendar.note} Next session ${data.calendar.next_session}`}
-            </span>
-          ) : null}
-          {data.scanning ? <span className="sl-live" title={SK_TIP.scanning}> · scanning</span> : null}
-          <span title={SK_TIP.candidates}> · {data.scanned} of {data.universe} names have run</span>
-          {data.prior ? (
-            <span title={SK_TIP.prior}> · measured on {(data.prior.n_sessions || 0).toLocaleString()} sessions
-              across {data.prior.n_names} names</span>
-          ) : null}
-          <span> · {data.version}</span>
-        </p>
+        data.no_trade ? (
+          <details className="panel-method sl-status-fold">
+            <summary title={SK_TIP.stale}>
+              <DataStatus kind={data.scanning ? "loading" : data.as_of ? "cached" : "pending"}
+                          at={data.as_of}
+                          note="Boards are stored results. Nothing is re-measured until you refresh or the next scan runs." />
+              {data.as_of ? `Scanned ${skTime(data.as_of)}` : "No scan yet"}
+              {data.scanning ? " · scanning" : ""}
+            </summary>
+            <div className="panel-method-body">{skStatusFacts(data)}</div>
+          </details>
+        ) : (
+          <p className="sl-status">
+            <DataStatus kind={data.scanning ? "loading" : data.as_of ? "cached" : "pending"}
+                        at={data.as_of}
+                        note="Boards are stored results. Nothing is re-measured until you refresh or the next scan runs." />
+            {skStatusFacts(data)}
+          </p>
+        )
       ) : null}
 
       <PanelMethod label="Method — what this board measures, and what it refuses">

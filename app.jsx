@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.94";
+const APP_VERSION = "4.95";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -394,6 +394,13 @@ function App() {
   // sat below the fold. Height has to be part of the question.
   const shortView = useMediaQuery("(max-height: 700px)");
   const bandInWorkspace = isPhone || shortView;
+  // …and v4.95 drawered the sidebar in landscape in CSS without telling the
+  // components, so `isPhone` was still false at 956x440 and the four rails
+  // stayed mounted behind `display: none` with the tabbed card never rendered
+  // — all four lists fetched and unreachable, the defect the frame exists to
+  // end. Mount points follow the FRAME's definition of a phone; controls whose
+  // stylesheet is keyed on width keep using isPhone. See app-lib's PHONE_Q.
+  const phoneFrame = useIsPhoneFrame();
   const [helpOpen, setHelpOpen] = useState(false);    // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0);  // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -3119,7 +3126,7 @@ function App() {
           fixed columns; on a phone they mount inside the workspace as one
           tabbed card (see HighLowCard below) so all four lists stay
           reachable instead of being hidden by a display:none. */}
-      {!isPhone && (
+      {!phoneFrame && (
         <React.Fragment>
           <ExtremeRail kind="high52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
           <ExtremeRail kind="dailyHigh" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
@@ -3149,6 +3156,14 @@ function App() {
           {/* Short viewports hide the four navigation rows to give the
               workspace its height back, so the picker needs a visible door
               here — every destination stays one tap away. */}
+          {/* The door to the sidebar wherever the sidebar is a drawer and the
+              mobile header is not on screen — a phone on its side, where a
+              304px fixed column is a third of the width spent on a logo and
+              two badges. Hidden by default; the same rule that drawers the
+              sidebar reveals it. */}
+          <button className="ab-icon ab-menu" onClick={() => setNavOpen(true)}
+                  aria-label="Ticker, watchlist and settings"
+                  title="Ticker, watchlist, presets and settings.">☰</button>
           <button className="ab-icon ab-tools" onClick={() => setTabSheetOpen(true)}
                   aria-label="All tools"
                   title="Every destination, grouped and searchable.">▦</button>
@@ -3157,6 +3172,11 @@ function App() {
               display:none does not unmount a component — two of these would be
               two forecast fetches, two geolocation prompts, and a "use my
               location" toggle that only moved one of them. */}
+          {/* isPhone, NOT phoneFrame, and deliberately: the mobile header
+              below is shown by a width-keyed rule, so in landscape it is off
+              screen and this bar is the only one there is. Switching this to
+              the frame's predicate would mount the pill inside a hidden
+              header and the weather would vanish again. */}
           {!isPhone && <WeatherBadge variant="bar" />}
           <MarketClock />
           <button className="ab-icon" onClick={() => setHelpOpen(true)}
@@ -3694,7 +3714,7 @@ function App() {
         {bandInWorkspace && activeTab === "trade" && (
           <React.Fragment>
             {marketBand}
-            {isPhone && (
+            {phoneFrame && (
               <CardErrorBoundary label="Highs and lows">
                 <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
               </CardErrorBoundary>

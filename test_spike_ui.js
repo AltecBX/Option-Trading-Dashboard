@@ -130,10 +130,25 @@ ok("refusals keep their reason", /"why": why/.test(scan) && /SK_TIP\.refused/.te
 // exactly the same place. What matters is that a no-trade state is rendered
 // as a verdict, and that the verdict carries the engine's own reason —
 // which is the part that distinguishes a quiet market from a broken feed.
+// It then went red a second time, for the same reason: the wording became
+// phase-aware ("Pre-market" before the bell) and the literal fell over again.
+// So the assertion is now the shape — a PanelVerdict, gated on no_trade,
+// carrying the engine's reason — with the wording left free to say which
+// kind of nothing it is.
+const verdictTag = (src.match(/<PanelVerdict[\s\S]{0,300}?\/>/) || [""])[0];
 ok("NO TRADE renders as a finding, with the engine's reason attached",
-   /<PanelVerdict[\s\S]{0,200}?verdict="No trade"/.test(src)
-   && /reason=\{data\.no_trade_reason\}/.test(src)
+   /data\.no_trade \?/.test(src)
+   && /verdict=/.test(verdictTag)
+   && /reason=\{data\.no_trade_reason\}/.test(verdictTag)
    && /no_trade_reason/.test(scan));
+// And the wording is read off the clock rather than being one sentence for
+// every kind of no. "The market is closed for the day" at 7:26 in the morning
+// was the app contradicting its own app bar two inches above it.
+ok("and it says WHICH kind of nothing — the clock is part of the verdict",
+   /SK_PHASE_VERDICT\[data\.phase\]/.test(src)
+   && /pre: "Pre-market"/.test(src)
+   && /def market_phase\(/.test(scan)
+   && /"phase": market_phase\(\),/.test(scan));
 ok("the funnel of what ran is shown", /what has run today/.test(src) && /candidates/.test(scan));
 
 // ── 7. backend contract + cadence ───────────────────────────────────────

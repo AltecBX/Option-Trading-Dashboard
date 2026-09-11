@@ -1,4 +1,4 @@
-# The permanent frame (v4.94)
+# The permanent frame (v4.95)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -415,7 +415,141 @@ strength), the heading is full-strength colour at 15.5px/650, and the
 explanation is 11.5px in the quiet tier, capped at 88 characters a line.
 Methodology stays one click away in `<details>`. Nothing was deleted.
 
-### Not verified here — needs your phone
+## 12. Four more, from a phone in both hands (v4.95)
+
+Each of these was found the same way the v4.94 ones were: by measuring the
+running app rather than by reading the code. Three of the four are the *same*
+bug — a control was moved or restyled and reported as done, while the thing the
+move was supposed to achieve was never measured afterwards.
+
+### The mobile Watchlist opened on everything except stocks
+
+The first stock card began **798 pixels** down a workspace **412 pixels** tall.
+Two full screens of preamble — an explanation paragraph, a whole-market flow
+summary and eight filter controls — stood in front of the list the destination
+is named after. The v4.94 round had collapsed the empty analyst board above it,
+which is why this was visible at all: fixing the first obstacle exposed the
+second.
+
+Nothing was removed. On a phone the everyday controls stay out — which view,
+search, and how many rows — and the rest folds:
+
+| Part | Before | After |
+|---|---|---|
+| Analyst board | 64 | 64 |
+| Card head | 40 | 40 |
+| Explanation (`.ab-status`) | ~180 | 48 + a 24px `What the columns mean` fold |
+| Market flow summary | ~150 | one summary line, details on tap |
+| Filters | ~190 (8 controls, wrapped) | 76 (3 controls + a `Filters (n)` toggle) |
+| **First stock card at** | **+798** | **+329** |
+
+Measured at 440×956 with a 457px workspace, so the first card is in the first
+view with room under it.
+
+A folded filter that is still narrowing the list is a trap: you would see six
+stocks, not know why, and conclude the scanner is broken. The toggle therefore
+reads `Filters (2)` when two of the hidden controls are active, and that count
+is derived from the filter state rather than being a label someone maintains.
+
+**And a fifth thing, found by the test disagreeing with itself.** The new guard
+passed, then failed on the next run with identical code — 329px once, 668px the
+next time. The analyst board above the stocks collapsed only when
+`sorted.length === 0 && !isScanning`, so a scan still in flight blew it back up
+to 403 pixels and put the stocks below the fold again. **Which load you got was
+a race.** Rows or no rows is the whole question; a scan in progress is a word in
+the summary line, not a reason to reopen an empty panel. The test now pins
+`scanning: true` in its stub so it exercises the worse of the two every time —
+a check whose answer depends on timing is not a check.
+
+### Rotating the phone brought the desktop back
+
+Every mobile rule in `styles.css` is written `max-width: 900px`. Rotate a
+440×956 phone and it is 956×440 — past that number — so the desktop sidebar
+returned and took roughly a third of a 956-pixel-wide screen to show a logo and
+a green connection dot.
+
+Width alone cannot tell a phone on its side from a laptop. The **height** can:
+
+```css
+@media (max-height: 560px) and (max-width: 1180px) and (min-width: 901px)
+```
+
+The 1180px ceiling is the important half — a 500px-tall window on a 1440px
+monitor is a deliberate choice and must not take this branch. Inside it the
+frame collapses to one column and the sidebar becomes the same off-canvas
+drawer it is in portrait, bounded by `--frame-top-h` / `--frame-bottom-h` like
+every other overlay. The mobile header that carries the burger in portrait is
+not on screen at this width, so the app bar grows a `☰` — and that button is
+`display: none` everywhere else, because a door in front of an open room is
+worse than no door.
+
+Landscape, 956×440: the workspace went from about **66% to 95%** of the width,
+with all ten charts still mounted.
+
+**And that fix had a bug of its own, which a review bot caught.** The branch
+above was written in CSS *only*. The components kept asking `useIsPhone()`,
+which is width-keyed, so at 956×440 the two halves of the app disagreed about
+what a phone is:
+
+| | CSS said | The components said |
+|---|---|---|
+| Sidebar | drawer | — |
+| Jump control | (phone) | the **904px chip strip** the picker replaces |
+| Four high/low rails | `display: none` | mount them as fixed columns |
+
+The second row is what the bot found. The third is worse and followed from the
+same cause: all four lists were **mounted, polling and unreachable**, with the
+tabbed card that replaces them never rendered — which is precisely the defect
+§1 says the permanent frame was built to end, reintroduced in landscape by the
+fix for a different problem.
+
+Two definitions of "phone" was the bug. There are, however, two legitimate
+questions, so the answer is to name both rather than to merge them:
+
+| | Asks | Used by |
+|---|---|---|
+| `useIsPhone()` | is the viewport **narrow**? | components whose partner CSS is keyed `max-width: 900px` — the mobile header and its controls, the watchlist's one-card-per-row layout |
+| `useIsPhoneFrame()` | is the **frame** in phone mode? | mount points: the rails vs. the tabbed card, and the jump control |
+
+`PHONE_FRAME_Q` is composed from `PHONE_Q` and the same two numbers the CSS
+branch uses, so it cannot become a third hard-coded copy; a guard checks the
+two files still agree. The weather pill is the deliberate exception and is
+commented as one: the mobile header is width-keyed, so in landscape it is off
+screen and the app bar is the only bar there is — moving the pill to the
+frame's predicate would mount it inside a hidden header and the weather would
+vanish exactly as it did in v4.93.
+
+### "Jump to" was in the right place and still the wrong shape
+
+Moving it to the top of the workspace fixed *where* it was. It was still a
+horizontal strip of seventeen chips with their labels clipped, so reaching a
+panel near the bottom of the page was a swipe hunt — the control whose job is
+to save scrolling, needing a scroll of its own.
+
+The tool picker had solved this exact problem, so the phone now gets that same
+sheet: one button showing the section you are in and the count, opening a
+searchable list whose rows wrap instead of clipping. The desktop keeps the
+strip — there the labels fit, and the lit chip tells you where you are as the
+page scrolls under it.
+
+### A panel that disagreed with the clock two inches above it
+
+At 7:26 on a trading morning the app bar said **Pre-market** and *Sold Into
+Strength* said **"The market is closed for the day."** Both came from the same
+process. The panel had one boolean — is the market open — and rendered the
+evening wording for every value of "no".
+
+`spike_scan.market_phase()` now names which of the four the clock is in —
+`holiday`, `pre`, `open`, `post` — and both the wording and the panel's verdict
+read it, so they cannot drift apart again. Before the bell the board says the
+session has not opened yet and when it will fill in; the nine status facts
+underneath fold into a disclosure when there is nothing to show.
+
+A test in `test_spike_scan.py` asserts `market_phase()` and `elapsed_fraction()`
+agree at eight clock times on both a full session and a half day. They are two
+readings of the same bell, and the bug was that nothing made them say so.
+
+## 13. Not verified here — needs your phone
 
 This was responsive testing in desktop Chromium, **not** iPhone Safari.
 Still to check on the physical iPhone 16 Pro Max:

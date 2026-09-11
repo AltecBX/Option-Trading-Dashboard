@@ -506,6 +506,46 @@ class TheCalendar(unittest.TestCase):
         self.assertIn("Labor Day", reason)
         self.assertIn("September 8, 2026", reason)
 
+    def test_before_the_bell_the_day_has_not_happened_yet(self):
+        """At 7:26 AM the app bar said "Pre-market" and this board said the
+        market was closed FOR THE DAY — the app contradicting itself, and this
+        was the half that was wrong. Morning and evening are not the same news:
+        one says wait, the other says today paid nothing."""
+        self._at(self.FULL, 7, 26)
+        reason = sk._closed_reason()                              # noqa: SLF001
+        self.assertIn("Pre-market", reason)
+        self.assertNotIn("closed for the day", reason)
+        self.assertEqual("pre", sk.market_phase())
+
+    def test_after_the_bell_it_has(self):
+        self._at(self.FULL, 17, 0)
+        reason = sk._closed_reason()                              # noqa: SLF001
+        self.assertIn("closed for the day", reason)
+        self.assertNotIn("Pre-market", reason)
+        self.assertEqual("post", sk.market_phase())
+
+    def test_the_phase_follows_the_same_bell_the_elapsed_clock_does(self):
+        """Two clocks in one module is how the first contradiction happened.
+        market_phase and elapsed_fraction must agree at every boundary,
+        including the early close on a half day."""
+        for day in (self.FULL, self.HALF):
+            for hour, minute in ((7, 26), (9, 29), (9, 31), (12, 30),
+                                 (13, 30), (15, 59), (16, 1), (20, 0)):
+                self._at(day, hour, minute)
+                phase, frac = sk.market_phase(), sk.elapsed_fraction()
+                where = f"{day} {hour:02d}:{minute:02d}"
+                if phase == "pre":
+                    self.assertEqual(0.0, frac, where)
+                elif phase == "post":
+                    self.assertEqual(1.0, frac, where)
+                else:
+                    self.assertTrue(0.0 < frac < 1.0, f"{where}: {frac}")
+
+    def test_a_holiday_is_neither_morning_nor_evening(self):
+        self._at(self.SHUT, 7, 26)
+        self.assertEqual("holiday", sk.market_phase())
+        self.assertIn("Labor Day", sk._closed_reason())           # noqa: SLF001
+
     def test_the_calendar_note_never_shows_an_iso_date(self):
         self._at(self.SHUT, 11, 0)
         note = sk._calendar_note()                                # noqa: SLF001

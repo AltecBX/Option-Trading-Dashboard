@@ -87,8 +87,14 @@ ok("no window.scrollTo survives in app.jsx",
    !/window\.scrollTo\(/.test(app), (app.match(/window\.scrollTo\([^)]*\)/g) || []).join(","));
 
 // ── 4. the four high/low lists are reachable at both widths ───────────────
+// The rule is that the rails are CONDITIONAL — they mount as fixed columns
+// only where a fixed column makes sense. Which predicate answers that is
+// section 21b's business; pinning the name here sent this red the moment the
+// answer stopped being width alone, which is the third time in this file a
+// guard has pinned a spelling instead of a rule.
 ok("the rails mount as fixed columns only on a desktop",
-   /\{!isPhone && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail kind="high52"/.test(app));
+   /\{!(isPhone|phoneFrame) && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail kind="high52"/
+     .test(app));
 ok("on a phone the same four lists mount inside the workspace",
    /<HighLowCard apiFetch=\{apiFetch\}/.test(app) && /function HighLowCard/.test(cards));
 ok("all four lists are offered there, not a subset",
@@ -350,8 +356,15 @@ ok("methodology is a disclosure, not a permanent paragraph",
 
 // ── 17. the empty analyst board does not own the first screen ─────────────
 ok("an analyst board with nothing on it collapses to one line",
-   /const quiet = sorted\.length === 0 && !isScanning;/.test(cards)
+   /const quiet = sorted\.length === 0;/.test(cards)
    && /<details className="card waa-card waa-quiet">/.test(cards));
+// The first version of that gate was `sorted.length === 0 && !isScanning`, so
+// a scan in flight blew the board back up to 403px and put the stocks below
+// the fold — and which load you got was a race. Rows or no rows is the whole
+// question; the scan is a word in the summary line.
+ok("and a scan in flight does not blow it back up",
+   !/const quiet = [^;]*isScanning/.test(cards)
+   && /const quietLine = isScanning\s*\n?\s*\? "scanning…"/.test(cards));
 ok("and its controls, filters and history are inside that line, not dropped",
    /<div className="waa-quiet-body">\s*\n\s*\{controls\}/.test(cards)
    && /const controls = \(/.test(cards));
@@ -411,6 +424,143 @@ for (const a of asserted) {
      !!d && d.pct === a.pct,
      d ? `test ${a.pct}%, doc ${d.pct}%` : `nothing documented for ${a.w}px`);
 }
+
+// ── 21. a phone on its side is still a phone ──────────────────────────────
+//
+// Every mobile rule in this stylesheet is written `max-width: 900px`. Rotate
+// the phone and 440x956 becomes 956x440 — past that number — so the desktop
+// sidebar came back and took a third of a 956-pixel-wide screen to show a
+// logo and a green dot. Width alone cannot tell a phone on its side from a
+// laptop; the HEIGHT can, and the branch has to be bounded above so a short
+// window on a real monitor never takes it.
+const landscape = css.match(
+  /@media \(max-height: 560px\) and \(max-width: 1180px\) and \(min-width: 901px\) \{[\s\S]*?\n\}/);
+ok("there is a phone-landscape branch, keyed on height and bounded on width",
+   !!landscape);
+if (landscape) {
+  const b = landscape[0];
+  ok("in it the frame is one column, so the tool gets the whole width",
+     /\.frame-top, \.frame-body \{ grid-template-columns: minmax\(0, 1fr\); \}/.test(b));
+  ok("the sidebar becomes an off-canvas drawer rather than disappearing",
+     /\.sidebar \{[^}]*position: fixed[^}]*transform: translateX\(-/.test(b)
+     && /\.sidebar\.nav-open \{ transform: translateX\(0\)/.test(b));
+  ok("and the drawer is bounded by the frame here too",
+     /\.sidebar \{[^}]*var\(--frame-top-h[\s\S]*?var\(--frame-bottom-h/.test(b));
+}
+// A drawer with no handle is a drawer you cannot open. The mobile header that
+// carries the burger in portrait is not on screen at this width, so the app
+// bar has to grow one — and only here, or the desktop gets a button that
+// opens a sidebar already sitting beside it.
+ok("the app bar carries a door to it, mounted in the markup",
+   /className="ab-icon ab-menu"/.test(app));
+ok("and that door is hidden everywhere the sidebar is already visible",
+   /\.ab-menu \{ display: none; \}/.test(css)
+   && !!landscape && /\.ab-menu \{ display: inline-flex/.test(landscape[0]));
+
+// ── 21b. one definition of "phone", not two ───────────────────────────────
+//
+// The landscape branch above was written in CSS only. The components kept
+// asking `useIsPhone()`, which is width-keyed, so at 956x440 the two halves
+// disagreed: the stylesheet drawered the sidebar while SectionNav still drew
+// the 904px chip strip, and the four high/low rails stayed mounted behind
+// display:none with their replacement card never rendered — fetched, polling,
+// unreachable, which is the defect the frame was built to end.
+//
+// There are two legitimate questions ("is it narrow" vs "is the frame in
+// phone mode"), so the rule is not "one predicate" — it is that the second
+// one EXISTS, is derived from the same two numbers as the CSS branch rather
+// than being a third hard-coded copy, and is what decides mount points.
+ok("the frame's phone predicate exists alongside the width one",
+   /function useIsPhoneFrame\(\)/.test(lib)
+   && /const PHONE_FRAME_Q = `\$\{PHONE_Q\}, \$\{SHORT_LANDSCAPE_Q\}`/.test(lib));
+ok("and it is built from the same numbers the stylesheet branch uses",
+   (() => {
+     const m = lib.match(
+       /const SHORT_LANDSCAPE_Q = "\(max-height: (\d+)px\) and \(max-width: (\d+)px\)"/);
+     if (!m || !landscape) return false;
+     return landscape[0].includes(`max-height: ${m[1]}px`)
+       && landscape[0].includes(`max-width: ${m[2]}px`);
+   })());
+ok("mount points ask the frame, not the width",
+   /const phoneFrame = useIsPhoneFrame\(\);/.test(app)
+   && /\{!phoneFrame && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail/.test(app)
+   && /\{phoneFrame && \(\s*\n\s*<CardErrorBoundary label="Highs and lows">/.test(app));
+// The weather pill is the deliberate exception, and it has to stay one: the
+// mobile header is shown by a width-keyed rule, so in landscape it is off
+// screen and the app bar is the only bar there is. Moving this to the frame's
+// predicate would mount the pill inside a hidden header — which is exactly
+// how the weather vanished in v4.93.
+ok("controls inside the width-keyed mobile header still ask the width",
+   /\{!isPhone && <WeatherBadge variant="bar" \/>\}/.test(app)
+   && /\{isPhone && <WeatherBadge variant="bar" \/>\}/.test(app));
+
+// ── 22. the phone's jump control is a picker ──────────────────────────────
+//
+// Moving it to the top fixed WHERE it was; it was still a horizontal strip of
+// seventeen chips with their labels clipped, so a panel near the bottom of
+// the page was a swipe hunt. The tool picker solved the same problem with a
+// searchable sheet. Same shape, so one learned gesture works in both places.
+ok("a phone gets a picker, not the chip strip",
+   /className="secnav secnav-phone"/.test(lib)
+   && /className="secnav-open"/.test(lib));
+ok("the picker is searchable, and says so when nothing matches",
+   /className="secnav-none"/.test(lib)
+   && /setFind\(/.test(lib));
+ok("it reuses the tool picker's sheet rather than inventing a second one",
+   /className="tabsheet secnav-sheet"/.test(lib)
+   && /className=\{`tabsheet-btn secnav-pick/.test(lib));
+ok("and its rows wrap instead of clipping the labels that started this",
+   /\.secnav-sheet \.secnav-pick \{[^}]*white-space: normal/.test(css));
+// The desktop keeps the strip: there the labels fit, and the lit chip tells
+// you where you are as the page scrolls under it.
+ok("the desktop still gets the strip, with its where-am-I highlight",
+   /const \[hereId, setHere\] = useState\(null\)/.test(lib));
+
+// ── 23. the watchlist opens on its stocks ─────────────────────────────────
+//
+// Measured: the first stock card started 798px down a 412px workspace. The
+// explanation, the market-flow summary and eight filters were two screens of
+// preamble in front of the list the destination is named after. Nothing is
+// removed — the rule is that on a phone the everyday controls stay out and
+// the rest folds.
+ok("the explanation folds on a phone",
+   /<details className="panel-method wl-fold">/.test(cards)
+   && /ab-status-slim/.test(cards));
+ok("the market-flow summary becomes a one-line disclosure on a phone",
+   /<details className="wl-market wl-market-fold"/.test(cards));
+ok("the advanced filters fold, and the everyday ones do not",
+   /ab-filters-lite/.test(cards)
+   && /\.ab-filters-lite \.wl-adv \{ display: none; \}/.test(css)
+   && (cards.match(/wl-adv/g) || []).length >= 5);
+// Folding a filter hides the fact that it is NARROWING the list — you would
+// see six stocks, not know why, and conclude the scanner is broken. The count
+// on the toggle is the safety catch, so it has to be derived from the filters
+// rather than being a static label.
+ok("a folded filter that is still narrowing the list says so on the toggle",
+   /const wlNarrowing = \(primeOnly \? 1 : 0\)/.test(cards)
+   && /Filters\{wlNarrowing \? ` \(\$\{wlNarrowing\}\)` : ""\}/.test(cards));
+
+// ── 24. an empty board tells the truth about the clock ────────────────────
+//
+// At 7:26 on a trading morning the app bar said "Pre-market" and the panel
+// two inches below it said "The market is closed for the day". Both came from
+// the same process. The fix is one function that names the phase, used by the
+// wording AND by the panel's verdict, so the two cannot drift again.
+const spike = read("spike_scan.py");
+const spikeTab = read("tab-spike.jsx");
+ok("the backend names the phase rather than only 'open or not'",
+   /def market_phase\(/.test(spike)
+   && /return "pre" if n < o else \("open" if n < c else "post"\)/.test(spike));
+ok("and ships it in the payload the panel reads",
+   /"phase": market_phase\(\),/.test(spike));
+ok("before the bell the wording is pre-market, not closed-for-the-day",
+   /Pre-market — the session has not opened yet/.test(spike));
+ok("the panel's verdict follows the same phase, not a second opinion",
+   /SK_PHASE_VERDICT\[data\.phase\]/.test(spikeTab)
+   && /pre: "Pre-market"/.test(spikeTab));
+ok("and an empty board's status is a disclosure, not a wall of paragraphs",
+   /<details className="panel-method sl-status-fold">/.test(spikeTab)
+   && /function skStatusFacts\(data\)/.test(spikeTab));
 
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));

@@ -486,6 +486,33 @@ const SWST = {
 // same edge at slightly different widths.
 const PHONE_Q = "(max-width: 900px)";
 
+// …and then v4.95 wrote a SECOND definition, in CSS only. A rotated phone is
+// 956x440 — past `max-width: 900px` — so the stylesheet grew a branch keyed on
+// height to drawer the sidebar there. The components never heard about it, and
+// the two halves disagreed about what a phone is:
+//
+//   * Trade and Scanners kept the 904px chip strip the searchable picker was
+//     added to replace (found by a review bot);
+//   * and the four high/low rails stayed mounted at `display: none` with the
+//     tabbed card absent, so all four lists were fetched and unreachable —
+//     which is the exact defect the permanent frame was built to end.
+//
+// So there are two questions here, and they are not the same question:
+//
+//   useIsPhone()      — is the viewport NARROW? Partners with the width-keyed
+//                       `max-width: 900px` CSS: the mobile header and the bar
+//                       controls inside it, the watchlist's one-card-per-row
+//                       layout. Answer no in landscape and those stay desktop,
+//                       which is what their stylesheets do too.
+//   useIsPhoneFrame() — is the FRAME in phone mode: sidebar in a drawer, one
+//                       column, no room for furniture? True in landscape too.
+//                       Partners with the branch below.
+//
+// Pick by which stylesheet the component has to agree with. The union is
+// written once, here, from the same two numbers the CSS branch uses.
+const SHORT_LANDSCAPE_Q = "(max-height: 560px) and (max-width: 1180px)";
+const PHONE_FRAME_Q = `${PHONE_Q}, ${SHORT_LANDSCAPE_Q}`;
+
 function useMediaQuery(query) {
   const [hit, setHit] = useState(() => {
     try { return window.matchMedia(query).matches; } catch (e) { return false; }
@@ -511,6 +538,10 @@ function useMediaQuery(query) {
 // high/low rails render as fixed side columns on desktop and as one tabbed
 // card inside the workspace on a phone) — CSS cannot move DOM.
 function useIsPhone() { return useMediaQuery(PHONE_Q); }
+
+// True wherever the FRAME is in phone mode — narrow, or a phone on its side.
+// See the note above PHONE_Q for which of the two to use.
+function useIsPhoneFrame() { return useMediaQuery(PHONE_FRAME_Q); }
 
 // The workspace's scrolling element. Before the frame this was the window, so
 // every "scroll to top" and every remembered scroll position went through
@@ -632,7 +663,14 @@ function PanelVerdict({ tone, verdict, reason, at, tip, children }) {
 // the page. Reading the DOM cannot go stale that way.
 function SectionNav({ tab, active, groups, label }) {
   const [items, setItems] = useState([]);
-  const [here, setHere] = useState(null);
+  const [hereId, setHere] = useState(null);
+  // The phone's picker: a sheet in the same shape as the tool picker, because
+  // that shape already solved "too many destinations to sit in a row".
+  const [pick, setPick] = useState(false);
+  const [find, setFind] = useState("");
+  // The frame's question, not the width's: in landscape the sidebar is a
+  // drawer and there is no room for a 904px strip either.
+  const isPhone = useIsPhoneFrame();
   const scan = React.useCallback(() => {
     // A destination is not one panel: Trade alone is nine separate
     // `<TabPanel tab="trade">` blocks interleaved with other tabs, so this
@@ -710,6 +748,71 @@ function SectionNav({ tab, active, groups, label }) {
       - root.getBoundingClientRect().top - 8;
     scrollWorkspaceTo(y, true);
   };
+
+  // On a phone this was a horizontally scrolling strip of seventeen chips with
+  // their labels clipped: pinned to the top, and still no help in reaching a
+  // panel near the bottom. The tool picker solved the same problem — too many
+  // destinations for a row — with a searchable sheet, and it works, so this is
+  // that shape. The desktop keeps the strip, where the labels fit and the row
+  // shows where you are.
+  if (isPhone) {
+    const here = items.find(i => i.id === hereId);
+    return (
+      <React.Fragment>
+        <nav className="secnav secnav-phone" aria-label={label || "Sections on this page"}>
+          <button type="button" className="secnav-open" onClick={() => setPick(true)}
+                  title="Every panel on this page, searchable. Nothing is hidden — this only moves you to one.">
+            <span className="secnav-lbl-sm">Jump to</span>
+            <span className="secnav-here">{here ? here.short || here.text : "a section"}</span>
+            <span className="secnav-count">{items.length}</span>
+          </button>
+        </nav>
+        {pick && (
+          <div className="tabsheet-overlay" onClick={() => { setPick(false); setFind(""); }}>
+            <div className="tabsheet secnav-sheet" role="dialog"
+                 aria-label={label || "Sections on this page"}
+                 onClick={e => e.stopPropagation()}>
+              <div className="tabsheet-head">
+                <span>{label || "Sections"}</span>
+                <button className="tabsheet-x" aria-label="Close"
+                        onClick={() => { setPick(false); setFind(""); }}>✕</button>
+              </div>
+              <input className="tabsheet-find" type="search" autoFocus
+                     placeholder="Find a panel on this page…" aria-label="Find a panel"
+                     value={find} onChange={e => setFind(e.target.value)} />
+              <div className="tabsheet-scroll">
+                {(() => {
+                  const q = find.trim().toLowerCase();
+                  const shown = q ? items.filter(i => i.text.toLowerCase().includes(q)) : items;
+                  if (!shown.length) {
+                    return <div className="secnav-none">No panel on this page matches “{find}”.</div>;
+                  }
+                  let g = null;
+                  return shown.map((it) => {
+                    const head = it.group && it.group !== g
+                      ? <div className="tabsheet-glbl" key={it.id + "-g"}>{it.group}</div> : null;
+                    g = it.group || g;
+                    return (
+                      <React.Fragment key={it.id}>
+                        {head}
+                        <button type="button"
+                                className={`tabsheet-btn secnav-pick${hereId === it.id ? " on" : ""}`}
+                                title={`Jump to ${it.text}`}
+                                onClick={() => { go(it.id); setPick(false); setFind(""); }}>
+                          {it.text}
+                        </button>
+                      </React.Fragment>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+      </React.Fragment>
+    );
+  }
+
   let lastGroup = null;
   return (
     <nav className="secnav" aria-label={label || "Sections on this page"}
@@ -728,7 +831,7 @@ function SectionNav({ tab, active, groups, label }) {
             <React.Fragment key={it.id}>
               {head}
               <button type="button"
-                      className={`secnav-btn${here === it.id ? " on" : ""}`}
+                      className={`secnav-btn${hereId === it.id ? " on" : ""}`}
                       onClick={() => go(it.id)}
                       title={`Jump to ${it.text}`}>{it.short || it.text}</button>
             </React.Fragment>
@@ -785,4 +888,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, useMediaQuery, useIsPhone, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });
