@@ -205,7 +205,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def _measure(self, width, height, tab="trade"):
+    def _measure(self, width, height, tab="trade", init=""):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -272,6 +272,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             "try{localStorage.setItem('jerry_active_tab_v1','" + tab + "');"
             "localStorage.setItem('weeklyOptionsTimer.tweaks.v1',"
             "JSON.stringify({theme:'dark'}))}catch(e){}")
+        if init:
+            page.add_init_script(init)
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
         page.wait_for_selector(".shell", timeout=30000)
         page.wait_for_timeout(6000)
@@ -644,6 +646,63 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def test_the_frame_is_on_screen_in_landscape(self):
         self._check(956, 440)
+
+    def test_a_bar_with_a_missing_price_does_not_take_the_page_down(self):
+        """lightweight-charts throws "Value is null" out of its Candlestick
+        constructor if any one of open/high/low/close is missing, and the throw
+        escapes into the page — one uncaught error per render attempt, a dozen
+        in ten seconds, and the chart never draws.
+
+        Two of the three call sites filtered on `close != null` alone, which is
+        the field a forming bar is least likely to be missing; the third did not
+        filter at all. It reached production and only showed itself when the
+        market was open, because that is when an incomplete bar exists: every
+        check in this repo passed at 7am and twelve of them went red at 9:31.
+
+        A test that needs the bell to ring is not a test, so this one puts the
+        hole in the data itself. `MockData.buildDaily` is what feeds the chart
+        in the sandbox, so it is wrapped before the app loads and one bar in the
+        middle of the series has its `open` removed."""
+        holed = """
+          (() => {
+            let real = undefined;
+            Object.defineProperty(window, 'MockData', {
+              configurable: true,
+              get() { return real; },
+              set(v) {
+                real = v;
+                if (v && typeof v.buildDaily === 'function') {
+                  const inner = v.buildDaily.bind(v);
+                  v.buildDaily = (...a) => {
+                    const rows = inner(...a);
+                    if (rows && rows.length > 6) {
+                      // Not the last bar: a guard that only skips the newest
+                      // row would pass this while still breaking on a hole
+                      // anywhere else in the history.
+                      rows[rows.length - 4] = { ...rows[rows.length - 4],
+                                                open: null };
+                      rows[3] = { ...rows[3], high: null };
+                    }
+                    return rows;
+                  };
+                }
+              },
+            });
+          })();
+        """
+        geo, errors, handles = self._measure(1440, 900, init=holed)
+        try:
+            self.assertFalse(
+                errors,
+                "a bar with a missing price threw out of the chart and into "
+                f"the page: {errors[:3]}")
+            # And the rest of the series still draws — dropping the incomplete
+            # bar must not mean dropping the chart.
+            self.assertEqual(10, geo["tiles"],
+                             "the market strip stopped rendering as well")
+            self.assertIsNotNone(geo["main"], "the workspace is gone")
+        finally:
+            self._close(handles)
 
 
 if __name__ == "__main__":

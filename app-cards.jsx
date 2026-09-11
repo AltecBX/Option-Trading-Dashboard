@@ -1577,8 +1577,11 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
   // Candles + volume whenever bars change.
   useEffect(() => {
     if (!candleRef.current || !bars.length) return;
-    candleRef.current.setData(bars.map(b => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })));
-    volRef.current.setData(bars.map(b => ({ time: b.t, value: b.v, color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)" })));
+    // This one filtered nothing at all: one null price anywhere in the series
+    // and the whole chart threw. See isCompleteBar in charts.jsx.
+    const drawable = bars.filter(b => b && isCompleteBar(b.o, b.h, b.l, b.c));
+    candleRef.current.setData(drawable.map(b => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })));
+    volRef.current.setData(drawable.map(b => ({ time: b.t, value: b.v, color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)" })));
     applyHome();
     /* eslint-disable-next-line */
   }, [data, collapsed]);
@@ -1611,7 +1614,10 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         // from the filtered swing lists as they always did.
         const lineColor = dim ? (dir === "up" ? DIMUP : DIMDN) : c;
         const ls = chart.addLineSeries({ color: lineColor, lineWidth: focused ? 3 : 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        const pts = [{ time: s.low_date, value: s.low_price }, { time: s.high_date, value: s.high_price }].sort((x, y) => x.time < y.time ? -1 : 1);
+        const pts = [{ time: s.low_date, value: s.low_price }, { time: s.high_date, value: s.high_price }]
+          .filter(p => p.time && isDrawable(p.value))
+          .sort((x, y) => x.time < y.time ? -1 : 1);
+        if (pts.length < 2) { try { chart.removeSeries(ls); } catch (e) {} return; }
         ls.setData(pts);
         overlayRef.current.lines.push(ls);
       }
@@ -1651,8 +1657,11 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
           priceLineVisible: false, lastValueVisible: false,
           crosshairMarkerVisible: false,
         });
-        ls.setData([{ time: L.start_date, value: L.start_price },
-                    { time: L.end_date, value: L.end_price }]);
+        const lp = [{ time: L.start_date, value: L.start_price },
+                    { time: L.end_date, value: L.end_price }]
+          .filter(p => p.time && isDrawable(p.value));
+        if (lp.length < 2) { try { chart.removeSeries(ls); } catch (e) {} return; }
+        ls.setData(lp);
         overlayRef.current.lines.push(ls);
       });
     }
