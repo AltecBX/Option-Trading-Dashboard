@@ -258,7 +258,7 @@ function SpikeCard({
   }) : null, data ? /*#__PURE__*/React.createElement("p", {
     className: "sl-status"
   }, /*#__PURE__*/React.createElement(DataStatus, {
-    kind: data.scanning ? "loading" : data.as_of ? "cached" : "none",
+    kind: data.scanning ? "loading" : data.as_of ? "cached" : "pending",
     at: data.as_of,
     note: "Boards are stored results. Nothing is re-measured until you refresh or the next scan runs."
   }), /*#__PURE__*/React.createElement("span", {
