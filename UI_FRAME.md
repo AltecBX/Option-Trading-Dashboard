@@ -326,17 +326,21 @@ Measured by `test_frame_render.py`, which feeds the news tape a
 production-sized payload — so these are the numbers with the frame at its real
 height, not its empty-sandbox one:
 
-| | Before | After |
-|---|---|---|
-| Workspace, 2152×1117 | 481 px (43%) | **578 px (52%)** |
-| Workspace, 1440×900 | 340 px (38%) | **404–416 px (45–46%)** |
-| Frame top, 2152×1117 | 522 px | **425 px** |
+| | Before | After (sandbox) | After (live) |
+|---|---|---|---|
+| Workspace, 2152×1117 | 481 px (43%) | **566 px (51%)** | **521 px (47%)** |
+| Workspace, 1440×900 | 340 px (38%) | **404 px (45%)** | — |
+| Frame top, 2152×1117 | 522 px | **425 px** | — |
 
-The spread on the laptop row is this sandbox versus the CI runner: the frame's
-height is a sum of type and padding, so it is renderer-dependent by a percent
-or two. The guard's floors sit in the gap between the before and after values
-rather than just under the after value — the first version of them didn't, and
-went red on CI for measuring the runner instead of the layout.
+Three different numbers for the same commit, and the spread is the point. The
+frame's height is a sum of type, padding and *data*: the CI runner's fonts
+differ from this sandbox's by a percent or two, and the live app's real chart
+tiles and real rails are a few pixels taller than stubbed ones — about four
+points at 2152. A floor set just under one reading is a floor that fails
+against the others, which is exactly what happened: the first version went red
+on CI, and the second would not have been true of the running app. The floors
+now sit under every reading, and the 1440×900 check — which has four points of
+clearance on both sides — is the one carrying the regression-catching weight.
 
 Inside a partner panel, two toolbar rows and a permanent three-line paragraph
 about signing in sat between the heading and the chart. The paragraph is now a
