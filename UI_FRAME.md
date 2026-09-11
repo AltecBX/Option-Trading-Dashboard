@@ -1,4 +1,4 @@
-# The permanent frame (v4.92)
+# The permanent frame (v4.93)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -199,6 +199,64 @@ Verified by reverting the fix: it fails with
 The lesson worth keeping: *a layout bug that needs real data to appear needs
 real-sized data in the test.* The stylesheet already carried this exact
 warning for the mobile breakpoint; the new grid needed it too.
+
+## 8. What the frame broke without anyone noticing (v4.93)
+
+Three of these came from Jerry looking at the live app. They are all the same
+kind of mistake: something kept working as *code* and stopped working as a
+thing you can see.
+
+**The weather went missing.** It never stopped rendering. It was
+`position: absolute; top: 3px; right: 3px`, hung off the sidebar — and the
+frame made the sidebar `position: static`, a plain scrolling box. An absolutely
+positioned child with no positioned ancestor falls back to the window, so the
+pill went to the top-right corner of the *screen* and sat underneath the fixed
+52-week-high rail, which is drawn later and on a higher z-index. Every check
+passed, because every check asked whether it rendered.
+
+It is now an inline control in the app bar, and in the mobile header on a
+phone — mounted in exactly one of the two, chosen by the same 900px line
+`useIsPhone()` reads, because `display: none` does not unmount a component and
+two of them would be two forecast fetches, two geolocation prompts, and a
+"use my location" toggle that only moved one of them.
+
+**Two clocks disagreeing.** The app bar's clock ticked once a minute and showed
+no seconds; the LiveClock beside the Schwab badge ticked every second and
+showed 3:30:53. Both are on screen at once. It now follows the same rules —
+seconds, a one-second tick that stops while the tab is hidden, and green while
+the regular session runs.
+
+**"Educational use only" was mine, and it was never asked for.** So was
+"Market data may be delayed". Neither existed before the frame; I put them in
+the status line as boilerplate. The first is gone. Every panel already says
+which source answered it and when, which is the honest version of the same
+claim.
+
+**The stripe beside the rails.** The four rails are `position: fixed` to the
+window edges. The content column was capped at a fixed 1600px and centred
+between them. Those are two independent sums, and the difference shows up as
+plain background between the inner rail — Daily Low on the left, Daily High on
+the right — and the first card: **34px on each side** at Jerry's 2152×1117,
+because 24px of the frame's own padding sat on top of the 10px the centring
+left over.
+
+It gets worse on a bigger monitor. The rails auto-size to `(100vw − 1600) / 4`
+but stop at 190px, so past roughly 2400px the extra margin has nothing to fill
+it: 88px of dead space each side at 2560px, and growing. The cap is now derived
+from what the rails leave rather than being a second hard-coded number,
+`--rail-w` is defined once so the two formulas cannot drift apart, and the
+padding at that width is 10px rather than 24px.
+
+| Window | Gap, rail to first card | Content column |
+|---|---|---|
+| 2152 px (Jerry's) | 34 px → **12 px** | 1548 px → 1592 px |
+| 2560 px | 122 px → **12 px** | 1552 px → 1752 px |
+| 1900 px (no rails) | — | 1552 px → 1852 px |
+
+`test_frame_render.py` measures that gap in a real browser at both widths and
+fails above 20px. It is a browser test on purpose: the number is the product of
+a fixed-position element and a centred one, which is exactly the kind of
+arithmetic a stylesheet can get wrong while every rule in it reads correctly.
 
 ### Not verified here — needs your phone
 
