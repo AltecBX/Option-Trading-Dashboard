@@ -95,13 +95,28 @@ function mkoRegime(items) {
 // Top-of-page macro command strip: futures, VIX, 10Y, gold, oil, bitcoin.
 function MarketOverview({ apiFetch, onSwitchTicker }) {
   const [items, setItems] = useState([]);
+  // "loading" until the first answer, then "ok" or "down". This used to be
+  // absent, and `if (!items.length) return null` meant a strip that failed to
+  // load looked EXACTLY like a strip that had been removed — the whole frame
+  // silently lost its ten charts and jumped 200px. A source that does not
+  // answer has to say so.
+  const [state, setState] = useState("loading");
   useEffect(() => {
     let stop = false, t = null;
     const load = async () => {
       try {
         const d = await sharedJson(apiFetch, "/api/market_overview", 12000);
-        if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
-      } catch (_) { /* strip is best-effort */ }
+        if (!stop && d && Array.isArray(d.instruments)) {
+          setItems(d.instruments);
+          setState("ok");
+        } else if (!stop) {
+          setState(s => (s === "ok" ? "ok" : "down"));
+        }
+      } catch (_) {
+        // Keep the last good strip on screen rather than blanking it; only a
+        // failure with nothing to show becomes "not answering".
+        if (!stop) setState(s => (s === "ok" ? "ok" : "down"));
+      }
       if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
     };
     load();
@@ -110,7 +125,28 @@ function MarketOverview({ apiFetch, onSwitchTicker }) {
     return () => { stop = true; if (t) clearTimeout(t); document.removeEventListener("visibilitychange", onVis); };
   }, []);
   const regime = useMemo(() => mkoRegime(items), [items]);
-  if (!items.length) return null;
+  if (!items.length) {
+    // Ten placeholders, so the frame keeps its exact height and the charts
+    // never appear to have been taken away.
+    const down = state === "down";
+    return (
+      <div className={`mko-grid mko-grid-skel${down ? " mko-down" : ""}`}
+           aria-label="Market overview"
+           aria-busy={down ? undefined : "true"}
+           title={down
+             ? "The market strip did not answer. That is a fault on our side, not a quiet market — the ten instruments are still configured; their prices could not be fetched."
+             : "Loading the ten market instruments…"}>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div className="mko-tile mko-empty" key={i} aria-hidden="true">
+            <div className="mko-head"><span className="mko-label">
+              {down ? "Not answering" : "Loading…"}</span></div>
+            <div className="mko-row2"><span className="mko-price">—</span></div>
+            <div className="skel skel-line mko-spark" />
+          </div>
+        ))}
+      </div>
+    );
+  }
   const fmt = (v, suffix) => v == null ? "—"
     : Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (suffix || "");
   return (
@@ -2954,6 +2990,42 @@ function computeTicket(r, acct, riskPct) {
 // across tab switches / remounts.
 let _wlLastAutoScan = 0;
 
+// ── Watchlist column presets (v4.92) ───────────────────────────────────────
+//
+// The stocks table has forty-six columns and measures about 3,500 CSS pixels
+// wide — inside a 440-pixel phone that is eight screens of sideways scrolling
+// to read one row. These presets are VIEWS OVER THE SAME COLUMNS: nothing is
+// deleted, "All columns" is always one click away, sorting and filtering are
+// untouched, and the chooser can put any column back. Symbol is in every
+// preset and pinned, because a wide table you have scrolled sideways stops
+// telling you which stock each row is.
+const WL_PRESETS = [
+  { id: "overview", label: "Overview",
+    tip: "What the name is and what it did today: price, change, the flow edge and the suggested side.",
+    cols: ["symbol", "company", "tag", "last", "change", "from_open", "edge",
+           "setup", "prem_sell", "market_cap", "sector"] },
+  { id: "flow", label: "Options flow",
+    tip: "Everything the options tape says: premium by side, sweeps, alerts, conviction and the verdict.",
+    cols: ["symbol", "last", "edge", "flow_net", "flow_agree", "flow_bull", "flow_bear",
+           "call_prem", "put_prem", "net_prem", "pc_ratio", "ask_call_prem", "ask_put_prem",
+           "call_sweeps", "put_sweeps", "flow_alerts", "flow_quality", "flow_cc_risk",
+           "flow_verdict"] },
+  { id: "technicals", label: "Technicals",
+    tip: "Where price sits: momentum, relative volume, distance from the moving averages, and period returns.",
+    cols: ["symbol", "last", "change", "from_open", "rsi", "rel_vol", "rvol_rank",
+           "from_ma20", "from_ma50", "from_ma200", "wtd", "mtd", "qtd", "ytd",
+           "swing_dir", "swing_stage"] },
+  { id: "earnings", label: "Earnings & value",
+    tip: "The calendar and the fundamentals: next report, multiples, size and classification.",
+    cols: ["symbol", "company", "next_earnings", "pe", "forward_pe", "market_cap",
+           "sector", "industry", "weekly", "tag"] },
+  { id: "all", label: "All columns",
+    tip: "Every one of the forty-six columns, for a deliberate side-by-side comparison.",
+    cols: null },
+];
+const WL_PRESET_KEY = "jerry_wl_preset_v1";
+const WL_HIDDEN_KEY = "jerry_wl_hidden_v1";
+
 function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, watchlistSymbols }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
@@ -3122,6 +3194,60 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   useEffect(() => { try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(colOrder)); } catch (_) {} }, [colOrder]);
   const _colByKey = {}; COLS.forEach(c => { _colByKey[c.k] = c; });
   const orderedCols = colOrder.map(k => _colByKey[k]).filter(Boolean);
+
+  // Which of the forty-six are on screen. A preset picks a set; the chooser
+  // edits it and the picker then reads "Custom". Symbol is never removable —
+  // it is what tells you whose row you are looking at.
+  const [wlPreset, setWlPreset] = useState(() => {
+    try { return localStorage.getItem(WL_PRESET_KEY) || "overview"; }
+    catch (e) { return "overview"; }
+  });
+  const [wlHidden, setWlHidden] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(WL_HIDDEN_KEY) || "[]")); }
+    catch (e) { return new Set(); }
+  });
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [wlDetail, setWlDetail] = useState(null);        // phone: expanded row
+  const wlIsPhone = useIsPhone();
+  // The PRESET decides which columns are on screen; `wlHidden` only applies
+  // once you have edited one, at which point the picker reads "Custom". The
+  // first version derived the visible set from `wlHidden` alone, so a
+  // remembered preset name showed all forty-six columns until you clicked
+  // the preset again — the label said one thing and the table did another.
+  const visibleCols = useMemo(() => {
+    const p = WL_PRESETS.find(x => x.id === wlPreset);
+    if (p && p.cols) {
+      const keep = new Set(p.cols);
+      return orderedCols.filter(c => c.k === "symbol" || keep.has(c.k));
+    }
+    if (wlPreset === "custom") {
+      return orderedCols.filter(c => c.k === "symbol" || !wlHidden.has(c.k));
+    }
+    return orderedCols;                     // "All columns"
+  }, [colOrder, wlPreset, wlHidden]);
+
+  const pickPreset = (id) => {
+    setWlPreset(id);
+    try { localStorage.setItem(WL_PRESET_KEY, id); } catch (e) {}
+  };
+  const toggleCol = (k) => {
+    if (k === "symbol") return;             // it is what names the row
+    // Editing a preset starts Custom FROM what is currently on screen, not
+    // from all forty-six — otherwise unticking one column would add the
+    // thirty-five the preset was hiding.
+    const base = wlPreset === "custom"
+      ? new Set(wlHidden)
+      : new Set(orderedCols.map(c => c.k).filter(x => !visibleCols.some(v => v.k === x)));
+    if (base.has(k)) base.delete(k); else base.add(k);
+    setWlHidden(base);
+    setWlPreset("custom");
+    try {
+      localStorage.setItem(WL_HIDDEN_KEY, JSON.stringify([...base]));
+      localStorage.setItem(WL_PRESET_KEY, "custom");
+    } catch (e) {}
+  };
+  const presetLabel = (WL_PRESETS.find(p => p.id === wlPreset) || {}).label || "Custom";
+
   const dragColKey = useRef(null);
   const onColDrop = (targetK) => {
     const from = dragColKey.current; dragColKey.current = null;
@@ -3664,15 +3790,112 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           </div>
         ) : (!scanning && status.last_scan && <div className="ab-empty">No flow data to aggregate yet — run a scan.</div>)
       ) : filtered.length > 0 ? (
+        <React.Fragment>
+        {/* Which columns are on screen. Nothing here removes data — every
+            preset is a view over the same forty-six columns, "All columns"
+            is one click away, and the chooser puts any of them back. */}
+        <div className="wl-cols" style={{ marginTop: 10 }}>
+          <span className="wl-cols-lbl" title="Named sets of columns for a particular question. Sorting, filtering and your column order are unaffected.">Columns</span>
+          {WL_PRESETS.map(p => (
+            <button key={p.id} type="button" title={p.tip}
+                    className={`wl-preset${wlPreset === p.id ? " on" : ""}`}
+                    onClick={() => pickPreset(p.id)}>{p.label}</button>
+          ))}
+          <button type="button"
+                  className={`wl-preset wl-chooser-btn${wlPreset === "custom" ? " on" : ""}`}
+                  title="Pick exactly which columns to show. Symbol always stays."
+                  onClick={() => setChooserOpen(o => !o)}>
+            Choose… <span className="wl-cols-n">{visibleCols.length}/{orderedCols.length}</span>
+          </button>
+          {chooserOpen && (
+            <div className="wl-chooser" role="dialog" aria-label="Choose columns">
+              <div className="wl-chooser-head">
+                <span>Showing {visibleCols.length} of {orderedCols.length} columns</span>
+                <button type="button" className="wl-chooser-x" aria-label="Close"
+                        onClick={() => setChooserOpen(false)}>✕</button>
+              </div>
+              <div className="wl-chooser-grid">
+                {orderedCols.map(c => (
+                  <label key={c.k} className={`wl-chooser-item${c.k === "symbol" ? " locked" : ""}`}
+                         title={c.k === "symbol"
+                           ? "Symbol identifies the row, so it cannot be hidden."
+                           : (COL_TIPS[c.k] || c.label)}>
+                    <input type="checkbox" checked={c.k === "symbol" || !wlHidden.has(c.k)}
+                           disabled={c.k === "symbol"}
+                           onChange={() => toggleCol(c.k)} />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        {wlIsPhone ? (
+          /* A 3,500-pixel-wide table inside a 440-pixel phone is eight
+             screens of sideways scrolling to read one row. Same rows, same
+             order, same sort — summarised, with EVERY field behind Details.
+             Nothing is dropped; the wide table is still there on a desktop
+             and through "All columns". */
+          <div className="wl-cards" ref={wlScrollRef} onScroll={onWlScroll}>
+            {shown.map(r => {
+              const open = wlDetail === r.symbol;
+              return (
+                <div key={r.symbol} className="wl-card">
+                  <button type="button" className="wl-card-head"
+                          onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
+                          title={`Open ${r.symbol}`}>
+                    <span className="wl-card-sym">
+                      {isPrime(r) && <span className="wl-prime-star" title="Prime setup — flow + swing agree, move is early">★ </span>}
+                      {r.symbol}
+                    </span>
+                    <span className="wl-card-co">{r.company || "—"}</span>
+                    <span className="wl-card-px">{fmtUsd(liveLast(r), 2)}</span>
+                    <span className={`wl-card-chg ${(r.change || 0) >= 0 ? "up" : "down"}`}>
+                      {r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`}
+                    </span>
+                  </button>
+                  <div className="wl-card-meta">
+                    <span title={COL_TIPS.edge}>Edge <b>{r.edge != null ? r.edge : "—"}</b></span>
+                    <span title={COL_TIPS.setup}>{r.setup || "—"}</span>
+                    <span title={COL_TIPS.tag}>{r.tag || "no tag"}</span>
+                  </div>
+                  <button type="button" className="wl-card-more"
+                          aria-expanded={open}
+                          title={`Every one of the ${orderedCols.length} columns for ${r.symbol}, including the ones this summary leaves out.`}
+                          onClick={() => setWlDetail(open ? null : r.symbol)}>
+                    {open ? "Hide details" : `All ${orderedCols.length} fields`}
+                  </button>
+                  {open && (
+                    <table className="scan-table wl-detail-table">
+                      <tbody>
+                        {orderedCols.map(c => (
+                          <tr key={c.k}>
+                            <th title={COL_TIPS[c.k] || c.label}>{c.label}</th>
+                            {renderCell(c, r)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
+            {visN < filtered.length && (
+              <div className="wl-more" onClick={() => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))}>
+                Showing {visN} of {filtered.length} — scroll or tap for more
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="scan-table-wrap wl-scroll" style={{ marginTop: 10 }} ref={wlScrollRef} onScroll={onWlScroll}>
           <table className="scan-table wl-table">
             <thead><tr>
-              {orderedCols.map(c => (
+              {visibleCols.map(c => (
                 <th key={c.k} draggable
                     onDragStart={(e) => { dragColKey.current = c.k; e.dataTransfer.effectAllowed = "move"; }}
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
                     onDrop={(e) => { e.preventDefault(); onColDrop(c.k); }}
-                    className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`}
+                    className={`${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}${c.k === "symbol" ? " wl-pin" : ""}`}
                     onClick={() => setSortKey(c.k)}
                     title={`${COL_TIPS[c.k] || c.label} · click to sort · drag to reorder`}>
                   {c.label}{sort.key === c.k ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
@@ -3684,7 +3907,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                 <tr key={r.symbol} className="scan-row wl-row" onClick={() => onSwitchTicker && onSwitchTicker(r.symbol)}
                     onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, symbol: r.symbol }); }}
                     title={`Open ${r.symbol} · right-click to remove`}>
-                  {orderedCols.map(c => renderCell(c, r))}
+                  {visibleCols.map(c => renderCell(c, r))}
                 </tr>
               ))}
             </tbody>
@@ -3695,6 +3918,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
             </div>
           )}
         </div>
+        )}
+        </React.Fragment>
       ) : (!scanning && status.last_scan && <div className="ab-empty">No stocks match these filters.</div>)}
       {ctx && (
         <div className="wl-ctx" onClick={e => e.stopPropagation()}
@@ -4838,63 +5063,96 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
     onReorder(ids);
     setDragId(null); setOverId(null);
   };
-  // Row split (v3.38): the app's own sections on line 1; the embedded
-  // partner sites (Finviz / TradingView / Unusual Whales) on line 2 so the
-  // bar reads as "my app" vs "linked sites" instead of one crowded wrap.
-  const EXT = { finviz: 1, tview: 1, whales: 1, swst: 1 };
-  const appTabs = list.filter(t => !EXT[t.id]);
-  const extTabs = list.filter(t => EXT[t.id]);
+  // Grouped rows (v4.92). This used to be two rows — "my sections" and
+  // "sites" — which meant twenty-six equal-looking buttons wrapping across
+  // three lines, and finding one meant reading all of them. TAB_GROUPS in
+  // app-lib is a partition, so every destination still appears exactly once
+  // and none has been moved behind a menu; only the labels are new. The saved
+  // drag order still decides the sequence WITHIN a group, which is why the
+  // rows are built by filtering `list` rather than by iterating group.ids.
+  const groupOf = (id) => {
+    for (const g of TAB_GROUPS) if (g.ids.includes(id)) return g.id;
+    return null;
+  };
   const renderBtn = (t) => (
-    <button key={t.id} type="button" role="tab"
+    <button key={t.id} type="button" role="tab" data-tab={t.id}
             aria-selected={active === t.id}
             className={`tab-btn ${active === t.id ? "active" : ""}${dragId === t.id ? " dragging" : ""}${overId === t.id && dragId && overId !== dragId ? " drop-target" : ""}`}
             onClick={() => onChange(t.id)}
             draggable={!!onReorder}
             onDragStart={(e) => { setDragId(t.id); try { e.dataTransfer.effectAllowed = "move"; } catch (_) {} }}
-            onDragOver={(e) => { if (dragId) { e.preventDefault(); setOverId(t.id); } }}
-            onDrop={(e) => { e.preventDefault(); drop(t.id); }}
+            onDragOver={(e) => {
+              // Only a same-group target accepts the drop: the groups are what
+              // make the bar readable, and a drag that silently moved a tool
+              // out of its group would undo that without saying so.
+              if (dragId && groupOf(dragId) === groupOf(t.id)) { e.preventDefault(); setOverId(t.id); }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (groupOf(dragId) === groupOf(t.id)) drop(t.id);
+              else { setDragId(null); setOverId(null); }
+            }}
             onDragEnd={() => { setDragId(null); setOverId(null); }}
-            title={`Show the ${t.label} section. Drag to reorder.`}>
+            title={`Show the ${t.label} section. Drag to reorder it within its group; the order is saved to all your devices.`}>
       {t.label}
     </button>
   );
   return (
-    <div ref={barRef} className="tab-bar tab-bar-2row" role="tablist" aria-label="Dashboard sections"
-         title="Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads.">
-      <div className="tab-row">
-        {appTabs.map(renderBtn)}
-      </div>
-      {(extTabs.length > 0 || hasEarn) && (
-        <div className="tab-row tab-row-ext">
-          {extTabs.length > 0 && (
-            <React.Fragment>
-              <span className="tab-row-lbl" title="Embedded partner sites — each renders inside the dashboard and follows the globally selected ticker both ways. All four need the Site Helper extension to lift their frame-blocking headers.">Sites -</span>
-              {extTabs.map(renderBtn)}
-              <HelperDownloadChip />
-            </React.Fragment>
-          )}
-          {/* Earnings chip rides the Sites row (right-aligned) instead of
-              claiming its own line — reclaims the empty space above it. */}
-          {hasEarn && (
-            <div className={`tab-earn ${soon ? "soon" : ""}`}
-                 title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
-              <span className="tab-earn-lbl">{ticker} earnings</span>
-              <b>{fmtSwingDate(earnDate)}</b>
-              {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+    <nav ref={barRef} className="tab-bar tab-bar-grouped" role="tablist" aria-label="Dashboard sections"
+         title="Every tool in the app, grouped by what it is for. Nothing is hidden behind a menu. Panels stay live in the background, so switching is instant and nothing reloads.">
+      {TAB_GROUPS.map((g) => {
+        const rowTabs = list.filter(t => g.ids.includes(t.id));
+        if (!rowTabs.length) return null;
+        const isConnected = g.id === "connected";
+        return (
+          <div className={`tab-row tab-row-${g.id}`} key={g.id}>
+            <span className="tab-glbl" title={g.tip}>{g.label}</span>
+            <div className="tab-row-btns">
+              {rowTabs.map(renderBtn)}
+              {isConnected && <HelperDownloadChip />}
             </div>
-          )}
-        </div>
-      )}
-    </div>
+            {/* Earnings chip rides the last row, right-aligned. */}
+            {isConnected && hasEarn && (
+              <div className={`tab-earn ${soon ? "soon" : ""}`}
+                   title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
+                <span className="tab-earn-lbl">{ticker} earnings</span>
+                <b>{fmtSwingDate(earnDate)}</b>
+                {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
   );
 }
 
-function TabPanel({ tab, active, children }) {
+function TabPanel({ tab, active, children, pending, pendingLabel }) {
   // Lazy-mount: render children only after the tab is first activated, then
   // keep them mounted (hidden) so they stay live. Avoids paying the mount /
   // fetch cost for sections you never open — faster initial load on mobile.
   const seen = useRef(active === tab);
   if (active === tab) seen.current = true;
+  // `pending` = the payload for the selected SYMBOL has not arrived. These
+  // panels are built entirely from it, and the alternative to a skeleton is
+  // not "an empty panel" — it is another symbol's numbers under this
+  // symbol's name, which is what used to happen. One gate here covers every
+  // card inside instead of auditing each one for a null it cannot survive.
+  if (pending && active === tab) {
+    return (
+      <div className={`tab-panel tp-in tp-pending`} role="tabpanel" data-tab={tab}
+           aria-busy="true">
+        <div className="card lz-loading"
+             title={`Waiting for ${pendingLabel || "this symbol"}'s data. Nothing is drawn until the numbers belong to it — a price from another symbol would be worse than no price.`}>
+          <div className="kicker">Loading {pendingLabel || "this symbol"}</div>
+          <div className="skel skel-line" style={{ width: "36%" }} />
+          <div className="skel skel-line" style={{ width: "84%" }} />
+          <div className="skel skel-line" style={{ width: "70%" }} />
+          <div className="skel skel-line" style={{ width: "78%" }} />
+        </div>
+      </div>
+    );
+  }
   // tp-in re-applies on every activation → the enter animation (a 180ms fade
   // + rise, reduced-motion safe) replays on each tab switch.
   return (
@@ -11064,6 +11322,7 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
   const atBottom = placement === "bottom";
   const [items, setItems] = useState([]);
   const [quotes, setQuotes] = useState({});   // SYM -> {last, chg}
+  const [feedState, setFeedState] = useState("loading");   // loading | ok | down
   const stackRef = useRef(null);
 
   useEffect(() => {
@@ -11072,8 +11331,15 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
       try {
         const r = await apiFetch("/api/finviz_news?limit=60");
         const d = await r.json();
-        if (!stop) setItems(Array.isArray(d && d.items) ? d.items : []);
-      } catch (_) { /* keep last items */ }
+        if (!stop) {
+          const rows = Array.isArray(d && d.items) ? d.items : [];
+          setItems(rows);
+          setFeedState(rows.length ? "ok" : "down");
+        }
+      } catch (_) {
+        /* keep last items — only a failure with nothing to show says "down" */
+        if (!stop) setFeedState(s => (s === "ok" ? "ok" : "down"));
+      }
       if (!stop) timer = setTimeout(tick, 60000);
     };
     tick();
@@ -11134,7 +11400,30 @@ function NewsTicker({ apiFetch, onSwitchTicker, placement }) {
     return () => { document.documentElement.style.setProperty("--mn-h", "0px"); };
   });
 
-  if (!items.length) return null;  // unconfigured / empty → no strip
+  // The two bottom rows are part of the frame now: their height is reserved
+  // by the layout, so vanishing would move every other row on the page and
+  // would say "there is no news" when what happened is "the feed did not
+  // answer". It keeps its frame and says which.
+  if (!items.length) {
+    return (
+      <div className={`mn-stack${atBottom ? " mn-bottom" : ""}`} ref={stackRef}
+           aria-label="Market news and ticker tape">
+        <div className="newsticker" aria-label="Market news feed">
+          <div className="nt-badge" title="Live market news feed"><span>Market</span><span>News</span></div>
+          <div className="nt-viewport">
+            <div className="nt-quiet"
+                 title={feedState === "down"
+                   ? "The headline feed did not answer. That is a fault on our side, not a quiet news day."
+                   : "Fetching headlines…"}>
+              {feedState === "down"
+                ? "The news feed is not answering right now — this is a fetch problem, not an empty tape."
+                : "Loading headlines…"}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const dur = Math.max(55, items.length * 6.5);
   const Seq = ({ hidden }) => (
@@ -11284,8 +11573,14 @@ const RAIL_CFG = {
   },
 };
 
-function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
+function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
   const cfg = RAIL_CFG[kind];
+  // "panel" draws the SAME rows as a plain list inside a card instead of the
+  // fixed marquee column. It exists because on a phone the four rails were
+  // display:none — the data was fetched, the component was mounted, and four
+  // of the app's most-used lists were simply unreachable. Same rows, same
+  // gates, same tooltips; only the frame around them differs.
+  const asPanel = variant === "panel";
   const isScan = cfg.source === "scan";
   const [scanRows, setScanRows] = useState([]);   // scan kinds: candidates
   const [srvRows, setSrvRows] = useState([]);     // server kinds: final rows
@@ -11412,7 +11707,16 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
 
   if (!rows.length) {
     // Daily rails keep their frame with a note (pre-open nothing qualifies —
-    // vanishing read as a missing feature); 52W rails simply hide.
+    // vanishing read as a missing feature); 52W rails simply hide. In panel
+    // form nothing may vanish: the tab you picked must answer, even if the
+    // answer is "no names yet".
+    if (asPanel) {
+      return (
+        <div className="hlc-list hlc-empty" title={cfg.emptyTip || cfg.headTip}>
+          {cfg.emptyNote || "No names on this list right now."}
+        </div>
+      );
+    }
     if (!cfg.emptyNote) return null;
     return (
       <div className={cfg.wrapCls} aria-label={cfg.aria}>
@@ -11454,6 +11758,18 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
       })}
     </div>
   );
+  if (asPanel) {
+    return (
+      <div className="hlc-list" aria-label={cfg.aria}>
+        {topTag && (
+          <div className="hlc-subtag" title={cfg.subtagTip(topTag)}>
+            Most common tag: {topTag.tag} · {topTag.n}
+          </div>
+        )}
+        <Col />
+      </div>
+    );
+  }
   return (
     <div className={cfg.wrapCls} aria-label={cfg.aria}>
       <div className={cfg.titleCls} title={cfg.headTip}>{cfg.heading}</div>
@@ -11467,6 +11783,59 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker }) {
           <Col inner />
           <Col hidden />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Highs and lows, on a phone (v4.92) ─────────────────────────────────────
+//
+// The four rails only exist above a 2080px viewport; below it they were hidden
+// entirely, so on the device Jerry actually carries, four of the lists he uses
+// most had no route at all. Here they are one card with four tabs, inside the
+// workspace, with the same rows and the same gates. Only the SELECTED list
+// mounts — so this polls less than the four hidden rails it replaces, not
+// more.
+const HIGHLOW_TABS = [
+  { kind: "low52", label: "Near 52W Low", cls: "low",
+    tip: "Watchlist stocks within 3% of their 52-week low." },
+  { kind: "dailyLow", label: "Daily Low", cls: "lowdaily",
+    tip: "Watchlist stocks at or within 1% of today's session low." },
+  { kind: "dailyHigh", label: "Daily High", cls: "daily",
+    tip: "Watchlist stocks at or within 1% of today's session high." },
+  { kind: "high52", label: "Near 52W High", cls: "high",
+    tip: "Watchlist stocks within 3% of their 52-week high." },
+];
+const HIGHLOW_KEY = "jerry_highlow_tab_v1";
+
+function HighLowCard({ apiFetch, onSwitchTicker }) {
+  const [kind, setKind] = useState(() => {
+    try { return localStorage.getItem(HIGHLOW_KEY) || "dailyHigh"; }
+    catch (e) { return "dailyHigh"; }
+  });
+  const pick = (k) => {
+    setKind(k);
+    try { localStorage.setItem(HIGHLOW_KEY, k); } catch (e) {}
+  };
+  const cur = HIGHLOW_TABS.find(t => t.kind === kind) || HIGHLOW_TABS[2];
+  return (
+    <div className="card hlc-card">
+      <div className="kicker" title="The same four high/low lists that flank the desktop layout. On a wide screen they are always-on side columns; here they share one card so all four stay reachable.">
+        Highs &amp; Lows
+      </div>
+      <div className="hlc-tabs" role="tablist" aria-label="High and low lists">
+        {HIGHLOW_TABS.map(t => (
+          <button key={t.kind} type="button" role="tab"
+                  aria-selected={t.kind === kind}
+                  className={`hlc-tab hlc-${t.cls}${t.kind === kind ? " on" : ""}`}
+                  title={t.tip} onClick={() => pick(t.kind)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="hlc-body" title={cur.tip}>
+        <ExtremeRail kind={kind} variant="panel" apiFetch={apiFetch}
+                     onSwitchTicker={onSwitchTicker} />
       </div>
     </div>
   );
@@ -14990,7 +15359,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   WatchlistAnalystCard: _memo(WatchlistAnalystCard), StockProfileCard: _memo(StockProfileCard),
   NewsHub: _memo(NewsHub), SchwabReconnect: _memo(SchwabReconnect),
   WatchlistStreaksCard: _memo(WatchlistStreaksCard),
-  ExtremeRail: _memo(ExtremeRail),
+  ExtremeRail: _memo(ExtremeRail), HighLowCard: _memo(HighLowCard),
   MarketOverview: _memo(MarketOverview), MarketPosture: _memo(MarketPosture) });
 
 // ── Weekly Option Selling Setup (v3.48) ─────────────────────────────────────

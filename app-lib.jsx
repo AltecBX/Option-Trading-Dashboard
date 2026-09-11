@@ -131,6 +131,31 @@ const TABS = [
 
 const TAB_KEY = "jerry_active_tab_v1";
 
+// ── Navigation groups (v4.92) ──────────────────────────────────────────────
+//
+// Thirty destinations in one wrapping strip read as thirty equal buttons, so
+// finding the one you want meant reading all of them. These four groups are
+// LABELS OVER THE SAME LIST — every destination appears exactly once, none is
+// hidden behind a menu, and the saved drag order still decides the sequence
+// inside each group. `test_ui_frame.js` asserts the partition is total and
+// disjoint, because a destination silently belonging to no group is a
+// destination that silently disappears from the bar.
+const TAB_GROUPS = [
+  { id: "workspace", label: "Workspace",
+    tip: "Where you decide and record: the trade screen, research on one name, your list, your positions and your journal.",
+    ids: ["trade", "discover", "analyze", "watchlist", "manage", "journal", "ask"] },
+  { id: "scan", label: "Scan",
+    tip: "Tools that look across many names at once and hand back candidates.",
+    ids: ["scanners", "patterns", "streaks", "edge", "gap", "juice", "earnops", "recovery"] },
+  { id: "research", label: "Research",
+    tip: "Whole-market context: breadth, rotation, positioning, rates, the calendar and the news.",
+    ids: ["context", "sectors", "gex", "breadth", "flow", "hedge", "invest",
+          "backtest", "calendar", "treasuries", "news"] },
+  { id: "connected", label: "Connected",
+    tip: "Partner sites rendered inside the dashboard. Each follows the ticker you have selected, both ways.",
+    ids: ["finviz", "tview", "whales", "swst"] },
+];
+
 class RootErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
@@ -447,6 +472,262 @@ const SWST = {
   },
 };
 
+// ── The permanent frame (v4.92) ────────────────────────────────────────────
+//
+// The ten market charts, the four high/low rails and the two bottom feeds are
+// the FRAME: they are outside the workspace's scrolling box, so scrolling a
+// long panel or switching tools can never move them off screen. Everything
+// below exists because the workspace is now its own scroll container rather
+// than the window.
+//
+// PHONE_Q is the one place the phone breakpoint is written. It used to be
+// repeated as a literal in a dozen media queries and two components, which is
+// how the mobile bottom bar and the bottom tapes ended up fighting over the
+// same edge at slightly different widths.
+const PHONE_Q = "(max-width: 900px)";
+
+function useMediaQuery(query) {
+  const [hit, setHit] = useState(() => {
+    try { return window.matchMedia(query).matches; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia(query); } catch (e) { return; }
+    const on = () => setHit(mq.matches);
+    on();
+    // addEventListener is the modern API; addListener is the Safari <14
+    // fallback, which matters because this decides where the rails MOUNT.
+    if (mq.addEventListener) mq.addEventListener("change", on);
+    else if (mq.addListener) mq.addListener(on);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", on);
+      else if (mq.removeListener) mq.removeListener(on);
+    };
+  }, [query]);
+  return hit;
+}
+
+// Phone/tablet layout? Components use this to CHOOSE A MOUNT POINT (the
+// high/low rails render as fixed side columns on desktop and as one tabbed
+// card inside the workspace on a phone) — CSS cannot move DOM.
+function useIsPhone() { return useMediaQuery(PHONE_Q); }
+
+// The workspace's scrolling element. Before the frame this was the window, so
+// every "scroll to top" and every remembered scroll position went through
+// window.scrollY. Those all read/write HERE now — a window scroll would move
+// nothing, silently.
+function workspaceEl() {
+  try { return document.querySelector(".main"); } catch (e) { return null; }
+}
+function workspaceScrollTop() {
+  const el = workspaceEl();
+  return el ? el.scrollTop : 0;
+}
+function scrollWorkspaceTo(y, smooth) {
+  const el = workspaceEl();
+  if (!el) return;
+  try { el.scrollTo({ top: y, behavior: smooth ? "smooth" : "auto" }); }
+  catch (e) { el.scrollTop = y; }
+}
+
+// ── One vocabulary for "where did this number come from" (v4.92) ───────────
+//
+// The app can show a live quote, last Friday's cached scan, a modeled
+// probability and a measured base rate on ONE screen. They used to look
+// identical, so a green LIVE badge in the corner read as a claim about every
+// panel under it. Each kind below is a different claim, and the tooltip says
+// which — the timestamp belongs to the RESULT, not to the page.
+const DATA_STATUS = {
+  live:     { label: "Live",        cls: "ds-live",
+              tip: "A live quote — this number is being updated right now." },
+  close:    { label: "Last close",  cls: "ds-close",
+              tip: "The last completed session's close, not a live price." },
+  cached:   { label: "Cached scan", cls: "ds-cached",
+              tip: "The stored result of an earlier scan. Nothing has been re-measured since it ran." },
+  modeled:  { label: "Modeled",     cls: "ds-modeled",
+              tip: "An estimate from a model, not something that was observed. It can be wrong in ways a measurement cannot." },
+  measured: { label: "Measured",    cls: "ds-measured",
+              tip: "Counted from this stock's own history — what actually happened, not what a model expects." },
+  loading:  { label: "Loading",     cls: "ds-loading",
+              tip: "Still fetching. Nothing here is final until it lands." },
+  none:     { label: "Unavailable", cls: "ds-none",
+              tip: "The source did not answer. That is a fault on our side, not a quiet market." },
+};
+
+// `at` is the time the RESULT belongs to — spelled out, never ISO on screen.
+function fmtStatusAt(at) {
+  if (!at) return null;
+  try {
+    const d = at instanceof Date ? at : new Date(at);
+    if (isNaN(d.getTime())) return String(at);
+    return d.toLocaleString("en-US", {
+      month: "long", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit",
+    });
+  } catch (e) { return String(at); }
+}
+
+function DataStatus({ kind, at, note, label }) {
+  const k = DATA_STATUS[kind] || DATA_STATUS.none;
+  const when = fmtStatusAt(at);
+  const tip = [k.tip, when ? `As of ${when}.` : null, note || null]
+    .filter(Boolean).join(" ");
+  return (
+    <span className={`ds-badge ${k.cls}`} title={tip}>
+      <span className="ds-dot" aria-hidden="true" />
+      <span className="ds-lbl">{label || k.label}</span>
+      {when && <span className="ds-at">{when}</span>}
+    </span>
+  );
+}
+
+// ── Long explanations, out of the way but not gone (v4.92) ─────────────────
+//
+// Several boards spend the top of the panel — the most valuable space on the
+// screen — explaining themselves, and put the verdict underneath. The review
+// measured this on Sold Into Strength: an introduction, then scan metadata,
+// then the actual answer. The explanation is not noise and must not be cut;
+// it just should not come first. This is a plain <details>, so it is
+// keyboard-reachable, findable by the browser's own search when open, and
+// costs one line when closed.
+function PanelMethod({ label, children, open }) {
+  return (
+    <details className="panel-method" open={open || undefined}>
+      <summary title="The reasoning behind this board — what it measures, and what it refuses to claim.">
+        {label || "Method — what this board measures"}
+      </summary>
+      <div className="panel-method-body">{children}</div>
+    </details>
+  );
+}
+
+// One compact line for a board's answer: the verdict, why, and what to do
+// next. Everything else on the panel is supporting material.
+function PanelVerdict({ tone, verdict, reason, at, tip, children }) {
+  return (
+    <div className={`panel-verdict pv-${tone || "neutral"}`} title={tip}>
+      <span className="pv-badge">{verdict}</span>
+      {reason && <span className="pv-reason">{reason}</span>}
+      {at && <span className="pv-at" title="When this answer was worked out.">{fmtStatusAt(at)}</span>}
+      {children && <span className="pv-actions">{children}</span>}
+    </div>
+  );
+}
+
+// ── Local section navigation for long pages (v4.92) ────────────────────────
+//
+// Trade is ~12,000 CSS pixels tall and Scanners stacks thirteen tools, so a
+// panel you want twice a day can be a thirty-second hunt. This builds the
+// index FROM THE RENDERED PAGE rather than from a hand-kept list: every card
+// heading inside the active panel becomes an anchor. A list would have to be
+// edited every time a panel is added, and nothing would enforce that — the
+// panel would simply stop being reachable from the index while still being on
+// the page. Reading the DOM cannot go stale that way.
+function SectionNav({ tab, active, groups, label }) {
+  const [items, setItems] = useState([]);
+  const [here, setHere] = useState(null);
+  const scan = React.useCallback(() => {
+    // A destination is not one panel: Trade alone is nine separate
+    // `<TabPanel tab="trade">` blocks interleaved with other tabs, so this
+    // walks ALL of them in document order.
+    const roots = document.querySelectorAll(`.tab-panel[data-tab="${tab}"]`);
+    if (!roots.length) { setItems([]); return; }
+    const out = [];
+    const seen = new Set();
+    roots.forEach((root) => root.querySelectorAll(".card").forEach((card) => {
+      if (card.closest(".card") !== card) return;          // top-level cards only
+      if (!card.getClientRects().length) return;           // not on screen at all
+      const h = card.querySelector(".kicker, h2, h3, .card-title");
+      const text = h ? (h.textContent || "").trim() : "";
+      if (!text || seen.has(text)) return;
+      if (!card.id) {
+        card.id = "sec-" + text.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+      }
+      seen.add(text);
+      // Long headings carry live detail — "Roll candidates · if you're
+      // already short the suggested strike" is sixty-two characters. A length
+      // cap dropped exactly those two panels out of the index while leaving
+      // them on the page, which is the failure this component exists to
+      // avoid. The CHIP is shortened; the entry is never discarded, and the
+      // full heading stays in the tooltip.
+      const short = text.length > 34 ? text.slice(0, 32).replace(/[\s·—-]+$/, "") + "…" : text;
+      out.push({ id: card.id, text, short, group: (groups && groups(text)) || "" });
+    }));
+    // Ordered by group, then by where the panel sits on the page. The natural
+    // document order interleaves the four groups, so an index that followed it
+    // printed "Opportunities" three separate times.
+    if (groups) {
+      const rank = new Map();
+      out.forEach((it) => { if (it.group && !rank.has(it.group)) rank.set(it.group, rank.size); });
+      // A panel this map does not know still appears — at the end, under no
+      // label. Falling through to "not in the index" is how a new panel would
+      // quietly stop being reachable from here.
+      const at = (g) => (g && rank.has(g) ? rank.get(g) : rank.size + 1);
+      out.sort((a, b) => at(a.group) - at(b.group));
+    }
+    setItems(out);
+  }, [tab, groups]);
+  useEffect(() => {
+    if (!active) return;
+    const t1 = setTimeout(scan, 400);
+    const t2 = setTimeout(scan, 2500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [active, scan]);
+  // Which section is on screen now, so the chip row says where you are.
+  useEffect(() => {
+    if (!active || !items.length) return;
+    const root = workspaceEl();
+    if (!root) return;
+    const onScroll = () => {
+      let best = null, bestTop = -Infinity;
+      const top = root.getBoundingClientRect().top + 90;
+      for (const it of items) {
+        const el = document.getElementById(it.id);
+        if (!el) continue;
+        const t = el.getBoundingClientRect().top;
+        if (t <= top && t > bestTop) { bestTop = t; best = it.id; }
+      }
+      setHere(best);
+    };
+    onScroll();
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => root.removeEventListener("scroll", onScroll);
+  }, [active, items]);
+  if (!active || items.length < 3) return null;
+  const go = (id) => {
+    const el = document.getElementById(id);
+    const root = workspaceEl();
+    if (!el || !root) return;
+    const y = root.scrollTop + el.getBoundingClientRect().top
+      - root.getBoundingClientRect().top - 8;
+    scrollWorkspaceTo(y, true);
+  };
+  let lastGroup = null;
+  return (
+    <nav className="secnav" aria-label={label || "Sections on this page"}
+         title="Jump to a panel on this page. Every panel is still here — this only moves you to it.">
+      <span className="secnav-lbl">On this page</span>
+      <div className="secnav-row">
+        {items.map((it) => {
+          const head = it.group && it.group !== lastGroup
+            ? <span key={it.id + "-g"} className="secnav-group">{it.group}</span> : null;
+          lastGroup = it.group || lastGroup;
+          return (
+            <React.Fragment key={it.id}>
+              {head}
+              <button type="button"
+                      className={`secnav-btn${here === it.id ? " on" : ""}`}
+                      onClick={() => go(it.id)}
+                      title={`Jump to ${it.text}`}>{it.short || it.text}</button>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 // ── one throttle clock for the whole app ────────────────────────────────
 //
 // The broker throttles the CONNECTION, not one request. Three cards each
@@ -493,4 +774,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, useMediaQuery, useIsPhone, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });

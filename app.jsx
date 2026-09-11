@@ -148,6 +148,84 @@ function LiveClock() {
   }
 }
 
+// ── Which part of the Trade screen a panel belongs to (v4.92) ──────────────
+//
+// Trade is one page about four different questions, and the review measured
+// it at roughly twelve thousand pixels tall. These labels only group the
+// jump list — no panel moves, and a panel that matches nothing still appears,
+// ungrouped, rather than dropping out of the index. Matching is by PREFIX
+// because most of these headings carry live detail: "Net Greeks · Short
+// Strangle", "IV by strike · Fri, Sep 11", "Position sizing · Calendar
+// Spread". Pinning the whole string would silently unfile a panel the first
+// time you picked a different strategy.
+const TRADE_SECTION_GROUPS = [
+  ["Opportunities", ["sold into strength", "best sales today", "best setup",
+                     "worth selling today", "this week's setup"]],
+  ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]],
+  ["Contracts & strategies", ["decision engine", "where the premium goes",
+                              "iv by strike", "strategy menu", "p/l at expiration",
+                              "options chain"]],
+  ["Risk & management", ["dealer gamma", "net greeks", "roll candidates",
+                         "position sizing"]],
+];
+function tradeSectionGroup(heading) {
+  const h = String(heading || "").toLowerCase();
+  for (const [label, prefixes] of TRADE_SECTION_GROUPS) {
+    for (const p of prefixes) if (h.startsWith(p)) return label;
+  }
+  return "";
+}
+
+// The app bar's clock (v4.92). Same reading as LiveClock, said the way every
+// date in this app is said — the month spelled out, never 2026-09-10 — plus
+// whether the regular session is running right now. It ticks once a MINUTE:
+// the app bar is on screen on every destination, and a second hand there is a
+// re-render per second for a number nobody reads to the second.
+function MarketClock() {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    let timer = null;
+    const start = () => { if (!timer) timer = setInterval(() => { if (!document.hidden) setNow(Date.now()); }, 30000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onVis = () => { if (document.hidden) stop(); else { setNow(Date.now()); start(); } };
+    document.addEventListener("visibilitychange", onVis);
+    start();
+    return () => { document.removeEventListener("visibilitychange", onVis); stop(); };
+  }, []);
+  try {
+    const d = new Date(now);
+    const dateFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", weekday: "short", month: "long",
+      day: "numeric", year: "numeric",
+    }).format(d);
+    const timeFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true,
+    }).format(d);
+    const p = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "numeric", hour12: false,
+    }).formatToParts(d);
+    const pv = (t) => (p.find(x => x.type === t) || {}).value;
+    const mins = (parseInt(pv("hour"), 10) % 24) * 60 + parseInt(pv("minute"), 10);
+    const weekend = ["Sat", "Sun"].includes(pv("weekday"));
+    const open = !weekend && mins >= 570 && mins < 960;
+    const pre = !weekend && mins >= 240 && mins < 570;
+    const post = !weekend && mins >= 960 && mins < 1200;
+    const state = open ? "Market open" : pre ? "Pre-market" : post ? "After hours" : "Market closed";
+    const cls = open ? "open" : (pre || post) ? "ext" : "shut";
+    return (
+      <span className="ab-clock" title={`New York time. The regular session runs 9:30 AM to 4:00 PM Eastern on trading days. Right now: ${state}.`}>
+        <span className="ab-date">{dateFmt}</span>
+        <span className="ab-time">{timeFmt} ET</span>
+        <span className={`ab-mkt ab-mkt-${cls}`}>
+          <span className="ab-mkt-dot" aria-hidden="true" />{state}
+        </span>
+      </span>
+    );
+  } catch {
+    return null;
+  }
+}
+
 // ── Sidebar slider tuner (v3.64) ────────────────────────────────────────────
 // The three sidebar sliders (weeks / target delta / buffer) used to write
 // straight into App state on every drag tick — re-rendering the entire app
@@ -296,6 +374,20 @@ function App() {
   const [navOpen, setNavOpen] = useState(false);      // mobile sidebar drawer
   const [palOpen, setPalOpen] = useState(false);      // ⌘K command palette
   const [tabSheetOpen, setTabSheetOpen] = useState(false); // mobile sections sheet
+  const [toolFind, setToolFind] = useState("");            // tool-picker filter
+  // Where the high/low rails and the market band MOUNT. CSS can hide, but it
+  // cannot move a node from the frame into the workspace — and on a phone
+  // that move is the whole point.
+  const isPhone = useIsPhone();
+  // A SHORT viewport is a different problem from a narrow one, and the layout
+  // only knew about narrow. An iPhone 16 Pro Max in landscape is 956 CSS
+  // pixels wide — past every max-width:900px rule in the file — and 440 tall,
+  // so it took the full desktop frame: app bar, posture, ten charts, context,
+  // ribbon and four rows of navigation, 712 pixels of frame in a 440-pixel
+  // window. Measured, the workspace came out FIFTY pixels tall and both feeds
+  // sat below the fold. Height has to be part of the question.
+  const shortView = useMediaQuery("(max-height: 700px)");
+  const bandInWorkspace = isPhone || shortView;
   const [helpOpen, setHelpOpen] = useState(false);    // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0);  // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -580,15 +672,19 @@ function App() {
   // restore where you were on the tab you are entering. Panels stay
   // mounted but toggle display, so the page height changes on switch;
   // restore after layout settles via requestAnimationFrame.
+  // v4.92: the workspace is its own scroll box now, so this reads and writes
+  // .main's scrollTop. It used to use window.scrollY — which, once the frame
+  // stopped the page itself from scrolling, would have quietly remembered
+  // zero for every tab and restored nothing.
   const tabScroll = React.useRef({});
   const changeTab = React.useCallback((t) => {
     setActiveTab((prev) => {
       if (prev === t) return prev;
-      tabScroll.current[prev] = window.scrollY || window.pageYOffset || 0;
+      tabScroll.current[prev] = workspaceScrollTop();
       const y = tabScroll.current[t] ?? 0;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          try { window.scrollTo({ top: y, behavior: "auto" }); } catch {}
+          try { scrollWorkspaceTo(y, false); } catch {}
         });
       });
       return t;
@@ -1882,6 +1978,45 @@ function App() {
     return () => { document.body.style.overflow = ""; };
   }, [navOpen]);
 
+  // ── The frame measures itself (v4.92) ────────────────────────────────────
+  // The two bottom feeds are two rows, or one when no ticker is mentioned in
+  // the news, and the top band changes height when the nav rows wrap. The
+  // fixed high/low rails have to end exactly where the feeds begin, so the
+  // heights are published as CSS variables rather than guessed at with a
+  // magic number that would be wrong on half the screen sizes.
+  useEffect(() => {
+    const shell = document.querySelector(".shell");
+    if (!shell) return;
+    const top = shell.querySelector(".frame-top");
+    const bottom = shell.querySelector(".frame-bottom");
+    const ws = shell.querySelector(".main");
+    const apply = () => {
+      if (top) shell.style.setProperty("--frame-top-h", `${Math.round(top.offsetHeight)}px`);
+      if (bottom) shell.style.setProperty("--frame-bottom-h", `${Math.round(bottom.offsetHeight)}px`);
+      // --ws-h is how tall the WORKSPACE is. Panels used to size themselves
+      // in vh — an embedded partner chart asked for `100vh - 170px` — and
+      // that was right when the page itself scrolled. Now the workspace is
+      // shorter than the viewport by the whole frame, so a vh-sized panel
+      // overflows its own scroll box by a few hundred pixels.
+      if (ws) shell.style.setProperty("--ws-h", `${Math.round(ws.clientHeight)}px`);
+    };
+    apply();
+    let ro = null;
+    try {
+      ro = new ResizeObserver(apply);
+      if (top) ro.observe(top);
+      if (bottom) ro.observe(bottom);
+      if (ws) ro.observe(ws);
+    } catch (e) { /* older browser: the fallbacks in the CSS apply */ }
+    window.addEventListener("resize", apply);
+    const t = setTimeout(apply, 1200);
+    return () => {
+      window.removeEventListener("resize", apply);
+      clearTimeout(t);
+      if (ro) ro.disconnect();
+    };
+  }, []);
+
   // Swipe left/right between sections on mobile. Guarded so it never fires
   // inside horizontally-scrollable zones (tables, charts, chip strips).
   useEffect(() => {
@@ -2022,15 +2157,31 @@ function App() {
   }, [tickerInput, ticker]);
 
   // Compute data
+  //
+  // `PRESETS[ticker]` exists once EITHER the live payload has landed
+  // (bootstrapLive writes the symbol in) or the symbol is one of the six
+  // demo presets data.js ships with. Until then there is nothing to draw.
+  //
+  // This used to answer "nothing yet" by building the frame out of
+  // `Object.keys(PRESETS)[0]` — which is AAPL. So every cold load of a
+  // symbol outside those six painted Apple's company name, Apple's $234.18
+  // and an option chain struck around Apple's price, under the ticker you
+  // actually asked for. The review caught it on AEHR; it was every symbol.
+  //
+  // A placeholder now carries the SHAPE and none of the content: no rows, no
+  // bars, no chain, no name, no price. Everything downstream that shows a
+  // symbol-specific number is gated on `dataPending` below, the same way it
+  // is already gated on `loadError` — a number that does not belong to this
+  // symbol is worse than no number.
   const dataset = useMemo(() => {
     const have = window.MockData?.PRESETS?.[ticker];
     if (!have) {
-      const fallback = Object.keys(window.MockData?.PRESETS || {})[0];
-      const t = fallback || ticker;
-      const { rows, current } = window.MockData.buildWeekly(t, weeks);
-      const daily = window.MockData.buildDaily(t, 90);
-      const chain = window.MockData.buildOptionChain(t, current.current);
-      return { rows, current, daily, chain };
+      return {
+        rows: [], daily: [], chain: { calls: [], puts: [] },
+        current: { baseline: null, current: null, week_start: null,
+                   earnings: false, name: null, sector: null },
+        placeholder: true,
+      };
     }
     const { rows, current } = window.MockData.buildWeekly(ticker, weeks);
     const daily = window.MockData.buildDaily(ticker, 90);
@@ -2039,6 +2190,9 @@ function App() {
   }, [ticker, weeks, dataVersion]);
 
   const { rows, current, daily: _payloadDaily, chain } = dataset;
+  // "This symbol's data has not arrived." Distinct from loadError, which
+  // means it tried and failed; this one is still on its way.
+  const dataPending = !!dataset.placeholder;
 
   // Build a "today" candle from the live quote — same as ThinkorSwim/TV.
   // Tracks intraday high/low across ticks. Resets at midnight ET.
@@ -2922,11 +3076,30 @@ function App() {
   const _staleMin = lastFetched ? Math.floor((nowTs - lastFetched) / 60000) : null;
   const _isStale = _staleMin != null && _staleMin >= 5;
 
+  // The market band — posture, the ten charts, the context line and the
+  // opportunity ribbon. On desktop it is part of the permanent frame, exactly
+  // as the reference shows. On a phone that band plus the header consumed the
+  // whole first screen and the actual tool started below it, so there it
+  // moves INTO the workspace and only the ten charts stay pinned. Same
+  // components, same data, one mount — a media query cannot move DOM, so the
+  // choice is made here.
+  const marketBand = (
+    <React.Fragment>
+      {/* Market posture card — "what do I do today?" before drilling
+          into a name. */}
+      <MarketPosture apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      {/* Context bar under the strip: gamma regime + catalysts + rotation. */}
+      <MarketContextBar apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenBreadth={() => changeTab("breadth")} />
+      {/* Cross-scanner opportunity ribbon (v3.64): the strongest current
+          setup per cached board — read-only, never triggers a scan. */}
+      <CardErrorBoundary label="Opportunity ribbon">
+        <OpportunityRibbon apiFetch={apiFetch} onSwitchTicker={switchTicker} onChangeTab={changeTab} />
+      </CardErrorBoundary>
+    </React.Fragment>
+  );
+
   return (
     <div className="shell">
-      {/* Market posture card — fills the top-left block (column 1, above the
-          sidebar): "what do I do today?" before drilling into a name. */}
-      <MarketPosture apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       {/* Site-wide reversal toasts — fire from any tab when a new symbol
           reclaims its open (the scanner itself lives on the Scanners tab). */}
       <ReversalAlerts apiFetch={apiFetch} onSwitchTicker={switchTicker} />
@@ -2936,21 +3109,49 @@ function App() {
                       onSwitchTicker={switchTicker} onChangeTab={changeTab}
                       symbols={watchlist} apiFetch={apiFetch} />
       <ShortcutsSheet open={helpOpen} onClose={() => setHelpOpen(false)} />
-      {/* Top-of-app macro command strip: futures, VIX, 10Y, gold, oil, BTC.
-          (The news/ticker tapes moved to the very bottom of the page.) */}
-      <MarketOverview apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      {/* Context bar under the strip: gamma regime + catalysts + rotation. */}
-      <MarketContextBar apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenBreadth={() => changeTab("breadth")} />
-      {/* Cross-scanner opportunity ribbon (v3.64): the strongest current
-          setup per cached board — read-only, never triggers a scan. */}
-      <CardErrorBoundary label="Opportunity ribbon">
-        <OpportunityRibbon apiFetch={apiFetch} onSwitchTicker={switchTicker} onChangeTab={changeTab} />
-      </CardErrorBoundary>
-      {/* Left-margin vertical ticker — near-52W-high names (wide screens only). */}
-      <ExtremeRail kind="high52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      <ExtremeRail kind="dailyHigh" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      <ExtremeRail kind="low52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-      <ExtremeRail kind="dailyLow" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      {/* Four vertical high/low rails. On desktop they flank the shell as
+          fixed columns; on a phone they mount inside the workspace as one
+          tabbed card (see HighLowCard below) so all four lists stay
+          reachable instead of being hidden by a display:none. */}
+      {!isPhone && (
+        <React.Fragment>
+          <ExtremeRail kind="high52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+          <ExtremeRail kind="dailyHigh" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+          <ExtremeRail kind="low52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+          <ExtremeRail kind="dailyLow" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+        </React.Fragment>
+      )}
+
+      {/* ── THE PERMANENT FRAME: TOP ──────────────────────────────────────
+          Outside the workspace's scroll box, so the ten charts and the
+          section bar cannot scroll away from under you. */}
+      <div className="frame-top">
+      {/* Desktop app bar: brand, global search, the market's own clock. */}
+      <header className="appbar">
+        <button className="ab-brand" onClick={() => changeTab("trade")}
+                title="Jerry's Setup — back to the Trade screen">
+          <img className="ab-mark" src="/assets/app-logo.png" alt="" aria-hidden="true" />
+          <span className="ab-name">Jerry&rsquo;s Setup</span>
+        </button>
+        <button className="ab-search" onClick={() => setPalOpen(true)}
+                title="Search tickers, sections and actions (⌘K or Ctrl+K)">
+          <span className="ab-search-ico" aria-hidden="true">⌕</span>
+          <span className="ab-search-txt">Search tickers, sections or tools…</span>
+          <kbd className="ab-kbd">⌘K</kbd>
+        </button>
+        <div className="ab-right">
+          {/* Short viewports hide the four navigation rows to give the
+              workspace its height back, so the picker needs a visible door
+              here — every destination stays one tap away. */}
+          <button className="ab-icon ab-tools" onClick={() => setTabSheetOpen(true)}
+                  aria-label="All tools"
+                  title="Every destination, grouped and searchable.">▦</button>
+          <MarketClock />
+          <button className="ab-icon" onClick={() => setHelpOpen(true)}
+                  aria-label="Keyboard shortcuts"
+                  title="Keyboard shortcuts and what each one does">?</button>
+        </div>
+      </header>
       {/* Mobile sticky header (phones/tablets only; hidden on desktop via CSS) */}
       <header className="mobile-header">
         <button className="mh-btn mh-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}>☰</button>
@@ -2973,14 +3174,23 @@ function App() {
       </header>
       <div className={`mobile-overlay${navOpen ? " show" : ""}`} onClick={() => setNavOpen(false)} aria-hidden="true" />
 
+      {/* The ten market charts. Always here, on every destination, in the
+          frame rather than the workspace — 5×2 on a wide desktop, 2×5 in
+          portrait on a phone. */}
+      <MarketOverview apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+      {!bandInWorkspace && marketBand}
+
       {/* Tab bar (v1.25) — full-width section switcher, spans both columns */}
       <TabBar active={activeTab} onChange={changeTab} ticker={ticker}
               tabs={orderedTabs} onReorder={saveTabOrder} apiFetch={apiFetch}
               earnDate={loadError ? null : current.next_earnings}
               earnDays={loadError ? null : current.days_to_earnings} />
+      </div>
+
+      {/* ── THE PERMANENT FRAME: BODY (the only thing that scrolls) ─────── */}
+      <div className="frame-body">
       {/* ── SIDEBAR ───────────────────────────────────────────────────────── */}
       <aside className={`sidebar${navOpen ? " nav-open" : ""}`}>
-        <div className="sb-version-pill" title="App version">v{APP_VERSION}</div>
         <WeatherBadge />
         <div className="sb-section sb-brand">
           <img className="brand-mark" src="/assets/app-logo.png" alt="Jerry" />
@@ -3183,7 +3393,11 @@ function App() {
                   </div>
                 )}
               </div>
-              <div className="sb-ticker-name-line">{loadError ? <span className="muted">—</span> : current.name}</div>
+              <div className="sb-ticker-name-line">
+                {loadError || dataPending
+                  ? <span className="muted" title={dataPending ? `Waiting for ${ticker}'s data — the company name is not filled in from anywhere else.` : undefined}>—</span>
+                  : current.name}
+              </div>
               {/* v3.56: the symbol's watchlist tag(s) sit under the name,
                   with the dividend yield below them. */}
               {!loadError && (() => {
@@ -3198,7 +3412,7 @@ function App() {
                   </div>
                 );
               })()}
-              {!loadError && current.dividend_yield != null && current.dividend_yield > 0 && (
+              {!loadError && !dataPending && current.dividend_yield != null && current.dividend_yield > 0 && (
                 <div className="sb-divyield" title={`Trailing annual dividend yield for ${ticker}, from the stock's last close.`}>
                   Div yield {current.dividend_yield.toFixed(2)}%
                 </div>
@@ -3207,12 +3421,15 @@ function App() {
             <div className="sb-ticker-display">
               <TickerLogo ticker={ticker} />
               <div className="sb-ticker-price-row">
-                {loadError ? (
+                {loadError || dataPending ? (
                   // When the active ticker fetch failed, hide the stale
                   // price/change display so user doesn't think they're
                   // seeing live data for the bad symbol. The error
                   // message is already shown elsewhere in the sidebar.
-                  <span className="sb-price muted">—</span>
+                  <span className="sb-price muted"
+                        title={dataPending && !loadError
+                          ? `Waiting for ${ticker}'s price. It stays blank until the number belongs to ${ticker}.`
+                          : undefined}>—</span>
                 ) : (() => {
                   // currentPrice is already live (overridden in App scope
                   // with getLivePrice(ticker)). Live change_pct preferred
@@ -3248,7 +3465,7 @@ function App() {
                   );
                 })()}
               </div>
-              {!loadError && (current.pe != null || current.forward_pe != null) && (
+              {!loadError && !dataPending && (current.pe != null || current.forward_pe != null) && (
                 <div className="sb-pe" title="Trailing and forward price-to-earnings ratio">
                   P/E {current.pe != null ? current.pe : "—"} · Fwd {current.forward_pe != null ? current.forward_pe : "—"}
                 </div>
@@ -3424,12 +3641,86 @@ function App() {
         </div>
       </aside>
 
-      {/* ── MAIN ──────────────────────────────────────────────────────────── */}
+      {/* ── MAIN ──────────────────────────────────────────────────────────
+          The ONLY scrolling region. The charts, the rails, the section bar
+          and the two bottom feeds are outside it and stay put. */}
       <main className="main">
         {/* Shows only when Schwab needs re-authorization — one-click reconnect. */}
         <CardErrorBoundary label="Schwab reconnect">
           <SchwabReconnect apiFetch={apiFetch} placement="banner" />
         </CardErrorBoundary>
+        {/* On a phone the market band and the four high/low lists live at the
+            top of the workspace instead of in the frame — see marketBand.
+            Only on Trade, though: putting them above every tool would just
+            move the "the first screen never reaches the actual tool" problem
+            from the frame into the workspace, which is the thing this whole
+            change is undoing. Trade is the home screen; one tap gets here. */}
+        {bandInWorkspace && activeTab === "trade" && (
+          <React.Fragment>
+            {marketBand}
+            {isPhone && (
+              <CardErrorBoundary label="Highs and lows">
+                <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+              </CardErrorBoundary>
+            )}
+          </React.Fragment>
+        )}
+        {/* Nothing below is drawn until the payload belongs to the SELECTED
+            symbol. Every panel here reads `rows`, `chain` and `current`, and
+            JSX children are evaluated eagerly — so a panel that is merely
+            hidden has still already computed itself from whatever was in
+            scope. What used to be in scope before the payload landed was the
+            first mock preset in data.js, which is Apple. This branch is the
+            only way to make "no data yet" mean no data, rather than another
+            company's. */}
+        {/* Local navigation for the two pages long enough to get lost on:
+            Trade is roughly twelve thousand pixels tall and Scanners stacks
+            thirteen tools. Nothing is removed or collapsed — this only moves
+            you to a panel that was always there. The index is read from the
+            rendered page, so a panel added later appears in it without
+            anyone remembering to update a list. */}
+        <CardErrorBoundary label="Section navigation">
+          <SectionNav tab="trade" active={activeTab === "trade" && !dataPending}
+                      groups={tradeSectionGroup} label="Trade sections" />
+          <SectionNav tab="scanners" active={activeTab === "scanners"}
+                      label="Scanner tools" />
+        </CardErrorBoundary>
+        {dataPending ? (
+          <div className={`card sym-pending${loadError ? " sym-pending-failed" : ""}`}
+               aria-busy={loadError ? undefined : "true"}
+               title={loadError
+                 ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.`
+                 : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`}>
+            <div className="kicker">
+              {loadError ? `No data for ${ticker}` : `Loading ${ticker}`}
+            </div>
+            <div className="sym-pending-msg">
+              {loadError ? (
+                <React.Fragment>
+                  {loadError}
+                  {" "}The panels on this screen are built entirely from {ticker}&rsquo;s own
+                  history, quote and option chain, so there is nothing to show until that
+                  arrives. Pick another symbol, or use the button below to try again.
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  Fetching this symbol&rsquo;s history, quote and option chain. Panels stay
+                  blank until the numbers belong to {ticker}.
+                </React.Fragment>
+              )}
+            </div>
+            {loadError
+              ? <button className="card-error-btn" onClick={refreshData}
+                        title={`Ask for ${ticker} again.`}>Try again</button>
+              : (
+                <React.Fragment>
+                  <div className="skel skel-line" style={{ width: "38%" }} />
+                  <div className="skel skel-line" style={{ width: "86%" }} />
+                  <div className="skel skel-line" style={{ width: "72%" }} />
+                </React.Fragment>
+              )}
+          </div>
+        ) : (() => (<React.Fragment>
         <TabPanel tab="discover" active={activeTab}>
           <CardErrorBoundary label="Discovery screeners">
             <ScreenersHub
@@ -3752,7 +4043,7 @@ function App() {
         {/* Sold into strength (v4.82) — the time-critical one, so it sits
             first: a spike's premium decays by the minute, and this board is
             only worth anything while the move is live. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Sold into strength">
             <LazyTab chunk="tab-spike" component="SpikeCard" label="Sold into strength"
                      apiFetch={apiFetch}
@@ -3764,7 +4055,7 @@ function App() {
             evidence of expiring worthless while still paying for the risk.
             Sits above everything else on the Trade tab because it is the
             first thing to read; NO TRADE is a valid answer here. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Best sales today">
             <LazyTab chunk="tab-sell" component="SellBestCard" label="Best sales today"
                      apiFetch={apiFetch}
@@ -3774,7 +4065,7 @@ function App() {
         {/* Best Setup (v4.58) — one explained recommendation built from
             every layer the app already computes, so the answer arrives
             without visiting five tabs and combining them by hand. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Best setup">
             <LazyTab chunk="tab-setup" component="BestSetupCard" label="Best setup"
                      apiFetch={apiFetch} ticker={ticker} onOpenTab={changeTab} />
@@ -3783,14 +4074,14 @@ function App() {
         {/* Which names are worth selling today. Clicking a row loads that
             symbol into the card above, so the shortlist and the explained
             recommendation are one workflow rather than two. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Worth selling today">
             <LazyTab chunk="tab-setup" component="SellBoardCard"
                      label="Worth selling today" apiFetch={apiFetch}
                      onPickTicker={(t) => { setTicker(t); setTickerInput(t); }} />
           </CardErrorBoundary>
         </TabPanel>
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <WatchlistAlertsCard
             apiFetch={apiFetch}
             onSwitchTicker={switchTicker}
@@ -3800,7 +4091,7 @@ function App() {
         {/* Roll Manager — only renders if the active ticker has open
             short calls. Computes 3 roll choices (same strike +1wk,
             +$5 +1wk, +$10 +1wk) plus buy-back close, with net credit. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         {rec && (() => {
           const mode = strategyMode || "both";
           const cc = rec.cc || (rec.title ? { kind: rec.kind, title: rec.title } : null);
@@ -4623,7 +4914,7 @@ function App() {
         </TabPanel>
 
         {/* Median statistics */}
-        <TabPanel tab="analyze" active={activeTab}>
+        <TabPanel tab="analyze" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         {/* Valuation vs history & peers — is today's multiple cheap? */}
         <CardErrorBoundary label="Valuation">
           <ValuationCard apiFetch={apiFetch} ticker={ticker} />
@@ -4789,7 +5080,7 @@ function App() {
         </TabPanel>
 
         {/* Analyst price targets, ratings, and catalyst signals */}
-        <TabPanel tab="analyze" active={activeTab}>
+        <TabPanel tab="analyze" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <div id="jump-analyst" className="jump-anchor" aria-hidden="true"></div>
         <AnalystCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} onData={setAnalystData} strategyMode={strategyMode} />
         {/* Priced for Perfection (v3.67): pre-earnings module — how much
@@ -4810,7 +5101,7 @@ function App() {
             recommendation severity, and earnings proximity to surface
             ONE specific actionable trade for each strategy (CC + CSP)
             with all the math worked out. */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <div id="jump-builder" className="jump-anchor" aria-hidden="true"></div>
         <TradeBuilderCard
           ticker={ticker}
@@ -4846,7 +5137,7 @@ function App() {
           livePrice={getLivePrice(ticker) ?? currentPrice}
         />
         </TabPanel>
-        <TabPanel tab="analyze" active={activeTab}>
+        <TabPanel tab="analyze" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <PullbackProfileCard ticker={ticker} currentPrice={currentPrice} livePrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} />
 
         {/* IV vs Hist + Probabilities */}
@@ -7049,7 +7340,7 @@ function App() {
         </TabPanel>
 
         {/* Dealer Gamma Exposure (GEX) */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <CardErrorBoundary label="Dealer Gamma Exposure">
         {(() => {
           if (!calls.length && !puts.length) return null;
@@ -7805,7 +8096,7 @@ function App() {
         </TabPanel>
 
         {/* Strategies */}
-        <TabPanel tab="trade" active={activeTab}>
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
         <CardErrorBoundary label="Strategies">
         <div className="card" style={{marginBottom: "var(--row-gap)"}}>
           <div className="card-head">
@@ -8276,6 +8567,7 @@ function App() {
         </CardErrorBoundary>
         </TabPanel>
 
+        </React.Fragment>))()}
         {/* Tweaks panel */}
         {Tweaks && (
           <Tweaks title="Tweaks">
@@ -8303,10 +8595,34 @@ function App() {
           </Tweaks>
         )}
       </main>
+      </div>
 
-      {/* Market News + Tickers tapes — moved to the very bottom of the page
-          (non-sticky here; the macro strip now owns the top). */}
+      {/* ── THE PERMANENT FRAME: BOTTOM ───────────────────────────────────
+          Two separate continuously-scrolling rows plus one compact status
+          line, spanning the whole width on every destination — including the
+          embedded partner tools, which render inside the workspace and so
+          cannot cover these. Its height is reserved by the grid, so it never
+          sits on top of content and is never something you scroll to reach. */}
+      <div className="frame-bottom">
       <NewsTicker apiFetch={apiFetch} onSwitchTicker={switchTicker} placement="bottom" />
+      <div className="statusline">
+        <span className="sl-brand" title="This app and the version you are running right now.">
+          Jerry&rsquo;s Setup <b className="sl-ver">v{APP_VERSION}</b>
+        </span>
+        <span className="sl-sep" aria-hidden="true">·</span>
+        <span className="sl-note" title="Quotes can be delayed depending on which source answered. Each panel says which source and which moment its own numbers came from.">
+          Market data may be delayed
+        </span>
+        <span className="sl-sep" aria-hidden="true">·</span>
+        <span className="sl-note" title="Nothing here is advice. Every board shows what was measured or modelled so you can judge it yourself.">
+          Educational use only
+        </span>
+        <span className="sl-spacer" />
+        <button className="sl-link" onClick={() => setHelpOpen(true)}
+                title="Every keyboard shortcut in the app.">Shortcuts</button>
+        <button className="sl-link" onClick={() => setPalOpen(true)}
+                title="Search tickers, sections and actions.">Search</button>
+      </div>
 
       {/* Mobile bottom action bar — thumb-reachable status + quick nav. */}
       <nav className="mobile-bottombar" aria-label="Quick actions">
@@ -8324,36 +8640,52 @@ function App() {
             </span>
           )}
         </button>
-        <button className="mbb-btn" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top">
+        <button className="mbb-btn" onClick={() => scrollWorkspaceTo(0, true)} aria-label="Back to top">
           <span className="mbb-ico">↑</span><span className="mbb-lbl">Top</span>
         </button>
       </nav>
-      {/* Mobile sections sheet (v3.57) — the whole tab bar as one thumb-sized
-          grid instead of hunting through a horizontal scroll strip. */}
+      </div>
+
+      {/* Mobile tool picker (v4.92) — the whole navigation as one searchable,
+          grouped, thumb-sized list. It opens INSIDE the workspace box rather
+          than over the whole screen, so the ten charts and both feeds stay
+          visible while you choose where to go. */}
       {tabSheetOpen && (
         <div className="tabsheet-overlay" onClick={() => setTabSheetOpen(false)}>
-          <div className="tabsheet" role="dialog" aria-label="All sections" onClick={e => e.stopPropagation()}>
+          <div className="tabsheet" role="dialog" aria-label="All tools" onClick={e => e.stopPropagation()}>
             <div className="tabsheet-head">
-              <span>Sections</span>
+              <span>All tools</span>
               <button className="tabsheet-x" aria-label="Close" onClick={() => setTabSheetOpen(false)}>✕</button>
             </div>
-            <div className="tabsheet-grid">
-              {orderedTabs.filter(t => !["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => (
-                <button key={t.id} className={`tabsheet-btn ${activeTab === t.id ? "on" : ""}`}
-                        onClick={() => { changeTab(t.id); setTabSheetOpen(false); }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <div className="tabsheet-sites">
-              <span className="tabsheet-siteslbl">Sites -</span>
-              {orderedTabs.filter(t => ["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => (
-                <button key={t.id} className={`tabsheet-btn site ${activeTab === t.id ? "on" : ""}`}
-                        onClick={() => { changeTab(t.id); setTabSheetOpen(false); }}>
-                  {t.label}
-                </button>
-              ))}
-              <HelperDownloadChip />
+            <input className="tabsheet-find" type="search" autoFocus
+                   placeholder="Find a tool (e.g. scanners, options, macro)…"
+                   aria-label="Find a tool"
+                   value={toolFind} onChange={e => setToolFind(e.target.value)} />
+            <div className="tabsheet-scroll">
+              {TAB_GROUPS.map(g => {
+                const q = toolFind.trim().toLowerCase();
+                const inGroup = orderedTabs.filter(t => g.ids.includes(t.id));
+                const shown = q ? inGroup.filter(t => t.label.toLowerCase().includes(q)) : inGroup;
+                if (!shown.length) return null;
+                return (
+                  <div className="tabsheet-group" key={g.id}>
+                    <div className="tabsheet-glbl" title={g.tip}>{g.label}</div>
+                    <div className="tabsheet-grid">
+                      {shown.map(t => (
+                        <button key={t.id} data-tab={t.id}
+                                className={`tabsheet-btn ${activeTab === t.id ? "on" : ""}`}
+                                title={`Open ${t.label}`}
+                                onClick={() => { changeTab(t.id); setTabSheetOpen(false); setToolFind(""); }}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="tabsheet-sites">
+                <HelperDownloadChip />
+              </div>
             </div>
           </div>
         </div>

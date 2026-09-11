@@ -265,12 +265,6 @@ function SpikeCard({ apiFetch, onPickTicker }) {
         <div>
           <span className="kicker" title={SK_TIP.card}>Sold into strength</span>
           <h3 className="card-title">What today&rsquo;s runs pay for selling above them</h3>
-          <p className="card-sub">
-            Stocks that have moved hard in their OWN volatility, and every same-day call
-            above the level they reached, all expiring TODAY — ranked by the credit minus
-            what that call has historically settled for. A big mover finishes at its high about one time in
-            fifteen; the seller is paid for the run being over, not for a reversal.
-          </p>
         </div>
         <div className="toolbar">
           <button className="research-run-btn" onClick={load} disabled={busy}
@@ -280,8 +274,22 @@ function SpikeCard({ apiFetch, onPickTicker }) {
         </div>
       </div>
 
+      {/* The answer first. The board's reasoning is a line below it rather
+          than three lines above it — the review measured this panel spending
+          its most valuable space introducing itself and putting the verdict
+          underneath. Nothing was cut; Method opens in place. */}
+      {data && !err && data.no_trade ? (
+        <PanelVerdict tone="stop" verdict="No trade"
+                      reason={data.no_trade_reason}
+                      at={data.as_of}
+                      tip={SK_TIP.no_trade} />
+      ) : null}
+
       {data ? (
         <p className="sl-status">
+          <DataStatus kind={data.scanning ? "loading" : data.as_of ? "cached" : "none"}
+                      at={data.as_of}
+                      note="Boards are stored results. Nothing is re-measured until you refresh or the next scan runs." />
           <span title={SK_TIP.stale}>
             {data.as_of ? `Scanned ${skDate(data.as_of)} at ${skTime(data.as_of)}`
                         : "No scan yet"}
@@ -305,6 +313,19 @@ function SpikeCard({ apiFetch, onPickTicker }) {
         </p>
       ) : null}
 
+      <PanelMethod label="Method — what this board measures, and what it refuses">
+        <p>
+          Stocks that have moved hard in their OWN volatility, and every same-day call
+          above the level they reached, all expiring TODAY — ranked by the credit minus
+          what that call has historically settled for. A big mover finishes at its high about one time in
+          fifteen; the seller is paid for the run being over, not for a reversal.
+        </p>
+        <p>
+          Takeover and merger spikes are never listed here — that is the one move that
+          does not come back.
+        </p>
+      </PanelMethod>
+
       {busy && !data ? (
         <div className="st-loading" aria-busy="true">
           <div className="skel skel-line" style={{ width: "40%" }} />
@@ -317,12 +338,6 @@ function SpikeCard({ apiFetch, onPickTicker }) {
           <div className="research-error">{err}</div>
           <button className="card-error-btn st-retry" onClick={load}>Try again</button>
         </React.Fragment>
-      ) : null}
-
-      {data && !err && data.no_trade ? (
-        <div className="su-refused sl-notrade" title={SK_TIP.no_trade}>
-          <b>Nothing to sell into.</b> {data.no_trade_reason}
-        </div>
       ) : null}
 
       {rows.length ? (
@@ -422,10 +437,6 @@ function SpikeCard({ apiFetch, onPickTicker }) {
         </div>
       ) : null}
 
-      <p className="sl-muted" title={SK_TIP.takeover}>
-        Takeover and merger spikes are never listed here — that is the one move that
-        does not come back.
-      </p>
     </div>
   );
 }

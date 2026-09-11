@@ -212,6 +212,106 @@ function LiveClock() {
   }
 }
 
+// ── Which part of the Trade screen a panel belongs to (v4.92) ──────────────
+//
+// Trade is one page about four different questions, and the review measured
+// it at roughly twelve thousand pixels tall. These labels only group the
+// jump list — no panel moves, and a panel that matches nothing still appears,
+// ungrouped, rather than dropping out of the index. Matching is by PREFIX
+// because most of these headings carry live detail: "Net Greeks · Short
+// Strangle", "IV by strike · Fri, Sep 11", "Position sizing · Calendar
+// Spread". Pinning the whole string would silently unfile a panel the first
+// time you picked a different strategy.
+const TRADE_SECTION_GROUPS = [["Opportunities", ["sold into strength", "best sales today", "best setup", "worth selling today", "this week's setup"]], ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]], ["Contracts & strategies", ["decision engine", "where the premium goes", "iv by strike", "strategy menu", "p/l at expiration", "options chain"]], ["Risk & management", ["dealer gamma", "net greeks", "roll candidates", "position sizing"]]];
+function tradeSectionGroup(heading) {
+  const h = String(heading || "").toLowerCase();
+  for (const [label, prefixes] of TRADE_SECTION_GROUPS) {
+    for (const p of prefixes) if (h.startsWith(p)) return label;
+  }
+  return "";
+}
+
+// The app bar's clock (v4.92). Same reading as LiveClock, said the way every
+// date in this app is said — the month spelled out, never 2026-09-10 — plus
+// whether the regular session is running right now. It ticks once a MINUTE:
+// the app bar is on screen on every destination, and a second hand there is a
+// re-render per second for a number nobody reads to the second.
+function MarketClock() {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    let timer = null;
+    const start = () => {
+      if (!timer) timer = setInterval(() => {
+        if (!document.hidden) setNow(Date.now());
+      }, 30000);
+    };
+    const stop = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVis = () => {
+      if (document.hidden) stop();else {
+        setNow(Date.now());
+        start();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    start();
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      stop();
+    };
+  }, []);
+  try {
+    const d = new Date(now);
+    const dateFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    }).format(d);
+    const timeFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }).format(d);
+    const p = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    }).formatToParts(d);
+    const pv = t => (p.find(x => x.type === t) || {}).value;
+    const mins = parseInt(pv("hour"), 10) % 24 * 60 + parseInt(pv("minute"), 10);
+    const weekend = ["Sat", "Sun"].includes(pv("weekday"));
+    const open = !weekend && mins >= 570 && mins < 960;
+    const pre = !weekend && mins >= 240 && mins < 570;
+    const post = !weekend && mins >= 960 && mins < 1200;
+    const state = open ? "Market open" : pre ? "Pre-market" : post ? "After hours" : "Market closed";
+    const cls = open ? "open" : pre || post ? "ext" : "shut";
+    return /*#__PURE__*/React.createElement("span", {
+      className: "ab-clock",
+      title: `New York time. The regular session runs 9:30 AM to 4:00 PM Eastern on trading days. Right now: ${state}.`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "ab-date"
+    }, dateFmt), /*#__PURE__*/React.createElement("span", {
+      className: "ab-time"
+    }, timeFmt, " ET"), /*#__PURE__*/React.createElement("span", {
+      className: `ab-mkt ab-mkt-${cls}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "ab-mkt-dot",
+      "aria-hidden": "true"
+    }), state));
+  } catch {
+    return null;
+  }
+}
+
 // ── Sidebar slider tuner (v3.64) ────────────────────────────────────────────
 // The three sidebar sliders (weeks / target delta / buffer) used to write
 // straight into App state on every drag tick — re-rendering the entire app
@@ -420,6 +520,20 @@ function App() {
   const [navOpen, setNavOpen] = useState(false); // mobile sidebar drawer
   const [palOpen, setPalOpen] = useState(false); // ⌘K command palette
   const [tabSheetOpen, setTabSheetOpen] = useState(false); // mobile sections sheet
+  const [toolFind, setToolFind] = useState(""); // tool-picker filter
+  // Where the high/low rails and the market band MOUNT. CSS can hide, but it
+  // cannot move a node from the frame into the workspace — and on a phone
+  // that move is the whole point.
+  const isPhone = useIsPhone();
+  // A SHORT viewport is a different problem from a narrow one, and the layout
+  // only knew about narrow. An iPhone 16 Pro Max in landscape is 956 CSS
+  // pixels wide — past every max-width:900px rule in the file — and 440 tall,
+  // so it took the full desktop frame: app bar, posture, ten charts, context,
+  // ribbon and four rows of navigation, 712 pixels of frame in a 440-pixel
+  // window. Measured, the workspace came out FIFTY pixels tall and both feeds
+  // sat below the fold. Height has to be part of the question.
+  const shortView = useMediaQuery("(max-height: 700px)");
+  const bandInWorkspace = isPhone || shortView;
   const [helpOpen, setHelpOpen] = useState(false); // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -752,19 +866,20 @@ function App() {
   // restore where you were on the tab you are entering. Panels stay
   // mounted but toggle display, so the page height changes on switch;
   // restore after layout settles via requestAnimationFrame.
+  // v4.92: the workspace is its own scroll box now, so this reads and writes
+  // .main's scrollTop. It used to use window.scrollY — which, once the frame
+  // stopped the page itself from scrolling, would have quietly remembered
+  // zero for every tab and restored nothing.
   const tabScroll = React.useRef({});
   const changeTab = React.useCallback(t => {
     setActiveTab(prev => {
       if (prev === t) return prev;
-      tabScroll.current[prev] = window.scrollY || window.pageYOffset || 0;
+      tabScroll.current[prev] = workspaceScrollTop();
       const y = tabScroll.current[t] ?? 0;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           try {
-            window.scrollTo({
-              top: y,
-              behavior: "auto"
-            });
+            scrollWorkspaceTo(y, false);
           } catch {}
         });
       });
@@ -2360,6 +2475,45 @@ function App() {
     };
   }, [navOpen]);
 
+  // ── The frame measures itself (v4.92) ────────────────────────────────────
+  // The two bottom feeds are two rows, or one when no ticker is mentioned in
+  // the news, and the top band changes height when the nav rows wrap. The
+  // fixed high/low rails have to end exactly where the feeds begin, so the
+  // heights are published as CSS variables rather than guessed at with a
+  // magic number that would be wrong on half the screen sizes.
+  useEffect(() => {
+    const shell = document.querySelector(".shell");
+    if (!shell) return;
+    const top = shell.querySelector(".frame-top");
+    const bottom = shell.querySelector(".frame-bottom");
+    const ws = shell.querySelector(".main");
+    const apply = () => {
+      if (top) shell.style.setProperty("--frame-top-h", `${Math.round(top.offsetHeight)}px`);
+      if (bottom) shell.style.setProperty("--frame-bottom-h", `${Math.round(bottom.offsetHeight)}px`);
+      // --ws-h is how tall the WORKSPACE is. Panels used to size themselves
+      // in vh — an embedded partner chart asked for `100vh - 170px` — and
+      // that was right when the page itself scrolled. Now the workspace is
+      // shorter than the viewport by the whole frame, so a vh-sized panel
+      // overflows its own scroll box by a few hundred pixels.
+      if (ws) shell.style.setProperty("--ws-h", `${Math.round(ws.clientHeight)}px`);
+    };
+    apply();
+    let ro = null;
+    try {
+      ro = new ResizeObserver(apply);
+      if (top) ro.observe(top);
+      if (bottom) ro.observe(bottom);
+      if (ws) ro.observe(ws);
+    } catch (e) {/* older browser: the fallbacks in the CSS apply */}
+    window.addEventListener("resize", apply);
+    const t = setTimeout(apply, 1200);
+    return () => {
+      window.removeEventListener("resize", apply);
+      clearTimeout(t);
+      if (ro) ro.disconnect();
+    };
+  }, []);
+
   // Swipe left/right between sections on mobile. Guarded so it never fires
   // inside horizontally-scrollable zones (tables, charts, chip strips).
   useEffect(() => {
@@ -2532,22 +2686,41 @@ function App() {
   }, [tickerInput, ticker]);
 
   // Compute data
+  //
+  // `PRESETS[ticker]` exists once EITHER the live payload has landed
+  // (bootstrapLive writes the symbol in) or the symbol is one of the six
+  // demo presets data.js ships with. Until then there is nothing to draw.
+  //
+  // This used to answer "nothing yet" by building the frame out of
+  // `Object.keys(PRESETS)[0]` — which is AAPL. So every cold load of a
+  // symbol outside those six painted Apple's company name, Apple's $234.18
+  // and an option chain struck around Apple's price, under the ticker you
+  // actually asked for. The review caught it on AEHR; it was every symbol.
+  //
+  // A placeholder now carries the SHAPE and none of the content: no rows, no
+  // bars, no chain, no name, no price. Everything downstream that shows a
+  // symbol-specific number is gated on `dataPending` below, the same way it
+  // is already gated on `loadError` — a number that does not belong to this
+  // symbol is worse than no number.
   const dataset = useMemo(() => {
     const have = window.MockData?.PRESETS?.[ticker];
     if (!have) {
-      const fallback = Object.keys(window.MockData?.PRESETS || {})[0];
-      const t = fallback || ticker;
-      const {
-        rows,
-        current
-      } = window.MockData.buildWeekly(t, weeks);
-      const daily = window.MockData.buildDaily(t, 90);
-      const chain = window.MockData.buildOptionChain(t, current.current);
       return {
-        rows,
-        current,
-        daily,
-        chain
+        rows: [],
+        daily: [],
+        chain: {
+          calls: [],
+          puts: []
+        },
+        current: {
+          baseline: null,
+          current: null,
+          week_start: null,
+          earnings: false,
+          name: null,
+          sector: null
+        },
+        placeholder: true
       };
     }
     const {
@@ -2569,6 +2742,9 @@ function App() {
     daily: _payloadDaily,
     chain
   } = dataset;
+  // "This symbol's data has not arrived." Distinct from loadError, which
+  // means it tried and failed; this one is still on its way.
+  const dataPending = !!dataset.placeholder;
 
   // Build a "today" candle from the live quote — same as ThinkorSwim/TV.
   // Tracks intraday high/low across ticks. Resets at midnight ET.
@@ -3757,12 +3933,31 @@ function App() {
   const _sectionLabel = activeTab ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : "";
   const _staleMin = lastFetched ? Math.floor((nowTs - lastFetched) / 60000) : null;
   const _isStale = _staleMin != null && _staleMin >= 5;
-  return /*#__PURE__*/React.createElement("div", {
-    className: "shell"
-  }, /*#__PURE__*/React.createElement(MarketPosture, {
+
+  // The market band — posture, the ten charts, the context line and the
+  // opportunity ribbon. On desktop it is part of the permanent frame, exactly
+  // as the reference shows. On a phone that band plus the header consumed the
+  // whole first screen and the actual tool started below it, so there it
+  // moves INTO the workspace and only the ten charts stay pinned. Same
+  // components, same data, one mount — a media query cannot move DOM, so the
+  // choice is made here.
+  const marketBand = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(MarketPosture, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), /*#__PURE__*/React.createElement(ReversalAlerts, {
+  }), /*#__PURE__*/React.createElement(MarketContextBar, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker,
+    onOpenBreadth: () => changeTab("breadth")
+  }), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Opportunity ribbon"
+  }, /*#__PURE__*/React.createElement(OpportunityRibbon, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker,
+    onChangeTab: changeTab
+  })));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "shell"
+  }, /*#__PURE__*/React.createElement(ReversalAlerts, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
   }), /*#__PURE__*/React.createElement(RadarAlerts, {
@@ -3778,20 +3973,7 @@ function App() {
   }), /*#__PURE__*/React.createElement(ShortcutsSheet, {
     open: helpOpen,
     onClose: () => setHelpOpen(false)
-  }), /*#__PURE__*/React.createElement(MarketOverview, {
-    apiFetch: apiFetch,
-    onSwitchTicker: switchTicker
-  }), /*#__PURE__*/React.createElement(MarketContextBar, {
-    apiFetch: apiFetch,
-    onSwitchTicker: switchTicker,
-    onOpenBreadth: () => changeTab("breadth")
-  }), /*#__PURE__*/React.createElement(CardErrorBoundary, {
-    label: "Opportunity ribbon"
-  }, /*#__PURE__*/React.createElement(OpportunityRibbon, {
-    apiFetch: apiFetch,
-    onSwitchTicker: switchTicker,
-    onChangeTab: changeTab
-  })), /*#__PURE__*/React.createElement(ExtremeRail, {
+  }), !isPhone && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ExtremeRail, {
     kind: "high52",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
@@ -3807,7 +3989,45 @@ function App() {
     kind: "dailyLow",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), /*#__PURE__*/React.createElement("header", {
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "frame-top"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "appbar"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "ab-brand",
+    onClick: () => changeTab("trade"),
+    title: "Jerry's Setup \u2014 back to the Trade screen"
+  }, /*#__PURE__*/React.createElement("img", {
+    className: "ab-mark",
+    src: "/assets/app-logo.png",
+    alt: "",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ab-name"
+  }, "Jerry\u2019s Setup")), /*#__PURE__*/React.createElement("button", {
+    className: "ab-search",
+    onClick: () => setPalOpen(true),
+    title: "Search tickers, sections and actions (\u2318K or Ctrl+K)"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ab-search-ico",
+    "aria-hidden": "true"
+  }, "\u2315"), /*#__PURE__*/React.createElement("span", {
+    className: "ab-search-txt"
+  }, "Search tickers, sections or tools\u2026"), /*#__PURE__*/React.createElement("kbd", {
+    className: "ab-kbd"
+  }, "\u2318K")), /*#__PURE__*/React.createElement("div", {
+    className: "ab-right"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "ab-icon ab-tools",
+    onClick: () => setTabSheetOpen(true),
+    "aria-label": "All tools",
+    title: "Every destination, grouped and searchable."
+  }, "\u25A6"), /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
+    className: "ab-icon",
+    onClick: () => setHelpOpen(true),
+    "aria-label": "Keyboard shortcuts",
+    title: "Keyboard shortcuts and what each one does"
+  }, "?"))), /*#__PURE__*/React.createElement("header", {
     className: "mobile-header"
   }, /*#__PURE__*/React.createElement("button", {
     className: "mh-btn mh-burger",
@@ -3843,7 +4063,10 @@ function App() {
     className: `mobile-overlay${navOpen ? " show" : ""}`,
     onClick: () => setNavOpen(false),
     "aria-hidden": "true"
-  }), /*#__PURE__*/React.createElement(TabBar, {
+  }), /*#__PURE__*/React.createElement(MarketOverview, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker
+  }), !bandInWorkspace && marketBand, /*#__PURE__*/React.createElement(TabBar, {
     active: activeTab,
     onChange: changeTab,
     ticker: ticker,
@@ -3852,12 +4075,11 @@ function App() {
     apiFetch: apiFetch,
     earnDate: loadError ? null : current.next_earnings,
     earnDays: loadError ? null : current.days_to_earnings
-  }), /*#__PURE__*/React.createElement("aside", {
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "frame-body"
+  }, /*#__PURE__*/React.createElement("aside", {
     className: `sidebar${navOpen ? " nav-open" : ""}`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "sb-version-pill",
-    title: "App version"
-  }, "v", APP_VERSION), /*#__PURE__*/React.createElement(WeatherBadge, null), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(WeatherBadge, null), /*#__PURE__*/React.createElement("div", {
     className: "sb-section sb-brand"
   }, /*#__PURE__*/React.createElement("img", {
     className: "brand-mark",
@@ -4121,8 +4343,9 @@ function App() {
     className: "sb-search-ex"
   }, r.exchange))))), /*#__PURE__*/React.createElement("div", {
     className: "sb-ticker-name-line"
-  }, loadError ? /*#__PURE__*/React.createElement("span", {
-    className: "muted"
+  }, loadError || dataPending ? /*#__PURE__*/React.createElement("span", {
+    className: "muted",
+    title: dataPending ? `Waiting for ${ticker}'s data — the company name is not filled in from anywhere else.` : undefined
   }, "\u2014") : current.name), !loadError && (() => {
     const wlEntry = watchlistData.symbols.find(s => s.symbol === ticker);
     const wlTags = wlEntry ? Array.from(new Set([...(wlEntry.tags || []), ...(wlEntry.tag ? [wlEntry.tag] : [])])).filter(Boolean) : [];
@@ -4134,7 +4357,7 @@ function App() {
       key: t,
       className: "sb-symtag"
     }, t)));
-  })(), !loadError && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
+  })(), !loadError && !dataPending && current.dividend_yield != null && current.dividend_yield > 0 && /*#__PURE__*/React.createElement("div", {
     className: "sb-divyield",
     title: `Trailing annual dividend yield for ${ticker}, from the stock's last close.`
   }, "Div yield ", current.dividend_yield.toFixed(2), "%")), /*#__PURE__*/React.createElement("div", {
@@ -4143,14 +4366,15 @@ function App() {
     ticker: ticker
   }), /*#__PURE__*/React.createElement("div", {
     className: "sb-ticker-price-row"
-  }, loadError ?
+  }, loadError || dataPending ?
   /*#__PURE__*/
   // When the active ticker fetch failed, hide the stale
   // price/change display so user doesn't think they're
   // seeing live data for the bad symbol. The error
   // message is already shown elsewhere in the sidebar.
   React.createElement("span", {
-    className: "sb-price muted"
+    className: "sb-price muted",
+    title: dataPending && !loadError ? `Waiting for ${ticker}'s price. It stays blank until the number belongs to ${ticker}.` : undefined
   }, "\u2014") : (() => {
     // currentPrice is already live (overridden in App scope
     // with getLivePrice(ticker)). Live change_pct preferred
@@ -4178,7 +4402,7 @@ function App() {
     }, " \xB7 stale"))), /*#__PURE__*/React.createElement("span", {
       className: `delta ${displayChg >= 0 ? "up" : "down"}`
     }, displayChg >= 0 ? "▲" : "▼", " ", Math.abs(displayChg).toFixed(2), "%"));
-  })()), !loadError && (current.pe != null || current.forward_pe != null) && /*#__PURE__*/React.createElement("div", {
+  })()), !loadError && !dataPending && (current.pe != null || current.forward_pe != null) && /*#__PURE__*/React.createElement("div", {
     className: "sb-pe",
     title: "Trailing and forward price-to-earnings ratio"
   }, "P/E ", current.pe != null ? current.pe : "—", " \xB7 Fwd ", current.forward_pe != null ? current.forward_pe : "—")))), /*#__PURE__*/React.createElement("div", {
@@ -4378,7 +4602,50 @@ function App() {
   }, /*#__PURE__*/React.createElement(SchwabReconnect, {
     apiFetch: apiFetch,
     placement: "banner"
-  })), /*#__PURE__*/React.createElement(TabPanel, {
+  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, isPhone && /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Highs and lows"
+  }, /*#__PURE__*/React.createElement(HighLowCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker
+  }))), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Section navigation"
+  }, /*#__PURE__*/React.createElement(SectionNav, {
+    tab: "trade",
+    active: activeTab === "trade" && !dataPending,
+    groups: tradeSectionGroup,
+    label: "Trade sections"
+  }), /*#__PURE__*/React.createElement(SectionNav, {
+    tab: "scanners",
+    active: activeTab === "scanners",
+    label: "Scanner tools"
+  })), dataPending ? /*#__PURE__*/React.createElement("div", {
+    className: `card sym-pending${loadError ? " sym-pending-failed" : ""}`,
+    "aria-busy": loadError ? undefined : "true",
+    title: loadError ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.` : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, loadError ? `No data for ${ticker}` : `Loading ${ticker}`), /*#__PURE__*/React.createElement("div", {
+    className: "sym-pending-msg"
+  }, loadError ? /*#__PURE__*/React.createElement(React.Fragment, null, loadError, " ", "The panels on this screen are built entirely from ", ticker, "\u2019s own history, quote and option chain, so there is nothing to show until that arrives. Pick another symbol, or use the button below to try again.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Fetching this symbol\u2019s history, quote and option chain. Panels stay blank until the numbers belong to ", ticker, ".")), loadError ? /*#__PURE__*/React.createElement("button", {
+    className: "card-error-btn",
+    onClick: refreshData,
+    title: `Ask for ${ticker} again.`
+  }, "Try again") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "38%"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "86%"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "skel skel-line",
+    style: {
+      width: "72%"
+    }
+  }))) : (() => /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TabPanel, {
     tab: "discover",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
@@ -4788,7 +5055,9 @@ function App() {
     }, "\u2192 View positions"));
   })(), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Sold into strength"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4801,7 +5070,9 @@ function App() {
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Best sales today"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4814,7 +5085,9 @@ function App() {
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Best setup"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4826,7 +5099,9 @@ function App() {
     onOpenTab: changeTab
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Worth selling today"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -4840,13 +5115,17 @@ function App() {
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(WatchlistAlertsCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, rec && (() => {
     const mode = strategyMode || "both";
     const cc = rec.cc || (rec.title ? {
@@ -5863,7 +6142,9 @@ function App() {
     onOpenEarnOps: () => changeTab("earnops")
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Valuation"
   }, /*#__PURE__*/React.createElement(ValuationCard, {
@@ -6152,7 +6433,9 @@ function App() {
     uwHealth: uwHealth
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement("div", {
     id: "jump-analyst",
     className: "jump-anchor",
@@ -6175,7 +6458,9 @@ function App() {
     ticker: ticker
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement("div", {
     id: "jump-builder",
     className: "jump-anchor",
@@ -6211,7 +6496,9 @@ function App() {
     livePrice: getLivePrice(ticker) ?? currentPrice
   })), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "analyze",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(PullbackProfileCard, {
     ticker: ticker,
     currentPrice: currentPrice,
@@ -8828,7 +9115,9 @@ function App() {
     className: "research-empty"
   }, "No valid weekly cycles in the selected window.")))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Dealer Gamma Exposure"
   }, (() => {
@@ -9608,7 +9897,9 @@ function App() {
     }, closed.map(renderRow))));
   })())), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "trade",
-    active: activeTab
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Strategies"
   }, /*#__PURE__*/React.createElement("div", {
@@ -10254,7 +10545,7 @@ function App() {
         setManualPutWing(null);
       }
     }, "Reset to auto")));
-  })()))), Tweaks && /*#__PURE__*/React.createElement(Tweaks, {
+  })())))))(), Tweaks && /*#__PURE__*/React.createElement(Tweaks, {
     title: "Tweaks"
   }, /*#__PURE__*/React.createElement(TweakSection, {
     label: "Color"
@@ -10332,11 +10623,42 @@ function App() {
     }]
   })), /*#__PURE__*/React.createElement(TimingThresholds, {
     apiFetch: apiFetch
-  }))), /*#__PURE__*/React.createElement(NewsTicker, {
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "frame-bottom"
+  }, /*#__PURE__*/React.createElement(NewsTicker, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker,
     placement: "bottom"
-  }), /*#__PURE__*/React.createElement("nav", {
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "statusline"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "sl-brand",
+    title: "This app and the version you are running right now."
+  }, "Jerry\u2019s Setup ", /*#__PURE__*/React.createElement("b", {
+    className: "sl-ver"
+  }, "v", APP_VERSION)), /*#__PURE__*/React.createElement("span", {
+    className: "sl-sep",
+    "aria-hidden": "true"
+  }, "\xB7"), /*#__PURE__*/React.createElement("span", {
+    className: "sl-note",
+    title: "Quotes can be delayed depending on which source answered. Each panel says which source and which moment its own numbers came from."
+  }, "Market data may be delayed"), /*#__PURE__*/React.createElement("span", {
+    className: "sl-sep",
+    "aria-hidden": "true"
+  }, "\xB7"), /*#__PURE__*/React.createElement("span", {
+    className: "sl-note",
+    title: "Nothing here is advice. Every board shows what was measured or modelled so you can judge it yourself."
+  }, "Educational use only"), /*#__PURE__*/React.createElement("span", {
+    className: "sl-spacer"
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "sl-link",
+    onClick: () => setHelpOpen(true),
+    title: "Every keyboard shortcut in the app."
+  }, "Shortcuts"), /*#__PURE__*/React.createElement("button", {
+    className: "sl-link",
+    onClick: () => setPalOpen(true),
+    title: "Search tickers, sections and actions."
+  }, "Search")), /*#__PURE__*/React.createElement("nav", {
     className: "mobile-bottombar",
     "aria-label": "Quick actions"
   }, /*#__PURE__*/React.createElement("button", {
@@ -10368,50 +10690,63 @@ function App() {
     className: `mbb-chg ${_mhChg >= 0 ? "up" : "down"}`
   }, "$", Number(currentPrice).toFixed(2), " \xB7 ", _mhChg >= 0 ? "+" : "", _mhChg.toFixed(2), "%")), /*#__PURE__*/React.createElement("button", {
     className: "mbb-btn",
-    onClick: () => window.scrollTo({
-      top: 0,
-      behavior: "smooth"
-    }),
+    onClick: () => scrollWorkspaceTo(0, true),
     "aria-label": "Back to top"
   }, /*#__PURE__*/React.createElement("span", {
     className: "mbb-ico"
   }, "\u2191"), /*#__PURE__*/React.createElement("span", {
     className: "mbb-lbl"
-  }, "Top"))), tabSheetOpen && /*#__PURE__*/React.createElement("div", {
+  }, "Top")))), tabSheetOpen && /*#__PURE__*/React.createElement("div", {
     className: "tabsheet-overlay",
     onClick: () => setTabSheetOpen(false)
   }, /*#__PURE__*/React.createElement("div", {
     className: "tabsheet",
     role: "dialog",
-    "aria-label": "All sections",
+    "aria-label": "All tools",
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("div", {
     className: "tabsheet-head"
-  }, /*#__PURE__*/React.createElement("span", null, "Sections"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, "All tools"), /*#__PURE__*/React.createElement("button", {
     className: "tabsheet-x",
     "aria-label": "Close",
     onClick: () => setTabSheetOpen(false)
-  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
-    className: "tabsheet-grid"
-  }, orderedTabs.filter(t => !["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
-    key: t.id,
-    className: `tabsheet-btn ${activeTab === t.id ? "on" : ""}`,
-    onClick: () => {
-      changeTab(t.id);
-      setTabSheetOpen(false);
-    }
-  }, t.label))), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715")), /*#__PURE__*/React.createElement("input", {
+    className: "tabsheet-find",
+    type: "search",
+    autoFocus: true,
+    placeholder: "Find a tool (e.g. scanners, options, macro)\u2026",
+    "aria-label": "Find a tool",
+    value: toolFind,
+    onChange: e => setToolFind(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "tabsheet-scroll"
+  }, TAB_GROUPS.map(g => {
+    const q = toolFind.trim().toLowerCase();
+    const inGroup = orderedTabs.filter(t => g.ids.includes(t.id));
+    const shown = q ? inGroup.filter(t => t.label.toLowerCase().includes(q)) : inGroup;
+    if (!shown.length) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet-group",
+      key: g.id
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet-glbl",
+      title: g.tip
+    }, g.label), /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet-grid"
+    }, shown.map(t => /*#__PURE__*/React.createElement("button", {
+      key: t.id,
+      "data-tab": t.id,
+      className: `tabsheet-btn ${activeTab === t.id ? "on" : ""}`,
+      title: `Open ${t.label}`,
+      onClick: () => {
+        changeTab(t.id);
+        setTabSheetOpen(false);
+        setToolFind("");
+      }
+    }, t.label))));
+  }), /*#__PURE__*/React.createElement("div", {
     className: "tabsheet-sites"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tabsheet-siteslbl"
-  }, "Sites -"), orderedTabs.filter(t => ["finviz", "tview", "whales", "swst"].includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
-    key: t.id,
-    className: `tabsheet-btn site ${activeTab === t.id ? "on" : ""}`,
-    onClick: () => {
-      changeTab(t.id);
-      setTabSheetOpen(false);
-    }
-  }, t.label)), /*#__PURE__*/React.createElement(HelperDownloadChip, null)))));
+  }, /*#__PURE__*/React.createElement(HelperDownloadChip, null))))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(RootErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)));
 })();

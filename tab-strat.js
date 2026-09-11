@@ -245,7 +245,9 @@ function StError({
 }) {
   return /*#__PURE__*/React.createElement("div", {
     className: "card"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(DataStatus, {
+    kind: "none"
+  }), /*#__PURE__*/React.createElement("div", {
     className: "research-error"
   }, String(error)), onRetry ? /*#__PURE__*/React.createElement("button", {
     className: "card-error-btn st-retry",
@@ -1436,7 +1438,7 @@ function GexTab({
     onRetry: reload
   }) : null, !data && !err ? /*#__PURE__*/React.createElement(StLoading, {
     label: "the option chain"
-  }) : null, data && !data.ok ? /*#__PURE__*/React.createElement("div", {
+  }) : null, !err && data && !data.ok ? /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement(StEmpty, null, data.error || "No gamma exposure could be built for this symbol.")) : null, data && data.ok ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "card"

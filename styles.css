@@ -25,6 +25,19 @@
   --down: oklch(0.62 0.18 25);
   --warn: oklch(0.72 0.16 65);
 
+  /* The four high/low lists. These were four hex literals repeated across the
+     rail titles; the phone card has to use the SAME colour for the same list
+     or the two stop reading as one feature, so they are tokens now and every
+     rule references them. Deep = 52-week, bright = today's session. */
+  --rail-high: #2C7527;        /* near 52-week high */
+  --rail-high-day: #46B33D;    /* at today's high */
+  --rail-low: #9E2C2C;         /* near 52-week low */
+  --rail-low-day: #B33D3D;     /* at today's low */
+  --rail-tag: #1C799E;         /* the Tag line under a rail row */
+  /* A modelled number is a different KIND of claim from a measured one, so it
+     gets its own hue rather than borrowing up/down/warn. */
+  --modeled: #6b5fd0;
+
   --bg: #fafaf7;
   --bg-2: #ffffff;
   --bg-3: #f1f0eb;
@@ -72,6 +85,8 @@
   --shadow-card: 0 1px 0 rgba(0,0,0,0.25), 0 2px 6px -2px rgba(0,0,0,0.35), 0 14px 40px -18px rgba(0,0,0,0.7);
   --shadow-hover: 0 1px 0 rgba(0,0,0,0.4), 0 6px 16px -4px rgba(0,0,0,0.5), 0 28px 60px -22px rgba(0,0,0,0.85);
   --sheen: rgba(255,255,255,0.05);
+  /* Lifted so the modelled hue keeps its contrast on the dark ground. */
+  --modeled: #9d92f0;
 }
 
 [data-density="compact"] {
@@ -10047,15 +10062,15 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .rrail--daily { left: auto; right: calc(var(--rail-w) + 12px); }
 }
 .lrail-title { flex: 0 0 auto; font-family: var(--font-mono); font-size: 12.5px; font-weight: 800; letter-spacing: 0.04em;
-  color: #fff; background: #2C7527; text-align: center; padding: 6px 4px; cursor: help; }
-.lrail-title--daily { background: #46B33D; }
+  color: #fff; background: var(--rail-high); text-align: center; padding: 6px 4px; cursor: help; }
+.lrail-title--daily { background: var(--rail-high-day); }
 /* Low rails: red, the visual opposite of the green high rails. */
-.lrail-title--low { background: #9E2C2C; }
-.lrail-title--lowdaily { background: #B33D3D; }
+.lrail-title--low { background: var(--rail-low); }
+.lrail-title--lowdaily { background: var(--rail-low-day); }
 .lrail-subtag--low { color: #c8615b; }
 /* Sub-header under each rail title: the most-common Tag on the current list. */
 .lrail-subtag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
-  letter-spacing: 0.03em; color: #1C799E; background: var(--bg-3);
+  letter-spacing: 0.03em; color: var(--rail-tag); background: var(--bg-3);
   text-align: center; padding: 3px 4px; border-bottom: 1px solid var(--line);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }
 .lrail-vp { position: relative; flex: 1 1 auto; overflow: hidden;
@@ -10084,7 +10099,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .lr-chg { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
 .lr-chg.up { color: var(--up); } .lr-chg.down { color: var(--down); }
 .lr-52 { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
-.lr-line3 { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #1C799E; white-space: nowrap;
+.lr-line3 { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--rail-tag); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 1px; letter-spacing: 0.02em; }
 /* Empty-state note when a daily rail has no names yet (e.g. pre-market). Keeps
    the rail frame on screen instead of letting it disappear. */
@@ -13456,3 +13471,708 @@ a.tabsheet-btn.site { text-decoration: none; }
   .sk-table td { white-space: normal; }
   .sk-table td.sk-m-hide { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   THE PERMANENT FRAME (v4.92)
+   ──────────────────────────────────────────────────────────────────────────
+   The ten market charts, the four high/low rails and the two bottom feeds are
+   the frame. They live OUTSIDE the workspace's scrolling box, so scrolling a
+   12,000-pixel Trade page or switching between tools cannot move them off
+   screen — which is what used to happen, because the whole document scrolled
+   and the "sticky" bottom tapes were the last thing in it.
+
+   Everything below is source-ordered AFTER the rules it replaces on purpose:
+   this file's convention is that a later rule at equal specificity wins, and
+   three separate bugs in its history came from a media block that lost to a
+   base rule declared further down.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* The page itself no longer scrolls; the workspace does. */
+html, body { height: 100%; }
+body { overflow: hidden; overscroll-behavior: none; }
+
+.shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  column-gap: 0;
+  row-gap: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  height: 100dvh;          /* iOS: the real height under the dynamic toolbar */
+  overflow: hidden;
+  align-items: stretch;
+}
+
+/* ── Frame: top ──────────────────────────────────────────────────────────
+   App bar, the market band and the section bar. A two-column grid so the
+   posture card sits above the sidebar and the charts above the workspace,
+   exactly as they line up in the reference. */
+.frame-top {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  column-gap: 24px;
+  align-content: start;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 24px 8px;
+  min-width: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.frame-top > * { min-width: 0; }
+
+/* Desktop placement. Row 1 is the app bar; the posture card spans the three
+   rows of the market band beside it so there is no dead space under the
+   charts. */
+@media (min-width: 1081px) {
+  .appbar      { grid-column: 1 / -1; grid-row: 1; }
+  .mko-regime  { grid-column: 2 / -1; grid-row: 2; margin: 0 0 6px; }
+  .mko-grid    { grid-column: 2 / -1; grid-row: 3; margin: 0 0 8px; }
+  .mctx        { grid-column: 2 / -1; grid-row: 4; margin: 0; }
+  .posture-card{ grid-column: 1;      grid-row: 2 / 5; align-self: stretch; margin: 0; }
+  .opp-ribbon  { grid-column: 1 / -1; grid-row: 5; margin: 8px 0 0; }
+  .tab-bar     { grid-column: 1 / -1; grid-row: 6; }
+}
+
+/* ── The desktop app bar ─────────────────────────────────────────────────── */
+.appbar {
+  display: flex; align-items: center; gap: 14px;
+  height: 46px; flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+.ab-brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  background: none; border: 0; padding: 0; cursor: pointer; color: var(--fg);
+  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  letter-spacing: -0.01em; white-space: nowrap;
+}
+.ab-mark { width: 26px; height: 26px; border-radius: 7px; object-fit: cover; }
+.ab-search {
+  flex: 1 1 auto; min-width: 0; max-width: 560px;
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 7px 12px; cursor: pointer; text-align: left;
+  background: var(--bg-2); color: var(--fg-3);
+  border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12.5px;
+}
+.ab-search:hover { border-color: var(--line-2); color: var(--fg-2); }
+.ab-search-ico { font-size: 14px; flex: 0 0 auto; }
+.ab-search-txt { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ab-kbd {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--fg-4); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
+}
+.ab-right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
+.ab-clock {
+  display: inline-flex; align-items: baseline; gap: 10px; cursor: help;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap;
+}
+.ab-time { color: var(--fg-2); font-weight: 700; }
+.ab-mkt { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
+.ab-mkt-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-4); }
+.ab-mkt-open { color: var(--up); }   .ab-mkt-open .ab-mkt-dot  { background: var(--up); }
+.ab-mkt-ext  { color: var(--warn); } .ab-mkt-ext .ab-mkt-dot   { background: var(--warn); }
+.ab-mkt-shut { color: var(--fg-3); } .ab-mkt-shut .ab-mkt-dot  { background: var(--fg-4); }
+.ab-icon {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-3);
+  font-weight: 700; font-size: 13px; line-height: 1;
+}
+.ab-icon:hover { color: var(--fg); border-color: var(--line-2); }
+
+/* ── Frame: body — the ONLY scrolling region ─────────────────────────────── */
+.frame-body {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  column-gap: 24px;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 12px 24px 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.frame-body > * { min-width: 0; }
+
+.sidebar {
+  position: static;
+  top: auto;
+  max-height: none;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-bottom: 12px;
+}
+
+.main {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 4px 20px 0;   /* room for the scrollbar without clipping cards */
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+@media (prefers-reduced-motion: reduce) { .main { scroll-behavior: auto; } }
+
+/* The section bar rides in the frame now, so it needs neither stickiness nor
+   a z-index fight with the tapes. */
+.tab-bar { position: static; top: auto; z-index: auto; margin: 0; }
+
+/* ── Frame: bottom — two feeds and one status line, full width ───────────── */
+.frame-bottom {
+  width: 100%;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  padding: 4px 16px 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex; flex-direction: column;
+  flex: 0 0 auto;
+}
+/* Its height is reserved by the grid, so these can be plain flow: they are
+   never on top of content and never something you scroll to the end to find. */
+.mn-stack.mn-bottom {
+  position: static; z-index: auto;
+  margin: 0; padding: 0; border-top: 0;
+  gap: 4px;
+}
+.statusline {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 4px 2px 5px;
+  font-size: 11px; color: var(--fg-4);
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+.sl-brand { color: var(--fg-3); cursor: help; }
+.sl-ver { font-family: var(--font-mono); font-weight: 700; color: var(--fg-2); }
+.sl-note { cursor: help; }
+.sl-sep { color: var(--line-2); }
+.sl-spacer { flex: 1 1 auto; }
+.sl-link {
+  background: none; border: 0; padding: 0 2px; cursor: pointer;
+  font-size: 11px; color: var(--fg-3); text-decoration: underline;
+  text-underline-offset: 2px; text-decoration-color: var(--line-2);
+}
+.sl-link:hover { color: var(--fg); }
+
+/* ── The rails end exactly where the feeds begin ─────────────────────────── */
+@media (min-width: 2080px) {
+  .lrail {
+    top: 6px;
+    bottom: calc(var(--frame-bottom-h, 92px) + 6px);
+    max-height: none;
+  }
+}
+
+/* ── The ten charts: 5×2 on a wide desktop, 2×5 in portrait ──────────────── */
+.mko-grid { grid-template-columns: repeat(5, 1fr); gap: 10px; }
+@media (max-width: 1400px) { .mko-grid { grid-template-columns: repeat(5, 1fr); gap: 7px; } }
+.mko-grid-skel .mko-tile { pointer-events: none; }
+.mko-grid.mko-down .mko-label { color: var(--down); }
+/* Short desktops: keep all ten, take the height out of the tile instead. */
+@media (min-width: 1081px) and (max-height: 900px) {
+  .mko-tile  { min-height: 0; padding: 7px 10px 5px; }
+  .mko-price { font-size: 18px; }
+  .mko-spark { height: 22px; margin-top: 3px; }
+}
+@media (min-width: 1081px) and (max-height: 760px) {
+  .mko-tile  { padding: 5px 9px 4px; }
+  .mko-price { font-size: 16px; }
+  .mko-spark { height: 16px; margin-top: 2px; }
+  .mko-regime { display: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHONE FRAME (≤900px)
+   The whole reason the frame exists. Before this, the posture card, the
+   regime line, a ten-wide horizontal chart carousel, the context bar, the
+   opportunity ribbon and the header used the entire first 956-pixel screen
+   and the actual tool started below it. Now the frame is the header and the
+   ten charts; everything else is the first thing IN the workspace.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .frame-top {
+    display: flex; flex-direction: column; gap: 6px;
+    max-width: none; padding: 6px 10px 6px;
+  }
+  .appbar { display: none; }
+  /* The header is inside the frame now, so it does not need to stick to
+     anything — and a sticky element inside a non-scrolling box is a no-op
+     that only costs a compositing layer. */
+  .mobile-header {
+    position: static; margin: 0; z-index: auto;
+    backdrop-filter: none; background: var(--bg-2);
+  }
+  /* Four rows of grouped navigation do not fit above a phone's workspace.
+     Every destination stays one tap away through the bottom bar's tool
+     picker, which is searchable and carries the same four groups. */
+  .tab-bar { display: none; }
+
+  /* TWO COLUMNS, FIVE ROWS — not a carousel. This overrides the older
+     760px flex/scroll-snap rule by source order. */
+  .mko-grid, .mko-grid-skel {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px; margin: 0; padding: 0;
+    overflow: visible; scroll-snap-type: none;
+  }
+  .mko-tile {
+    flex: initial; min-height: 0; padding: 4px 8px 3px; gap: 0;
+    scroll-snap-align: none; border-radius: 9px;
+  }
+  .mko-label { font-size: 10.5px; gap: 4px; }
+  .mko-chg   { font-size: 10px; }
+  .mko-price { font-size: 14px; }
+  .mko-pts   { font-size: 9.5px; }
+  .mko-spark { height: 13px; margin-top: 1px; }
+  .mko-regime { display: none; }      /* the same read is in the band below */
+
+  /* Landscape / very short: back to 5×2 so the ten still fit above the fold. */
+  @media (orientation: landscape), (max-height: 620px) {
+    .mko-grid, .mko-grid-skel { grid-template-columns: repeat(5, 1fr); }
+    .mko-spark { height: 10px; }
+    .mko-price { font-size: 13px; }
+  }
+
+  .frame-body { max-width: none; padding: 8px 10px 0; grid-template-columns: 1fr; column-gap: 0; }
+  .main { padding: 0 0 12px; }
+  .frame-bottom { padding: 3px 10px 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+  /* One coordinated footer: news row, ticker row, then the action bar. The
+     bar used to be position:fixed over a document whose last element was the
+     tapes — so the two fought for the same edge and the tapes lost. */
+  .mobile-bottombar {
+    position: static; left: auto; right: auto; bottom: auto; z-index: auto;
+    padding: 3px 2px 4px; border-top: 1px solid var(--line);
+    background: transparent; backdrop-filter: none;
+  }
+  .statusline { display: none; }      /* the version rides the sidebar on phones */
+  .shell { padding-bottom: 0 !important; }
+  .mbb-btn { min-height: 40px; }
+
+  /* The drawer sidebar keeps its own scroll inside the frame body. */
+  .sidebar { margin-bottom: 0; }
+}
+
+/* Landscape phones are short, not narrow: give the workspace the height. */
+@media (max-width: 900px) and (max-height: 500px) {
+  .mko-spark { display: none; }
+  .mko-tile { padding: 3px 7px; }
+}
+
+/* ── Grouped navigation ──────────────────────────────────────────────────── */
+.tab-bar-grouped { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; }
+.tab-row {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center; gap: 8px; flex-wrap: nowrap;
+}
+.tab-row + .tab-row { border-top: 1px dashed var(--line); padding-top: 2px; }
+.tab-glbl {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--fg-4);
+  cursor: help; text-align: right; white-space: nowrap;
+}
+.tab-row-btns { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; min-width: 0; }
+.tab-bar-grouped .tab-btn { font-size: 12.5px; padding: 5px 11px; border-radius: 8px; }
+/* An unmistakable selected state: filled, and marked underneath so the
+   grouping still reads at a glance on a big screen. */
+.tab-bar-grouped .tab-btn.active {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent), transparent 55%),
+              0 2px 8px color-mix(in oklch, var(--accent), transparent 72%);
+}
+.tab-row-connected .tab-btn:not(.active) { color: var(--fg-3); }
+.tab-bar-grouped .tab-earn { margin-left: 0; }
+/* Narrow desktops: each group scrolls sideways rather than wrapping into
+   three lines and eating the workspace's height. */
+@media (max-width: 1500px) {
+  .tab-row-btns { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; }
+  .tab-row-btns::-webkit-scrollbar { display: none; }
+}
+@media (max-width: 1080px) {
+  .tab-row { grid-template-columns: 74px minmax(0, 1fr); }
+  .tab-bar-grouped .tab-earn { display: none; }
+}
+
+/* ── The searchable tool picker (phones) ─────────────────────────────────── */
+.tabsheet-find {
+  width: 100%; box-sizing: border-box; margin: 0 0 10px;
+  padding: 11px 13px; font-size: 15px;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 11px;
+}
+.tabsheet-scroll { overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+.tabsheet-group + .tabsheet-group { margin-top: 12px; }
+.tabsheet-glbl {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 800;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--fg-4);
+  margin: 0 0 5px; cursor: help;
+}
+
+/* ── Highs & Lows, as a card (phones) ────────────────────────────────────── */
+.hlc-card { padding-bottom: 4px; }
+.hlc-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0 6px; }
+.hlc-tab {
+  font-size: 11.5px; font-weight: 700; padding: 8px 4px; min-height: 40px;
+  border-radius: 9px; cursor: pointer; color: #fff; opacity: 0.55;
+  border: 1px solid transparent; background: var(--bg-3);
+}
+.hlc-tab.on { opacity: 1; }
+.hlc-low      { background: var(--rail-low); }
+.hlc-lowdaily { background: var(--rail-low-day); }
+.hlc-daily    { background: var(--rail-high-day); }
+.hlc-high     { background: var(--rail-high); }
+.hlc-body { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+.hlc-list .lr-col { display: flex; flex-direction: column; }
+.hlc-list .lr-item { padding: 9px 10px; min-height: 44px; }
+.hlc-subtag {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  color: var(--rail-tag); background: var(--bg-3); padding: 4px 8px;
+  border-bottom: 1px solid var(--line); cursor: help;
+}
+.hlc-empty { padding: 18px 14px; text-align: center; font-size: 12px; color: var(--fg-3); line-height: 1.5; }
+
+/* ── One vocabulary for data status ──────────────────────────────────────── */
+.ds-badge {
+  display: inline-flex; align-items: baseline; gap: 5px; cursor: help;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.03em; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-3);
+  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.ds-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-4); flex: 0 0 auto; align-self: center; }
+.ds-lbl { text-transform: uppercase; }
+.ds-at { color: var(--fg-4); font-weight: 600; text-transform: none; letter-spacing: 0; }
+.ds-live     { color: var(--up); }   .ds-live .ds-dot     { background: var(--up); }
+.ds-close    { color: var(--fg-2); } .ds-close .ds-dot    { background: var(--fg-3); }
+.ds-cached   { color: var(--warn); } .ds-cached .ds-dot   { background: var(--warn); }
+.ds-modeled  { color: var(--modeled); } .ds-modeled .ds-dot  { background: var(--modeled); }
+.ds-measured { color: var(--rail-tag); } .ds-measured .ds-dot { background: var(--rail-tag); }
+.ds-loading  { color: var(--fg-4); } .ds-loading .ds-dot  { background: var(--fg-4); animation: mko-pulse 1.6s ease-out infinite; }
+.ds-none     { color: var(--down); } .ds-none .ds-dot     { background: var(--down); }
+
+/* ── Local section navigation on long pages ──────────────────────────────── */
+.secnav {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 var(--row-gap); padding: 6px 10px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: var(--shadow-card);
+}
+.secnav-lbl {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4);
+}
+.secnav-row {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
+  overflow-x: auto; scrollbar-width: none; padding-bottom: 1px;
+}
+.secnav-row::-webkit-scrollbar { display: none; }
+.secnav-group {
+  flex: 0 0 auto; margin: 0 4px 0 8px; padding-left: 8px;
+  border-left: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 9px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4);
+}
+.secnav-btn {
+  flex: 0 0 auto; cursor: pointer; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; color: var(--fg-3);
+  background: transparent; border: 1px solid transparent;
+  border-radius: 7px; padding: 4px 9px;
+}
+.secnav-btn:hover { color: var(--fg); background: var(--bg-3); }
+.secnav-btn.on { color: var(--accent-text); background: var(--accent); }
+@media (max-width: 900px) {
+  .secnav { padding: 5px 8px; }
+  .secnav-lbl { display: none; }
+  .secnav-btn { min-height: 36px; font-size: 12.5px; }
+}
+
+/* ── Frame corrections, declared last on purpose ─────────────────────────── */
+/* .tab-bar's base rule is `display:flex; align-items:center`, and a column
+   flex box with centered items shrink-wraps every row to its content — which
+   is why the grouped rows first drew as a centered stack instead of a bar. */
+.tab-bar-grouped { align-items: stretch; }
+
+/* The workspace is a column flex box with a bounded height, so its children
+   are shrinkable by default: the posture card and the context bar collapsed
+   into each other the moment the content was taller than the box. Cards keep
+   their natural height and the box scrolls. */
+.main > * { flex-shrink: 0; }
+
+/* Phone: hide the desktop section bar. This must come after
+   `.tab-bar-grouped { display:flex }` — equal specificity, later wins, and
+   that is exactly how it lost the first time. */
+@media (max-width: 900px) {
+  .tab-bar, .tab-bar-grouped { display: none !important; }
+}
+
+/* The tape when the feed has nothing to say yet, or is not answering. */
+.nt-quiet {
+  display: flex; align-items: center; height: 100%;
+  padding: 0 4px; font-size: 11.5px; color: var(--fg-4); cursor: help;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Waiting for the selected symbol's payload. Not an error — the numbers are
+   on their way, and until they arrive nothing is drawn from another symbol. */
+.sym-pending { display: flex; flex-direction: column; gap: 10px; }
+.sym-pending-msg { font-size: 13px; line-height: 1.5; color: var(--fg-3); max-width: 62ch; }
+.tp-pending { min-height: 160px; }
+.sym-pending-failed .kicker { color: var(--down); }
+.sym-pending .card-error-btn { align-self: flex-start; }
+
+/* ── Watchlist: column presets, chooser, pinned symbol, phone cards ──────── */
+.wl-cols {
+  position: relative; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  padding: 6px 0 2px;
+}
+.wl-cols-lbl {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-4);
+  margin-right: 3px; cursor: help;
+}
+.wl-preset {
+  font-size: 11.5px; font-weight: 600; color: var(--fg-3); cursor: pointer;
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 7px; padding: 4px 10px; white-space: nowrap;
+}
+.wl-preset:hover { color: var(--fg); border-color: var(--line-2); }
+.wl-preset.on { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
+.wl-cols-n { font-family: var(--font-mono); font-size: 10px; opacity: 0.75; }
+.wl-chooser {
+  position: absolute; top: 100%; right: 0; z-index: 60; width: min(560px, 92vw);
+  margin-top: 6px; padding: 10px 12px 12px;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  border-radius: 12px; box-shadow: var(--shadow-hover);
+}
+.wl-chooser-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--fg-3); margin-bottom: 8px;
+}
+.wl-chooser-x { background: none; border: 0; color: var(--fg-3); cursor: pointer; font-size: 14px; }
+.wl-chooser-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 2px 10px; max-height: 46vh; overflow-y: auto;
+}
+.wl-chooser-item {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 12px; color: var(--fg-2); padding: 3px 2px; min-height: 28px;
+}
+.wl-chooser-item.locked { color: var(--fg-4); cursor: help; }
+/* Symbol stays put while the table is scrolled sideways — otherwise a wide
+   table stops telling you whose row you are reading. */
+.wl-table th.wl-pin, .wl-table td.wl-sym {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--bg-2);
+  box-shadow: 1px 0 0 var(--line);
+}
+.wl-table thead th.wl-pin { z-index: 3; }
+.wl-row:hover td.wl-sym { background: var(--bg-3); }
+
+/* Phone: a readable summary per row, with every field one tap away. */
+.wl-cards { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-height: none; }
+.wl-card { border: 1px solid var(--line); border-radius: 11px; background: var(--bg-2); padding: 8px 10px; }
+.wl-card-head {
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: 4px 8px;
+  align-items: baseline; width: 100%; text-align: left; min-height: 40px;
+  background: none; border: 0; padding: 0; cursor: pointer; color: var(--fg);
+}
+.wl-card-sym { font-family: var(--font-mono); font-weight: 800; font-size: 15px; }
+.wl-card-co { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-card-px { font-family: var(--font-mono); font-size: 14px; color: var(--fg-2); }
+.wl-card-chg { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
+.wl-card-chg.up { color: var(--up); } .wl-card-chg.down { color: var(--down); }
+.wl-card-meta {
+  display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px;
+  font-size: 11.5px; color: var(--fg-3);
+}
+.wl-card-meta b { color: var(--fg-2); font-family: var(--font-mono); }
+.wl-card-more {
+  margin-top: 6px; min-height: 38px; width: 100%; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--fg-2);
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px;
+}
+.wl-detail-table { width: 100%; margin-top: 6px; }
+.wl-detail-table th {
+  text-align: left; font-size: 11px; font-weight: 600; color: var(--fg-3);
+  white-space: nowrap; padding: 5px 8px 5px 0; width: 42%; cursor: help;
+}
+.wl-detail-table td { font-size: 12px; padding: 5px 0; }
+
+/* ── Panels sized against the WORKSPACE, not the viewport ────────────────
+   Every rule below asked for a slice of `100vh` back when the page itself
+   scrolled. The workspace is now shorter than the viewport by the whole
+   frame, so those panels overflowed their own scroll box — an embedded
+   partner chart wanted 1,030 pixels inside a 598-pixel workspace. `--ws-h`
+   is published by the frame's ResizeObserver; the vh values stay as the
+   fallback for a browser that never runs it. */
+.fv-frame {
+  height: calc(var(--ws-h, 70vh) - 96px);
+  min-height: 340px;
+}
+@media (max-width: 900px) {
+  .fv-frame { height: calc(var(--ws-h, 60vh) - 70px); min-height: 300px; }
+}
+.wl-scroll, .waa-table-wrap, .wstk-wrap {
+  max-height: calc(var(--ws-h, 70vh) - 140px);
+}
+.eop-wrap, .sl-table-wrap, .sk-table-wrap {
+  max-height: calc(var(--ws-h, 70vh) - 110px);
+}
+.hf-table-wrap { max-height: calc(var(--ws-h, 46vh) * 0.62); }
+/* A nested scroller must never be so short that it is useless. */
+.wl-scroll, .waa-table-wrap, .wstk-wrap,
+.eop-wrap, .sl-table-wrap, .sk-table-wrap, .hf-table-wrap { min-height: 220px; }
+/* On a phone the workspace is the smaller box, so a wide table gets the
+   whole of it and scrolls the page no further. */
+@media (max-width: 900px) {
+  .wl-cards { max-height: none; }
+}
+
+/* An embedded partner view fills the workspace exactly: the panel is a
+   column, its controls take what they need, and the chart takes the rest.
+   Sizing the iframe by a fixed slice of the workspace only worked while the
+   controls happened to be the height they were that day. */
+.fv-card.fv-live {
+  display: flex; flex-direction: column;
+  height: calc(var(--ws-h, 80vh) - 6px);
+  min-height: 420px;
+  margin-bottom: 0 !important;
+}
+.fv-card.fv-live .fv-frame { flex: 1 1 auto; height: auto; min-height: 240px; }
+@media (max-width: 900px) {
+  /* On a phone the controls alone are most of the workspace, so the chart
+     gets a usable fixed height and the panel scrolls instead. */
+  .fv-card.fv-live { height: auto; min-height: 0; }
+  .fv-card.fv-live .fv-frame { flex: 0 0 auto; height: 380px; min-height: 380px; }
+}
+
+/* ── One shape for a panel's answer, and one for its reasoning ───────────── */
+.panel-verdict {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 8px 0 6px; padding: 8px 12px;
+  border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: var(--radius-sm); background: var(--bg-2);
+  font-size: 13px; line-height: 1.5;
+}
+.pv-badge {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
+.pv-reason { color: var(--fg-2); min-width: 0; }
+.pv-at { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-4); cursor: help; white-space: nowrap; }
+.pv-actions { display: inline-flex; gap: 6px; align-items: center; }
+.pv-stop    { border-left-color: var(--down); }  .pv-stop .pv-badge    { color: var(--down); }
+.pv-go      { border-left-color: var(--up); }    .pv-go .pv-badge      { color: var(--up); }
+.pv-caution { border-left-color: var(--warn); }  .pv-caution .pv-badge { color: var(--warn); }
+.pv-neutral { border-left-color: var(--line-2); } .pv-neutral .pv-badge { color: var(--fg-3); }
+
+.panel-method { margin: 4px 0 10px; }
+.panel-method > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 800;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-4);
+  padding: 3px 0; min-height: 26px;
+}
+.panel-method > summary::-webkit-details-marker { display: none; }
+.panel-method > summary::before { content: "▸"; font-size: 9px; transition: transform 140ms var(--ease); }
+.panel-method[open] > summary::before { transform: rotate(90deg); }
+.panel-method > summary:hover { color: var(--fg-2); }
+.panel-method-body {
+  font-size: 13px; line-height: 1.55; color: var(--fg-3);
+  max-width: 92ch; padding: 4px 0 2px 14px;
+  border-left: 1px solid var(--line);
+}
+.panel-method-body p { margin: 0 0 8px; }
+.panel-method-body p:last-child { margin-bottom: 0; }
+/* The status line carries the badge, so it needs to sit on the baseline. */
+.sl-status { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHORT VIEWPORTS
+   A narrow window and a short window are different problems, and the layout
+   only knew about narrow. An iPhone 16 Pro Max in LANDSCAPE is 956 CSS
+   pixels wide — past every max-width:900px rule — and 440 tall, so it took
+   the full desktop frame and left a fifty-pixel workspace with both feeds
+   below the fold. The band moves into the workspace (see bandInWorkspace);
+   these rules take the rest of the height out of the frame itself.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-height: 700px) {
+  .appbar { height: 38px; margin-bottom: 6px; }
+  .frame-top { padding-bottom: 4px; }
+  .frame-body { padding-top: 8px; }
+  .mko-tile  { min-height: 0; padding: 4px 9px 3px; }
+  .mko-price { font-size: 15px; }
+  .mko-spark { height: 14px; margin-top: 2px; }
+  .mko-label { font-size: 11px; }
+  .tab-bar-grouped { padding: 2px 7px; gap: 0; }
+  .tab-bar-grouped .tab-btn { font-size: 12px; padding: 3px 9px; }
+  .tab-row + .tab-row { padding-top: 0; }
+  .secnav { padding: 4px 8px; }
+}
+/* Shorter still — a phone on its side. The four navigation rows are the
+   biggest single block left, so they come out and the app bar carries a
+   button to the same grouped, searchable picker. Nothing is unreachable;
+   it is one tap instead of zero. */
+@media (max-height: 520px) {
+  .tab-bar, .tab-bar-grouped { display: none !important; }
+  .ab-tools { display: inline-flex !important; }
+  .appbar { height: 34px; margin-bottom: 4px; }
+  .mko-grid, .mko-grid-skel { grid-template-columns: repeat(5, 1fr) !important; gap: 4px; }
+  .mko-tile  { padding: 3px 7px 2px; border-radius: 8px; }
+  .mko-price { font-size: 13px; }
+  .mko-spark { height: 9px; }
+  .mko-chg, .mko-pts { font-size: 9px; }
+  .frame-top { padding: 4px 12px 3px; }
+  .frame-body { padding: 6px 12px 0; }
+  .frame-bottom { padding: 2px 12px 0; }
+  .statusline { display: none; }
+  .lrail { display: none; }     /* no room to flank a 440px-tall window */
+}
+/* The tools door only exists where the rows are gone. */
+.ab-tools { display: none; }
+
+/* A 1440x900 laptop is not "short" enough to move the band, but four full
+   navigation rows plus a 46-pixel app bar still cost the workspace about
+   sixty pixels it can use. Trim the chrome, keep every row. */
+@media (min-width: 1081px) and (max-height: 920px) {
+  .appbar { height: 40px; margin-bottom: 7px; }
+  .tab-bar-grouped { padding: 3px 8px; gap: 0; }
+  .tab-bar-grouped .tab-btn { font-size: 12px; padding: 4px 10px; }
+  .tab-row + .tab-row { padding-top: 0; }
+  .opp-ribbon { margin-top: 5px; }
+  .frame-body { padding-top: 9px; }
+}
+
+/* ── The tool picker opens INSIDE the workspace ──────────────────────────
+   It used to cover the whole screen, including the ten charts the frame
+   exists to keep on screen. It now occupies exactly the workspace box —
+   the market is still readable while you choose where to go. */
+.tabsheet-overlay { display: none; }
+@media (max-width: 900px), (max-height: 520px) {
+  .tabsheet-overlay {
+    display: block; position: fixed; z-index: 260;
+    top: var(--frame-top-h, 0px); left: 0; right: 0;
+    bottom: var(--frame-bottom-h, 0px);
+    background: color-mix(in oklch, var(--bg) 78%, transparent);
+    backdrop-filter: blur(3px);
+  }
+  .tabsheet {
+    position: absolute; inset: 6px 8px;
+    display: flex; flex-direction: column; min-height: 0;
+    max-height: none; overflow: hidden;
+    border-radius: 14px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+  }
+}
+
+/* Momentum scrolling inside the workspace on older iOS. */
+.main { -webkit-overflow-scrolling: touch; }

@@ -143,14 +143,29 @@ function MarketOverview({
   onSwitchTicker
 }) {
   const [items, setItems] = useState([]);
+  // "loading" until the first answer, then "ok" or "down". This used to be
+  // absent, and `if (!items.length) return null` meant a strip that failed to
+  // load looked EXACTLY like a strip that had been removed — the whole frame
+  // silently lost its ten charts and jumped 200px. A source that does not
+  // answer has to say so.
+  const [state, setState] = useState("loading");
   useEffect(() => {
     let stop = false,
       t = null;
     const load = async () => {
       try {
         const d = await sharedJson(apiFetch, "/api/market_overview", 12000);
-        if (!stop && d && Array.isArray(d.instruments)) setItems(d.instruments);
-      } catch (_) {/* strip is best-effort */}
+        if (!stop && d && Array.isArray(d.instruments)) {
+          setItems(d.instruments);
+          setState("ok");
+        } else if (!stop) {
+          setState(s => s === "ok" ? "ok" : "down");
+        }
+      } catch (_) {
+        // Keep the last good strip on screen rather than blanking it; only a
+        // failure with nothing to show becomes "not answering".
+        if (!stop) setState(s => s === "ok" ? "ok" : "down");
+      }
       if (!stop) t = setTimeout(load, document.hidden ? 60000 : 20000);
     };
     load();
@@ -165,7 +180,33 @@ function MarketOverview({
     };
   }, []);
   const regime = useMemo(() => mkoRegime(items), [items]);
-  if (!items.length) return null;
+  if (!items.length) {
+    // Ten placeholders, so the frame keeps its exact height and the charts
+    // never appear to have been taken away.
+    const down = state === "down";
+    return /*#__PURE__*/React.createElement("div", {
+      className: `mko-grid mko-grid-skel${down ? " mko-down" : ""}`,
+      "aria-label": "Market overview",
+      "aria-busy": down ? undefined : "true",
+      title: down ? "The market strip did not answer. That is a fault on our side, not a quiet market — the ten instruments are still configured; their prices could not be fetched." : "Loading the ten market instruments…"
+    }, Array.from({
+      length: 10
+    }).map((_, i) => /*#__PURE__*/React.createElement("div", {
+      className: "mko-tile mko-empty",
+      key: i,
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "mko-head"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mko-label"
+    }, down ? "Not answering" : "Loading…")), /*#__PURE__*/React.createElement("div", {
+      className: "mko-row2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "mko-price"
+    }, "\u2014")), /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line mko-spark"
+    }))));
+  }
   const fmt = (v, suffix) => v == null ? "—" : Number(v).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -4014,6 +4055,44 @@ function computeTicket(r, acct, riskPct) {
 // Global cooldown so the watchlist board's auto-reconcile scan can't thrash
 // across tab switches / remounts.
 let _wlLastAutoScan = 0;
+
+// ── Watchlist column presets (v4.92) ───────────────────────────────────────
+//
+// The stocks table has forty-six columns and measures about 3,500 CSS pixels
+// wide — inside a 440-pixel phone that is eight screens of sideways scrolling
+// to read one row. These presets are VIEWS OVER THE SAME COLUMNS: nothing is
+// deleted, "All columns" is always one click away, sorting and filtering are
+// untouched, and the chooser can put any column back. Symbol is in every
+// preset and pinned, because a wide table you have scrolled sideways stops
+// telling you which stock each row is.
+const WL_PRESETS = [{
+  id: "overview",
+  label: "Overview",
+  tip: "What the name is and what it did today: price, change, the flow edge and the suggested side.",
+  cols: ["symbol", "company", "tag", "last", "change", "from_open", "edge", "setup", "prem_sell", "market_cap", "sector"]
+}, {
+  id: "flow",
+  label: "Options flow",
+  tip: "Everything the options tape says: premium by side, sweeps, alerts, conviction and the verdict.",
+  cols: ["symbol", "last", "edge", "flow_net", "flow_agree", "flow_bull", "flow_bear", "call_prem", "put_prem", "net_prem", "pc_ratio", "ask_call_prem", "ask_put_prem", "call_sweeps", "put_sweeps", "flow_alerts", "flow_quality", "flow_cc_risk", "flow_verdict"]
+}, {
+  id: "technicals",
+  label: "Technicals",
+  tip: "Where price sits: momentum, relative volume, distance from the moving averages, and period returns.",
+  cols: ["symbol", "last", "change", "from_open", "rsi", "rel_vol", "rvol_rank", "from_ma20", "from_ma50", "from_ma200", "wtd", "mtd", "qtd", "ytd", "swing_dir", "swing_stage"]
+}, {
+  id: "earnings",
+  label: "Earnings & value",
+  tip: "The calendar and the fundamentals: next report, multiples, size and classification.",
+  cols: ["symbol", "company", "next_earnings", "pe", "forward_pe", "market_cap", "sector", "industry", "weekly", "tag"]
+}, {
+  id: "all",
+  label: "All columns",
+  tip: "Every one of the forty-six columns, for a deliberate side-by-side comparison.",
+  cols: null
+}];
+const WL_PRESET_KEY = "jerry_wl_preset_v1";
+const WL_HIDDEN_KEY = "jerry_wl_hidden_v1";
 function WatchlistTableCard({
   apiFetch,
   onSwitchTicker,
@@ -4423,6 +4502,64 @@ function WatchlistTableCard({
     _colByKey[c.k] = c;
   });
   const orderedCols = colOrder.map(k => _colByKey[k]).filter(Boolean);
+
+  // Which of the forty-six are on screen. A preset picks a set; the chooser
+  // edits it and the picker then reads "Custom". Symbol is never removable —
+  // it is what tells you whose row you are looking at.
+  const [wlPreset, setWlPreset] = useState(() => {
+    try {
+      return localStorage.getItem(WL_PRESET_KEY) || "overview";
+    } catch (e) {
+      return "overview";
+    }
+  });
+  const [wlHidden, setWlHidden] = useState(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(WL_HIDDEN_KEY) || "[]"));
+    } catch (e) {
+      return new Set();
+    }
+  });
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [wlDetail, setWlDetail] = useState(null); // phone: expanded row
+  const wlIsPhone = useIsPhone();
+  // The PRESET decides which columns are on screen; `wlHidden` only applies
+  // once you have edited one, at which point the picker reads "Custom". The
+  // first version derived the visible set from `wlHidden` alone, so a
+  // remembered preset name showed all forty-six columns until you clicked
+  // the preset again — the label said one thing and the table did another.
+  const visibleCols = useMemo(() => {
+    const p = WL_PRESETS.find(x => x.id === wlPreset);
+    if (p && p.cols) {
+      const keep = new Set(p.cols);
+      return orderedCols.filter(c => c.k === "symbol" || keep.has(c.k));
+    }
+    if (wlPreset === "custom") {
+      return orderedCols.filter(c => c.k === "symbol" || !wlHidden.has(c.k));
+    }
+    return orderedCols; // "All columns"
+  }, [colOrder, wlPreset, wlHidden]);
+  const pickPreset = id => {
+    setWlPreset(id);
+    try {
+      localStorage.setItem(WL_PRESET_KEY, id);
+    } catch (e) {}
+  };
+  const toggleCol = k => {
+    if (k === "symbol") return; // it is what names the row
+    // Editing a preset starts Custom FROM what is currently on screen, not
+    // from all forty-six — otherwise unticking one column would add the
+    // thirty-five the preset was hiding.
+    const base = wlPreset === "custom" ? new Set(wlHidden) : new Set(orderedCols.map(c => c.k).filter(x => !visibleCols.some(v => v.k === x)));
+    if (base.has(k)) base.delete(k);else base.add(k);
+    setWlHidden(base);
+    setWlPreset("custom");
+    try {
+      localStorage.setItem(WL_HIDDEN_KEY, JSON.stringify([...base]));
+      localStorage.setItem(WL_PRESET_KEY, "custom");
+    } catch (e) {}
+  };
+  const presetLabel = (WL_PRESETS.find(p => p.id === wlPreset) || {}).label || "Custom";
   const dragColKey = useRef(null);
   const onColDrop = targetK => {
     const from = dragColKey.current;
@@ -5390,7 +5527,106 @@ function WatchlistTableCard({
     className: "scan-num"
   }, g.alerts || "—")))))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
-  }, "No flow data to aggregate yet \u2014 run a scan.") : filtered.length > 0 ? /*#__PURE__*/React.createElement("div", {
+  }, "No flow data to aggregate yet \u2014 run a scan.") : filtered.length > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "wl-cols",
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "wl-cols-lbl",
+    title: "Named sets of columns for a particular question. Sorting, filtering and your column order are unaffected."
+  }, "Columns"), WL_PRESETS.map(p => /*#__PURE__*/React.createElement("button", {
+    key: p.id,
+    type: "button",
+    title: p.tip,
+    className: `wl-preset${wlPreset === p.id ? " on" : ""}`,
+    onClick: () => pickPreset(p.id)
+  }, p.label)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: `wl-preset wl-chooser-btn${wlPreset === "custom" ? " on" : ""}`,
+    title: "Pick exactly which columns to show. Symbol always stays.",
+    onClick: () => setChooserOpen(o => !o)
+  }, "Choose\u2026 ", /*#__PURE__*/React.createElement("span", {
+    className: "wl-cols-n"
+  }, visibleCols.length, "/", orderedCols.length)), chooserOpen && /*#__PURE__*/React.createElement("div", {
+    className: "wl-chooser",
+    role: "dialog",
+    "aria-label": "Choose columns"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wl-chooser-head"
+  }, /*#__PURE__*/React.createElement("span", null, "Showing ", visibleCols.length, " of ", orderedCols.length, " columns"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "wl-chooser-x",
+    "aria-label": "Close",
+    onClick: () => setChooserOpen(false)
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+    className: "wl-chooser-grid"
+  }, orderedCols.map(c => /*#__PURE__*/React.createElement("label", {
+    key: c.k,
+    className: `wl-chooser-item${c.k === "symbol" ? " locked" : ""}`,
+    title: c.k === "symbol" ? "Symbol identifies the row, so it cannot be hidden." : COL_TIPS[c.k] || c.label
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: c.k === "symbol" || !wlHidden.has(c.k),
+    disabled: c.k === "symbol",
+    onChange: () => toggleCol(c.k)
+  }), /*#__PURE__*/React.createElement("span", null, c.label)))))), wlIsPhone ?
+  /*#__PURE__*/
+  /* A 3,500-pixel-wide table inside a 440-pixel phone is eight
+     screens of sideways scrolling to read one row. Same rows, same
+     order, same sort — summarised, with EVERY field behind Details.
+     Nothing is dropped; the wide table is still there on a desktop
+     and through "All columns". */
+  React.createElement("div", {
+    className: "wl-cards",
+    ref: wlScrollRef,
+    onScroll: onWlScroll
+  }, shown.map(r => {
+    const open = wlDetail === r.symbol;
+    return /*#__PURE__*/React.createElement("div", {
+      key: r.symbol,
+      className: "wl-card"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "wl-card-head",
+      onClick: () => onSwitchTicker && onSwitchTicker(r.symbol),
+      title: `Open ${r.symbol}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "wl-card-sym"
+    }, isPrime(r) && /*#__PURE__*/React.createElement("span", {
+      className: "wl-prime-star",
+      title: "Prime setup \u2014 flow + swing agree, move is early"
+    }, "\u2605 "), r.symbol), /*#__PURE__*/React.createElement("span", {
+      className: "wl-card-co"
+    }, r.company || "—"), /*#__PURE__*/React.createElement("span", {
+      className: "wl-card-px"
+    }, fmtUsd(liveLast(r), 2)), /*#__PURE__*/React.createElement("span", {
+      className: `wl-card-chg ${(r.change || 0) >= 0 ? "up" : "down"}`
+    }, r.change == null ? "—" : `${r.change >= 0 ? "+" : ""}${Number(r.change).toFixed(2)}%`)), /*#__PURE__*/React.createElement("div", {
+      className: "wl-card-meta"
+    }, /*#__PURE__*/React.createElement("span", {
+      title: COL_TIPS.edge
+    }, "Edge ", /*#__PURE__*/React.createElement("b", null, r.edge != null ? r.edge : "—")), /*#__PURE__*/React.createElement("span", {
+      title: COL_TIPS.setup
+    }, r.setup || "—"), /*#__PURE__*/React.createElement("span", {
+      title: COL_TIPS.tag
+    }, r.tag || "no tag")), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "wl-card-more",
+      "aria-expanded": open,
+      title: `Every one of the ${orderedCols.length} columns for ${r.symbol}, including the ones this summary leaves out.`,
+      onClick: () => setWlDetail(open ? null : r.symbol)
+    }, open ? "Hide details" : `All ${orderedCols.length} fields`), open && /*#__PURE__*/React.createElement("table", {
+      className: "scan-table wl-detail-table"
+    }, /*#__PURE__*/React.createElement("tbody", null, orderedCols.map(c => /*#__PURE__*/React.createElement("tr", {
+      key: c.k
+    }, /*#__PURE__*/React.createElement("th", {
+      title: COL_TIPS[c.k] || c.label
+    }, c.label), renderCell(c, r))))));
+  }), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
+    className: "wl-more",
+    onClick: () => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))
+  }, "Showing ", visN, " of ", filtered.length, " \u2014 scroll or tap for more")) : /*#__PURE__*/React.createElement("div", {
     className: "scan-table-wrap wl-scroll",
     style: {
       marginTop: 10
@@ -5399,7 +5635,7 @@ function WatchlistTableCard({
     onScroll: onWlScroll
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table wl-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, orderedCols.map(c => /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, visibleCols.map(c => /*#__PURE__*/React.createElement("th", {
     key: c.k,
     draggable: true,
     onDragStart: e => {
@@ -5414,7 +5650,7 @@ function WatchlistTableCard({
       e.preventDefault();
       onColDrop(c.k);
     },
-    className: `${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}`,
+    className: `${c.num ? "scan-th-num" : ""} wl-th${sort.key === c.k ? " active" : ""}${c.k === "symbol" ? " wl-pin" : ""}`,
     onClick: () => setSortKey(c.k),
     title: `${COL_TIPS[c.k] || c.label} · click to sort · drag to reorder`
   }, c.label, sort.key === c.k ? sort.dir === "asc" ? " ▲" : " ▼" : "")))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
@@ -5430,10 +5666,10 @@ function WatchlistTableCard({
       });
     },
     title: `Open ${r.symbol} · right-click to remove`
-  }, orderedCols.map(c => renderCell(c, r)))))), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
+  }, visibleCols.map(c => renderCell(c, r)))))), visN < filtered.length && /*#__PURE__*/React.createElement("div", {
     className: "wl-more",
     onClick: () => setVisN(n => Math.min(n + WL_CHUNK, filtered.length))
-  }, "Showing ", visN, " of ", filtered.length, " \u2014 scroll or click for more")) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
+  }, "Showing ", visN, " of ", filtered.length, " \u2014 scroll or click for more"))) : !scanning && status.last_scan && /*#__PURE__*/React.createElement("div", {
     className: "ab-empty"
   }, "No stocks match these filters."), ctx && /*#__PURE__*/React.createElement("div", {
     className: "wl-ctx",
@@ -7121,21 +7357,22 @@ function TabBar({
     setDragId(null);
     setOverId(null);
   };
-  // Row split (v3.38): the app's own sections on line 1; the embedded
-  // partner sites (Finviz / TradingView / Unusual Whales) on line 2 so the
-  // bar reads as "my app" vs "linked sites" instead of one crowded wrap.
-  const EXT = {
-    finviz: 1,
-    tview: 1,
-    whales: 1,
-    swst: 1
+  // Grouped rows (v4.92). This used to be two rows — "my sections" and
+  // "sites" — which meant twenty-six equal-looking buttons wrapping across
+  // three lines, and finding one meant reading all of them. TAB_GROUPS in
+  // app-lib is a partition, so every destination still appears exactly once
+  // and none has been moved behind a menu; only the labels are new. The saved
+  // drag order still decides the sequence WITHIN a group, which is why the
+  // rows are built by filtering `list` rather than by iterating group.ids.
+  const groupOf = id => {
+    for (const g of TAB_GROUPS) if (g.ids.includes(id)) return g.id;
+    return null;
   };
-  const appTabs = list.filter(t => !EXT[t.id]);
-  const extTabs = list.filter(t => EXT[t.id]);
   const renderBtn = t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     type: "button",
     role: "tab",
+    "data-tab": t.id,
     "aria-selected": active === t.id,
     className: `tab-btn ${active === t.id ? "active" : ""}${dragId === t.id ? " dragging" : ""}${overId === t.id && dragId && overId !== dragId ? " drop-target" : ""}`,
     onClick: () => onChange(t.id),
@@ -7147,53 +7384,105 @@ function TabBar({
       } catch (_) {}
     },
     onDragOver: e => {
-      if (dragId) {
+      // Only a same-group target accepts the drop: the groups are what
+      // make the bar readable, and a drag that silently moved a tool
+      // out of its group would undo that without saying so.
+      if (dragId && groupOf(dragId) === groupOf(t.id)) {
         e.preventDefault();
         setOverId(t.id);
       }
     },
     onDrop: e => {
       e.preventDefault();
-      drop(t.id);
+      if (groupOf(dragId) === groupOf(t.id)) drop(t.id);else {
+        setDragId(null);
+        setOverId(null);
+      }
     },
     onDragEnd: () => {
       setDragId(null);
       setOverId(null);
     },
-    title: `Show the ${t.label} section. Drag to reorder.`
+    title: `Show the ${t.label} section. Drag to reorder it within its group; the order is saved to all your devices.`
   }, t.label);
-  return /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement("nav", {
     ref: barRef,
-    className: "tab-bar tab-bar-2row",
+    className: "tab-bar tab-bar-grouped",
     role: "tablist",
     "aria-label": "Dashboard sections",
-    title: "Switch sections. Drag a tab to reorder; the order is saved to all your devices. Cards stay live in the background, so switching is instant and nothing reloads."
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tab-row"
-  }, appTabs.map(renderBtn)), (extTabs.length > 0 || hasEarn) && /*#__PURE__*/React.createElement("div", {
-    className: "tab-row tab-row-ext"
-  }, extTabs.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-    className: "tab-row-lbl",
-    title: "Embedded partner sites \u2014 each renders inside the dashboard and follows the globally selected ticker both ways. All four need the Site Helper extension to lift their frame-blocking headers."
-  }, "Sites -"), extTabs.map(renderBtn), /*#__PURE__*/React.createElement(HelperDownloadChip, null)), hasEarn && /*#__PURE__*/React.createElement("div", {
-    className: `tab-earn ${soon ? "soon" : ""}`,
-    title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tab-earn-lbl"
-  }, ticker, " earnings"), /*#__PURE__*/React.createElement("b", null, fmtSwingDate(earnDate)), earnDays != null && /*#__PURE__*/React.createElement("span", {
-    className: "tab-earn-days"
-  }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`))));
+    title: "Every tool in the app, grouped by what it is for. Nothing is hidden behind a menu. Panels stay live in the background, so switching is instant and nothing reloads."
+  }, TAB_GROUPS.map(g => {
+    const rowTabs = list.filter(t => g.ids.includes(t.id));
+    if (!rowTabs.length) return null;
+    const isConnected = g.id === "connected";
+    return /*#__PURE__*/React.createElement("div", {
+      className: `tab-row tab-row-${g.id}`,
+      key: g.id
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "tab-glbl",
+      title: g.tip
+    }, g.label), /*#__PURE__*/React.createElement("div", {
+      className: "tab-row-btns"
+    }, rowTabs.map(renderBtn), isConnected && /*#__PURE__*/React.createElement(HelperDownloadChip, null)), isConnected && hasEarn && /*#__PURE__*/React.createElement("div", {
+      className: `tab-earn ${soon ? "soon" : ""}`,
+      title: `Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "tab-earn-lbl"
+    }, ticker, " earnings"), /*#__PURE__*/React.createElement("b", null, fmtSwingDate(earnDate)), earnDays != null && /*#__PURE__*/React.createElement("span", {
+      className: "tab-earn-days"
+    }, earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`)));
+  }));
 }
 function TabPanel({
   tab,
   active,
-  children
+  children,
+  pending,
+  pendingLabel
 }) {
   // Lazy-mount: render children only after the tab is first activated, then
   // keep them mounted (hidden) so they stay live. Avoids paying the mount /
   // fetch cost for sections you never open — faster initial load on mobile.
   const seen = useRef(active === tab);
   if (active === tab) seen.current = true;
+  // `pending` = the payload for the selected SYMBOL has not arrived. These
+  // panels are built entirely from it, and the alternative to a skeleton is
+  // not "an empty panel" — it is another symbol's numbers under this
+  // symbol's name, which is what used to happen. One gate here covers every
+  // card inside instead of auditing each one for a null it cannot survive.
+  if (pending && active === tab) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: `tab-panel tp-in tp-pending`,
+      role: "tabpanel",
+      "data-tab": tab,
+      "aria-busy": "true"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card lz-loading",
+      title: `Waiting for ${pendingLabel || "this symbol"}'s data. Nothing is drawn until the numbers belong to it — a price from another symbol would be worse than no price.`
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "kicker"
+    }, "Loading ", pendingLabel || "this symbol"), /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line",
+      style: {
+        width: "36%"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line",
+      style: {
+        width: "84%"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line",
+      style: {
+        width: "70%"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "skel skel-line",
+      style: {
+        width: "78%"
+      }
+    })));
+  }
   // tp-in re-applies on every activation → the enter animation (a 180ms fade
   // + rise, reduced-motion safe) replays on each tab switch.
   return /*#__PURE__*/React.createElement("div", {
@@ -14539,6 +14828,7 @@ function NewsTicker({
   const atBottom = placement === "bottom";
   const [items, setItems] = useState([]);
   const [quotes, setQuotes] = useState({}); // SYM -> {last, chg}
+  const [feedState, setFeedState] = useState("loading"); // loading | ok | down
   const stackRef = useRef(null);
   useEffect(() => {
     let stop = false,
@@ -14547,8 +14837,15 @@ function NewsTicker({
       try {
         const r = await apiFetch("/api/finviz_news?limit=60");
         const d = await r.json();
-        if (!stop) setItems(Array.isArray(d && d.items) ? d.items : []);
-      } catch (_) {/* keep last items */}
+        if (!stop) {
+          const rows = Array.isArray(d && d.items) ? d.items : [];
+          setItems(rows);
+          setFeedState(rows.length ? "ok" : "down");
+        }
+      } catch (_) {
+        /* keep last items — only a failure with nothing to show says "down" */
+        if (!stop) setFeedState(s => s === "ok" ? "ok" : "down");
+      }
       if (!stop) timer = setTimeout(tick, 60000);
     };
     tick();
@@ -14627,8 +14924,29 @@ function NewsTicker({
       document.documentElement.style.setProperty("--mn-h", "0px");
     };
   });
-  if (!items.length) return null; // unconfigured / empty → no strip
 
+  // The two bottom rows are part of the frame now: their height is reserved
+  // by the layout, so vanishing would move every other row on the page and
+  // would say "there is no news" when what happened is "the feed did not
+  // answer". It keeps its frame and says which.
+  if (!items.length) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: `mn-stack${atBottom ? " mn-bottom" : ""}`,
+      ref: stackRef,
+      "aria-label": "Market news and ticker tape"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "newsticker",
+      "aria-label": "Market news feed"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "nt-badge",
+      title: "Live market news feed"
+    }, /*#__PURE__*/React.createElement("span", null, "Market"), /*#__PURE__*/React.createElement("span", null, "News")), /*#__PURE__*/React.createElement("div", {
+      className: "nt-viewport"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "nt-quiet",
+      title: feedState === "down" ? "The headline feed did not answer. That is a fault on our side, not a quiet news day." : "Fetching headlines…"
+    }, feedState === "down" ? "The news feed is not answering right now — this is a fetch problem, not an empty tape." : "Loading headlines…"))));
+  }
   const dur = Math.max(55, items.length * 6.5);
   const Seq = ({
     hidden
@@ -14821,9 +15139,16 @@ const RAIL_CFG = {
 function ExtremeRail({
   kind,
   apiFetch,
-  onSwitchTicker
+  onSwitchTicker,
+  variant
 }) {
   const cfg = RAIL_CFG[kind];
+  // "panel" draws the SAME rows as a plain list inside a card instead of the
+  // fixed marquee column. It exists because on a phone the four rails were
+  // display:none — the data was fetched, the component was mounted, and four
+  // of the app's most-used lists were simply unreachable. Same rows, same
+  // gates, same tooltips; only the frame around them differs.
+  const asPanel = variant === "panel";
   const isScan = cfg.source === "scan";
   const [scanRows, setScanRows] = useState([]); // scan kinds: candidates
   const [srvRows, setSrvRows] = useState([]); // server kinds: final rows
@@ -14976,7 +15301,15 @@ function ExtremeRail({
   }, [rows]);
   if (!rows.length) {
     // Daily rails keep their frame with a note (pre-open nothing qualifies —
-    // vanishing read as a missing feature); 52W rails simply hide.
+    // vanishing read as a missing feature); 52W rails simply hide. In panel
+    // form nothing may vanish: the tab you picked must answer, even if the
+    // answer is "no names yet".
+    if (asPanel) {
+      return /*#__PURE__*/React.createElement("div", {
+        className: "hlc-list hlc-empty",
+        title: cfg.emptyTip || cfg.headTip
+      }, cfg.emptyNote || "No names on this list right now.");
+    }
     if (!cfg.emptyNote) return null;
     return /*#__PURE__*/React.createElement("div", {
       className: cfg.wrapCls,
@@ -15029,6 +15362,15 @@ function ExtremeRail({
       title: r.tag ? `Tag: ${r.tag}` : "No tag"
     }, r.tag || "—"));
   }));
+  if (asPanel) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "hlc-list",
+      "aria-label": cfg.aria
+    }, topTag && /*#__PURE__*/React.createElement("div", {
+      className: "hlc-subtag",
+      title: cfg.subtagTip(topTag)
+    }, "Most common tag: ", topTag.tag, " \xB7 ", topTag.n), /*#__PURE__*/React.createElement(Col, null));
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: cfg.wrapCls,
     "aria-label": cfg.aria
@@ -15051,6 +15393,82 @@ function ExtremeRail({
   }), /*#__PURE__*/React.createElement(Col, {
     hidden: true
   }))));
+}
+
+// ── Highs and lows, on a phone (v4.92) ─────────────────────────────────────
+//
+// The four rails only exist above a 2080px viewport; below it they were hidden
+// entirely, so on the device Jerry actually carries, four of the lists he uses
+// most had no route at all. Here they are one card with four tabs, inside the
+// workspace, with the same rows and the same gates. Only the SELECTED list
+// mounts — so this polls less than the four hidden rails it replaces, not
+// more.
+const HIGHLOW_TABS = [{
+  kind: "low52",
+  label: "Near 52W Low",
+  cls: "low",
+  tip: "Watchlist stocks within 3% of their 52-week low."
+}, {
+  kind: "dailyLow",
+  label: "Daily Low",
+  cls: "lowdaily",
+  tip: "Watchlist stocks at or within 1% of today's session low."
+}, {
+  kind: "dailyHigh",
+  label: "Daily High",
+  cls: "daily",
+  tip: "Watchlist stocks at or within 1% of today's session high."
+}, {
+  kind: "high52",
+  label: "Near 52W High",
+  cls: "high",
+  tip: "Watchlist stocks within 3% of their 52-week high."
+}];
+const HIGHLOW_KEY = "jerry_highlow_tab_v1";
+function HighLowCard({
+  apiFetch,
+  onSwitchTicker
+}) {
+  const [kind, setKind] = useState(() => {
+    try {
+      return localStorage.getItem(HIGHLOW_KEY) || "dailyHigh";
+    } catch (e) {
+      return "dailyHigh";
+    }
+  });
+  const pick = k => {
+    setKind(k);
+    try {
+      localStorage.setItem(HIGHLOW_KEY, k);
+    } catch (e) {}
+  };
+  const cur = HIGHLOW_TABS.find(t => t.kind === kind) || HIGHLOW_TABS[2];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card hlc-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "kicker",
+    title: "The same four high/low lists that flank the desktop layout. On a wide screen they are always-on side columns; here they share one card so all four stay reachable."
+  }, "Highs & Lows"), /*#__PURE__*/React.createElement("div", {
+    className: "hlc-tabs",
+    role: "tablist",
+    "aria-label": "High and low lists"
+  }, HIGHLOW_TABS.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.kind,
+    type: "button",
+    role: "tab",
+    "aria-selected": t.kind === kind,
+    className: `hlc-tab hlc-${t.cls}${t.kind === kind ? " on" : ""}`,
+    title: t.tip,
+    onClick: () => pick(t.kind)
+  }, t.label))), /*#__PURE__*/React.createElement("div", {
+    className: "hlc-body",
+    title: cur.tip
+  }, /*#__PURE__*/React.createElement(ExtremeRail, {
+    kind: kind,
+    variant: "panel",
+    apiFetch: apiFetch,
+    onSwitchTicker: onSwitchTicker
+  })));
 }
 
 // Memoize the heavy, self-contained ticker cards so unrelated App state
@@ -19561,6 +19979,7 @@ Object.assign(window, {
   SchwabReconnect: _memo(SchwabReconnect),
   WatchlistStreaksCard: _memo(WatchlistStreaksCard),
   ExtremeRail: _memo(ExtremeRail),
+  HighLowCard: _memo(HighLowCard),
   MarketOverview: _memo(MarketOverview),
   MarketPosture: _memo(MarketPosture)
 });
