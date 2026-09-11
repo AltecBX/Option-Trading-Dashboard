@@ -385,6 +385,33 @@ ok("the version is present on a phone, not only on a desktop",
    !/@media \(max-width: 900px\)[\s\S]{0,8000}?\.statusline \{ display: none; \}/.test(css)
    && /\.statusline \{\s*\n\s*display: flex;/.test(css));
 
+// ── 20. the documented contract is the enforced one ───────────────────────
+//
+// UI_FRAME.md publishes the workspace floors as the frame's acceptance
+// criteria; test_frame_render.py enforces them. Those are two copies of the
+// same number, and they drifted the first time one of them moved: the
+// assertion went to 44% while the document still said 47%, so a regression
+// into that band would have passed CI while the document said it should fail.
+// A review bot caught it. This makes the next drift fail instead.
+const render = read("test_frame_render.py");
+const doc = read("UI_FRAME.md");
+const asserted = [...render.matchAll(
+  /_check_workspace_share\((\d+),\s*(\d+),\s*([\d.]+)\)/g)]
+  .map(m => ({ w: +m[1], pct: Math.round(parseFloat(m[3]) * 100) }));
+const documented = [...doc.matchAll(/(\d+)% of a (\d+)×\d+/g)]
+  .map(m => ({ w: +m[2], pct: +m[1] }));
+ok("the workspace floors are actually asserted somewhere",
+   asserted.length >= 2, String(asserted.length));
+ok("and the document publishes one for each",
+   documented.length >= asserted.length,
+   `asserted ${asserted.length}, documented ${documented.length}`);
+for (const a of asserted) {
+  const d = documented.find(x => x.w === a.w);
+  ok(`the ${a.w}px floor says the same thing in the test and the document`,
+     !!d && d.pct === a.pct,
+     d ? `test ${a.pct}%, doc ${d.pct}%` : `nothing documented for ${a.w}px`);
+}
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);
