@@ -969,7 +969,12 @@ function SectionNav({
   label
 }) {
   const [items, setItems] = useState([]);
-  const [here, setHere] = useState(null);
+  const [hereId, setHere] = useState(null);
+  // The phone's picker: a sheet in the same shape as the tool picker, because
+  // that shape already solved "too many destinations to sit in a row".
+  const [pick, setPick] = useState(false);
+  const [find, setFind] = useState("");
+  const isPhone = useIsPhone();
   const scan = React.useCallback(() => {
     // A destination is not one panel: Trade alone is nine separate
     // `<TabPanel tab="trade">` blocks interleaved with other tabs, so this
@@ -1064,6 +1069,89 @@ function SectionNav({
     const y = root.scrollTop + el.getBoundingClientRect().top - root.getBoundingClientRect().top - 8;
     scrollWorkspaceTo(y, true);
   };
+
+  // On a phone this was a horizontally scrolling strip of seventeen chips with
+  // their labels clipped: pinned to the top, and still no help in reaching a
+  // panel near the bottom. The tool picker solved the same problem — too many
+  // destinations for a row — with a searchable sheet, and it works, so this is
+  // that shape. The desktop keeps the strip, where the labels fit and the row
+  // shows where you are.
+  if (isPhone) {
+    const here = items.find(i => i.id === hereId);
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("nav", {
+      className: "secnav secnav-phone",
+      "aria-label": label || "Sections on this page"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "secnav-open",
+      onClick: () => setPick(true),
+      title: "Every panel on this page, searchable. Nothing is hidden \u2014 this only moves you to one."
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "secnav-lbl-sm"
+    }, "Jump to"), /*#__PURE__*/React.createElement("span", {
+      className: "secnav-here"
+    }, here ? here.short || here.text : "a section"), /*#__PURE__*/React.createElement("span", {
+      className: "secnav-count"
+    }, items.length))), pick && /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet-overlay",
+      onClick: () => {
+        setPick(false);
+        setFind("");
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet secnav-sheet",
+      role: "dialog",
+      "aria-label": label || "Sections on this page",
+      onClick: e => e.stopPropagation()
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet-head"
+    }, /*#__PURE__*/React.createElement("span", null, label || "Sections"), /*#__PURE__*/React.createElement("button", {
+      className: "tabsheet-x",
+      "aria-label": "Close",
+      onClick: () => {
+        setPick(false);
+        setFind("");
+      }
+    }, "\u2715")), /*#__PURE__*/React.createElement("input", {
+      className: "tabsheet-find",
+      type: "search",
+      autoFocus: true,
+      placeholder: "Find a panel on this page\u2026",
+      "aria-label": "Find a panel",
+      value: find,
+      onChange: e => setFind(e.target.value)
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "tabsheet-scroll"
+    }, (() => {
+      const q = find.trim().toLowerCase();
+      const shown = q ? items.filter(i => i.text.toLowerCase().includes(q)) : items;
+      if (!shown.length) {
+        return /*#__PURE__*/React.createElement("div", {
+          className: "secnav-none"
+        }, "No panel on this page matches \u201C", find, "\u201D.");
+      }
+      let g = null;
+      return shown.map(it => {
+        const head = it.group && it.group !== g ? /*#__PURE__*/React.createElement("div", {
+          className: "tabsheet-glbl",
+          key: it.id + "-g"
+        }, it.group) : null;
+        g = it.group || g;
+        return /*#__PURE__*/React.createElement(React.Fragment, {
+          key: it.id
+        }, head, /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          className: `tabsheet-btn secnav-pick${hereId === it.id ? " on" : ""}`,
+          title: `Jump to ${it.text}`,
+          onClick: () => {
+            go(it.id);
+            setPick(false);
+            setFind("");
+          }
+        }, it.text));
+      });
+    })()))));
+  }
   let lastGroup = null;
   return /*#__PURE__*/React.createElement("nav", {
     className: "secnav",
@@ -1086,7 +1174,7 @@ function SectionNav({
       key: it.id
     }, head, /*#__PURE__*/React.createElement("button", {
       type: "button",
-      className: `secnav-btn${here === it.id ? " on" : ""}`,
+      className: `secnav-btn${hereId === it.id ? " on" : ""}`,
       onClick: () => go(it.id),
       title: `Jump to ${it.text}`
     }, it.short || it.text));

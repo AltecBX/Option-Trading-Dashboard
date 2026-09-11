@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.94";
+const APP_VERSION = "4.95";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3149,6 +3149,14 @@ function App() {
           {/* Short viewports hide the four navigation rows to give the
               workspace its height back, so the picker needs a visible door
               here — every destination stays one tap away. */}
+          {/* The door to the sidebar wherever the sidebar is a drawer and the
+              mobile header is not on screen — a phone on its side, where a
+              304px fixed column is a third of the width spent on a logo and
+              two badges. Hidden by default; the same rule that drawers the
+              sidebar reveals it. */}
+          <button className="ab-icon ab-menu" onClick={() => setNavOpen(true)}
+                  aria-label="Ticker, watchlist and settings"
+                  title="Ticker, watchlist, presets and settings.">☰</button>
           <button className="ab-icon ab-tools" onClick={() => setTabSheetOpen(true)}
                   aria-label="All tools"
                   title="Every destination, grouped and searchable.">▦</button>

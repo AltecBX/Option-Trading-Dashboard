@@ -4523,6 +4523,11 @@ function WatchlistTableCard({
   const [chooserOpen, setChooserOpen] = useState(false);
   const [wlDetail, setWlDetail] = useState(null); // phone: expanded row
   const wlIsPhone = useIsPhone();
+  // The phone's filter row is essential-out, advanced-folded (v4.95). The
+  // count is the safety catch: a folded filter that is still narrowing the
+  // list is a list that looks short for no visible reason, so the toggle
+  // always says how many are on.
+  const [wlMoreFilters, setWlMoreFilters] = useState(false);
   // The PRESET decides which columns are on screen; `wlHidden` only applies
   // once you have edited one, at which point the picker reads "Custom". The
   // first version derived the visible set from `wlHidden` alone, so a
@@ -4630,6 +4635,11 @@ function WatchlistTableCard({
   // Everything else sorts on the scanned field.
   const REB_KEYS = new Set(["wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
   const sortValOf = (r, key) => key === "from_open" ? foVal(r) : key === "change" ? chgVal(r) : key === "last" ? liveLast(r) : REB_KEYS.has(key) ? reb(r, r[key]) : r[key];
+
+  // How many of the folded filters are currently narrowing the list. Exactly
+  // the predicates in `filtered` below, so the count can never claim a filter
+  // is off while it is still removing rows.
+  const wlNarrowing = (primeOnly ? 1 : 0) + (fSector !== "all" ? 1 : 0) + (fIndustry !== "all" ? 1 : 0) + (fTag !== "all" ? 1 : 0) + (fMcap !== "all" ? 1 : 0);
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
       if (primeOnly && !isPrime(r)) return false;
@@ -5311,7 +5321,7 @@ function WatchlistTableCard({
     onClick: startScan,
     disabled: scanning
   }, scanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
-    className: "ab-status"
+    className: `ab-status${wlIsPhone ? " ab-status-slim" : ""}`
   }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " \xB7 ", rows.length, " stocks") : /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, "No scan yet \u2014 Scan now pulls valuation, momentum, volume, earnings & moving-average metrics for your tracked stocks (a few minutes for large lists)."), notScanned > 0 && status.last_scan && !scanning && /*#__PURE__*/React.createElement("span", {
@@ -5321,13 +5331,17 @@ function WatchlistTableCard({
     type: "button",
     className: "wl-rescan-link",
     onClick: startScan
-  }, "Scan now"), " to include"), /*#__PURE__*/React.createElement("span", {
+  }, "Scan now"), " to include"), !wlIsPhone && /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, " \xB7 ", /*#__PURE__*/React.createElement("b", null, "Edge"), " = signed flow conviction (+long / \u2212short), size-normalized; sort it to rank morning buys vs sells \xB7 hover a row for the driver breakdown \xB7 Auto-refreshes 9 AM & 6 PM ET \xB7 cached server-side"), status.error && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
   }, " \xB7 ", status.error), err && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
-  }, " \xB7 ", err)), (() => {
+  }, " \xB7 ", err)), wlIsPhone && /*#__PURE__*/React.createElement("details", {
+    className: "panel-method wl-fold"
+  }, /*#__PURE__*/React.createElement("summary", null, "What the columns mean"), /*#__PURE__*/React.createElement("div", {
+    className: "panel-method-body"
+  }, /*#__PURE__*/React.createElement("b", null, "Edge"), " = signed flow conviction (+long / \u2212short), size-normalized; sort it to rank morning buys against sells. Tap a row for the driver breakdown. The board auto-refreshes at 9 AM and 6 PM ET and is cached server-side, so it is a stored result until you scan again.")), (() => {
     // Market-wide flow read (one UW call, whole market — not per row).
     const tide = market && market.tide;
     if (!tide) return null;
@@ -5352,6 +5366,27 @@ function WatchlistTableCard({
       txt: "Mixed tape — be selective, trade only the cleanest setups",
       cls: "muted"
     };
+    // Four facts and a sentence of advice. On a phone that is three
+    // wrapped lines about the WHOLE market sitting above the list of your
+    // own stocks, so it keeps the reading and folds the arithmetic.
+    if (wlIsPhone) {
+      return /*#__PURE__*/React.createElement("details", {
+        className: "wl-market wl-market-fold",
+        title: "Whole-market options flow (net call \u2212 put premium today). One UW call, same for every row."
+      }, /*#__PURE__*/React.createElement("summary", null, /*#__PURE__*/React.createElement("span", {
+        className: "wl-market-tag"
+      }, "Market flow"), /*#__PURE__*/React.createElement("b", {
+        className: cls
+      }, regime), /*#__PURE__*/React.createElement("b", {
+        className: cls
+      }, window.fmt$M(net))), /*#__PURE__*/React.createElement("div", {
+        className: "wl-market-body"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "muted"
+      }, "net call \u2212 put, calls ", window.fmt$M(cp), " / puts ", window.fmt$M(pp)), /*#__PURE__*/React.createElement("span", {
+        className: `wl-regime ${gate.cls}`
+      }, gate.txt)));
+    }
     return /*#__PURE__*/React.createElement("div", {
       className: "wl-market",
       title: "Whole-market options flow (net call \u2212 put premium today). One UW call, same for every row."
@@ -5378,7 +5413,7 @@ function WatchlistTableCard({
   }), /*#__PURE__*/React.createElement("span", {
     className: "ab-progress-txt"
   }, status.scanned || 0, " / ", status.total || 0)), rows.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "ab-filters"
+    className: `ab-filters${wlIsPhone ? " ab-filters-phone" : ""}${wlIsPhone && !wlMoreFilters ? " ab-filters-lite" : ""}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "wl-viewtabs",
     role: "tablist",
@@ -5396,8 +5431,14 @@ function WatchlistTableCard({
     placeholder: "Symbol / company\u2026",
     value: q,
     onChange: e => setQ(e.target.value)
-  }), /*#__PURE__*/React.createElement("select", {
-    className: "sb-select",
+  }), wlIsPhone && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: `wl-morefilters${wlNarrowing ? " on" : ""}`,
+    "aria-expanded": wlMoreFilters,
+    onClick: () => setWlMoreFilters(v => !v),
+    title: "Sector, industry, tag, market cap, Prime setups, account size and risk per trade."
+  }, "Filters", wlNarrowing ? ` (${wlNarrowing})` : "", " ", wlMoreFilters ? "▲" : "▼"), /*#__PURE__*/React.createElement("select", {
+    className: "sb-select wl-adv",
     value: fSector,
     onChange: e => setFSector(e.target.value)
   }, /*#__PURE__*/React.createElement("option", {
@@ -5406,7 +5447,7 @@ function WatchlistTableCard({
     key: s,
     value: s
   }, s))), /*#__PURE__*/React.createElement("select", {
-    className: "sb-select",
+    className: "sb-select wl-adv",
     value: fIndustry,
     onChange: e => {
       const ind = e.target.value;
@@ -5424,7 +5465,7 @@ function WatchlistTableCard({
     key: s,
     value: s
   }, s))), tagOpts.length > 0 && /*#__PURE__*/React.createElement("select", {
-    className: "sb-select",
+    className: "sb-select wl-adv",
     value: fTag,
     onChange: e => setFTag(e.target.value),
     title: "Filter by your Tag (category from CSV import)"
@@ -5434,7 +5475,7 @@ function WatchlistTableCard({
     key: t,
     value: t
   }, t))), /*#__PURE__*/React.createElement("select", {
-    className: "sb-select",
+    className: "sb-select wl-adv",
     value: fMcap,
     onChange: e => setFMcap(e.target.value),
     title: "Filter by market cap (Finviz-style buckets)"
@@ -5443,11 +5484,11 @@ function WatchlistTableCard({
     value: v
   }, label))), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: `wl-prime-btn${primeOnly ? " on" : ""}`,
+    className: `wl-prime-btn wl-adv${primeOnly ? " on" : ""}`,
     onClick: () => setPrimeOnly(v => !v),
     title: "Prime setups: options flow and price-swing agree on direction AND the move is just starting \u2014 your highest-conviction, beginning-of-move trades."
   }, "\u2605 Prime", primeCount ? ` (${primeCount})` : ""), /*#__PURE__*/React.createElement("label", {
-    className: "wl-acct-wrap",
+    className: "wl-acct-wrap wl-adv",
     title: "Account size \u2014 used to size each trade by risk"
   }, "$", /*#__PURE__*/React.createElement("input", {
     className: "wl-acct",
@@ -5459,7 +5500,7 @@ function WatchlistTableCard({
     value: acct,
     onChange: e => setAcct(Number(e.target.value) || 0)
   })), /*#__PURE__*/React.createElement("label", {
-    className: "wl-acct-wrap",
+    className: "wl-acct-wrap wl-adv",
     title: "Risk per trade (% of account). Position size = this \xF7 stop distance."
   }, "risk", /*#__PURE__*/React.createElement("input", {
     className: "wl-risk",
@@ -14131,8 +14172,14 @@ function WatchlistAnalystCard({
   // entire first screen of the Watchlist — so the stocks, which are what the
   // Watchlist is, began below the fold. Everything here is still present and
   // one tap away inside the summary; only the empty table is gone.
-  const quiet = sorted.length === 0 && !isScanning;
-  const quietLine = actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
+  // A scan in flight used to un-collapse this — `quiet` required !isScanning —
+  // so on every load where the scan had not landed yet the board was back to
+  // 403 pixels of empty panel and the stocks were below the fold again. Which
+  // load you got was a race. A board with no rows is a board with no rows; the
+  // scan is a state the summary line can carry, and the Scanning… button is
+  // still one tap inside.
+  const quiet = sorted.length === 0;
+  const quietLine = isScanning ? "scanning…" : actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
   const controls = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "waa-head-controls"
   }, /*#__PURE__*/React.createElement("div", {

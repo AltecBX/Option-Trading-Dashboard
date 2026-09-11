@@ -73,6 +73,44 @@ const skTime = s => {
   });
 };
 const skRowKey = r => `${r.symbol}|${r.expiration}|${r.strike}`;
+
+// Which kind of nothing, said in one word. The board is empty for four quite
+// different reasons and only one of them means "today happened and paid
+// nothing" — the phase comes from spike_scan.market_phase, the same clock the
+// app bar reads, so the two can no longer disagree.
+const SK_PHASE_VERDICT = {
+  pre: "Pre-market",
+  post: "Market closed",
+  holiday: "Market closed"
+};
+const SK_PHASE_TONE = {
+  pre: "neutral",
+  post: "neutral",
+  holiday: "neutral"
+};
+
+// The scan's own facts, written once. They read inline under a board with
+// rows on it and fold behind a summary under a board without, but they are
+// the same sentence either way — two copies would drift.
+function skStatusFacts(data) {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    title: SK_TIP.stale
+  }, data.as_of ? `Scanned ${skDate(data.as_of)} at ${skTime(data.as_of)}` : "No scan yet"), /*#__PURE__*/React.createElement("span", {
+    title: SK_TIP.session
+  }, " \xB7 ", skPct0(data.elapsed, 0), " of the session gone"), /*#__PURE__*/React.createElement("span", {
+    title: SK_TIP.session_basis
+  }, " \xB7 session left ", data.session_profile), data.calendar && (!data.calendar.is_session || data.calendar.early_close) ? /*#__PURE__*/React.createElement("span", {
+    className: "sl-cal",
+    title: SK_TIP.calendar
+  }, " ", "\xB7 ", data.calendar.early_close ? `Short session — closes ${data.calendar.closes_at}` : `${data.calendar.note} Next session ${data.calendar.next_session}`) : null, data.scanning ? /*#__PURE__*/React.createElement("span", {
+    className: "sl-live",
+    title: SK_TIP.scanning
+  }, " \xB7 scanning") : null, /*#__PURE__*/React.createElement("span", {
+    title: SK_TIP.candidates
+  }, " \xB7 ", data.scanned, " of ", data.universe, " names have run"), data.prior ? /*#__PURE__*/React.createElement("span", {
+    title: SK_TIP.prior
+  }, " \xB7 measured on ", (data.prior.n_sessions || 0).toLocaleString(), " sessions across ", data.prior.n_names, " names") : null, /*#__PURE__*/React.createElement("span", null, " \xB7 ", data.version));
+}
 async function skReadJson(r) {
   const text = await r.text();
   try {
@@ -250,34 +288,28 @@ function SpikeCard({
     disabled: busy,
     title: "Re-read the board"
   }, busy ? "Reading…" : "Refresh"))), data && !err && data.no_trade ? /*#__PURE__*/React.createElement(PanelVerdict, {
-    tone: "stop",
-    verdict: "No trade",
+    tone: SK_PHASE_TONE[data.phase] || "stop",
+    verdict: SK_PHASE_VERDICT[data.phase] || "No trade",
     reason: data.no_trade_reason,
     at: data.as_of,
     tip: SK_TIP.no_trade
-  }) : null, data ? /*#__PURE__*/React.createElement("p", {
+  }) : null, data ? data.no_trade ? /*#__PURE__*/React.createElement("details", {
+    className: "panel-method sl-status-fold"
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: SK_TIP.stale
+  }, /*#__PURE__*/React.createElement(DataStatus, {
+    kind: data.scanning ? "loading" : data.as_of ? "cached" : "pending",
+    at: data.as_of,
+    note: "Boards are stored results. Nothing is re-measured until you refresh or the next scan runs."
+  }), data.as_of ? `Scanned ${skTime(data.as_of)}` : "No scan yet", data.scanning ? " · scanning" : ""), /*#__PURE__*/React.createElement("div", {
+    className: "panel-method-body"
+  }, skStatusFacts(data))) : /*#__PURE__*/React.createElement("p", {
     className: "sl-status"
   }, /*#__PURE__*/React.createElement(DataStatus, {
     kind: data.scanning ? "loading" : data.as_of ? "cached" : "pending",
     at: data.as_of,
     note: "Boards are stored results. Nothing is re-measured until you refresh or the next scan runs."
-  }), /*#__PURE__*/React.createElement("span", {
-    title: SK_TIP.stale
-  }, data.as_of ? `Scanned ${skDate(data.as_of)} at ${skTime(data.as_of)}` : "No scan yet"), /*#__PURE__*/React.createElement("span", {
-    title: SK_TIP.session
-  }, " \xB7 ", skPct0(data.elapsed, 0), " of the session gone"), /*#__PURE__*/React.createElement("span", {
-    title: SK_TIP.session_basis
-  }, " \xB7 session left ", data.session_profile), data.calendar && (!data.calendar.is_session || data.calendar.early_close) ? /*#__PURE__*/React.createElement("span", {
-    className: "sl-cal",
-    title: SK_TIP.calendar
-  }, " ", "\xB7 ", data.calendar.early_close ? `Short session — closes ${data.calendar.closes_at}` : `${data.calendar.note} Next session ${data.calendar.next_session}`) : null, data.scanning ? /*#__PURE__*/React.createElement("span", {
-    className: "sl-live",
-    title: SK_TIP.scanning
-  }, " \xB7 scanning") : null, /*#__PURE__*/React.createElement("span", {
-    title: SK_TIP.candidates
-  }, " \xB7 ", data.scanned, " of ", data.universe, " names have run"), data.prior ? /*#__PURE__*/React.createElement("span", {
-    title: SK_TIP.prior
-  }, " \xB7 measured on ", (data.prior.n_sessions || 0).toLocaleString(), " sessions across ", data.prior.n_names, " names") : null, /*#__PURE__*/React.createElement("span", null, " \xB7 ", data.version)) : null, /*#__PURE__*/React.createElement(PanelMethod, {
+  }), skStatusFacts(data)) : null, /*#__PURE__*/React.createElement(PanelMethod, {
     label: "Method \u2014 what this board measures, and what it refuses"
   }, /*#__PURE__*/React.createElement("p", null, "Stocks that have moved hard in their OWN volatility, and every same-day call above the level they reached, all expiring TODAY \u2014 ranked by the credit minus what that call has historically settled for. A big mover finishes at its high about one time in fifteen; the seller is paid for the run being over, not for a reversal."), /*#__PURE__*/React.createElement("p", null, "Takeover and merger spikes are never listed here \u2014 that is the one move that does not come back.")), busy && !data ? /*#__PURE__*/React.createElement("div", {
     className: "st-loading",

@@ -100,6 +100,21 @@ MARKET_CONTEXT = {
                       [("ORCL", 0), ("ADBE", 0), ("CPRT", 0), ("DSGX", 0), ("M", 0)]],
 }
 
+# A populated watchlist, so the mobile board renders its real header: the
+# scan note, the market-flow read and the filter row. With an empty board
+# there are no stock cards to be pushed below the fold, and the check below
+# would pass on a page that has the defect.
+WATCHLIST_ROWS = [{
+    "symbol": s, "company": f"{s} Holdings Incorporated", "sector": "Technology",
+    "industry": "Semiconductors", "last": 100.0 + i, "change_pct": 1.5,
+    "flow_available": True, "call_prem": 900000, "put_prem": 300000,
+    "ask_call_prem": 500000, "ask_put_prem": 120000, "call_sweeps": 8,
+    "put_sweeps": 2, "net_prem": 600000, "market_cap": 5.0e10, "flow_net": 30,
+    "flow_quality": 70, "flow_alerts": 6, "rel_vol": 1.6, "from_ma50": 4.0,
+    "flow_agree": "agrees", "volume": 5_000_000, "avg_volume": 3_000_000,
+} for i, s in enumerate(
+    "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX CRM ORCL ADBE".split())]
+
 _SKIP: list = []
 
 
@@ -178,10 +193,11 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def _measure(self, width, height):
+    def _measure(self, width, height, tab="trade"):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
+        self._tab = tab
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -210,8 +226,19 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                           body=json.dumps(MARKET_CONTEXT))
                 return
             if "/api/watchlist_table" in url:
+                rows = WATCHLIST_ROWS if self._tab == "watchlist" else ROTATION_ROWS
                 r.fulfill(status=200, content_type="application/json",
-                          body=json.dumps({"rows": ROTATION_ROWS}))
+                          body=json.dumps({"rows": rows}))
+                return
+            # The analyst board sits above the stocks, and whether it was
+            # SCANNING decided whether it collapsed — so which load you got
+            # was a coin flip. It measured 329px in one run and 668px in the
+            # next with identical code. Pinning `scanning: True` here makes
+            # this test exercise the worse of the two every time, because the
+            # worse one is the one that regressed.
+            if "/api/watchlist_analyst" in url:
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"actions": [], "scanning": True}))
                 return
             if "/api/quote" in url:
                 syms = []
@@ -225,7 +252,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
         page.route("**/*", route)
         page.add_init_script(
-            "try{localStorage.setItem('jerry_active_tab_v1','trade');"
+            "try{localStorage.setItem('jerry_active_tab_v1','" + tab + "');"
             "localStorage.setItem('weeklyOptionsTimer.tweaks.v1',"
             "JSON.stringify({theme:'dark'}))}catch(e){}")
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
@@ -251,6 +278,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 railR: box('.rrail.rrail--daily'),
                 tiles: document.querySelectorAll('.mko-tile').length,
                 mctx: box('.mctx'), ribbon: box('.mctx-ribbon'),
+                sidebar: box('.sidebar'), sidebarPos: (() => {
+                  const e = document.querySelector('.sidebar');
+                  return e ? getComputedStyle(e).position : null; })(),
+                secnavOpen: box('.secnav-open'), secnavRow: box('.secnav-row'),
+                firstStock: (() => {
+                  const m = document.querySelector('.main');
+                  const c = document.querySelector('.wl-cards > *');
+                  return (m && c) ? Math.round(c.getBoundingClientRect().top
+                                               - m.getBoundingClientRect().top) : null; })(),
+                stockCards: document.querySelectorAll('.wl-cards > *').length,
                 mctxLine: box('.mctx-line'),
                 chips: document.querySelectorAll('.mctx-chip').length,
                 catalysts: document.querySelectorAll('.mctx-ev').length,
@@ -393,6 +430,76 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 mctx["h"], 60,
                 f"the market context strip is {mctx['h']}px tall; it is two "
                 "lines plus padding, and a third line is the workspace's")
+        finally:
+            self._close(handles)
+
+    def test_the_mobile_watchlist_opens_on_its_stocks(self):
+        """The destination is called Watchlist and the first stock card began
+        798 pixels down a 412-pixel workspace — two screens of explanation, a
+        whole-market flow read and eight filter controls above the list. All of
+        that is still on the page, folded; what stays out is the view, the
+        search and the count."""
+        geo, errors, handles = self._measure(440, 956, tab="watchlist")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            # The board has to have rows, or nothing can be pushed below the
+            # fold and this check passes on a page that has the defect.
+            self.assertGreaterEqual(
+                geo["stockCards"], 8,
+                f"the board drew {geo['stockCards']} stock cards; with an empty "
+                "list this check cannot see the thing it exists for")
+            top = geo["firstStock"]
+            self.assertIsNotNone(top, "no stock card found in the workspace")
+            self.assertLess(
+                top, geo["main"]["h"],
+                f"the first stock begins {top}px down a {geo['main']['h']}px "
+                "workspace — it is below the fold on the destination named "
+                "after it")
+        finally:
+            self._close(handles)
+
+    def test_a_phone_on_its_side_does_not_get_a_desktop_sidebar(self):
+        """956 CSS pixels is past every max-width:900px rule, so rotating the
+        phone handed it the full desktop frame — including a 304px fixed
+        column carrying a logo, a clock and two badges. That is a third of the
+        width, and the tool you rotated the phone to read got the rest."""
+        geo, errors, handles = self._measure(956, 440)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual(10, geo["tiles"], "the ten charts come first")
+            self.assertEqual(
+                "fixed", geo["sidebarPos"],
+                "the sidebar is in the layout flow in landscape — it should be "
+                "an off-canvas drawer, as it is in portrait")
+            side = geo["sidebar"]
+            self.assertLess(
+                side["l"] + side["w"], 4,
+                f"the drawer is at x={side['l']} with width {side['w']} — it is "
+                "on screen rather than off-canvas")
+            main = geo["main"]
+            self.assertGreaterEqual(
+                main["w"] / geo["vw"], 0.85,
+                f"the workspace is {main['w']}px of {geo['vw']} "
+                f"({main['w'] / geo['vw']:.0%}); the sidebar is still taking the width")
+        finally:
+            self._close(handles)
+
+    def test_the_phone_jump_control_is_a_picker_not_a_strip(self):
+        """Seventeen chips with clipped labels in a horizontally scrolling row
+        does not help you reach a panel near the bottom. The tool picker solved
+        the same problem with a searchable sheet."""
+        geo, errors, handles = self._measure(440, 956)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertIsNotNone(
+                geo["secnavOpen"],
+                "no jump picker on a phone — the strip is still there")
+            self.assertIsNone(
+                geo["secnavRow"],
+                "the phone is rendering the desktop chip strip as well")
+            self.assertLessEqual(
+                geo["secnavOpen"]["h"], 48,
+                f"the picker is {geo['secnavOpen']['h']}px tall — it is one row")
         finally:
             self._close(handles)
 

@@ -14425,3 +14425,153 @@ body { overflow: hidden; overscroll-behavior: none; }
     max-width: calc(100vw - 2 * (2 * var(--rail-w) + 14px));
   }
 }
+
+/* ── A board with nothing on it does not need nine facts about itself ──────
+   v4.95. The spike board's status line carries the scan time, how much of the
+   session has gone, how the remainder was derived, the calendar note, the
+   names-run count, the prior it was measured on and the engine version. Under
+   a board with rows those qualify what you are reading. Under an empty one, on
+   a phone, they were three wrapped lines standing between you and the next
+   panel. They fold; the summary keeps the one fact that decides whether to
+   look further. */
+.sl-status-fold { margin: 2px 0 8px; }
+.sl-status-fold > summary {
+  font-family: var(--font-body); font-size: 11.5px; font-weight: 400;
+  letter-spacing: 0; text-transform: none; color: var(--fg-3);
+  gap: 7px; min-height: 22px; padding: 1px 0;
+}
+.sl-status-fold > summary:hover { color: var(--fg-2); }
+.sl-status-fold .panel-method-body { font-size: 11.5px; color: var(--fg-3); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   A PHONE ON ITS SIDE STILL HAS A PHONE'S SIDEBAR (v4.95)
+   Rotating an iPhone 16 Pro Max gives 956 CSS pixels — past every
+   `max-width: 900px` rule — so the layout handed it the full desktop frame,
+   including the 304px fixed sidebar. That is a THIRD of the width, and what
+   is in it is a logo, a clock, two source badges and a ticker box. The tool
+   you rotated the phone to look at got the other two thirds.
+
+   The sidebar goes back to being a drawer, exactly as it is in portrait, and
+   the frame collapses to one column. Nothing in the sidebar is lost: the app
+   bar grows a ☰ that opens it, because the mobile header — which carries the
+   burger in portrait — is not on screen at this width.
+
+   Bounded at 1180px so a real laptop never takes this branch; a 500px-tall
+   window on a 1440px screen is a deliberate choice, a 956x440 phone is not.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-height: 560px) and (max-width: 1180px) and (min-width: 901px) {
+  .frame-top, .frame-body { grid-template-columns: minmax(0, 1fr); }
+  .ab-menu { display: inline-flex !important; }
+
+  .mobile-overlay {
+    display: block; position: fixed; z-index: 250;
+    top: var(--frame-top-h, 0px); left: 0; right: 0;
+    bottom: var(--frame-bottom-h, 0px);
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .mobile-overlay.show { opacity: 1; pointer-events: auto; }
+
+  .sidebar {
+    position: fixed !important;
+    top: var(--frame-top-h, 0px) !important; left: 0 !important;
+    bottom: var(--frame-bottom-h, 0px) !important;
+    width: min(64vw, 340px) !important;
+    height: auto !important; max-height: none !important;
+    margin: 0 !important; border-radius: 0 14px 14px 0 !important;
+    overflow-y: auto !important; -webkit-overflow-scrolling: touch;
+    z-index: 300 !important;
+    transform: translateX(-103%);
+    transition: transform 0.25s ease;
+    padding: 12px !important;
+  }
+  .sidebar.nav-open { transform: translateX(0); box-shadow: 0 0 50px rgba(0, 0, 0, 0.7); }
+}
+/* The door only exists where the sidebar is behind it. */
+.ab-menu { display: none; }
+
+/* ── The phone's jump control is a picker, not a strip (v4.95) ─────────────
+   Pinned to the top of the workspace it still asked you to swipe a row of
+   seventeen chips with their labels clipped to find a panel near the bottom.
+   The tool picker had the same problem and solved it with a searchable sheet,
+   so this is that sheet. The desktop keeps the strip: there the labels fit,
+   and the highlighted chip says where you are as you scroll. */
+.secnav-phone { padding: 0; border: 0; background: none; box-shadow: none; margin: 0 0 8px; }
+.secnav-open {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  min-height: 40px; padding: 7px 12px; cursor: pointer; text-align: left;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: var(--shadow-card); color: var(--fg-2);
+}
+.secnav-open:active { border-color: var(--accent); }
+.secnav-open .secnav-lbl-sm { display: inline; flex: 0 0 auto; }
+.secnav-here {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--fg);
+}
+.secnav-count {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 10px; font-weight: 800;
+  color: var(--fg-4); border: 1px solid var(--line); border-radius: 999px;
+  padding: 1px 7px;
+}
+.secnav-sheet .secnav-pick {
+  display: block; width: 100%; text-align: left; white-space: normal;
+  line-height: 1.35;
+}
+.secnav-none { padding: 14px 4px; font-size: 13px; color: var(--fg-3); }
+
+/* ── The mobile Watchlist opens on the stocks (v4.95) ──────────────────────
+   Measured on a phone: the first stock card began 798 pixels down a 412-pixel
+   workspace — two screens of explanation, a whole-market flow summary and
+   eight filter controls before the list the destination is named after. Each
+   of those is still here and still complete; they are folded, and what stays
+   out is what you reach for every time: which view, search, and how many
+   rows are showing. */
+@media (max-width: 900px) {
+  .ab-status-slim { font-size: 11.5px; line-height: 1.4; margin-bottom: 6px; }
+  .wl-fold { margin: 0 0 8px; }
+  .wl-fold > summary { min-height: 24px; }
+
+  /* The market read is one line: the regime and the number. The arithmetic
+     behind it and the "what to do about it" sentence open underneath. */
+  .wl-market-fold { display: block; padding: 6px 10px; }
+  .wl-market-fold > summary {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    cursor: pointer; list-style: none; min-height: 22px;
+  }
+  .wl-market-fold > summary::-webkit-details-marker { display: none; }
+  .wl-market-fold > summary::after {
+    content: "▾"; margin-left: auto; font-size: 10px; color: var(--fg-4);
+  }
+  .wl-market-fold[open] > summary::after { content: "▴"; }
+  .wl-market-body {
+    display: flex; flex-direction: column; gap: 3px;
+    padding-top: 6px; font-size: 11.5px;
+  }
+
+  /* Essential filters out, advanced folded. .ab-filters is a wrapping flex
+     row, so hiding is display:none on the advanced members — they keep their
+     state and their values while folded, which is why the toggle has to
+     carry the count. */
+  .ab-filters-phone { gap: 6px; margin-bottom: 8px; }
+  .ab-filters-lite .wl-adv { display: none; }
+  .wl-morefilters {
+    font-size: 12px; font-weight: 600; color: var(--fg-2);
+    background: var(--bg-3); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 11px; min-height: 34px; cursor: pointer;
+  }
+  .wl-morefilters.on {
+    color: var(--accent-text); background: var(--accent); border-color: var(--accent);
+  }
+  /* Column presets are a table idea. The phone shows one card per row with
+     every field on it, so the preset bar is choosing between views that do
+     not apply — it folds away rather than costing a row of the first screen. */
+  .wl-cols { display: none; }
+}
+@media (max-width: 900px) {
+  /* "Watchlist / Tracked stocks — full metrics" over a destination already
+     called Watchlist is the name twice. The title stays; the kicker goes. */
+  .ab-card .card-head { margin-bottom: 6px; }
+  .ab-card .card-head .kicker { display: none; }
+  .ab-card .card-head .card-title { font-size: 14.5px; }
+}

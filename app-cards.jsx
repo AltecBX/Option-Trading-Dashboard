@@ -3209,6 +3209,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   const [chooserOpen, setChooserOpen] = useState(false);
   const [wlDetail, setWlDetail] = useState(null);        // phone: expanded row
   const wlIsPhone = useIsPhone();
+  // The phone's filter row is essential-out, advanced-folded (v4.95). The
+  // count is the safety catch: a folded filter that is still narrowing the
+  // list is a list that looks short for no visible reason, so the toggle
+  // always says how many are on.
+  const [wlMoreFilters, setWlMoreFilters] = useState(false);
   // The PRESET decides which columns are on screen; `wlHidden` only applies
   // once you have edited one, at which point the picker reads "Custom". The
   // first version derived the visible set from `wlHidden` alone, so a
@@ -3315,6 +3320,13 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     : key === "change" ? chgVal(r)
     : key === "last" ? liveLast(r)
     : (REB_KEYS.has(key) ? reb(r, r[key]) : r[key]);
+
+  // How many of the folded filters are currently narrowing the list. Exactly
+  // the predicates in `filtered` below, so the count can never claim a filter
+  // is off while it is still removing rows.
+  const wlNarrowing = (primeOnly ? 1 : 0) + (fSector !== "all" ? 1 : 0)
+    + (fIndustry !== "all" ? 1 : 0) + (fTag !== "all" ? 1 : 0)
+    + (fMcap !== "all" ? 1 : 0);
 
   const filtered = useMemo(() => {
     let out = rows.filter(r => {
@@ -3657,7 +3669,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           <button className="scan-run-btn" onClick={startScan} disabled={scanning}>{scanning ? "Scanning…" : "Scan now"}</button>
         </div>
       </div>
-      <div className="ab-status">
+      {/* The scan's own note. On a phone the "Edge = signed flow conviction…"
+          sentence alone wrapped to four lines, and it is an explanation of a
+          column you have not reached yet — it belongs one tap away, not
+          between you and your stocks. Errors are never folded. */}
+      <div className={`ab-status${wlIsPhone ? " ab-status-slim" : ""}`}>
         {status.last_scan
           ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {rows.length} stocks</span>
           : <span className="muted">No scan yet — Scan now pulls valuation, momentum, volume, earnings &amp; moving-average metrics for your tracked stocks (a few minutes for large lists).</span>}
@@ -3666,10 +3682,23 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
             {" "}· {notScanned} not in last scan — <button type="button" className="wl-rescan-link" onClick={startScan}>Scan now</button> to include
           </span>
         )}
-        <span className="muted"> · <b>Edge</b> = signed flow conviction (+long / −short), size-normalized; sort it to rank morning buys vs sells · hover a row for the driver breakdown · Auto-refreshes 9 AM &amp; 6 PM ET · cached server-side</span>
+        {!wlIsPhone && (
+          <span className="muted"> · <b>Edge</b> = signed flow conviction (+long / −short), size-normalized; sort it to rank morning buys vs sells · hover a row for the driver breakdown · Auto-refreshes 9 AM &amp; 6 PM ET · cached server-side</span>
+        )}
         {status.error && <span className="ab-err"> · {status.error}</span>}
         {err && <span className="ab-err"> · {err}</span>}
       </div>
+      {wlIsPhone && (
+        <details className="panel-method wl-fold">
+          <summary>What the columns mean</summary>
+          <div className="panel-method-body">
+            <b>Edge</b> = signed flow conviction (+long / −short), size-normalized;
+            sort it to rank morning buys against sells. Tap a row for the driver
+            breakdown. The board auto-refreshes at 9 AM and 6 PM ET and is cached
+            server-side, so it is a stored result until you scan again.
+          </div>
+        </details>
+      )}
       {(() => {
         // Market-wide flow read (one UW call, whole market — not per row).
         const tide = market && market.tide;
@@ -3688,6 +3717,25 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
         const gate = tilt > 0.15 ? { txt: "Risk-on — favor longs, go easy on shorts", cls: "up" }
           : tilt < -0.15 ? { txt: "Risk-off — favor shorts/cash, go easy on longs", cls: "down" }
           : { txt: "Mixed tape — be selective, trade only the cleanest setups", cls: "muted" };
+        // Four facts and a sentence of advice. On a phone that is three
+        // wrapped lines about the WHOLE market sitting above the list of your
+        // own stocks, so it keeps the reading and folds the arithmetic.
+        if (wlIsPhone) {
+          return (
+            <details className="wl-market wl-market-fold"
+                     title="Whole-market options flow (net call − put premium today). One UW call, same for every row.">
+              <summary>
+                <span className="wl-market-tag">Market flow</span>
+                <b className={cls}>{regime}</b>
+                <b className={cls}>{window.fmt$M(net)}</b>
+              </summary>
+              <div className="wl-market-body">
+                <span className="muted">net call − put, calls {window.fmt$M(cp)} / puts {window.fmt$M(pp)}</span>
+                <span className={`wl-regime ${gate.cls}`}>{gate.txt}</span>
+              </div>
+            </details>
+          );
+        }
         return (
           <div className="wl-market" title="Whole-market options flow (net call − put premium today). One UW call, same for every row.">
             <span className="wl-market-tag">Market flow</span>
@@ -3705,8 +3753,14 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           <span className="ab-progress-txt">{status.scanned || 0} / {status.total || 0}</span>
         </div>
       )}
+      {/* v4.95: on a phone this row was eight controls that wrapped to five
+          lines — a hundred and sixty pixels of filter above a list you had not
+          reached. The three you reach for every time stay out (which view,
+          search, and how many are shown); the other five fold. Nothing is
+          removed, and the toggle counts how many are currently narrowing the
+          list so a filter can never be on without you knowing. */}
       {rows.length > 0 && (
-        <div className="ab-filters">
+        <div className={`ab-filters${wlIsPhone ? " ab-filters-phone" : ""}${wlIsPhone && !wlMoreFilters ? " ab-filters-lite" : ""}`}>
           <div className="wl-viewtabs" role="tablist" aria-label="Watchlist view">
             {[["stocks", "Stocks"], ["sectors", "Sectors"], ["industries", "Industries"]].map(([v, lbl]) => (
               <button key={v} type="button" role="tab" aria-selected={view === v}
@@ -3717,10 +3771,19 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
             ))}
           </div>
           {view === "stocks" && <input className="sb-select ab-search" placeholder="Symbol / company…" value={q} onChange={e => setQ(e.target.value)} />}
-          <select className="sb-select" value={fSector} onChange={e => setFSector(e.target.value)}>
+          {wlIsPhone && (
+            <button type="button"
+                    className={`wl-morefilters${wlNarrowing ? " on" : ""}`}
+                    aria-expanded={wlMoreFilters}
+                    onClick={() => setWlMoreFilters(v => !v)}
+                    title="Sector, industry, tag, market cap, Prime setups, account size and risk per trade.">
+              Filters{wlNarrowing ? ` (${wlNarrowing})` : ""} {wlMoreFilters ? "▲" : "▼"}
+            </button>
+          )}
+          <select className="sb-select wl-adv" value={fSector} onChange={e => setFSector(e.target.value)}>
             <option value="all">All sectors</option>{sectors.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select className="sb-select" value={fIndustry} onChange={e => {
+          <select className="sb-select wl-adv" value={fIndustry} onChange={e => {
             const ind = e.target.value;
             setFIndustry(ind);
             // Auto-select the parent sector so the Sector filter reflects the
@@ -3733,19 +3796,19 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
             <option value="all">All industries</option>{industryOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           {tagOpts.length > 0 && (
-            <select className="sb-select" value={fTag} onChange={e => setFTag(e.target.value)} title="Filter by your Tag (category from CSV import)">
+            <select className="sb-select wl-adv" value={fTag} onChange={e => setFTag(e.target.value)} title="Filter by your Tag (category from CSV import)">
               <option value="all">All tags</option>{tagOpts.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
-          <select className="sb-select" value={fMcap} onChange={e => setFMcap(e.target.value)} title="Filter by market cap (Finviz-style buckets)">
+          <select className="sb-select wl-adv" value={fMcap} onChange={e => setFMcap(e.target.value)} title="Filter by market cap (Finviz-style buckets)">
             {MCAP_BUCKETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
-          <button type="button" className={`wl-prime-btn${primeOnly ? " on" : ""}`} onClick={() => setPrimeOnly(v => !v)}
+          <button type="button" className={`wl-prime-btn wl-adv${primeOnly ? " on" : ""}`} onClick={() => setPrimeOnly(v => !v)}
                   title="Prime setups: options flow and price-swing agree on direction AND the move is just starting — your highest-conviction, beginning-of-move trades.">
             ★ Prime{primeCount ? ` (${primeCount})` : ""}
           </button>
-          <label className="wl-acct-wrap" title="Account size — used to size each trade by risk">$<input className="wl-acct" type="number" inputMode="numeric" enterKeyHint="done" min="0" step="1000" value={acct} onChange={e => setAcct(Number(e.target.value) || 0)} /></label>
-          <label className="wl-acct-wrap" title="Risk per trade (% of account). Position size = this ÷ stop distance.">risk<input className="wl-risk" type="number" inputMode="decimal" enterKeyHint="done" min="0" step="0.1" value={riskPct} onChange={e => setRiskPct(Number(e.target.value) || 0)} />%</label>
+          <label className="wl-acct-wrap wl-adv" title="Account size — used to size each trade by risk">$<input className="wl-acct" type="number" inputMode="numeric" enterKeyHint="done" min="0" step="1000" value={acct} onChange={e => setAcct(Number(e.target.value) || 0)} /></label>
+          <label className="wl-acct-wrap wl-adv" title="Risk per trade (% of account). Position size = this ÷ stop distance.">risk<input className="wl-risk" type="number" inputMode="decimal" enterKeyHint="done" min="0" step="0.1" value={riskPct} onChange={e => setRiskPct(Number(e.target.value) || 0)} />%</label>
           <span className="muted" style={{ fontSize: 12 }}>{view === "stocks" ? `${filtered.length} shown` : `${groups.length} ${view}`}</span>
         </div>
       )}
@@ -10858,12 +10921,20 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
   // entire first screen of the Watchlist — so the stocks, which are what the
   // Watchlist is, began below the fold. Everything here is still present and
   // one tap away inside the summary; only the empty table is gone.
-  const quiet = sorted.length === 0 && !isScanning;
-  const quietLine = actions.length === 0
-    ? "nothing scanned yet"
-    : (scope === "today" && type === "all")
-      ? `no actions today · ${actions.length} recent`
-      : "nothing matches this filter";
+  // A scan in flight used to un-collapse this — `quiet` required !isScanning —
+  // so on every load where the scan had not landed yet the board was back to
+  // 403 pixels of empty panel and the stocks were below the fold again. Which
+  // load you got was a race. A board with no rows is a board with no rows; the
+  // scan is a state the summary line can carry, and the Scanning… button is
+  // still one tap inside.
+  const quiet = sorted.length === 0;
+  const quietLine = isScanning
+    ? "scanning…"
+    : actions.length === 0
+      ? "nothing scanned yet"
+      : (scope === "today" && type === "all")
+        ? `no actions today · ${actions.length} recent`
+        : "nothing matches this filter";
 
   const controls = (
     <>

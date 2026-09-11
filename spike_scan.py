@@ -240,13 +240,41 @@ def _calendar_note() -> dict:
 
 def _closed_reason() -> str:
     """Why the board is empty when the market is shut — by name, so a
-    holiday never looks like a broken scanner."""
-    d = _now().date()
+    holiday never looks like a broken scanner.
+
+    "Shut" has three shapes on the clock and they are not the same news. At
+    7:26 AM on a trading day this used to say "the market is closed FOR THE
+    DAY" while the app bar two inches above it said "Pre-market" — the app
+    contradicting itself, and the half that was wrong was this one. Before
+    the bell the day has not happened yet; after it, it has. A reader who is
+    told the day is over at breakfast learns to stop reading the sentence."""
+    n = _now()
+    d = n.date()
     if not _cal.is_session(d):
         return (f"{_cal.describe(d)} This board only means anything while a move "
                 f"is live. Next session is {_long_date(_cal.next_session(d))}.")
+    o = n.replace(hour=SESSION_OPEN.hour, minute=SESSION_OPEN.minute,
+                  second=0, microsecond=0)
+    if n < o:
+        return ("Pre-market — the session has not opened yet. This board reads "
+                "moves that have already happened today, so it fills in after "
+                f"{o.strftime('%-I:%M')} AM Eastern.")
     return ("The market is closed for the day — this board only means anything "
             "while a move is live.")
+
+
+def market_phase(now: datetime | None = None) -> str:
+    """Which of the four the clock is in: holiday, pre, open, post. One
+    answer, so the app bar and every board that mentions the session agree."""
+    n = now or _now()
+    d = n.date()
+    if not _cal.is_session(d):
+        return "holiday"
+    o = n.replace(hour=SESSION_OPEN.hour, minute=SESSION_OPEN.minute,
+                  second=0, microsecond=0)
+    close = _cal.close_time(d)
+    c = n.replace(hour=close.hour, minute=close.minute, second=0, microsecond=0)
+    return "pre" if n < o else ("open" if n < c else "post")
 
 
 def session_profile(refresh: bool = False) -> list | None:
@@ -773,6 +801,9 @@ def snapshot(top_n: int | None = None) -> dict:
             "prior": {"n_sessions": sev.universe_prior().get("n_sessions"),
                       "n_names": sev.universe_prior().get("n_names")},
             "calendar": _calendar_note(),
+            # One word for which part of the clock we are in, so the card can
+            # be brief without re-deriving it from the prose. See market_phase.
+            "phase": market_phase(),
         }
     if not out["rows"]:
         out["no_trade"] = True
