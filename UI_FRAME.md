@@ -347,9 +347,14 @@ about signing in sat between the heading and the chart. The paragraph is now a
 `<details>` — same words, keyboard-reachable, findable by browser search, one
 line instead of three. All four partner panels got the same treatment.
 
-`test_frame_render.py` asserts the workspace is at least 42% of a 1440×900
-window and 47% of a 2152×1117 one, and in the same check asserts the ten charts
-are still all there — so the floor can never be met by dropping them.
+`test_frame_render.py` asserts the workspace is at least **42% of a 1440×900
+window and 44% of a 2152×1117 one**, and in the same check asserts the ten
+charts are still all there — so a floor can never be met by dropping them.
+Those two numbers are the contract; the table above is the measurement they
+were derived from, and the 1440×900 one is the load-bearing check. If you
+change either, change it here too: the first version of this paragraph kept
+saying 47% after the assertion had moved to 44%, which would have let a
+regression into that band pass CI while the document said it should fail.
 
 ## 10. Four more things the review found
 
