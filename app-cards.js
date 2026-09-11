@@ -14082,16 +14082,20 @@ function WatchlistAnalystCard({
     }
   };
   useEffect(() => {
-    load();
+    load().then(d => {
+      if (d && d.scanning) watchScan();
+    });
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
-  const startScan = async () => {
-    setBusy(true);
-    try {
-      await apiFetch("/api/analyst_board/scan?days=2&force=1");
-    } catch (_) {}
+
+  // Watch a scan to its end, whoever started it. This used to be created only
+  // inside startScan, so a card that MOUNTED during the 9 AM scheduled scan
+  // read `scanning` once and then nothing: it sat there saying so until the
+  // tab was remounted, long after the scan had finished and the rows had
+  // changed underneath it. Polling belongs to the state, not to the button.
+  const watchScan = () => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       const d = await load();
@@ -14101,6 +14105,13 @@ function WatchlistAnalystCard({
         setBusy(false);
       }
     }, 4000);
+  };
+  const startScan = async () => {
+    setBusy(true);
+    try {
+      await apiFetch("/api/analyst_board/scan?days=2&force=1");
+    } catch (_) {}
+    watchScan();
   };
   const actions = data && data.actions || [];
   const isScanning = busy || data && data.scanning;
@@ -14188,7 +14199,14 @@ function WatchlistAnalystCard({
   // destination. On a phone this board is always a summary line — the count is
   // the part you want at a glance, and the board itself is one tap under it.
   const quiet = sorted.length === 0;
-  const quietLine = isScanning ? "scanning…" : sorted.length > 0 ? `${sorted.length} ${sorted.length === 1 ? "action" : "actions"}` + (scope === "today" ? " today" : " recent") : actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
+  // The count comes FIRST, and a scan qualifies it rather than replacing it.
+  // /api/watchlist_analyst returns `scanning: true` alongside the cached rows
+  // while the scheduled morning scan runs, so putting the scan state first
+  // meant the summary said "scanning…" over a board with six actions on it —
+  // hiding the one number this line exists to show, at exactly the hour Jerry
+  // reads it. Only a board with nothing on it leads with the scan.
+  const scanTail = isScanning ? " · scanning…" : "";
+  const quietLine = sorted.length > 0 ? `${sorted.length} ${sorted.length === 1 ? "action" : "actions"}` + (scope === "today" ? " today" : " recent") + scanTail : isScanning ? "scanning…" : actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
   const controls = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "waa-head-controls"
   }, /*#__PURE__*/React.createElement("div", {

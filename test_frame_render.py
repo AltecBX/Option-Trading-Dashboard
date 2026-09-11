@@ -305,6 +305,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 // landscape, just invisible — so this counts the ones a
                 // person could actually see, and the tabbed card that is
                 // supposed to replace them.
+                waaLine: (() => {
+                  const s = document.querySelector('.waa-quiet > summary');
+                  return s ? s.innerText.replace(/\\s+/g, ' ').trim() : null; })(),
                 railsMounted: document.querySelectorAll('.lrail, .rrail').length,
                 railsVisible: [...document.querySelectorAll('.lrail, .rrail')]
                   .filter(e => getComputedStyle(e).display !== 'none').length,
@@ -482,6 +485,17 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 f"the first stock begins {top}px down a {geo['main']['h']}px "
                 "workspace — it is below the fold on the destination named "
                 "after it")
+            # Folding the board is only half of it: the one line left behind
+            # has to carry the number. The stub above is a populated board
+            # mid-scan, which is what the live one looks like during the
+            # morning scan, and the first draft answered "scanning…" there —
+            # hiding the count at exactly the hour it is read.
+            line = geo["waaLine"]
+            self.assertIsNotNone(line, "the analyst board is not folded at all")
+            self.assertIn(
+                f"{len(ANALYST_ACTIONS)} actions", line,
+                f"the folded board says {line!r} — a scan in progress has "
+                "replaced the count rather than qualifying it")
         finally:
             self._close(handles)
 
