@@ -538,6 +538,13 @@ function App() {
   // sat below the fold. Height has to be part of the question.
   const shortView = useMediaQuery("(max-height: 700px)");
   const bandInWorkspace = isPhone || shortView;
+  // …and v4.95 drawered the sidebar in landscape in CSS without telling the
+  // components, so `isPhone` was still false at 956x440 and the four rails
+  // stayed mounted behind `display: none` with the tabbed card never rendered
+  // — all four lists fetched and unreachable, the defect the frame exists to
+  // end. Mount points follow the FRAME's definition of a phone; controls whose
+  // stylesheet is keyed on width keep using isPhone. See app-lib's PHONE_Q.
+  const phoneFrame = useIsPhoneFrame();
   const [helpOpen, setHelpOpen] = useState(false); // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -3977,7 +3984,7 @@ function App() {
   }), /*#__PURE__*/React.createElement(ShortcutsSheet, {
     open: helpOpen,
     onClose: () => setHelpOpen(false)
-  }), !isPhone && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ExtremeRail, {
+  }), !phoneFrame && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ExtremeRail, {
     kind: "high52",
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
@@ -4626,7 +4633,7 @@ function App() {
     tab: "scanners",
     active: activeTab === "scanners",
     label: "Scanner tools"
-  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, isPhone && /*#__PURE__*/React.createElement(CardErrorBoundary, {
+  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, phoneFrame && /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Highs and lows"
   }, /*#__PURE__*/React.createElement(HighLowCard, {
     apiFetch: apiFetch,

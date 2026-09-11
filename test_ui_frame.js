@@ -87,8 +87,14 @@ ok("no window.scrollTo survives in app.jsx",
    !/window\.scrollTo\(/.test(app), (app.match(/window\.scrollTo\([^)]*\)/g) || []).join(","));
 
 // ── 4. the four high/low lists are reachable at both widths ───────────────
+// The rule is that the rails are CONDITIONAL — they mount as fixed columns
+// only where a fixed column makes sense. Which predicate answers that is
+// section 21b's business; pinning the name here sent this red the moment the
+// answer stopped being width alone, which is the third time in this file a
+// guard has pinned a spelling instead of a rule.
 ok("the rails mount as fixed columns only on a desktop",
-   /\{!isPhone && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail kind="high52"/.test(app));
+   /\{!(isPhone|phoneFrame) && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail kind="high52"/
+     .test(app));
 ok("on a phone the same four lists mount inside the workspace",
    /<HighLowCard apiFetch=\{apiFetch\}/.test(app) && /function HighLowCard/.test(cards));
 ok("all four lists are offered there, not a subset",
@@ -450,6 +456,43 @@ ok("the app bar carries a door to it, mounted in the markup",
 ok("and that door is hidden everywhere the sidebar is already visible",
    /\.ab-menu \{ display: none; \}/.test(css)
    && !!landscape && /\.ab-menu \{ display: inline-flex/.test(landscape[0]));
+
+// ── 21b. one definition of "phone", not two ───────────────────────────────
+//
+// The landscape branch above was written in CSS only. The components kept
+// asking `useIsPhone()`, which is width-keyed, so at 956x440 the two halves
+// disagreed: the stylesheet drawered the sidebar while SectionNav still drew
+// the 904px chip strip, and the four high/low rails stayed mounted behind
+// display:none with their replacement card never rendered — fetched, polling,
+// unreachable, which is the defect the frame was built to end.
+//
+// There are two legitimate questions ("is it narrow" vs "is the frame in
+// phone mode"), so the rule is not "one predicate" — it is that the second
+// one EXISTS, is derived from the same two numbers as the CSS branch rather
+// than being a third hard-coded copy, and is what decides mount points.
+ok("the frame's phone predicate exists alongside the width one",
+   /function useIsPhoneFrame\(\)/.test(lib)
+   && /const PHONE_FRAME_Q = `\$\{PHONE_Q\}, \$\{SHORT_LANDSCAPE_Q\}`/.test(lib));
+ok("and it is built from the same numbers the stylesheet branch uses",
+   (() => {
+     const m = lib.match(
+       /const SHORT_LANDSCAPE_Q = "\(max-height: (\d+)px\) and \(max-width: (\d+)px\)"/);
+     if (!m || !landscape) return false;
+     return landscape[0].includes(`max-height: ${m[1]}px`)
+       && landscape[0].includes(`max-width: ${m[2]}px`);
+   })());
+ok("mount points ask the frame, not the width",
+   /const phoneFrame = useIsPhoneFrame\(\);/.test(app)
+   && /\{!phoneFrame && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail/.test(app)
+   && /\{phoneFrame && \(\s*\n\s*<CardErrorBoundary label="Highs and lows">/.test(app));
+// The weather pill is the deliberate exception, and it has to stay one: the
+// mobile header is shown by a width-keyed rule, so in landscape it is off
+// screen and the app bar is the only bar there is. Moving this to the frame's
+// predicate would mount the pill inside a hidden header — which is exactly
+// how the weather vanished in v4.93.
+ok("controls inside the width-keyed mobile header still ask the width",
+   /\{!isPhone && <WeatherBadge variant="bar" \/>\}/.test(app)
+   && /\{isPhone && <WeatherBadge variant="bar" \/>\}/.test(app));
 
 // ── 22. the phone's jump control is a picker ──────────────────────────────
 //

@@ -282,6 +282,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   const e = document.querySelector('.sidebar');
                   return e ? getComputedStyle(e).position : null; })(),
                 secnavOpen: box('.secnav-open'), secnavRow: box('.secnav-row'),
+                // A rail that is mounted and display:none is the exact defect
+                // the frame was built to end: fetched, polling, unreachable.
+                // Counting them is not enough — they were all four THERE in
+                // landscape, just invisible — so this counts the ones a
+                // person could actually see, and the tabbed card that is
+                // supposed to replace them.
+                railsMounted: document.querySelectorAll('.lrail, .rrail').length,
+                railsVisible: [...document.querySelectorAll('.lrail, .rrail')]
+                  .filter(e => getComputedStyle(e).display !== 'none').length,
+                hiloCard: box('.hlc-card'),
                 firstStock: (() => {
                   const m = document.querySelector('.main');
                   const c = document.querySelector('.wl-cards > *');
@@ -481,6 +491,33 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 main["w"] / geo["vw"], 0.85,
                 f"the workspace is {main['w']}px of {geo['vw']} "
                 f"({main['w'] / geo['vw']:.0%}); the sidebar is still taking the width")
+            # Drawering the sidebar in CSS left the COMPONENTS believing this
+            # was a desktop, because useIsPhone() only ever asked about width.
+            # So the four high/low rails stayed mounted behind display:none
+            # and the tabbed card that replaces them never rendered: all four
+            # lists fetched, polling, and unreachable — which is the defect the
+            # permanent frame exists to end, reintroduced by the fix for a
+            # different one. Two definitions of "phone" is the bug.
+            self.assertEqual(
+                0, geo["railsVisible"],
+                f"{geo['railsVisible']} of {geo['railsMounted']} fixed rails "
+                "are visible in a 956px window; they belong in the workspace "
+                "card at this size")
+            self.assertEqual(
+                0, geo["railsMounted"],
+                f"{geo['railsMounted']} rails are mounted but hidden — they "
+                "are fetching and polling where nobody can reach them")
+            self.assertIsNotNone(
+                geo["hiloCard"],
+                "the four lists are neither rails nor a card here — rotating "
+                "the phone lost them entirely")
+            # And the picker, for the same reason: the CSS called this a phone
+            # while SectionNav still drew the 904px chip strip it replaces.
+            self.assertIsNotNone(
+                geo["secnavOpen"],
+                "the jump control is still the chip strip in landscape")
+            self.assertIsNone(
+                geo["secnavRow"], "the chip strip is rendering here too")
         finally:
             self._close(handles)
 

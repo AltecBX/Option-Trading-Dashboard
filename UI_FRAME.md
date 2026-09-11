@@ -486,6 +486,39 @@ worse than no door.
 Landscape, 956×440: the workspace went from about **66% to 95%** of the width,
 with all ten charts still mounted.
 
+**And that fix had a bug of its own, which a review bot caught.** The branch
+above was written in CSS *only*. The components kept asking `useIsPhone()`,
+which is width-keyed, so at 956×440 the two halves of the app disagreed about
+what a phone is:
+
+| | CSS said | The components said |
+|---|---|---|
+| Sidebar | drawer | — |
+| Jump control | (phone) | the **904px chip strip** the picker replaces |
+| Four high/low rails | `display: none` | mount them as fixed columns |
+
+The second row is what the bot found. The third is worse and followed from the
+same cause: all four lists were **mounted, polling and unreachable**, with the
+tabbed card that replaces them never rendered — which is precisely the defect
+§1 says the permanent frame was built to end, reintroduced in landscape by the
+fix for a different problem.
+
+Two definitions of "phone" was the bug. There are, however, two legitimate
+questions, so the answer is to name both rather than to merge them:
+
+| | Asks | Used by |
+|---|---|---|
+| `useIsPhone()` | is the viewport **narrow**? | components whose partner CSS is keyed `max-width: 900px` — the mobile header and its controls, the watchlist's one-card-per-row layout |
+| `useIsPhoneFrame()` | is the **frame** in phone mode? | mount points: the rails vs. the tabbed card, and the jump control |
+
+`PHONE_FRAME_Q` is composed from `PHONE_Q` and the same two numbers the CSS
+branch uses, so it cannot become a third hard-coded copy; a guard checks the
+two files still agree. The weather pill is the deliberate exception and is
+commented as one: the mobile header is width-keyed, so in landscape it is off
+screen and the app bar is the only bar there is — moving the pill to the
+frame's predicate would mount it inside a hidden header and the weather would
+vanish exactly as it did in v4.93.
+
 ### "Jump to" was in the right place and still the wrong shape
 
 Moving it to the top of the workspace fixed *where* it was. It was still a

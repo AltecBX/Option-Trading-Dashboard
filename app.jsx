@@ -394,6 +394,13 @@ function App() {
   // sat below the fold. Height has to be part of the question.
   const shortView = useMediaQuery("(max-height: 700px)");
   const bandInWorkspace = isPhone || shortView;
+  // …and v4.95 drawered the sidebar in landscape in CSS without telling the
+  // components, so `isPhone` was still false at 956x440 and the four rails
+  // stayed mounted behind `display: none` with the tabbed card never rendered
+  // — all four lists fetched and unreachable, the defect the frame exists to
+  // end. Mount points follow the FRAME's definition of a phone; controls whose
+  // stylesheet is keyed on width keep using isPhone. See app-lib's PHONE_Q.
+  const phoneFrame = useIsPhoneFrame();
   const [helpOpen, setHelpOpen] = useState(false);    // "?" shortcuts sheet
   const [reloadNonce, setReloadNonce] = useState(0);  // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
@@ -3119,7 +3126,7 @@ function App() {
           fixed columns; on a phone they mount inside the workspace as one
           tabbed card (see HighLowCard below) so all four lists stay
           reachable instead of being hidden by a display:none. */}
-      {!isPhone && (
+      {!phoneFrame && (
         <React.Fragment>
           <ExtremeRail kind="high52" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
           <ExtremeRail kind="dailyHigh" apiFetch={apiFetch} onSwitchTicker={switchTicker} />
@@ -3165,6 +3172,11 @@ function App() {
               display:none does not unmount a component — two of these would be
               two forecast fetches, two geolocation prompts, and a "use my
               location" toggle that only moved one of them. */}
+          {/* isPhone, NOT phoneFrame, and deliberately: the mobile header
+              below is shown by a width-keyed rule, so in landscape it is off
+              screen and this bar is the only one there is. Switching this to
+              the frame's predicate would mount the pill inside a hidden
+              header and the weather would vanish again. */}
           {!isPhone && <WeatherBadge variant="bar" />}
           <MarketClock />
           <button className="ab-icon" onClick={() => setHelpOpen(true)}
@@ -3702,7 +3714,7 @@ function App() {
         {bandInWorkspace && activeTab === "trade" && (
           <React.Fragment>
             {marketBand}
-            {isPhone && (
+            {phoneFrame && (
               <CardErrorBoundary label="Highs and lows">
                 <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
               </CardErrorBoundary>
