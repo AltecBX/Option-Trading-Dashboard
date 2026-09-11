@@ -174,6 +174,32 @@ Local server, real Chromium, the pinned React the tests use.
 - `node build_frontend.js` · `node verify_frontend.js` · `npm test` ·
   the full Python suite (3,708 tests) · `test_hf_render` in a real browser.
 
+
+## 7. The defect this shipped with, and what now guards it
+
+The frame put the shell on a single `1fr` grid track. A `1fr` track does not
+cap its item — it grows to the item's **min-content** width. The bottom feeds
+are one unbroken line of headlines, so on the live deployment, with sixty real
+headlines and forty ticker quotes, `.frame-bottom` measured **83,838 px** wide,
+the shell's column grew with it, and `.frame-top` and `.frame-body` — which
+centre themselves inside that column — ended up at **x = 41,119**. Everything
+except the fixed rails and the tapes was off screen.
+
+Every check passed. The static CSS guards, the free-variable lint, the load
+harness, and thirty destinations walked in a real browser at two viewports —
+all green, because **the news feed cannot reach its source in the sandbox**.
+The tape had no width to inflate the track with. The layout was tested where
+the data was empty and shipped where the data is not.
+
+`test_frame_render.py` now feeds the tape sixty production-shaped headlines
+and asserts every part of the frame is inside the viewport, at four sizes.
+Verified by reverting the fix: it fails with
+`.frame-top runs to x=56634 in a 2160px viewport`.
+
+The lesson worth keeping: *a layout bug that needs real data to appear needs
+real-sized data in the test.* The stylesheet already carried this exact
+warning for the mobile breakpoint; the new grid needed it too.
+
 ### Not verified here — needs your phone
 
 This was responsive testing in desktop Chromium, **not** iPhone Safari.

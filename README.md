@@ -86,6 +86,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `HEDGE_FUND_INTEL.md` | Hedge fund intelligence: source audit (verified September 6, 2026), what updates daily/weekly/quarterly, evidence classes, and the three-phase design |
 | `UI_FRAME.md` | The permanent frame: what was measured, where things mount and why, and the feature-preservation checklist |
 | `test_ui_frame.js` | Guards for the frame — the page cannot scroll, ten charts at every width, the navigation groups partition the thirty destinations |
+| `test_frame_render.py` | The frame stays inside the viewport with a production-sized news tape — the check that would have caught the track-inflation defect |
 | `assets/app-logo.png` | Brand logo |
 
 ## Environment variables (production)
