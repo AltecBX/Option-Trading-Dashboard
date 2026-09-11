@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.93";
+const APP_VERSION = "4.94";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -4610,12 +4610,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(SchwabReconnect, {
     apiFetch: apiFetch,
     placement: "banner"
-  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, isPhone && /*#__PURE__*/React.createElement(CardErrorBoundary, {
-    label: "Highs and lows"
-  }, /*#__PURE__*/React.createElement(HighLowCard, {
-    apiFetch: apiFetch,
-    onSwitchTicker: switchTicker
-  }))), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+  })), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Section navigation"
   }, /*#__PURE__*/React.createElement(SectionNav, {
     tab: "trade",
@@ -4626,7 +4621,12 @@ function App() {
     tab: "scanners",
     active: activeTab === "scanners",
     label: "Scanner tools"
-  })), dataPending ? /*#__PURE__*/React.createElement("div", {
+  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, isPhone && /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Highs and lows"
+  }, /*#__PURE__*/React.createElement(HighLowCard, {
+    apiFetch: apiFetch,
+    onSwitchTicker: switchTicker
+  }))), dataPending ? /*#__PURE__*/React.createElement("div", {
     className: `card sym-pending${loadError ? " sym-pending-failed" : ""}`,
     "aria-busy": loadError ? undefined : "true",
     title: loadError ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.` : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`

@@ -14124,6 +14124,71 @@ function WatchlistAnalystCard({
   };
   const pctf = v => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
   const FILTERS = [["all", "All"], ["upgrade", "Upgrades"], ["downgrade", "Downgrades"], ["pt_up", "PT raised"], ["pt_cut", "PT cut"], ["initiate", "New coverage"], ["high", "High impact"], ["multi", "Multi-firm"]];
+
+  // A board with nothing on it is a one-line note, not a full panel (v4.94).
+  // On a phone the heading, the Today/Recent switch, the sort box, the Scan
+  // button, eight filter pills and a centred "no actions" message filled the
+  // entire first screen of the Watchlist — so the stocks, which are what the
+  // Watchlist is, began below the fold. Everything here is still present and
+  // one tap away inside the summary; only the empty table is gone.
+  const quiet = sorted.length === 0 && !isScanning;
+  const quietLine = actions.length === 0 ? "nothing scanned yet" : scope === "today" && type === "all" ? `no actions today · ${actions.length} recent` : "nothing matches this filter";
+  const controls = /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "waa-head-controls"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "seg"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: scope === "today" ? "active" : "",
+    onClick: () => setScope("today")
+  }, "Today"), /*#__PURE__*/React.createElement("button", {
+    className: scope === "recent" ? "active" : "",
+    onClick: () => setScope("recent")
+  }, "Recent")), /*#__PURE__*/React.createElement("select", {
+    value: sortKey,
+    onChange: e => setSortKey(e.target.value),
+    title: "Sort actions"
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "impact"
+  }, "Sort: Impact"), /*#__PURE__*/React.createElement("option", {
+    value: "upside"
+  }, "Sort: Upside"), /*#__PURE__*/React.createElement("option", {
+    value: "date"
+  }, "Sort: Action date"), /*#__PURE__*/React.createElement("option", {
+    value: "symbol"
+  }, "Sort: Symbol")), /*#__PURE__*/React.createElement("button", {
+    className: "scan-run-btn",
+    onClick: startScan,
+    disabled: isScanning
+  }, isScanning ? "Scanning…" : "Scan now")), /*#__PURE__*/React.createElement("div", {
+    className: "waa-filters"
+  }, FILTERS.map(([k, lbl]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: `preset-pill ${type === k ? "active" : ""}`,
+    onClick: () => setType(k)
+  }, lbl))));
+  if (quiet) {
+    return /*#__PURE__*/React.createElement("details", {
+      className: "card waa-card waa-quiet"
+    }, /*#__PURE__*/React.createElement("summary", {
+      title: "No analyst action on your watchlist right now. Open this for the Today/Recent switch, the sort, the eight filters and a fresh scan."
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "waa-quiet-title"
+    }, "Analyst Actions"), /*#__PURE__*/React.createElement("span", {
+      className: "waa-quiet-note"
+    }, quietLine), detected ? /*#__PURE__*/React.createElement("span", {
+      className: "waa-quiet-scanned"
+    }, "scanned ", detected) : null), /*#__PURE__*/React.createElement("div", {
+      className: "waa-quiet-body"
+    }, controls, /*#__PURE__*/React.createElement("div", {
+      className: "waa-empty waa-empty-slim"
+    }, actions.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions cached yet \u2014 ", /*#__PURE__*/React.createElement("button", {
+      className: "wl-rescan-link",
+      onClick: startScan
+    }, "Scan now"), " to build today\u2019s board.") : scope === "today" && type === "all" ? /*#__PURE__*/React.createElement(React.Fragment, null, "No actions dated today \u2014 ", actions.length, " recent ", actions.length === 1 ? "action" : "actions", " on your watchlist. ", /*#__PURE__*/React.createElement("button", {
+      className: "wl-rescan-link",
+      onClick: () => setScope("recent")
+    }, "Show recent")) : "No actions match this filter.")));
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "card waa-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -14166,13 +14231,7 @@ function WatchlistAnalystCard({
     onClick: () => setType(k)
   }, lbl))), sorted.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "waa-empty"
-  }, isScanning ? "Scanning for analyst actions…" : actions.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions cached yet \u2014 ", /*#__PURE__*/React.createElement("button", {
-    className: "wl-rescan-link",
-    onClick: startScan
-  }, "Scan now"), " to build today's board.") : scope === "today" && type === "all" ? /*#__PURE__*/React.createElement(React.Fragment, null, "No analyst actions dated today yet \u2014 ", actions.length, " recent ", actions.length === 1 ? "action" : "actions", " on your watchlist. ", /*#__PURE__*/React.createElement("button", {
-    className: "wl-rescan-link",
-    onClick: () => setScope("recent")
-  }, "Show recent")) : "No actions match this filter.") : /*#__PURE__*/React.createElement("div", {
+  }, "Scanning for analyst actions\u2026") : /*#__PURE__*/React.createElement("div", {
     className: "waa-table-wrap"
   }, /*#__PURE__*/React.createElement("table", {
     className: "waa-table"
@@ -19049,10 +19108,13 @@ function UWPanel({
     title: "Unusual Whales",
     referrerPolicy: "no-referrer-when-downgrade",
     allow: "clipboard-write; fullscreen"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "fv-hint",
-    title: "It's the real unusualwhales.com with your account. If the login doesn't stick between visits, update the Site Helper to v2.1+ \u2014 it applies the same cookie handling that keeps Finviz and TradingView signed in."
-  }, "Log into UW inside the frame once \u2014 account, watchlists and alert settings are all yours. Flow/sweeps/OI/IV live on the stock page's own tabs."));
+  }), /*#__PURE__*/React.createElement("details", {
+    className: "panel-method fv-method"
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "It's the real unusualwhales.com with your account."
+  }, "Signed out inside the frame?"), /*#__PURE__*/React.createElement("div", {
+    className: "panel-method-body"
+  }, "Log into UW inside the frame once \u2014 account, watchlists and alert settings are all yours. Flow, sweeps, OI and IV live on the stock page's own tabs. If the login doesn't stick between visits, update the Site Helper to v2.1+: it applies the same cookie handling that keeps Finviz and TradingView signed in.")));
 }
 
 // ── Site Helper download chip (v3.73b) ──────────────────────────────────────
@@ -19421,10 +19483,13 @@ function SWSTPanel({
     title: "Simply Wall St",
     referrerPolicy: "no-referrer-when-downgrade",
     allow: "clipboard-write; fullscreen"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "fv-hint",
-    title: "Simply Wall St sends X-Frame-Options: SAMEORIGIN, so the Site Helper extension must remove it on frame responses \u2014 the same mechanism that lets TradingView and Unusual Whales render here. The page itself is fetched by your own browser with your own session."
-  }, "Real simplywall.st inside the dashboard \u2014 needs Site Helper v2.8+ to render, and v3.0+ for the Google/email login to STICK (v3.0 lets the frame send their session cookie). Log in inside the frame once and your account, watchlist and portfolio are all yours."));
+  }), /*#__PURE__*/React.createElement("details", {
+    className: "panel-method fv-method"
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "The page is fetched by your own browser with your own session."
+  }, "How this renders, and making the login stick"), /*#__PURE__*/React.createElement("div", {
+    className: "panel-method-body"
+  }, "Real simplywall.st inside the dashboard. Simply Wall St sends X-Frame-Options: SAMEORIGIN, so the Site Helper must remove it on frame responses \u2014 the same mechanism that lets TradingView and Unusual Whales render here. Needs Site Helper v2.8+ to render, and v3.0+ for the Google/email login to STICK (v3.0 lets the frame send their session cookie). Log in inside the frame once and your account, watchlist and portfolio are all yours.")));
 }
 
 // ── TradingView embedded view (v3.33) ───────────────────────────────────────
@@ -19639,10 +19704,13 @@ function TVPanel({
       title: "TradingView",
       referrerPolicy: "no-referrer-when-downgrade",
       allow: "clipboard-write; fullscreen"
-    }), /*#__PURE__*/React.createElement("div", {
-      className: "fv-hint",
-      title: "If TradingView shows you logged out inside the frame while a normal tab is logged in, reload this tab once \u2014 the helper upgrades existing login cookies on install and as they change. Alerts fire server-side on TradingView regardless of where the chart is open."
-    }, "Asked to log in repeatedly? Use 'Sign in \u2197' above once \u2014 it signs you in on a normal TradingView page, and the embedded view (helper v2.3+) picks the session up automatically. Layouts, indicators and alerts are your real account."));
+    }), /*#__PURE__*/React.createElement("details", {
+      className: "panel-method fv-method"
+    }, /*#__PURE__*/React.createElement("summary", {
+      title: "If TradingView shows you logged out inside the frame while a normal tab is logged in, reload this tab once \u2014 the helper upgrades existing login cookies on install and as they change."
+    }, "Asked to log in repeatedly?"), /*#__PURE__*/React.createElement("div", {
+      className: "panel-method-body"
+    }, "Use \u2018Sign in \u2197\u2019 above once \u2014 it signs you in on a normal TradingView page, and the embedded view (helper v2.3+) picks the session up automatically. Layouts, indicators and alerts are your real account. Alerts fire server-side on TradingView regardless of where the chart is open.")));
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "card fv-card",
@@ -19881,10 +19949,13 @@ function FinvizPanel({
       title: "Finviz",
       referrerPolicy: "no-referrer-when-downgrade",
       allow: "clipboard-write"
-    }), /*#__PURE__*/React.createElement("div", {
-      className: "fv-hint",
-      title: "If Finviz shows you as logged out inside this frame while a normal Finviz tab is logged in, your browser is isolating third-party cookies. Either allow cookies for finviz.com in the browser's settings, or simply log in once right here \u2014 most browsers keep an in-frame login alive across visits."
-    }, "Log into Elite inside the frame once if prompted \u2014 it's the real finviz.com, so your account, screens and watchlists are all there."));
+    }), /*#__PURE__*/React.createElement("details", {
+      className: "panel-method fv-method"
+    }, /*#__PURE__*/React.createElement("summary", {
+      title: "It's the real finviz.com, with your account."
+    }, "Showing you logged out?"), /*#__PURE__*/React.createElement("div", {
+      className: "panel-method-body"
+    }, "Log into Elite inside the frame once if prompted \u2014 it's the real finviz.com, so your account, screens and watchlists are all there. If a normal Finviz tab is logged in and this one isn't, your browser is isolating third-party cookies: either allow cookies for finviz.com in the browser's settings, or just log in right here \u2014 most browsers keep an in-frame login alive across visits.")));
   }
 
   // No helper: setup panel (desktop) / honest limitation note (mobile).

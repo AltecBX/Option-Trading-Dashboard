@@ -52,6 +52,7 @@ const CHUNK_JS = ["tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "ta
 const SERVED_CSS = ["styles.css"];
 
 let failed = false;
+const failures = [];
 
 /* ── Stage 1: JSX → readable .js ─────────────────────────────────────── */
 for (const f of JSX_FILES) {
@@ -69,10 +70,25 @@ for (const f of JSX_FILES) {
     console.log(`compiled ${f} -> ${path.basename(outPath)} (${(wrapped.length / 1024).toFixed(0)}K)`);
   } catch (e) {
     failed = true;
+    failures.push(`${f}: ${e.message.split("\n")[0]}`);
     console.error(`FAILED ${f}: ${e.message.split("\n")[0]}`);
   }
 }
-if (failed) process.exit(1);
+if (failed) {
+  // The per-file error is printed where it happens, in the middle of thirty
+  // lines of "compiled ...". Anyone piping this through `tail` — which is the
+  // normal way to read it — sees the last successful compile and reads it as
+  // success, while the stale .js from the previous build is still on disk and
+  // still what the browser loads. So the last thing this ever prints on a
+  // failure is the failure.
+  console.error("\n" + "=".repeat(66));
+  console.error(`BUILD FAILED — ${failures.length} file(s) did not compile.`);
+  for (const line of failures) console.error("  " + line);
+  console.error("The .js and dist/ files on disk are STALE: they are whatever");
+  console.error("the last good build wrote. Nothing downstream will say so.");
+  console.error("=".repeat(66));
+  process.exit(1);
+}
 
 /* ── Stage 2: minify + precompress into dist/ ────────────────────────── */
 const DIST = path.join(HERE, "dist");

@@ -1,4 +1,4 @@
-# The permanent frame (v4.93)
+# The permanent frame (v4.94)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -274,6 +274,102 @@ does not follow them at all. If a very wide workspace ever needs reining in,
 that belongs on the panels inside it. `test_ui_frame.js` now also fails on any
 `min(<number>px, …)` reappearing in that declaration, and the browser check
 runs at 3840 as well.
+
+## 9. The frame was overhead too (v4.94)
+
+A permanent frame is permanent **overhead**. At 1440×900 it had grown to 526 of
+the 900 pixels — app bar, regime line, ten charts, context strip, opportunity
+ribbon, four navigation rows — leaving 374 for the tool you came to use, and an
+embedded partner chart got 278 of those. Keeping the ten charts is the point of
+the frame. Letting everything *around* them outweigh the workspace is not.
+
+Nothing was removed. The chrome was measured and trimmed: a 34px app bar
+instead of 46 plus a 10px margin, tiles at 74px instead of 88 with a 26px
+sparkline instead of 30, one line per context strip (eleven rotation chips used
+to wrap to a third row and silently cost another sixteen pixels), navigation
+rows at 23px instead of 34, and 10px of frame padding instead of 24.
+
+The short-viewport ladder was re-tuned at the same time: three of its steps had
+been written against the old, taller base and were now *larger* than it, so a
+1440×900 laptop was being given a **bigger** app bar than a 2560×1440 monitor.
+
+Measured by `test_frame_render.py`, which feeds the news tape a
+production-sized payload — so these are the numbers with the frame at its real
+height, not its empty-sandbox one:
+
+| | Before | After |
+|---|---|---|
+| Workspace, 2152×1117 | 481 px (43%) | **578 px (52%)** |
+| Workspace, 1440×900 | 340 px (38%) | **416 px (46%)** |
+| Frame top, 2152×1117 | 522 px | **425 px** |
+
+Inside a partner panel, two toolbar rows and a permanent three-line paragraph
+about signing in sat between the heading and the chart. The paragraph is now a
+`<details>` — same words, keyboard-reachable, findable by browser search, one
+line instead of three. All four partner panels got the same treatment.
+
+`test_frame_render.py` asserts the workspace is at least 45% of a 1440×900
+window and 50% of a 2152×1117 one, and in the same check asserts the ten charts
+are still all there — so the floor can never be met by dropping them.
+
+## 10. Four more things the review found
+
+**The Watchlist opened on an empty panel.** Analyst Actions renders above the
+stocks. With no actions it still drew a heading, a Today/Recent switch, a sort
+box, a Scan button, eight filter pills and a centred notice — about 300px, which
+on a phone is the whole first screen, so the stocks began below the fold.
+Collapsed it is ~34px: one line reading *Analyst Actions · no actions today ·
+12 recent*. Open it and it is exactly the panel it was; no control, filter or
+history was dropped.
+
+**The jump control was below the things it exists to skip.** On a phone the
+section index sat under Market Posture, the catalysts strip and Highs & Lows —
+about a screen and a half — so the control whose whole purpose is to save you
+scrolling was itself something you scrolled to reach. It is now the first thing
+in the workspace, and it says *Jump to* on a phone, where it needs to name
+itself.
+
+**The settings drawer ignored the frame.** The tool picker was already bounded
+by `--frame-top-h` / `--frame-bottom-h`; the drawer was `inset: 0`, so opening
+it covered the ten charts the frame exists to keep on screen. Same two
+variables, applied.
+
+**The version was missing on a phone.** The stylesheet said *"the version rides
+the sidebar on phones"* — and it did, until §8 removed the duplicate sidebar
+pill so the version would appear once. Removing one of two copies left zero.
+It is back in the frame, trimmed to the one thing it is for, in every shape
+including landscape.
+
+## 11. Visual hierarchy, measured
+
+"Secondary labels are still faint" is not a matter of taste — it is a contrast
+ratio. Two of the four text tiers failed WCAG AA against the surfaces they sit
+on, and `--fg-4` carries the **smallest type in the app**: the nine- and
+ten-pixel mono captions.
+
+| Tier | Light, worst surface | Dark, worst surface |
+|---|---|---|
+| `--fg-2` | 6.8 → **8.1:1** | 7.9 → **8.7:1** |
+| `--fg-3` | **4.0 → 6.0:1** | 4.9 → **6.1:1** |
+| `--fg-4` | **2.4 → 4.6:1** | **2.9 → 5.0:1** |
+
+Each tier is checked against all three surfaces it lands on — page, card and
+chip — because a chip is the lowest-contrast of the three and is exactly where
+the small mono captions sit. `test_ui_frame.js` computes the real ratio from
+the tokens (oklch → sRGB → relative luminance), so the next person to nudge a
+lightness gets told rather than guessing.
+
+It also asserts the tiers stay **far enough apart to still be a ladder** —
+which caught a real regression while this was being written: the first pass
+raised light `--fg-3` and `--fg-4` to within 0.03 of each other, which would
+have passed a contrast check and flattened the hierarchy it exists for.
+
+And the panel: a heading, an explanation, the controls and the answer were all
+set at roughly one size and weight. The answer is now the largest thing
+(`.panel-verdict` at 14px with a 4px accent edge and its reason at full
+strength), the heading is full-strength colour at 15.5px/650, and the
+explanation is 11.5px in the quiet tier, capped at 88 characters a line.
+Methodology stays one click away in `<details>`. Nothing was deleted.
 
 ### Not verified here — needs your phone
 

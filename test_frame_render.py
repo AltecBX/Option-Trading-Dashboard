@@ -186,7 +186,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 shell: box('.shell'), top: box('.frame-top'),
                 body: box('.frame-body'), bottom: box('.frame-bottom'),
                 charts: box('.mko-grid'), main: box('.main'),
-                appbar: box('.appbar'),
+                appbar: box('.appbar'), secnav: box('.secnav'),
+                drawer: box('.sidebar'), statusline: box('.statusline'),
                 // The INNER rail on each side — Daily Low on the left, Daily
                 // High on the right. The gap between these and the first card
                 // is the band that has to stay small.
@@ -237,6 +238,41 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def test_the_frame_is_on_screen_on_a_wide_desktop(self):
         self._check(2160, 1200)
+
+    def _check_workspace_share(self, width, height, floor):
+        """The frame is permanent, which means it is also permanent OVERHEAD.
+        At 1440x900 it had grown to 526 of 900 pixels — app bar, a market
+        regime line, ten charts, a context strip, an opportunity ribbon and
+        four navigation rows — leaving 374 for the tool you came to use, and
+        an embedded partner chart got 278 of those. Keeping the charts is the
+        point of the frame; letting the chrome around them outweigh the
+        workspace is not. This is the rule, not any one of the paddings that
+        add up to it."""
+        geo, errors, handles = self._measure(width, height)
+        try:
+            self.assertFalse(errors, f"page errors at {width}x{height}: {errors[:3]}")
+            self.assertEqual(10, geo["tiles"],
+                             "the ten charts come first — this check must never be "
+                             "satisfied by dropping them")
+            main = geo["main"]
+            self.assertIsNotNone(main, f"no workspace at {width}x{height}")
+            share = main["h"] / geo["vh"]
+            self.assertGreaterEqual(
+                share, floor,
+                f"the workspace is {main['h']}px of a {geo['vh']}px window "
+                f"({share:.0%}); the frame around it has grown back")
+        finally:
+            self._close(handles)
+
+    def test_the_workspace_gets_most_of_a_laptop_screen(self):
+        # Measured in this harness: 416/900 = 46% after, 340/900 = 38% before.
+        # The floor sits below the measured value with room for a pixel or
+        # two of font-metric drift, and well above what the old chrome left.
+        self._check_workspace_share(1440, 900, 0.45)
+
+    def test_the_workspace_gets_most_of_a_big_screen(self):
+        # Measured in this harness: 578/1117 = 52% after, 481/1117 = 43% before.
+        self._check_workspace_share(2152, 1117, 0.50)
 
     def _check_gutter(self, width, height):
         """The rails are fixed to the window edges and the content column is

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.93";
+const APP_VERSION = "4.94";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3668,6 +3668,23 @@ function App() {
         <CardErrorBoundary label="Schwab reconnect">
           <SchwabReconnect apiFetch={apiFetch} placement="banner" />
         </CardErrorBoundary>
+        {/* Local navigation for the two pages long enough to get lost on:
+            Trade is roughly twelve thousand pixels tall and Scanners stacks
+            thirteen tools. Nothing is removed or collapsed — this only moves
+            you to a panel that was always there. The index is read from the
+            rendered page, so a panel added later appears in it without
+            anyone remembering to update a list.
+
+            It is FIRST in the workspace, ahead of the market band and the
+            high/low card, because on a phone those come to about a screen and
+            a half — so the control whose whole purpose is to save you
+            scrolling was itself something you had to scroll to reach. */}
+        <CardErrorBoundary label="Section navigation">
+          <SectionNav tab="trade" active={activeTab === "trade" && !dataPending}
+                      groups={tradeSectionGroup} label="Trade sections" />
+          <SectionNav tab="scanners" active={activeTab === "scanners"}
+                      label="Scanner tools" />
+        </CardErrorBoundary>
         {/* On a phone the market band and the four high/low lists live at the
             top of the workspace instead of in the frame — see marketBand.
             Only on Trade, though: putting them above every tool would just
@@ -3692,18 +3709,6 @@ function App() {
             first mock preset in data.js, which is Apple. This branch is the
             only way to make "no data yet" mean no data, rather than another
             company's. */}
-        {/* Local navigation for the two pages long enough to get lost on:
-            Trade is roughly twelve thousand pixels tall and Scanners stacks
-            thirteen tools. Nothing is removed or collapsed — this only moves
-            you to a panel that was always there. The index is read from the
-            rendered page, so a panel added later appears in it without
-            anyone remembering to update a list. */}
-        <CardErrorBoundary label="Section navigation">
-          <SectionNav tab="trade" active={activeTab === "trade" && !dataPending}
-                      groups={tradeSectionGroup} label="Trade sections" />
-          <SectionNav tab="scanners" active={activeTab === "scanners"}
-                      label="Scanner tools" />
-        </CardErrorBoundary>
         {dataPending ? (
           <div className={`card sym-pending${loadError ? " sym-pending-failed" : ""}`}
                aria-busy={loadError ? undefined : "true"}
