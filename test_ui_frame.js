@@ -247,8 +247,14 @@ ok("and turns green during the regular session, like the other one",
 ok("the rail width is defined once, not copied into two formulas",
    (css.match(/--rail-w:\s*min\(calc\(\(100vw - 1600px\)/g) || []).length === 1);
 ok("the content column is sized from what the rails leave over",
-   /\.frame-top, \.frame-body \{\s*\n?\s*max-width: min\(2200px, calc\(100vw - 2 \* \(2 \* var\(--rail-w\)/
+   /\.frame-top, \.frame-body \{\s*\n?\s*max-width: calc\(100vw - 2 \* \(2 \* var\(--rail-w\)/
      .test(css));
+// The first draft wrote `min(2200px, calc(100vw - …))`. Above 2988px the cap
+// won, the rails stayed at 190px, and the dead band came straight back — 438px
+// on each side at 3840px. A second hard-coded number is the bug, not a
+// safeguard against it.
+ok("and not re-capped at some other fixed number that would bring the band back",
+   !/\.frame-top, \.frame-body \{[^}]*max-width:[^;]*min\(\s*\d+px/.test(css));
 
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));

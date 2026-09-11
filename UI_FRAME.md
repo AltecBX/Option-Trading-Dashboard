@@ -251,12 +251,29 @@ padding at that width is 10px rather than 24px.
 |---|---|---|
 | 2152 px (Jerry's) | 34 px → **12 px** | 1548 px → 1592 px |
 | 2560 px | 122 px → **12 px** | 1552 px → 1752 px |
+| 3840 px (4K) | 402 px → **12 px** | 1552 px → 3032 px |
 | 1900 px (no rails) | — | 1552 px → 1852 px |
 
-`test_frame_render.py` measures that gap in a real browser at both widths and
-fails above 20px. It is a browser test on purpose: the number is the product of
-a fixed-position element and a centred one, which is exactly the kind of
-arithmetic a stylesheet can get wrong while every rule in it reads correctly.
+`test_frame_render.py` measures that gap in a real browser at all three widths
+and fails above 20px. It is a browser test on purpose: the number is the
+product of a fixed-position element and a centred one, which is exactly the
+kind of arithmetic a stylesheet can get wrong while every rule in it reads
+correctly.
+
+**And the fix had the same bug in it.** The first draft capped the content at
+`min(2200px, …)` — a chart row stretched across a 4K monitor is not more
+readable, only wider. But a cap *is* the second hard-coded number this rule
+exists to remove. Above 2988px the cap won over the subtraction, the rails
+stayed at 190px, and the band came straight back: **438px on each side at
+3840px**, thirteen times the one that was reported. The two browser checks
+written alongside the fix — 2152 and 2560 — both sit below the crossover and
+could not see it. A review bot found it.
+
+So there is no cap: either the content follows the rails at every width or it
+does not follow them at all. If a very wide workspace ever needs reining in,
+that belongs on the panels inside it. `test_ui_frame.js` now also fails on any
+`min(<number>px, …)` reappearing in that declaration, and the browser check
+runs at 3840 as well.
 
 ### Not verified here — needs your phone
 

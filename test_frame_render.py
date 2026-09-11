@@ -277,6 +277,15 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # a fixed 1600px content column left the most room unused.
         self._check_gutter(2560, 1400)
 
+    def test_no_dead_band_on_a_4k_monitor(self):
+        # The fix for the two widths above was first written with a second cap,
+        # `min(2200px, …)`. Above 2988px that cap won over the subtraction, the
+        # rails stayed at 190px, and the band came back at 438px a side — worse
+        # than the 34px the fix was for. Neither of the checks above could see
+        # it, because neither is wide enough to reach the crossover. This one
+        # is: 3840 is a 4K monitor, and it is the width a cap fails at.
+        self._check_gutter(3840, 1600)
+
     def test_the_frame_is_on_screen_on_a_laptop(self):
         self._check(1440, 900)
 

@@ -14241,10 +14241,9 @@ body { overflow: hidden; overscroll-behavior: none; }
    several hundred pixels on each side that nothing uses.
 
    So the content is now told what is actually left over: the window, minus
-   both rails, their 6px edge gap, their 6px inter-rail gap and 10px of
+   both rails, their 6px edge gap, their 6px inter-rail gap and 2px of
    clearance. Below 2080px there are no rails, so it is the window minus a
-   40px gutter. It is still capped, at 2200px, because a chart row stretched
-   across a 4K monitor is not more readable, just wider.
+   28px gutter.
 
    The band Jerry pointed at is the one between the INNER rail (Daily Low on
    the left, Daily High on the right) and the first card. It was 34px of plain
@@ -14253,11 +14252,22 @@ body { overflow: hidden; overscroll-behavior: none; }
    clearance to 2px, so the gap is 12px — enough to read as a separation
    between two different things, and not a stripe.
 
+   THERE IS DELIBERATELY NO SECOND CAP ON THE CONTENT. The first draft of this
+   read `min(2200px, …)`, reasoning that a chart row stretched across a 4K
+   monitor is not more readable, only wider. But a cap is exactly the
+   hard-coded number this rule exists to remove: above 2988px the cap won over
+   the subtraction, the rails stayed at 190px, and the stripe came back — 438px
+   of it on each side at 3840px, thirteen times the one that was reported.
+   Either the content follows the rails at every width or it does not follow
+   them at all. If a very wide workspace ever needs reining in, rein in the
+   panels inside it; do not put a second number here.
+
    A phone is excluded on purpose: below 901px the frame is already full
    width with its own 10px gutter, and this rule would fight it. */
 @media (min-width: 901px) {
   .frame-top, .frame-body {
-    max-width: min(2200px, calc(100vw - 28px));
+    /* No rails below 2080px, so this is just the window less a gutter. */
+    max-width: calc(100vw - 28px);
     padding-left: 10px;
     padding-right: 10px;
   }
@@ -14271,6 +14281,6 @@ body { overflow: hidden; overscroll-behavior: none; }
      the clearance; the visible gap is that plus the 10px padding above. */
   :root { --rail-w: min(calc((100vw - 1600px) / 4 - 10px), 190px); }
   .frame-top, .frame-body {
-    max-width: min(2200px, calc(100vw - 2 * (2 * var(--rail-w) + 14px)));
+    max-width: calc(100vw - 2 * (2 * var(--rail-w) + 14px));
   }
 }
