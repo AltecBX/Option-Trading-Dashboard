@@ -3683,12 +3683,24 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
           column you have not reached yet — it belongs one tap away, not
           between you and your stocks. Errors are never folded. */}
       <div className={`ab-status${wlIsPhone ? " ab-status-slim" : ""}`}>
+        {/* Measured live at 440x956: `toLocaleString()` plus the full hint
+            wrapped this to three lines, 55px of a 415px workspace. Same two
+            facts, phrased for the width. */}
         {status.last_scan
-          ? <span>Last scan {new Date(status.last_scan).toLocaleString()} · {rows.length} stocks</span>
+          ? <span>Last scan {wlIsPhone
+              ? new Date(status.last_scan).toLocaleString(undefined,
+                  { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+              : new Date(status.last_scan).toLocaleString()} · {rows.length} stocks</span>
           : <span className="muted">No scan yet — Scan now pulls valuation, momentum, volume, earnings &amp; moving-average metrics for your tracked stocks (a few minutes for large lists).</span>}
         {notScanned > 0 && status.last_scan && !scanning && (
           <span className="wl-newhint" title="These are in your watchlist but not in the last scan — added since the scan, or the data source returned no price. Re-scan to include them.">
-            {" "}· {notScanned} not in last scan — <button type="button" className="wl-rescan-link" onClick={startScan}>Scan now</button> to include
+            {/* `.wl-rescan-link` is a 38px tap target, so inline in an
+                11.5px sentence it makes the whole line box 38px tall and the
+                status block 55px. The card head already carries a Scan now
+                button two rows up, so on a phone this is the same action
+                twice: the count stays, the duplicate button goes. */}
+            {" "}· {notScanned} {wlIsPhone ? "unscanned" : "not in last scan"}
+            {wlIsPhone ? "" : <> — <button type="button" className="wl-rescan-link" onClick={startScan}>Scan now</button> to include</>}
           </span>
         )}
         {!wlIsPhone && (

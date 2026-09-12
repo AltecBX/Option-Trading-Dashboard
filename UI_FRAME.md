@@ -1,4 +1,4 @@
-# The permanent frame (v4.97)
+# The permanent frame (v4.98)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -569,6 +569,51 @@ underneath fold into a disclosure when there is nothing to show.
 A test in `test_spike_scan.py` asserts `market_phase()` and `elapsed_fraction()`
 agree at eight clock times on both a full session and a half day. They are two
 readings of the same bell, and the bug was that nothing made them say so.
+
+## 12c. "Inside the workspace" is not the same as "visible" (v4.98)
+
+v4.97 shipped the folded analyst board and the live Watchlist measured **409px
+down a 415px workspace** — six pixels of a 120px card, a sliver under the filter
+row. The guard passed, because it asked `top < height`, and six pixels satisfies
+that. The rule it should have asked is *how much of the first card you can
+actually read*.
+
+What was still eating the screen, measured live at 440×956:
+
+| | Live v4.97 | Why | After |
+|---|---|---|---|
+| Status line | 55px | `.wl-rescan-link` is a **38px tap target** inline in an 11.5px sentence, so the line box is 38px tall | 17px |
+| Folded summary | 55px | three spans stacking — title, note, scan time | 30px |
+| Filter row | 96px | wrapped to **three** rows: tabs, search, then the Filters button alone | 64px |
+| Market summary | 36px | `flex-wrap: wrap` on a summary whose whole job is one line | 24px |
+| Six margins | ~20px | none wrong alone | ~8px |
+
+The card head already carries a **Scan now** button two rows above, so the
+inline one was the same action twice; on a phone the count stays and the
+duplicate button goes. `.ab-status` is monospaced, which is right for a column
+of figures and wrong for a sentence. The full market wording is still there, one
+tap inside.
+
+**First card: 409 → 284, leaving 131px of it on screen.**
+
+### The stub was gentle again — the third time this round
+
+Reverting all of those changed the measurement by **one pixel** in the sandbox,
+while live they were worth 125. The stub returned `{"rows": [...]}` and no
+`status`, so the board drew "No scan yet …" and never drew the scan line or the
+`N unscanned` hint — and the hint is the tallest thing on the real screen. The
+stub now carries a `last_scan`, and the same revert then moves the card 38px,
+which is exactly the height of the tap target.
+
+§12 recorded this as a lesson about payload *size*. §12b recorded it about the
+*clock*. This one is about payload *shape*: a field the stub omits is a branch
+the test never renders. **Everything the real endpoint returns is part of the
+fixture, not just the part the assertion reads.**
+
+The floor is 64px — about half a card — and deliberately not the 131 now
+measured. A floor is a regression line, not a target: it belongs in the gap
+between the defect (6px) and the fix (131px), so polish above the line never
+turns into a failing build.
 
 ## 12b. A bar with a missing price took the whole page down (v4.97)
 
