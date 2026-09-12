@@ -11027,6 +11027,19 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
                 ? <>No actions dated today — {actions.length} recent {actions.length === 1 ? "action" : "actions"} on your watchlist. <button className="wl-rescan-link" onClick={() => setScope("recent")}>Show recent</button></>
                 : "No actions match this filter."}
           </div>
+          {/* The summary's `scanned …` is hidden on a phone to keep this to
+              one line, and it was the ONLY place the scan time appeared on an
+              empty board — so you could not tell a board scanned an hour ago
+              from one last scanned on Tuesday. Every other board in this app
+              says when it was measured; an empty one has to as well, because
+              "nothing found" and "nothing looked recently" are different
+              claims. It goes inside, where there is room for it. */}
+          {detected ? (
+            <div className="waa-quiet-when">
+              <DataStatus kind="cached" note="Analyst boards are stored results. Nothing is re-checked until you scan again." />
+              scanned {detected}
+            </div>
+          ) : null}
         </div>
       </details>
     );

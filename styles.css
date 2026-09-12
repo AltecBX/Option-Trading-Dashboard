@@ -9923,6 +9923,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   letter-spacing: 0.04em; color: var(--fg-4); margin-left: auto;
 }
 .waa-quiet-body { padding: 0 14px 12px; }
+/* Where the scan time goes once the summary stops showing it (v4.98). */
+.waa-quiet-when {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--fg-4);
+}
 /* The populated board folds on a phone too (v4.95b), and what opens is the
    whole card — so the outer disclosure must not pad, border and shadow it a
    second time. Same board, one frame around it. */

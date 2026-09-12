@@ -14282,7 +14282,12 @@ function WatchlistAnalystCard({
     }, "Scan now"), " to build today\u2019s board.") : scope === "today" && type === "all" ? /*#__PURE__*/React.createElement(React.Fragment, null, "No actions dated today \u2014 ", actions.length, " recent ", actions.length === 1 ? "action" : "actions", " on your watchlist. ", /*#__PURE__*/React.createElement("button", {
       className: "wl-rescan-link",
       onClick: () => setScope("recent")
-    }, "Show recent")) : "No actions match this filter.")));
+    }, "Show recent")) : "No actions match this filter."), detected ? /*#__PURE__*/React.createElement("div", {
+      className: "waa-quiet-when"
+    }, /*#__PURE__*/React.createElement(DataStatus, {
+      kind: "cached",
+      note: "Analyst boards are stored results. Nothing is re-checked until you scan again."
+    }), "scanned ", detected) : null));
   }
   const fullBoard = /*#__PURE__*/React.createElement("div", {
     className: "card waa-card"
