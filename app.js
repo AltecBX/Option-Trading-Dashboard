@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.98";
+const APP_VERSION = "4.99";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -4086,16 +4086,7 @@ function App() {
   }), /*#__PURE__*/React.createElement(MarketOverview, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }), !bandInWorkspace && marketBand, /*#__PURE__*/React.createElement(TabBar, {
-    active: activeTab,
-    onChange: changeTab,
-    ticker: ticker,
-    tabs: orderedTabs,
-    onReorder: saveTabOrder,
-    apiFetch: apiFetch,
-    earnDate: loadError ? null : current.next_earnings,
-    earnDays: loadError ? null : current.days_to_earnings
-  })), /*#__PURE__*/React.createElement("div", {
+  }), !bandInWorkspace && marketBand), /*#__PURE__*/React.createElement("div", {
     className: "frame-body"
   }, /*#__PURE__*/React.createElement("aside", {
     className: `sidebar${navOpen ? " nav-open" : ""}`
@@ -4615,7 +4606,18 @@ function App() {
     day: "numeric"
   }), /*#__PURE__*/React.createElement("span", {
     className: "sb-expiry-dte"
-  }, FRONT_DTE, "d")))), /*#__PURE__*/React.createElement("main", {
+  }, FRONT_DTE, "d")))), /*#__PURE__*/React.createElement("div", {
+    className: "frame-col"
+  }, /*#__PURE__*/React.createElement(TabBar, {
+    active: activeTab,
+    onChange: changeTab,
+    ticker: ticker,
+    tabs: orderedTabs,
+    onReorder: saveTabOrder,
+    apiFetch: apiFetch,
+    earnDate: loadError ? null : current.next_earnings,
+    earnDays: loadError ? null : current.days_to_earnings
+  }), /*#__PURE__*/React.createElement("main", {
     className: "main"
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Schwab reconnect"
@@ -10643,7 +10645,7 @@ function App() {
     }]
   })), /*#__PURE__*/React.createElement(TimingThresholds, {
     apiFetch: apiFetch
-  })))), /*#__PURE__*/React.createElement("div", {
+  }))))), /*#__PURE__*/React.createElement("div", {
     className: "frame-bottom"
   }, /*#__PURE__*/React.createElement(NewsTicker, {
     apiFetch: apiFetch,

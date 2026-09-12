@@ -55,9 +55,22 @@ ok("the section bar rides in the frame, not on a sticky offset",
 ok("the three frame regions exist in the shell",
    /className="frame-top"/.test(app) && /className="frame-body"/.test(app)
    && /className="frame-bottom"/.test(app));
-ok("the ten charts and the section bar are inside the top frame, not the workspace",
+ok("the ten charts are inside the top frame, not the workspace",
    app.indexOf('className="frame-top"') < app.indexOf("<MarketOverview")
    && app.indexOf("<MarketOverview") < app.indexOf('className="frame-body"'));
+// The section bar used to span BOTH columns at the foot of the top frame, so
+// the sidebar began below it and lost ~130px to a bar that only ever steers
+// the workspace. It now rides in the workspace's own column. What must not
+// change is that it is still FRAME: outside `.main`, so it cannot scroll away
+// — which is the whole reason it left the document flow in the first place.
+ok("the section bar rides in the workspace column, above the workspace",
+   /<div className="frame-col">\s*\n\s*<TabBar/.test(app));
+ok("and it is still outside the scrolling box, so it cannot scroll away",
+   app.indexOf('<div className="frame-col">') < app.indexOf('<main className="main">')
+   && app.indexOf("<TabBar") < app.indexOf('<main className="main">'));
+ok("the column is a flex column so the workspace keeps the remaining height",
+   /\.frame-col \{[^}]*display: flex;[^}]*flex-direction: column;/.test(css)
+   && /\.frame-col > \.main \{ flex: 1 1 auto; \}/.test(css));
 ok("both bottom feeds are inside the bottom frame",
    app.indexOf('className="frame-bottom"') < app.indexOf("<NewsTicker")
    && /\.mn-stack\.mn-bottom \{\s*\n?\s*position: static;/.test(css));
@@ -556,6 +569,21 @@ ok("the explanation folds on a phone",
    && /ab-status-slim/.test(cards));
 ok("the market-flow summary becomes a one-line disclosure on a phone",
    /<details className="wl-market wl-market-fold"/.test(cards));
+// The phone filter row has to hold its three everyday controls on ONE line,
+// and the thing that decides that is the search box's flex BASIS, not its
+// growth and not an auto margin. `flex: 1 1 auto` sizes it from its content
+// when the lines are formed — ~224px on the live board — which filled the row
+// with the search and the Filters button and pushed the "N shown" count onto a
+// third line. Auto margins are zero during line breaking, so `margin-left:
+// auto` could only right-align the count on the line it had already landed on.
+//
+// This is pinned as a rule rather than a measurement because the sandbox
+// cannot reproduce it: its stub count reads "12 shown" and fits either way.
+// Verified by injecting the rule into the live page against the real
+// 1265-name board — 96px tall to 76px, all three controls on one line.
+ok("the phone search box grows from a zero basis, so the row stays two lines",
+   /\.ab-filters-phone \.ab-search \{ flex: 1 1 0; min-width: 0; \}/.test(css)
+   && !/\.ab-filters-phone > \.muted \{[^}]*margin-left: auto/.test(css));
 ok("the advanced filters fold, and the everyday ones do not",
    /ab-filters-lite/.test(cards)
    && /\.ab-filters-lite \.wl-adv \{ display: none; \}/.test(css)
