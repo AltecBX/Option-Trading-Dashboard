@@ -14605,6 +14605,10 @@ body { overflow: hidden; overscroll-behavior: none; }
   .ab-filters-phone .wl-viewtabs { flex: 1 0 100%; }
   .ab-filters-phone .ab-search { flex: 1 1 auto; min-width: 0; }
   .ab-filters-phone .wl-morefilters { flex: 0 0 auto; }
+  /* Measured live on v4.98: the search box and the Filters button DID pair up,
+     and then the "N shown" count took a third row of its own — 17px of content
+     costing 23px of workspace. It belongs at the end of the row it counts. */
+  .ab-filters-phone > .muted { flex: 0 0 auto; margin-left: auto; }
   .ab-filters-lite .wl-adv { display: none; }
   .wl-morefilters {
     font-size: 12px; font-weight: 600; color: var(--fg-2);
