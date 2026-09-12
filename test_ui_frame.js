@@ -569,6 +569,21 @@ ok("the explanation folds on a phone",
    && /ab-status-slim/.test(cards));
 ok("the market-flow summary becomes a one-line disclosure on a phone",
    /<details className="wl-market wl-market-fold"/.test(cards));
+// The phone filter row has to hold its three everyday controls on ONE line,
+// and the thing that decides that is the search box's flex BASIS, not its
+// growth and not an auto margin. `flex: 1 1 auto` sizes it from its content
+// when the lines are formed — ~224px on the live board — which filled the row
+// with the search and the Filters button and pushed the "N shown" count onto a
+// third line. Auto margins are zero during line breaking, so `margin-left:
+// auto` could only right-align the count on the line it had already landed on.
+//
+// This is pinned as a rule rather than a measurement because the sandbox
+// cannot reproduce it: its stub count reads "12 shown" and fits either way.
+// Verified by injecting the rule into the live page against the real
+// 1265-name board — 96px tall to 76px, all three controls on one line.
+ok("the phone search box grows from a zero basis, so the row stays two lines",
+   /\.ab-filters-phone \.ab-search \{ flex: 1 1 0; min-width: 0; \}/.test(css)
+   && !/\.ab-filters-phone > \.muted \{[^}]*margin-left: auto/.test(css));
 ok("the advanced filters fold, and the everyday ones do not",
    /ab-filters-lite/.test(cards)
    && /\.ab-filters-lite \.wl-adv \{ display: none; \}/.test(css)

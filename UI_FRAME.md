@@ -572,6 +572,45 @@ A test in `test_spike_scan.py` asserts `market_phase()` and `elapsed_fraction()`
 agree at eight clock times on both a full session and a half day. They are two
 readings of the same bell, and the bug was that nothing made them say so.
 
+## 12e. An auto margin cannot rescue a wrapped flex item (v4.99)
+
+The first attempt at pulling the watchlist's `N shown` count onto the row it
+counts was `flex: 0 0 auto; margin-left: auto`. A review bot pointed out that
+this cannot work, and it was right:
+
+> Auto margins are treated as **zero while flex lines are formed**, so
+> `margin-left: auto` only right-aligns the item on whichever line it already
+> occupies.
+
+Measured on the live board, 370px wide:
+
+| | Live v4.98 | With the fix |
+|---|---|---|
+| Row 1 | view tabs, 370px | view tabs, 370px |
+| Row 2 | search **289** + Filters **75** = 370, full | search **210** + Filters **75** + count **73** |
+| Row 3 | `1265 shown` | — |
+| Height | **96px** | **76px** |
+
+What decides it is the search box's flex **basis**. `flex: 1 1 auto` sizes it
+from its content when the lines are formed — about 224px here — which is
+already enough that the search and the button fill the row, and everything
+after them wraps. `flex: 1 1 0` lets all three onto one line and the search
+then grows into what is left.
+
+### How it was verified, since the sandbox cannot see it
+
+The stub's count reads `12 shown` and fits either way, so the test measures
+76px with the bug and 76px without it. Widening the stub did not help either:
+the board filters its rows against the real watchlist, so invented symbols are
+dropped — 121 fake tickers rendered 2 cards.
+
+So the candidate rule was injected into the **live page** through the Access
+bridge and measured against the real 1265-name board. That is the honest way to
+verify a fix whose trigger only exists in production, and it is why this one is
+pinned as a **rule** in `test_ui_frame.js` rather than as a number: a guard that
+measures 76 either way proves nothing, while a guard on the basis pins the
+mechanism that actually decides it.
+
 ## 12d. The navigation was charging the sidebar rent (v4.99)
 
 The section switcher — four rows of destinations, plus the opportunity ribbon

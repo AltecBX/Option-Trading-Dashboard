@@ -14625,12 +14625,22 @@ body { overflow: hidden; overscroll-behavior: none; }
      and the button sits beside it. Two rows, 64px. */
   .ab-filters-phone { gap: 6px; margin-bottom: 8px; align-items: center; }
   .ab-filters-phone .wl-viewtabs { flex: 1 0 100%; }
-  .ab-filters-phone .ab-search { flex: 1 1 auto; min-width: 0; }
+  /* The search box must not claim the whole line. `flex: 1 1 auto` sizes it
+     from its CONTENT for line-breaking, and measured on the live board that
+     hypothetical size was ~224px: enough that the search and the Filters
+     button filled the row exactly (289 + 75 = 370 after growing), and the
+     "N shown" count was pushed to a third line — 17px of content costing 23px
+     of a 415px workspace.
+     A zero BASIS is the fix, not an auto margin: auto margins are treated as
+     zero while flex lines are being formed, so `margin-left: auto` can only
+     right-align the count on whichever line it has already landed on. With
+     basis 0 all three fit one line and the search grows into what is left.
+     Verified against the live page with the real 1265-name board: 96px → 76px,
+     search 210 + button 75 + count 73. The sandbox cannot see this — its stub
+     count reads "12 shown" and fits either way. */
+  .ab-filters-phone .ab-search { flex: 1 1 0; min-width: 0; }
   .ab-filters-phone .wl-morefilters { flex: 0 0 auto; }
-  /* Measured live on v4.98: the search box and the Filters button DID pair up,
-     and then the "N shown" count took a third row of its own — 17px of content
-     costing 23px of workspace. It belongs at the end of the row it counts. */
-  .ab-filters-phone > .muted { flex: 0 0 auto; margin-left: auto; }
+  .ab-filters-phone > .muted { flex: 0 0 auto; }
   .ab-filters-lite .wl-adv { display: none; }
   .wl-morefilters {
     font-size: 12px; font-weight: 600; color: var(--fg-2);
