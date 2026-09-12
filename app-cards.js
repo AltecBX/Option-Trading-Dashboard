@@ -5338,16 +5338,21 @@ function WatchlistTableCard({
     disabled: scanning
   }, scanning ? "Scanning…" : "Scan now"))), /*#__PURE__*/React.createElement("div", {
     className: `ab-status${wlIsPhone ? " ab-status-slim" : ""}`
-  }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", new Date(status.last_scan).toLocaleString(), " \xB7 ", rows.length, " stocks") : /*#__PURE__*/React.createElement("span", {
+  }, status.last_scan ? /*#__PURE__*/React.createElement("span", null, "Last scan ", wlIsPhone ? new Date(status.last_scan).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }) : new Date(status.last_scan).toLocaleString(), " \xB7 ", rows.length, " stocks") : /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, "No scan yet \u2014 Scan now pulls valuation, momentum, volume, earnings & moving-average metrics for your tracked stocks (a few minutes for large lists)."), notScanned > 0 && status.last_scan && !scanning && /*#__PURE__*/React.createElement("span", {
     className: "wl-newhint",
     title: "These are in your watchlist but not in the last scan \u2014 added since the scan, or the data source returned no price. Re-scan to include them."
-  }, " ", "\xB7 ", notScanned, " not in last scan \u2014 ", /*#__PURE__*/React.createElement("button", {
+  }, " ", "\xB7 ", notScanned, " ", wlIsPhone ? "unscanned" : "not in last scan", wlIsPhone ? "" : /*#__PURE__*/React.createElement(React.Fragment, null, " \u2014 ", /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "wl-rescan-link",
     onClick: startScan
-  }, "Scan now"), " to include"), !wlIsPhone && /*#__PURE__*/React.createElement("span", {
+  }, "Scan now"), " to include")), !wlIsPhone && /*#__PURE__*/React.createElement("span", {
     className: "muted"
   }, " \xB7 ", /*#__PURE__*/React.createElement("b", null, "Edge"), " = signed flow conviction (+long / \u2212short), size-normalized; sort it to rank morning buys vs sells \xB7 hover a row for the driver breakdown \xB7 Auto-refreshes 9 AM & 6 PM ET \xB7 cached server-side"), status.error && /*#__PURE__*/React.createElement("span", {
     className: "ab-err"
@@ -14277,7 +14282,12 @@ function WatchlistAnalystCard({
     }, "Scan now"), " to build today\u2019s board.") : scope === "today" && type === "all" ? /*#__PURE__*/React.createElement(React.Fragment, null, "No actions dated today \u2014 ", actions.length, " recent ", actions.length === 1 ? "action" : "actions", " on your watchlist. ", /*#__PURE__*/React.createElement("button", {
       className: "wl-rescan-link",
       onClick: () => setScope("recent")
-    }, "Show recent")) : "No actions match this filter.")));
+    }, "Show recent")) : "No actions match this filter."), detected ? /*#__PURE__*/React.createElement("div", {
+      className: "waa-quiet-when"
+    }, /*#__PURE__*/React.createElement(DataStatus, {
+      kind: "cached",
+      note: "Analyst boards are stored results. Nothing is re-checked until you scan again."
+    }), "scanned ", detected) : null));
   }
   const fullBoard = /*#__PURE__*/React.createElement("div", {
     className: "card waa-card"

@@ -383,6 +383,16 @@ ok("a scan qualifies the count rather than replacing it",
 ok("a scan is watched to its end whoever started it",
    /load\(\)\.then\(d => \{ if \(d && d\.scanning\) watchScan\(\); \}\);/.test(cards)
    && /const watchScan = \(\) => \{/.test(cards));
+// Folding is allowed to move the scan time; it is not allowed to lose it.
+// v4.98 hid `.waa-quiet-scanned` on a phone to keep the summary to one line,
+// and that span was the ONLY place `detected_at` was rendered on an empty
+// board — so you could not tell a board scanned an hour ago from one last
+// scanned on Tuesday. "Nothing found" and "nothing looked recently" are
+// different claims, and every other board in this app dates its answer.
+ok("an empty board still says WHEN it last looked",
+   /className="waa-quiet-when"/.test(cards)
+   && /\.waa-quiet-when \{/.test(css)
+   && /<DataStatus kind="cached"[\s\S]{0,200}?scanned \{detected\}/.test(cards));
 ok("and its controls, filters and history are inside that line, not dropped",
    /<div className="waa-quiet-body">\s*\n\s*\{controls\}/.test(cards)
    && /const controls = \(/.test(cards));

@@ -9923,6 +9923,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   letter-spacing: 0.04em; color: var(--fg-4); margin-left: auto;
 }
 .waa-quiet-body { padding: 0 14px 12px; }
+/* Where the scan time goes once the summary stops showing it (v4.98). */
+.waa-quiet-when {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--fg-4);
+}
 /* The populated board folds on a phone too (v4.95b), and what opens is the
    whole card — so the outer disclosure must not pad, border and shadow it a
    second time. Same board, one frame around it. */
@@ -9932,8 +9937,25 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .waa-empty-slim { padding: 10px 0 2px; text-align: left; }
 @media (max-width: 900px) {
-  .waa-quiet > summary { padding: 9px 12px; }
-  .waa-quiet-scanned { margin-left: 0; }
+  /* Three spans, three lines, 55px — on a summary whose whole purpose is to
+     be one line. The count is the fact worth reading here; the scan time is
+     one tap away inside the board it summarises. */
+  /* Six separate margins sat between the top of this workspace and the first
+     stock: the folded board's, the card head's, both disclosures', and the
+     list's own. None is wrong on its own and together they were another
+     twenty pixels of the ninety-five that decided whether a card was legible. */
+  .waa-card.waa-quiet { margin-bottom: 6px; }
+  .ab-card .card-head { margin-bottom: 4px; }
+  .wl-fold { margin: 0 0 5px; }
+  .wl-market-fold { margin-top: 5px !important; }
+  .wl-cards { margin-top: 6px; }
+  .waa-quiet > summary { padding: 7px 12px; gap: 8px; min-height: 30px; }
+  .waa-quiet-scanned { display: none; }
+  .waa-quiet-title { flex: 0 0 auto; }
+  .waa-quiet-note {
+    flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
 }
 
 .waa-table-wrap { overflow: auto; max-height: calc(100vh - 200px); -webkit-overflow-scrolling: touch;
@@ -14535,16 +14557,30 @@ body { overflow: hidden; overscroll-behavior: none; }
    out is what you reach for every time: which view, search, and how many
    rows are showing. */
 @media (max-width: 900px) {
-  .ab-status-slim { font-size: 11.5px; line-height: 1.4; margin-bottom: 6px; }
+  /* `.ab-status` is monospaced, which is right for a row of figures and wrong
+     for a sentence: at ~7px a character this line ran past 370px and wrapped
+     to three, 55px of a 415px workspace. The numbers in it are a date and two
+     counts, not a column to line up, so on a phone it takes the text face. */
+  .ab-status-slim {
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-size: 11.5px; line-height: 1.35; margin-bottom: 6px;
+  }
   .wl-fold { margin: 0 0 8px; }
   .wl-fold > summary { min-height: 24px; }
 
   /* The market read is one line: the regime and the number. The arithmetic
      behind it and the "what to do about it" sentence open underneath. */
   .wl-market-fold { display: block; padding: 6px 10px; }
+  /* `flex-wrap: wrap` let this summary take a second line, which is the one
+     thing a summary must not do — the whole point of folding the market read
+     was to spend one line on it. It stays on one and elides; the full wording
+     is inside, one tap away. */
   .wl-market-fold > summary {
-    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-    cursor: pointer; list-style: none; min-height: 22px;
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap;
+    cursor: pointer; list-style: none; min-height: 22px; overflow: hidden;
+  }
+  .wl-market-fold > summary > * {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .wl-market-fold > summary::-webkit-details-marker { display: none; }
   .wl-market-fold > summary::after {
@@ -14560,7 +14596,15 @@ body { overflow: hidden; overscroll-behavior: none; }
      row, so hiding is display:none on the advanced members — they keep their
      state and their values while folded, which is why the toggle has to
      carry the count. */
-  .ab-filters-phone { gap: 6px; margin-bottom: 8px; }
+  /* Measured on the live deployment at 440x956 (v4.97): this row wrapped to
+     THREE lines — the view tabs, then the search box, then the Filters button
+     with its count on a line of its own — 96px of a 415px workspace. The
+     search box is the only control that wants width, so it takes what is left
+     and the button sits beside it. Two rows, 64px. */
+  .ab-filters-phone { gap: 6px; margin-bottom: 8px; align-items: center; }
+  .ab-filters-phone .wl-viewtabs { flex: 1 0 100%; }
+  .ab-filters-phone .ab-search { flex: 1 1 auto; min-width: 0; }
+  .ab-filters-phone .wl-morefilters { flex: 0 0 auto; }
   .ab-filters-lite .wl-adv { display: none; }
   .wl-morefilters {
     font-size: 12px; font-weight: 600; color: var(--fg-2);

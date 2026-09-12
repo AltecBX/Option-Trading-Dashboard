@@ -239,8 +239,19 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 return
             if "/api/watchlist_table" in url:
                 rows = WATCHLIST_ROWS if self._tab == "watchlist" else ROTATION_ROWS
+                # `status` matters as much as `rows`. Without a `last_scan`
+                # the board draws "No scan yet …" and never draws the scan
+                # line or the "N unscanned" hint — and the hint is what made
+                # the live status block 55px tall, because the Scan button
+                # inside it is a 38px tap target sitting in an 11.5px
+                # sentence. A stub with no status is a stub that cannot see
+                # the tallest thing on the real screen.
                 r.fulfill(status=200, content_type="application/json",
-                          body=json.dumps({"rows": rows}))
+                          body=json.dumps({
+                              "rows": rows,
+                              "status": {"last_scan": "2026-09-11T13:31:00Z",
+                                         "universe_size": len(rows),
+                                         "scanning": False}}))
                 return
             # The analyst board sits above the stocks, and it had TWO ways to
             # be tall. Whether it was SCANNING decided whether it collapsed,
@@ -482,11 +493,30 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "list this check cannot see the thing it exists for")
             top = geo["firstStock"]
             self.assertIsNotNone(top, "no stock card found in the workspace")
-            self.assertLess(
-                top, geo["main"]["h"],
+            # "Its top edge is inside the workspace" is too weak a rule, and
+            # the live deployment proved it: v4.97 measured 409px down a 415px
+            # workspace — six pixels of a 120px card, a sliver under the
+            # filters. That passed `top < height` and is not a stock list you
+            # can read. A card is about 120px, so most of one has to be on
+            # screen for the destination to have opened on its stocks.
+            # "Its top edge is inside the workspace" is too weak a rule, and
+            # the live deployment proved it: v4.97 measured 409px down a 415px
+            # workspace — SIX pixels of a 120px card, a sliver under the
+            # filters. That passed `top < height` and is not a stock list you
+            # can read.
+            #
+            # So the check is how much of the first card you can actually see.
+            # The floor is 64 — about half a card — and it is deliberately not
+            # the 101px this now measures: a floor is a regression line, not a
+            # target, and it belongs in the GAP between the defect (6px) and
+            # the fix (101px). Twice this round a threshold set flush against
+            # one measurement went red on a machine that rounded differently.
+            room = geo["main"]["h"] - top
+            self.assertGreaterEqual(
+                room, 64,
                 f"the first stock begins {top}px down a {geo['main']['h']}px "
-                "workspace — it is below the fold on the destination named "
-                "after it")
+                f"workspace, leaving {room}px of it visible — the Watchlist "
+                "still opens on everything except stocks")
             # Folding the board is only half of it: the one line left behind
             # has to carry the number. The stub above is a populated board
             # mid-scan, which is what the live one looks like during the
