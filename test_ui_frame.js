@@ -363,8 +363,26 @@ ok("an analyst board with nothing on it collapses to one line",
 // the fold — and which load you got was a race. Rows or no rows is the whole
 // question; the scan is a word in the summary line.
 ok("and a scan in flight does not blow it back up",
-   !/const quiet = [^;]*isScanning/.test(cards)
-   && /const quietLine = isScanning\s*\n?\s*\? "scanning…"/.test(cards));
+   !/const quiet = [^;]*isScanning/.test(cards));
+// The board is folded on a phone whether or not it has rows: the live one is
+// 629px of thirteen-column table on an ordinary morning, and folding only the
+// empty case fixed the screenshot and not the destination.
+ok("a populated board folds on a phone too, not just an empty one",
+   /if \(waaPhone && sorted\.length > 0\) \{/.test(cards)
+   && /<details className="card waa-card waa-quiet waa-fold">/.test(cards));
+// …and the summary line has to keep showing the COUNT while that happens.
+// /api/watchlist_analyst returns `scanning: true` alongside cached rows during
+// the scheduled morning scan, and the first draft led with the scan state, so
+// a board with six actions on it summarised itself as "scanning…".
+ok("a scan qualifies the count rather than replacing it",
+   /const quietLine = sorted\.length > 0/.test(cards)
+   && /const scanTail = isScanning \? " · scanning…" : "";/.test(cards));
+// A card that MOUNTS during someone else's scan has to watch it end too —
+// polling used to be created only inside startScan, so such a card said
+// "scanning" until it was remounted, long after the rows had changed.
+ok("a scan is watched to its end whoever started it",
+   /load\(\)\.then\(d => \{ if \(d && d\.scanning\) watchScan\(\); \}\);/.test(cards)
+   && /const watchScan = \(\) => \{/.test(cards));
 ok("and its controls, filters and history are inside that line, not dropped",
    /<div className="waa-quiet-body">\s*\n\s*\{controls\}/.test(cards)
    && /const controls = \(/.test(cards));

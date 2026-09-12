@@ -1577,8 +1577,11 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
   // Candles + volume whenever bars change.
   useEffect(() => {
     if (!candleRef.current || !bars.length) return;
-    candleRef.current.setData(bars.map(b => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })));
-    volRef.current.setData(bars.map(b => ({ time: b.t, value: b.v, color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)" })));
+    // This one filtered nothing at all: one null price anywhere in the series
+    // and the whole chart threw. See isCompleteBar in charts.jsx.
+    const drawable = bars.filter(b => b && isCompleteBar(b.o, b.h, b.l, b.c));
+    candleRef.current.setData(drawable.map(b => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })));
+    volRef.current.setData(drawable.map(b => ({ time: b.t, value: b.v, color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)" })));
     applyHome();
     /* eslint-disable-next-line */
   }, [data, collapsed]);
@@ -1611,7 +1614,10 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         // from the filtered swing lists as they always did.
         const lineColor = dim ? (dir === "up" ? DIMUP : DIMDN) : c;
         const ls = chart.addLineSeries({ color: lineColor, lineWidth: focused ? 3 : 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        const pts = [{ time: s.low_date, value: s.low_price }, { time: s.high_date, value: s.high_price }].sort((x, y) => x.time < y.time ? -1 : 1);
+        const pts = [{ time: s.low_date, value: s.low_price }, { time: s.high_date, value: s.high_price }]
+          .filter(p => p.time && isDrawable(p.value))
+          .sort((x, y) => x.time < y.time ? -1 : 1);
+        if (pts.length < 2) { try { chart.removeSeries(ls); } catch (e) {} return; }
         ls.setData(pts);
         overlayRef.current.lines.push(ls);
       }
@@ -1651,8 +1657,11 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
           priceLineVisible: false, lastValueVisible: false,
           crosshairMarkerVisible: false,
         });
-        ls.setData([{ time: L.start_date, value: L.start_price },
-                    { time: L.end_date, value: L.end_price }]);
+        const lp = [{ time: L.start_date, value: L.start_price },
+                    { time: L.end_date, value: L.end_price }]
+          .filter(p => p.time && isDrawable(p.value));
+        if (lp.length < 2) { try { chart.removeSeries(ls); } catch (e) {} return; }
+        ls.setData(lp);
         overlayRef.current.lines.push(ls);
       });
     }
@@ -10835,6 +10844,9 @@ function MarketCalendarCard({ apiFetch, onSwitchTicker, onOpenEarnOps }) {
 // for watchlist names, drawn from the morning analyst-board scan. Today's
 // actions are highlighted so the morning read is instant.
 function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
+  // On a phone this board stands between you and the stock list, so it opens
+  // folded here whether or not it has rows — see the `quiet` gate below.
+  const waaPhone = useIsPhone();
   const [data, setData] = useState(null);
   const [scope, setScope] = useState("today");   // today | recent
   const [type, setType] = useState("all");        // all|upgrade|downgrade|pt_up|pt_cut|initiate|high|multi
@@ -10857,18 +10869,29 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     } catch (_) { return null; }
   };
   useEffect(() => {
-    load();
+    load().then(d => { if (d && d.scanning) watchScan(); });
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  // Watch a scan to its end, whoever started it. This used to be created only
+  // inside startScan, so a card that MOUNTED during the 9 AM scheduled scan
+  // read `scanning` once and then nothing: it sat there saying so until the
+  // tab was remounted, long after the scan had finished and the rows had
+  // changed underneath it. Polling belongs to the state, not to the button.
+  const watchScan = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const d = await load();
+      if (!d || !d.scanning) {
+        clearInterval(pollRef.current); pollRef.current = null; setBusy(false);
+      }
+    }, 4000);
+  };
 
   const startScan = async () => {
     setBusy(true);
     try { await apiFetch("/api/analyst_board/scan?days=2&force=1"); } catch (_) {}
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      const d = await load();
-      if (!d || !d.scanning) { clearInterval(pollRef.current); pollRef.current = null; setBusy(false); }
-    }, 4000);
+    watchScan();
   };
 
   const actions = (data && data.actions) || [];
@@ -10927,14 +10950,30 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
   // load you got was a race. A board with no rows is a board with no rows; the
   // scan is a state the summary line can carry, and the Scanning… button is
   // still one tap inside.
+  // …and the LIVE board is not usually empty, which the sandbox never showed:
+  // measured on the deployment with a real watchlist, this card was 629px tall
+  // with rows in it and the first stock card began 957px down a 415px
+  // workspace. Folding only the EMPTY case fixed the screenshot and not the
+  // destination. On a phone this board is always a summary line — the count is
+  // the part you want at a glance, and the board itself is one tap under it.
   const quiet = sorted.length === 0;
-  const quietLine = isScanning
-    ? "scanning…"
-    : actions.length === 0
-      ? "nothing scanned yet"
-      : (scope === "today" && type === "all")
-        ? `no actions today · ${actions.length} recent`
-        : "nothing matches this filter";
+  // The count comes FIRST, and a scan qualifies it rather than replacing it.
+  // /api/watchlist_analyst returns `scanning: true` alongside the cached rows
+  // while the scheduled morning scan runs, so putting the scan state first
+  // meant the summary said "scanning…" over a board with six actions on it —
+  // hiding the one number this line exists to show, at exactly the hour Jerry
+  // reads it. Only a board with nothing on it leads with the scan.
+  const scanTail = isScanning ? " · scanning…" : "";
+  const quietLine = sorted.length > 0
+    ? `${sorted.length} ${sorted.length === 1 ? "action" : "actions"}`
+      + (scope === "today" ? " today" : " recent") + scanTail
+    : isScanning
+      ? "scanning…"
+      : actions.length === 0
+        ? "nothing scanned yet"
+        : (scope === "today" && type === "all")
+          ? `no actions today · ${actions.length} recent`
+          : "nothing matches this filter";
 
   const controls = (
     <>
@@ -10981,7 +11020,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     );
   }
 
-  return (
+  const fullBoard = (
     <div className="card waa-card">
       <div className="card-head waa-head">
         <div>
@@ -11072,6 +11111,25 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
       )}
     </div>
   );
+
+  // A board WITH rows is the live case, and on a phone it is 629 pixels of
+  // thirteen-column table between you and the stock list. Same card, same
+  // table, same everything — behind a summary line that leads with the count,
+  // which is the part you actually want at a glance in the morning.
+  if (waaPhone && sorted.length > 0) {
+    return (
+      <details className="card waa-card waa-quiet waa-fold">
+        <summary title="Analyst upgrades, downgrades and price-target changes on your watchlist. Open for the full board, its filters and a fresh scan.">
+          <span className="waa-quiet-title">Analyst Actions</span>
+          <span className="waa-quiet-note">{quietLine}</span>
+          {detected ? <span className="waa-quiet-scanned">scanned {detected}</span> : null}
+        </summary>
+        <div className="waa-quiet-body waa-fold-body">{fullBoard}</div>
+      </details>
+    );
+  }
+
+  return fullBoard;
 }
 
 // Company profile (Yahoo "Profile" page) — shown inside the News tab so it

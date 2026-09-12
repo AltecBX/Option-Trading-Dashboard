@@ -1,4 +1,4 @@
-# The permanent frame (v4.95)
+# The permanent frame (v4.97)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -461,6 +461,27 @@ the summary line, not a reason to reopen an empty panel. The test now pins
 `scanning: true` in its stub so it exercises the worse of the two every time —
 a check whose answer depends on timing is not a check.
 
+**And a sixth, which only the live deployment could show.** Everything above was
+measured against a sandbox whose analyst endpoint returns nothing. The real one
+does not. Measured on the deployment at 440×956 with Jerry's actual watchlist:
+
+| | Sandbox | Live |
+|---|---|---|
+| Analyst board | 64px, collapsed | **629px**, a thirteen-column table |
+| First stock card | +325 | **+957** in a 415px workspace |
+
+The fix folded the board when it was **empty**, so it fixed the screenshot and
+not the destination — on any ordinary morning the board has rows and still owned
+the first two screens. Now the populated board folds on a phone too: the same
+card, the same table, the same filters, behind a summary that leads with the
+count (`6 actions today`), which is the part worth a glance at 7am.
+
+The lesson is the one this document keeps re-learning, in a new place: **a stub
+gentler than production is a stub that passes a broken page.** `ANALYST_ACTIONS`
+in `test_frame_render.py` is now a populated board *mid-scan* — both hard cases
+at once. Reverting the fold against it gives `894 not less than 415`; against
+the old empty stub it gave nothing at all.
+
 ### Rotating the phone brought the desktop back
 
 Every mobile rule in `styles.css` is written `max-width: 900px`. Rotate a
@@ -548,6 +569,55 @@ underneath fold into a disclosure when there is nothing to show.
 A test in `test_spike_scan.py` asserts `market_phase()` and `elapsed_fraction()`
 agree at eight clock times on both a full session and a half day. They are two
 readings of the same bell, and the bug was that nothing made them say so.
+
+## 12b. A bar with a missing price took the whole page down (v4.97)
+
+`lightweight-charts` throws **"Value is null"** out of its Candlestick
+constructor if any one of open/high/low/close is missing, and the throw escapes
+into the page: one uncaught error per render attempt, a dozen in ten seconds,
+and the chart never draws.
+
+Three call sites hand bars to a candlestick series. Two filtered on
+`close != null` — the field a forming bar is *least* likely to be missing — and
+the third filtered nothing at all:
+
+| | Before | |
+|---|---|---|
+| `charts.jsx` daily chart | `d.close != null` | one of four |
+| `charts.jsx` intraday chart | `b.close != null` | one of four |
+| `app-cards.jsx` day-bar chart | *nothing* | none of four |
+
+One predicate now answers it for all three, and the same rule covers the
+one-value line and area series, where `!= null` also lets `NaN` through:
+
+```js
+function isDrawable(v) { return v != null && typeof v === "number" && isFinite(v); }
+function isCompleteBar(o, h, l, c) { return [o, h, l, c].every(isDrawable); }
+```
+
+**An incomplete bar is not drawn.** Carrying the previous close forward would
+also silence the throw, but this is a trading app: a gap in the series is
+honest, and a price nobody printed must never appear on a chart.
+
+### What makes this one worth writing down
+
+Every check in this repository passed at 7am and **twelve of them went red at
+9:31** — the same suite, the same commit, the same machine. The bug needed an
+incomplete bar to exist, and an incomplete bar only exists while the market is
+open. For half an hour it looked like a regression in the change being worked
+on; `git stash` and a rebuild proved it was not.
+
+So the guard does not wait for a bell. `MockData.buildDaily` is wrapped before
+the app loads and two bars in the middle of the series lose a price — one its
+`open`, one its `high`, neither of them the newest row, because a guard that
+only skips the last bar would pass while still breaking on a hole anywhere
+else. Reverting to the close-only filter reproduces the crash on demand:
+`AssertionError: [... 17 × 'pageerror: Value is null'] is not false`.
+
+This is §12's lesson again, from the other direction. There, the sandbox was
+*gentler* than production and hid a defect. Here it was gentler for twenty-two
+hours a day and hid a crash. **The fixtures have to carry the hard case, because
+the clock will not hand it to you on the run that matters.**
 
 ## 13. Not verified here — needs your phone
 

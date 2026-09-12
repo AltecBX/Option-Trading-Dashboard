@@ -10,6 +10,31 @@ const {
 } = React;
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+// A candle needs FOUR numbers. lightweight-charts throws "Value is null" out
+// of its Candlestick constructor if any one of open/high/low/close is missing,
+// and the throw escapes into the page: one uncaught error per render attempt,
+// a dozen in ten seconds, and the chart never draws.
+//
+// Two of the three call sites filtered on `close != null` alone, which is the
+// field a forming bar is LEAST likely to be missing, and the third did not
+// filter at all. At the 9:30 open the first bar of the session arrives with a
+// null `open` and every chart on the page started throwing.
+//
+// The rule is: a bar that is not complete is not drawn. Carrying the previous
+// close forward would also silence it, but this is a trading app and a price
+// nobody printed must never appear on a chart — a gap in the series is honest,
+// an invented candle is not. Volume is allowed to be missing; it is drawn as
+// zero on its own series and cannot throw.
+function isCompleteBar(o, h, l, c) {
+  return [o, h, l, c].every(isDrawable);
+}
+// The same rule for a one-value point: line, area and histogram series reject
+// null the same way the candlestick does. NaN passes a `!= null` check and
+// fails inside the library, so this asks for a real number, not a non-null.
+function isDrawable(v) {
+  return v != null && typeof v === "number" && isFinite(v);
+}
 function fmt$(v, d = 2) {
   return "$" + (v >= 0 ? v.toFixed(d) : "-" + (-v).toFixed(d));
 }
@@ -294,7 +319,8 @@ function TVPriceChart({
   }, [LC, chartStyle]);
   React.useEffect(() => {
     if (!mainRef.current || !daily || !daily.length) return;
-    const rows = daily.filter(d => d && d.close != null);
+    // `close` alone was the old guard; a candle needs all four.
+    const rows = daily.filter(d => d && (chartStyle === "area" ? d.close != null && isFinite(d.close) : isCompleteBar(d.open, d.high, d.low, d.close)));
     if (chartStyle === "area") mainRef.current.setData(rows.map(d => ({
       time: norm(d.date),
       value: d.close
@@ -337,7 +363,7 @@ function TVPriceChart({
       lines: [],
       series: []
     };
-    const rows = daily.filter(d => d && d.close != null);
+    const rows = daily.filter(d => d && isDrawable(d.close));
     const closes = rows.map(d => d.close);
     const sma = n => {
       const out = [];
@@ -2992,7 +3018,7 @@ function IntradayChart({
       r = refs.current;
     if (!chart || !r.candles || !data || !data.bars || !data.bars.length) return;
     const t = ms => Math.floor(ms / 1000);
-    const bars = data.bars.filter(b => b && b.close != null);
+    const bars = data.bars.filter(b => b && isCompleteBar(b.open, b.high, b.low, b.close));
     r.candles.setData(bars.map(b => ({
       time: t(b.ts),
       open: b.open,
@@ -3074,6 +3100,8 @@ Object.assign(window, {
   fmt$,
   fmtPct,
   fmtDate,
-  niceTicks
+  niceTicks,
+  isCompleteBar,
+  isDrawable
 });
 })();

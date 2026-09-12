@@ -115,6 +115,18 @@ WATCHLIST_ROWS = [{
 } for i, s in enumerate(
     "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX CRM ORCL ADBE".split())]
 
+# A board with rows on it, because that is what the live one has on any
+# ordinary morning. Nine is a normal day's worth; the defect this guards
+# against needs only that the board be non-empty.
+ANALYST_ACTIONS = [{
+    "symbol": s, "company": f"{s} Holdings Incorporated",
+    "firm": "Morgan Stanley", "action_type": "upgrade",
+    "action_date": "2026-09-11", "rating_from": "Equal-Weight",
+    "rating_to": "Overweight", "prev_target": 180.0, "new_target": 240.0,
+    "current_price": 200.0, "upside_pct": 20.0, "impact_score": 78,
+    "direction": "up", "fresh_today": True, "source": "Benzinga",
+} for s in "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX".split()]
+
 _SKIP: list = []
 
 
@@ -193,7 +205,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def _measure(self, width, height, tab="trade"):
+    def _measure(self, width, height, tab="trade", init=""):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -230,15 +242,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"rows": rows}))
                 return
-            # The analyst board sits above the stocks, and whether it was
-            # SCANNING decided whether it collapsed — so which load you got
-            # was a coin flip. It measured 329px in one run and 668px in the
-            # next with identical code. Pinning `scanning: True` here makes
-            # this test exercise the worse of the two every time, because the
-            # worse one is the one that regressed.
+            # The analyst board sits above the stocks, and it had TWO ways to
+            # be tall. Whether it was SCANNING decided whether it collapsed,
+            # so which load you got was a coin flip: 329px on one run, 668px
+            # on the next with identical code. And an empty stub hid the case
+            # that actually matters — the live board usually HAS rows, and
+            # measured on the deployment it was 629px of thirteen-column
+            # table with the first stock 957px down a 415px workspace. A stub
+            # gentler than production is a stub that passes a broken page, so
+            # this one is a populated board mid-scan: both at once.
             if "/api/watchlist_analyst" in url:
                 r.fulfill(status=200, content_type="application/json",
-                          body=json.dumps({"actions": [], "scanning": True}))
+                          body=json.dumps({"actions": ANALYST_ACTIONS,
+                                           "scanning": True,
+                                           "detected_at": "2026-09-11T09:31:00Z"}))
                 return
             if "/api/quote" in url:
                 syms = []
@@ -255,6 +272,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             "try{localStorage.setItem('jerry_active_tab_v1','" + tab + "');"
             "localStorage.setItem('weeklyOptionsTimer.tweaks.v1',"
             "JSON.stringify({theme:'dark'}))}catch(e){}")
+        if init:
+            page.add_init_script(init)
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
         page.wait_for_selector(".shell", timeout=30000)
         page.wait_for_timeout(6000)
@@ -288,6 +307,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 // landscape, just invisible — so this counts the ones a
                 // person could actually see, and the tabbed card that is
                 // supposed to replace them.
+                waaLine: (() => {
+                  const s = document.querySelector('.waa-quiet > summary');
+                  return s ? s.innerText.replace(/\\s+/g, ' ').trim() : null; })(),
                 railsMounted: document.querySelectorAll('.lrail, .rrail').length,
                 railsVisible: [...document.querySelectorAll('.lrail, .rrail')]
                   .filter(e => getComputedStyle(e).display !== 'none').length,
@@ -465,6 +487,17 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 f"the first stock begins {top}px down a {geo['main']['h']}px "
                 "workspace — it is below the fold on the destination named "
                 "after it")
+            # Folding the board is only half of it: the one line left behind
+            # has to carry the number. The stub above is a populated board
+            # mid-scan, which is what the live one looks like during the
+            # morning scan, and the first draft answered "scanning…" there —
+            # hiding the count at exactly the hour it is read.
+            line = geo["waaLine"]
+            self.assertIsNotNone(line, "the analyst board is not folded at all")
+            self.assertIn(
+                f"{len(ANALYST_ACTIONS)} actions", line,
+                f"the folded board says {line!r} — a scan in progress has "
+                "replaced the count rather than qualifying it")
         finally:
             self._close(handles)
 
@@ -613,6 +646,63 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def test_the_frame_is_on_screen_in_landscape(self):
         self._check(956, 440)
+
+    def test_a_bar_with_a_missing_price_does_not_take_the_page_down(self):
+        """lightweight-charts throws "Value is null" out of its Candlestick
+        constructor if any one of open/high/low/close is missing, and the throw
+        escapes into the page — one uncaught error per render attempt, a dozen
+        in ten seconds, and the chart never draws.
+
+        Two of the three call sites filtered on `close != null` alone, which is
+        the field a forming bar is least likely to be missing; the third did not
+        filter at all. It reached production and only showed itself when the
+        market was open, because that is when an incomplete bar exists: every
+        check in this repo passed at 7am and twelve of them went red at 9:31.
+
+        A test that needs the bell to ring is not a test, so this one puts the
+        hole in the data itself. `MockData.buildDaily` is what feeds the chart
+        in the sandbox, so it is wrapped before the app loads and one bar in the
+        middle of the series has its `open` removed."""
+        holed = """
+          (() => {
+            let real = undefined;
+            Object.defineProperty(window, 'MockData', {
+              configurable: true,
+              get() { return real; },
+              set(v) {
+                real = v;
+                if (v && typeof v.buildDaily === 'function') {
+                  const inner = v.buildDaily.bind(v);
+                  v.buildDaily = (...a) => {
+                    const rows = inner(...a);
+                    if (rows && rows.length > 6) {
+                      // Not the last bar: a guard that only skips the newest
+                      // row would pass this while still breaking on a hole
+                      // anywhere else in the history.
+                      rows[rows.length - 4] = { ...rows[rows.length - 4],
+                                                open: null };
+                      rows[3] = { ...rows[3], high: null };
+                    }
+                    return rows;
+                  };
+                }
+              },
+            });
+          })();
+        """
+        geo, errors, handles = self._measure(1440, 900, init=holed)
+        try:
+            self.assertFalse(
+                errors,
+                "a bar with a missing price threw out of the chart and into "
+                f"the page: {errors[:3]}")
+            # And the rest of the series still draws — dropping the incomplete
+            # bar must not mean dropping the chart.
+            self.assertEqual(10, geo["tiles"],
+                             "the market strip stopped rendering as well")
+            self.assertIsNotNone(geo["main"], "the workspace is gone")
+        finally:
+            self._close(handles)
 
 
 if __name__ == "__main__":
