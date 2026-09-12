@@ -1,4 +1,4 @@
-# The permanent frame (v4.98)
+# The permanent frame (v4.99)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -29,8 +29,10 @@ already were — *rendered*. The whole document scrolled, so:
 
 ```
 .shell                     height:100dvh, grid-template-rows: auto 1fr auto
-├── .frame-top             app bar · market band · ten charts · section bar
-├── .frame-body            sidebar │ .main  ← THE ONLY SCROLLING BOX
+├── .frame-top             app bar · market band · ten charts · opportunities
+├── .frame-body            sidebar │ .frame-col
+│                                     ├── .tab-bar   (the section switcher)
+│                                     └── .main      ← THE ONLY SCROLLING BOX
 └── .frame-bottom          Market News row · Tickers row · status line
     (+ .lrail ×4, fixed in the margins, ending where the feeds begin)
 ```
@@ -569,6 +571,40 @@ underneath fold into a disclosure when there is nothing to show.
 A test in `test_spike_scan.py` asserts `market_phase()` and `elapsed_fraction()`
 agree at eight clock times on both a full session and a half day. They are two
 readings of the same bell, and the bug was that nothing made them say so.
+
+## 12d. The navigation was charging the sidebar rent (v4.99)
+
+The section switcher — four rows of destinations, plus the opportunity ribbon
+above it — spanned **both columns** at the foot of the top frame. The sidebar
+therefore started underneath it, and paid for it: about **130 pixels of
+sidebar** spent on a bar that only ever steers the workspace.
+
+Measured at 1900×1200:
+
+| | Before | After |
+|---|---|---|
+| Section bar | `x=24, w=1852` — the full window | `x=352, w=1524` — over the workspace |
+| Sidebar | top `y=437`, **695px** tall | top `y=337`, **795px** tall |
+| Workspace | top `y=437`, **695px** tall | top `y=437`, **695px** tall |
+
+The bar now lives in a `.frame-col` alongside the workspace, over the thing it
+steers, and the sidebar begins level with it. The opportunity ribbon moved with
+it, and the posture card grew to run the top frame's full height.
+
+**The workspace pays exactly what it paid before.** The bar crossed the frame
+boundary; it did not take anything new. What changed is which column pays, and
+the sidebar — which had been showing TICKER and WATCHLIST and cutting off
+before PRESETS — now reaches RETURN BASELINE without scrolling.
+
+What must not change, and is guarded: the bar is still **frame, not
+workspace**. It sits outside `.main`, so it cannot scroll away, which is the
+whole reason it left the document flow in §1. Reverting `.frame-col` to
+`display: block` gives `749 not greater than or equal to 809: the sidebar is
+749px against a 749px workspace — it did not gain the bar's height`.
+
+Phone and landscape are untouched: the bar is `display: none` there and the
+tool picker replaces it, so the measurements at 440×956 and 956×440 are
+identical before and after.
 
 ## 12c. "Inside the workspace" is not the same as "visible" (v4.98)
 

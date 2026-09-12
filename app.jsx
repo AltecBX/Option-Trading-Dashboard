@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "4.98";
+const APP_VERSION = "4.99";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3213,11 +3213,6 @@ function App() {
       <MarketOverview apiFetch={apiFetch} onSwitchTicker={switchTicker} />
       {!bandInWorkspace && marketBand}
 
-      {/* Tab bar (v1.25) — full-width section switcher, spans both columns */}
-      <TabBar active={activeTab} onChange={changeTab} ticker={ticker}
-              tabs={orderedTabs} onReorder={saveTabOrder} apiFetch={apiFetch}
-              earnDate={loadError ? null : current.next_earnings}
-              earnDays={loadError ? null : current.days_to_earnings} />
       </div>
 
       {/* ── THE PERMANENT FRAME: BODY (the only thing that scrolls) ─────── */}
@@ -3679,6 +3674,20 @@ function App() {
           )}
         </div>
       </aside>
+
+      {/* ── THE WORKSPACE COLUMN ───────────────────────────────────────────
+          The section switcher used to span BOTH columns at the bottom of the
+          top frame, which pushed the sidebar down by its full height — about
+          130px of sidebar spent on a bar that only ever steers the workspace.
+          It now sits in this column, over the thing it steers, and the sidebar
+          begins level with it. The workspace keeps exactly the height it had:
+          the bar moved from one side of the frame boundary to the other, so
+          what it costs comes out of the same total. */}
+      <div className="frame-col">
+      <TabBar active={activeTab} onChange={changeTab} ticker={ticker}
+              tabs={orderedTabs} onReorder={saveTabOrder} apiFetch={apiFetch}
+              earnDate={loadError ? null : current.next_earnings}
+              earnDays={loadError ? null : current.days_to_earnings} />
 
       {/* ── MAIN ──────────────────────────────────────────────────────────
           The ONLY scrolling region. The charts, the rails, the section bar
@@ -8639,7 +8648,8 @@ function App() {
           </Tweaks>
         )}
       </main>
-      </div>
+      </div>{/* .frame-col */}
+      </div>{/* .frame-body */}
 
       {/* ── THE PERMANENT FRAME: BOTTOM ───────────────────────────────────
           Two separate continuously-scrolling rows plus one compact status

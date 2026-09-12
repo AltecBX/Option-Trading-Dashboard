@@ -13674,9 +13674,13 @@ body { overflow: hidden; overscroll-behavior: none; }
   .mko-regime  { grid-column: 2 / -1; grid-row: 2; margin: 0 0 6px; }
   .mko-grid    { grid-column: 2 / -1; grid-row: 3; margin: 0 0 8px; }
   .mctx        { grid-column: 2 / -1; grid-row: 4; margin: 0; }
-  .posture-card{ grid-column: 1;      grid-row: 2 / 5; align-self: stretch; margin: 0; }
-  .opp-ribbon  { grid-column: 1 / -1; grid-row: 5; margin: 8px 0 0; }
-  .tab-bar     { grid-column: 1 / -1; grid-row: 6; }
+  /* The posture card now runs the full height of the top frame, because the
+     two strips that used to sit under it — the opportunity ribbon and the
+     section bar — moved into the workspace's column with everything else that
+     only ever steers the workspace (v4.99). */
+  .posture-card{ grid-column: 1;      grid-row: 2 / 6; align-self: stretch; margin: 0; }
+  .opp-ribbon  { grid-column: 2 / -1; grid-row: 5; margin: 8px 0 0; }
+  /* .tab-bar has left the top frame entirely — see .frame-col. */
 }
 
 /* ── The desktop app bar ─────────────────────────────────────────────────── */
@@ -13753,6 +13757,24 @@ body { overflow: hidden; overscroll-behavior: none; }
   overflow-x: hidden;
   margin-bottom: 12px;
 }
+
+/* ── The workspace column (v4.99) ─────────────────────────────────────────
+   The section switcher used to span both columns at the foot of the top
+   frame, so the sidebar started BELOW it — roughly 130 pixels of sidebar
+   spent on a bar that only ever steers the workspace. It now lives in this
+   column, over the thing it steers, and the sidebar begins level with it.
+
+   The workspace keeps exactly the height it had: the bar moved from one side
+   of the frame boundary to the other, so its cost comes out of the same
+   total. What changes is which column pays for it. */
+.frame-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.frame-col > .tab-bar { flex: 0 0 auto; }
+.frame-col > .main { flex: 1 1 auto; }
 
 .main {
   min-height: 0;

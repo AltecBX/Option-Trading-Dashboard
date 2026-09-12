@@ -312,6 +312,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   const e = document.querySelector('.sidebar');
                   return e ? getComputedStyle(e).position : null; })(),
                 secnavOpen: box('.secnav-open'), secnavRow: box('.secnav-row'),
+                tabbar: box('.tab-bar'), frameCol: box('.frame-col'),
                 // A rail that is mounted and display:none is the exact defect
                 // the frame was built to end: fetched, polling, unreachable.
                 // Counting them is not enough — they were all four THERE in
@@ -676,6 +677,50 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def test_the_frame_is_on_screen_in_landscape(self):
         self._check(956, 440)
+
+    def test_the_nav_band_costs_the_workspace_column_not_the_sidebar(self):
+        """The section switcher spanned BOTH columns at the foot of the top
+        frame, so the sidebar started below it: about 130px of sidebar spent on
+        a bar that only ever steers the workspace. Measured at 1900x1200 the
+        sidebar was 695px tall to the workspace's 695.
+
+        It now sits in the workspace's own column, over the thing it steers,
+        and the sidebar begins level with it. The point of the move is that the
+        workspace pays exactly what it paid before — the bar crossed the frame
+        boundary, it did not take anything new — so this asserts both halves:
+        the sidebar gained, and the workspace did not lose."""
+        geo, errors, handles = self._measure(1900, 1200)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual(10, geo["tiles"], "the ten charts are still there")
+            bar, side, main = geo["tabbar"], geo["sidebar"], geo["main"]
+            for name, box in (("section bar", bar), ("sidebar", side)):
+                self.assertIsNotNone(box, f"the {name} is missing")
+            # Aligned with the workspace, not with the window.
+            self.assertEqual(
+                main["l"], bar["l"],
+                f"the section bar starts at x={bar['l']} and the workspace at "
+                f"x={main['l']} — it is not over the thing it steers")
+            self.assertLessEqual(
+                abs(bar["w"] - main["w"]), 2,
+                f"the section bar is {bar['w']}px wide over a {main['w']}px "
+                "workspace — it is still spanning the sidebar")
+            # The sidebar starts level with it rather than below it.
+            self.assertLessEqual(
+                abs(side["t"] - bar["t"]), 2,
+                f"the sidebar starts at y={side['t']} and the bar at "
+                f"y={bar['t']} — the sidebar is still paying for the bar")
+            # And the workspace did not lose height to pay for that.
+            self.assertGreaterEqual(
+                side["h"], main["h"] + 60,
+                f"the sidebar is {side['h']}px against a {main['h']}px "
+                "workspace — it did not gain the bar's height")
+            self.assertGreaterEqual(
+                main["h"], 600,
+                f"the workspace is {main['h']}px tall at 1900x1200; it paid "
+                "for the move it was supposed to be neutral on")
+        finally:
+            self._close(handles)
 
     def test_a_bar_with_a_missing_price_does_not_take_the_page_down(self):
         """lightweight-charts throws "Value is null" out of its Candlestick

@@ -55,9 +55,22 @@ ok("the section bar rides in the frame, not on a sticky offset",
 ok("the three frame regions exist in the shell",
    /className="frame-top"/.test(app) && /className="frame-body"/.test(app)
    && /className="frame-bottom"/.test(app));
-ok("the ten charts and the section bar are inside the top frame, not the workspace",
+ok("the ten charts are inside the top frame, not the workspace",
    app.indexOf('className="frame-top"') < app.indexOf("<MarketOverview")
    && app.indexOf("<MarketOverview") < app.indexOf('className="frame-body"'));
+// The section bar used to span BOTH columns at the foot of the top frame, so
+// the sidebar began below it and lost ~130px to a bar that only ever steers
+// the workspace. It now rides in the workspace's own column. What must not
+// change is that it is still FRAME: outside `.main`, so it cannot scroll away
+// — which is the whole reason it left the document flow in the first place.
+ok("the section bar rides in the workspace column, above the workspace",
+   /<div className="frame-col">\s*\n\s*<TabBar/.test(app));
+ok("and it is still outside the scrolling box, so it cannot scroll away",
+   app.indexOf('<div className="frame-col">') < app.indexOf('<main className="main">')
+   && app.indexOf("<TabBar") < app.indexOf('<main className="main">'));
+ok("the column is a flex column so the workspace keeps the remaining height",
+   /\.frame-col \{[^}]*display: flex;[^}]*flex-direction: column;/.test(css)
+   && /\.frame-col > \.main \{ flex: 1 1 auto; \}/.test(css));
 ok("both bottom feeds are inside the bottom frame",
    app.indexOf('className="frame-bottom"') < app.indexOf("<NewsTicker")
    && /\.mn-stack\.mn-bottom \{\s*\n?\s*position: static;/.test(css));
