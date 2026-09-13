@@ -11955,6 +11955,17 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
     return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
   }, [rows]);
 
+  // v5.01: an empty daily rail collapses to a 30px label (CSS), and when BOTH
+  // daily rails are empty the frame takes their width back. The frame is not
+  // this component's to size, so the fact goes on <body> as a class and the
+  // CSS does the arithmetic — the same way the theme reaches every rule.
+  const railEmpty = !asPanel && !!cfg.emptyNote && rows.length === 0;
+  useEffect(() => {
+    const cls = `rail-empty-${kind}`;
+    document.body.classList.toggle(cls, railEmpty);
+    return () => document.body.classList.remove(cls);
+  }, [kind, railEmpty]);
+
   if (!rows.length) {
     // Daily rails keep their frame with a note (pre-open nothing qualifies —
     // vanishing read as a missing feature); 52W rails simply hide. In panel
@@ -11969,8 +11980,8 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
     }
     if (!cfg.emptyNote) return null;
     return (
-      <div className={cfg.wrapCls} aria-label={cfg.aria}>
-        <div className={cfg.titleCls} title={cfg.headTip}>{cfg.heading}</div>
+      <div className={`${cfg.wrapCls} lrail--empty`} aria-label={cfg.aria}>
+        <div className={cfg.titleCls} title={`${cfg.emptyTip} ${cfg.headTip}.`}>{cfg.heading}</div>
         <div className="lrail-empty" title={cfg.emptyTip}>{cfg.emptyNote}</div>
       </div>
     );
@@ -13059,6 +13070,7 @@ function ShortcutsSheet({ open, onClose }) {
   const rows = [
     ["⌘K  or  /", "Open the command palette (tickers, tabs, actions)"],
     ["[  and  ]", "Previous / next tab"],
+    ["F", "Focus — shrink the top frame to one strip of numbers; press again to restore it"],
     ["?", "This shortcuts sheet"],
     ["esc", "Close any dialog"],
   ];

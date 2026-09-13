@@ -3636,3 +3636,54 @@ first print.
 
 27 guards in `test_analyst_uw.py`, every fixture row shaped like a row the
 live UW endpoint returned on 2026-09-13.
+
+## v5.01 — Focus: the frame gives the tool the screen
+
+Jerry: "Make this comfortable to view and navigate all day long. I still feel
+like it has a lot to go to be comparable to a Bloomberg or a Koyfin."
+
+Measured first, at 1900×1200 with the harness's production-sized stubs:
+
+| band | height |
+|---|---|
+| app bar | 34 |
+| regime line + ten charts (5×2) | 15 + 178 |
+| context strip (gamma · catalysts · rotation) | 50 |
+| opportunities ribbon | 28 |
+| four navigation rows | 100 |
+| **frame before the workspace** | **449** |
+| workspace | 649 of 1200 |
+
+Everything in that frame earns a glance. None of it earns half the window
+for eight hours. Bloomberg and Koyfin both keep the permanent header to one
+strip and give the rest to whatever you are working in.
+
+**Focus** is an opt-in, remembered switch (the ⊟ button in the app bar, or
+`F`). With it on, the ten instruments become one row of ten numbers with
+their day change, the context strip folds, and the posture card keeps its
+verdict and score and folds its lists. Nothing leaves the app; the full
+frame is one keypress away.
+
+| | default | focus |
+|---|---|---|
+| frame before the workspace | 449 | 251 |
+| workspace at 1200 tall | 649 | 847 |
+
+The default is untouched and the guard measures it first: focus must be off
+on a fresh browser, and must gain the workspace at least 140px — measured
+198, the floor in the gap.
+
+**Empty daily rails.** On a screen wide enough for the four rails, the two
+DAILY rails are empty for the whole of pre-market — the hours this
+dashboard is read hardest — and each held 190px to say "No names at the
+daily high yet". Empty, they are now a 30px label on its side, and the
+frame between them takes the width back (at 2560 wide: 1772 → 2092). The
+rail reopens the moment a name touches its high. The 52-week rails are
+untouched: they are rarely empty and never on a schedule.
+
+The component reports its emptiness as a class on `<body>`; the CSS does
+the width arithmetic beside the full-rail arithmetic it mirrors, because
+the frame is not the rail's to size.
+
+Both guards run in the browser (`test_frame_render.py`); nine more pin the
+rules (`test_ui_frame.js`).

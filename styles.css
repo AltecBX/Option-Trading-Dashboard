@@ -10256,6 +10256,28 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   font-size: 11.5px; line-height: 1.45; color: var(--fg-3);
 }
 @media (prefers-reduced-motion: reduce) { .lrail-track { animation: none; } .lrail-vp { overflow-y: auto; } }
+/* v5.01: an EMPTY daily rail is a 30px label, not a 190px column of apology.
+   Pre-market — the hours Jerry works — both daily rails say "No names at the
+   daily high yet" and together hold 380px of a wide screen. Collapsed, the
+   title turns on its side and the frame takes the width back; the moment a
+   name touches its high the rail opens again. The 52-week rails are not
+   touched: they are rarely empty and never on a schedule. */
+@media (min-width: 2080px) {
+  .lrail.lrail--empty { width: 30px; }
+  .lrail--empty .lrail-title {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    padding: 12px 0; font-size: 11px; letter-spacing: 0.08em;
+  }
+  .lrail--empty .lrail-empty { display: none; }
+  /* Both inner rails collapsed: per side, the outer rail, a 30px strip and
+     the same gaps the full arithmetic uses (see the 2080px block at the end
+     of this file — 2 * rail-w + 14 becomes rail-w + 30 + 14). */
+  body.rail-empty-dailyHigh.rail-empty-dailyLow .frame-top,
+  body.rail-empty-dailyHigh.rail-empty-dailyLow .frame-body {
+    max-width: calc(100vw - 2 * (var(--rail-w) + 44px));
+  }
+}
 
 
 /* ── Command palette (⌘K) + shortcuts sheet ────────────────────────────── */
@@ -13688,6 +13710,31 @@ body { overflow: hidden; overscroll-behavior: none; }
   .opp-ribbon  { grid-column: 2 / -1; grid-row: 5; margin: 8px 0 0; }
   /* .tab-bar has left the top frame entirely — see .frame-col. */
 }
+
+/* ── Focus (v5.01): the frame gives the tool the screen ───────────────────
+   Opt-in, remembered, desktop only. The ten charts become one row of ten
+   numbers with their day change; the context strip folds; the posture card
+   keeps its verdict and score and folds its lists. Nothing is removed from
+   the app — the full frame is one keypress away — and the phone frame,
+   which has its own rules, is untouched. Measured at 1900×1200: the
+   workspace grows from 649px to ~840px of a 1200px window. */
+@media (min-width: 1081px) {
+  body.focus-frame .mko-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 0 0 6px; }
+  body.focus-frame .mko-tile { min-height: 0; padding: 4px 7px 3px; gap: 0; }
+  body.focus-frame .mko-spark, body.focus-frame .mko-pts, body.focus-frame .mko-proxy { display: none; }
+  /* Ten across a 1524px band is ~146px a tile: "NASDAQ Fut." and "▲ 0.86%"
+     share one line, so the label and the change both give up a size. */
+  body.focus-frame .mko-head { gap: 4px; }
+  body.focus-frame .mko-label { font-size: 10.5px; letter-spacing: -0.01em; }
+  body.focus-frame .mko-chg { font-size: 10px; }
+  body.focus-frame .mko-price { font-size: 14px; }
+  body.focus-frame .mko-regime { margin: 0 0 4px; }
+  body.focus-frame .mctx { display: none; }
+  body.focus-frame .posture-card { gap: 3px; padding: 6px 12px; }
+  body.focus-frame .pc-stats, body.focus-frame .pc-rot, body.focus-frame .pc-picks, body.focus-frame .pc-empty { display: none; }
+  body.focus-frame .opp-ribbon { margin-top: 4px; }
+}
+.ab-icon.on { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* ── The desktop app bar ─────────────────────────────────────────────────── */
 /* v4.94: 46px + a 10px margin was 56px of frame for a brand, a search box and

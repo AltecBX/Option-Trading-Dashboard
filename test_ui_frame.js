@@ -618,6 +618,43 @@ ok("and an empty board's status is a disclosure, not a wall of paragraphs",
    /<details className="panel-method sl-status-fold">/.test(spikeTab)
    && /function skStatusFacts\(data\)/.test(spikeTab));
 
+// ── 25. focus: the frame gives the tool the screen ────────────────────────
+//
+// Measured at 1900×1200: 449px of permanent frame before the workspace, 649px
+// of window for the tool. Focus is an opt-in, remembered body class; the CSS
+// folds the frame rather than removing anything, and the phone frame is
+// untouched because every rule sits under the desktop breakpoint.
+const shellSrc = read("app.jsx");
+ok("focus is a body class with a remembered switch",
+   /localStorage\.getItem\("jerry_focus_frame_v1"\) === "1"/.test(shellSrc)
+   && /classList\.toggle\("focus-frame", focusFrame\)/.test(shellSrc));
+ok("F toggles it when you are not typing, and the sheet says so",
+   /e\.key === "f" \|\| e\.key === "F"/.test(shellSrc)
+   && /\["F", "Focus/.test(cards));
+ok("there is a door in the app bar, and it says which way it is set",
+   /className=\{`ab-icon ab-focus\$\{focusFrame \? " on" : ""\}`\}/.test(shellSrc)
+   && /aria-pressed=\{focusFrame \? "true" : "false"\}/.test(shellSrc));
+ok("in focus the ten instruments are one row of numbers, not two rows of charts",
+   /body\.focus-frame \.mko-grid \{ grid-template-columns: repeat\(10, minmax\(0, 1fr\)\)/.test(css)
+   && /body\.focus-frame \.mko-spark, body\.focus-frame \.mko-pts, body\.focus-frame \.mko-proxy \{ display: none; \}/.test(css));
+ok("the posture card keeps its verdict and folds its lists",
+   /body\.focus-frame \.pc-stats, body\.focus-frame \.pc-rot, body\.focus-frame \.pc-picks/.test(css)
+   && !/body\.focus-frame \.pc-badge/.test(css));
+ok("every focus rule sits under the desktop breakpoint",
+   /@media \(min-width: 1081px\) \{\n  body\.focus-frame \.mko-grid/.test(css));
+// The empty daily rails: 380px of "no names yet" through the whole of
+// pre-market. The component puts the fact on <body>; the CSS does the width
+// arithmetic, next to the full-rail arithmetic it mirrors.
+ok("an empty daily rail is a 30px label on its side, not a column of apology",
+   /\.lrail\.lrail--empty \{ width: 30px; \}/.test(css)
+   && /\.lrail--empty \.lrail-title \{[^}]*writing-mode: vertical-rl/.test(css)
+   && /className=\{`\$\{cfg\.wrapCls\} lrail--empty`\}/.test(cards));
+ok("the component reports emptiness on <body>, and only for a rail with an empty note",
+   /const railEmpty = !asPanel && !!cfg\.emptyNote && rows\.length === 0;/.test(cards)
+   && /classList\.toggle\(cls, railEmpty\)/.test(cards));
+ok("and when both are empty the frame takes the width back",
+   /body\.rail-empty-dailyHigh\.rail-empty-dailyLow \.frame-top,\n  body\.rail-empty-dailyHigh\.rail-empty-dailyLow \.frame-body \{\n    max-width: calc\(100vw - 2 \* \(var\(--rail-w\) \+ 44px\)\);/.test(css));
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);
