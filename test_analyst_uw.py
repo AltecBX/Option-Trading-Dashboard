@@ -418,3 +418,109 @@ class PushWording(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FastLaneReview(unittest.TestCase):
+    """Four findings from the review of the first fast lane, each a way a
+    note could print and never reach Jerry."""
+
+    def setUp(self):
+        self._enrich = ab._enrich
+        self._hist = ab._uw_history_for
+        ab._enrich = lambda sym: {"ticker": sym, "sector": "Technology", "company": "Palantir Technologies",
+                                  "market_cap": 4.0e11, "premarket_pct": 3.1, "vol_ratio": None,
+                                  "news_count": None, "above_ma50": True, "above_ma200": True}
+        ab._uw_history_for = lambda tk: []
+        with ab._LOCK:
+            ab._STATE["actions"] = []
+            ab._STATE["pushed"] = []
+            ab._STATE["fast_last"] = None
+            ab._STATE["fast_last_ts"] = 0.0
+
+    def tearDown(self):
+        ab._enrich = self._enrich
+        ab._uw_history_for = self._hist
+
+    def _with_history(self, *today_notes):
+        """The ticker's own UW history, so a maintained note finds its prior."""
+        ab._uw_history_for = lambda tk: ac.normalize_uw_rows([*today_notes, *UW_PLTR[1:]], symbol=tk)
+
+    def test_a_firm_that_acts_twice_in_a_day_shows_and_pushes_the_later_note(self):
+        first = [{**UW_PLTR[0], "timestamp": _today_et_stamp(9, 31)}]
+        self._with_history(first[0])
+        sent = []
+        ab.refresh_fast_lane(["PLTR"], notify_fn=lambda t, b: sent.append(t), rows=first)
+        later = [{**UW_PLTR[0], "target": "260", "timestamp": _today_et_stamp(11, 10)}]
+        res = ab.refresh_fast_lane(["PLTR"], notify_fn=lambda t, b: sent.append(t), rows=first + later)
+        rows = [a for a in ab.get_board()["actions"] if a["ticker"] == "PLTR"]
+        self.assertEqual(len(rows), 1, "one row per firm per day")
+        self.assertEqual((rows[0]["new_target"], rows[0]["time_et"]), (260.0, "11:10"))
+        self.assertEqual(res["pushed"], 1)
+        self.assertEqual(len(sent), 2)
+        self.assertIn("$260", sent[1])
+        # The same tape a third time: nothing new, nothing re-sent.
+        res3 = ab.refresh_fast_lane(["PLTR"], notify_fn=lambda t, b: sent.append(t), rows=first + later)
+        self.assertEqual((res3["added"], res3["pushed"], len(sent)), (0, 0, 2))
+
+    def test_a_prior_older_than_the_tape_comes_from_the_tickers_own_history(self):
+        # The D.A. Davidson case: the tape holds only today's "maintained"
+        # note; the firm's earlier target is five weeks back, outside the
+        # tape and outside the board. Without the lookup this is a
+        # reiteration nobody is told about.
+        today_note = {**UW_PLTR[0], "timestamp": _today_et_stamp(9, 31)}
+        asked = []
+
+        def history(tk):
+            asked.append(tk)
+            return ac.normalize_uw_rows([today_note, *UW_PLTR[1:]], symbol=tk)
+        ab._uw_history_for = history
+        sent = []
+        res = ab.refresh_fast_lane(["PLTR"], notify_fn=lambda t, b: sent.append(t), rows=[today_note])
+        row = ab.get_board()["actions"][0]
+        self.assertEqual(asked, ["PLTR"])
+        self.assertEqual(row["action_class"], "target_change")
+        self.assertEqual((row["prior_target"], row["target_change_pct"]), (200.0, 25.0))
+        self.assertEqual(res["pushed"], 1)
+        self.assertEqual(sent, ["▲ PLTR: DA Davidson raised target to $250"])
+
+    def test_the_lookup_is_only_for_watchlist_names_and_only_when_it_is_needed(self):
+        asked = []
+        ab._uw_history_for = lambda tk: asked.append(tk) or []
+        tape = [{**UW_PLTR[0], "timestamp": _today_et_stamp(9, 31)},                       # not on the list
+                {**UW_PLTR[2], "ticker": "AAPL", "timestamp": _today_et_stamp(9, 32)}]     # an upgrade: no lookup
+        ab.refresh_fast_lane(["AAPL"], rows=tape)
+        self.assertEqual(asked, [])
+
+    def test_a_note_the_sender_could_not_deliver_is_not_marked_sent(self):
+        tape = [{**UW_PLTR[0], "timestamp": _today_et_stamp(9, 31)}]
+        self._with_history(tape[0])
+        res = ab.refresh_fast_lane(["PLTR"], notify_fn=lambda t, b: False, rows=tape)
+        self.assertEqual((res["added"], res["pushed"]), (1, 0))
+        self.assertEqual(ab._STATE["pushed"], [])
+        # The provider is back: the same note goes out on the next poll,
+        # even though the row itself is no longer new.
+        sent = []
+        res2 = ab.refresh_fast_lane(["PLTR"], notify_fn=lambda t, b: sent.append(t) or True, rows=tape)
+        self.assertEqual(res2["pushed"], 1)
+        self.assertEqual(len(ab._STATE["pushed"]), 1)
+
+    def test_the_tick_runs_when_due_and_stays_quiet_when_not(self):
+        calls = []
+        real = ab.refresh_fast_lane
+        ab.refresh_fast_lane = lambda syms, fn: calls.append(syms) or {"ok": True, "added": 0, "pushed": 0}
+        try:
+            monday = datetime(2026, 9, 7, 9, 30, tzinfo=ac._et_zone())
+            self.assertIsNotNone(ab.fast_lane_tick(lambda: ["PLTR"], None, monday))
+            with ab._LOCK:
+                ab._STATE["fast_last_ts"] = __import__("time").time()
+            self.assertIsNone(ab.fast_lane_tick(lambda: ["PLTR"], None, monday))
+            self.assertEqual(calls, [["PLTR"]])
+        finally:
+            ab.refresh_fast_lane = real
+
+    def test_the_scheduler_keeps_polling_while_it_waits_for_the_sweep(self):
+        import inspect
+        src = inspect.getsource(ab.start_scheduler)
+        wait = src[src.index("for _ in range(60):"):]
+        self.assertIn("fast_lane_tick(get_watchlist_fn, notify_fn)", wait.split("if not get_board()")[0],
+                      "the fifteen-second wait for the 8 AM sweep does not tick the fast lane")

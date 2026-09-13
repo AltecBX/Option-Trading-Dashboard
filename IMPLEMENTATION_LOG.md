@@ -3636,3 +3636,94 @@ first print.
 
 27 guards in `test_analyst_uw.py`, every fixture row shaped like a row the
 live UW endpoint returned on 2026-09-13.
+
+## v5.01 — Focus: the frame gives the tool the screen
+
+Jerry: "Make this comfortable to view and navigate all day long. I still feel
+like it has a lot to go to be comparable to a Bloomberg or a Koyfin."
+
+Measured first, at 1900×1200 with the harness's production-sized stubs:
+
+| band | height |
+|---|---|
+| app bar | 34 |
+| regime line + ten charts (5×2) | 15 + 178 |
+| context strip (gamma · catalysts · rotation) | 50 |
+| opportunities ribbon | 28 |
+| four navigation rows | 100 |
+| **frame before the workspace** | **449** |
+| workspace | 649 of 1200 |
+
+Everything in that frame earns a glance. None of it earns half the window
+for eight hours. Bloomberg and Koyfin both keep the permanent header to one
+strip and give the rest to whatever you are working in.
+
+**Focus** is an opt-in, remembered switch (the ⊟ button in the app bar, or
+`F`). With it on, the ten instruments become one row of ten numbers with
+their day change, the context strip folds, and the posture card keeps its
+verdict and score and folds its lists. Nothing leaves the app; the full
+frame is one keypress away.
+
+| | default | focus |
+|---|---|---|
+| frame before the workspace | 449 | 251 |
+| workspace at 1200 tall | 649 | 847 |
+
+The default is untouched and the guard measures it first: focus must be off
+on a fresh browser, and must gain the workspace at least 140px — measured
+198, the floor in the gap.
+
+**Empty daily rails.** On a screen wide enough for the four rails, the two
+DAILY rails are empty for the whole of pre-market — the hours this
+dashboard is read hardest — and each held 190px to say "No names at the
+daily high yet". Empty, they are now a 30px label on its side, and the
+frame between them takes the width back (at 2560 wide: 1772 → 2092). The
+rail reopens the moment a name touches its high. The 52-week rails are
+untouched: they are rarely empty and never on a schedule.
+
+The component reports its emptiness as a class on `<body>`; the CSS does
+the width arithmetic beside the full-rail arithmetic it mirrors, because
+the frame is not the rail's to size.
+
+Both guards run in the browser (`test_frame_render.py`); nine more pin the
+rules (`test_ui_frame.js`).
+
+Review caught four holes the same day, all fixed before merge: a rail was
+"empty" before its feed had answered (every load collapsed both rails and
+snapped the frame open a second later); the Focus button showed from 901 to
+1080px where none of its rules applied; ten tiles across at 1081px were 65px
+each with the price clipped (five columns in two compact rows below 1601px
+now); and Ctrl+F toggled focus on the way to the browser's Find. Guards for
+each, plus a third browser measurement at 1300×1000.
+
+## v5.02 — four ways a note could print and never reach Jerry
+
+Review of the fast lane (v5.00) found four, all in the path between a note
+printing and a push arriving:
+
+1. **The scheduler stopped polling while it waited for the 8 AM sweep.** The
+   loop that runs the fast lane also waits — up to fifteen minutes, in
+   fifteen-second sleeps — for the morning sweep to finish before pushing
+   the summary. No two-minute polls ran inside that wait: 8:00 to 8:15, the
+   quarter hour before the open. The wait now ticks the fast lane.
+2. **A firm that acted twice in a day showed only the first note.** Rows
+   are keyed by (ticker, firm, day); a 9:31 target and an 11:10 revision
+   collided and the later one was dropped. A later fast-lane row that
+   changes the target or the action now replaces the earlier one on the
+   board and is pushed as its own note.
+3. **The D.A. Davidson case scored as a reiteration.** UW calls a target
+   revision "maintained"; the class becomes a target change only when the
+   prior is known. The firm's earlier note was five weeks old — outside the
+   two-day tape and outside the board, which keeps only recent rows — so
+   the row had no prior, scored as a reiteration, and was never pushed.
+   For watchlist names the fast lane now asks UW for that ticker's own
+   history (capped per poll; the client caches it two minutes) and takes
+   the prior the client derives across it.
+4. **A failed push was marked sent forever.** The production sender
+   swallowed provider errors and returned nothing, so the key went into
+   the pushed set regardless. The sender now returns whether a provider
+   accepted the note, and only True marks it sent; every fast-lane row on
+   the board is a candidate on every poll, so the retry happens.
+
+Six guards in `test_analyst_uw.py`, including one that reads the
+scheduler's source to prove the wait loop ticks.

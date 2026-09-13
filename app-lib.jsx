@@ -485,6 +485,10 @@ const SWST = {
 // how the mobile bottom bar and the bottom tapes ended up fighting over the
 // same edge at slightly different widths.
 const PHONE_Q = "(max-width: 900px)";
+// Where the Focus rules apply (v5.01): the desktop grid's own breakpoint.
+// The switch, the key and the CSS all read this one line, so none of the
+// three can claim focus is on where the frame has a different shape.
+const FOCUS_FRAME_Q = "(min-width: 1081px)";
 
 // …and then v4.95 wrote a SECOND definition, in CSS only. A rotated phone is
 // 956x440 — past `max-width: 900px` — so the stylesheet grew a branch keyed on
@@ -888,4 +892,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });
+Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, FOCUS_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });

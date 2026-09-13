@@ -618,6 +618,59 @@ ok("and an empty board's status is a disclosure, not a wall of paragraphs",
    /<details className="panel-method sl-status-fold">/.test(spikeTab)
    && /function skStatusFacts\(data\)/.test(spikeTab));
 
+// ── 25. focus: the frame gives the tool the screen ────────────────────────
+//
+// Measured at 1900×1200: 449px of permanent frame before the workspace, 649px
+// of window for the tool. Focus is an opt-in, remembered body class; the CSS
+// folds the frame rather than removing anything, and the phone frame is
+// untouched because every rule sits under the desktop breakpoint.
+const shellSrc = read("app.jsx");
+ok("focus is a body class with a remembered switch",
+   /localStorage\.getItem\("jerry_focus_frame_v1"\) === "1"/.test(shellSrc)
+   && /classList\.toggle\("focus-frame", focusFrame\)/.test(shellSrc));
+// Bare F only: Ctrl+F and Cmd+F are the browser's Find, and a shortcut that
+// also flipped the layout would be a surprise on every search.
+ok("F toggles it when you are not typing and not holding a modifier, and the sheet says so",
+   /\(e\.key === "f" \|\| e\.key === "F"\) && !e\.metaKey && !e\.ctrlKey && !e\.altKey/.test(shellSrc)
+   && /\["F", "Focus/.test(cards));
+// The switch, the key and the CSS all read ONE breakpoint. From 901 to
+// 1080px the app bar is on screen but the frame has its own shape; a button
+// that changed its icon and nothing else would be a lie.
+ok("the switch, the key and the rules share one breakpoint",
+   /const FOCUS_FRAME_Q = "\(min-width: 1081px\)"/.test(lib)
+   && /const focusWide = useMediaQuery\(FOCUS_FRAME_Q\)/.test(shellSrc)
+   && /window\.matchMedia\(FOCUS_FRAME_Q\)\.matches/.test(shellSrc)
+   && /@media \(min-width: 1081px\) \{\n  \/\*[^]*?\*\/\n  body\.focus-frame \.mko-grid/.test(css));
+ok("there is a door in the app bar, only where the rules apply, and it says which way it is set",
+   /\{focusWide && <button className=\{`ab-icon ab-focus\$\{focusFrame \? " on" : ""\}`\}/.test(shellSrc)
+   && /aria-pressed=\{focusFrame \? "true" : "false"\}/.test(shellSrc));
+// Ten across only where the band is wide enough: at 1081px it is ~705px, and
+// ten columns would be 65px tiles with the price clipped. Narrower desktops
+// keep five columns and get two compact rows — 82px, not 178.
+ok("in focus the instruments are compact numbers: two short rows on a narrow desktop, one row on a wide one",
+   /body\.focus-frame \.mko-grid \{ grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/.test(css)
+   && /@media \(min-width: 1601px\) \{\n  body\.focus-frame \.mko-grid \{ grid-template-columns: repeat\(10, minmax\(0, 1fr\)\); \}/.test(css)
+   && /body\.focus-frame \.mko-spark, body\.focus-frame \.mko-pts, body\.focus-frame \.mko-proxy \{ display: none; \}/.test(css));
+ok("the posture card keeps its verdict and folds its lists",
+   /body\.focus-frame \.pc-stats, body\.focus-frame \.pc-rot, body\.focus-frame \.pc-picks/.test(css)
+   && !/body\.focus-frame \.pc-badge/.test(css));
+// The empty daily rails: 380px of "no names yet" through the whole of
+// pre-market. The component puts the fact on <body>; the CSS does the width
+// arithmetic, next to the full-rail arithmetic it mirrors.
+ok("an empty daily rail is a 30px label on its side, not a column of apology",
+   /\.lrail\.lrail--empty \{ width: 30px; \}/.test(css)
+   && /\.lrail--empty \.lrail-title \{[^}]*writing-mode: vertical-rl/.test(css));
+// "No rows yet" before the source has answered is not "empty". Calling it
+// empty would collapse both rails on every page load and snap the frame open
+// again when the first answer came — a layout jump on every visit.
+ok("the component reports emptiness on <body> only once its source has answered",
+   /const railEmpty = !asPanel && !!cfg\.emptyNote && loaded && rows\.length === 0;/.test(cards)
+   && /if \(d && Array\.isArray\(d\.rows\)\) setLoaded\(true\)/.test(cards)
+   && /className=\{`\$\{cfg\.wrapCls\}\$\{railEmpty \? " lrail--empty" : ""\}`\}/.test(cards)
+   && /classList\.toggle\(cls, railEmpty\)/.test(cards));
+ok("and when both are empty the frame takes the width back",
+   /body\.rail-empty-dailyHigh\.rail-empty-dailyLow \.frame-top,\n  body\.rail-empty-dailyHigh\.rail-empty-dailyLow \.frame-body \{\n    max-width: calc\(100vw - 2 \* \(var\(--rail-w\) \+ 44px\)\);/.test(css));
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

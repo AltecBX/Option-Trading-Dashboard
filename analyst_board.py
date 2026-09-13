@@ -221,6 +221,9 @@ FAST_LANE_END_MIN = 20 * 60
 # Enriching a name costs a Schwab quote plus a Yahoo .info; a poll that
 # brings twelve new names would otherwise stall the scheduler thread.
 FAST_LANE_ENRICH_CAP = 6
+# Per-ticker history lookups per poll, for watchlist notes whose prior is
+# older than the tape (see refresh_fast_lane).
+FAST_LANE_PRIOR_LOOKUPS = 8
 _PUSHED_CAP = 600
 _THREAD: threading.Thread | None = None
 
@@ -626,6 +629,20 @@ def _action_key(a: dict) -> tuple[str, str, str]:
             str(a.get("date") or "")[:10])
 
 
+def _push_key(a: dict) -> str:
+    """What makes a note 'already sent': the firm's action on this ticker
+    today, AT this target. A revised target later in the day is a new key,
+    so the later note is pushed too."""
+    nt = a.get("new_target")
+    return "|".join(_action_key(a)) + f"|{a.get('action_class') or ''}|{nt if nt is not None else ''}"
+
+
+def _uw_history_for(ticker: str) -> list[dict]:
+    """One ticker's own UW history, normalized, priors derived across it.
+    A seam so a test can hand the history in."""
+    return analyst_client.get_client()._fetch_uw_history(ticker)
+
+
 def _merge_actions(primary: list[dict], secondary: list[dict]) -> list[dict]:
     """One row per (ticker, firm, day). A primary row wins a collision but
     takes the clock, the analyst and the timestamp from the secondary row
@@ -729,10 +746,39 @@ def refresh_fast_lane(watchlist_syms: list[str] | None = None, notify_fn=None,
     with _LOCK:
         existing = list(_STATE["actions"])
         pushed = set(_STATE["pushed"])
-    existing_keys = {_action_key(a) for a in existing}
+    existing_by_key = {_action_key(a): i for i, a in enumerate(existing)}
     per_ticker: dict[str, int] = {}
     for r in norm:
         per_ticker[r.get("ticker") or ""] = per_ticker.get(r.get("ticker") or "", 0) + 1
+
+    # A "maintained" note with a new target and no prior in a two-day tape
+    # is the D.A. Davidson case itself: the firm's earlier note was five
+    # weeks old, so neither this tape nor the board (which only keeps recent
+    # rows) could say what the target moved FROM, and the row would score as
+    # a reiteration and never be pushed. For watchlist names, ask UW for
+    # that ticker's own history, which the client already derives priors
+    # across. Capped per poll; the client caches each ticker for two minutes.
+    lookups = 0
+    for r in norm:
+        tk = str(r.get("ticker") or "").upper()
+        if (tk not in wl or r.get("prior_target") or not r.get("new_target")
+                or r.get("action_class") != "reiterate"
+                or _action_key(r) in existing_by_key
+                or lookups >= FAST_LANE_PRIOR_LOOKUPS):
+            continue
+        lookups += 1
+        try:
+            hist = _uw_history_for(tk)
+        except Exception:
+            hist = []
+        for h in hist:
+            if (h.get("date") == r.get("date") and h.get("new_target") == r.get("new_target")
+                    and analyst_client.same_firm(h.get("firm"), r.get("firm"))):
+                if h.get("prior_target"):
+                    for fld in ("prior_target", "prior_target_source", "target_change_pct",
+                                "pt_action", "action_class"):
+                        r[fld] = h.get(fld)
+                break
 
     # Enrichment: reuse what the board already knows about a ticker.
     enrich_by: dict[str, dict] = {}
@@ -745,7 +791,23 @@ def refresh_fast_lane(watchlist_syms: list[str] | None = None, notify_fn=None,
     enriched = 0
     new_rows: list[dict] = []
     for r in norm:
-        if _action_key(r) in existing_keys:
+        i = existing_by_key.get(_action_key(r))
+        if i is not None:
+            # Same firm, same ticker, same day: usually the row we already
+            # have. But a firm can act twice in a day — a target at 9:31 and
+            # a revised one at 11:10 — and the board must show the later
+            # note and push it. Only a fast-lane row carries a clock to
+            # order by; a sweep row is left alone.
+            old = existing[i]
+            later = bool(old.get("ts")) and str(r.get("ts") or "") > str(old["ts"])
+            changed = (r.get("new_target") != old.get("new_target")
+                       or r.get("action_class") != old.get("action_class"))
+            if not (later and changed):
+                continue
+            tk = str(r.get("ticker") or "").upper()
+            en = enrich_by.get(tk) or {"ticker": tk, "sector": r.get("sector")}
+            existing[i] = score_action(r, en, per_ticker.get(tk, 1))
+            new_rows.append(existing[i])
             continue
         tk = str(r.get("ticker") or "").upper()
         en = enrich_by.get(tk)
@@ -767,25 +829,37 @@ def refresh_fast_lane(watchlist_syms: list[str] | None = None, notify_fn=None,
     merged.sort(key=lambda a: -(a.get("score") or 0))
     today_et = datetime.now(analyst_client._et_zone()).date().isoformat()
 
-    # Push: watchlist names, real actions, today, once.
+    # Push: watchlist names, real actions, today, once. Every fast-lane row
+    # on the board is a candidate, not only this poll's new ones, so a note
+    # whose delivery failed last time is tried again; the pushed-key set is
+    # what makes "once" true.
     sent = 0
     if notify_fn and wl:
-        for a in new_rows:
+        for a in merged:
+            if a.get("source") != analyst_client.UW_SOURCE:
+                continue
             tk = str(a.get("ticker") or "").upper()
             if tk not in wl or a.get("date") != today_et:
                 continue
             if a.get("action_class") not in ("upgrade", "downgrade", "initiate", "target_change"):
                 continue
-            key = "|".join(_action_key(a))
+            key = _push_key(a)
             if key in pushed:
                 continue
             try:
                 title, body = compose_action_push(a)
-                notify_fn(title, body)
-                pushed.add(key)
-                sent += 1
+                delivered = notify_fn(title, body)
             except Exception as exc:  # noqa: BLE001
                 print(f"[analyst_board] fast-lane push failed: {exc}", file=sys.stderr)
+                continue
+            # A sender that says False did not deliver (the production one
+            # reports the provider's answer). Marking that as sent would
+            # make one transient failure a permanent silence for the note;
+            # it is retried on the next poll instead.
+            if delivered is False:
+                continue
+            pushed.add(key)
+            sent += 1
 
     with _LOCK:
         _STATE["actions"] = merged
@@ -830,6 +904,30 @@ def compose_action_push(a: dict) -> tuple[str, str]:
         bits.append(f"{a['time_et']} ET")
     bits.append("Unusual Whales")
     return title, " · ".join(bits)
+
+
+def fast_lane_tick(get_watchlist_fn=None, notify_fn=None, now: datetime | None = None) -> dict | None:
+    """One scheduler tick of the fast lane: run it if it is due. Called from
+    the scheduler's minute loop AND from inside its wait for the 8 AM
+    sweep, because that wait used to hold the loop for up to fifteen
+    minutes — the quarter hour before the open, when notes print."""
+    if not fast_lane_due(now):
+        return None
+    syms = []
+    if get_watchlist_fn:
+        try:
+            syms = get_watchlist_fn() or []
+        except Exception:
+            syms = []
+    try:
+        res = refresh_fast_lane(syms, notify_fn)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[analyst_board] fast lane failed: {exc}", file=sys.stderr)
+        return None
+    if res.get("added") or res.get("pushed"):
+        print(f"[analyst_board] fast lane +{res.get('added')} rows, "
+              f"{res.get('pushed')} pushed", file=sys.stderr)
+    return res
 
 
 def fast_lane_due(now: datetime | None = None) -> bool:
@@ -912,20 +1010,7 @@ def start_scheduler(get_watchlist_fn=None, notify_fn=None, hour: int = 8,
                 today_iso = now.date().isoformat()
                 # Fast lane first: it is one call, and it is the part of
                 # this loop Jerry is waiting on at 7:26 AM.
-                if fast_lane_due(now):
-                    syms = []
-                    if get_watchlist_fn:
-                        try:
-                            syms = get_watchlist_fn() or []
-                        except Exception:
-                            syms = []
-                    try:
-                        res = refresh_fast_lane(syms, notify_fn)
-                        if res.get("added") or res.get("pushed"):
-                            print(f"[analyst_board] fast lane +{res.get('added')} rows, "
-                                  f"{res.get('pushed')} pushed", file=sys.stderr)
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"[analyst_board] fast lane failed: {exc}", file=sys.stderr)
+                fast_lane_tick(get_watchlist_fn, notify_fn, now)
                 # The stamp is persisted to /data and written BEFORE the
                 # scan, so a crash/restart inside the window can never
                 # re-trigger the heavy scan and crash-loop the container.
@@ -946,6 +1031,10 @@ def start_scheduler(get_watchlist_fn=None, notify_fn=None, hour: int = 8,
                         if notify_fn:
                             for _ in range(60):
                                 time.sleep(15)
+                                # The sweep takes up to fifteen minutes and
+                                # starts at 8:00. The fast lane keeps its
+                                # two-minute cadence through it.
+                                fast_lane_tick(get_watchlist_fn, notify_fn)
                                 if not get_board()["status"]["scanning"]:
                                     break
                             try:

@@ -1,4 +1,4 @@
-# The permanent frame (v4.99)
+# The permanent frame (v5.01)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -758,3 +758,51 @@ Still to check on the physical iPhone 16 Pro Max:
 7. The partner tools with the Site Helper actually installed; the sandbox has
    no extension, so the iframe path was exercised by announcing the helper
    manually.
+
+## 14. Focus, and the empty rails (v5.01)
+
+Measured at 1900×1200 with the harness's stubs: 449px of permanent frame
+before the workspace began, 649px of window for the tool. Every band in
+that frame earns a glance; none earns half the window all day.
+
+**Focus** is an opt-in, remembered body class (`focus-frame`; the ⊟ button
+in the app bar, or `F` when you are not typing). Under the desktop
+breakpoint only:
+
+| band | default | focus |
+|---|---|---|
+| ten instruments | 5×2 tiles with sparklines, 178px | one row of ten numbers with the day change, 38px |
+| context strip (gamma · catalysts · rotation) | 50px | folded |
+| posture card | verdict, score, stats, rotation, picks — 293px | verdict and score, 95px |
+| frame before the workspace | 449 | 251 |
+| workspace | 649 | 847 |
+
+Nothing leaves the app; the full frame is one keypress away. The guard
+measures the DEFAULT first — focus must be off in a fresh browser, and the
+default workspace must not have moved — then asks focus for at least 140px
+more (measured 198; the floor is in the gap).
+
+**Empty daily rails.** At ≥2080px the two daily rails are empty for the
+whole of pre-market and each held 190px to say so. Empty, a rail is a 30px
+label on its side (`lrail--empty`), and when both are empty the frame takes
+the width back: the component puts `rail-empty-dailyHigh` /
+`rail-empty-dailyLow` on `<body>`, and the CSS beside the full-rail
+arithmetic does `100vw − 2·(rail-w + 44px)` instead of `100vw − 2·(2·rail-w
++ 14px)`. At 2560 wide the frame grows 1772 → 2092. The rail reopens the
+moment a name touches its high. The 52-week rails are untouched.
+
+**Why the class is on `<body>` and not the rail.** The frame is not the
+rail's to size, and CSS cannot see whether a fixed sibling has rows in it.
+A fact one component knows and another component's rule needs travels the
+same way the theme does.
+
+**Four things the first draft got wrong (review, same day).** "No rows
+yet" before the source has answered is not "empty" — a rail is marked
+empty only once its feed has replied, or every page load would collapse
+both rails and snap the frame open again a second later. The Focus switch,
+the `F` key and the CSS all read one breakpoint (`FOCUS_FRAME_Q`, 1081px),
+so from 901 to 1080px there is no button that changes its icon and nothing
+else. Ten tiles across only from 1601px, where a tile has ~146px; below
+that the band is as narrow as 705px and focus keeps five columns in two
+compact rows (82px, not 178) so a price is never clipped. And bare `F`
+only — Ctrl+F and Cmd+F are the browser's Find.

@@ -11838,6 +11838,12 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
   const [owned, setOwned] = useState(() => new Set()); // Schwab-held symbols
   const [vpH, setVpH] = useState(0);
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  // Whether the source has ANSWERED yet. "No rows" before the first answer
+  // is not "empty" — it is "not loaded" — and the two must not look alike:
+  // an empty daily rail collapses and hands the frame its width, so calling
+  // a loading rail empty would collapse it on every page load and snap the
+  // frame open again a second later.
+  const [loaded, setLoaded] = useState(false);
   const vpRef = useRef(null);
 
   // Data source. Scan kinds: candidate set from the shared watchlist board,
@@ -11849,11 +11855,11 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
       try {
         if (isScan) {
           const d = await sharedJson(apiFetch, "/api/watchlist_table", 30000);
-          if (!stop) setScanRows(cfg.scanPick((d && d.rows) || []));
+          if (!stop) { setScanRows(cfg.scanPick((d && d.rows) || [])); if (d) setLoaded(true); }
         } else {
           const r = await apiFetch(cfg.source);
           const d = await r.json();
-          if (!stop) setSrvRows((d && d.rows) || []);
+          if (!stop) { setSrvRows((d && d.rows) || []); if (d && Array.isArray(d.rows)) setLoaded(true); }
         }
       } catch (_) {}
       if (!stop) t = setTimeout(load, isScan ? 60000 : 30000);
@@ -11955,6 +11961,17 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
     return () => { window.removeEventListener("resize", measure); clearTimeout(id); };
   }, [rows]);
 
+  // v5.01: an empty daily rail collapses to a 30px label (CSS), and when BOTH
+  // daily rails are empty the frame takes their width back. The frame is not
+  // this component's to size, so the fact goes on <body> as a class and the
+  // CSS does the arithmetic — the same way the theme reaches every rule.
+  const railEmpty = !asPanel && !!cfg.emptyNote && loaded && rows.length === 0;
+  useEffect(() => {
+    const cls = `rail-empty-${kind}`;
+    document.body.classList.toggle(cls, railEmpty);
+    return () => document.body.classList.remove(cls);
+  }, [kind, railEmpty]);
+
   if (!rows.length) {
     // Daily rails keep their frame with a note (pre-open nothing qualifies —
     // vanishing read as a missing feature); 52W rails simply hide. In panel
@@ -11969,8 +11986,8 @@ function ExtremeRail({ kind, apiFetch, onSwitchTicker, variant }) {
     }
     if (!cfg.emptyNote) return null;
     return (
-      <div className={cfg.wrapCls} aria-label={cfg.aria}>
-        <div className={cfg.titleCls} title={cfg.headTip}>{cfg.heading}</div>
+      <div className={`${cfg.wrapCls}${railEmpty ? " lrail--empty" : ""}`} aria-label={cfg.aria}>
+        <div className={cfg.titleCls} title={`${cfg.emptyTip} ${cfg.headTip}.`}>{cfg.heading}</div>
         <div className="lrail-empty" title={cfg.emptyTip}>{cfg.emptyNote}</div>
       </div>
     );
@@ -13059,6 +13076,7 @@ function ShortcutsSheet({ open, onClose }) {
   const rows = [
     ["⌘K  or  /", "Open the command palette (tickers, tabs, actions)"],
     ["[  and  ]", "Previous / next tab"],
+    ["F", "Focus — shrink the top frame to one strip of numbers; press again to restore it"],
     ["?", "This shortcuts sheet"],
     ["esc", "Close any dialog"],
   ];

@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.00";
+const APP_VERSION = "5.02";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -546,6 +546,25 @@ function App() {
   // stylesheet is keyed on width keep using isPhone. See app-lib's PHONE_Q.
   const phoneFrame = useIsPhoneFrame();
   const [helpOpen, setHelpOpen] = useState(false); // "?" shortcuts sheet
+  // v5.01 Focus: the top frame shrinks to one strip of numbers and the tool
+  // gets the screen. Measured at 1900×1200 the permanent frame took 449px
+  // before the workspace began — ten charts, three context strips and a
+  // posture card. All of it is worth a glance; none of it is worth half the
+  // window all day. Remembered per browser; F toggles it.
+  const focusWide = useMediaQuery(FOCUS_FRAME_Q);
+  const [focusFrame, setFocusFrame] = useState(() => {
+    try {
+      return localStorage.getItem("jerry_focus_frame_v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    document.body.classList.toggle("focus-frame", focusFrame);
+    try {
+      localStorage.setItem("jerry_focus_frame_v1", focusFrame ? "1" : "0");
+    } catch {}
+  }, [focusFrame]);
   const [reloadNonce, setReloadNonce] = useState(0); // manual refresh trigger
   const refreshData = () => setReloadNonce(n => n + 1);
   // Stable ticker switcher (used as a memo-friendly prop for cards).
@@ -2466,6 +2485,12 @@ function App() {
         e.preventDefault();
         setHelpOpen(o => !o);
         setPalOpen(false);
+      } else if ((e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey && window.matchMedia(FOCUS_FRAME_Q).matches) {
+        // Bare F only: Ctrl+F / Cmd+F is the browser's Find, and a shortcut
+        // that also flipped the layout would be a surprise every time. And
+        // only where the focus rules apply — below 1081px the frame has its
+        // own shape and there is nothing for the switch to do.
+        setFocusFrame(v => !v);
       } else if (e.key === "[" || e.key === "]") {
         const tabs = orderedTabs.length ? orderedTabs : window.TABS || [];
         if (!tabs.length) return;
@@ -4040,7 +4065,13 @@ function App() {
     title: "Every destination, grouped and searchable."
   }, "\u25A6"), !isPhone && /*#__PURE__*/React.createElement(WeatherBadge, {
     variant: "bar"
-  }), /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement(MarketClock, null), focusWide && /*#__PURE__*/React.createElement("button", {
+    className: `ab-icon ab-focus${focusFrame ? " on" : ""}`,
+    onClick: () => setFocusFrame(v => !v),
+    "aria-pressed": focusFrame ? "true" : "false",
+    "aria-label": "Focus: shrink the top frame",
+    title: focusFrame ? "Focus is on: the ten charts are one row of numbers and the context strip is folded. Press F or click to bring the full frame back." : "Focus: shrink the top frame to one strip of numbers so the tool gets the screen. Press F or click; it stays that way until you switch it back."
+  }, focusFrame ? "⊞" : "⊟"), /*#__PURE__*/React.createElement("button", {
     className: "ab-icon",
     onClick: () => setHelpOpen(true),
     "aria-label": "Keyboard shortcuts",

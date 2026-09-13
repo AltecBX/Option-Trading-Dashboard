@@ -319,6 +319,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return e ? getComputedStyle(e).position : null; })(),
                 secnavOpen: box('.secnav-open'), secnavRow: box('.secnav-row'),
                 tabbar: box('.tab-bar'), frameCol: box('.frame-col'),
+                posture: box('.posture-card'),
+                focus: document.body.classList.contains('focus-frame'),
                 // A rail that is mounted and display:none is the exact defect
                 // the frame was built to end: fetched, polling, unreachable.
                 // Counting them is not enough — they were all four THERE in
@@ -543,6 +545,86 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "live", line,
                 f"the folded board says {line!r} — the fast-lane stamp the "
                 "server sent is not on the line")
+        finally:
+            self._close(handles)
+
+    def test_focus_gives_the_tool_the_frames_height(self):
+        """Measured at 1900×1200: 449px of permanent frame before the
+        workspace began — ten charts in two rows, three context strips and a
+        posture card — and 649px of window left for the tool. Focus keeps
+        every one of those things on the page and gives most of that height
+        back: the charts become one row of numbers, the context strip folds,
+        the posture card keeps its verdict. It is opt-in and remembered, so
+        the default frame is measured first and must not have moved."""
+        geo0, errors0, h0 = self._measure(1900, 1200)
+        try:
+            self.assertFalse(errors0, f"page errors: {errors0[:3]}")
+            self.assertFalse(geo0["focus"], "focus is on by default — it is opt-in")
+            base = geo0["main"]["h"]
+        finally:
+            self._close(h0)
+        geo, errors, handles = self._measure(
+            1900, 1200,
+            init="try{localStorage.setItem('jerry_focus_frame_v1','1')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertTrue(geo["focus"], "the remembered switch did not take")
+            self.assertEqual(10, geo["tiles"], "focus dropped charts; it folds them")
+            self.assertIsNotNone(geo["posture"], "the posture card is gone in focus")
+            self.assertIsNotNone(geo["charts"], "the ten instruments are gone in focus")
+            self.assertLessEqual(
+                geo["charts"]["h"], 60,
+                f"the instruments are {geo['charts']['h']}px tall in focus — "
+                "that is still two rows of charts, not one row of numbers")
+            gained = geo["main"]["h"] - base
+            # Measured 190px; the floor sits in the gap, not on the number.
+            self.assertGreaterEqual(
+                gained, 140,
+                f"focus gave the workspace {gained}px ({base} → {geo['main']['h']}); "
+                "the frame is still charging the tool for the charts")
+        finally:
+            self._close(handles)
+        # A narrow desktop: the band is ~700px at 1300 wide, where ten columns
+        # would be 65px tiles with the price clipped. Focus keeps five columns
+        # there and gets two compact rows — still well under the 178px of
+        # charts, and every figure still whole.
+        geo, errors, handles = self._measure(
+            1300, 1000,
+            init="try{localStorage.setItem('jerry_focus_frame_v1','1')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertTrue(geo["focus"])
+            self.assertEqual(10, geo["tiles"])
+            self.assertLessEqual(
+                geo["charts"]["h"], 100,
+                f"the instruments are {geo['charts']['h']}px tall in focus at 1300 wide")
+            self.assertGreaterEqual(
+                geo["charts"]["w"] / geo["tiles"] * 2, 120,
+                "ten tiles in one row at this width — they cannot hold a price")
+        finally:
+            self._close(handles)
+
+    def test_empty_daily_rails_hand_their_width_to_the_tool(self):
+        """On a screen wide enough for the four rails, the two DAILY rails are
+        empty for the whole of pre-market — the hours this dashboard is read
+        hardest — and each held 190px to say "no names yet". Empty, they are
+        now a 30px label on its side, and the frame between them takes the
+        380px back. The sandbox has no session data, which is exactly the
+        pre-market case."""
+        geo, errors, handles = self._measure(2560, 1300)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            for side in ("railL", "railR"):
+                rail = geo[side]
+                self.assertIsNotNone(rail, f"{side} is not rendered at 2560px")
+                self.assertLessEqual(
+                    rail["w"], 34,
+                    f"{side} is {rail['w']}px wide with nothing in it")
+            # Full rails: 2560 − 2·(2·190 + 14) = 1772. Collapsed: ~2092.
+            self.assertGreaterEqual(
+                geo["body"]["w"], 2000,
+                f"the frame is {geo['body']['w']}px wide between two empty rails "
+                "— it did not take the width back")
         finally:
             self._close(handles)
 
