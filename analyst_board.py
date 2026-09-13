@@ -6,10 +6,16 @@ tickers, enriches the names that actually moved with premarket data, and
 ranks each action by an importance score so the morning game plan is
 "what actually matters" rather than a raw news feed.
 
-Data sources (all free, already in the stack):
+Data sources (already in the stack):
+  • Unusual Whales /api/screener/analysts — the whole market's analyst
+    tape in one call, polled every two minutes through the trading day
+    (the "fast lane", v5.00). Rows carry the minute a note printed and
+    the analyst's name. This is what puts a 10:40 AM upgrade on the
+    board at 10:42 instead of tomorrow at 8.
   • analyst_client.get_analyst_data() — per-firm action history with
     date, firm, action_class, prior/new grade, prior/new target,
-    target_change_pct, pt_action. (Yahoo + optional Finnhub.)
+    target_change_pct, pt_action. (Yahoo + optional Finnhub.) The daily
+    sweep, for depth: Yahoo carries prior targets and rating wording.
   • schwab_client quotes — premarket / extended-hours price + volume.
   • yfinance .info — market cap, sector, average volume.
 
@@ -197,7 +203,25 @@ _STATE: dict[str, Any] = {
     "universe_size": 0,
     "recent_days": 2,
     "error": None,
+    # Fast lane — the market-wide Unusual Whales poll (see refresh_fast_lane).
+    "fast_last": None,       # iso str of the last successful poll
+    "fast_last_ts": 0.0,     # epoch of the last attempt, for the cadence gate
+    "fast_added": 0,         # rows the last poll added
+    "fast_error": None,
+    "pushed": [],            # "TICKER|firmkey|date" keys already sent, persisted
 }
+
+# Fast lane cadence. Two days of tape so a note that printed after the
+# close still sits on tomorrow's board; a two-minute poll between 4 AM and
+# 8 PM ET on weekdays, which is when notes print.
+FAST_LANE_DAYS = 2
+FAST_LANE_EVERY_SEC = 120
+FAST_LANE_START_MIN = 4 * 60
+FAST_LANE_END_MIN = 20 * 60
+# Enriching a name costs a Schwab quote plus a Yahoo .info; a poll that
+# brings twelve new names would otherwise stall the scheduler thread.
+FAST_LANE_ENRICH_CAP = 6
+_PUSHED_CAP = 600
 _THREAD: threading.Thread | None = None
 
 
@@ -522,7 +546,9 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
         src_by_sym: dict[str, str] = {}
         for i, sym in enumerate(symbols):
             try:
-                data = client.get_analyst_data(sym)
+                # fast=False: the sweep is for depth. Freshness comes from
+                # the fast lane's ONE market-wide call, not 600 per-ticker ones.
+                data = client.get_analyst_data(sym, fast=False)
                 rows = _recent_rows(data.get("history") or [], recent_days)
                 if rows:
                     raw[sym] = rows
@@ -545,9 +571,15 @@ def _scan_worker(symbols: list[str], recent_days: int) -> None:
                 actions.append(score_action(r, enrich, multi))
             time.sleep(0.1)
 
-        actions.sort(key=lambda a: -a["score"])
         with _LOCK:
-            _STATE["actions"] = actions
+            # The sweep must not wipe what the fast lane found: a note that
+            # printed at 10:40 and reached the board at 10:42 is exactly the
+            # row Yahoo has not caught up to yet, and this sweep reads Yahoo.
+            kept = [a for a in _STATE["actions"]
+                    if a.get("source") == analyst_client.UW_SOURCE]
+            merged = _merge_actions(actions, _recent_rows(kept, max(recent_days, FAST_LANE_DAYS)))
+            merged.sort(key=lambda a: -(a.get("score") or 0))
+            _STATE["actions"] = merged
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
         _persist_board()  # survive restarts/redeploys so the board is re-readable
@@ -578,6 +610,239 @@ def trigger_scan(watchlist_syms: list[str] | None = None,
     _THREAD = threading.Thread(target=_scan_worker, args=(syms, recent_days), daemon=True)
     _THREAD.start()
     return {"started": True, "total": len(syms)}
+
+
+# ── Fast lane ──────────────────────────────────────────────────────────
+# The morning sweep reads Yahoo per ticker, once a day at 8 AM. Yahoo can
+# trail a note by a session, and a note that prints at 10:40 AM is not on
+# an 8 AM board at all. The fast lane asks Unusual Whales for the whole
+# market's analyst tape in ONE call every two minutes and folds new rows
+# into the same board, scored the same way, so the Watchlist section, the
+# in-table badge, the gap catalyst and the push all see it within minutes.
+
+def _action_key(a: dict) -> tuple[str, str, str]:
+    return (str(a.get("ticker") or "").upper(),
+            analyst_client.firm_key(a.get("firm")),
+            str(a.get("date") or "")[:10])
+
+
+def _merge_actions(primary: list[dict], secondary: list[dict]) -> list[dict]:
+    """One row per (ticker, firm, day). A primary row wins a collision but
+    takes the clock, the analyst and the timestamp from the secondary row
+    when it has none — those are what the fast lane knows and Yahoo does
+    not. Secondary rows with no counterpart are appended."""
+    out: list[dict] = []
+    seen: dict[tuple, int] = {}
+    for a in primary:
+        seen[_action_key(a)] = len(out)
+        out.append(dict(a))
+    for b in secondary:
+        k = _action_key(b)
+        i = seen.get(k)
+        if i is None:
+            seen[k] = len(out)
+            out.append(dict(b))
+            continue
+        for fld in ("time_et", "ts", "analyst"):
+            if b.get(fld) and not out[i].get(fld):
+                out[i][fld] = b[fld]
+    return out
+
+
+def _prior_from_board(ticker: str | None, firm: str | None, date: str | None):
+    """The same firm's most recent earlier target on this ticker, from the
+    rows already on the board (the daily sweep carries Yahoo's priors)."""
+    if not ticker or not firm or not date:
+        return None
+    best = None
+    with _LOCK:
+        rows = list(_STATE["actions"])
+    for a in rows:
+        if str(a.get("ticker") or "").upper() != str(ticker).upper():
+            continue
+        if str(a.get("date") or "")[:10] >= date[:10]:
+            continue
+        if not analyst_client.same_firm(a.get("firm"), firm):
+            continue
+        nt = a.get("new_target")
+        if not isinstance(nt, (int, float)) or not nt:
+            continue
+        if best is None or str(a.get("date"))[:10] > best[0]:
+            best = (str(a.get("date"))[:10], float(nt))
+    return best[1] if best else None
+
+
+def fetch_uw_recent(days: int = FAST_LANE_DAYS, max_pages: int = 4) -> list[dict] | None:
+    """The market-wide tape newer than `days` ago, paged by time. None when
+    UW is unconfigured or the first call fails — an empty tape is a real
+    answer (a quiet holiday), and None is not."""
+    try:
+        import unusual_whales_client as _uw
+    except Exception:
+        return None
+    client = _uw.get_client()
+    if client is None:
+        return None
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    newer = cutoff.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    rows: list[dict] = []
+    older: str | None = None
+    for _ in range(max_pages):
+        page = client.analyst_ratings(limit=500, newer_than=newer, older_than=older)
+        if page is None:
+            return None if not rows else rows
+        if not isinstance(page, list):
+            break
+        rows.extend(r for r in page if isinstance(r, dict))
+        if len(page) < 500:
+            break
+        last = page[-1].get("timestamp")
+        if not last or last == older:
+            break
+        older = str(last)
+    return rows
+
+
+def refresh_fast_lane(watchlist_syms: list[str] | None = None, notify_fn=None,
+                      days: int = FAST_LANE_DAYS, rows: list[dict] | None = None) -> dict:
+    """Fold the latest Unusual Whales analyst tape into the board.
+
+    New rows are scored like the sweep's. Watchlist names without a row on
+    the board yet are enriched (capped per poll); every other new name gets
+    the sector UW sent and nothing invented. A new upgrade, downgrade,
+    initiation or target change on a watchlist name is pushed once — the
+    key is persisted so a restart cannot send it again.
+
+    `rows` lets a test hand the tape in; production fetches it."""
+    if rows is None:
+        rows = fetch_uw_recent(days)
+    with _LOCK:
+        _STATE["fast_last_ts"] = time.time()
+    if rows is None:
+        with _LOCK:
+            _STATE["fast_error"] = "unusual whales unavailable"
+        return {"ok": False, "reason": "unusual whales unavailable"}
+
+    norm = analyst_client.normalize_uw_rows(rows, prior_lookup=_prior_from_board)
+    norm = _recent_rows(norm, days)
+    wl = {str(s).upper() for s in (watchlist_syms or []) if s}
+    with _LOCK:
+        existing = list(_STATE["actions"])
+        pushed = set(_STATE["pushed"])
+    existing_keys = {_action_key(a) for a in existing}
+    per_ticker: dict[str, int] = {}
+    for r in norm:
+        per_ticker[r.get("ticker") or ""] = per_ticker.get(r.get("ticker") or "", 0) + 1
+
+    # Enrichment: reuse what the board already knows about a ticker.
+    enrich_by: dict[str, dict] = {}
+    for a in existing:
+        tk = str(a.get("ticker") or "").upper()
+        if tk and tk not in enrich_by:
+            enrich_by[tk] = {k: a.get(k) for k in (
+                "ticker", "sector", "company", "market_cap", "premarket_pct",
+                "vol_ratio", "news_count", "above_ma50", "above_ma200")}
+    enriched = 0
+    new_rows: list[dict] = []
+    for r in norm:
+        if _action_key(r) in existing_keys:
+            continue
+        tk = str(r.get("ticker") or "").upper()
+        en = enrich_by.get(tk)
+        if en is None:
+            if tk in wl and enriched < FAST_LANE_ENRICH_CAP:
+                try:
+                    en = _enrich(tk)
+                except Exception:
+                    en = {"ticker": tk}
+                enriched += 1
+            else:
+                en = {"ticker": tk}
+            if not en.get("sector") and r.get("sector"):
+                en["sector"] = r["sector"]
+            enrich_by[tk] = en
+        new_rows.append(score_action(r, en, per_ticker.get(tk, 1)))
+
+    merged = _merge_actions(existing, new_rows)
+    merged.sort(key=lambda a: -(a.get("score") or 0))
+    today_et = datetime.now(analyst_client._et_zone()).date().isoformat()
+
+    # Push: watchlist names, real actions, today, once.
+    sent = 0
+    if notify_fn and wl:
+        for a in new_rows:
+            tk = str(a.get("ticker") or "").upper()
+            if tk not in wl or a.get("date") != today_et:
+                continue
+            if a.get("action_class") not in ("upgrade", "downgrade", "initiate", "target_change"):
+                continue
+            key = "|".join(_action_key(a))
+            if key in pushed:
+                continue
+            try:
+                title, body = compose_action_push(a)
+                notify_fn(title, body)
+                pushed.add(key)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"[analyst_board] fast-lane push failed: {exc}", file=sys.stderr)
+
+    with _LOCK:
+        _STATE["actions"] = merged
+        _STATE["fast_last"] = _now_iso()
+        _STATE["fast_added"] = len(new_rows)
+        _STATE["fast_error"] = None
+        _STATE["pushed"] = sorted(pushed)[-_PUSHED_CAP:]
+    if new_rows or sent:
+        _persist_board()
+    return {"ok": True, "seen": len(norm), "added": len(new_rows), "pushed": sent}
+
+
+def compose_action_push(a: dict) -> tuple[str, str]:
+    """'▲ PLTR: DA Davidson raised target to $250' / the detail line.
+    Every figure is quoted from the row; nothing is inferred."""
+    arrow = {"bull": "▲", "bear": "▼"}.get(a.get("direction"), "•")
+    tk = a.get("ticker") or "?"
+    firm = a.get("firm") or "An analyst"
+    cls = a.get("action_class")
+    nt, pt = a.get("new_target"), a.get("prior_target")
+    grade = a.get("new_grade")
+    if cls == "upgrade":
+        what = f"upgraded to {grade}" if grade else "upgraded"
+    elif cls == "downgrade":
+        what = f"downgraded to {grade}" if grade else "downgraded"
+    elif cls == "initiate":
+        what = f"initiated at {grade}" if grade else "initiated coverage"
+    else:
+        way = "raised" if (a.get("target_change_pct") or 0) > 0 else "cut"
+        what = f"{way} target to ${nt:.0f}" if nt else f"{way} target"
+    title = f"{arrow} {tk}: {firm} {what}"
+    bits = []
+    if cls in ("upgrade", "downgrade", "initiate") and nt:
+        bits.append(f"target ${nt:.0f}")
+    if pt and nt and a.get("target_change_pct") is not None:
+        bits.append(f"from ${pt:.0f} ({a['target_change_pct']:+.0f}%)")
+    if grade and cls not in ("upgrade", "downgrade", "initiate"):
+        bits.append(grade)
+    if a.get("analyst"):
+        bits.append(a["analyst"])
+    if a.get("time_et"):
+        bits.append(f"{a['time_et']} ET")
+    bits.append("Unusual Whales")
+    return title, " · ".join(bits)
+
+
+def fast_lane_due(now: datetime | None = None) -> bool:
+    """Weekdays, 4 AM to 8 PM ET, no more often than the cadence."""
+    now = now or datetime.now(analyst_client._et_zone())
+    if now.weekday() >= 5:
+        return False
+    mins = now.hour * 60 + now.minute
+    if not (FAST_LANE_START_MIN <= mins < FAST_LANE_END_MIN):
+        return False
+    with _LOCK:
+        last = _STATE.get("fast_last_ts") or 0.0
+    return (time.time() - last) >= FAST_LANE_EVERY_SEC
 
 
 # ── Auto-scan scheduler ───────────────────────────────────────────────
@@ -645,6 +910,22 @@ def start_scheduler(get_watchlist_fn=None, notify_fn=None, hour: int = 8,
                 now_min = now.hour * 60 + now.minute
                 in_window = target_min <= now_min < target_min + 60
                 today_iso = now.date().isoformat()
+                # Fast lane first: it is one call, and it is the part of
+                # this loop Jerry is waiting on at 7:26 AM.
+                if fast_lane_due(now):
+                    syms = []
+                    if get_watchlist_fn:
+                        try:
+                            syms = get_watchlist_fn() or []
+                        except Exception:
+                            syms = []
+                    try:
+                        res = refresh_fast_lane(syms, notify_fn)
+                        if res.get("added") or res.get("pushed"):
+                            print(f"[analyst_board] fast lane +{res.get('added')} rows, "
+                                  f"{res.get('pushed')} pushed", file=sys.stderr)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[analyst_board] fast lane failed: {exc}", file=sys.stderr)
                 # The stamp is persisted to /data and written BEFORE the
                 # scan, so a crash/restart inside the window can never
                 # re-trigger the heavy scan and crash-loop the container.
@@ -694,6 +975,13 @@ def get_board() -> dict:
             "universe_size": _STATE["universe_size"],
             "recent_days": _STATE["recent_days"],
             "error": _STATE["error"],
+            "fast_lane": {
+                "source": analyst_client.UW_SOURCE,
+                "last": _STATE["fast_last"],
+                "added": _STATE["fast_added"],
+                "error": _STATE["fast_error"],
+                "every_sec": FAST_LANE_EVERY_SEC,
+            },
         }
     return {
         "as_of": _now_iso(),
@@ -720,6 +1008,8 @@ def _persist_board() -> None:
             "last_scan": _STATE["last_scan"],
             "recent_days": _STATE["recent_days"],
             "universe_size": _STATE["universe_size"],
+            "fast_last": _STATE["fast_last"],
+            "pushed": _STATE["pushed"],
         }
     try:
         path = _persist_path()
@@ -743,6 +1033,8 @@ def _restore_board() -> None:
             _STATE["last_scan"] = data.get("last_scan")
             _STATE["recent_days"] = data.get("recent_days") or _STATE["recent_days"]
             _STATE["universe_size"] = data.get("universe_size") or 0
+            _STATE["fast_last"] = data.get("fast_last")
+            _STATE["pushed"] = [k for k in (data.get("pushed") or []) if isinstance(k, str)][-_PUSHED_CAP:]
         print(f"[analyst_board] restored {len(_STATE['actions'])} cached actions "
               f"(last scan {_STATE['last_scan']})", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001

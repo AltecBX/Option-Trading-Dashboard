@@ -3583,3 +3583,56 @@ first.
 **A false alarm on a working source is not a small bug in a health panel.** It
 is the failure that teaches a reader to stop looking at it — the same reason
 the panel refuses to say "fine" about a source it has never checked.
+
+## v5.00 — an upgrade is worth the most in the first minutes, and the feed was a day behind
+
+On the morning of 2026-09-11 D.A. Davidson raised its PLTR target to $250.
+The stock moved pre-market on it. At 8:19 AM ET the "Recent analyst updates"
+table on the Analyze tab still ended with the firm's 8/04 row ($175 → $200).
+The only per-firm feed was Yahoo's `upgrades_downgrades`, fetched once per
+ticker, cached for 30 minutes, and Yahoo had not posted the note. Unusual
+Whales and TipRanks both had it.
+
+Three things were wrong at once, and one fix does not cover them:
+
+| where | before | now |
+|---|---|---|
+| the per-stock card | Yahoo only, 30-minute cache, fetched once | Unusual Whales row first, Yahoo fills in; the card re-asks every 2 minutes |
+| the Watchlist analyst board | one 600-ticker Yahoo sweep at 8 AM | plus one market-wide UW call every 2 minutes, 4 AM to 8 PM ET, folded into the same board |
+| the push | the 8 AM summary | a new upgrade, downgrade, initiation or target change on a watchlist name, once, within two minutes |
+
+**Merging, not replacing.** Yahoo still knows things UW does not: the prior
+rating on an upgrade, the firm's own rating wording ("Outperform" rather than
+"buy"), and the prior target. `merge_history` keeps one row per (day, firm)
+across the two feeds — "DA Davidson", "D.A. Davidson" and "D.A. Davidson &
+Co" are one firm — with the UW row as the base and Yahoo's fields filled in.
+Where the feeds disagree about the action, the one that saw the rating move
+outranks the one that only saw the target move.
+
+**The prior target is derived, and says so.** UW rows carry the new target
+only. The prior is the same firm's next-older note on the same ticker (the
+board's rows when the tape window has none), labelled `prior_target_source`.
+Deutsche Bank's $200 can never become D.A. Davidson's prior. When there is no
+earlier note the prior is blank, not a guess: a figure on a trading screen is
+read as a quote.
+
+**The sweep must not wipe the fast lane.** The 8 AM sweep used to assign the
+board outright. A row that printed at 10:40 and reached the board at 10:42 is
+exactly the row Yahoo has not caught up to, and the next sweep read Yahoo.
+Now the sweep merges, and a guard runs the real `_scan_worker` against a
+board the fast lane populated to prove the row survives — and that when Yahoo
+does catch up the board still has one row for it, with the minute it printed.
+
+**The clock is New York's.** UW stamps rows in UTC; a note at 02:30 UTC on
+the 12th printed at 10:30 PM on the 11th and belongs to the 11th. Rows now
+carry `time_et`, and the card's date column shows it — the difference between
+a row and a trade.
+
+**Honest about what this fixes.** UW's own stamp on the D.A. Davidson note is
+11:28 AM ET, so even this leg would not have shown it at 8:19 that day;
+TipRanks had it at roughly 4:50 AM. TipRanks is not wired in (no API key in
+the stack). The fast lane is the best available leg, not a guarantee of
+first print.
+
+27 guards in `test_analyst_uw.py`, every fixture row shaped like a row the
+live UW endpoint returned on 2026-09-13.

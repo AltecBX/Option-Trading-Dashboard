@@ -439,8 +439,14 @@ class TheHeadlineNamesTheRightReason(unittest.TestCase):
 
 class Board(unittest.TestCase):
     def test_a_closed_market_starts_no_worker_and_says_why(self):
+        # "Closed" has three wordings on the clock (holiday, pre-market, after
+        # the bell), so a test about the closed one has to say WHEN it is:
+        # noon on a Saturday. Left to the real clock this passed on weekends
+        # and read "Pre-market" on a Monday morning — including the Monday
+        # the time-travel run landed on.
         sk.configure(board_getter=lambda: _board([]), bars_fn=lambda s: BARS.get(s),
-                     market_open_fn=lambda: False)
+                     market_open_fn=lambda: False,
+                     now_fn=lambda: datetime(2026, 9, 12, 12, 0).astimezone())
         with sk._LOCK:
             sk._STATE["rows"] = []
         out = sk.snapshot()
