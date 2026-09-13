@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.04";
+const APP_VERSION = "5.10";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -6781,6 +6781,52 @@ function App() {
     }, "$", maxPainStrike.toFixed(2)), /*#__PURE__*/React.createElement("span", {
       className: `mp-delta ${maxPainPct >= 0 ? "up" : "down"}`
     }, maxPainPct >= 0 ? "+" : "", maxPainPct.toFixed(1), "%"))), (() => {
+      // ── Where the action is, in one line (v5.10) ──────────
+      // Jerry's ask: the heaviest strikes named up front instead
+      // of found by scrolling the bars. Straight off the same
+      // sorted lists the columns below use.
+      const hot = (arr, key) => arr && arr.length ? arr[0] : null;
+      const cOI = hot(topCallOI),
+        pOI = hot(topPutOI);
+      const cV = hot(topCallVol),
+        pV = hot(topPutVol);
+      if (!cOI && !pOI && !cV && !pV) return null;
+      const One = ({
+        side,
+        row,
+        key0
+      }) => row ? /*#__PURE__*/React.createElement("b", {
+        className: side === "call" ? "up" : "down",
+        title: `${side === "call" ? "Calls" : "Puts"} at $${row.strike.toFixed(2)} — ${row[key0].toLocaleString()} contracts, the most of any ${side} strike on this expiry.`
+      }, side === "call" ? "calls" : "puts", " $", row.strike.toFixed(row.strike >= 100 ? 0 : 2), /*#__PURE__*/React.createElement("i", null, fmtN(row[key0]))) : /*#__PURE__*/React.createElement("b", {
+        className: "muted"
+      }, "no data");
+      return /*#__PURE__*/React.createElement("div", {
+        className: "oi-hot"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "oi-hot-grp",
+        title: "The strikes holding the most open contracts on this expiry. Big open interest marks the levels dealers hedge around \u2014 the ones price tends to stick near, and comfortable places to sit behind as a seller."
+      }, /*#__PURE__*/React.createElement("em", null, "HEAVIEST OPEN INTEREST"), /*#__PURE__*/React.createElement(One, {
+        side: "call",
+        row: cOI,
+        key0: "openInterest"
+      }), /*#__PURE__*/React.createElement(One, {
+        side: "put",
+        row: pOI,
+        key0: "openInterest"
+      })), /*#__PURE__*/React.createElement("span", {
+        className: "oi-hot-grp",
+        title: "The strikes with the most contracts traded TODAY. Open interest is where positioning already sits; volume is where it is being put on right now."
+      }, /*#__PURE__*/React.createElement("em", null, "HEAVIEST VOLUME TODAY"), /*#__PURE__*/React.createElement(One, {
+        side: "call",
+        row: cV,
+        key0: "volume"
+      }), /*#__PURE__*/React.createElement(One, {
+        side: "put",
+        row: pV,
+        key0: "volume"
+      })));
+    })(), (() => {
       // ── By-strike activity chart (v1.19) ──────────────────
       // Mirrored horizontal bars per strike: calls right (green),
       // puts left (red), centered on the strike axis. Shows where
@@ -6888,26 +6934,26 @@ function App() {
           className: `oi-chart-row ${isNear ? "near" : ""}`,
           title: `$${r.strike.toFixed(2)} · calls ${fmtBar(r.call)} · puts ${fmtBar(r.put)}`
         }, /*#__PURE__*/React.createElement("div", {
-          className: "oi-bar-side put"
-        }, r.put > 0 && /*#__PURE__*/React.createElement("span", {
-          className: "oi-bar-num"
-        }, fmtBar(r.put)), /*#__PURE__*/React.createElement("div", {
-          className: "oi-bar put-bar",
-          style: {
-            width: `${putPct}%`
-          }
-        })), /*#__PURE__*/React.createElement("div", {
-          className: "oi-bar-strike"
-        }, "$", r.strike.toFixed(r.strike >= 100 ? 0 : 2)), /*#__PURE__*/React.createElement("div", {
           className: "oi-bar-side call"
-        }, /*#__PURE__*/React.createElement("div", {
+        }, r.call > 0 && /*#__PURE__*/React.createElement("span", {
+          className: "oi-bar-num"
+        }, fmtBar(r.call)), /*#__PURE__*/React.createElement("div", {
           className: "oi-bar call-bar",
           style: {
             width: `${callPct}%`
           }
-        }), r.call > 0 && /*#__PURE__*/React.createElement("span", {
+        })), /*#__PURE__*/React.createElement("div", {
+          className: "oi-bar-strike"
+        }, "$", r.strike.toFixed(r.strike >= 100 ? 0 : 2)), /*#__PURE__*/React.createElement("div", {
+          className: "oi-bar-side put"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "oi-bar put-bar",
+          style: {
+            width: `${putPct}%`
+          }
+        }), r.put > 0 && /*#__PURE__*/React.createElement("span", {
           className: "oi-bar-num"
-        }, fmtBar(r.call))));
+        }, fmtBar(r.put))));
       })));
     })(), /*#__PURE__*/React.createElement("div", {
       className: "oi-grid"

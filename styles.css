@@ -7542,8 +7542,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .oi-chart-row.near { background: color-mix(in oklch, var(--accent), transparent 88%); border-radius: 4px; }
 .oi-bar-side { display: flex; align-items: center; gap: 5px; height: 16px; }
-.oi-bar-side.put { justify-content: flex-end; }
-.oi-bar-side.call { justify-content: flex-start; }
+/* v5.10: calls left, puts right — the option-chain convention. Each side's
+   bar grows FROM the strike column outward, so the pair reads as one
+   mirrored bar and the strike axis stays the anchor. */
+.oi-bar-side.call { justify-content: flex-end; }
+.oi-bar-side.put { justify-content: flex-start; }
 .oi-bar { height: 13px; border-radius: 2px; min-width: 0; }
 .oi-bar.put-bar { background: var(--down); }
 .oi-bar.call-bar { background: var(--up); }
@@ -7557,6 +7560,25 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .oi-chart-row.near .oi-bar-strike { color: var(--accent); }
 .oi-chart-empty { padding: 16px 0; font-size: 13px; text-align: center; }
+
+/* v5.10: the heaviest strikes named above the chart, so "where is the
+   action" is answered without scrolling the bars. */
+.oi-hot { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline;
+  padding: 9px 12px; margin-bottom: 10px; border-radius: 9px;
+  background: var(--bg-3); border: 1px solid var(--line); }
+.oi-hot-grp { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; cursor: help; }
+.oi-hot-grp em { font-style: normal; font-family: var(--font-mono); font-size: 10px;
+  font-weight: 800; letter-spacing: 0.11em; color: var(--fg-3); }
+.oi-hot-grp b { font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+  display: inline-flex; align-items: baseline; gap: 5px; cursor: help; }
+.oi-hot-grp b.up { color: var(--up); }
+.oi-hot-grp b.down { color: var(--down); }
+.oi-hot-grp b.muted { color: var(--fg-3); font-size: 11.5px; }
+.oi-hot-grp b i { font-style: normal; font-size: 11px; color: var(--fg-2); }
+@media (max-width: 620px) {
+  .oi-hot { gap: 6px 14px; padding: 8px 10px; }
+}
+
 
 /* ─── Level Reprice card (v1.28) ─────────────────────────────────────
    Intraday fade staging. Matches existing dark card density. Numbers
@@ -10697,15 +10719,63 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 .wos-dayctx em { font-style: normal; font-family: var(--font-mono); font-size: 9px;
   font-weight: 800; letter-spacing: 0.12em; color: var(--warn); margin-right: 8px; }
 .wos-dayctx b { font-family: var(--font-mono); font-size: 13px; }
-/* One line only where the wide layout has room. This must stay a min-width
-   rule: an unconditional nowrap here once out-cascaded the phone reset at
-   the 1100px breakpoint (later rule, same specificity) and inflated the
-   whole card's grid to 528px on a 390px phone — clipping the title, the
-   NOW marker and the right-hand numbers. */
-@media (min-width: 1101px) {
-  .wos-dayctx { white-space: nowrap; }
-}
+/* v5.10: this line USED to be nowrap above 1100px, which clipped its tail
+   ("weekly HIGH already in: 100%") because the range zone is one column of
+   a three-column card, not the full card width. A sentence that does not
+   fit its column must wrap, never overflow — the labels were shortened at
+   the same time so it usually still lands on one line. */
+.wos-dayctx { white-space: normal; overflow-wrap: anywhere; }
 .wos-dayctx b.cu { color: var(--up); }
+
+/* ── v5.10: the strike engine's view ─────────────────────────────────────
+   The panel no longer points at the worst thing the stock ever did. It
+   draws the sell zone — the level this stock closed beyond in only a small
+   share of matched windows — with the two recommended strikes on it. */
+.wsz-track { background: linear-gradient(90deg,
+    color-mix(in oklch, var(--down) 50%, transparent),
+    color-mix(in oklch, var(--bg-3) 88%, transparent) 34%,
+    color-mix(in oklch, var(--bg-3) 88%, transparent) 66%,
+    color-mix(in oklch, var(--up) 50%, transparent)); }
+.wsz-typical { position: absolute; top: 0; bottom: 0; border-radius: 999px;
+  background: color-mix(in oklch, var(--accent) 26%, transparent);
+  border-left: 1px solid color-mix(in oklch, var(--accent) 55%, transparent);
+  border-right: 1px solid color-mix(in oklch, var(--accent) 55%, transparent); }
+.wsz-strike { position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 3px; height: 20px; border-radius: 2px; }
+.wsz-strike.put { background: var(--up); box-shadow: 0 0 7px color-mix(in oklch, var(--up) 70%, transparent); }
+.wsz-strike.call { background: var(--down); box-shadow: 0 0 7px color-mix(in oklch, var(--down) 70%, transparent); }
+.wos-end.lo em, .wos-end.hi em { letter-spacing: 0.09em; }
+.wos-earn-warn { font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.08em; border-radius: 999px; padding: 5px 11px; cursor: help;
+  margin-right: 8px; color: var(--warn);
+  background: color-mix(in oklch, var(--warn) 15%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warn) 45%, transparent); }
+.wos-plain { font-size: 12.5px; line-height: 1.55; color: var(--fg-2); cursor: help;
+  border-top: 1px dashed var(--line); padding-top: 7px; }
+.wos-plain b { color: var(--fg); font-weight: 700; }
+.wos-plain b.cu { color: var(--up); } .wos-plain b.cd { color: var(--down); }
+.wos-plan-note { font-size: 12px; color: var(--fg-2); border-top: 1px dashed var(--line);
+  padding-top: 6px; cursor: help; }
+.wos-relaxed { font-family: var(--font-mono); font-size: 10.5px; color: var(--warn);
+  letter-spacing: 0.04em; margin: -2px 0 5px; cursor: help; }
+.wos-r.good b { color: var(--up); }
+.wos-r.bad b { color: var(--down); }
+.wos-alts { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+  margin-top: 7px; padding-top: 6px; border-top: 1px dashed var(--line); cursor: help; }
+.wos-alts em { font-style: normal; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.12em; color: var(--fg-3); }
+.wos-alt { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-2);
+  border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; cursor: help; }
+.wos-mine { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-top: 6px; padding: 5px 8px; border-radius: 7px; cursor: help;
+  background: color-mix(in oklch, var(--accent) 9%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent); }
+.wos-mine.warn { background: color-mix(in oklch, var(--warn) 11%, transparent);
+  border-color: color-mix(in oklch, var(--warn) 38%, transparent); }
+.wos-mine em { font-style: normal; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.1em; color: var(--fg-3); }
+.wos-mine b { font-family: var(--font-mono); font-size: 12.5px; }
+.wos-mine span { font-size: 11.5px; color: var(--fg-2); }
 
 /* v3.55: weekly range location scan (Scanners tab) — watchlist-wide version
    of the selling-setup panel's range math. */

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.04";
+const APP_VERSION = "5.10";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -5387,6 +5387,39 @@ function App() {
                 )}
               </div>
               {(() => {
+                // ── Where the action is, in one line (v5.10) ──────────
+                // Jerry's ask: the heaviest strikes named up front instead
+                // of found by scrolling the bars. Straight off the same
+                // sorted lists the columns below use.
+                const hot = (arr, key) => (arr && arr.length ? arr[0] : null);
+                const cOI = hot(topCallOI), pOI = hot(topPutOI);
+                const cV = hot(topCallVol), pV = hot(topPutVol);
+                if (!cOI && !pOI && !cV && !pV) return null;
+                const One = ({side, row, key0}) => row ? (
+                  <b className={side === "call" ? "up" : "down"}
+                     title={`${side === "call" ? "Calls" : "Puts"} at $${row.strike.toFixed(2)} — ${row[key0].toLocaleString()} contracts, the most of any ${side} strike on this expiry.`}>
+                    {side === "call" ? "calls" : "puts"} ${row.strike.toFixed(row.strike >= 100 ? 0 : 2)}
+                    <i>{fmtN(row[key0])}</i>
+                  </b>
+                ) : <b className="muted">no data</b>;
+                return (
+                  <div className="oi-hot">
+                    <span className="oi-hot-grp"
+                          title="The strikes holding the most open contracts on this expiry. Big open interest marks the levels dealers hedge around — the ones price tends to stick near, and comfortable places to sit behind as a seller.">
+                      <em>HEAVIEST OPEN INTEREST</em>
+                      <One side="call" row={cOI} key0="openInterest" />
+                      <One side="put" row={pOI} key0="openInterest" />
+                    </span>
+                    <span className="oi-hot-grp"
+                          title="The strikes with the most contracts traded TODAY. Open interest is where positioning already sits; volume is where it is being put on right now.">
+                      <em>HEAVIEST VOLUME TODAY</em>
+                      <One side="call" row={cV} key0="volume" />
+                      <One side="put" row={pV} key0="volume" />
+                    </span>
+                  </div>
+                );
+              })()}
+              {(() => {
                 // ── By-strike activity chart (v1.19) ──────────────────
                 // Mirrored horizontal bars per strike: calls right (green),
                 // puts left (red), centered on the strike axis. Shows where
@@ -5466,14 +5499,17 @@ function App() {
                         return (
                           <div key={r.strike} className={`oi-chart-row ${isNear ? "near" : ""}`}
                                title={`$${r.strike.toFixed(2)} · calls ${fmtBar(r.call)} · puts ${fmtBar(r.put)}`}>
-                            <div className="oi-bar-side put">
-                              {r.put > 0 && <span className="oi-bar-num">{fmtBar(r.put)}</span>}
-                              <div className="oi-bar put-bar" style={{width: `${putPct}%`}}></div>
+                            {/* Calls left, puts right, strikes down the middle —
+                                the way an option chain is laid out everywhere
+                                else, so the eye does not have to translate. */}
+                            <div className="oi-bar-side call">
+                              {r.call > 0 && <span className="oi-bar-num">{fmtBar(r.call)}</span>}
+                              <div className="oi-bar call-bar" style={{width: `${callPct}%`}}></div>
                             </div>
                             <div className="oi-bar-strike">${r.strike.toFixed(r.strike >= 100 ? 0 : 2)}</div>
-                            <div className="oi-bar-side call">
-                              <div className="oi-bar call-bar" style={{width: `${callPct}%`}}></div>
-                              {r.call > 0 && <span className="oi-bar-num">{fmtBar(r.call)}</span>}
+                            <div className="oi-bar-side put">
+                              <div className="oi-bar put-bar" style={{width: `${putPct}%`}}></div>
+                              {r.put > 0 && <span className="oi-bar-num">{fmtBar(r.put)}</span>}
                             </div>
                           </div>
                         );

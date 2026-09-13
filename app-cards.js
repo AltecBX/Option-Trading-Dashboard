@@ -20306,6 +20306,30 @@ function _wosGreeks(spot, strike, ivPct, dteDays, side) {
     probOTM: side === "put" ? (1 - Math.abs(delta)) * 100 : (1 - delta) * 100
   };
 }
+
+// ── The plan comes from the server's strike engine (weekly_sell.py). It is
+// matched to the ticker on screen so a stale plan from the previous symbol
+// can never be drawn under this one's price.
+function _wosPlan(ticker) {
+  try {
+    const L = window.__LIVE;
+    if (!L || !L.sellPlan || !ticker) return null;
+    if (String(L.ticker || "").toUpperCase() !== String(ticker).toUpperCase()) return null;
+    return L.sellPlan;
+  } catch (e) {
+    return null;
+  }
+}
+
+// A strike the engine already measured, looked up by price. Used to show
+// Jerry's OWN picked strike on the same footing as the recommendation.
+function _wosFind(list, strike) {
+  if (!Array.isArray(list) || strike == null) return null;
+  for (const r of list) {
+    if (r && r.strike != null && Math.abs(r.strike - strike) < 0.001) return r;
+  }
+  return null;
+}
 function WeeklySellSetupCard({
   rows,
   weeks,
@@ -20322,6 +20346,7 @@ function WeeklySellSetupCard({
   if (!rows || rows.length < 4 || !currentPrice || !baselinePrice) {
     return null;
   }
+  const plan = _wosPlan(ticker);
   const lows = rows.map(r => r.low_return),
     highs = rows.map(r => r.high_return);
   const worstLow = Math.min(...lows),
@@ -20333,16 +20358,9 @@ function WeeklySellSetupCard({
   const pos = Math.max(0, Math.min(100, rawPos));
   const outside = rawPos < 0 ? "below" : rawPos > 100 ? "above" : null;
   const bottomProx = 100 - pos;
-  const dLow$ = currentPrice - pLow,
-    dLowPts = currReturn - worstLow;
-  const dHigh$ = pHigh - currentPrice,
-    dHighPts = bestHigh - currReturn;
 
-  // Day-of-week context (v3.51): CURRENT is a week-in-progress compared
-  // against COMPLETED weeks' extremes — so how much week is left matters.
-  // rows[].low_day / high_day say which weekday each week's extreme printed;
-  // by mid-week most lows are usually already in, which is exactly why
-  // "near the range low on Wed/Thu" historically has little room left below.
+  // Day-of-week context: CURRENT is a week in progress measured against
+  // COMPLETED weeks, so how much week is left matters.
   const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   const dow = (() => {
     try {
@@ -20372,11 +20390,10 @@ function WeeklySellSetupCard({
     const ms = new Date(expiration + "T16:00:00-04:00") - new Date();
     dte = Math.max(0, Math.round(ms / 86400000 * 10) / 10);
   }
+  if (plan && plan.dte_cal != null) dte = plan.dte_cal;
 
-  // Expected move to the selected Friday. Prefer the EM engine's band when
-  // it's loaded for this ticker; otherwise use the chain's own ATM straddle
-  // mid (the option market's priced move to this expiry) — real quotes, not
-  // an estimate. Only when neither exists does the row say Data unavailable.
+  // Expected move to the selected Friday — the engine's band when loaded,
+  // else the chain's own ATM straddle mid.
   const emFromBand = emBand && emBand.high != null && emBand.low != null;
   let emUp = null,
     emDn = null;
@@ -20387,90 +20404,156 @@ function WeeklySellSetupCard({
     emUp = emStraddle;
     emDn = emStraddle;
   }
-  const emPct = emUp != null && emDn != null ? (emUp + emDn) / 2 / currentPrice * 100 : null;
-  const chainOK = c => c && c.strike != null && ((c.bid || 0) > 0 || (c.ask || 0) > 0);
-  const midOf = c => c.bid > 0 && c.ask > 0 ? (c.bid + c.ask) / 2 : c.bid || c.ask || null;
-  function sideStats(c, side) {
-    if (!chainOK(c)) return {
-      ok: false
-    };
-    const mid = midOf(c);
-    const breakeven = side === "put" ? c.strike - mid : c.strike + mid;
-    const beDistPct = side === "put" ? (currentPrice - breakeven) / currentPrice * 100 : (breakeven - currentPrice) / currentPrice * 100;
-    // Schwab's chain carries real greeks — use them and only fall back to a
-    // Black-Scholes estimate (tagged est) when they're absent. The backend
-    // flags backfilled greeks (delta_est/theta_est — e.g. Schwab's -999
-    // sentinels outside market hours); sanity-bound values too for old
-    // cached payloads that predate the flags.
-    const liveDelta = !c.delta_est && typeof c.delta === "number" && isFinite(c.delta) && Math.abs(c.delta) <= 1 && c.delta !== 0 ? c.delta : null;
-    const liveTheta = !c.theta_est && typeof c.theta === "number" && isFinite(c.theta) && Math.abs(c.theta) < 100 && c.theta !== 0 ? c.theta : null;
-    const g = _wosGreeks(currentPrice, c.strike, c.iv, dte != null ? dte : 5, side);
-    const delta = liveDelta != null ? liveDelta : g && g.delta;
-    const theta = liveTheta != null ? liveTheta : g && g.theta;
-    const probOTM = delta != null ? side === "put" ? (1 - Math.abs(delta)) * 100 : (1 - Math.max(0, delta)) * 100 : null;
-    const strikeEq = (c.strike / baselinePrice - 1) * 100;
-    const breachN = side === "put" ? rows.filter(r => r.low_return <= strikeEq).length : rows.filter(r => r.high_return >= strikeEq).length;
-    const rbp = side === "put" ? mid / (c.strike - mid) * 100 // vs cash-secured collateral
-    : mid / currentPrice * 100; // vs 100 shares held
-    return {
-      ok: true,
-      strike: c.strike,
-      bid: c.bid || null,
-      mid,
-      breakeven,
-      beDistPct,
-      delta,
-      theta,
-      probOTM,
-      deltaLive: liveDelta != null,
-      thetaLive: liveTheta != null,
-      breachN,
-      breachPct: breachN / rows.length * 100,
-      rbp,
-      iv: c.iv
-    };
-  }
-  const P = sideStats(putC, "put");
-  const C = sideStats(callC, "call");
-
-  // ── Bias: location + breach + P(OTM) + EM cushion, scaled by time left.
-  // Components missing from live data are excluded and weights renormalized.
-  function fit(sideS, locScore) {
-    const parts = [[0.35, locScore]];
-    if (sideS.ok) {
-      parts.push([0.20, 100 - sideS.breachPct]);
-      if (sideS.probOTM != null) parts.push([0.20, sideS.probOTM]);
-      if (emPct != null && sideS.beDistPct != null) parts.push([0.15, Math.min(100, sideS.beDistPct / Math.max(0.2, emPct) * 66)]);
-    }
-    const wsum = parts.reduce((a, p) => a + p[0], 0);
-    return parts.reduce((a, p) => a + p[0] * p[1], 0) / wsum;
-  }
-  const putFit = fit(P, 100 - pos);
-  const callFit = fit(C, pos);
-  const timing = dte != null ? dte <= 1 ? 1.15 : dte <= 2 ? 1.05 : 1 : 1;
-  const diff = (putFit - callFit) * timing;
-  const bias = diff >= 15 ? ["Strong Put Location", "up"] : diff >= 6 ? ["Moderate Put Location", "up"] : diff <= -15 ? ["Strong Call Location", "down"] : diff <= -6 ? ["Moderate Call Location", "down"] : ["Neutral", "mut"];
+  let emPct = emUp != null && emDn != null ? (emUp + emDn) / 2 / currentPrice * 100 : null;
+  if (emPct == null && plan && plan.em && plan.em.pct != null) emPct = plan.em.pct;
   const NA = /*#__PURE__*/React.createElement("span", {
     className: "wos-na",
     title: "Live option-chain data for this field is unavailable right now \u2014 nothing is estimated in its place."
   }, "Data unavailable");
   const f$ = v => v == null ? NA : fmt$(v, v >= 1000 ? 0 : 2);
   const fp = (v, d = 1) => v == null ? NA : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
+  const pct0 = v => v == null ? "—" : `${v.toFixed(0)}%`;
   const Row = ({
     l,
     v,
     hot,
-    tip
+    tip,
+    tone
   }) => /*#__PURE__*/React.createElement("div", {
-    className: `wos-r ${hot ? "hot" : ""}`,
+    className: `wos-r ${hot ? "hot" : ""} ${tone || ""}`,
     title: tip
   }, /*#__PURE__*/React.createElement("em", null, l), /*#__PURE__*/React.createElement("b", null, v));
-  function SideCol({
-    label,
-    S,
+
+  // The NOW label is centred on the marker, so near either end of the scale
+  // a nowrap label hangs past the track and the card gains a sliver of
+  // sideways scroll. The marker keeps its exact position; only the label's
+  // centre is pulled in, far enough that even a phone-width track holds it.
+  const labelAt = v => `${Math.min(80, Math.max(20, v))}%`;
+
+  // ══ ENGINE VIEW ═════════════════════════════════════════════════════════
+  // Everything below reads the server's plan. Nothing is recomputed here, so
+  // the panel and the tests measure the same numbers.
+  const zone = plan && plan.band ? plan.band.zone : null;
+  const typical = plan && plan.band ? plan.band.typical : null;
+  function ZoneScale() {
+    const lo = zone.low,
+      hi = zone.high;
+    const pk = s => plan[s] && plan[s].pick ? plan[s].pick.strike : null;
+    const putK = pk("put"),
+      callK = pk("call");
+    const ends = [lo.price, hi.price, putK, callK, currentPrice].filter(v => v != null);
+    let min = Math.min(...ends),
+      max = Math.max(...ends);
+    const pad = Math.max((max - min) * 0.06, currentPrice * 0.004);
+    min -= pad;
+    max += pad;
+    const at = v => v == null ? null : Math.max(0, Math.min(100, (v - min) / (max - min) * 100));
+    const tLo = typical && typical.low ? at(typical.low.price) : null;
+    const tHi = typical && typical.high ? at(typical.high.price) : null;
+    const nowAt = at(currentPrice);
+    const srcWord = s => s === "history" ? "this stock's own history" : "the option market's implied move";
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "wos-rl-h",
+      title: `Every number here is measured over the ${plan.sessions} trading session${plan.sessions === 1 ? "" : "s"} between now and this expiry — not a calendar week.`
+    }, "SELL ZONE \xB7 NEXT ", plan.sessions, " SESSION", plan.sessions === 1 ? "" : "S"), /*#__PURE__*/React.createElement("div", {
+      className: "wos-trackwrap"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "wos-now-label",
+      style: {
+        left: labelAt(nowAt)
+      },
+      title: "Live price."
+    }, "NOW ", /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, fmt$(currentPrice, currentPrice >= 1000 ? 0 : 2))), /*#__PURE__*/React.createElement("div", {
+      className: "wos-track wsz-track"
+    }, tLo != null && tHi != null && /*#__PURE__*/React.createElement("i", {
+      className: "wsz-typical",
+      style: {
+        left: `${tLo}%`,
+        width: `${Math.max(1, tHi - tLo)}%`
+      },
+      title: `Half of all matched ${plan.sessions}-session windows closed inside this band.`
+    }), putK != null && /*#__PURE__*/React.createElement("i", {
+      className: "wsz-strike put",
+      style: {
+        left: `${at(putK)}%`
+      },
+      title: `Recommended put strike ${fmt$(putK, 2)}`
+    }), callK != null && /*#__PURE__*/React.createElement("i", {
+      className: "wsz-strike call",
+      style: {
+        left: `${at(callK)}%`
+      },
+      title: `Recommended call strike ${fmt$(callK, 2)}`
+    }), /*#__PURE__*/React.createElement("i", {
+      className: "wos-marker",
+      style: {
+        left: `${nowAt}%`
+      }
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "wos-ends"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "wos-end lo",
+      title: `Sell puts at or below this level. Over ${plan.sample.n} matched ${plan.sessions}-session windows, this stock closed below it about ${plan.band.target_itm_pct.toFixed(0)}% of the time. The line came from ${srcWord(lo.source)} — the engine keeps whichever of the two is more cautious.`
+    }, /*#__PURE__*/React.createElement("em", null, "SELL PUTS BELOW"), /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, f$(lo.price)), /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, fp(lo.pct), " \xB7 ", lo.source)), /*#__PURE__*/React.createElement("span", {
+      className: "wos-end hi",
+      title: `Sell calls at or above this level. Over ${plan.sample.n} matched ${plan.sessions}-session windows, this stock closed above it about ${plan.band.target_itm_pct.toFixed(0)}% of the time. The line came from ${srcWord(hi.source)} — the engine keeps whichever of the two is more cautious.`
+    }, /*#__PURE__*/React.createElement("em", null, "SELL CALLS ABOVE"), /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, f$(hi.price)), /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, fp(hi.pct), " \xB7 ", hi.source))), typical && typical.low && typical.low.price != null && /*#__PURE__*/React.createElement("div", {
+      className: "wos-prox-box",
+      title: `The middle half of matched windows: a quarter closed below the low end and a quarter above the high end. Measured exactly like the sell zone, one line looser, so it always sits inside it.`
+    }, /*#__PURE__*/React.createElement("em", null, "ORDINARY WEEK"), /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, fmt$(typical.low.price, 2)), /*#__PURE__*/React.createElement("span", null, "to ", fmt$(typical.high.price, 2))), /*#__PURE__*/React.createElement("div", {
+      className: "wos-posline"
+    }, /*#__PURE__*/React.createElement("span", {
+      title: `Overlapping windows from ${plan.sample.n + plan.sessions} sessions of daily history. Overlap is why the count is high — every observation the history holds is used, and the count is shown rather than dressed up as independent weeks.`
+    }, "measured on ", /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, plan.sample.n), " matching ", plan.sessions, "-session windows", plan.sample.from ? /*#__PURE__*/React.createElement(React.Fragment, null, " since ", /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, plan.sample.from)) : null), emPct != null && /*#__PURE__*/React.createElement("span", {
+      title: plan.em && plan.em.source === "straddle" ? "The at-the-money straddle mid on the live chain — what the option market is charging for the move to this expiry." : "Expected move to this expiry."
+    }, "market\u2019s priced move ", /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, "\xB1", emPct.toFixed(1), "%"))));
+  }
+  function PickCol({
     side
   }) {
+    const S = plan[side] || {};
+    const p = S.pick;
+    const label = side === "put" ? "SELL PUT" : "SELL CALL";
     const col = side === "put" ? "var(--up)" : "var(--down)";
+    const userC = side === "put" ? putC : callC;
+    const userK = userC && userC.strike != null ? userC.strike : null;
+    const mine = p && userK != null && Math.abs(userK - p.strike) > 0.001 ? _wosFind(S.all, userK) : null;
+    if (!p) {
+      return /*#__PURE__*/React.createElement("div", {
+        className: "wos-side"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "wos-side-h",
+        style: {
+          color: col
+        }
+      }, label), /*#__PURE__*/React.createElement("div", {
+        className: "wos-na",
+        style: {
+          padding: "8px 0"
+        },
+        title: "The engine scored every strike on the live chain for this expiry and none of them cleared both the sell zone and the fill-quality checks. Not selling is the answer, not a missing number."
+      }, S.note || "Nothing worth selling on this side."));
+    }
+    const evTone = p.ev_ann_pct == null ? "" : p.ev_ann_pct >= 0 ? "good" : "bad";
+    const evTip = side === "put" ? `Average result of selling this put across all ${p.sample} matched windows: the credit collected, minus what it cost on the windows that finished below the strike, as a yearly rate on the cash the trade ties up. History, not a forecast.` : `Average result of selling this call instead of simply holding the shares, across all ${p.sample} matched windows, as a yearly rate. A negative number means the stock ran through this strike often enough that the premium did not pay for the upside given up.`;
     return /*#__PURE__*/React.createElement("div", {
       className: "wos-side"
     }, /*#__PURE__*/React.createElement("div", {
@@ -20478,158 +20561,340 @@ function WeeklySellSetupCard({
       style: {
         color: col
       }
-    }, label, S.ok && /*#__PURE__*/React.createElement("span", {
-      className: "wos-strike num"
-    }, "$", S.strike)), !S.ok ? /*#__PURE__*/React.createElement("div", {
-      className: "wos-na",
-      style: {
-        padding: "8px 0"
-      },
-      title: "No live bid/ask for the selected weekly contract."
-    }, "Data unavailable") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Row, {
-      l: "Bid / mid",
+    }, label, /*#__PURE__*/React.createElement("span", {
+      className: "wos-strike num",
+      title: (p.why || []).join(" · ")
+    }, fmt$(p.strike, p.strike >= 1000 ? 0 : 2))), p.relaxed && /*#__PURE__*/React.createElement("div", {
+      className: "wos-relaxed",
+      title: S.note || ""
+    }, "best available \u2014 see note"), /*#__PURE__*/React.createElement(Row, {
+      l: "Credit \xB7 bid/mid",
       v: /*#__PURE__*/React.createElement("span", {
         className: "num"
-      }, S.bid != null ? fmt$(S.bid, 2) : "—", " / ", fmt$(S.mid, 2)),
-      tip: "Live chain bid and mid for the selected weekly contract."
+      }, p.bid != null ? fmt$(p.bid, 2) : "—", " / ", fmt$(p.mid, 2)),
+      tip: "Live chain bid and mid for this contract."
     }), /*#__PURE__*/React.createElement(Row, {
       hot: true,
       l: "Breakeven",
       v: /*#__PURE__*/React.createElement("span", {
         className: "num"
-      }, fmt$(S.breakeven, 2), " \xB7 ", fp(S.beDistPct)),
-      tip: "Strike \u2213 premium, and how far price is from it. Your real cushion."
+      }, fmt$(p.breakeven, 2), " \xB7 ", fp(p.cushion_pct)),
+      tip: "Strike \u2213 the credit, and how far price is from it. The real cushion."
+    }), /*#__PURE__*/React.createElement(Row, {
+      hot: true,
+      l: "Assigned odds",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, pct0(p.itm_pct), " hist \xB7 ", p.p_otm == null ? "—" : pct0(100 - p.p_otm), " mkt"),
+      tip: `Two independent reads on the one thing that costs money. HIST: out of ${p.sample} matched ${plan.sessions}-session windows in this stock's own daily history, this share FINISHED through the strike. MKT: the option market's own implied odds, from the chain's delta. A strike has to clear ${plan.band.target_itm_pct.toFixed(0)}% on BOTH to be offered here — which is why a strike history likes can still be refused.`
+    }), /*#__PURE__*/React.createElement(Row, {
+      l: "Tested",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, pct0(p.touch_pct)),
+      tip: `How often price merely REACHED the strike at some point before expiry. Always higher than the assigned number — being tested is a scare, not a loss.`
+    }), /*#__PURE__*/React.createElement(Row, {
+      hot: true,
+      l: /*#__PURE__*/React.createElement(React.Fragment, null, "Edge \xB7 a year ", /*#__PURE__*/React.createElement("i", {
+        className: "wos-est"
+      }, "hist")),
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, p.ev_ann_pct == null ? "—" : `${p.ev_ann_pct >= 0 ? "+" : ""}${p.ev_ann_pct.toFixed(0)}%`),
+      tone: evTone,
+      tip: evTip
+    }), /*#__PURE__*/React.createElement(Row, {
+      l: "Return \xB7 week \xB7 year",
+      v: /*#__PURE__*/React.createElement("span", {
+        className: "num"
+      }, p.rbp_pct.toFixed(2), "% \xB7 ", p.ann_pct == null ? "—" : p.ann_pct.toFixed(0) + "%"),
+      tip: side === "put" ? "Credit ÷ cash-secured collateral for this week, and the same rate annualized." : "Credit ÷ the share value it covers for this week, and the same rate annualized."
     }), /*#__PURE__*/React.createElement(Row, {
       l: "Delta",
-      v: S.delta != null ? /*#__PURE__*/React.createElement("span", {
-        className: "num"
-      }, S.delta.toFixed(2), !S.deltaLive && /*#__PURE__*/React.createElement("i", {
-        className: "wos-est",
-        title: "Chain didn't include a live delta \u2014 Black-Scholes estimate from its IV."
-      }, "est")) : NA,
-      tip: S.deltaLive ? "Live delta from the Schwab option chain." : "Black-Scholes delta derived from the chain's own IV — estimated, not quoted."
-    }), /*#__PURE__*/React.createElement(Row, {
-      hot: true,
-      l: "P(expire OTM)",
-      v: S.probOTM != null ? /*#__PURE__*/React.createElement("span", {
-        className: "num"
-      }, S.probOTM.toFixed(0), "% ", /*#__PURE__*/React.createElement("i", {
-        className: "wos-est"
-      }, "est")) : NA,
-      tip: S.deltaLive ? "1 − |live Schwab delta| — the option market's implied odds of finishing out of the money. An estimate by nature, not a guarantee." : "Delta-based estimate from the chain's own IV. NOT a guarantee."
-    }), /*#__PURE__*/React.createElement(Row, {
-      hot: true,
-      l: `Breach rate · ${weeks}w`,
       v: /*#__PURE__*/React.createElement("span", {
         className: "num"
-      }, S.breachPct.toFixed(0), "% (", S.breachN, "/", rows.length, ")"),
-      tip: side === "put" ? `How often, in the displayed ${rows.length} weeks, the stock traded BELOW this strike's equivalent level before Friday.` : `How often, in the displayed ${rows.length} weeks, the stock traded ABOVE this strike's equivalent level before Friday.`
-    }), /*#__PURE__*/React.createElement(Row, {
-      l: "EM to Friday",
-      v: emPct != null ? /*#__PURE__*/React.createElement("span", {
-        className: "num"
-      }, "\xB1", emPct.toFixed(1), "% ", emFromBand ? `(${f$(emDn)}/${f$(emUp)})` : `(±${fmt$(emUp, emUp >= 1000 ? 0 : 2)})`) : NA,
-      tip: emFromBand ? "Expected move from the EM engine for the selected expiry (down / up dollar band)." : "ATM straddle mid from the live chain — the option market's priced move to the selected Friday expiry."
+      }, p.delta == null ? "—" : p.delta.toFixed(2)),
+      tip: "Live delta from the option chain. The market's assignment odds above are derived from it."
     }), /*#__PURE__*/React.createElement(Row, {
       hot: true,
-      l: "\u0398 / day \xB7 DTE",
+      l: "Fill quality",
       v: /*#__PURE__*/React.createElement("span", {
         className: "num"
-      }, S.theta != null ? fmt$(Math.abs(S.theta), 2) + "/sh" : "—", " \xB7 ", dte != null ? dte + "d" : "—", !S.thetaLive && /*#__PURE__*/React.createElement("i", {
-        className: "wos-est"
-      }, "est")),
-      tip: S.thetaLive ? "Live theta from the Schwab chain (per share, per day — decay in the seller's favor), and days to the weekly expiration." : "Daily decay in your favor (Black-Scholes from chain IV, per share) and days to the weekly expiration."
-    }), /*#__PURE__*/React.createElement(Row, {
-      l: "Return on BP",
-      v: /*#__PURE__*/React.createElement("span", {
-        className: "num"
-      }, S.rbp != null ? S.rbp.toFixed(2) + "%" : "—"),
-      tip: side === "put" ? "Premium ÷ cash-secured collateral (strike − premium), for this week." : "Premium ÷ current share value (covered), for this week."
-    })));
+      }, p.liq_grade, " \xB7 ", p.oi == null ? "—" : p.oi.toLocaleString(), " OI", p.spread_pct != null ? ` · ${p.spread_pct.toFixed(0)}%` : ""),
+      tip: "Graded on the bid/ask width first, then open interest and today's volume. A strike that cannot be filled is not a trade, so this is a hard gate as well as a score."
+    }), (() => {
+      // The heaviest open interest on this side. Dealers hedge around
+      // it, so price tends to stick near it — which is comfort when it
+      // sits past your strike and a warning when it sits between the
+      // stock and your strike.
+      const w = plan.walls && plan.walls[side];
+      if (!w || w.strike == null) return null;
+      const past = side === "put" ? w.strike <= p.strike : w.strike >= p.strike;
+      return /*#__PURE__*/React.createElement(Row, {
+        l: "Open-interest wall",
+        v: /*#__PURE__*/React.createElement("span", {
+          className: "num"
+        }, fmt$(w.strike, w.strike >= 1000 ? 0 : 2), " \xB7 ", w.oi.toLocaleString()),
+        tone: past ? "good" : "",
+        tip: past ? `The heaviest ${side} open interest on this expiry sits at ${fmt$(w.strike, 2)}, past your strike. Big open interest is a level dealers hedge around, so price tends to stick near it — here that works in your favour.` : `The heaviest ${side} open interest on this expiry sits at ${fmt$(w.strike, 2)}, between the stock and your strike. Price tends to gravitate to levels like this, so treat it as the magnet on the way to you.`
+      });
+    })(), Array.isArray(S.alts) && S.alts.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "wos-alts",
+      title: "Runners-up on the same scoring. Each one cleared the sell zone and the fill checks too."
+    }, /*#__PURE__*/React.createElement("em", null, "ALSO"), S.alts.map(a => /*#__PURE__*/React.createElement("span", {
+      key: a.strike,
+      className: "wos-alt num",
+      title: `${fmt$(a.strike, 2)} · assigned ${pct0(a.itm_pct)} hist / ${a.p_otm == null ? "—" : pct0(100 - a.p_otm)} mkt · ${a.ev_ann_pct == null ? "—" : (a.ev_ann_pct >= 0 ? "+" : "") + a.ev_ann_pct.toFixed(0) + "%/yr"} · fill ${a.liq_grade}`
+    }, fmt$(a.strike, a.strike >= 1000 ? 0 : 2)))), mine && /*#__PURE__*/React.createElement("div", {
+      className: `wos-mine ${mine.gate ? "warn" : ""}`,
+      title: mine.gate ? `Your picked strike, measured exactly the same way. It is ${mine.gate} — the engine would not sell it here.` : "Your picked strike, measured exactly the same way. It clears the zone too; the engine simply scored another strike higher."
+    }, /*#__PURE__*/React.createElement("em", null, "YOUR PICK"), /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, fmt$(mine.strike, mine.strike >= 1000 ? 0 : 2)), /*#__PURE__*/React.createElement("span", null, "assigned ", pct0(mine.itm_pct), " hist \xB7 ", mine.p_otm == null ? "—" : pct0(100 - mine.p_otm), " mkt", mine.ev_ann_pct != null ? ` · ${mine.ev_ann_pct >= 0 ? "+" : ""}${mine.ev_ann_pct.toFixed(0)}%/yr` : "", mine.gate ? ` — ${mine.gate}` : "")));
   }
+
+  // ══ FALLBACK VIEW ═══════════════════════════════════════════════════════
+  // No plan (an old cached payload, or the engine could not measure this
+  // symbol). The panel keeps working on the range numbers it always had,
+  // and says plainly that the recommendation is missing.
+  function LegacyRange() {
+    const dLow$ = currentPrice - pLow,
+      dLowPts = currReturn - worstLow;
+    const dHigh$ = pHigh - currentPrice,
+      dHighPts = bestHigh - currReturn;
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "wos-rl-h"
+    }, rows.length, " WEEK RANGE LOCATION"), /*#__PURE__*/React.createElement("div", {
+      className: "wos-trackwrap"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "wos-now-label",
+      style: {
+        left: labelAt(pos)
+      },
+      title: "This week, live."
+    }, "NOW ", /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, fp(currReturn, 2)), outside ? ` · ${outside.toUpperCase()} RANGE` : ""), /*#__PURE__*/React.createElement("div", {
+      className: "wos-track"
+    }, /*#__PURE__*/React.createElement("i", {
+      className: "wos-marker",
+      style: {
+        left: `${pos}%`
+      }
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "wos-ends"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "wos-end lo",
+      title: `Worst weekly low of the ${rows.length} displayed weeks.`
+    }, /*#__PURE__*/React.createElement("em", null, "WORST LOW"), /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, fp(worstLow)), /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, f$(pLow))), /*#__PURE__*/React.createElement("span", {
+      className: "wos-end hi",
+      title: `Best weekly high of the ${rows.length} displayed weeks.`
+    }, /*#__PURE__*/React.createElement("em", null, "BEST HIGH"), /*#__PURE__*/React.createElement("b", {
+      className: "num"
+    }, fp(bestHigh)), /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, f$(pHigh)))), /*#__PURE__*/React.createElement("div", {
+      className: "wos-prox-box",
+      title: "Where this week's return sits inside the displayed range. A location measure only."
+    }, /*#__PURE__*/React.createElement("em", null, "BOTTOM PROXIMITY"), /*#__PURE__*/React.createElement("b", {
+      className: `num ${bottomProx >= 66 ? "cu" : bottomProx <= 33 ? "cd" : ""}`
+    }, bottomProx.toFixed(1), "%"), /*#__PURE__*/React.createElement("span", null, bottomProx >= 66 ? `close to the ${rows.length}-week low side` : bottomProx <= 33 ? `close to the ${rows.length}-week high side` : "middle of the range")), /*#__PURE__*/React.createElement("div", {
+      className: "wos-posline"
+    }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+      className: "num cd"
+    }, f$(Math.abs(dLow$))), " \xB7 ", Math.abs(dLowPts).toFixed(1), "% above the worst low \xA0\xB7\xA0 ", /*#__PURE__*/React.createElement("b", {
+      className: "num cu"
+    }, f$(Math.abs(dHigh$))), " \xB7 ", Math.abs(dHighPts).toFixed(1), "% below the best high")));
+  }
+  const verdict = plan && plan.verdict ? plan.verdict : null;
+  const vTone = !verdict ? "mut" : verdict.side === "put" ? "up" : verdict.side === "call" ? "down" : "mut";
   return /*#__PURE__*/React.createElement("div", {
     className: "card wos-card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker",
-    title: `Where this week sits inside the last ${rows.length} weeks' range, and what the selected weekly contracts offer from here. Everything updates with the ticker, the weeks slider, the strike picker and the live chain.`
-  }, "Weekly option selling setup"), /*#__PURE__*/React.createElement("div", {
+    title: plan ? `Every strike on the live chain for this expiry, scored on what this stock actually did over the last ${plan.sample ? plan.sample.n : 0} matching ${plan.sessions}-session windows and on whether the strike can be filled. Not a fixed delta.` : `Where this week sits inside the last ${rows.length} weeks' range.`
+  }, plan ? "Which strike is worth selling" : "Weekly option selling setup"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "Sell puts near the lows \xB7 calls near the highs")), dte != null && expiration && /*#__PURE__*/React.createElement("span", {
+  }, plan ? "Sell where history and the option market both say it is safe" : "Sell puts near the lows · calls near the highs")), dte != null && expiration && /*#__PURE__*/React.createElement("span", {
     className: "wos-dte",
-    title: `Selected weekly expiration ${expiration} — ${dte} days remaining.`
-  }, "EXP FRI ", expiration.slice(5).replace("-", "/"), " \xB7 ", /*#__PURE__*/React.createElement("b", null, dte, "d")), /*#__PURE__*/React.createElement("span", {
-    className: `wos-bias ${bias[1]}`,
-    title: `Combines: range location (${pos.toFixed(1)}% from bottom), historical breach rates, delta-based P(OTM), breakeven cushion vs expected move, and time remaining (${dte != null ? dte + "d" : "n/a"}). It is a LOCATION read, not a trade instruction.`
-  }, bias[0])), /*#__PURE__*/React.createElement("div", {
-    className: "wos-range",
-    title: `This week's return (${fp(currReturn, 2)}) positioned between the worst weekly low and best weekly high of the displayed ${rows.length} weeks.`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "wos-rl-h"
-  }, rows.length, " WEEK RANGE LOCATION"), /*#__PURE__*/React.createElement("div", {
-    className: "wos-trackwrap"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "wos-now-label",
-    style: {
-      left: `${pos}%`
-    },
-    title: "This week, live."
-  }, "NOW ", /*#__PURE__*/React.createElement("b", {
-    className: "num"
-  }, fp(currReturn, 2)), outside ? ` · ${outside.toUpperCase()} RANGE` : ""), /*#__PURE__*/React.createElement("div", {
-    className: "wos-track"
-  }, /*#__PURE__*/React.createElement("i", {
-    className: "wos-marker",
-    style: {
-      left: `${pos}%`
-    }
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "wos-ends"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "wos-end lo",
-    title: `Worst weekly low of the ${rows.length} displayed weeks, and the price it maps to off this week's baseline.`
-  }, /*#__PURE__*/React.createElement("em", null, "WORST LOW"), /*#__PURE__*/React.createElement("b", {
-    className: "num"
-  }, fp(worstLow)), /*#__PURE__*/React.createElement("span", {
-    className: "num"
-  }, f$(pLow))), /*#__PURE__*/React.createElement("span", {
-    className: "wos-end hi",
-    title: `Best weekly high of the ${rows.length} displayed weeks, and the price it maps to.`
-  }, /*#__PURE__*/React.createElement("em", null, "BEST HIGH"), /*#__PURE__*/React.createElement("b", {
-    className: "num"
-  }, fp(bestHigh)), /*#__PURE__*/React.createElement("span", {
-    className: "num"
-  }, f$(pHigh)))), /*#__PURE__*/React.createElement("div", {
-    className: "wos-prox-box",
-    title: "How close this week's return sits to the historical LOW side of the selected range. A location measure only \u2014 NOT the probability that a put expires worthless."
-  }, /*#__PURE__*/React.createElement("em", null, "BOTTOM PROXIMITY"), /*#__PURE__*/React.createElement("b", {
-    className: `num ${bottomProx >= 66 ? "cu" : bottomProx <= 33 ? "cd" : ""}`
-  }, bottomProx.toFixed(1), "%"), /*#__PURE__*/React.createElement("span", null, bottomProx >= 66 ? `close to the ${rows.length}-week low side` : bottomProx <= 33 ? `close to the ${rows.length}-week high side` : "middle of the range")), /*#__PURE__*/React.createElement("div", {
-    className: "wos-posline"
-  }, /*#__PURE__*/React.createElement("span", {
-    title: `Gap between this week's return (${fp(currReturn, 2)}) and each extreme, in dollars and weekly-return percentage (e.g. −8.8% vs −19.0% = ${Math.abs(dLowPts).toFixed(1)}% apart).`
-  }, /*#__PURE__*/React.createElement("b", {
-    className: "num cd"
-  }, f$(Math.abs(dLow$))), " \xB7 ", Math.abs(dLowPts).toFixed(1), "% above the worst low \xA0\xB7\xA0 ", /*#__PURE__*/React.createElement("b", {
-    className: "num cu"
-  }, f$(Math.abs(dHigh$))), " \xB7 ", Math.abs(dHighPts).toFixed(1), "% below the best high")), lowsInBy != null && /*#__PURE__*/React.createElement("div", {
+    title: `Selected weekly expiration ${expiration} — ${dte} days away${plan ? `, ${plan.sessions} trading session${plan.sessions === 1 ? "" : "s"} of risk` : ""}.`
+  }, "EXP FRI ", expiration.slice(5).replace("-", "/"), " \xB7 ", /*#__PURE__*/React.createElement("b", null, dte, "d")), plan && plan.earnings && plan.earnings.inside && /*#__PURE__*/React.createElement("span", {
+    className: "wos-earn-warn",
+    title: `Earnings are due ${plan.earnings.date}, inside this expiry. The history behind these numbers is mostly ordinary weeks, so it understates the risk here.`
+  }, "EARNINGS INSIDE"), /*#__PURE__*/React.createElement("span", {
+    className: `wos-bias ${vTone}`,
+    title: plan ? "Leads with expected value measured on this stock's own history, then assignment odds, fill quality and the cushion against the option market's own priced move. A read on where the pay is, not an instruction." : "The engine's plan is not available for this symbol right now, so the panel is showing range location only."
+  }, verdict ? verdict.line : "Range location only")), /*#__PURE__*/React.createElement("div", {
+    className: "wos-range"
+  }, plan && zone ? /*#__PURE__*/React.createElement(ZoneScale, null) : /*#__PURE__*/React.createElement(LegacyRange, null), lowsInBy != null && /*#__PURE__*/React.createElement("div", {
     className: "wos-dayctx",
-    title: `CURRENT is this week IN PROGRESS measured against COMPLETED weeks' full Mon–Fri extremes. In the displayed ${withDays.length} weeks, the weekly LOW had already printed by ${DAY_NAMES[dow]} in ${lowsInBy.toFixed(0)}% of them (the HIGH in ${highsInBy.toFixed(0)}%). Late in the week + near the range low = historically little room left below — the setup you buy or sell puts into.`
-  }, /*#__PURE__*/React.createElement("em", null, DAY_NAMES[dow].toUpperCase(), dow === 4 ? " · WEEK NEARLY COMPLETE" : ""), /*#__PURE__*/React.createElement("span", null, "weekly LOW already in by now: ", /*#__PURE__*/React.createElement("b", {
+    title: `CURRENT is this week IN PROGRESS measured against COMPLETED weeks' full Mon–Fri extremes. In the displayed ${withDays.length} weeks, the weekly LOW had already printed by ${DAY_NAMES[dow]} in ${lowsInBy.toFixed(0)}% of them, the HIGH in ${highsInBy.toFixed(0)}%. Late in the week and near the range low means historically little room left below.`
+  }, /*#__PURE__*/React.createElement("em", null, DAY_NAMES[dow].toUpperCase(), dow === 4 ? " · WEEK NEARLY COMPLETE" : ""), /*#__PURE__*/React.createElement("span", null, "low already in: ", /*#__PURE__*/React.createElement("b", {
     className: `num ${lowsInBy >= 70 ? "cu" : ""}`
-  }, lowsInBy.toFixed(0), "%"), " of weeks", "  ·  ", "weekly HIGH already in: ", /*#__PURE__*/React.createElement("b", {
+  }, lowsInBy.toFixed(0), "%"), "  ·  ", "high already in: ", /*#__PURE__*/React.createElement("b", {
     className: "num"
-  }, highsInBy.toFixed(0), "%")))), /*#__PURE__*/React.createElement("div", {
+  }, highsInBy.toFixed(0), "%"))), (() => {
+    // The whole panel in one sentence. Hovering a tooltip is fine for
+    // detail, but the headline answer should be readable without it.
+    if (!plan || !verdict || verdict.side === "none") return null;
+    const lead = verdict.side === "call" ? "call" : "put";
+    const S = plan[lead] || {};
+    const p = S.pick;
+    if (!p) return null;
+    const word = lead === "put" ? "below" : "above";
+    const mkt = p.p_otm == null ? null : 100 - p.p_otm;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "wos-plain",
+      title: "The same numbers as the column on the right, said once in plain words."
+    }, "Sell the ", /*#__PURE__*/React.createElement("b", null, fmt$(p.strike, p.strike >= 1000 ? 0 : 2), " ", lead), " for about ", /*#__PURE__*/React.createElement("b", null, fmt$(p.mid, 2)), ".", " ", "Over ", /*#__PURE__*/React.createElement("b", null, p.sample), " matching ", plan.sessions, "-session stretches ", ticker, " closed ", word, " it", " ", /*#__PURE__*/React.createElement("b", null, pct0(p.itm_pct)), " of the time", mkt != null ? /*#__PURE__*/React.createElement(React.Fragment, null, ", and the option market puts it at ", /*#__PURE__*/React.createElement("b", null, pct0(mkt))) : null, ".", p.ev_ann_pct != null && /*#__PURE__*/React.createElement(React.Fragment, null, " ", "Counting the times it went wrong, that trade averaged", " ", /*#__PURE__*/React.createElement("b", {
+      className: p.ev_ann_pct >= 0 ? "cu" : "cd"
+    }, p.ev_ann_pct >= 0 ? "+" : "", p.ev_ann_pct.toFixed(0), "% a year"), lead === "call" ? " against just holding the shares" : " on the cash it ties up", "."), p.relaxed ? " Nothing cleared the usual line this week, so this is the best available." : "", plan.earnings && plan.earnings.inside ? " Earnings land inside this expiry, so the history behind these odds understates the risk." : "");
+  })(), plan && !plan.ok && plan.note && /*#__PURE__*/React.createElement("div", {
+    className: "wos-plan-note",
+    title: "The engine ran and found nothing it would sell. That is an answer."
+  }, plan.note)), /*#__PURE__*/React.createElement("div", {
     className: "wos-sides"
-  }, /*#__PURE__*/React.createElement(SideCol, {
-    label: "SELL PUT",
-    S: P,
+  }, plan && zone ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(PickCol, {
     side: "put"
-  }), /*#__PURE__*/React.createElement(SideCol, {
-    label: "SELL CALL",
-    S: C,
+  }), /*#__PURE__*/React.createElement(PickCol, {
     side: "call"
-  })));
+  })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(LegacySide, {
+    label: "SELL PUT",
+    c: putC,
+    side: "put",
+    currentPrice: currentPrice,
+    baselinePrice: baselinePrice,
+    rows: rows,
+    weeks: weeks,
+    dte: dte,
+    emPct: emPct,
+    emUp: emUp,
+    emDn: emDn,
+    emFromBand: emFromBand
+  }), /*#__PURE__*/React.createElement(LegacySide, {
+    label: "SELL CALL",
+    c: callC,
+    side: "call",
+    currentPrice: currentPrice,
+    baselinePrice: baselinePrice,
+    rows: rows,
+    weeks: weeks,
+    dte: dte,
+    emPct: emPct,
+    emUp: emUp,
+    emDn: emDn,
+    emFromBand: emFromBand
+  }))));
+}
+
+// The pre-engine side column, kept for the fallback path only.
+function LegacySide({
+  label,
+  c,
+  side,
+  currentPrice,
+  baselinePrice,
+  rows,
+  weeks,
+  dte,
+  emPct,
+  emUp,
+  emDn,
+  emFromBand
+}) {
+  const col = side === "put" ? "var(--up)" : "var(--down)";
+  const chainOK = o => o && o.strike != null && ((o.bid || 0) > 0 || (o.ask || 0) > 0);
+  const midOf = o => o.bid > 0 && o.ask > 0 ? (o.bid + o.ask) / 2 : o.bid || o.ask || null;
+  const NA = /*#__PURE__*/React.createElement("span", {
+    className: "wos-na"
+  }, "Data unavailable");
+  if (!chainOK(c)) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "wos-side"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "wos-side-h",
+      style: {
+        color: col
+      }
+    }, label), /*#__PURE__*/React.createElement("div", {
+      className: "wos-na",
+      style: {
+        padding: "8px 0"
+      }
+    }, "Data unavailable"));
+  }
+  const mid = midOf(c);
+  const breakeven = side === "put" ? c.strike - mid : c.strike + mid;
+  const beDistPct = side === "put" ? (currentPrice - breakeven) / currentPrice * 100 : (breakeven - currentPrice) / currentPrice * 100;
+  const liveDelta = !c.delta_est && typeof c.delta === "number" && isFinite(c.delta) && Math.abs(c.delta) <= 1 && c.delta !== 0 ? c.delta : null;
+  const g = _wosGreeks(currentPrice, c.strike, c.iv, dte != null ? dte : 5, side);
+  const delta = liveDelta != null ? liveDelta : g && g.delta;
+  const probOTM = delta != null ? side === "put" ? (1 - Math.abs(delta)) * 100 : (1 - Math.max(0, delta)) * 100 : null;
+  const strikeEq = (c.strike / baselinePrice - 1) * 100;
+  const breachN = side === "put" ? rows.filter(r => r.low_return <= strikeEq).length : rows.filter(r => r.high_return >= strikeEq).length;
+  const rbp = side === "put" ? mid / (c.strike - mid) * 100 : mid / currentPrice * 100;
+  const R = ({
+    l,
+    v,
+    hot
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: `wos-r ${hot ? "hot" : ""}`
+  }, /*#__PURE__*/React.createElement("em", null, l), /*#__PURE__*/React.createElement("b", null, v));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "wos-side"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wos-side-h",
+    style: {
+      color: col
+    }
+  }, label, /*#__PURE__*/React.createElement("span", {
+    className: "wos-strike num"
+  }, fmt$(c.strike, 2))), /*#__PURE__*/React.createElement(R, {
+    l: "Bid / mid",
+    v: /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, c.bid != null ? fmt$(c.bid, 2) : "—", " / ", fmt$(mid, 2))
+  }), /*#__PURE__*/React.createElement(R, {
+    hot: true,
+    l: "Breakeven",
+    v: /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, fmt$(breakeven, 2), " \xB7 ", beDistPct >= 0 ? "+" : "", beDistPct.toFixed(1), "%")
+  }), /*#__PURE__*/React.createElement(R, {
+    l: "Delta",
+    v: delta != null ? /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, delta.toFixed(2)) : NA
+  }), /*#__PURE__*/React.createElement(R, {
+    hot: true,
+    l: "P(expire OTM)",
+    v: probOTM != null ? /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, probOTM.toFixed(0), "% ", /*#__PURE__*/React.createElement("i", {
+      className: "wos-est"
+    }, "est")) : NA
+  }), /*#__PURE__*/React.createElement(R, {
+    hot: true,
+    l: `Breach rate · ${weeks}w`,
+    v: /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, (breachN / rows.length * 100).toFixed(0), "% (", breachN, "/", rows.length, ")")
+  }), /*#__PURE__*/React.createElement(R, {
+    l: "EM to Friday",
+    v: emPct != null ? /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, "\xB1", emPct.toFixed(1), "%") : NA
+  }), /*#__PURE__*/React.createElement(R, {
+    l: "Return on BP",
+    v: /*#__PURE__*/React.createElement("span", {
+      className: "num"
+    }, rbp.toFixed(2), "%")
+  }));
 }
 })();

@@ -1,4 +1,4 @@
-# The permanent frame (v5.04)
+# The permanent frame (v5.10)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -835,3 +835,48 @@ before the desktop gate came off — the Watchlist still opens on its
 stocks, the filter row is still two lines, landscape still has no sidebar.
 A phone guard mirrors the desktop one; chart tick labels inside `<svg>`
 are axis annotations and are excepted.
+
+
+---
+
+## 16. The selling panel answers with a strike (v5.10)
+
+Not a frame change — a panel one — but it lands in the same workspace and
+obeys the same rules, so it is recorded here.
+
+**What it looked like.** The Weekly Option Selling Setup headlined WORST
+LOW and BEST HIGH: the two most extreme weeks in the lookback. On DELL,
+−18.0% and +45.4% — $429.95 and $762.00 against a $569.84 price. The two
+side columns then described whichever strike the 0.20-delta picker had
+landed on.
+
+**What it looks like now.** A **sell zone** for the expiry on screen, with
+the strike the engine would actually sell on each side, its assignment
+odds read two independent ways, what it pays, and whether it can be
+filled. The arithmetic lives in `weekly_sell.py` on the server and is
+covered by 65 unit guards; the panel renders it and recomputes nothing, so
+the tests and the screen measure the same numbers.
+
+**Layout rules it had to keep.**
+
+- The card is still the three-column grid of v3.49: range zone at
+  `1.9fr`, then the two sides. The engine's view drops into the same slot.
+- The day-of-week line was `white-space: nowrap` above 1100px. In a column
+  that is roughly half the card, the sentence did not fit, and a grid
+  track with `minmax(0, …)` clips rather than grows — so its tail was cut
+  off on a wide desktop. **A sentence that does not fit its column wraps;
+  it never overflows.** The nowrap rule is gone and the labels are
+  shorter, so it usually still lands on one line anyway.
+- Every caption the panel adds sits on the type floor of §15: 10px for
+  mono labels, 10.5px for the relaxed-pick note. The floor block is still
+  the last thing in the stylesheet and still sizes no wrapper.
+- The phone case is a guard, not a hope: the panel renders at 440×956,
+  nothing clips, and the document does not scroll sideways.
+
+**The open-interest chart.** Calls now draw on the left and puts on the
+right with the strikes down the middle — the option-chain convention. The
+DOM order and the `justify-content` rules have to agree or the bars grow
+away from the strike axis instead of out of it, so both are pinned. Above
+the chart, a strip names the heaviest open interest and the heaviest
+volume on each side, because the question it answers ("where is the
+action") should not require scrolling forty rows of bars.

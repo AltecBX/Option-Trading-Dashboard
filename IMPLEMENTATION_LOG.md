@@ -3783,3 +3783,97 @@ inside `<svg>` excepted (axis annotations, not captions).
 
 `UI_FRAME.md` §15 said "phones keep their sizes on purpose"; that was the
 cautious order of operations, not a verdict, and it is corrected there.
+
+## v5.10 — which strike is worth selling
+
+Jerry, on the weekly selling panel: "Those Worst Low ($429.95) and Best
+High ($762.00) are extreme. For weekly option selling, they feel extreme.
+Come up with a better formula or algorithm to have better targets. Don't
+just say 20 delta out." Plus: the day-of-week line was cut off, the
+open-interest chart had calls and puts mirrored the wrong way round, and
+the busiest strikes could only be found by scrolling the bars.
+
+### What was wrong with the old targets
+
+Two numbers, both bad for the job. The lookback's **worst weekly low** and
+**best weekly high** are the two most extreme things the stock ever did —
+a crash and a melt-up. On DELL they were −18.0% and +45.4%: $429.95 and
+$762.00 against a $569.84 price. Nothing is sold off levels like that. A
+**0.20 delta** rule has the opposite failure: one number from one model,
+blind to what this particular stock does, blind to whether the strike can
+be filled, and blind to whether the premium is worth the risk at all.
+
+### The engine — `weekly_sell.py`
+
+Four steps, all reproducible from their inputs.
+
+1. **Horizon.** Risk is measured over the **trading sessions between now
+   and the expiry on screen**, not a calendar week. A Monday sale of a
+   Friday option carries five sessions; a Thursday sale carries two.
+   Holidays are counted out through the existing market calendar.
+
+2. **What this stock actually does.** Every k-session window in the daily
+   history is replayed: worst travel down, worst travel up, and where it
+   **closed**. On DELL that is 255 matched 5-session windows. Touching a
+   level and finishing beyond it are kept apart on purpose — the first is
+   the scare, the second is what assigns you.
+
+3. **What the market is charging.** The same band from the chain's own
+   implied volatility at the same odds. The engine keeps whichever leg is
+   more cautious, each side independently, and the panel says which one it
+   used.
+
+4. **Which strike pays for the risk.** Every strike on the live chain is
+   scored, led by **expected value on that real distribution**: the credit,
+   minus the average loss across every window that finished through the
+   strike, per dollar of collateral, annualized. Income, assignment odds,
+   fill quality and the cushion against the market's own priced move
+   follow. Liquidity is a hard gate as well as a score, because a strike
+   that cannot be filled is not a trade.
+
+A strike qualifies only when **both** assignment reads clear 15% — this
+stock's own history and the option market's implied odds — and both are
+printed beside the strike, so a refusal always names a number the reader
+can see. When nothing clears, the panel says so and shows the best strike
+at the looser 25% line, labelled as the compromise.
+
+On the live DELL chain for 09/18: sell zone **below $519.79 / above
+$629.39** (against the old $429.95 / $762.00), put **$520** at $3.92 —
+assigned 9% on history, 14% on the market's own odds, 54% a year on the
+cash, +35% a year after the losses — and call **$630** whose edge is
+**−87% a year**: DELL ran through it too often for the premium to pay for
+the upside given up. That is a real answer the old panel could not give.
+
+### Three calibrations the build changed
+
+- A **10% touch floor** excluded every DELL strike. Assignment, not
+  touching, is what costs money, so the gate moved to where price
+  **closed**.
+- A **percentage-only spread gate** threw away the cheap far-OTM strikes
+  the engine wants. A two-cent market on a ten-cent option is a normal
+  fill, so the gate is the wider of the percentage and an absolute
+  tolerance.
+- A **nickel** minimum credit is a real trade on a $12 stock and a
+  rounding error on a $600 one. The credit must also clear 0.10% of the
+  collateral, and an income term now breaks ties that expected value
+  alone cannot — without it the ranking drifted to the safest, emptiest,
+  most worthless strike on the board.
+
+### The rest
+
+- The **day-of-week line** was `nowrap` above 1100px while living in one
+  column of a three-column card, so "weekly HIGH already in: 100%" ran off
+  the end. It wraps now, and its labels are shorter.
+- The **open-interest chart** draws calls left and puts right, the way
+  every option chain is laid out, with the strikes down the middle.
+- A strip above the chart names the **heaviest open interest and heaviest
+  volume** on each side, so "where is the action" needs no scrolling.
+- One **plain-English sentence** carries the whole recommendation without
+  a hover, and the strike Jerry picked himself is measured on exactly the
+  same numbers beside the engine's.
+
+Guards: 65 in `test_weekly_sell.py` (the percentile means what it says, a
+touch band is wider than a finish band, expected value re-added by hand on
+three windows, every gate fires, a relaxed pick is never presented as a
+clean one), seven render checks that drive the real engine through the
+real panel, and thirteen static checks in `test_ui_frame.js`.
