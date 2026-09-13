@@ -4107,6 +4107,26 @@ def build_payload(
         except Exception:
             pass
 
+    # ── The strike engine (weekly_sell.py). Which strike is actually worth
+    # selling for THIS expiry, measured on this symbol's own k-session
+    # history and the live chain — not a fixed delta, and not the worst
+    # thing the stock ever did. Never fatal: a failure here leaves the
+    # panel on its own numbers rather than taking the whole payload down.
+    sell_plan = None
+    try:
+        import weekly_sell
+        sell_plan = weekly_sell.build_plan(
+            spot=cur_price,
+            bars=daily,
+            calls=calls,
+            puts=puts,
+            expiration=exp or target_fri.strftime("%Y-%m-%d"),
+            earnings_date=earnings_date,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[weekly_sell] {ticker}: {exc}", file=sys.stderr)
+        sell_plan = None
+
     return {
         "ticker": ticker.upper(),
         "fetchedAt": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -4131,6 +4151,7 @@ def build_payload(
             "week_start": current["week_start"] if current else target_fri.strftime("%Y-%m-%d"),
         },
         "chain": {"calls": calls, "puts": puts, "atm": atm},
+        "sellPlan": sell_plan,
         # HV rank — realized-vol proxy for IV rank (labeled as such in the
         # UI). volRankN = sample size (days of 30d-window HV readings).
         "volRank": vol_rank,

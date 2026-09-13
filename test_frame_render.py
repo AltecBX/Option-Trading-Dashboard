@@ -33,6 +33,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -157,6 +158,111 @@ def _why_skip() -> str | None:
     return why
 
 
+def sell_payload(symbol="DELL"):
+    """A whole /api/ticker payload whose sell plan is built by the REAL
+    engine, not hand-written.
+
+    A stub plan would let the panel pass with the engine broken, and a
+    hand-set zone would let it pass with the arithmetic wrong. This walks a
+    synthetic price path with a real stock's jumpiness, hands the daily bars
+    and a quoted chain to weekly_sell.build_plan, and ships whatever comes
+    back — so the render test fails if either the engine or the panel does.
+    """
+    import math
+    import random
+    from statistics import NormalDist
+
+    import weekly_sell
+
+    rnd = random.Random(5)
+    closes, px = [], 100.0
+    for i in range(420):
+        px *= 1 + rnd.gauss(0, 0.019) + (0.06 if i % 53 == 0 else 0)
+        closes.append(px)
+    closes = [c * 100.0 / closes[-1] for c in closes]
+
+    d, bars = date(2024, 6, 3), []
+    for c in closes:
+        while d.weekday() >= 5:
+            d += timedelta(days=1)
+        bars.append({"date": d.isoformat() + "T12:00:00-04:00",
+                     "open": c, "high": c * 1.009, "low": c * 0.991, "close": c,
+                     "volume": 1000000})
+        d += timedelta(days=1)
+    last = date.fromisoformat(bars[-1]["date"][:10])
+    expiry = last + timedelta(days=(4 - last.weekday()) % 7 or 7)
+
+    # Weekly rows, the shape load_weekly_data returns.
+    rows, wk = [], last - timedelta(days=last.weekday())
+    for i in range(32):
+        mon = wk - timedelta(days=7 * (i + 1))
+        base = closes[-(i + 1) * 5] if (i + 1) * 5 < len(closes) else closes[0]
+        rows.append({
+            "week_start": mon.isoformat(), "baseline": base,
+            "monday_open": base, "friday_close": base * 1.004,
+            "week_high": base * 1.03, "week_low": base * 0.97,
+            "high_return": 3.0 + i * 0.4, "low_return": -3.0 - i * 0.45,
+            "close_return": 0.4, "open_return": 0.0,
+            "high_day": i % 5, "low_day": (i + 2) % 5,
+            "high_day_name": ["Mon", "Tue", "Wed", "Thu", "Fri"][i % 5],
+            "low_day_name": ["Mon", "Tue", "Wed", "Thu", "Fri"][(i + 2) % 5],
+            "day_breakdown": {},
+        })
+
+    spot = 100.0
+    # A chain priced by Black-Scholes at one implied vol, not by eye. Hand
+    # numbers made far-OTM weeklies worth dollars, which handed the engine a
+    # fake edge and would have let a broken ranking pass this test.
+    sessions = weekly_sell.sessions_until(expiry, last) or 5
+    T = sessions / 252.0
+    vol, rate = 0.30, 0.04
+    nd = NormalDist()
+
+    def quote(strike, side):
+        d1 = ((math.log(spot / strike) + (rate + vol * vol / 2) * T)
+              / (vol * math.sqrt(T)))
+        d2 = d1 - vol * math.sqrt(T)
+        disc = math.exp(-rate * T)
+        if side == "call":
+            mid = spot * nd.cdf(d1) - strike * disc * nd.cdf(d2)
+            delta = nd.cdf(d1)
+        else:
+            mid = strike * disc * nd.cdf(-d2) - spot * nd.cdf(-d1)
+            delta = nd.cdf(d1) - 1
+        mid = max(0.01, round(mid, 2))
+        half = max(0.01, round(mid * 0.02, 2))
+        return {"strike": float(strike), "bid": round(mid - half, 2),
+                "ask": round(mid + half, 2), "last": mid,
+                "volume": 120, "openInterest": 900, "iv": vol,
+                "delta": round(delta, 4), "theta": -0.05, "gamma": 0.01,
+                "vega": 0.1, "delta_est": False, "theta_est": False}
+
+    def leg(side):
+        return [quote(k, side) for k in range(82, 119)]
+
+    calls, puts = leg("call"), leg("put")
+
+    plan = weekly_sell.build_plan(
+        spot=spot, bars=bars, calls=calls, puts=puts, expiration=expiry.isoformat(),
+        now=datetime.combine(last, datetime.min.time()) + timedelta(hours=13))
+
+    return {
+        "ticker": symbol, "fetchedAt": "2026-09-11 13:31",
+        "expiration": expiry.isoformat(), "expirations": [expiry.isoformat()],
+        "baselineMode": "friday", "rows": rows, "daily": bars,
+        "current": {"current": spot, "baseline": rows[0]["baseline"],
+                    "monday_open": spot, "name": symbol, "sector": "Technology",
+                    "dividend_yield": None, "pe": None, "forward_pe": None,
+                    "earnings": False, "earningsDate": None, "next_earnings": None,
+                    "days_to_earnings": None, "week_start": wk.isoformat()},
+        "chain": {"calls": calls, "puts": puts, "atm": spot},
+        "sellPlan": plan,
+        "volRank": None, "volPct": None, "volRankN": None,
+        "volRankKind": "hv_proxy", "hvCurrent": None,
+        "earningsHistory": {"past": [], "next": None},
+    }
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -210,11 +316,12 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def _measure(self, width, height, tab="trade", init=""):
+    def _measure(self, width, height, tab="trade", init="", ticker_payload=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
         self._tab = tab
+        self._ticker_payload = ticker_payload
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -274,6 +381,12 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                                            "fast_lane": FAST_LANE,
                                            "detected_at": "2026-09-11T09:31:00Z"}))
                 return
+            # The symbol payload, when a test needs the panels that live on
+            # real bars and a real chain rather than the empty-state copy.
+            if "/api/ticker" in url and self._ticker_payload is not None:
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(self._ticker_payload))
+                return
             if "/api/quote" in url:
                 syms = []
                 if "tickers=" in url:
@@ -289,6 +402,17 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             "try{localStorage.setItem('jerry_active_tab_v1','" + tab + "');"
             "localStorage.setItem('weeklyOptionsTimer.tweaks.v1',"
             "JSON.stringify({theme:'dark'}))}catch(e){}")
+        # A payload is keyed by ITS symbol. Without opening the app on that
+        # symbol the live cache never matches, every panel silently falls
+        # back to mock data, and a test meant to measure the real thing
+        # measures a fixture of the app's own invention instead.
+        if self._ticker_payload is not None:
+            page.add_init_script(
+                "try{localStorage.setItem('weeklyOptionsTimer.settings.v1',"
+                + json.dumps(json.dumps({
+                    "ticker": self._ticker_payload.get("ticker", "DELL"),
+                    "weeks": 32, "baseline": "friday"}))
+                + ")}catch(e){}")
         if init:
             page.add_init_script(init)
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
@@ -324,6 +448,40 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 tabGroups: document.querySelectorAll('.tab-bar .tab-grp').length,
                 tabBtns: document.querySelectorAll('.tab-bar .tab-btn').length,
                 tabOpen: (() => { const e = document.querySelector('.tab-grp.open'); return e ? e.innerText.trim() : null; })(),
+                // v5.10: the strike engine's panel, and the chain-order
+                // chart. `clipped` is the guard that matters — a sentence
+                // that does not fit its column must wrap, never overflow.
+                sell: (() => {
+                  const c = document.querySelector('.wos-card');
+                  if (!c) return {found: false, text: '', plain: '', clipped: []};
+                  const clipped = [];
+                  for (const e of c.querySelectorAll('*')) {
+                    const cs = getComputedStyle(e);
+                    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                    if (cs.overflowX === 'auto' || cs.overflowX === 'scroll') continue;
+                    if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0)
+                      clipped.push(String(e.getAttribute('class') || e.tagName).split(' ')[0]
+                                   + ' ' + e.scrollWidth + '>' + e.clientWidth);
+                  }
+                  const pl = c.querySelector('.wos-plain');
+                  return {found: true, text: (c.innerText || ''),
+                          plain: pl ? pl.innerText.trim() : '',
+                          clipped: clipped.slice(0, 8)};
+                })(),
+                oi: (() => {
+                  const row = document.querySelector('.oi-chart-row');
+                  const hot = document.querySelector('.oi-hot');
+                  const kind = el => {
+                    const k = String(el.getAttribute('class') || '');
+                    if (k.indexOf('oi-bar-strike') >= 0) return 'strike';
+                    if (k.indexOf('call') >= 0) return 'call';
+                    if (k.indexOf('put') >= 0) return 'put';
+                    return k;
+                  };
+                  return {rowOrder: row ? [...row.children].map(kind) : [],
+                          hot: hot ? hot.innerText.replace(/\\s+/g, ' ').trim() : ''};
+                })(),
+                doc: {scrollW: document.documentElement.scrollWidth},
                 // The smallest visible text in the permanent frame, and who
                 // it is. A caption is only "small" if a person reads it, so
                 // an element counts when it has a text node of its own.
@@ -905,6 +1063,89 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "for the move it was supposed to be neutral on")
         finally:
             self._close(handles)
+
+    # ── v5.10: the strike engine's panel, and the chain-order chart ──────
+    def _sell_probe(self, width=1900, height=1200, payload=None):
+        """Open Analyze with a real engine result behind it and read back
+        what the panel actually drew."""
+        pay = payload if payload is not None else sell_payload()
+        geo, errs, handles = self._measure(width, height, tab="analyze",
+                                           ticker_payload=pay)
+        try:
+            self.assertEqual(errs, [], f"the page threw while drawing: {errs[:2]}")
+            return geo, pay
+        finally:
+            self._close(handles)
+
+    def test_the_selling_panel_names_a_strike_instead_of_an_extreme(self):
+        # The complaint this was built for: the panel used to headline the
+        # worst weekly low of the lookback — a crash, not next Friday. It now
+        # has to name a sell zone AND a specific strike, and the zone has to
+        # sit far inside that extreme.
+        geo, pay = self._sell_probe()
+        w = geo["sell"]
+        self.assertTrue(w["found"], "the weekly selling panel did not render")
+        self.assertIn("SELL ZONE", w["text"].upper())
+        plan = pay["sellPlan"]
+        self.assertTrue(plan["ok"])
+        for side in ("put", "call"):
+            strike = plan[side]["pick"]["strike"]
+            self.assertIn(f"{strike:,.2f}", w["text"],
+                          f"the {side} strike the engine chose is not on screen")
+        worst = min(r["low_return"] for r in pay["rows"])
+        self.assertLess(abs(plan["band"]["zone"]["low"]["pct"]), abs(worst) * 0.75,
+                        "the sell zone is as wide as the worst week in the lookback")
+
+    def test_the_panel_says_in_words_what_it_is_recommending(self):
+        # Jerry reads the page, not the tooltips. One plain sentence has to
+        # carry the strike, the odds and the payoff without a hover.
+        geo, pay = self._sell_probe()
+        plain = geo["sell"]["plain"]
+        self.assertTrue(plain, "the plain-English line is missing")
+        self.assertIn("Sell the", plain)
+        self.assertIn("closed", plain)
+        self.assertIn("%", plain)
+
+    def test_no_line_in_the_selling_panel_is_cut_off(self):
+        # The day-of-week line used to be nowrap inside a column narrower
+        # than the sentence, so "weekly HIGH already in: 100%" ran off the
+        # end. Nothing in this card may overflow its own box.
+        geo, _ = self._sell_probe()
+        self.assertEqual(geo["sell"]["clipped"], [],
+                         "text is running past the edge of its box")
+
+    def test_the_selling_panel_survives_a_phone(self):
+        geo, pay = self._sell_probe(width=440, height=956)
+        self.assertTrue(geo["sell"]["found"])
+        self.assertEqual(geo["sell"]["clipped"], [])
+        self.assertLessEqual(geo["doc"]["scrollW"], 440 + 1,
+                             "the panel pushed the page sideways on a phone")
+
+    def test_the_chain_chart_puts_calls_left_and_puts_right(self):
+        # Every option chain in the world is laid out this way. The chart had
+        # them mirrored, so the eye had to translate on every glance.
+        geo, _ = self._sell_probe()
+        order = geo["oi"]["rowOrder"]
+        self.assertEqual(order, ["call", "strike", "put"],
+                         f"the chart is laid out {order}, not calls-left")
+
+    def test_the_chart_names_the_busiest_strikes_without_scrolling(self):
+        geo, pay = self._sell_probe()
+        hot = geo["oi"]["hot"]
+        self.assertTrue(hot, "the heaviest-strike strip did not render")
+        self.assertIn("OPEN INTEREST", hot.upper())
+        self.assertIn("VOLUME", hot.upper())
+        self.assertIn("calls", hot)
+        self.assertIn("puts", hot)
+
+    def test_a_payload_with_no_plan_still_draws_the_panel(self):
+        # An old cached payload, or a symbol the engine cannot measure. The
+        # panel falls back to range location and says so rather than vanishing.
+        pay = sell_payload()
+        pay.pop("sellPlan")
+        geo, _ = self._sell_probe(payload=pay)
+        self.assertTrue(geo["sell"]["found"], "the panel disappeared without a plan")
+        self.assertIn("RANGE LOCATION", geo["sell"]["text"].upper())
 
     def test_a_bar_with_a_missing_price_does_not_take_the_page_down(self):
         """lightweight-charts throws "Value is null" out of its Candlestick

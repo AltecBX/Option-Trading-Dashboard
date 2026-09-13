@@ -717,6 +717,56 @@ ok("the floor never sizes the glossary-term wrapper itself",
 ok("the floor is the last block in the stylesheet",
    /\.secnav-lbl, \.secnav-lbl-sm, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}\n$/.test(css));
 
+
+// ── 27. v5.10: the strike engine's panel, and the chain-order chart ───────
+// The panel used to headline the worst weekly low and best weekly high of
+// the lookback — the two most extreme things the stock ever did — and the
+// side columns described whatever strike the 0.20-delta picker had landed
+// on. Both are now the engine's answer for the expiry on screen.
+ok("the panel reads the server's plan and refuses one built for another symbol",
+   /function _wosPlan\(ticker\)/.test(cards)
+   && /String\(L\.ticker \|\| ""\)\.toUpperCase\(\) !== String\(ticker\)\.toUpperCase\(\)/.test(cards));
+ok("the sell zone replaces the all-time extremes as the headline",
+   /SELL PUTS BELOW/.test(cards) && /SELL CALLS ABOVE/.test(cards)
+   && /SELL ZONE · NEXT \{plan\.sessions\} SESSION/.test(cards));
+ok("both assignment reads are printed, so a refusal is legible",
+   /\{pct0\(p\.itm_pct\)\} hist · \{p\.p_otm == null \? "—" : pct0\(100 - p\.p_otm\)\} mkt/.test(cards));
+ok("the recommendation is also said once in plain words",
+   /className="wos-plain"/.test(cards) && /Sell the <b>/.test(cards));
+// A cash-secured put's loss is cash out the door. A covered call's is
+// upside given up on shares already owned. Same arithmetic, different
+// sentence — and the panel must never print the put's sentence for a call.
+ok("a call's expected value is never described as cash the way a put's is",
+   /instead of simply holding the shares/.test(cards)
+   && /lead === "call" \? " against just holding the shares" : " on the cash it ties up"/.test(cards)
+   && /"ev_basis": "cash secured" if put else "vs holding the shares"/.test(read("weekly_sell.py")));
+ok("the user's own strike is measured on the same numbers, not hidden",
+   /className=\{`wos-mine/.test(cards) && /YOUR PICK/.test(cards));
+ok("the panel still draws when the server sent no plan",
+   /function LegacyRange\(\)/.test(cards) && /WEEK RANGE LOCATION/.test(cards));
+ok("the server ships the plan with the symbol payload",
+   /"sellPlan": sell_plan,/.test(read("options_dashboard.py")));
+// The day-of-week line was nowrap above 1100px while living in one column
+// of a three-column card, so its tail was cut off on a wide desktop.
+ok("the day-of-week line wraps instead of running off the card",
+   /\.wos-dayctx \{ white-space: normal; overflow-wrap: anywhere; \}/.test(css)
+   && !/@media \(min-width: 1101px\) \{\n  \.wos-dayctx \{ white-space: nowrap; \}/.test(css));
+// Calls left, puts right — the option-chain convention. The DOM order and
+// the CSS have to agree, or the bars grow away from the strike axis.
+ok("the chart draws calls on the left and puts on the right",
+   /oi-bar-side call[\s\S]{0,320}oi-bar-strike[\s\S]{0,320}oi-bar-side put/.test(app));
+ok("each side's bar grows out of the strike column, not into the margin",
+   /\.oi-bar-side\.call \{ justify-content: flex-end; \}/.test(css)
+   && /\.oi-bar-side\.put \{ justify-content: flex-start; \}/.test(css));
+ok("the busiest strikes are named above the chart, not found by scrolling",
+   /className="oi-hot"/.test(app)
+   && /HEAVIEST OPEN INTEREST/.test(app) && /HEAVIEST VOLUME TODAY/.test(app));
+ok("nothing the engine's panel adds is under the type floor",
+   /\.oi-hot-grp em \{[\s\S]{0,150}?font-size: 10px;/.test(css)
+   && /\.wos-alts em \{[\s\S]{0,150}?font-size: 10px;/.test(css)
+   && /\.wos-mine em \{[\s\S]{0,150}?font-size: 10px;/.test(css)
+   && /\.wos-relaxed \{[\s\S]{0,120}?font-size: 10\.5px;/.test(css));
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);
