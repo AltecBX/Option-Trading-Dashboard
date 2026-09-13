@@ -3762,3 +3762,24 @@ The two quiet colour tiers are lifted a notch too (dark `--fg-3` 0.70 →
 Guards: the navigation is ≤44px with four group names and the open group's
 tools; nothing a person reads in the frame is under 10px (the failure
 lists the offenders by band, class and size).
+
+## v5.04 — the type floor on the phone
+
+Jerry: "Now do the same type floor on the phone."
+
+Measured first, the same way: the probe at 440×956 on the Trade and
+Watchlist tabs listed the desktop's classes again (on a phone the market
+band mounts in the workspace, and the sidebar is a drawer that still
+renders) plus two of the phone's own — the tile's points-change
+(`.mko-pts`, 9.5px) and the "Jump to" label (`.secnav-lbl-sm`, 9.5px).
+
+The desktop gate came off the floor block and the two joined it. Before
+that was allowed to stand, every phone floor in `test_frame_render.py`
+ran again with the new sizes: the Watchlist still opens on its stocks,
+the filter row is still two lines, the landscape phone still has no
+sidebar, the jump picker still opens — 20/20. A phone guard now mirrors
+the desktop one: nothing with its own text under 10px, chart tick labels
+inside `<svg>` excepted (axis annotations, not captions).
+
+`UI_FRAME.md` §15 said "phones keep their sizes on purpose"; that was the
+cautious order of operations, not a verdict, and it is corrected there.

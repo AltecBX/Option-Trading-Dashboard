@@ -1,4 +1,4 @@
-# The permanent frame (v5.03)
+# The permanent frame (v5.04)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -824,7 +824,14 @@ after every caption it lifts, and the guard fails by listing offenders
 (band, class, size, text) so the next one is a one-line fix.
 
 **Why not raise everything.** 61 declarations at 9px and 56 at 9.5px
-across the cards; most sit inside measured phone layouts where a bigger
-caption costs a stock card its row. The floor covers the permanent frame
-and the card chrome a person reads all day; a wholesale change is a
-separate, measured pass.
+across the cards. The floor covers the permanent frame and the card chrome
+a person reads all day, on every screen; a wholesale change to every
+9px declaration in every card is a separate, measured pass.
+
+**The phone (v5.04).** The same floor, measured the same way at 440×956:
+the same classes plus the tile's points-change and the "Jump to" label.
+Every phone floor in the render suite was re-run with the new sizes
+before the desktop gate came off — the Watchlist still opens on its
+stocks, the filter row is still two lines, landscape still has no sidebar.
+A phone guard mirrors the desktop one; chart tick labels inside `<svg>`
+are axis annotations and are excepted.

@@ -329,14 +329,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 // an element counts when it has a text node of its own.
                 smallText: (() => {
                   const out = [];
-                  for (const s of ['.frame-top', '.tab-bar', '.sidebar']) {
+                  // On a phone the market band mounts in .main and the
+                  // sidebar is a drawer; the workspace is where the
+                  // captions are, so it is in scope on both.
+                  for (const s of ['.frame-top', '.mobile-header', '.tab-bar', '.sidebar', '.main']) {
                     const root = document.querySelector(s); if (!root) continue;
                     for (const e of root.querySelectorAll('*')) {
+                      // Chart tick labels live in <svg>; they are axis
+                      // annotations, not captions a person reads as text.
+                      if (e.closest('svg')) continue;
                       const cs = getComputedStyle(e);
                       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
                       if (![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
                       const fs = parseFloat(cs.fontSize);
-                      if (fs < 10) out.push({band: s, cls: String(e.className || e.tagName).split(' ')[0], size: fs,
+                      if (fs < 10) out.push({band: s, cls: String(e.getAttribute('class') || e.tagName).split(' ')[0], size: fs,
                                              txt: (e.innerText || e.textContent || '').trim().slice(0, 20)});
                     }
                   }
@@ -661,6 +667,23 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertEqual(
                 [], small,
                 "text under 10px in the permanent frame: "
+                + "; ".join(f"{s['band']} {s['cls']} {s['size']}px {s['txt']!r}" for s in small))
+        finally:
+            self._close(handles)
+
+    def test_nothing_a_person_reads_is_under_ten_pixels_on_a_phone_either(self):
+        """v5.04: the same floor on a 440px phone. The probe there listed the
+        desktop's classes (the market band mounts in the workspace on a
+        phone) plus the tile's points-change and the "Jump to" label. The
+        phone floors — first stock card visible, filter row, landscape —
+        are measured by their own guards in this file with these sizes."""
+        geo, errors, handles = self._measure(440, 956)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            small = geo["smallText"]
+            self.assertEqual(
+                [], small,
+                "text under 10px on a phone: "
                 + "; ".join(f"{s['band']} {s['cls']} {s['size']}px {s['txt']!r}" for s in small))
         finally:
             self._close(handles)

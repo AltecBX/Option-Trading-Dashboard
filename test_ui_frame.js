@@ -692,18 +692,25 @@ ok("the row never wraps: a wide group scrolls sideways",
    /\.tab-row-one \.tab-row-btns \{ flex-wrap: nowrap; overflow-x: auto;/.test(css));
 // The type floor. Measured by a probe listing every visible text element
 // under 10.5px band by band; these are the captions it found.
-ok("on a desktop the eight- and nine-pixel captions are ten or more",
-   /@media \(min-width: 1081px\) \{\n  \.pc-src, \.mko-proxy \{ font-size: 10px; \}/.test(css)
-   && /\.pc-stats span, \.pc-picks-h, \.pc-rot-lbl, \.opp-title, \.opp-chip em, \.mctx-rlbl \{ font-size: 10px; \}/.test(css)
-   && /\.secnav-lbl, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}/.test(css)
+ok("the eight- and nine-pixel captions are ten or more",
+   /\n\.pc-src, \.mko-proxy \{ font-size: 10px; \}/.test(css)
+   && /\n\.pc-stats span, \.pc-picks-h, \.pc-rot-lbl, \.opp-title, \.opp-chip em, \.mctx-rlbl \{ font-size: 10px; \}/.test(css)
+   && /\n\.secnav-lbl, \.secnav-lbl-sm, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}/.test(css)
    // …and the three the live site showed that the stub could not: the
    // sidebar's sector tag and the earnings panel's labels.
-   && /\.sb-symtag, \.emx-pill-dte \{ font-size: 10\.5px; \}/.test(css)
-   && /\.em-stat-lbl \{ font-size: 10px; \}/.test(css));
+   && /\n\.sb-symtag, \.emx-pill-dte \{ font-size: 10\.5px; \}/.test(css)
+   && /\n\.em-stat-lbl \{ font-size: 10px; \}/.test(css));
 ok("and the group names in the navigation are 10.5, not the 9.5 the row labels were",
    /\.tab-grp \{\n  font-family: var\(--font-mono\); font-size: 10\.5px;/.test(css));
-ok("the phone keeps its own sizes",
-   !/@media \(max-width: 900px\)[^@]*\.pc-stats span, \.pc-picks-h/.test(css));
+// v5.04: the floor is not gated to the desktop any more. The phone showed
+// the same classes plus two of its own, and every phone floor was
+// re-measured with these sizes before the gate came off.
+ok("the floor applies on the phone too, with the two captions only a phone shows",
+   !/@media \(min-width: 1081px\) \{\n  \.pc-src, \.mko-proxy/.test(css)
+   && /\n\.mko-pts \{ font-size: 10px; \}/.test(css)
+   && /\.secnav-lbl-sm, /.test(css));
+ok("the floor is the last block in the stylesheet",
+   /\.secnav-lbl, \.secnav-lbl-sm, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}\n$/.test(css));
 
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
