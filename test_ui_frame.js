@@ -671,6 +671,33 @@ ok("the component reports emptiness on <body> only once its source has answered"
 ok("and when both are empty the frame takes the width back",
    /body\.rail-empty-dailyHigh\.rail-empty-dailyLow \.frame-top,\n  body\.rail-empty-dailyHigh\.rail-empty-dailyLow \.frame-body \{\n    max-width: calc\(100vw - 2 \* \(var\(--rail-w\) \+ 44px\)\);/.test(css));
 
+// ── 26. one row of navigation, and a floor under the type ─────────────────
+//
+// Four rows were 100px of the workspace column on every destination. One
+// row: the four group names, then the OPEN group's tools; the open group
+// follows the active tab and a dot marks home when you are looking at
+// another group. Nothing is behind a menu: two clicks reach any tool.
+ok("the navigation is one row: four group names, then the open group's tools",
+   /className="tab-bar tab-bar-grouped tab-bar-one"/.test(cards)
+   && /className=\{`tab-row tab-row-one tab-row-\$\{open\.id\}`\}/.test(cards)
+   && /list\.filter\(t => open\.ids\.includes\(t\.id\)\)\.map\(renderBtn\)/.test(cards));
+ok("the open group follows the active tab, and home is marked",
+   /useEffect\(\(\) => \{ setOpenGroup\(activeGroup\); \}, \[activeGroup\]\);/.test(cards)
+   && /className=\{`tab-grp\$\{isOpen \? " open" : ""\}\$\{isHere \? " here" : ""\}`\}/.test(cards)
+   && /\.tab-grp\.here:not\(\.open\)::after \{\n  content: "●"/.test(css));
+ok("the row never wraps: a wide group scrolls sideways",
+   /\.tab-row-one \.tab-row-btns \{ flex-wrap: nowrap; overflow-x: auto;/.test(css));
+// The type floor. Measured by a probe listing every visible text element
+// under 10.5px band by band; these are the captions it found.
+ok("on a desktop the eight- and nine-pixel captions are ten or more",
+   /@media \(min-width: 1081px\) \{\n  \.pc-src, \.mko-proxy \{ font-size: 10px; \}/.test(css)
+   && /\.pc-stats span, \.pc-picks-h, \.pc-rot-lbl, \.opp-title, \.opp-chip em, \.mctx-rlbl \{ font-size: 10px; \}/.test(css)
+   && /\.secnav-lbl, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}/.test(css));
+ok("and the group names in the navigation are 10.5, not the 9.5 the row labels were",
+   /\.tab-grp \{\n  font-family: var\(--font-mono\); font-size: 10\.5px;/.test(css));
+ok("the phone keeps its own sizes",
+   !/@media \(max-width: 900px\)[^@]*\.pc-stats span, \.pc-picks-h/.test(css));
+
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));
 process.exit(failed ? 1 : 0);

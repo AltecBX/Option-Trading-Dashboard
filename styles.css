@@ -92,8 +92,10 @@
      See the light block above for the method. */
   --fg: oklch(0.96 0.005 250);
   --fg-2: oklch(0.80 0.01 250);      /* secondary text */
-  --fg-3: oklch(0.70 0.012 250);     /* tertiary */
-  --fg-4: oklch(0.65 0.012 250);     /* faintest tier — still AA at 9px */
+  /* v5.03: both quiet tiers lifted a notch for a screen read all day. The
+     ladder (≥0.04 between tiers) and AA on every surface are guarded. */
+  --fg-3: oklch(0.73 0.012 250);     /* tertiary */
+  --fg-4: oklch(0.68 0.012 250);     /* faintest tier — captions */
   --accent-soft: oklch(0.28 0.06 var(--accent-h));
   --accent-ring: color-mix(in oklch, var(--accent), transparent 55%);
   /* Softer, more diffuse elevation — premium depth without heavy borders. */
@@ -14035,6 +14037,39 @@ body { overflow: hidden; overscroll-behavior: none; }
   .tab-bar-grouped .tab-earn { display: none; }
 }
 
+/* ── One-row navigation (v5.03) ──────────────────────────────────────────
+   Four rows were 100px of the workspace column on every destination. Now:
+   the four group names on the left, the OPEN group's tools on the right,
+   one row, ~32px. The open group follows the active tab; a dot marks the
+   group you are actually in when you are looking at another one. Nothing
+   is more than two clicks away and nothing is behind a menu. */
+.tab-row-one { grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; }
+.tab-groups {
+  display: flex; align-items: center; gap: 2px;
+  padding-right: 8px; border-right: 1px solid var(--line);
+}
+.tab-grp {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.2;
+  color: var(--fg-4); background: none; border: 1px solid transparent;
+  border-radius: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap;
+}
+.tab-grp:hover { color: var(--fg-2); }
+.tab-grp.open { color: var(--fg); background: var(--bg-3); border-color: var(--line); }
+.tab-grp.here:not(.open)::after {
+  content: "●"; color: var(--accent); font-size: 7px; margin-left: 5px; vertical-align: middle;
+}
+/* One row means the tools never wrap: a group wider than the band scrolls
+   sideways, the same rule narrow desktops already used. */
+.tab-row-one .tab-row-btns { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; }
+.tab-row-one .tab-row-btns::-webkit-scrollbar { display: none; }
+@media (max-width: 1080px) {
+  .tab-row-one { grid-template-columns: auto minmax(0, 1fr); }
+}
+
+/* The desktop type floor (v5.03) is the LAST block in this file: it has to
+   come after every caption it lifts, including .secnav-lbl below. */
+
 /* ── The searchable tool picker (phones) ─────────────────────────────────── */
 .tabsheet-find {
   width: 100%; box-sizing: border-box; margin: 0 0 10px;
@@ -14721,4 +14756,26 @@ body { overflow: hidden; overscroll-behavior: none; }
   .ab-card .card-head { margin-bottom: 6px; }
   .ab-card .card-head .kicker { display: none; }
   .ab-card .card-head .card-title { font-size: 14.5px; }
+}
+
+/* ── Desktop type floor (v5.03) ────────────────────────────────────────────
+   Measured with a probe that lists every visible text element under 10.5px
+   in each band of the frame: eight- and nine-pixel uppercase mono captions
+   in the posture card, the context strip, the ribbon, the sidebar and the
+   card chrome. Contrast was already AA; SIZE was the strain. On a desktop
+   nothing a person reads is under 10px, and the captions read all day are
+   10.5. Phones keep their own sizes — their floors were measured separately
+   and a bigger caption there costs a stock card its row. This is the last
+   block in the file on purpose: same specificity as the originals, so it
+   wins by source order — and .secnav-lbl was declared after the first
+   draft's position and kept its 9.5px. */
+@media (min-width: 1081px) {
+  .pc-src, .mko-proxy { font-size: 10px; }
+  .pc-stats span, .pc-picks-h, .pc-rot-lbl, .opp-title, .opp-chip em, .mctx-rlbl { font-size: 10px; }
+  .mctx-earn-sym small { font-size: 10px; }
+  .pc-kicker, .pc-stats small, .pc-score-row b small, .mctx-gamma, .ab-kbd { font-size: 10.5px; }
+  .src-badge, .sb-manage-btn, .sb-label, .term { font-size: 10.5px; }
+  .secnav-group, .chart-perf-lbl, .chart-stat-lbl, .strategy-mode-kicker,
+  .rec-with-kicker .rec-kicker, .tfr-reason-pill, .trade-lbl, .trade-builder-disclaimer { font-size: 10px; }
+  .secnav-lbl, .pcalc-label, .pcalc-from-meta, .pick-label { font-size: 10.5px; }
 }

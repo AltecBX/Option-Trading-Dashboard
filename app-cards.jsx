@@ -5158,6 +5158,18 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
     for (const g of TAB_GROUPS) if (g.ids.includes(id)) return g.id;
     return null;
   };
+  // One row (v5.03). Four rows were 100px of the workspace column on every
+  // destination — Bloomberg and Koyfin keep navigation to a line. The row
+  // is the four group names on the left and the OPEN group's tools on the
+  // right. The open group follows the active tab, so the tools beside you
+  // are always the ones next to where you are; clicking another group name
+  // shows its tools without leaving the page, and a dot on the group you
+  // are actually in says where home is. Every destination is still exactly
+  // one click away from any page: one click on its group, one on the tool.
+  const activeGroup = groupOf(active) || TAB_GROUPS[0].id;
+  const [openGroup, setOpenGroup] = useState(activeGroup);
+  useEffect(() => { setOpenGroup(activeGroup); }, [activeGroup]);
+  const open = TAB_GROUPS.find(g => g.id === openGroup) || TAB_GROUPS[0];
   const renderBtn = (t) => (
     <button key={t.id} type="button" role="tab" data-tab={t.id}
             aria-selected={active === t.id}
@@ -5182,31 +5194,36 @@ function TabBar({ active, onChange, ticker, earnDate, earnDays, tabs, onReorder,
     </button>
   );
   return (
-    <nav ref={barRef} className="tab-bar tab-bar-grouped" role="tablist" aria-label="Dashboard sections"
-         title="Every tool in the app, grouped by what it is for. Nothing is hidden behind a menu. Panels stay live in the background, so switching is instant and nothing reloads.">
-      {TAB_GROUPS.map((g) => {
-        const rowTabs = list.filter(t => g.ids.includes(t.id));
-        if (!rowTabs.length) return null;
-        const isConnected = g.id === "connected";
-        return (
-          <div className={`tab-row tab-row-${g.id}`} key={g.id}>
-            <span className="tab-glbl" title={g.tip}>{g.label}</span>
-            <div className="tab-row-btns">
-              {rowTabs.map(renderBtn)}
-              {isConnected && <HelperDownloadChip />}
-            </div>
-            {/* Earnings chip rides the last row, right-aligned. */}
-            {isConnected && hasEarn && (
-              <div className={`tab-earn ${soon ? "soon" : ""}`}
-                   title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
-                <span className="tab-earn-lbl">{ticker} earnings</span>
-                <b>{fmtSwingDate(earnDate)}</b>
-                {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
-              </div>
-            )}
+    <nav ref={barRef} className="tab-bar tab-bar-grouped tab-bar-one" role="tablist" aria-label="Dashboard sections"
+         title="Every tool in the app, in four groups. The group names are on the left; the open group's tools are on the right. Click a group name to see its tools. Panels stay live in the background, so switching is instant and nothing reloads.">
+      <div className={`tab-row tab-row-one tab-row-${open.id}`}>
+        <div className="tab-groups" role="tablist" aria-label="Tool groups">
+          {TAB_GROUPS.map((g) => {
+            const isOpen = g.id === open.id, isHere = g.id === activeGroup;
+            return (
+              <button key={g.id} type="button" role="tab" aria-selected={isOpen}
+                      className={`tab-grp${isOpen ? " open" : ""}${isHere ? " here" : ""}`}
+                      onClick={() => setOpenGroup(g.id)}
+                      title={`${g.tip}${isHere && !isOpen ? " You are in this group." : ""}`}>
+                {g.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="tab-row-btns">
+          {list.filter(t => open.ids.includes(t.id)).map(renderBtn)}
+          {open.id === "connected" && <HelperDownloadChip />}
+        </div>
+        {/* Earnings chip rides the row, right-aligned. */}
+        {hasEarn && (
+          <div className={`tab-earn ${soon ? "soon" : ""}`}
+               title={`Next earnings report for ${ticker}${earnDays != null ? ` — in ${earnDays} day${earnDays === 1 ? "" : "s"}` : ""}.`}>
+            <span className="tab-earn-lbl">{ticker} earnings</span>
+            <b>{fmtSwingDate(earnDate)}</b>
+            {earnDays != null && <span className="tab-earn-days">{earnDays === 0 ? "today" : earnDays > 0 ? `in ${earnDays}d` : `${-earnDays}d ago`}</span>}
           </div>
-        );
-      })}
+        )}
+      </div>
     </nav>
   );
 }

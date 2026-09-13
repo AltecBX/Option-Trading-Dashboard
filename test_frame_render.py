@@ -321,6 +321,26 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 tabbar: box('.tab-bar'), frameCol: box('.frame-col'),
                 posture: box('.posture-card'),
                 focus: document.body.classList.contains('focus-frame'),
+                tabGroups: document.querySelectorAll('.tab-bar .tab-grp').length,
+                tabBtns: document.querySelectorAll('.tab-bar .tab-btn').length,
+                tabOpen: (() => { const e = document.querySelector('.tab-grp.open'); return e ? e.innerText.trim() : null; })(),
+                // The smallest visible text in the permanent frame, and who
+                // it is. A caption is only "small" if a person reads it, so
+                // an element counts when it has a text node of its own.
+                smallText: (() => {
+                  const out = [];
+                  for (const s of ['.frame-top', '.tab-bar', '.sidebar']) {
+                    const root = document.querySelector(s); if (!root) continue;
+                    for (const e of root.querySelectorAll('*')) {
+                      const cs = getComputedStyle(e);
+                      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                      if (![...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) continue;
+                      const fs = parseFloat(cs.fontSize);
+                      if (fs < 10) out.push({band: s, cls: String(e.className || e.tagName).split(' ')[0], size: fs,
+                                             txt: (e.innerText || e.textContent || '').trim().slice(0, 20)});
+                    }
+                  }
+                  return out.slice(0, 12); })(),
                 // A rail that is mounted and display:none is the exact defect
                 // the frame was built to end: fetched, polling, unreachable.
                 // Counting them is not enough — they were all four THERE in
@@ -604,6 +624,47 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_navigation_is_one_row_and_nothing_is_lost(self):
+        """Four navigation rows were 100px of the workspace column on every
+        destination. One row: the four group names on the left, the open
+        group's tools on the right, and the open group follows the active
+        tab. Every destination is still at most two clicks away."""
+        geo, errors, handles = self._measure(1900, 1200)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            bar = geo["tabbar"]
+            self.assertIsNotNone(bar, "no navigation bar on the desktop")
+            # Measured 32px; the floor is in the gap between that and the
+            # two-row shape (~56) this must never quietly become.
+            self.assertLessEqual(
+                bar["h"], 44,
+                f"the navigation is {bar['h']}px tall — that is more than one row")
+            self.assertEqual(4, geo["tabGroups"], "the four group names are the way to every tool")
+            # innerText carries the CSS text-transform, so compare case-blind.
+            self.assertEqual("workspace", (geo["tabOpen"] or "").lower(),
+                             "on the Trade tab the open group is not the one Trade is in")
+            self.assertGreaterEqual(geo["tabBtns"], 5,
+                                    "the open group's tools are not on the row")
+        finally:
+            self._close(handles)
+
+    def test_nothing_a_person_reads_in_the_frame_is_under_ten_pixels(self):
+        """Measured with a probe that lists every visible text element under
+        10.5px band by band: eight- and nine-pixel uppercase mono captions in
+        the posture card, the context strip, the ribbon and the sidebar.
+        Contrast already cleared AA; size was the strain of a screen read
+        all day. On a desktop, nothing with its own text is under 10px."""
+        geo, errors, handles = self._measure(1900, 1200)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            small = geo["smallText"]
+            self.assertEqual(
+                [], small,
+                "text under 10px in the permanent frame: "
+                + "; ".join(f"{s['band']} {s['cls']} {s['size']}px {s['txt']!r}" for s in small))
+        finally:
+            self._close(handles)
+
     def test_empty_daily_rails_hand_their_width_to_the_tool(self):
         """On a screen wide enough for the four rails, the two DAILY rails are
         empty for the whole of pre-market — the hours this dashboard is read
@@ -806,11 +867,15 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 abs(side["t"] - bar["t"]), 2,
                 f"the sidebar starts at y={side['t']} and the bar at "
                 f"y={bar['t']} — the sidebar is still paying for the bar")
-            # And the workspace did not lose height to pay for that.
+            # And the workspace did not lose height to pay for that. The gain
+            # is the bar's OWN height, whatever that is this version (100px
+            # as four rows, ~29 as one) — pinning a number here pinned the
+            # four rows.
+            self.assertGreater(bar["h"], 0, "the section bar has no height")
             self.assertGreaterEqual(
-                side["h"], main["h"] + 60,
+                side["h"], main["h"] + bar["h"] - 2,
                 f"the sidebar is {side['h']}px against a {main['h']}px "
-                "workspace — it did not gain the bar's height")
+                f"workspace and a {bar['h']}px bar — it did not gain the bar's height")
             self.assertGreaterEqual(
                 main["h"], 600,
                 f"the workspace is {main['h']}px tall at 1900x1200; it paid "

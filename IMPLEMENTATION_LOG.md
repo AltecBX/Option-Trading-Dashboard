@@ -3727,3 +3727,38 @@ printing and a push arriving:
 
 Six guards in `test_analyst_uw.py`, including one that reads the
 scheduler's source to prove the wait loop ticks.
+
+## v5.03 — one row of navigation, and a floor under the type
+
+Jerry: "Do the single-row navigation and the contrast pass too."
+
+**One row.** Four navigation rows (Workspace, Scan, Research, Connected)
+were 100px of the workspace column on every destination. Now one row of
+29px: the four group names on the left, the OPEN group's tools on the
+right. The open group follows the active tab, so the tools beside you are
+always the ones next to where you are; clicking another group name shows
+its tools without leaving the page, and a dot on the group you are actually
+in says where home is. Nothing is behind a menu — any tool is at most two
+clicks from any page — and `[` / `]` still cycle every tab in order. The
+workspace at 1900×1200 grows 649 → 720 (and with Focus on, 847 → 918).
+
+A guard that had pinned the sidebar's gain as "at least 60px" was pinning
+the four-row shape; it now asks for the bar's own height, whatever that is.
+
+**The type floor.** "Contrast pass" turned out to be the wrong name: every
+tier already cleared AA on every surface (guarded since v4.9x). What
+strained was SIZE. A probe listing every visible text element under 10.5px
+band by band found eight- and nine-pixel uppercase mono captions in the
+posture card (`LIVE` at 8.5px, `IV RANK` at 9), the context strip, the
+ribbon, the sidebar and the card chrome. On a desktop nothing with its own
+text is under 10px now, and the captions read all day are 10.5. Phones keep
+their sizes: their floors were measured separately and a bigger caption
+there costs a stock card its row. The block is the last in the stylesheet
+on purpose — the first draft sat before `.secnav-lbl` and lost to it.
+
+The two quiet colour tiers are lifted a notch too (dark `--fg-3` 0.70 →
+0.73, `--fg-4` 0.65 → 0.68); the ladder and AA guards still pass.
+
+Guards: the navigation is ≤44px with four group names and the open group's
+tools; nothing a person reads in the frame is under 10px (the failure
+lists the offenders by band, class and size).

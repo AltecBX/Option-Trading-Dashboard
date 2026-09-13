@@ -1,4 +1,4 @@
-# The permanent frame (v5.01)
+# The permanent frame (v5.03)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -806,3 +806,25 @@ else. Ten tiles across only from 1601px, where a tile has ~146px; below
 that the band is as narrow as 705px and focus keeps five columns in two
 compact rows (82px, not 178) so a price is never clipped. And bare `F`
 only — Ctrl+F and Cmd+F are the browser's Find.
+
+## 15. One row of navigation, and a floor under the type (v5.03)
+
+**The row.** Four rows were 100px of the workspace column; one row is 29.
+Group names left (`.tab-grp`), the open group's tools right, the open
+group following the active tab (`openGroup` re-syncs on `activeGroup`),
+a dot (`.tab-grp.here`) marking home when another group is open. The row
+never wraps: a group wider than the band scrolls sideways. Any tool is at
+most two clicks from any page; nothing is behind a menu.
+
+**The floor.** Measured, not guessed: a probe walks `.frame-top`,
+`.tab-bar` and `.sidebar` and lists every element with a text node of its
+own under 10.5px. The stylesheet's last block lifts each one to 10 or 10.5
+under the desktop breakpoint only. Order matters: the block must come
+after every caption it lifts, and the guard fails by listing offenders
+(band, class, size, text) so the next one is a one-line fix.
+
+**Why not raise everything.** 61 declarations at 9px and 56 at 9.5px
+across the cards; most sit inside measured phone layouts where a bigger
+caption costs a stock card its row. The floor covers the permanent frame
+and the card chrome a person reads all day; a wholesale change is a
+separate, measured pass.
