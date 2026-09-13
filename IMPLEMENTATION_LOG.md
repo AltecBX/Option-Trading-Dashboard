@@ -3877,3 +3877,36 @@ touch band is wider than a finish band, expected value re-added by hand on
 three windows, every gate fires, a relaxed pick is never presented as a
 clean one), seven render checks that drive the real engine through the
 real panel, and thirteen static checks in `test_ui_frame.js`.
+
+## v5.11 — one way into the shortcuts, and a clock that leads with the market
+
+Three small things Jerry asked for, all in the top app bar.
+
+**Two controls for one sheet.** The bar's "?" and the status line's
+"Shortcuts" both called `setHelpOpen(true)`. The "?" is gone; the status
+line keeps it, where it already sits beside Search, and the `?` key still
+opens the sheet from anywhere.
+
+**The market state leads, and closed is red.** The clock read
+`date · time · state`, with the state last and grey. Grey reads as
+"nothing to report", and whether the market is shut is the one thing on
+that bar you act on. It now reads `● Markets Closed │ Sun SEP 13, 3:08:24
+PM ET`: state first, dot and label sharing one colour — red shut, green
+during the regular session, amber either side of it. The green tell moved
+off the time and onto the state pill, which is the thing it was
+describing; `.ab-time` had no markup left and was removed with it. The
+row's `align-items` went from `baseline` to `center`, or the dot and the
+new divider would have sat below the text's centre line.
+
+**The date lost its year.** "Sun, September 13, 2026 3:08:24 PM ET" spent
+the width on its least useful part. It is "Sun SEP 13, 3:08:24 PM ET" now
+— built from `formatToParts` so the month is short and capitalised
+without depending on a locale's spelling. The seconds stay, because the
+clock beside the Schwab badge has them and two clocks that disagree are
+worse than one.
+
+Guards: nine static checks in `test_ui_frame.js` (163 total) and three
+render checks that read the drawn bar — the children in order, the label
+and the dot agreeing on a colour, a shut market carrying the red class,
+the date matching `Sun SEP 13, 3:08:24 PM ET` with no year in it, and no
+"?" left in the bar's icon row.
