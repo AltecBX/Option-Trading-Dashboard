@@ -13645,12 +13645,17 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
 
             def _morning_push(title, message):
                 # No-op unless a push provider is configured (free ntfy via
-                # NTFY_TOPIC, or Pushover).
-                if _push_configured():
-                    try:
-                        _push_notify(title, message, priority=0)
-                    except Exception as e:  # noqa: BLE001
-                        print(f"[analyst_board] push failed: {e}", file=sys.stderr)
+                # NTFY_TOPIC, or Pushover). Returns whether a provider
+                # accepted it: the fast lane marks a note as sent only on
+                # True, so a failed delivery is retried on the next poll
+                # rather than silenced for good.
+                if not _push_configured():
+                    return False
+                try:
+                    return bool((_push_notify(title, message, priority=0) or {}).get("ok"))
+                except Exception as e:  # noqa: BLE001
+                    print(f"[analyst_board] push failed: {e}", file=sys.stderr)
+                    return False
 
             _analyst_board.start_scheduler(
                 get_watchlist_fn=_wl_syms, notify_fn=_morning_push,
