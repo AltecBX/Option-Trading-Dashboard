@@ -407,6 +407,7 @@ function App() {
   // before the workspace began — ten charts, three context strips and a
   // posture card. All of it is worth a glance; none of it is worth half the
   // window all day. Remembered per browser; F toggles it.
+  const focusWide = useMediaQuery(FOCUS_FRAME_Q);
   const [focusFrame, setFocusFrame] = useState(() => {
     try { return localStorage.getItem("jerry_focus_frame_v1") === "1"; } catch { return false; }
   });
@@ -1985,7 +1986,14 @@ function App() {
       if (typing) return;
       if (e.key === "/") { e.preventDefault(); setPalOpen(true); setHelpOpen(false); }
       else if (e.key === "?") { e.preventDefault(); setHelpOpen(o => !o); setPalOpen(false); }
-      else if (e.key === "f" || e.key === "F") { setFocusFrame(v => !v); }
+      else if ((e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey
+               && window.matchMedia(FOCUS_FRAME_Q).matches) {
+        // Bare F only: Ctrl+F / Cmd+F is the browser's Find, and a shortcut
+        // that also flipped the layout would be a surprise every time. And
+        // only where the focus rules apply — below 1081px the frame has its
+        // own shape and there is nothing for the switch to do.
+        setFocusFrame(v => !v);
+      }
       else if (e.key === "[" || e.key === "]") {
         const tabs = orderedTabs.length ? orderedTabs : (window.TABS || []);
         if (!tabs.length) return;
@@ -3192,7 +3200,10 @@ function App() {
               header and the weather would vanish again. */}
           {!isPhone && <WeatherBadge variant="bar" />}
           <MarketClock />
-          <button className={`ab-icon ab-focus${focusFrame ? " on" : ""}`}
+          {/* Only where the focus rules apply. From 901 to 1080px this app
+              bar is on screen but the frame has its own shape, and a switch
+              that changed its icon and nothing else would be a lie. */}
+          {focusWide && <button className={`ab-icon ab-focus${focusFrame ? " on" : ""}`}
                   onClick={() => setFocusFrame(v => !v)}
                   aria-pressed={focusFrame ? "true" : "false"}
                   aria-label="Focus: shrink the top frame"
@@ -3200,7 +3211,7 @@ function App() {
                     ? "Focus is on: the ten charts are one row of numbers and the context strip is folded. Press F or click to bring the full frame back."
                     : "Focus: shrink the top frame to one strip of numbers so the tool gets the screen. Press F or click; it stays that way until you switch it back."}>
             {focusFrame ? "⊞" : "⊟"}
-          </button>
+          </button>}
           <button className="ab-icon" onClick={() => setHelpOpen(true)}
                   aria-label="Keyboard shortcuts"
                   title="Keyboard shortcuts and what each one does">?</button>

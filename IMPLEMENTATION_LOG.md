@@ -3687,3 +3687,11 @@ the frame is not the rail's to size.
 
 Both guards run in the browser (`test_frame_render.py`); nine more pin the
 rules (`test_ui_frame.js`).
+
+Review caught four holes the same day, all fixed before merge: a rail was
+"empty" before its feed had answered (every load collapsed both rails and
+snapped the frame open a second later); the Focus button showed from 901 to
+1080px where none of its rules applied; ten tiles across at 1081px were 65px
+each with the price clipped (five columns in two compact rows below 1601px
+now); and Ctrl+F toggled focus on the way to the browser's Find. Guards for
+each, plus a third browser measurement at 1300×1000.

@@ -795,3 +795,14 @@ moment a name touches its high. The 52-week rails are untouched.
 rail's to size, and CSS cannot see whether a fixed sibling has rows in it.
 A fact one component knows and another component's rule needs travels the
 same way the theme does.
+
+**Four things the first draft got wrong (review, same day).** "No rows
+yet" before the source has answered is not "empty" — a rail is marked
+empty only once its feed has replied, or every page load would collapse
+both rails and snap the frame open again a second later. The Focus switch,
+the `F` key and the CSS all read one breakpoint (`FOCUS_FRAME_Q`, 1081px),
+so from 901 to 1080px there is no button that changes its icon and nothing
+else. Ten tiles across only from 1601px, where a tile has ~146px; below
+that the band is as narrow as 705px and focus keeps five columns in two
+compact rows (82px, not 178) so a price is never clipped. And bare `F`
+only — Ctrl+F and Cmd+F are the browser's Find.

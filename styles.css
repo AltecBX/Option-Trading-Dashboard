@@ -13719,7 +13719,11 @@ body { overflow: hidden; overscroll-behavior: none; }
    which has its own rules, is untouched. Measured at 1900×1200: the
    workspace grows from 649px to ~840px of a 1200px window. */
 @media (min-width: 1081px) {
-  body.focus-frame .mko-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 0 0 6px; }
+  /* Ten across only where the band is wide enough for it. At 1081px the
+     band is ~705px — ten columns would be 65px tiles with the price clipped
+     — so narrower desktops keep the base five columns and get two compact
+     rows: 82px instead of 178, and every figure still readable. */
+  body.focus-frame .mko-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0 0 6px; }
   body.focus-frame .mko-tile { min-height: 0; padding: 4px 7px 3px; gap: 0; }
   body.focus-frame .mko-spark, body.focus-frame .mko-pts, body.focus-frame .mko-proxy { display: none; }
   /* Ten across a 1524px band is ~146px a tile: "NASDAQ Fut." and "▲ 0.86%"
@@ -13733,6 +13737,9 @@ body { overflow: hidden; overscroll-behavior: none; }
   body.focus-frame .posture-card { gap: 3px; padding: 6px 12px; }
   body.focus-frame .pc-stats, body.focus-frame .pc-rot, body.focus-frame .pc-picks, body.focus-frame .pc-empty { display: none; }
   body.focus-frame .opp-ribbon { margin-top: 4px; }
+}
+@media (min-width: 1601px) {
+  body.focus-frame .mko-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); }
 }
 .ab-icon.on { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 

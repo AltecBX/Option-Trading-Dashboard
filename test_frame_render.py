@@ -584,6 +584,25 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "the frame is still charging the tool for the charts")
         finally:
             self._close(handles)
+        # A narrow desktop: the band is ~700px at 1300 wide, where ten columns
+        # would be 65px tiles with the price clipped. Focus keeps five columns
+        # there and gets two compact rows — still well under the 178px of
+        # charts, and every figure still whole.
+        geo, errors, handles = self._measure(
+            1300, 1000,
+            init="try{localStorage.setItem('jerry_focus_frame_v1','1')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertTrue(geo["focus"])
+            self.assertEqual(10, geo["tiles"])
+            self.assertLessEqual(
+                geo["charts"]["h"], 100,
+                f"the instruments are {geo['charts']['h']}px tall in focus at 1300 wide")
+            self.assertGreaterEqual(
+                geo["charts"]["w"] / geo["tiles"] * 2, 120,
+                "ten tiles in one row at this width — they cannot hold a price")
+        finally:
+            self._close(handles)
 
     def test_empty_daily_rails_hand_their_width_to_the_tool(self):
         """On a screen wide enough for the four rails, the two DAILY rails are

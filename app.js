@@ -551,6 +551,7 @@ function App() {
   // before the workspace began — ten charts, three context strips and a
   // posture card. All of it is worth a glance; none of it is worth half the
   // window all day. Remembered per browser; F toggles it.
+  const focusWide = useMediaQuery(FOCUS_FRAME_Q);
   const [focusFrame, setFocusFrame] = useState(() => {
     try {
       return localStorage.getItem("jerry_focus_frame_v1") === "1";
@@ -2484,7 +2485,11 @@ function App() {
         e.preventDefault();
         setHelpOpen(o => !o);
         setPalOpen(false);
-      } else if (e.key === "f" || e.key === "F") {
+      } else if ((e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey && window.matchMedia(FOCUS_FRAME_Q).matches) {
+        // Bare F only: Ctrl+F / Cmd+F is the browser's Find, and a shortcut
+        // that also flipped the layout would be a surprise every time. And
+        // only where the focus rules apply — below 1081px the frame has its
+        // own shape and there is nothing for the switch to do.
         setFocusFrame(v => !v);
       } else if (e.key === "[" || e.key === "]") {
         const tabs = orderedTabs.length ? orderedTabs : window.TABS || [];
@@ -4060,7 +4065,7 @@ function App() {
     title: "Every destination, grouped and searchable."
   }, "\u25A6"), !isPhone && /*#__PURE__*/React.createElement(WeatherBadge, {
     variant: "bar"
-  }), /*#__PURE__*/React.createElement(MarketClock, null), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement(MarketClock, null), focusWide && /*#__PURE__*/React.createElement("button", {
     className: `ab-icon ab-focus${focusFrame ? " on" : ""}`,
     onClick: () => setFocusFrame(v => !v),
     "aria-pressed": focusFrame ? "true" : "false",
