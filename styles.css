@@ -14786,6 +14786,10 @@ body { overflow: hidden; overscroll-behavior: none; }
    earnings panel has rows: the sandbox stub has neither. */
 .sb-symtag, .emx-pill-dte { font-size: 10.5px; }
 .em-stat-lbl { font-size: 10px; }
+/* Glyphs that carry a text node — the earnings badge's ⏵ and the analyst
+   table's → — count as text to the guard, and 10px costs them nothing.
+   (.earn-badge .earn-dot matches the original's specificity.) */
+.earn-badge .earn-dot, .grade-arrow { font-size: 10px; }
 .secnav-group, .chart-perf-lbl, .chart-stat-lbl, .strategy-mode-kicker,
 .rec-with-kicker .rec-kicker, .tfr-reason-pill, .trade-lbl, .trade-builder-disclaimer { font-size: 10px; }
 .secnav-lbl, .secnav-lbl-sm, .pcalc-label, .pcalc-from-meta, .pick-label { font-size: 10.5px; }
