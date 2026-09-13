@@ -709,6 +709,11 @@ ok("the floor applies on the phone too, with the two captions only a phone shows
    !/@media \(min-width: 1081px\) \{\n  \.pc-src, \.mko-proxy/.test(css)
    && /\n\.mko-pts \{ font-size: 10px; \}/.test(css)
    && /\.secnav-lbl-sm, /.test(css));
+// `.term` is a wrapper that inherits its size from its context — 17px
+// strategy names, 14px subtitles. A size on the class itself is a size on
+// all of them; the sidebar's term carries .sb-label, which is its floor.
+ok("the floor never sizes the glossary-term wrapper itself",
+   !/\n[^\n]*\.term\b[^\n]*\{ font-size: 10/.test(css.slice(css.indexOf("The type floor (v5.03 desktop"))));
 ok("the floor is the last block in the stylesheet",
    /\.secnav-lbl, \.secnav-lbl-sm, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}\n$/.test(css));
 
