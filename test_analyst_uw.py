@@ -59,6 +59,12 @@ YF_PLTR = [
 ]
 
 
+def _days_ago_stamp(days: int) -> str:
+    """A UW-shaped UTC timestamp `days` ago, at 15:28 UTC."""
+    dt = (datetime.now(timezone.utc) - timedelta(days=days)).replace(hour=15, minute=28, second=43, microsecond=0)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
 def _today_et_stamp(hour: int, minute: int) -> str:
     """A UW-shaped UTC timestamp for today at hour:minute Eastern."""
     now = datetime.now(ac._et_zone()).replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -226,9 +232,14 @@ class ClientPayload(unittest.TestCase):
         self.assertEqual(p["history_sources"], [ac.YF_SOURCE])
 
     def test_the_headline_high_cannot_sit_below_the_new_row(self):
-        c, _ = self._client(UW_PLTR, YF_PLTR)
+        # The reconcile step only folds in targets from the last 120 days,
+        # so this note has to be recent RELATIVE TO THE CLOCK, not dated
+        # 2026-09-11 — under the time-travel run that date is old news.
+        fresh = [{**UW_PLTR[0], "timestamp": _days_ago_stamp(2)}]
+        c, _ = self._client(fresh, [])
         c._fetch_yf_targets_fallback = lambda symbol: {"target_mean": 195.73, "target_high": 245.0, "target_low": 80.0}
         p = c.get_analyst_data("PLTR", current_price=168.11)
+        self.assertEqual(p["history"][0]["new_target"], 250.0)
         self.assertGreaterEqual(p["targets"]["high"], 250.0)
 
 
@@ -311,7 +322,10 @@ class BoardFastLane(unittest.TestCase):
         ab.refresh_fast_lane(["PLTR"], rows=tape)
         self.assertEqual(len(ab.get_board()["actions"]), 1)
 
-        today = datetime.now(timezone.utc).date().isoformat()
+        # The fast lane dates rows by the New York calendar; so must the
+        # Yahoo rows this test hands the sweep, or after 8 PM ET the two
+        # "todays" differ and one note becomes two rows for a bad reason.
+        today = datetime.now(ac._et_zone()).date().isoformat()
 
         def sweep_with(yf_rows):
             class FakeClient:
