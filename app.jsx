@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.10";
+const APP_VERSION = "5.11";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -197,10 +197,14 @@ function MarketClock() {
   }, []);
   try {
     const d = new Date(now);
-    const dateFmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York", weekday: "short", month: "long",
-      day: "numeric", year: "numeric",
-    }).format(d);
+    // "Sun SEP 13" — weekday, month, day. No year: the year is not news, and
+    // the room it took is what pushed the reading you DO want (what the
+    // market is doing right now) off to the far end of the bar.
+    const dparts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric",
+    }).formatToParts(d);
+    const dpart = (t) => ((dparts.find(x => x.type === t) || {}).value || "");
+    const dateFmt = `${dpart("weekday")} ${dpart("month").toUpperCase()} ${dpart("day")}`;
     const timeFmt = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
       second: "2-digit", hour12: true,
@@ -214,17 +218,19 @@ function MarketClock() {
     const open = !weekend && mins >= 570 && mins < 960;
     const pre = !weekend && mins >= 240 && mins < 570;
     const post = !weekend && mins >= 960 && mins < 1200;
-    const state = open ? "Market open" : pre ? "Pre-market" : post ? "After hours" : "Market closed";
+    const state = open ? "Markets Open" : pre ? "Pre-Market" : post ? "After Hours" : "Markets Closed";
     const cls = open ? "open" : (pre || post) ? "ext" : "shut";
     return (
       <span className="ab-clock" title={`New York time. The regular session runs 9:30 AM to 4:00 PM Eastern on trading days. Right now: ${state}.`}>
-        <span className="ab-date">{dateFmt}</span>
-        {/* Green while the regular session runs — the same tell the LiveClock
-            beside the Schwab badge uses, so both clocks say the same thing. */}
-        <span className={`ab-time${open ? " mkt-open" : ""}`}>{timeFmt} ET</span>
+        {/* State first, and coloured: red when the market is shut, green
+            while the regular session runs, amber either side of it. Whether
+            you can trade right now is the thing you glance up for; the date
+            is only there to tell you which day the clock belongs to. */}
         <span className={`ab-mkt ab-mkt-${cls}`}>
           <span className="ab-mkt-dot" aria-hidden="true" />{state}
         </span>
+        <span className="ab-clock-sep" aria-hidden="true" />
+        <span className="ab-when">{dateFmt}, {timeFmt} ET</span>
       </span>
     );
   } catch {
@@ -3212,9 +3218,6 @@ function App() {
                     : "Focus: shrink the top frame to one strip of numbers so the tool gets the screen. Press F or click; it stays that way until you switch it back."}>
             {focusFrame ? "⊞" : "⊟"}
           </button>}
-          <button className="ab-icon" onClick={() => setHelpOpen(true)}
-                  aria-label="Keyboard shortcuts"
-                  title="Keyboard shortcuts and what each one does">?</button>
         </div>
       </header>
       {/* Mobile sticky header (phones/tablets only; hidden on desktop via CSS) */}

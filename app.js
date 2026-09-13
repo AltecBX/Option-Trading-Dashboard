@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.10";
+const APP_VERSION = "5.11";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -269,13 +269,17 @@ function MarketClock() {
   }, []);
   try {
     const d = new Date(now);
-    const dateFmt = new Intl.DateTimeFormat("en-US", {
+    // "Sun SEP 13" — weekday, month, day. No year: the year is not news, and
+    // the room it took is what pushed the reading you DO want (what the
+    // market is doing right now) off to the far end of the bar.
+    const dparts = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       weekday: "short",
-      month: "long",
-      day: "numeric",
-      year: "numeric"
-    }).format(d);
+      month: "short",
+      day: "numeric"
+    }).formatToParts(d);
+    const dpart = t => (dparts.find(x => x.type === t) || {}).value || "";
+    const dateFmt = `${dpart("weekday")} ${dpart("month").toUpperCase()} ${dpart("day")}`;
     const timeFmt = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
       hour: "numeric",
@@ -296,21 +300,22 @@ function MarketClock() {
     const open = !weekend && mins >= 570 && mins < 960;
     const pre = !weekend && mins >= 240 && mins < 570;
     const post = !weekend && mins >= 960 && mins < 1200;
-    const state = open ? "Market open" : pre ? "Pre-market" : post ? "After hours" : "Market closed";
+    const state = open ? "Markets Open" : pre ? "Pre-Market" : post ? "After Hours" : "Markets Closed";
     const cls = open ? "open" : pre || post ? "ext" : "shut";
     return /*#__PURE__*/React.createElement("span", {
       className: "ab-clock",
       title: `New York time. The regular session runs 9:30 AM to 4:00 PM Eastern on trading days. Right now: ${state}.`
     }, /*#__PURE__*/React.createElement("span", {
-      className: "ab-date"
-    }, dateFmt), /*#__PURE__*/React.createElement("span", {
-      className: `ab-time${open ? " mkt-open" : ""}`
-    }, timeFmt, " ET"), /*#__PURE__*/React.createElement("span", {
       className: `ab-mkt ab-mkt-${cls}`
     }, /*#__PURE__*/React.createElement("span", {
       className: "ab-mkt-dot",
       "aria-hidden": "true"
-    }), state));
+    }), state), /*#__PURE__*/React.createElement("span", {
+      className: "ab-clock-sep",
+      "aria-hidden": "true"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "ab-when"
+    }, dateFmt, ", ", timeFmt, " ET"));
   } catch {
     return null;
   }
@@ -4071,12 +4076,7 @@ function App() {
     "aria-pressed": focusFrame ? "true" : "false",
     "aria-label": "Focus: shrink the top frame",
     title: focusFrame ? "Focus is on: the ten charts are one row of numbers and the context strip is folded. Press F or click to bring the full frame back." : "Focus: shrink the top frame to one strip of numbers so the tool gets the screen. Press F or click; it stays that way until you switch it back."
-  }, focusFrame ? "⊞" : "⊟"), /*#__PURE__*/React.createElement("button", {
-    className: "ab-icon",
-    onClick: () => setHelpOpen(true),
-    "aria-label": "Keyboard shortcuts",
-    title: "Keyboard shortcuts and what each one does"
-  }, "?"))), /*#__PURE__*/React.createElement("header", {
+  }, focusFrame ? "⊞" : "⊟"))), /*#__PURE__*/React.createElement("header", {
     className: "mobile-header"
   }, /*#__PURE__*/React.createElement("button", {
     className: "mh-btn mh-burger",

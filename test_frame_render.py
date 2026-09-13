@@ -494,6 +494,25 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return {rowOrder: row ? [...row.children].map(kind) : [],
                           hot: hot ? hot.innerText.replace(/\\s+/g, ' ').trim() : ''};
                 })(),
+                // v5.11: the app bar's clock and its icon row.
+                clock: (() => {
+                  const c = document.querySelector('.ab-clock');
+                  const mkt = c && c.querySelector('.ab-mkt');
+                  const dot = c && c.querySelector('.ab-mkt-dot');
+                  const when = c && c.querySelector('.ab-when');
+                  if (!c) return null;
+                  return {
+                    order: [...c.children].map(e =>
+                      String(e.getAttribute('class') || '').split(' ')[0]),
+                    state: mkt ? mkt.innerText.trim() : null,
+                    stateCls: mkt ? String(mkt.getAttribute('class') || '') : '',
+                    stateColor: mkt ? getComputedStyle(mkt).color : null,
+                    dotColor: dot ? getComputedStyle(dot).backgroundColor : null,
+                    when: when ? when.innerText.trim() : null,
+                    icons: [...document.querySelectorAll('.ab-right .ab-icon')]
+                             .map(b => (b.innerText || '').trim()),
+                  };
+                })(),
                 doc: {scrollW: document.documentElement.scrollWidth},
                 // The smallest visible text in the permanent frame, and who
                 // it is. A caption is only "small" if a person reads it, so
@@ -1173,6 +1192,48 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         geo, _ = self._sell_probe(payload=pay)
         self.assertTrue(geo["sell"]["found"], "the panel disappeared without a plan")
         self.assertIn("RANGE LOCATION", geo["sell"]["text"].upper())
+
+    def test_the_app_bar_has_one_way_into_the_shortcuts_not_two(self):
+        # The bar's "?" and the status line's "Shortcuts" opened the same
+        # sheet. The status line keeps it, beside Search.
+        geo, _, handles = self._measure(1900, 1200)
+        try:
+            self.assertNotIn("?", geo["clock"]["icons"],
+                             "the app bar still carries its own shortcuts button")
+        finally:
+            self._close(handles)
+
+    def test_the_clock_leads_with_whether_you_can_trade(self):
+        # State first and coloured, then a divider, then the date. Whether
+        # the market is shut is what the glance is for.
+        geo, _, handles = self._measure(1900, 1200)
+        try:
+            c = geo["clock"]
+            self.assertIsNotNone(c, "the app bar clock did not render")
+            self.assertEqual(c["order"], ["ab-mkt", "ab-clock-sep", "ab-when"])
+            self.assertIn(c["state"], ("Markets Open", "Pre-Market",
+                                       "After Hours", "Markets Closed"))
+            # Whatever the session, the dot and the label agree with each other.
+            self.assertEqual(c["stateColor"], c["dotColor"],
+                             "the dot and the label are different colours")
+            # ...and a shut market is the red one.
+            if c["state"] == "Markets Closed":
+                self.assertIn("ab-mkt-shut", c["stateCls"])
+        finally:
+            self._close(handles)
+
+    def test_the_date_is_short_and_keeps_its_seconds(self):
+        # "Sun, September 13, 2026 3:08:24 PM ET" spent the bar on the least
+        # useful part. "Sun SEP 13, 3:08:24 PM ET" says the same thing.
+        geo, _, handles = self._measure(1900, 1200)
+        try:
+            when = geo["clock"]["when"]
+            self.assertRegex(when, r"^[A-Z][a-z]{2} [A-Z]{3} \d{1,2}, "
+                                   r"\d{1,2}:\d{2}:\d{2} [AP]M ET$",
+                             f"the clock reads {when!r}")
+            self.assertNotRegex(when, r"\b(19|20)\d{2}\b", "the year is back")
+        finally:
+            self._close(handles)
 
     def test_a_bar_with_a_missing_price_does_not_take_the_page_down(self):
         """lightweight-charts throws "Value is null" out of its Candlestick

@@ -1,4 +1,4 @@
-# The permanent frame (v5.10)
+# The permanent frame (v5.11)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -880,3 +880,26 @@ away from the strike axis instead of out of it, so both are pinned. Above
 the chart, a strip names the heaviest open interest and the heaviest
 volume on each side, because the question it answers ("where is the
 action") should not require scrolling forty rows of bars.
+
+
+---
+
+## 17. The app bar says what the market is doing (v5.11)
+
+Three corrections, all in the top bar.
+
+- **One way into the shortcuts.** The bar's "?" and the status line's
+  "Shortcuts" opened the same sheet. Two controls for one thing is one too
+  many. The status line keeps it, beside Search; the `?` key is unchanged.
+- **State first, and coloured.** The clock was `date · time · state`, the
+  state last and grey. It is now `● Markets Closed │ Sun SEP 13, 3:08:24 PM
+  ET` — the state leads, and the dot and label share one colour: red shut,
+  green during the regular session, amber either side. **Grey is not a
+  status.** The open-session tell moved off the time onto the state pill,
+  so the bar colours the thing it is talking about.
+- **A short date.** No year, and the month capitalised, built from
+  `formatToParts` rather than a locale's own spelling.
+
+Layout note: the clock row is `align-items: center`. It was `baseline`,
+which was fine for three runs of text and wrong the moment the row held a
+7px dot and a 13px divider — both would have hung below the centre line.

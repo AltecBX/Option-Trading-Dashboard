@@ -251,9 +251,13 @@ ok("it ticks every second and stops while the tab is hidden",
    /setInterval\(\(\) => \{ if \(!document\.hidden\) setNow\(Date\.now\(\)\); \}, 1000\)/
      .test(app.slice(app.indexOf("function MarketClock"),
                      app.indexOf("function MarketClock") + 2200)));
+// v5.11: the app bar's green-while-open tell moved off the time and onto the
+// state pill, which is the thing it was describing. The clock beside the
+// Schwab badge still greens its own time; both still say the same thing.
 ok("and turns green during the regular session, like the other one",
-   /className=\{`ab-time\$\{open \? " mkt-open" : ""\}`\}/.test(app)
-   && /\.ab-time\.mkt-open\s*\{[^}]*var\(--up\)/.test(css)
+   /const cls = open \? "open" : \(pre \|\| post\) \? "ext" : "shut";/.test(app)
+   && /className=\{`ab-mkt ab-mkt-\$\{cls\}`\}/.test(app)
+   && /\.ab-mkt-open \{ color: var\(--up\); \}/.test(css)
    && /\.lc-time\.mkt-open\s*\{[^}]*var\(--up\)/.test(css));
 
 // ── 14. the content column uses what the rails leave ──────────────────────
@@ -775,6 +779,42 @@ ok("nothing the engine's panel adds is under the type floor",
    && /\.wos-alts em \{[\s\S]{0,150}?font-size: 10px;/.test(css)
    && /\.wos-mine em \{[\s\S]{0,150}?font-size: 10px;/.test(css)
    && /\.wos-relaxed \{[\s\S]{0,120}?font-size: 10\.5px;/.test(css));
+
+
+// ── 28. v5.11: one way into the shortcuts, and a clock that leads with
+// whether you can trade ───────────────────────────────────────────────────
+// The app bar's "?" and the status line's "Shortcuts" opened the same sheet.
+// Two controls for one thing is one too many; the status line keeps it,
+// where it already sits beside Search.
+ok("the app bar no longer carries its own shortcuts button",
+   !/<button className="ab-icon" onClick=\{\(\) => setHelpOpen\(true\)\}/.test(app));
+ok("the status line is still the way in, and the key still works",
+   /<button className="sl-link" onClick=\{\(\) => setPalOpen\(true\)\}/.test(app)
+   && /className="sl-link" onClick=\{\(\) => setHelpOpen\(true\)\}/.test(app)
+   && /e\.key === "\?"/.test(app));
+// Whether the market is shut is the thing you glance up for, so it leads the
+// clock and carries the colour. Grey read as "nothing to report".
+ok("the market state comes before the date, not after it",
+   /<span className=\{`ab-mkt ab-mkt-\$\{cls\}`\}>[\s\S]{0,220}?ab-clock-sep[\s\S]{0,120}?className="ab-when"/.test(app));
+ok("a closed market is red, not grey",
+   /\.ab-mkt-shut \{ color: var\(--down\); \} \.ab-mkt-shut \.ab-mkt-dot  \{ background: var\(--down\); \}/.test(css));
+ok("open stays green and the sessions either side stay amber",
+   /\.ab-mkt-open \{ color: var\(--up\); \}/.test(css)
+   && /\.ab-mkt-ext  \{ color: var\(--warn\); \}/.test(css));
+// "Sun, September 13, 2026" spent the bar's width on the least useful part.
+ok("the date is short and the month is capitalised, with no year",
+   /dpart\("month"\)\.toUpperCase\(\)/.test(app)
+   && /weekday: "short", month: "short", day: "numeric",\n    \}\)\.formatToParts\(d\)/.test(app)
+   && !/month: "long"[\s\S]{0,80}year: "numeric"/.test(app));
+ok("the time keeps its seconds and says which zone it is",
+   /second: "2-digit", hour12: true,/.test(app)
+   && /\{dateFmt\}, \{timeFmt\} ET/.test(app));
+ok("the state reads as a market, not a switch",
+   /"Markets Open"[\s\S]{0,80}"Markets Closed"/.test(app));
+// The dot and the separator sit on the text's centre line; a baseline row
+// drops both of them below it.
+ok("the clock's row is centred so the dot and the divider line up",
+   /\.ab-clock \{\n  display: inline-flex; align-items: center;/.test(css));
 
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));

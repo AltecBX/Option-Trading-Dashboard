@@ -13848,15 +13848,21 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 .ab-right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
 .ab-clock {
-  display: inline-flex; align-items: baseline; gap: 10px; cursor: help;
+  display: inline-flex; align-items: center; gap: 10px; cursor: help;
   font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap;
 }
-.ab-time { color: var(--fg-2); font-weight: 700; }
-.ab-mkt { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
-.ab-mkt-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-4); }
+/* v5.11: the market state leads the clock and carries the colour. Closed is
+   RED, not the grey it used to be — grey reads as "nothing to report", and
+   whether the market is shut is the one thing on this bar you act on. */
+.ab-when { color: var(--fg-2); font-weight: 700; }
+.ab-clock-sep { width: 1px; height: 13px; background: var(--line); align-self: center; }
+.ab-mkt { display: inline-flex; align-items: center; gap: 6px; font-weight: 700;
+  letter-spacing: 0.01em; }
+.ab-mkt-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-4);
+  flex: 0 0 auto; }
 .ab-mkt-open { color: var(--up); }   .ab-mkt-open .ab-mkt-dot  { background: var(--up); }
 .ab-mkt-ext  { color: var(--warn); } .ab-mkt-ext .ab-mkt-dot   { background: var(--warn); }
-.ab-mkt-shut { color: var(--fg-3); } .ab-mkt-shut .ab-mkt-dot  { background: var(--fg-4); }
+.ab-mkt-shut { color: var(--down); } .ab-mkt-shut .ab-mkt-dot  { background: var(--down); }
 .ab-icon {
   width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
   background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-3);
@@ -14588,7 +14594,6 @@ body { overflow: hidden; overscroll-behavior: none; }
    Seconds, ticking once a second, and green while the regular session runs.
    Same token as .lc-time.mkt-open, so the two clocks cannot drift apart in
    appearance any more than they can in reading. */
-.ab-time.mkt-open { color: var(--up); }
 
 /* ── Use the space between the rails, not a fixed 1600px column ────────────
    The rails are FIXED to the window edges while the content column was capped
