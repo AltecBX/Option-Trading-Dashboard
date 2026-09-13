@@ -681,8 +681,11 @@ ok("the navigation is one row: four group names, then the open group's tools",
    /className="tab-bar tab-bar-grouped tab-bar-one"/.test(cards)
    && /className=\{`tab-row tab-row-one tab-row-\$\{open\.id\}`\}/.test(cards)
    && /list\.filter\(t => open\.ids\.includes\(t\.id\)\)\.map\(renderBtn\)/.test(cards));
-ok("the open group follows the active tab, and home is marked",
-   /useEffect\(\(\) => \{ setOpenGroup\(activeGroup\); \}, \[activeGroup\]\);/.test(cards)
+// …on every TAB change, not only when the group changes: with Scan open
+// while on Trade, `]` to Ask AI stays in Workspace, and keying on the group
+// left Scan's tools on the row over the tool you had just moved to.
+ok("the open group follows the active tab on every tab change, and home is marked",
+   /useEffect\(\(\) => \{ setOpenGroup\(activeGroup\); \}, \[active\]\);/.test(cards)
    && /className=\{`tab-grp\$\{isOpen \? " open" : ""\}\$\{isHere \? " here" : ""\}`\}/.test(cards)
    && /\.tab-grp\.here:not\(\.open\)::after \{\n  content: "●"/.test(css));
 ok("the row never wraps: a wide group scrolls sideways",

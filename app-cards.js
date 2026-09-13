@@ -7440,9 +7440,13 @@ function TabBar({
   // one click away from any page: one click on its group, one on the tool.
   const activeGroup = groupOf(active) || TAB_GROUPS[0].id;
   const [openGroup, setOpenGroup] = useState(activeGroup);
+  // Re-sync on every TAB change, not only when the tab's group changes:
+  // with Scan open while on Trade, `]` to Ask AI stays in Workspace, and
+  // keying on the group would have left Scan's tools on the row over the
+  // tool you just moved to.
   useEffect(() => {
     setOpenGroup(activeGroup);
-  }, [activeGroup]);
+  }, [active]);
   const open = TAB_GROUPS.find(g => g.id === openGroup) || TAB_GROUPS[0];
   const renderBtn = t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
