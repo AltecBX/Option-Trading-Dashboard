@@ -13,6 +13,23 @@ a free-only app gives up.
 
 ## 1. Analyst price targets, ratings, upgrades & downgrades
 
+### Unusual Whales (`UW_API_KEY`) — the fast leg, v5.00
+- `GET https://api.unusualwhales.com/api/screener/analysts?ticker=PLTR&limit=60`
+  → per-firm actions, newest first: `timestamp` (UTC), `firm`, `analyst_name`,
+  `action` (`upgraded / downgraded / initiated / reiterated / maintained`),
+  `recommendation` (`buy / hold / sell`), `target` (a string), `sector`.
+- Without `ticker` it is the whole market's tape; `newer_than` / `older_than`
+  page it by time. `analyst_board.refresh_fast_lane` reads it that way every
+  two minutes on weekdays, 4 AM to 8 PM ET — one call, every name.
+- **Why it leads:** on 2026-09-11 D.A. Davidson's $250 PLTR target moved the
+  stock pre-market and was still absent from Yahoo's `upgrades_downgrades` at
+  8:19 AM ET. Unusual Whales had it. `analyst_client.merge_history` puts the
+  UW row first and lets Yahoo fill in the prior rating and the firm's own
+  rating wording. UW does not carry the prior target; it is derived from the
+  same firm's earlier note and labelled `prior_target_source`.
+- Cached 2 minutes (`unusual_whales_client.TTL_BY_KEY["analyst_ratings"]`);
+  the card re-asks on the same cadence.
+
 ### Finnhub (free tier) — used by `analyst_client.py`
 - **Get a free key** at https://finnhub.io (no card). Env: `FINNHUB_API_KEY`.
 - `GET https://finnhub.io/api/v1/stock/price-target?symbol=AAPL&token=KEY`
@@ -25,7 +42,8 @@ a free-only app gives up.
 ### yfinance (no key) — the workhorse
 - `yf.Ticker(sym).upgrades_downgrades` → per-firm rating changes:
   date, firm, action (`up`/`down`/`init`/`main`), fromGrade, toGrade.
-  **This is where upgrades/downgrades come from.**
+  **The slow leg.** It carries the prior rating and target Unusual Whales
+  does not, and it can trail a note by a session.
 - `yf.Ticker(sym).analyst_price_targets` → `current / low / high / mean / median`
   (used as the fallback when Finnhub is unconfigured).
 - `yf.Ticker(sym).recommendations` → recent broker actions table.

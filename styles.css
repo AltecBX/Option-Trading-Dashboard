@@ -6201,7 +6201,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 }
 .analyst-history-head, .analyst-history-row {
   display: grid;
-  grid-template-columns: 90px 1fr 90px 1fr 130px 60px;
+  /* 112px: "2026-09-11 11:28" — the date column now carries the minute a
+     note printed, which is the difference between a row and a trade. */
+  grid-template-columns: 112px 1fr 90px 1fr 130px 60px;
   gap: 10px;
   padding: 7px 12px;
   font-family: var(--font-mono);
@@ -6223,6 +6225,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .analyst-history-row { border-bottom: 1px solid var(--line); }
 .analyst-history-row:last-child { border-bottom: none; }
 .analyst-firm { font-weight: 600; color: var(--fg); }
+.analyst-time, .waa-time { color: var(--fg-3); font-size: 10px; margin-left: 5px; }
+.waa-live { color: var(--up); font-weight: 600; white-space: nowrap; }
+.waa-quiet > summary .waa-live { margin-left: 8px; font-size: 10.5px; }
+.analyst-name { display: block; color: var(--fg-3); font-weight: 400; font-size: 10px; line-height: 1.2; }
 
 .analyst-action-pill {
   display: inline-block;

@@ -124,8 +124,13 @@ ANALYST_ACTIONS = [{
     "action_date": "2026-09-11", "rating_from": "Equal-Weight",
     "rating_to": "Overweight", "prev_target": 180.0, "new_target": 240.0,
     "current_price": 200.0, "upside_pct": 20.0, "impact_score": 78,
-    "direction": "up", "fresh_today": True, "source": "Benzinga",
+    "direction": "up", "fresh_today": True, "source": "unusual whales",
+    # v5.00: a fast-lane row carries the minute it printed and the analyst.
+    "time_et": "09:31", "analyst": "Keith Weiss",
 } for s in "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX".split()]
+# The fast lane's stamp, as /api/watchlist_analyst reports it.
+FAST_LANE = {"source": "unusual whales", "last": "2026-09-11T13:32:00Z",
+             "added": 1, "error": None, "every_sec": 120}
 
 _SKIP: list = []
 
@@ -266,6 +271,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"actions": ANALYST_ACTIONS,
                                            "scanning": True,
+                                           "fast_lane": FAST_LANE,
                                            "detected_at": "2026-09-11T09:31:00Z"}))
                 return
             if "/api/quote" in url:
@@ -529,6 +535,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 f"{len(ANALYST_ACTIONS)} actions", line,
                 f"the folded board says {line!r} — a scan in progress has "
                 "replaced the count rather than qualifying it")
+            # v5.00: the board is fed every two minutes from Unusual Whales,
+            # not only by the 8 AM sweep. The stub reports a fast-lane stamp,
+            # so the summary line has to say "live" — "scanned 9:31 AM" alone
+            # tells a reader at 11:30 that the board is two hours old.
+            self.assertIn(
+                "live", line,
+                f"the folded board says {line!r} — the fast-lane stamp the "
+                "server sent is not on the line")
         finally:
             self._close(handles)
 

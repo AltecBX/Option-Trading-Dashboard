@@ -117,6 +117,11 @@ ENDPOINTS = {
     # Sector options tide (Hedge Fund Pulse) — net call and put premium
     # through the session for one GICS sector. Anonymous institutional flow.
     "sector_tide": "/api/market/{sector}/sector-tide",
+    # Analyst ratings screener — the latest upgrades, downgrades, initiations
+    # and price-target changes across the market, or for one ticker. This is
+    # the fast leg of the analyst feed: Yahoo's per-firm history can trail a
+    # note by a session, which is the whole session Jerry trades on it.
+    "analyst_ratings": "/api/screener/analysts",
 }
 
 
@@ -144,6 +149,9 @@ TTL_BY_KEY = {
     "ohlc": 6 * 3600,
     "etf_in_outflow": 6 * 3600,
     "sector_tide": 900,
+    # A rating change is worth the most in the first minutes after it prints.
+    # Two minutes is the refresh cadence the board and the card both use.
+    "analyst_ratings": 120,
     "_default": 15,
 }
 
@@ -306,6 +314,30 @@ class UWClient:
         if end_date:
             p["end_date"] = str(end_date)
         return self._get("etf_in_outflow", p)
+
+    def analyst_ratings(self, ticker: str | None = None, *, limit: int = 500,
+                        newer_than: str | None = None,
+                        older_than: str | None = None,
+                        action: str | None = None) -> Optional[list[dict]]:
+        """Latest analyst actions, newest first. With `ticker` it is that
+        stock's per-firm history; without it, the whole market's tape, which
+        is what the board polls so one call covers every name at once.
+
+        `newer_than` / `older_than` take an ISO date, an RFC 3339 datetime or
+        a unix timestamp, and page by time. Rows carry `timestamp` (UTC),
+        `ticker`, `firm`, `analyst_name`, `action` (upgraded / downgraded /
+        initiated / reiterated / maintained), `recommendation` (buy / hold /
+        sell), `target` (a string) and `sector`."""
+        p: dict[str, str] = {"limit": str(max(1, min(500, int(limit))))}
+        if ticker:
+            p["ticker"] = str(ticker).upper()
+        if newer_than:
+            p["newer_than"] = str(newer_than)
+        if older_than:
+            p["older_than"] = str(older_than)
+        if action:
+            p["action"] = str(action)
+        return self._get("analyst_ratings", p)
 
     def rate_snapshot(self) -> dict[str, Any]:
         """Read-only copy of the latest rate-limit info."""

@@ -8768,11 +8768,27 @@ function TradeBuilderCard({
   );
 }
 
+// Matches the server's Unusual Whales cache (unusual_whales_client.TTL_BY_KEY
+// analyst_ratings) and the board's fast-lane cadence: asking sooner returns
+// the same cached rows, asking later leaves a fresh note sitting unseen.
+const ANALYST_REFRESH_MS = 120000;
+
 function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // v5.00: the Unusual Whales leg is cached for two minutes on the server,
+  // so the card re-asks on the same cadence. A note that prints at 10:40
+  // is on this card by 10:42 without anyone pressing Refresh — which is
+  // the only way a 30-minute cache and a one-shot fetch could ever have
+  // shown the D.A. Davidson $250 PLTR target the morning it moved the stock.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!ticker) return;
+    const t = setInterval(() => setTick(k => k + 1), ANALYST_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [ticker]);
 
   // Reset cached data when ticker changes — same pattern as the v85 cache fix
   useEffect(() => {
@@ -8818,7 +8834,7 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
     };
     fetchData();
     return () => { cancelled = true; };
-  }, [ticker, refreshKey]);
+  }, [ticker, refreshKey, tick]);
 
   // Color-coded action pills
   const actionClass = (action) => ({
@@ -8867,7 +8883,7 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
           <button className="research-run-btn"
                   disabled={loading}
                   onClick={() => setRefreshKey(k => k + 1)}
-                  title="Force-refresh analyst data (bypasses 30 min cache).">
+                  title="Re-pull everything now. Unusual Whales rows refresh on their own every 2 minutes; this also bypasses the 30-minute Yahoo cache.">
             {loading ? "Loading…" : "Refresh"}
           </button>
         </div>
@@ -9026,8 +9042,8 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
                 </div>
                 <div className="analyst-history-table">
                   <div className="analyst-history-head">
-                    <span title="Date the analyst published this rating change or price target update. Most recent first.">Date</span>
-                    <span title="Investment bank or research firm that issued the call (e.g. Morgan Stanley, JP Morgan, Wedbush).">Firm</span>
+                    <span title="Date the analyst published this rating change or price target update, and the minute it printed (Eastern) when Unusual Whales carried it. Most recent first.">Date</span>
+                    <span title="Investment bank or research firm that issued the call (e.g. Morgan Stanley, JP Morgan, Wedbush), and the analyst when known.">Firm</span>
                     <span title="Type of update. Upgrade = rating raised. Downgrade = rating lowered. Initiate = first time covering. Target = price target changed but rating unchanged. Reiterate = no change to either.">Action</span>
                     <span title="Rating change. Shows prior rating → new rating when the rating moved. Bullish ratings (Buy, Outperform, Overweight) in green. Bearish (Sell, Underperform) in red. Hold/Neutral in gray.">Rating</span>
                     <span title="Price target. Shows prior target → new target when changed. Single value when only the rating moved or this is an initiation.">Target</span>
@@ -9039,8 +9055,14 @@ function AnalystCard({ ticker, currentPrice, apiFetch, onData, strategyMode }) {
                       : h.target_change_pct < 0 ? "down" : "";
                     return (
                       <div key={i} className="analyst-history-row">
-                        <span className="muted">{h.date || "—"}</span>
-                        <span className="analyst-firm">{h.firm || "—"}</span>
+                        <span className="muted">
+                          {h.date || "—"}
+                          {h.time_et ? <span className="analyst-time" title="Printed at this time, Eastern (Unusual Whales)">{h.time_et}</span> : null}
+                        </span>
+                        <span className="analyst-firm">
+                          {h.firm || "—"}
+                          {h.analyst ? <span className="analyst-name" title="Analyst">{h.analyst}</span> : null}
+                        </span>
                         <span className={`analyst-action-pill ${actionClass(h.action_class)}`}>
                           {actionLabel(h.action_class)}
                         </span>
@@ -10911,6 +10933,17 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
   const detected = (data && data.detected_at)
     ? new Date(data.detected_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : null;
+  // v5.00: the board is no longer only the 8 AM sweep. The fast lane folds
+  // the Unusual Whales tape in every two minutes through the trading day,
+  // and this is when it last did — "scanned 8:00 AM" alone would say the
+  // board is stale when it is two minutes old.
+  const fl = data && data.fast_lane;
+  const live = (fl && fl.last)
+    ? new Date(fl.last).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : null;
+  const liveNote = live
+    ? <span className="waa-live" title={`Unusual Whales analyst tape folded in at ${live}, and again every ${Math.round((fl.every_sec || 120) / 60)} minutes on weekdays 4 AM to 8 PM ET.`}>live {live}</span>
+    : null;
 
   const typePass = (a) => {
     switch (type) {
@@ -11017,6 +11050,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
           <span className="waa-quiet-title">Analyst Actions</span>
           <span className="waa-quiet-note">{quietLine}</span>
           {detected ? <span className="waa-quiet-scanned">scanned {detected}</span> : null}
+          {liveNote}
         </summary>
         <div className="waa-quiet-body">
           {controls}
@@ -11036,8 +11070,8 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
               claims. It goes inside, where there is room for it. */}
           {detected ? (
             <div className="waa-quiet-when">
-              <DataStatus kind="cached" note="Analyst boards are stored results. Nothing is re-checked until you scan again." />
-              scanned {detected}
+              <DataStatus kind="cached" note="The 8 AM sweep is a stored result. Unusual Whales rows are folded in every two minutes through the trading day." />
+              scanned {detected}{live ? " · " : ""}{liveNote}
             </div>
           ) : null}
         </div>
@@ -11049,7 +11083,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
     <div className="card waa-card">
       <div className="card-head waa-head">
         <div>
-          <span className="kicker">Watchlist · {freshCount} fresh today{detected ? ` · scanned ${detected}` : ""}</span>
+          <span className="kicker">Watchlist · {freshCount} fresh today{detected ? ` · scanned ${detected}` : ""}{live ? " · " : ""}{liveNote}</span>
           <div className="card-title">Analyst Actions</div>
         </div>
         <div className="waa-head-controls">
@@ -11117,8 +11151,8 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
                     {(a.multi_count || 1) > 1 && <span className="waa-multi" title={`${a.multi_count} firms acted`}>×{a.multi_count}</span>}
                   </td>
                   <td className="waa-co" title={a.company || ""}>{a.company || "—"}</td>
-                  <td className="waa-date">{usDate(a.action_date)}</td>
-                  <td className="waa-firm">{a.firm}</td>
+                  <td className="waa-date">{usDate(a.action_date)}{a.time_et ? <span className="waa-time" title="Printed at this time, Eastern (Unusual Whales)">{a.time_et}</span> : null}</td>
+                  <td className="waa-firm" title={a.analyst ? `${a.firm} · ${a.analyst}` : a.firm}>{a.firm}</td>
                   <td><span className={`waa-type waa-type-${a.direction || "neutral"}`}>{AT[a.action_type] || a.action_type || "—"}</span></td>
                   <td className="waa-grade">{a.rating_from || "—"}</td>
                   <td className="waa-grade">{a.rating_to || "—"}</td>
@@ -11148,6 +11182,7 @@ function WatchlistAnalystCard({ apiFetch, onSwitchTicker }) {
           <span className="waa-quiet-title">Analyst Actions</span>
           <span className="waa-quiet-note">{quietLine}</span>
           {detected ? <span className="waa-quiet-scanned">scanned {detected}</span> : null}
+          {liveNote}
         </summary>
         <div className="waa-quiet-body waa-fold-body">{fullBoard}</div>
       </details>

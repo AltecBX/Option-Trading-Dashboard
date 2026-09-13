@@ -1,6 +1,11 @@
 """analyst_client.py — Analyst price targets and rating changes.
 
-Combines two free data sources:
+Combines three data sources:
+
+  Unusual Whales (when UW_API_KEY is set)
+    /api/screener/analysts — per-firm actions with the analyst's name and
+                             the minute they printed. The fast leg: see
+                             normalize_uw_rows / merge_history below.
 
   Finnhub (https://finnhub.io)
     /api/v1/stock/price-target  — current target consensus
@@ -242,6 +247,213 @@ def _revision_breadth(up, down):
     return (u - d) / total * 100.0
 
 
+# ── Unusual Whales leg ────────────────────────────────────────────────
+# Yahoo's per-firm feed is the slow leg: the D.A. Davidson $250 target on
+# PLTR printed on the morning of 2026-09-11, moved the stock pre-market,
+# and was still absent from Yahoo's upgrades_downgrades at 8:19 AM ET while
+# Unusual Whales and TipRanks both carried it. Jerry trades on these notes,
+# so the freshest source leads and Yahoo fills in what it knows better
+# (the firm's own rating wording, and the prior rating on an upgrade).
+UW_SOURCE = "unusual whales"
+YF_SOURCE = "yfinance"
+
+_UW_ACTION_CLASS = {
+    "upgraded": "upgrade",
+    "downgraded": "downgrade",
+    "initiated": "initiate",
+    "reiterated": "reiterate",
+    "maintained": "reiterate",
+}
+_UW_GRADE = {"buy": "Buy", "hold": "Hold", "sell": "Sell"}
+
+# Rank of an action class when two feeds describe the same note. A feed
+# that knows the rating moved outranks one that only saw the target move.
+_ACTION_RANK = {"upgrade": 3, "downgrade": 3, "initiate": 3,
+                "target_change": 2, "reiterate": 1, "unknown": 0}
+
+_FIRM_DROP = {"securities", "capital", "research", "markets", "co", "llc",
+              "inc", "group", "partners", "financial", "bank", "the"}
+
+
+def _et_zone():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("America/New_York")
+    except Exception:  # pragma: no cover - tz database missing
+        return timezone.utc
+
+
+def firm_key(name: str | None) -> str:
+    """'D.A. Davidson', 'DA Davidson' and 'Da Davidson & Co' are one firm.
+    Lower-cased, punctuation dropped, generic suffix words dropped, spaces
+    removed — so the key is the part of the name that identifies the firm."""
+    if not name:
+        return ""
+    s = "".join(ch if (ch.isalnum() or ch == " ") else " " for ch in str(name).lower())
+    words = [w for w in s.split() if w not in _FIRM_DROP]
+    return "".join(words) or "".join(s.split())
+
+
+def same_firm(a: str | None, b: str | None) -> bool:
+    """Prefix match on the firm keys so 'Citi' and 'Citigroup' agree, with a
+    floor so 'RBC' cannot claim 'Robert W. Baird'."""
+    ka, kb = firm_key(a), firm_key(b)
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    short, long_ = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
+    return len(short) >= 4 and long_.startswith(short)
+
+
+def _parse_uw_ts(raw) -> datetime | None:
+    """UW timestamps are UTC ISO strings ('2026-09-11T15:28:43.000000Z')."""
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            dt = datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def normalize_uw_rows(rows: list[dict] | None, symbol: str | None = None,
+                      prior_lookup=None) -> list[dict]:
+    """Unusual Whales analyst rows → the dashboard's history row shape,
+    newest first, one list across every ticker in `rows`.
+
+    The date is the market's date: a note stamped 02:30 UTC on the 12th was
+    published at 10:30 PM ET on the 11th, and that is the day it belongs
+    to. `time_et` carries the clock so a same-day row can say WHEN.
+
+    UW does not carry the prior target, so it is derived from the same
+    firm's next-older note in these rows (or from `prior_lookup(ticker,
+    firm, date)` when the caller holds older rows, as the board does).
+    That prior is a real figure the firm published, labelled as derived
+    in `prior_target_source`; it is never guessed."""
+    zone = _et_zone()
+    out: list[dict] = []
+    for raw in rows or []:
+        if not isinstance(raw, dict):
+            continue
+        tk = str(raw.get("ticker") or symbol or "").upper().strip()
+        if symbol and tk and tk != str(symbol).upper().strip():
+            continue
+        dt = _parse_uw_ts(raw.get("timestamp"))
+        if dt is None:
+            continue
+        local = dt.astimezone(zone)
+        act_raw = str(raw.get("action") or "").strip().lower()
+        cls = _UW_ACTION_CLASS.get(act_raw, "unknown")
+        rec = str(raw.get("recommendation") or "").strip().lower()
+        out.append({
+            "ticker": tk or None,
+            "date": local.date().isoformat(),
+            "time_et": local.strftime("%H:%M"),
+            "ts": dt.astimezone(timezone.utc).isoformat(),
+            "firm": (str(raw.get("firm")).strip() or None) if raw.get("firm") else None,
+            "analyst": (str(raw.get("analyst_name")).strip() or None) if raw.get("analyst_name") else None,
+            "action_raw": act_raw or None,
+            "action_class": cls,
+            "prior_grade": None,
+            "new_grade": _UW_GRADE.get(rec) or (_normalize_rating(rec) if rec else None),
+            "prior_target": None,
+            "new_target": _f(raw.get("target")) or None,
+            "target_change_pct": None,
+            "pt_action": None,
+            "sector": raw.get("sector") or None,
+            "source": UW_SOURCE,
+        })
+    out.sort(key=lambda r: r["ts"], reverse=True)
+
+    # Prior target: the same firm's next-older note on the same ticker.
+    for i, r in enumerate(out):
+        nt = r.get("new_target")
+        if not nt:
+            continue
+        prior = None
+        for older in out[i + 1:]:
+            if older.get("ticker") == r.get("ticker") and older.get("new_target") \
+                    and same_firm(older.get("firm"), r.get("firm")):
+                prior = older["new_target"]
+                break
+        if prior is None and prior_lookup is not None:
+            try:
+                prior = _f(prior_lookup(r.get("ticker"), r.get("firm"), r.get("date")))
+            except Exception:
+                prior = None
+        if not prior or prior <= 0:
+            continue
+        r["prior_target"] = prior
+        r["prior_target_source"] = "same firm, earlier note"
+        pct = (nt - prior) / prior * 100.0
+        r["target_change_pct"] = round(pct, 2)
+        if abs(pct) > 0.5:
+            r["pt_action"] = "raised" if pct > 0 else "lowered"
+            if r["action_class"] == "reiterate":
+                r["action_class"] = "target_change"
+    return out
+
+
+def merge_history(fast_rows: list[dict] | None, slow_rows: list[dict] | None,
+                  cap: int = 40) -> list[dict]:
+    """One list from the Unusual Whales rows and the Yahoo rows, newest
+    first, one row per (day, firm).
+
+    Where both feeds saw the same note the fast row is the base — it has
+    the clock and the analyst — and the slow row contributes what only it
+    knows: the prior rating, the firm's own rating wording, and a prior
+    target when the fast row could not derive one. The higher-ranked
+    action class wins so a feed that saw the rating move is not overruled
+    by one that only saw the target move."""
+    fast = list(fast_rows or [])
+    slow = list(slow_rows or [])
+    used = [False] * len(slow)
+    merged: list[dict] = []
+    for r in fast:
+        row = dict(r)
+        for j, s in enumerate(slow):
+            if used[j] or (s.get("date") or "")[:10] != (row.get("date") or "")[:10]:
+                continue
+            if not same_firm(s.get("firm"), row.get("firm")):
+                continue
+            used[j] = True
+            if s.get("prior_grade") and not row.get("prior_grade"):
+                row["prior_grade"] = s["prior_grade"]
+            if s.get("new_grade"):
+                row["new_grade"] = s["new_grade"]
+            if s.get("prior_target") and row.get("new_target") and not row.get("prior_target"):
+                row["prior_target"] = s["prior_target"]
+                row["target_change_pct"] = s.get("target_change_pct")
+                row["prior_target_source"] = YF_SOURCE
+                row["pt_action"] = row.get("pt_action") or s.get("pt_action")
+            if _ACTION_RANK.get(s.get("action_class"), 0) > _ACTION_RANK.get(row.get("action_class"), 0):
+                row["action_class"] = s["action_class"]
+            row["source"] = f"{UW_SOURCE} + {YF_SOURCE}"
+            break
+        merged.append(row)
+    for j, s in enumerate(slow):
+        if not used[j]:
+            merged.append({**s, "source": s.get("source") or YF_SOURCE})
+    merged.sort(key=lambda r: ((r.get("date") or "")[:10], r.get("ts") or ""), reverse=True)
+    return merged[:cap]
+
+
 class AnalystClient:
     def __init__(self):
         self._lock = threading.RLock()
@@ -420,6 +632,27 @@ class AnalystClient:
         except Exception as e:
             sys.stderr.write(f"[analyst] yfinance history error for {symbol}: {type(e).__name__}: {e}\n")
             return []
+
+    def _fetch_uw_history(self, symbol: str) -> list[dict]:
+        """Per-firm actions for one ticker from Unusual Whales, newest
+        first, in the history row shape. Empty when UW is unconfigured or
+        the call fails — the Yahoo leg still stands on its own."""
+        try:
+            import unusual_whales_client as _uw
+        except Exception:
+            return []
+        try:
+            client = _uw.get_client()
+        except Exception:
+            client = None
+        if client is None:
+            return []
+        try:
+            rows = client.analyst_ratings(symbol, limit=60)
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[analyst] UW ratings error for {symbol}: {type(e).__name__}: {e}\n")
+            return []
+        return normalize_uw_rows(rows or [], symbol=symbol)
 
     def _fetch_yf_targets_fallback(self, symbol: str) -> dict | None:
         """yfinance Ticker.analyst_price_targets — fallback when Finnhub
@@ -616,9 +849,14 @@ class AnalystClient:
 
     # ── Public method ─────────────────────────────────────────────────
     def get_analyst_data(self, symbol: str, current_price: float | None = None,
-                         force_refresh: bool = False) -> dict:
+                         force_refresh: bool = False, fast: bool = True) -> dict:
         """Single-call API — returns a complete normalized payload for the
         frontend Analyst card.
+
+        `fast=False` skips the Unusual Whales leg. The analyst board's
+        600-name sweep passes it: that sweep is for depth, and the board
+        gets its freshness from one market-wide UW call instead of six
+        hundred per-ticker ones.
 
         Schema:
           {
@@ -650,31 +888,55 @@ class AnalystClient:
           }
         """
         symbol = symbol.upper().strip()
-        cache_key = f"{symbol}:{int(current_price * 100) if current_price else 'nope'}"
+        cache_key = f"{symbol}:{int(current_price * 100) if current_price else 'nope'}:{int(bool(fast))}"
         if not force_refresh:
             hit = self._cache_get(cache_key)
             if hit is not None:
                 return hit
 
         # ── Fetch ─────────────────────────────────────────────────────
-        targets = None
-        source = "none"
-        if self.is_finnhub_configured():
-            targets = self._fetch_finnhub_target(symbol)
-            if targets:
-                source = "finnhub"
-        if not targets:
-            targets = self._fetch_yf_targets_fallback(symbol)
-            if targets:
-                source = "yfinance" if source == "none" else "mixed"
+        # The slow legs (Finnhub aggregates, Yahoo targets and history) are
+        # cached for TTL_SEC as before. The Unusual Whales leg is cached by
+        # its own client for two minutes, and the assembled payload for one,
+        # so a note that printed a minute ago is on the card within two.
+        slow = None if force_refresh else self._cache_get(f"{symbol}:slow")
+        if slow is None:
+            targets = None
+            source = "none"
+            if self.is_finnhub_configured():
+                targets = self._fetch_finnhub_target(symbol)
+                if targets:
+                    source = "finnhub"
+            if not targets:
+                targets = self._fetch_yf_targets_fallback(symbol)
+                if targets:
+                    source = "yfinance" if source == "none" else "mixed"
 
-        recs = None
-        if self.is_finnhub_configured():
-            recs = self._fetch_finnhub_recommendation(symbol)
+            recs = None
+            if self.is_finnhub_configured():
+                recs = self._fetch_finnhub_recommendation(symbol)
 
-        history = self._fetch_yf_history(symbol)
-        if history:
-            source = "mixed" if source != "none" else "yfinance"
+            yf_history = self._fetch_yf_history(symbol)
+            if yf_history:
+                source = "mixed" if source != "none" else "yfinance"
+            slow = {"targets": targets, "recs": recs, "history": yf_history, "source": source}
+            self._cache_set(f"{symbol}:slow", slow)
+        targets, recs, source = slow["targets"], slow["recs"], slow["source"]
+
+        uw_history = self._fetch_uw_history(symbol) if fast else []
+        history = merge_history(uw_history, slow["history"])
+        history_sources = []
+        if uw_history:
+            history_sources.append(UW_SOURCE)
+        if slow["history"]:
+            history_sources.append(YF_SOURCE)
+        # The card prints `source` beside "Recent analyst updates", so it
+        # names the feeds those rows came from. "mixed" told Jerry nothing
+        # about whether the fast leg was on.
+        if history_sources:
+            source = " + ".join(history_sources)
+            if recs or (targets and slow["source"] == "finnhub"):
+                source += " + finnhub"
 
         # ── Build payload ─────────────────────────────────────────────
         # Build consensus first so we can use its total analyst count as
@@ -705,11 +967,12 @@ class AnalystClient:
             "targets": targets_block,
             "consensus": consensus_block,
             "history": history,
+            "history_sources": history_sources,
             "as_of": datetime.now(timezone.utc).isoformat(),
         }
         payload["verdict"] = self._build_verdict(payload)
 
-        self._cache_set(cache_key, payload)
+        self._cache_set(cache_key, payload, ttl=60 if fast else TTL_SEC)
         return payload
 
     # ── Internal builders ─────────────────────────────────────────────

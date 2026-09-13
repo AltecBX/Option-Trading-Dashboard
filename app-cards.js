@@ -11536,6 +11536,11 @@ function TradeBuilderCard({
     title: "The score combines several heuristics and isn't backtested. Treat it as a structured second opinion, not a signal to blindly follow."
   }, "Heuristic score, not backtested. Decisions remain yours.")));
 }
+
+// Matches the server's Unusual Whales cache (unusual_whales_client.TTL_BY_KEY
+// analyst_ratings) and the board's fast-lane cadence: asking sooner returns
+// the same cached rows, asking later leaves a fresh note sitting unseen.
+const ANALYST_REFRESH_MS = 120000;
 function AnalystCard({
   ticker,
   currentPrice,
@@ -11547,6 +11552,17 @@ function AnalystCard({
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // v5.00: the Unusual Whales leg is cached for two minutes on the server,
+  // so the card re-asks on the same cadence. A note that prints at 10:40
+  // is on this card by 10:42 without anyone pressing Refresh — which is
+  // the only way a 30-minute cache and a one-shot fetch could ever have
+  // shown the D.A. Davidson $250 PLTR target the morning it moved the stock.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!ticker) return;
+    const t = setInterval(() => setTick(k => k + 1), ANALYST_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [ticker]);
 
   // Reset cached data when ticker changes — same pattern as the v85 cache fix
   useEffect(() => {
@@ -11592,7 +11608,7 @@ function AnalystCard({
     return () => {
       cancelled = true;
     };
-  }, [ticker, refreshKey]);
+  }, [ticker, refreshKey, tick]);
 
   // Color-coded action pills
   const actionClass = action => ({
@@ -11642,7 +11658,7 @@ function AnalystCard({
     className: "research-run-btn",
     disabled: loading,
     onClick: () => setRefreshKey(k => k + 1),
-    title: "Force-refresh analyst data (bypasses 30 min cache)."
+    title: "Re-pull everything now. Unusual Whales rows refresh on their own every 2 minutes; this also bypasses the 30-minute Yahoo cache."
   }, loading ? "Loading…" : "Refresh"))), error && /*#__PURE__*/React.createElement("div", {
     className: "research-error"
   }, "Error: ", error), !data && !loading && !error && /*#__PURE__*/React.createElement("div", {
@@ -11801,9 +11817,9 @@ function AnalystCard({
     }, /*#__PURE__*/React.createElement("div", {
       className: "analyst-history-head"
     }, /*#__PURE__*/React.createElement("span", {
-      title: "Date the analyst published this rating change or price target update. Most recent first."
+      title: "Date the analyst published this rating change or price target update, and the minute it printed (Eastern) when Unusual Whales carried it. Most recent first."
     }, "Date"), /*#__PURE__*/React.createElement("span", {
-      title: "Investment bank or research firm that issued the call (e.g. Morgan Stanley, JP Morgan, Wedbush)."
+      title: "Investment bank or research firm that issued the call (e.g. Morgan Stanley, JP Morgan, Wedbush), and the analyst when known."
     }, "Firm"), /*#__PURE__*/React.createElement("span", {
       title: "Type of update. Upgrade = rating raised. Downgrade = rating lowered. Initiate = first time covering. Target = price target changed but rating unchanged. Reiterate = no change to either."
     }, "Action"), /*#__PURE__*/React.createElement("span", {
@@ -11819,9 +11835,15 @@ function AnalystCard({
         className: "analyst-history-row"
       }, /*#__PURE__*/React.createElement("span", {
         className: "muted"
-      }, h.date || "—"), /*#__PURE__*/React.createElement("span", {
+      }, h.date || "—", h.time_et ? /*#__PURE__*/React.createElement("span", {
+        className: "analyst-time",
+        title: "Printed at this time, Eastern (Unusual Whales)"
+      }, h.time_et) : null), /*#__PURE__*/React.createElement("span", {
         className: "analyst-firm"
-      }, h.firm || "—"), /*#__PURE__*/React.createElement("span", {
+      }, h.firm || "—", h.analyst ? /*#__PURE__*/React.createElement("span", {
+        className: "analyst-name",
+        title: "Analyst"
+      }, h.analyst) : null), /*#__PURE__*/React.createElement("span", {
         className: `analyst-action-pill ${actionClass(h.action_class)}`
       }, actionLabel(h.action_class)), /*#__PURE__*/React.createElement("span", {
         className: "analyst-grade-cell"
@@ -14142,6 +14164,19 @@ function WatchlistAnalystCard({
     hour: "numeric",
     minute: "2-digit"
   }) : null;
+  // v5.00: the board is no longer only the 8 AM sweep. The fast lane folds
+  // the Unusual Whales tape in every two minutes through the trading day,
+  // and this is when it last did — "scanned 8:00 AM" alone would say the
+  // board is stale when it is two minutes old.
+  const fl = data && data.fast_lane;
+  const live = fl && fl.last ? new Date(fl.last).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  }) : null;
+  const liveNote = live ? /*#__PURE__*/React.createElement("span", {
+    className: "waa-live",
+    title: `Unusual Whales analyst tape folded in at ${live}, and again every ${Math.round((fl.every_sec || 120) / 60)} minutes on weekdays 4 AM to 8 PM ET.`
+  }, "live ", live) : null;
   const typePass = a => {
     switch (type) {
       case "upgrade":
@@ -14272,7 +14307,7 @@ function WatchlistAnalystCard({
       className: "waa-quiet-note"
     }, quietLine), detected ? /*#__PURE__*/React.createElement("span", {
       className: "waa-quiet-scanned"
-    }, "scanned ", detected) : null), /*#__PURE__*/React.createElement("div", {
+    }, "scanned ", detected) : null, liveNote), /*#__PURE__*/React.createElement("div", {
       className: "waa-quiet-body"
     }, controls, /*#__PURE__*/React.createElement("div", {
       className: "waa-empty waa-empty-slim"
@@ -14286,8 +14321,8 @@ function WatchlistAnalystCard({
       className: "waa-quiet-when"
     }, /*#__PURE__*/React.createElement(DataStatus, {
       kind: "cached",
-      note: "Analyst boards are stored results. Nothing is re-checked until you scan again."
-    }), "scanned ", detected) : null));
+      note: "The 8 AM sweep is a stored result. Unusual Whales rows are folded in every two minutes through the trading day."
+    }), "scanned ", detected, live ? " · " : "", liveNote) : null));
   }
   const fullBoard = /*#__PURE__*/React.createElement("div", {
     className: "card waa-card"
@@ -14295,7 +14330,7 @@ function WatchlistAnalystCard({
     className: "card-head waa-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "kicker"
-  }, "Watchlist \xB7 ", freshCount, " fresh today", detected ? ` · scanned ${detected}` : ""), /*#__PURE__*/React.createElement("div", {
+  }, "Watchlist \xB7 ", freshCount, " fresh today", detected ? ` · scanned ${detected}` : "", live ? " · " : "", liveNote), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Analyst Actions")), /*#__PURE__*/React.createElement("div", {
     className: "waa-head-controls"
@@ -14409,8 +14444,12 @@ function WatchlistAnalystCard({
     title: a.company || ""
   }, a.company || "—"), /*#__PURE__*/React.createElement("td", {
     className: "waa-date"
-  }, usDate(a.action_date)), /*#__PURE__*/React.createElement("td", {
-    className: "waa-firm"
+  }, usDate(a.action_date), a.time_et ? /*#__PURE__*/React.createElement("span", {
+    className: "waa-time",
+    title: "Printed at this time, Eastern (Unusual Whales)"
+  }, a.time_et) : null), /*#__PURE__*/React.createElement("td", {
+    className: "waa-firm",
+    title: a.analyst ? `${a.firm} · ${a.analyst}` : a.firm
   }, a.firm), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
     className: `waa-type waa-type-${a.direction || "neutral"}`
   }, AT[a.action_type] || a.action_type || "—")), /*#__PURE__*/React.createElement("td", {
@@ -14449,7 +14488,7 @@ function WatchlistAnalystCard({
       className: "waa-quiet-note"
     }, quietLine), detected ? /*#__PURE__*/React.createElement("span", {
       className: "waa-quiet-scanned"
-    }, "scanned ", detected) : null), /*#__PURE__*/React.createElement("div", {
+    }, "scanned ", detected) : null, liveNote), /*#__PURE__*/React.createElement("div", {
       className: "waa-quiet-body waa-fold-body"
     }, fullBoard));
   }

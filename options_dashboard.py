@@ -8191,6 +8191,8 @@ def build_watchlist_analyst() -> dict:
             "symbol": sym,
             "company": a.get("company") or comp.get(sym) or sym,
             "action_date": adate,
+            "time_et": a.get("time_et"),
+            "analyst": a.get("analyst"),
             "firm": a.get("firm") or "—",
             "action_type": a.get("action_class"),
             "direction": a.get("direction"),
@@ -8237,6 +8239,9 @@ def build_watchlist_analyst() -> dict:
         "as_of": (datetime.now(_ET).isoformat() if _ET else datetime.utcnow().isoformat()),
         "detected_at": detected_at,
         "scanning": bool(status.get("scanning")),
+        # The fast lane: when Unusual Whales was last folded in, so the
+        # section can say "live · 11:30 ET" instead of only the 8 AM sweep.
+        "fast_lane": status.get("fast_lane"),
         "count": len(actions),
         "actions": actions,
         "by_symbol": by_symbol,
