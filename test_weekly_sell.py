@@ -299,6 +299,20 @@ class Picking(unittest.TestCase):
         out = ws.pick_side(chain, "put", 100.0, self.windows, 7.0, 0.15, 3.0, "history")
         self.assertEqual(out["pick"]["strike"], 95)
 
+    def test_strikes_nowhere_near_the_money_are_not_scored_at_all(self):
+        # Scoring one strike is a full pass over every window. A chain with
+        # hundreds of them should not pay that for strikes nobody would sell
+        # — but the bound has to stay wide enough to hold a jumpy name's
+        # whole sell zone, so it is checked from both sides.
+        chain = [opt(95, 0.95, 1.05), opt(20, 0.10, 0.12), opt(180, 0.10, 0.12)]
+        out = ws.pick_side(chain, "put", 100.0, self.windows, 7.0, 0.15, 3.0, "history")
+        shipped = [r["strike"] for r in out["all"]]
+        self.assertIn(95, shipped)
+        self.assertNotIn(20, shipped)
+        self.assertNotIn(180, shipped)
+        self.assertGreaterEqual(ws.SCAN_RANGE, 0.5,
+                                "a high-vol name's sell zone must stay inside the scan")
+
     def test_nothing_sellable_says_so_and_names_the_reason(self):
         out = ws.pick_side([opt(90, 0.01, 0.02)], "put", 100.0, self.windows,
                            7.0, 0.15, 3.0, "history")

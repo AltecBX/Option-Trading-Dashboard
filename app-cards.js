@@ -20424,6 +20424,12 @@ function WeeklySellSetupCard({
     title: tip
   }, /*#__PURE__*/React.createElement("em", null, l), /*#__PURE__*/React.createElement("b", null, v));
 
+  // The NOW label is centred on the marker, so near either end of the scale
+  // a nowrap label hangs past the track and the card gains a sliver of
+  // sideways scroll. The marker keeps its exact position; only the label's
+  // centre is pulled in, far enough that even a phone-width track holds it.
+  const labelAt = v => `${Math.min(80, Math.max(20, v))}%`;
+
   // ══ ENGINE VIEW ═════════════════════════════════════════════════════════
   // Everything below reads the server's plan. Nothing is recomputed here, so
   // the panel and the tests measure the same numbers.
@@ -20454,7 +20460,7 @@ function WeeklySellSetupCard({
     }, /*#__PURE__*/React.createElement("span", {
       className: "wos-now-label",
       style: {
-        left: `${nowAt}%`
+        left: labelAt(nowAt)
       },
       title: "Live price."
     }, "NOW ", /*#__PURE__*/React.createElement("b", {
@@ -20616,7 +20622,23 @@ function WeeklySellSetupCard({
         className: "num"
       }, p.liq_grade, " \xB7 ", p.oi == null ? "—" : p.oi.toLocaleString(), " OI", p.spread_pct != null ? ` · ${p.spread_pct.toFixed(0)}%` : ""),
       tip: "Graded on the bid/ask width first, then open interest and today's volume. A strike that cannot be filled is not a trade, so this is a hard gate as well as a score."
-    }), Array.isArray(S.alts) && S.alts.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }), (() => {
+      // The heaviest open interest on this side. Dealers hedge around
+      // it, so price tends to stick near it — which is comfort when it
+      // sits past your strike and a warning when it sits between the
+      // stock and your strike.
+      const w = plan.walls && plan.walls[side];
+      if (!w || w.strike == null) return null;
+      const past = side === "put" ? w.strike <= p.strike : w.strike >= p.strike;
+      return /*#__PURE__*/React.createElement(Row, {
+        l: "Open-interest wall",
+        v: /*#__PURE__*/React.createElement("span", {
+          className: "num"
+        }, fmt$(w.strike, w.strike >= 1000 ? 0 : 2), " \xB7 ", w.oi.toLocaleString()),
+        tone: past ? "good" : "",
+        tip: past ? `The heaviest ${side} open interest on this expiry sits at ${fmt$(w.strike, 2)}, past your strike. Big open interest is a level dealers hedge around, so price tends to stick near it — here that works in your favour.` : `The heaviest ${side} open interest on this expiry sits at ${fmt$(w.strike, 2)}, between the stock and your strike. Price tends to gravitate to levels like this, so treat it as the magnet on the way to you.`
+      });
+    })(), Array.isArray(S.alts) && S.alts.length > 0 && /*#__PURE__*/React.createElement("div", {
       className: "wos-alts",
       title: "Runners-up on the same scoring. Each one cleared the sell zone and the fill checks too."
     }, /*#__PURE__*/React.createElement("em", null, "ALSO"), S.alts.map(a => /*#__PURE__*/React.createElement("span", {
@@ -20647,7 +20669,7 @@ function WeeklySellSetupCard({
     }, /*#__PURE__*/React.createElement("span", {
       className: "wos-now-label",
       style: {
-        left: `${pos}%`
+        left: labelAt(pos)
       },
       title: "This week, live."
     }, "NOW ", /*#__PURE__*/React.createElement("b", {

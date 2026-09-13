@@ -761,6 +761,15 @@ ok("each side's bar grows out of the strike column, not into the margin",
 ok("the busiest strikes are named above the chart, not found by scrolling",
    /className="oi-hot"/.test(app)
    && /HEAVIEST OPEN INTEREST/.test(app) && /HEAVIEST VOLUME TODAY/.test(app));
+// A centred nowrap label at the end of a scale hangs past its track and
+// the card gains sideways scroll. The marker stays exact; the label's
+// centre is clamped.
+ok("the live-price label can never hang off the end of the scale",
+   /const labelAt = v => `\$\{Math\.min\(80, Math\.max\(20, v\)\)\}%`;/.test(cards)
+   && !/className="wos-now-label" style=\{\{ left: `\$\{/.test(cards));
+ok("the heaviest open interest is placed relative to the chosen strike",
+   /Open-interest wall/.test(cards)
+   && /const past = side === "put" \? w\.strike <= p\.strike : w\.strike >= p\.strike;/.test(cards));
 ok("nothing the engine's panel adds is under the type floor",
    /\.oi-hot-grp em \{[\s\S]{0,150}?font-size: 10px;/.test(css)
    && /\.wos-alts em \{[\s\S]{0,150}?font-size: 10px;/.test(css)

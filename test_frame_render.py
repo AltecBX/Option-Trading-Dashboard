@@ -158,7 +158,7 @@ def _why_skip() -> str | None:
     return why
 
 
-def sell_payload(symbol="DELL"):
+def sell_payload(symbol="DELL", strikes=range(82, 119)):
     """A whole /api/ticker payload whose sell plan is built by the REAL
     engine, not hand-written.
 
@@ -238,7 +238,7 @@ def sell_payload(symbol="DELL"):
                 "vega": 0.1, "delta_est": False, "theta_est": False}
 
     def leg(side):
-        return [quote(k, side) for k in range(82, 119)]
+        return [quote(k, side) for k in strikes]
 
     calls, puts = leg("call"), leg("put")
 
@@ -459,9 +459,22 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     const cs = getComputedStyle(e);
                     if (cs.display === 'none' || cs.visibility === 'hidden') continue;
                     if (cs.overflowX === 'auto' || cs.overflowX === 'scroll') continue;
-                    if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0)
+                    if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0) {
+                      // Name the child that sticks out, not just the box it
+                      // sticks out of — the parent is never the culprit.
+                      const pr = e.getBoundingClientRect();
+                      let worst = null;
+                      for (const k of e.children) {
+                        const r = k.getBoundingClientRect();
+                        const over = Math.round(r.right - pr.right);
+                        if (over > 0 && (!worst || over > worst.over))
+                          worst = {cls: String(k.getAttribute('class') || k.tagName).split(' ')[0],
+                                   over: over};
+                      }
                       clipped.push(String(e.getAttribute('class') || e.tagName).split(' ')[0]
-                                   + ' ' + e.scrollWidth + '>' + e.clientWidth);
+                                   + ' ' + e.scrollWidth + '>' + e.clientWidth
+                                   + (worst ? ' via ' + worst.cls + ' +' + worst.over : ''));
+                    }
                   }
                   const pl = c.querySelector('.wos-plain');
                   return {found: true, text: (c.innerText || ''),
@@ -1137,6 +1150,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self.assertIn("VOLUME", hot.upper())
         self.assertIn("calls", hot)
         self.assertIn("puts", hot)
+
+    def test_a_week_with_nothing_worth_selling_says_so(self):
+        # A chain that only quotes strikes right at the money. Every one of
+        # them is assigned far too often, so the honest answer is "don't",
+        # and the panel has to give it rather than draw an empty column.
+        pay = sell_payload(strikes=range(98, 103))
+        plan = pay["sellPlan"]
+        self.assertFalse(plan["ok"])
+        self.assertIsNone(plan["put"]["pick"])
+        geo, _ = self._sell_probe(payload=pay)
+        text = geo["sell"]["text"]
+        self.assertIn("SELL ZONE", text.upper())
+        self.assertIn("worth selling", text)
+        self.assertEqual(geo["sell"]["clipped"], [])
 
     def test_a_payload_with_no_plan_still_draws_the_panel(self):
         # An old cached payload, or a symbol the engine cannot measure. The

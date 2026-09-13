@@ -23,24 +23,32 @@ This module answers the question the way a desk does, in four steps.
      of real k-session outcomes for this symbol — hundreds of them — instead
      of a single extreme. Touching a level and finishing beyond it are kept
      apart on purpose: the first is what scares you mid-week, the second is
-     what actually assigns you.
+     what actually assigns you, and only the second costs money.
 
   3. WHAT THE MARKET IS CHARGING. The same band from the option market's own
-     implied volatility, converted to the same horizon. A barrier is touched
-     about twice as often as it is finished beyond (reflection principle),
-     so the implied TOUCH band uses p/2 — the comparison to the historical
-     touch band is then apples to apples. The engine keeps the WIDER of the
-     two legs. When history and the options market disagree, the seller is
-     served by the more cautious one.
+     implied volatility, on the same horizon and at the same odds, so the
+     two are directly comparable. The SELL ZONE drawn on screen keeps
+     whichever leg is more cautious, each side independently.
 
-  4. WHICH STRIKE PAYS FOR THE RISK. Every strike on the live chain beyond
-     that floor is scored, and the ranking is led by EXPECTED VALUE measured
-     on the real distribution from step 2: the credit collected, minus the
-     average loss over every historical window that would have finished
-     through the strike, per dollar of collateral, annualized. A strike that
-     is safe but pays nothing loses to one that pays. A strike that pays a
-     lot but is breached constantly loses too. Liquidity is a hard gate and
-     a scored term, because a strike that cannot be filled is not a trade.
+  4. WHICH STRIKE PAYS FOR THE RISK. A strike qualifies only when BOTH
+     assignment reads clear the limit — the share of matched windows that
+     finished through it, and the option market's own implied odds from the
+     chain's delta. Both are printed beside the strike, so a refusal always
+     names a number the reader can see. (An earlier version compared the
+     strike against an interpolated price line instead, which could refuse a
+     strike whose own printed history rate was comfortably inside the
+     limit.) Survivors are ranked led by EXPECTED VALUE measured on the real
+     distribution from step 2: the credit collected, minus the average loss
+     over every historical window that would have finished through the
+     strike, per dollar of collateral, annualized. Income breaks the ties
+     expected value cannot — on a fairly priced chain every strike has about
+     the same edge, and without it the ranking drifts to the safest, emptiest
+     strike on the board. Liquidity is a hard gate and a scored term,
+     because a strike that cannot be filled is not a trade.
+
+When nothing clears the limit, the answer is the best strike at a stated
+looser line, tagged `relaxed` — or, if even that fails, no trade and the
+reason. "Don't sell anything this week" is a real answer.
 
 Nothing here is manufactured. Missing inputs remove a term and say so; a
 week with no strike worth selling returns "none" and says why.
@@ -94,6 +102,13 @@ MIN_OI = 10                # open interest floor
 MIN_VOLUME = 10            # or today's volume floor (either one passes)
 MIN_SAMPLE = 40            # fewer matched windows than this = no history leg
 TOP_N = 3                  # alternates shown beside the pick
+SCAN_RANGE = 0.60          # strikes further than this from spot are not
+                           # scored at all. Wide enough that even a name
+                           # running at triple-digit implied vol keeps its
+                           # whole sell zone inside it; narrow enough that a
+                           # 500-strike chain is not a full pass over every
+                           # window for strikes nobody would ever sell.
+REPORT_RANGE = 0.30        # strikes shipped for the panel's own lookups
 EV_FULL_SCORE = 30.0       # annualized EV% that earns a full EV sub-score
 INCOME_FULL_SCORE = 40.0   # annualized return on collateral that earns a
                            # full income sub-score
@@ -458,11 +473,17 @@ def pick_side(chain: Sequence[dict], side: str, spot: float, windows: Sequence[d
     """Score every strike on this side and return the winner plus alternates."""
     scored, rejected, every = [], {}, []
     for o in chain or []:
+        # A strike halfway to zero can never be the pick, and scoring it
+        # costs a full pass over every window. On a wide chain that is most
+        # of the work for none of the answer.
+        k = _f(o.get("strike"))
+        if k is None or (spot and abs(k - spot) / spot > SCAN_RANGE):
+            continue
         row = evaluate_strike(o, side, spot, windows, dte_cal, em_dollars)
         if row is None:
             continue
         reason = _gate(row, side, max_itm)
-        if spot and abs(row["strike"] - spot) / spot <= 0.30:
+        if spot and abs(row["strike"] - spot) / spot <= REPORT_RANGE:
             every.append(_trim(row, reason))
         if reason:
             rejected[reason] = rejected.get(reason, 0) + 1
