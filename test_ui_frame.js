@@ -695,7 +695,11 @@ ok("the row never wraps: a wide group scrolls sideways",
 ok("on a desktop the eight- and nine-pixel captions are ten or more",
    /@media \(min-width: 1081px\) \{\n  \.pc-src, \.mko-proxy \{ font-size: 10px; \}/.test(css)
    && /\.pc-stats span, \.pc-picks-h, \.pc-rot-lbl, \.opp-title, \.opp-chip em, \.mctx-rlbl \{ font-size: 10px; \}/.test(css)
-   && /\.secnav-lbl, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}/.test(css));
+   && /\.secnav-lbl, \.pcalc-label, \.pcalc-from-meta, \.pick-label \{ font-size: 10\.5px; \}/.test(css)
+   // …and the three the live site showed that the stub could not: the
+   // sidebar's sector tag and the earnings panel's labels.
+   && /\.sb-symtag, \.emx-pill-dte \{ font-size: 10\.5px; \}/.test(css)
+   && /\.em-stat-lbl \{ font-size: 10px; \}/.test(css));
 ok("and the group names in the navigation are 10.5, not the 9.5 the row labels were",
    /\.tab-grp \{\n  font-family: var\(--font-mono\); font-size: 10\.5px;/.test(css));
 ok("the phone keeps its own sizes",

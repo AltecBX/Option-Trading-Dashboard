@@ -14775,6 +14775,10 @@ body { overflow: hidden; overscroll-behavior: none; }
   .mctx-earn-sym small { font-size: 10px; }
   .pc-kicker, .pc-stats small, .pc-score-row b small, .mctx-gamma, .ab-kbd { font-size: 10.5px; }
   .src-badge, .sb-manage-btn, .sb-label, .term { font-size: 10.5px; }
+  /* Found on the LIVE site, where the sidebar carries a sector tag and the
+     earnings panel has rows: the sandbox stub has neither. */
+  .sb-symtag, .emx-pill-dte { font-size: 10.5px; }
+  .em-stat-lbl { font-size: 10px; }
   .secnav-group, .chart-perf-lbl, .chart-stat-lbl, .strategy-mode-kicker,
   .rec-with-kicker .rec-kicker, .tfr-reason-pill, .trade-lbl, .trade-builder-disclaimer { font-size: 10px; }
   .secnav-lbl, .pcalc-label, .pcalc-from-meta, .pick-label { font-size: 10.5px; }
