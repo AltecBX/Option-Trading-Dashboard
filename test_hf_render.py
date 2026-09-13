@@ -225,6 +225,16 @@ class TheHedgeTabDraws(unittest.TestCase):
         page.route("**/*", route)
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
+        # v5.03: the navigation is one row — the four group names, then the
+        # OPEN group's tools. Hedge Funds is in Research, so open that group
+        # first, the way a person reaches it; the tool's button is on the
+        # row only after that.
+        page.evaluate("""() => {
+            const g = [...document.querySelectorAll('.tab-grp')]
+              .find(e => e.textContent.trim().toLowerCase() === 'research');
+            if (g) g.click();
+        }""")
+        page.wait_for_timeout(300)
         page.evaluate("""() => {
             const els = [...document.querySelectorAll('button, a, li, span, div')]
               .filter(e => e.children.length === 0 && e.textContent.trim() === 'Hedge Funds');
