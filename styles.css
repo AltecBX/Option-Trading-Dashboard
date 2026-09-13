@@ -14785,6 +14785,9 @@ body { overflow: hidden; overscroll-behavior: none; }
 /* Found on the LIVE site, where the sidebar carries a sector tag and the
    earnings panel has rows: the sandbox stub has neither. */
 .sb-symtag, .emx-pill-dte { font-size: 10.5px; }
+/* And the Watchlist column chooser's label, seen on the live phone
+   Watchlist after v5.04 deployed — the stub's board has no chooser. */
+.wl-cols-lbl { font-size: 10.5px; }
 .em-stat-lbl { font-size: 10px; }
 /* Glyphs that carry a text node — the earnings badge's ⏵ and the analyst
    table's → — count as text to the guard, and 10px costs them nothing.
