@@ -706,8 +706,14 @@ ok("the eight- and nine-pixel captions are ten or more",
    // sidebar's sector tag and the earnings panel's labels.
    && /\n\.sb-symtag, \.emx-pill-dte \{ font-size: 10\.5px; \}/.test(css)
    && /\n\.em-stat-lbl \{ font-size: 10px; \}/.test(css));
-ok("and the group names in the navigation are 10.5, not the 9.5 the row labels were",
-   /\.tab-grp \{\n  font-family: var\(--font-mono\); font-size: 10\.5px;/.test(css));
+ok("and the group names in the navigation are 11.5 — the four words read most often",
+   /\.tab-grp \{\n  font-family: var\(--font-mono\); font-size: 11\.5px;/.test(css));
+// v5.14: the divider between the group names and the open group's tools was
+// one pixel of --line, the hairline that edges a card, ending 2px short of
+// the row. Two pixels of --line-2, stretched, with 14px of air either side.
+ok("the divider between the groups and the tools is two pixels, brighter, and full height",
+   /\.tab-groups \{\n  display: flex; align-items: center; gap: 2px; align-self: stretch;\n  padding-right: 14px; border-right: 2px solid var\(--line-2\);/.test(css)
+   && /\.tab-row-one \{ grid-template-columns: auto minmax\(0, 1fr\) auto; gap: 14px; \}/.test(css));
 // v5.04: the floor is not gated to the desktop any more. The phone showed
 // the same classes plus two of its own, and every phone floor was
 // re-measured with these sizes before the gate came off.

@@ -65,9 +65,9 @@ CONTRACT = bto.CONTRACT
 TENORS = {
     "WEEKLY": {"label": "Weekly", "target_dte": 7,
                "note": "About one week to expiration."},
-    "BIWEEKLY": {"label": "Fourteen to twenty-one days", "target_dte": 17,
+    "BIWEEKLY": {"label": "14-21 days", "target_dte": 17,
                  "note": "Between two and three weeks to expiration."},
-    "MONTHLY": {"label": "Thirty to forty-five days", "target_dte": 38,
+    "MONTHLY": {"label": "30-45 days", "target_dte": 38,
                 "note": "Between one and one and a half months."},
 }
 

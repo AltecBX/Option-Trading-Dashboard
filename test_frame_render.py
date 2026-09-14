@@ -458,6 +458,27 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 tabGroups: document.querySelectorAll('.tab-bar .tab-grp').length,
                 tabBtns: document.querySelectorAll('.tab-bar .tab-btn').length,
                 tabOpen: (() => { const e = document.querySelector('.tab-grp.open'); return e ? e.innerText.trim() : null; })(),
+                // v5.14: the divider between the group names and the open
+                // group's tools, and the size of the four words above it.
+                nav: (() => {
+                  const g = document.querySelector('.tab-groups');
+                  const grp = document.querySelector('.tab-grp');
+                  const last = [...document.querySelectorAll('.tab-grp')].pop();
+                  const btn = document.querySelector('.tab-row-btns .tab-btn');
+                  if (!g || !grp) return null;
+                  const cs = getComputedStyle(g);
+                  return {
+                    dividerPx: parseFloat(cs.borderRightWidth),
+                    dividerColor: cs.borderRightColor,
+                    dividerH: Math.round(g.getBoundingClientRect().height),
+                    grpFont: parseFloat(getComputedStyle(grp).fontSize),
+                    grpH: Math.round(grp.getBoundingClientRect().height),
+                    gapToTools: (last && btn)
+                      ? Math.round(btn.getBoundingClientRect().left
+                                   - last.getBoundingClientRect().right)
+                      : null,
+                  };
+                })(),
                 // v5.10: the strike engine's panel, and the chain-order
                 // chart. `clipped` is the guard that matters — a sentence
                 // that does not fit its column must wrap, never overflow.
@@ -904,6 +925,39 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                              "on the Trade tab the open group is not the one Trade is in")
             self.assertGreaterEqual(geo["tabBtns"], 5,
                                     "the open group's tools are not on the row")
+        finally:
+            self._close(handles)
+
+    def test_the_bar_is_visibly_two_halves(self):
+        """The four group names and the open group's tools are different
+        kinds of thing, and the line between them said so in one pixel of
+        the same hairline that edges a card — 21px of it in a 23px row. At
+        arm's length the bar read as one strip. Measured after: 2px of the
+        brighter line, the full height of the row, 30px of air across it,
+        and the four words themselves a point larger."""
+        geo, errors, handles = self._measure(1900, 1200)
+        try:
+            nav = geo["nav"]
+            self.assertIsNotNone(nav, "no group names in the navigation")
+            self.assertGreaterEqual(
+                nav["dividerPx"], 2,
+                f"the divider is {nav['dividerPx']}px — a hairline again")
+            # --line-2 is lighter than --line; in oklch the first number is
+            # the lightness, and this asserts the divider is not the card
+            # edge's colour by reading it rather than by naming a variable.
+            self.assertNotIn("0.3 0.012", nav["dividerColor"],
+                             "the divider is back on --line, the card edge")
+            # Measured: 23px of divider against 22px group buttons — it
+            # crosses the row rather than floating inside it.
+            self.assertGreater(
+                nav["dividerH"], nav["grpH"],
+                "the divider stops short of the row instead of crossing it")
+            self.assertGreaterEqual(
+                nav["gapToTools"], 24,
+                f"only {nav['gapToTools']}px between CONNECTED and the tools")
+            self.assertGreaterEqual(
+                nav["grpFont"], 11.5,
+                f"the group names are {nav['grpFont']}px, not the 11.5 asked for")
         finally:
             self._close(handles)
 

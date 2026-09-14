@@ -418,6 +418,27 @@ class TestComparison(unittest.TestCase):
         self.assertFalse(out["available"])
 
 
+class TestPolicyLabels(unittest.TestCase):
+    """The policy column is the widest thing in the comparison table and the
+    first thing read on every row. "Thirty to forty-five days" is nine
+    syllables for a number; the row says 30-45 days."""
+
+    def test_the_tenor_is_a_number_not_a_spelled_out_phrase(self):
+        self.assertEqual("30-45 days", CC.TENORS["MONTHLY"]["label"])
+        self.assertEqual("14-21 days", CC.TENORS["BIWEEKLY"]["label"])
+        self.assertEqual("Weekly", CC.TENORS["WEEKLY"]["label"])
+
+    def test_the_row_label_leads_with_the_short_tenor(self):
+        label = CC.policy_label({"tenor": "MONTHLY", "strike_rule": "DELTA",
+                                 "roll_rule": "HOLD", "assignment": "END"})
+        self.assertTrue(label.startswith("30-45 days · "), label)
+        # The spelled-out forms are gone from every tenor, not just the two
+        # that were changed by hand.
+        for t in CC.TENORS.values():
+            self.assertNotIn("forty", t["label"].lower())
+            self.assertNotIn("twenty", t["label"].lower())
+
+
 class TestExpirySelection(unittest.TestCase):
     def test_a_listed_expiration_near_the_target_is_preferred(self):
         got = CC.pick_expiry("2024-01-02", 30,
