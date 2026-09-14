@@ -1705,9 +1705,39 @@ function PriceChart({
 // half and left the loud half — worse, because it advertised support for a
 // shape that still crashed. Normalizing once here fixes both at the source:
 // everything downstream sees a Date and can stop asking.
+// The weekly grid, shared by the returns chart and the range strip beneath
+// it. They are two SVGs in one card, drawn at the same container width, and
+// a reader reads them as ONE picture — so week i has to sit at the same x in
+// both. Keeping these numbers in one place is what makes that true: the
+// strip first shipped with its own (no padding, one fewer slot) and its bars
+// sat 59px left of the chart's at one end and 72px right at the other.
+//
+// The +1 slot is the NOW column: the chart draws the week in progress there,
+// and the strip leaves it empty, because a week still running has no
+// finished range to show.
+const WEEK_VB_W = 720; // viewBox width both SVGs declare
+const WEEK_PAD_L = 48; // room the y-axis labels need
+const WEEK_PAD_R = 16;
+function weekSlot(n) {
+  return (WEEK_VB_W - WEEK_PAD_L - WEEK_PAD_R) / (n + 1);
+}
+function weekX(i, n) {
+  return WEEK_PAD_L + weekSlot(n) * (i + 0.5);
+}
 function _weekRows(rows) {
+  // parseDay, not the Date constructor: a bare YYYY-MM-DD parses as midnight
+  // UTC, which is the previous day west of Greenwich. data.js owns the
+  // canonical version because it hydrates the live rows; this falls back to
+  // the same rule rather than to the constructor, or the defensive path
+  // would quietly reintroduce the off-by-a-day it exists to survive.
+  const day = v => {
+    if (v instanceof Date) return v;
+    if (window.MockData && window.MockData.parseDay) return window.MockData.parseDay(v);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(v);
+  };
   return (rows || []).map(r => r.week_start instanceof Date ? r : Object.assign({}, r, {
-    week_start: new Date(r.week_start)
+    week_start: day(r.week_start)
   })).filter(r => !Number.isNaN(+r.week_start)).sort((a, b) => a.week_start - b.week_start);
 }
 function ReturnsChart({
@@ -1719,10 +1749,10 @@ function ReturnsChart({
   colors,
   earnings
 }) {
-  const W = 720,
+  const W = WEEK_VB_W,
     H = 300;
-  const padL = 48,
-    padR = 16,
+  const padL = WEEK_PAD_L,
+    padR = WEEK_PAD_R,
     padT = 18,
     padB = 30;
   const innerW = W - padL - padR,
@@ -1763,10 +1793,9 @@ function ReturnsChart({
   const padY = Math.max((yMax - yMin) * 0.12, 0.5);
   yMin -= padY;
   yMax += padY;
-  const N = data.length + 1;
-  const slot = innerW / N;
+  const slot = weekSlot(data.length);
   const barW = Math.max(4, slot * 0.55);
-  const xCenter = i => padL + slot * (i + 0.5);
+  const xCenter = i => weekX(i, data.length);
   const yScale = v => padT + (1 - (v - yMin) / (yMax - yMin)) * innerH;
   const ticks = useMemo(() => niceTicks(yMin, yMax, 5), [yMin, yMax]);
   const [hover, setHover] = useState(null);
@@ -2171,14 +2200,15 @@ function WeeklyRecap({
   // the week's high-to-low span and colour by where it closed. The bars above
   // are positioned by return, which makes comparing SPANS across weeks hard;
   // this isolates the span alone.
-  const SW = 720,
+  const SW = WEEK_VB_W,
     SH = 64,
     sPadT = 6,
     sPadB = 14;
   const innerH = SH - sPadT - sPadB;
   const maxRange = Math.max(...ranges, 0.01);
-  const slot = SW / n;
-  const barW = Math.max(3, Math.min(22, slot * 0.62));
+  // Same slot, same x, same empty NOW column as the chart above.
+  const slot = weekSlot(n);
+  const barW = Math.max(3, Math.min(26, slot * 0.62));
   const avgY = sPadT + (1 - avgRange / maxRange) * innerH;
   const Tile = ({
     lbl,
@@ -2242,8 +2272,8 @@ function WeeklyRecap({
     className: "chart-svg wrc-svg",
     preserveAspectRatio: "none"
   }, /*#__PURE__*/React.createElement("line", {
-    x1: "0",
-    x2: SW,
+    x1: WEEK_PAD_L,
+    x2: SW - WEEK_PAD_R,
     y1: avgY,
     y2: avgY,
     stroke: "var(--fg-3)",
@@ -2253,7 +2283,7 @@ function WeeklyRecap({
   }), data.map((d, i) => {
     const r = ranges[i];
     const h = Math.max(1.5, r / maxRange * innerH);
-    const x = slot * (i + 0.5) - barW / 2;
+    const x = weekX(i, n) - barW / 2;
     return /*#__PURE__*/React.createElement("rect", {
       key: i,
       x: x,

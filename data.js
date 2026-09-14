@@ -221,6 +221,7 @@
     median,
     mode,
     roundStrike,
+    parseDay,
   };
 
   // ───────────────────────────────────────────────────────────────────────
@@ -231,8 +232,22 @@
   // ───────────────────────────────────────────────────────────────────────
   const LIVE_CACHE = {};
 
+  // A bare YYYY-MM-DD is a CALENDAR date, not an instant. The Date
+  // constructor parses it as midnight UTC, which is the PREVIOUS day
+  // everywhere west of Greenwich — so every Monday week_start the server
+  // sends rendered as the Sunday before it in New York, and the returns
+  // chart, the recap strip and their tooltips all labelled the wrong day.
+  // Anything carrying a time (the daily bars ship an explicit offset) is
+  // an instant and is left alone.
+  function parseDay(v) {
+    if (v instanceof Date) return v;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    return new Date(v);
+  }
+
   function hydrateRows(rows) {
-    return rows.map(r => Object.assign({}, r, { week_start: new Date(r.week_start) }));
+    return rows.map(r => Object.assign({}, r, { week_start: parseDay(r.week_start) }));
   }
   function hydrateDaily(daily) {
     return daily.map(d => Object.assign({}, d, { date: new Date(d.date) }));
@@ -243,7 +258,7 @@
     const rows = hydrateRows(payload.rows);
     const daily = hydrateDaily(payload.daily);
     const cur = Object.assign({}, payload.current, {
-      week_start: new Date(payload.current.week_start),
+      week_start: parseDay(payload.current.week_start),
     });
     LIVE_CACHE[sym] = {
       rows, daily, current: cur,

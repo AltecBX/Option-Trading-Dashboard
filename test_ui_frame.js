@@ -853,6 +853,25 @@ ok("both weekly charts normalize their rows before sorting or formatting",
    && /r\.week_start instanceof Date/.test(read("charts.jsx"))
    && /\.sort\(\(a, b\) => a\.week_start - b\.week_start\);/.test(read("charts.jsx"))
    && (read("charts.jsx").match(/_weekRows\(rows\)/g) || []).length >= 3);
+// new Date("2026-09-07") is midnight UTC, which is the day BEFORE anywhere
+// west of Greenwich. Every Monday the server sent rendered as the Sunday
+// before it in New York — on the chart axis, the recap strip and both
+// tooltips. A calendar date with no time in it is a LOCAL calendar date.
+ok("a bare calendar date is parsed as a local day, not as midnight UTC",
+   /function parseDay\(v\) \{/.test(read("data.js"))
+   && /new Date\(\+m\[1\], \+m\[2\] - 1, \+m\[3\]\)/.test(read("data.js"))
+   && /week_start: parseDay\(r\.week_start\)/.test(read("data.js"))
+   && /week_start: parseDay\(payload\.current\.week_start\)/.test(read("data.js")));
+ok("and the charts' own fallback uses that same rule, not the constructor",
+   /window\.MockData\.parseDay\(v\)/.test(read("charts.jsx"))
+   && /new Date\(\+m\[1\], \+m\[2\] - 1, \+m\[3\]\)/.test(read("charts.jsx")));
+// Two SVGs stacked in one card are read as one picture. The strip shipped
+// with its own x geometry and its bars sat up to 72px off the chart's.
+ok("the chart and the strip under it share one weekly grid",
+   /const WEEK_VB_W = 720;/.test(read("charts.jsx"))
+   && /function weekX\(i, n\) \{ return WEEK_PAD_L \+ weekSlot\(n\) \* \(i \+ 0\.5\); \}/.test(read("charts.jsx"))
+   && /const xCenter = \(i\) => weekX\(i, data\.length\);/.test(read("charts.jsx"))
+   && /const x = weekX\(i, n\) - barW \/ 2;/.test(read("charts.jsx")));
 ok("a row with an unreadable date is dropped, not drawn at the epoch",
    /\.filter\(r => !Number\.isNaN\(\+r\.week_start\)\)/.test(read("charts.jsx")));
 ok("and the chart and the legend both use it",

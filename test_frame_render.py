@@ -324,7 +324,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         if cls.tmp:
             cls.tmp.cleanup()
 
-    def _measure(self, width, height, tab="trade", init="", ticker_payload=None):
+    def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
+                 timezone=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -334,7 +335,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
         ctx = browser.new_context(viewport={"width": width, "height": height},
-                                  is_mobile=width <= 900, has_touch=width <= 900)
+                                  is_mobile=width <= 900, has_touch=width <= 900,
+                                  **({"timezone_id": timezone} if timezone else {}))
         page = ctx.new_page()
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
@@ -549,6 +551,27 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     recapText: recap ? recap.innerText.replace(/\\s+/g, ' ').trim() : '',
                     // Each strip bar titles its own week. First and last
                     // are what pin the strip's direction to its label.
+                    // The two SVGs read as one picture, so week i must sit
+                    // at the same x in both. Close ring vs range bar.
+                    grid: (() => {
+                      const main = c.querySelector('svg');
+                      const strip = c.querySelector('.wrc-svg');
+                      if (!main || !strip) return null;
+                      const mid = (el) => { const r = el.getBoundingClientRect();
+                        return r.left + r.width / 2; };
+                      const rings = [...main.querySelectorAll('circle')]
+                        .filter(x => x.getAttribute('r') === '3.6').map(mid);
+                      const bars = [...strip.querySelectorAll('rect')].map(mid);
+                      const n = Math.min(rings.length, bars.length);
+                      let worst = 0;
+                      for (let i = 0; i < n; i++)
+                        worst = Math.max(worst, Math.abs(bars[i] - rings[i]));
+                      return {pairs: n, rings: rings.length, bars: bars.length,
+                              worst: Math.round(worst * 10) / 10};
+                    })(),
+                    axisWeeks: [...c.querySelectorAll('.chart-svg text')]
+                      .map(t => t.textContent.trim())
+                      .filter(x => /^[A-Z][a-z]{2} [0-9]{1,2}$/.test(x)),
                     recapBarWeeks: [...c.querySelectorAll('.wrc-svg rect title')]
                       .map(t => t.textContent.split(' \\u00b7')[0].trim()),
                   };
@@ -1420,6 +1443,68 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertEqual(out["recapBars"], sorted(
                 out["recapBars"], key=lambda w: _dt_key(w)),
                 f"the strip drew raw rows out of order: {out['recapBars']}")
+        finally:
+            self._close(handles)
+
+    def test_week_labels_are_mondays_in_a_browser_west_of_utc(self):
+        """The weeks the server sends start on Monday. So must the labels.
+
+        `new Date("2026-09-07")` is midnight UTC, which is the PREVIOUS day
+        anywhere west of Greenwich — so in New York every Monday week_start
+        rendered as the Sunday before it, across the chart axis, the recap
+        strip and both tooltips. It was invisible to every earlier test
+        because Playwright runs in UTC unless told otherwise, and invisible
+        in review because the dates still looked like plausible dates.
+
+        The browser is put in New York on purpose: a fixture in UTC cannot
+        see this class of bug at all.
+        """
+        pay = sell_payload()
+        geo, errors, handles = self._measure(1900, 1200, tab="analyze",
+                                             ticker_payload=pay,
+                                             timezone="America/New_York")
+        try:
+            self.assertEqual(errors, [], f"the page threw: {errors[:2]}")
+            r = geo["returns"]
+            labels = r["axisWeeks"] + r["recapBarWeeks"]
+            self.assertGreater(len(labels), 8, "no week labels were drawn")
+            # Built from the payload the server actually sent, not from a
+            # hardcoded year: every drawn label must be one of THESE days.
+            # Off by one in either direction lands outside the set.
+            expected = set()
+            for row in pay["rows"]:
+                d = date.fromisoformat(row["week_start"])
+                self.assertEqual(d.weekday(), 0,
+                                 f"the fixture itself is wrong: {row['week_start']}")
+                expected.add(f"{d.strftime('%b')} {d.day}")
+            for lab in labels:
+                self.assertIn(lab, expected,
+                              f"week label {lab!r} is not one of the Mondays the "
+                              f"server sent — the day before it, most likely")
+        finally:
+            self._close(handles)
+
+    def test_the_range_strip_lines_up_with_the_chart_above_it(self):
+        """Two SVGs in one card are read as one picture.
+
+        The strip first shipped with its own geometry — no axis padding, and
+        one fewer slot because it has no NOW column — so its bars sat 59px
+        left of the chart's at one end and 72px right at the other. Week i
+        has to be at the same x in both, so both now derive it from one
+        shared grid. This measures the drawn pixels, not the constants.
+        """
+        geo, errors, handles = self._measure(1900, 1200, tab="analyze",
+                                             ticker_payload=sell_payload())
+        try:
+            self.assertEqual(errors, [], f"the page threw: {errors[:2]}")
+            g = geo["returns"]["grid"]
+            self.assertIsNotNone(g, "one of the two charts did not render")
+            self.assertGreater(g["pairs"], 8, "too few weeks to compare")
+            self.assertEqual(g["rings"], g["bars"],
+                             "the two charts are drawing different week counts")
+            self.assertLessEqual(g["worst"], 1.5,
+                                 f"a range bar sits {g['worst']}px from its week "
+                                 f"in the chart above")
         finally:
             self._close(handles)
 
