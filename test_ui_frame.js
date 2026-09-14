@@ -843,6 +843,18 @@ ok("a clear night is a moon, a clear day is a sun",
 ok("the week in progress has a colour of its own",
    /--now: oklch\(/.test(css)
    && /const nowC = colors\.now \|\| colors\.accent;/.test(read("charts.jsx")));
+// Two ways a raw (un-hydrated) row breaks these charts: a string comparator
+// returns NaN and the sort silently no-ops, and fmtDate calls
+// toLocaleDateString, which a string does not have, so the render throws.
+// Normalizing once at the boundary is what fixes both; a tolerant
+// comparator alone fixed the silent half and left the loud one.
+ok("both weekly charts normalize their rows before sorting or formatting",
+   /function _weekRows\(rows\) \{/.test(read("charts.jsx"))
+   && /r\.week_start instanceof Date/.test(read("charts.jsx"))
+   && /\.sort\(\(a, b\) => a\.week_start - b\.week_start\);/.test(read("charts.jsx"))
+   && (read("charts.jsx").match(/_weekRows\(rows\)/g) || []).length >= 3);
+ok("a row with an unreadable date is dropped, not drawn at the epoch",
+   /\.filter\(r => !Number\.isNaN\(\+r\.week_start\)\)/.test(read("charts.jsx")));
 ok("and the chart and the legend both use it",
    /fill=\{nowC\} opacity="0\.10"/.test(read("charts.jsx"))
    && /style=\{\{background: chartColors\.now\}\}><\/span>This week/.test(app));

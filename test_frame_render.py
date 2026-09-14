@@ -266,6 +266,11 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
     }
 
 
+def _dt_key(label: str):
+    """'Jul 6' -> a sortable date. The strip labels its bars this way."""
+    return datetime.strptime(label + " 2026", "%b %d %Y")
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -1334,6 +1339,87 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertEqual(geo["returns"]["recapTiles"], 4)
             self.assertLessEqual(geo["doc"]["scrollW"], 441,
                                  "the recap pushed the page sideways")
+        finally:
+            self._close(handles)
+
+    def test_both_weekly_charts_render_from_raw_unhydrated_rows(self):
+        """The shape data.js has NOT touched.
+
+        Every live path hands these components Dates, because hydrateRows
+        converts them first — which means no test that goes through
+        /api/ticker can reach the raw-string branch at all. This one mounts
+        both components directly, off the page's own React, with rows
+        exactly as the server sends them: week_start as an ISO string.
+
+        Two different failures live down here. A string comparator returns
+        NaN, which leaves the array untouched and draws the strip backwards
+        in silence; and fmtDate calls toLocaleDateString, which a string
+        does not have, so the render throws. Order AND survival are checked.
+        """
+        geo, errors, handles = self._measure(1900, 1200, tab="analyze",
+                                             ticker_payload=sell_payload())
+        try:
+            self.assertEqual(errors, [], f"the page threw before the test ran: {errors[:2]}")
+            page = handles[1].contexts[0].pages[0]
+            out = page.evaluate("""() => {
+              const mk = (iso, hi, lo, cl) => ({
+                week_start: iso, high_return: hi, low_return: lo,
+                close_return: cl, open_return: 0.4,
+                high_day: 1, low_day: 3, high_day_name: 'Tue', low_day_name: 'Thu',
+              });
+              // Deliberately newest-first, the order the server sends.
+              const raw = [
+                mk('2026-09-07', 6, -4, 1), mk('2026-08-31', 9, -7, -2),
+                mk('2026-08-24', 4, -3, 2), mk('2026-08-17', 12, -9, -5),
+                mk('2026-08-10', 5, -5, 3), mk('2026-08-03', 7, -2, 4),
+                mk('2026-07-27', 3, -8, -1), mk('2026-07-20', 8, -6, 2),
+                mk('2026-07-13', 11, -4, 5), mk('2026-07-06', 6, -6, -3),
+              ];
+              const colors = {up:'#16a34a', down:'#dc2626', warn:'#d97706',
+                              now:'#3b6fd4', accent:'#16a34a', fg2:'#999', fg3:'#777'};
+              const host = document.createElement('div');
+              host.style.cssText = 'position:absolute;left:-9999px;width:900px';
+              document.body.appendChild(host);
+              const out = {sorted: null, recapThrew: null, chartThrew: null};
+              try {
+                out.sorted = window._weekRows(raw)
+                  .map(r => r.week_start.toISOString().slice(0, 10));
+              } catch (e) { out.sorted = 'THREW: ' + e.message; }
+              const mount = (el) => {
+                const d = document.createElement('div');
+                host.appendChild(d);
+                const root = ReactDOM.createRoot(d);
+                ReactDOM.flushSync(() => root.render(el));
+                return d;
+              };
+              try {
+                const d = mount(React.createElement(window.WeeklyRecap,
+                  {rows: raw, colors: colors}));
+                out.recapThrew = false;
+                out.recapBars = [...d.querySelectorAll('.wrc-svg rect title')]
+                  .map(t => t.textContent.split(' \\u00b7')[0].trim());
+                out.recapTiles = d.querySelectorAll('.wrc-tile').length;
+              } catch (e) { out.recapThrew = String(e && e.message || e); }
+              try {
+                mount(React.createElement(window.ReturnsChart, {
+                  rows: raw, medianHigh: 6, medianLow: -5, medianClose: 1,
+                  currentReturn: 2, colors: colors, earnings: {past: []},
+                }));
+                out.chartThrew = false;
+              } catch (e) { out.chartThrew = String(e && e.message || e); }
+              host.remove();
+              return out;
+            }""")
+            self.assertEqual(out["recapThrew"], False,
+                             f"the recap threw on raw rows: {out['recapThrew']}")
+            self.assertEqual(out["chartThrew"], False,
+                             f"the returns chart threw on raw rows: {out['chartThrew']}")
+            self.assertEqual(out["sorted"], sorted(out["sorted"]),
+                             f"raw rows did not sort oldest-first: {out['sorted']}")
+            self.assertEqual(out["recapTiles"], 4)
+            self.assertEqual(out["recapBars"], sorted(
+                out["recapBars"], key=lambda w: _dt_key(w)),
+                f"the strip drew raw rows out of order: {out['recapBars']}")
         finally:
             self._close(handles)
 
