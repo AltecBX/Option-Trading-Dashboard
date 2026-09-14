@@ -1,4 +1,4 @@
-# The permanent frame (v5.12)
+# The permanent frame (v5.14)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -815,6 +815,15 @@ group following the active tab (`openGroup` re-syncs on `activeGroup`),
 a dot (`.tab-grp.here`) marking home when another group is open. The row
 never wraps: a group wider than the band scrolls sideways. Any tool is at
 most two clicks from any page; nothing is behind a menu.
+
+**The seam (v5.14).** The two halves are different kinds of thing, and the
+rule between them was 1px of `--line` — a card edge — ending 2px short of
+the row: measured, 19px of air and a hairline, and at arm's length the bar
+read as one strip. Now 2px of `--line-2`, `align-self: stretch` so it
+crosses the row, 14px of padding and a 14px gap: 30px of air, 23px of rule
+against 22px buttons, row height unchanged. The group names went 10.5px →
+11.5px with it — they are the four words read most often on the screen and
+they were sitting on the type floor.
 
 **The floor.** Measured, not guessed: a probe walks `.frame-top`,
 `.tab-bar` and `.sidebar` and lists every element with a text node of its

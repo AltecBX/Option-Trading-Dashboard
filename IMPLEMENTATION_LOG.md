@@ -3970,6 +3970,39 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.14 — the bar reads as two halves, and a tenor stops being a sentence
+
+Three asks, all about reading speed.
+
+**The divider between the groups and the tools.** The navigation is four
+group names on the left and the open group's tools on the right, and the
+line between them was one pixel of `--line` — the same hairline that edges
+a card — sitting 21px tall inside a 23px row. Measured on both desktop
+widths: a 1px rule and 19px of total air. It is now **2px of `--line-2`**,
+stretched to the full height of the row, with 14px of padding on the group
+side and a 14px grid gap on the other. Measured after: 2px,
+`oklch(0.37 0.014 250)`, 23px tall against 22px group buttons, **30px** of
+air across it — and the row is still 23px, so none of this cost workspace
+height.
+
+**The group names are a point larger.** `.tab-grp` 10.5px → **11.5px**.
+They are the four words on the screen that get read most often and they
+were sitting on the type floor, at the same size as a caption nobody reads
+twice.
+
+**A tenor is a number.** The covered-call simulator's policy column is the
+widest thing in its table and the first thing read on every row, and it
+opened with "Thirty to forty-five days" — nine syllables to say 30-45.
+`TENORS` now labels them `30-45 days` and `14-21 days`; `Weekly` was
+already short. Nothing else changed: the labels are display strings, the
+keys (`MONTHLY`, `BIWEEKLY`) are what the simulator runs on.
+
+Guards: 181 static, 39 render, 47 covered-call. The three new ones were
+each proven red with the change reverted — the divider guard reads the
+computed border width, colour and height off the live element rather than
+matching a string in the stylesheet, so a rule that is overridden later
+still fails it.
+
 ## v5.13 — every week label was a day early
 
 Codex, third round on the weekly charts (P2, correct, and the most
