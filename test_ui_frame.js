@@ -900,6 +900,22 @@ ok("every dashed line on the returns chart carries its value in the gutter",
 // from where the label ENDED UP, not from the line it belongs to.
 ok("the generic ticks make room for the median labels",
    /medianLines\.some\(m => Math\.abs\(yScale\(t\) - m\.y\) < 12\)\) \? null : \(/.test(read("charts.jsx")));
+// A daily bar's date is a CALENDAR date — mock bars are built at local
+// midnight, live ones hydrated from a bare YYYY-MM-DD. Projecting either into
+// New York lands on the previous evening, so "does the series already end with
+// today?" never matched and today's live bar was appended BESIDE today's real
+// one. Two bars at one time is a series lightweight-charts cannot index.
+ok("today's live bar replaces today's bar instead of doubling it",
+   /const dateKey = \(d\) => \{/.test(read("app.jsx"))
+   && /return `\$\{d\.getFullYear\(\)\}-\$\{pad2\(d\.getMonth\(\) \+ 1\)\}-\$\{pad2\(d\.getDate\(\)\)\}`;/.test(read("app.jsx"))
+   && !/timeZone: "America\/New_York",\n *year: "numeric", month: "2-digit", day: "2-digit",\n *\}\)\.format\(d\)/.test(read("app.jsx")));
+// …and the boundary that stops any such mistake from taking the page down,
+// on every series that draws bars.
+ok("a repeated or backwards bar time never reaches the chart library",
+   /function ascendingByTime\(points\) \{/.test(read("charts.jsx"))
+   && /if \(p\.time === prev\.time\) out\[out\.length - 1\] = p;/.test(read("charts.jsx"))
+   && (read("charts.jsx").match(/ascendingByTime\(/g) || []).length >= 5
+   && /ascendingByTime\(drawable\.map/.test(read("app-cards.jsx")));
 // Codex, P2: dropping a colliding label leaves its dashed line drawn and
 // unexplained, and makes the legend's promise false. Move it instead.
 ok("a colliding gutter label is moved, never dropped",

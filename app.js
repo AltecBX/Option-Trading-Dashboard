@@ -2866,20 +2866,22 @@ function App() {
       synthetic: true
     };
     // Helper: extract YYYY-MM-DD from a base bar's date (Date or string).
+    //
+    // v5.15: this used to project the Date into America/New_York. A daily
+    // bar's date is a CALENDAR date, not an instant — the mock bars are built
+    // at LOCAL midnight and the live ones are hydrated from a bare
+    // YYYY-MM-DD — and projecting either into New York lands on the previous
+    // evening. So this test never matched, today's live bar was APPENDED
+    // beside today's real one, and the series carried TWO BARS AT THE SAME
+    // TIME. lightweight-charts indexes a series by time: with a duplicate it
+    // cannot find a bar, and its renderer throws "Value is null" on every
+    // frame for as long as the market is open. Read the date the Date holds.
+    const pad2 = n => String(n).padStart(2, "0");
     const dateKey = d => {
       if (!d) return "";
       if (typeof d === "string") return d.slice(0, 10);
-      if (d instanceof Date) {
-        try {
-          return new Intl.DateTimeFormat("en-CA", {
-            timeZone: "America/New_York",
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit"
-          }).format(d);
-        } catch {
-          return d.toISOString().slice(0, 10);
-        }
+      if (d instanceof Date && !Number.isNaN(+d)) {
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
       }
       return "";
     };

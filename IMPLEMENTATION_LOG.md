@@ -3970,6 +3970,54 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.15 — and the chart that threw on every frame while the market was open
+
+Found while verifying the labels below, not by looking for it: the full
+render suite passed 39/39 at 11:00 UTC and came back with ten failures at
+15:30, on identical code. CI said the same thing, on `main`. Every failure
+was one assertion — `pageerror: Value is null`, thrown from inside
+lightweight-charts at paint time with no application frame in the stack.
+
+The library's assert is `f(t(n, s))` in its Candlestick renderer: **give me
+the bar at this index**. Not a null FIELD — a bar the series cannot find. A
+series is indexed by time and those times must be strictly ascending, and
+this one had two bars dated the same day.
+
+Why: the app appends a live bar for today and asks whether the series
+already ends with today, by projecting the last bar's date into New York. A
+daily bar's date is a CALENDAR date — mock bars are built at local midnight,
+live ones hydrated from a bare `YYYY-MM-DD` — and midnight projected into
+New York is the previous evening. The test never matched. Today's live bar
+was appended beside today's real one, every frame threw, and the price chart
+never drew.
+
+**It exists only while the market is open**, because that is when a bar for
+today exists at all. The same shape as the `isCompleteBar` defect: green at
+7am, red at 9:31.
+
+And it is the same root cause as v5.13, one layer down. That entry says "the
+daily bars ship an explicit offset" — an assumption, not a measurement, and
+wrong. `new Date(d.date)` was left in `hydrateDaily` on the strength of it.
+
+Two layers:
+
+- **`dateKey` reads the date the Date holds** (local components) instead of
+  projecting a calendar date into a timezone. The duplicate is not built.
+- **`ascendingByTime` at the chart boundary**, on every series that draws
+  bars, at all three call sites. A repeat keeps the later point — the live
+  bar is the newer truth about that day — and a step backwards is dropped.
+  Same discipline as `isCompleteBar`: upstream should not send it, and the
+  boundary makes sure it cannot take the page down when it does.
+
+The guard puts the duplicate in the data rather than waiting for the bell:
+`MockData.buildDaily` is wrapped so today appears twice AND a bar steps
+backwards mid-series, which a guard watching only the newest row would sail
+past. Proven red with the boundary filter removed, and proven separately
+that the boundary alone holds the page up with the root cause restored —
+each half masks the other, so both carry static guards too.
+
+Guards: 187 static, 42 render.
+
 ## v5.15 — the dashed lines now say what they are worth
 
 Jerry, on the weekly returns chart: "Whats the dash lines for the green and

@@ -35,6 +35,33 @@ function isCompleteBar(o, h, l, c) {
 function isDrawable(v) {
   return v != null && typeof v === "number" && isFinite(v);
 }
+
+// A series is INDEXED BY TIME, and lightweight-charts requires those times to
+// be strictly ascending. Hand it a repeat or a step backwards and its index
+// can no longer find a bar: the renderer throws "Value is null" on every
+// frame, the chart never draws, and the console fills — the same failure mode
+// an incomplete bar causes, from a different direction.
+//
+// Upstream is where a duplicate should be prevented (app.jsx's dateKey is the
+// one that let today's live bar sit beside today's real one). This is the
+// boundary that stops any such mistake from taking the page down. A repeat
+// keeps the LATER point, because the live bar is the newer truth about that
+// day; a step backwards is dropped, because there is no honest way to place
+// it.
+function ascendingByTime(points) {
+  const out = [];
+  for (const p of points || []) {
+    if (!p || p.time == null) continue;
+    const prev = out.length ? out[out.length - 1] : null;
+    if (prev == null || p.time > prev.time) {
+      out.push(p);
+      continue;
+    }
+    if (p.time === prev.time) out[out.length - 1] = p;
+    // else: out of order — dropped.
+  }
+  return out;
+}
 function fmt$(v, d = 2) {
   return "$" + (v >= 0 ? v.toFixed(d) : "-" + (-v).toFixed(d));
 }
@@ -350,22 +377,22 @@ function TVPriceChart({
     if (!mainRef.current || !daily || !daily.length) return;
     // `close` alone was the old guard; a candle needs all four.
     const rows = daily.filter(d => d && (chartStyle === "area" ? d.close != null && isFinite(d.close) : isCompleteBar(d.open, d.high, d.low, d.close)));
-    if (chartStyle === "area") mainRef.current.setData(rows.map(d => ({
+    if (chartStyle === "area") mainRef.current.setData(ascendingByTime(rows.map(d => ({
       time: norm(d.date),
       value: d.close
-    })));else mainRef.current.setData(rows.map(d => ({
+    }))));else mainRef.current.setData(ascendingByTime(rows.map(d => ({
       time: norm(d.date),
       open: d.open,
       high: d.high,
       low: d.low,
       close: d.close
-    })));
+    }))));
     const hasVol = rows.some(d => d.volume);
-    if (volRef.current) volRef.current.setData(hasVol ? rows.map(d => ({
+    if (volRef.current) volRef.current.setData(hasVol ? ascendingByTime(rows.map(d => ({
       time: norm(d.date),
       value: d.volume || 0,
       color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"
-    })) : []);
+    }))) : []);
   }, [daily, chartStyle]);
 
   // Fit the time scale only when the data actually changes (new symbol /
@@ -3335,7 +3362,7 @@ function IntradayChart({
     if (!chart || !r.candles || !data || !data.bars || !data.bars.length) return;
     const t = ms => Math.floor(ms / 1000);
     const bars = data.bars.filter(b => b && isCompleteBar(b.open, b.high, b.low, b.close));
-    r.candles.setData(bars.map(b => ({
+    r.candles.setData(ascendingByTime(bars.map(b => ({
       time: t(b.ts),
       open: b.open,
       high: b.high,
@@ -3347,12 +3374,12 @@ function IntradayChart({
         borderColor: "rgba(148,163,184,0.45)",
         wickColor: "rgba(148,163,184,0.45)"
       } : {})
-    })));
-    r.vol.setData(bars.map(b => ({
+    }))));
+    r.vol.setData(ascendingByTime(bars.map(b => ({
       time: t(b.ts),
       value: b.volume || 0,
       color: b.pm ? "rgba(148,163,184,0.2)" : b.close >= b.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"
-    })));
+    }))));
     const vw = data.vwap;
     const set = (series, arr) => series.setData(vw && arr ? vw.ts.map((ts, i) => ({
       time: t(ts),
@@ -3421,6 +3448,7 @@ Object.assign(window, {
   niceTicks,
   isCompleteBar,
   isDrawable,
-  placeGutterLabels
+  placeGutterLabels,
+  ascendingByTime
 });
 })();

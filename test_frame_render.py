@@ -1733,5 +1733,63 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self._close(handles)
 
 
+    def test_two_bars_on_the_same_day_do_not_take_the_page_down(self):
+        """The mirror of the test above, and the one that was missing.
+
+        A series is INDEXED BY TIME. lightweight-charts requires those times
+        to be strictly ascending; hand it a repeat and its index can no longer
+        find a bar, so the renderer throws "Value is null" on every frame and
+        the chart never draws.
+
+        This is not hypothetical. The app appends a live bar for today and
+        asks "does the series already end with today?" — a question it
+        answered by projecting the bar's date into New York. A daily bar's
+        date is a CALENDAR date (mock bars are built at local midnight, live
+        ones hydrated from a bare YYYY-MM-DD), so the projection landed on the
+        previous evening, the test never matched, and today's live bar was
+        appended beside today's real one. It only appeared while the market
+        was open, which is why every check in this repo passed at 11:00 UTC
+        and ten of them went red at 15:30 — including CI, on `main`.
+
+        So the duplicate goes into the data here, and no bell has to ring."""
+        doubled = """
+          (() => {
+            let real = undefined;
+            Object.defineProperty(window, 'MockData', {
+              configurable: true,
+              get() { return real; },
+              set(v) {
+                real = v;
+                if (v && typeof v.buildDaily === 'function') {
+                  const inner = v.buildDaily.bind(v);
+                  v.buildDaily = (...a) => {
+                    const rows = inner(...a);
+                    if (rows && rows.length > 6) {
+                      // Today twice — exactly what the live bar did — and a
+                      // step BACKWARDS in the middle, which a guard that only
+                      // looked at the newest row would sail past.
+                      rows.push({ ...rows[rows.length - 1] });
+                      rows.splice(4, 0, { ...rows[2] });
+                    }
+                    return rows;
+                  };
+                }
+              },
+            });
+          })();
+        """
+        geo, errors, handles = self._measure(1440, 900, init=doubled)
+        try:
+            self.assertFalse(
+                errors,
+                "two bars on one day threw out of the chart and into the "
+                f"page: {errors[:3]}")
+            self.assertEqual(10, geo["tiles"],
+                             "the market strip stopped rendering as well")
+            self.assertIsNotNone(geo["main"], "the workspace is gone")
+        finally:
+            self._close(handles)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
