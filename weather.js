@@ -14,11 +14,18 @@
 
   // WMO weather interpretation codes grouped to a glyph + short label.
   // Reference: WMO code table 4677 as exposed by Open-Meteo.
-  function wxFromCode(code) {
+  //
+  // `isDay` (0/1, straight from Open-Meteo's is_day) swaps the three codes
+  // where the sun is the glyph. A sun at 11pm is simply wrong, and it was
+  // the first thing anyone noticed about this pill at night. Rain, snow and
+  // storms look the same after dark, so only clear and partly-cloudy need a
+  // night face. Undefined means day, which is what it always did.
+  function wxFromCode(code, isDay) {
     var c = Number(code);
-    if (c === 0) return { icon: "☀️", label: "Clear" };
-    if (c === 1) return { icon: "🌤️", label: "Mostly clear" };
-    if (c === 2) return { icon: "⛅", label: "Partly cloudy" };
+    var night = isDay === 0 || isDay === false;
+    if (c === 0) return { icon: night ? "🌙" : "☀️", label: "Clear" };
+    if (c === 1) return { icon: night ? "🌙" : "🌤️", label: "Mostly clear" };
+    if (c === 2) return { icon: night ? "☁️" : "⛅", label: "Partly cloudy" };
     if (c === 3) return { icon: "☁️", label: "Overcast" };
     if (c === 45 || c === 48) return { icon: "🌫️", label: "Fog" };
     if (c >= 51 && c <= 57) return { icon: "🌦️", label: "Drizzle" };
@@ -44,7 +51,7 @@
     return "https://api.open-meteo.com/v1/forecast"
       + "?latitude=" + encodeURIComponent(lat)
       + "&longitude=" + encodeURIComponent(lon)
-      + "&current=temperature_2m,weather_code"
+      + "&current=temperature_2m,weather_code,is_day"
       + "&temperature_unit=" + u
       + "&timezone=auto";
   }
@@ -60,12 +67,29 @@
       temp: cur.temperature_2m,
       code: cur.weather_code,
       time: cur.time || null,
+      // Open-Meteo's own day/night flag. When a response predates this
+      // field, fall back to the hour it reports — timezone=auto means that
+      // hour is local to the place being shown, not to the browser.
+      isDay: cur.is_day !== undefined ? Number(cur.is_day) : dayFromTime(cur.time),
     };
+  }
+
+  // 1 day, 0 night, null when the stamp is unreadable. Sunrise and sunset
+  // move through the year; 6am-8pm is the coarse bracket this only needs
+  // because it is a fallback for a field the API normally sends.
+  function dayFromTime(t) {
+    if (!t || typeof t !== "string") return null;
+    var m = t.match(/T(\d{2}):/);
+    if (!m) return null;
+    var h = Number(m[1]);
+    if (isNaN(h)) return null;
+    return (h >= 6 && h < 20) ? 1 : 0;
   }
 
   var api = {
     DEFAULT_COORDS: DEFAULT_COORDS,
     wxFromCode: wxFromCode,
+    dayFromTime: dayFromTime,
     formatTemp: formatTemp,
     buildForecastUrl: buildForecastUrl,
     parseCurrent: parseCurrent,

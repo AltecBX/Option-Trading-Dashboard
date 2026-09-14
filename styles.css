@@ -24,6 +24,9 @@
   --up: oklch(0.62 0.16 152);
   --down: oklch(0.62 0.18 25);
   --warn: oklch(0.72 0.16 65);
+  /* The week in progress. Deliberately not green, red or amber: those three
+     are taken by up, down and earnings, and "this week" is none of them. */
+  --now: oklch(0.64 0.15 250);
 
   /* The four high/low lists. These were four hex literals repeated across the
      rail titles; the phone card has to use the SAME colour for the same list
@@ -10607,6 +10610,38 @@ body.jt-embed .mko-regime, body.jt-embed .mko-grid { display: none !important; }
 body.jt-embed .newsticker { display: none !important; }
 body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !important; }
 
+/* ── v5.12: what the weeks add up to, under the returns chart ───────────── */
+.wrc { display: flex; flex-direction: column; gap: 9px; margin-top: 12px;
+  padding-top: 11px; border-top: 1px dashed var(--line); }
+.wrc-head { font-family: var(--font-mono); font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3); }
+.wrc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.wrc-tile { display: flex; flex-direction: column; gap: 2px; cursor: help;
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 9px;
+  padding: 8px 11px; min-width: 0; }
+.wrc-tile em { font-style: normal; font-family: var(--font-mono); font-size: 10px;
+  font-weight: 700; letter-spacing: 0.09em; color: var(--fg-3); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.wrc-tile b { font-family: var(--font-mono); font-size: 17px; line-height: 1.15;
+  color: var(--fg); letter-spacing: -0.01em; }
+.wrc-tile b.wrc-up { color: var(--up); } .wrc-tile b.wrc-down { color: var(--down); }
+.wrc-tile span { font-size: 11px; color: var(--fg-2); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.wrc-strip { display: flex; flex-direction: column; gap: 3px; }
+.wrc-strip-lbl { display: flex; justify-content: space-between; align-items: baseline;
+  gap: 10px; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; color: var(--fg-3); }
+/* On a phone the caption and the average share one short line. The caption
+   is the half that can lose characters; the number never is. */
+.wrc-strip-lbl > span:first-child { min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.wrc-strip-avg { flex: 0 0 auto; letter-spacing: 0.02em; font-weight: 600;
+  text-transform: none; }
+.wrc-svg { width: 100%; height: 64px; display: block; }
+@media (max-width: 900px) {
+  .wrc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* ── Weekly Option Selling Setup (v3.48) ─────────────────────────────────── */
 .wos-card { display: flex; flex-direction: column; gap: 10px; }
 .wos-bias { font-family: var(--font-mono); font-size: 11px; font-weight: 800;
@@ -13856,13 +13891,17 @@ body { overflow: hidden; overscroll-behavior: none; }
    whether the market is shut is the one thing on this bar you act on. */
 .ab-when { color: var(--fg-2); font-weight: 700; }
 .ab-clock-sep { width: 1px; height: 13px; background: var(--line); align-self: center; }
+/* v5.12: the LABEL stays neutral and only the DOT carries the state. One
+   coloured thing in a row reads faster than two, and a red word next to a
+   red dot was two ways of saying it. The dot is 8px — a point larger than
+   it was, because it is now the whole signal. */
 .ab-mkt { display: inline-flex; align-items: center; gap: 6px; font-weight: 700;
-  letter-spacing: 0.01em; }
-.ab-mkt-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-4);
+  letter-spacing: 0.01em; color: var(--fg-2); }
+.ab-mkt-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-4);
   flex: 0 0 auto; }
-.ab-mkt-open { color: var(--up); }   .ab-mkt-open .ab-mkt-dot  { background: var(--up); }
-.ab-mkt-ext  { color: var(--warn); } .ab-mkt-ext .ab-mkt-dot   { background: var(--warn); }
-.ab-mkt-shut { color: var(--down); } .ab-mkt-shut .ab-mkt-dot  { background: var(--down); }
+.ab-mkt-open .ab-mkt-dot { background: var(--up); }
+.ab-mkt-ext  .ab-mkt-dot { background: var(--warn); }
+.ab-mkt-shut .ab-mkt-dot { background: var(--down); }
 .ab-icon {
   width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
   background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-3);

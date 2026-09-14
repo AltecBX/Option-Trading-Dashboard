@@ -254,10 +254,12 @@ ok("it ticks every second and stops while the tab is hidden",
 // v5.11: the app bar's green-while-open tell moved off the time and onto the
 // state pill, which is the thing it was describing. The clock beside the
 // Schwab badge still greens its own time; both still say the same thing.
+// v5.12: the tell is the DOT now, not the label — one coloured thing in
+// the row instead of two saying the same thing.
 ok("and turns green during the regular session, like the other one",
    /const cls = open \? "open" : \(pre \|\| post\) \? "ext" : "shut";/.test(app)
    && /className=\{`ab-mkt ab-mkt-\$\{cls\}`\}/.test(app)
-   && /\.ab-mkt-open \{ color: var\(--up\); \}/.test(css)
+   && /\.ab-mkt-open \.ab-mkt-dot \{ background: var\(--up\); \}/.test(css)
    && /\.lc-time\.mkt-open\s*\{[^}]*var\(--up\)/.test(css));
 
 // ── 14. the content column uses what the rails leave ──────────────────────
@@ -797,10 +799,10 @@ ok("the status line is still the way in, and the key still works",
 ok("the market state comes before the date, not after it",
    /<span className=\{`ab-mkt ab-mkt-\$\{cls\}`\}>[\s\S]{0,220}?ab-clock-sep[\s\S]{0,120}?className="ab-when"/.test(app));
 ok("a closed market is red, not grey",
-   /\.ab-mkt-shut \{ color: var\(--down\); \} \.ab-mkt-shut \.ab-mkt-dot  \{ background: var\(--down\); \}/.test(css));
+   /\.ab-mkt-shut \.ab-mkt-dot \{ background: var\(--down\); \}/.test(css));
 ok("open stays green and the sessions either side stay amber",
-   /\.ab-mkt-open \{ color: var\(--up\); \}/.test(css)
-   && /\.ab-mkt-ext  \{ color: var\(--warn\); \}/.test(css));
+   /\.ab-mkt-open \.ab-mkt-dot \{ background: var\(--up\); \}/.test(css)
+   && /\.ab-mkt-ext  \.ab-mkt-dot \{ background: var\(--warn\); \}/.test(css));
 // "Sun, September 13, 2026" spent the bar's width on the least useful part.
 ok("the date is short and the month is capitalised, with no year",
    /dpart\("month"\)\.toUpperCase\(\)/.test(app)
@@ -815,6 +817,55 @@ ok("the state reads as a market, not a switch",
 // drops both of them below it.
 ok("the clock's row is centred so the dot and the divider line up",
    /\.ab-clock \{\n  display: inline-flex; align-items: center;/.test(css));
+
+
+// ── 29. v5.12: one signal in the clock, a night sky, and a week that is
+// not an earnings week ────────────────────────────────────────────────────
+// v5.11 coloured BOTH the dot and the label. Two ways of saying one thing;
+// the label goes back to neutral and the dot grows a point, because it is
+// now the whole signal.
+ok("only the dot carries the market state, and it is a point larger",
+   /\.ab-mkt \{[\s\S]{0,160}?color: var\(--fg-2\); \}/.test(css)
+   && /\.ab-mkt-dot \{ width: 8px; height: 8px;/.test(css)
+   && /\.ab-mkt-shut \.ab-mkt-dot \{ background: var\(--down\); \}/.test(css)
+   && !/\.ab-mkt-shut \{ color:/.test(css));
+ok("the open and extended sessions keep their own dot colours",
+   /\.ab-mkt-open \.ab-mkt-dot \{ background: var\(--up\); \}/.test(css)
+   && /\.ab-mkt-ext  \.ab-mkt-dot \{ background: var\(--warn\); \}/.test(css));
+// A sun at 11:15 PM. The icon only ever read the weather code.
+ok("the weather asks the API whether it is day or night",
+   /&current=temperature_2m,weather_code,is_day/.test(read("weather.js")));
+ok("and the pill passes that through to the glyph",
+   /WeatherUtil\.wxFromCode\(wx\.code, wx\.isDay\)/.test(cards));
+ok("a clear night is a moon, a clear day is a sun",
+   /if \(c === 0\) return \{ icon: night \? "\u{1F319}" : "\u2600\ufe0f"/u.test(read("weather.js")));
+// Every past earnings week is shaded amber; so was the week in progress.
+ok("the week in progress has a colour of its own",
+   /--now: oklch\(/.test(css)
+   && /const nowC = colors\.now \|\| colors\.accent;/.test(read("charts.jsx")));
+ok("and the chart and the legend both use it",
+   /fill=\{nowC\} opacity="0\.10"/.test(read("charts.jsx"))
+   && /style=\{\{background: chartColors\.now\}\}><\/span>This week/.test(app));
+ok("the earnings shading is still the amber it was",
+   /fill=\{earningsByWeek\[i\] \? colors\.warn : "transparent"\}/.test(read("charts.jsx")));
+// The returns card drew its chart and stopped, ~200px short of its own
+// bottom edge while the card beside it ran the full height.
+ok("the returns card carries a recap under its chart",
+   /<WeeklyRecap rows=\{rows\} colors=\{chartColors\} \/>/.test(app)
+   && /function WeeklyRecap\(\{ rows, colors \}\)/.test(read("charts.jsx")));
+ok("the recap is four tiles and a range strip, all above the type floor",
+   /\.wrc-tiles \{ display: grid; grid-template-columns: repeat\(4/.test(css)
+   && /\.wrc-tile em \{[\s\S]{0,140}?font-size: 10px;/.test(css)
+   && /\.wrc-strip-lbl \{[\s\S]{0,180}?font-size: 10px;/.test(css));
+// open_return is 0 by construction in Monday-open mode, so an "average
+// weekend gap" there would be a row of zeros dressed up as a finding.
+ok("the weekend-gap tile stands down when the baseline cannot produce one",
+   /const gapReal = gaps\.length >= 3 && gaps\.some\(v => Math\.abs\(v\) > 0\.01\);/
+     .test(read("charts.jsx"))
+   && /lbl="WIDEST WEEK"/.test(read("charts.jsx")));
+ok("the range trend refuses to split a window too short to split",
+   /if \(n >= 8\) \{/.test(read("charts.jsx"))
+   && /needs 8 weeks, have \$\{n\}/.test(read("charts.jsx")));
 
 console.log(`\n${passed}/${passed + failed} passed`
   + (failed ? ` — FAILED: ${fails.join(", ")}` : ""));

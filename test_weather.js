@@ -45,5 +45,35 @@ ok("parseCurrent null on bad shape", W.parseCurrent({}) === null);
 ok("parseCurrent null on missing fields", W.parseCurrent({ current: { temperature_2m: 70 } }) === null);
 ok("DEFAULT_COORDS is Yonkers", W.DEFAULT_COORDS.label === "Yonkers");
 
+// ── v5.12: a sun at 11pm ──────────────────────────────────────────────────
+// The pill drew a sun at 11:15 PM because the icon only ever read the
+// weather code. Open-Meteo sends is_day; the request asks for it now, and
+// the three glyphs with a sun in them swap after dark.
+ok("the forecast request asks for the day/night flag",
+   W.buildForecastUrl(40.9, -73.9, "fahrenheit").indexOf("is_day") > -1);
+ok("clear is a sun by day", W.wxFromCode(0, 1).icon === "\u2600\ufe0f");
+ok("clear is a moon by night", W.wxFromCode(0, 0).icon === "\ud83c\udf19");
+ok("mostly clear is a moon by night", W.wxFromCode(1, 0).icon === "\ud83c\udf19");
+ok("partly cloudy drops the sun after dark", W.wxFromCode(2, 0).icon === "\u2601\ufe0f");
+ok("the label is the same either way", W.wxFromCode(0, 0).label === "Clear");
+// Rain looks like rain at midnight. Only the sun glyphs needed a night face.
+ok("rain is unchanged after dark", W.wxFromCode(63, 0).icon === W.wxFromCode(63, 1).icon);
+ok("snow is unchanged after dark", W.wxFromCode(73, 0).icon === W.wxFromCode(73, 1).icon);
+ok("a storm is unchanged after dark", W.wxFromCode(95, 0).icon === W.wxFromCode(95, 1).icon);
+// A response from before this change still renders, as day, not as a crash.
+ok("no flag means day, as it always did", W.wxFromCode(0, undefined).icon === "\u2600\ufe0f");
+ok("parseCurrent carries the flag through",
+   W.parseCurrent({current: {temperature_2m: 72, weather_code: 0,
+                             time: "2026-09-13T23:15", is_day: 0}}).isDay === 0);
+// The fallback reads the hour the API reported, which timezone=auto makes
+// local to the place on screen — not to whatever zone the browser is in.
+ok("11pm with no flag is night", W.dayFromTime("2026-09-13T23:15") === 0);
+ok("noon with no flag is day", W.dayFromTime("2026-09-13T12:00") === 1);
+ok("5am with no flag is night", W.dayFromTime("2026-09-13T05:59") === 0);
+ok("an unreadable stamp is null, not a guess", W.dayFromTime("nonsense") === null);
+ok("parseCurrent falls back when the field is absent",
+   W.parseCurrent({current: {temperature_2m: 72, weather_code: 0,
+                             time: "2026-09-13T23:15"}}).isDay === 0);
+
 console.log("\n" + passed + "/" + (passed + failed) + " passed, " + failed + " failed");
 if (failed) { console.log("FAILED: " + fails.join(", ")); process.exit(1); }

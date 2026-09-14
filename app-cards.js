@@ -7643,7 +7643,7 @@ function WeatherBadge({
       }));
     } catch {}
   };
-  const meta = wx ? WeatherUtil.wxFromCode(wx.code) : null;
+  const meta = wx ? WeatherUtil.wxFromCode(wx.code, wx.isDay) : null;
   const temp = wx ? WeatherUtil.formatTemp(wx.temp) : "—";
   const title = err ? "Weather unavailable. Open-Meteo did not respond. Tap to retry." : `${meta ? meta.label : "Loading"}, ${temp} at ${place}. Source Open-Meteo. Tap to ${useGeo ? "switch to Yonkers" : "use your location"}.`;
   return /*#__PURE__*/React.createElement("button", {
