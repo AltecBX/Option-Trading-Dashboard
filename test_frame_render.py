@@ -589,6 +589,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                         })
                         .map(t => ({ text: t.textContent.trim(),
                                      y: Math.round(t.getBoundingClientRect().top),
+                                     median: t.classList.contains('wk-median'),
                                      weight: getComputedStyle(t).fontWeight }))
                         .sort((a, b) => a.y - b.y);
                     })(),
@@ -1430,12 +1431,56 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 self.assertGreaterEqual(
                     b["y"] - a["y"], 11,
                     f"{a['text']!r} and {b['text']!r} overlap in the gutter")
+            # Three dashed lines are drawn, so three medians are named.
+            self.assertEqual(
+                3, len([g for g in gut if g["median"]]),
+                "a dashed line was drawn without its value: "
+                + ", ".join(g["text"] for g in gut if g["median"]))
             # And the dashes are named, not left to be guessed.
             labels = {sw["label"] for sw in r["swatches"]}
             self.assertIn("Typical week", labels,
                           "nothing in the legend says what the dashed lines are")
             self.assertEqual(1, r["legendRows"]["rows"],
                              "the legend wrapped onto a second row")
+        finally:
+            self._close(handles)
+
+    def test_two_medians_on_the_same_value_both_keep_their_label(self):
+        """Codex, on the first cut of this: a label dropped to avoid a
+        collision leaves its dashed line drawn and unexplained, which makes
+        the legend's promise that every value is on the axis false. A week
+        that closes on its low is enough to do it — the median close lands
+        on the median low. Both labels are kept and one is stepped clear."""
+        payload = sell_payload()
+        lows = sorted(r["low_return"] for r in payload["rows"])
+        n = len(lows)
+        med_low = (lows[n // 2] if n % 2 else (lows[n // 2 - 1] + lows[n // 2]) / 2)
+        # Every week now closes exactly at the typical week's low, so the
+        # median close and the median low are the SAME number.
+        for r in payload["rows"]:
+            r["close_return"] = med_low
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=payload)
+        try:
+            gut = geo["returns"]["gutter"]
+            meds = [g for g in gut if g["median"]]
+            self.assertEqual(
+                3, len(meds),
+                "a median label was dropped instead of moved: "
+                + ", ".join(g["text"] for g in meds))
+            # The two equal ones are both there, and readable.
+            same = [g for g in meds if g["text"] == f"{med_low:.1f}%"]
+            self.assertEqual(
+                2, len(same),
+                f"the two medians at {med_low:.1f}% are not both labelled: "
+                + ", ".join(g["text"] for g in meds))
+            self.assertGreaterEqual(
+                abs(same[0]["y"] - same[1]["y"]), 10,
+                "the two equal medians are printed on top of each other")
+            for a, b in zip(gut, gut[1:]):
+                self.assertGreaterEqual(
+                    b["y"] - a["y"], 10,
+                    f"{a['text']!r} and {b['text']!r} overlap in the gutter")
         finally:
             self._close(handles)
 

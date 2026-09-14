@@ -4013,11 +4013,27 @@ Measured after, on the render fixture:
 closest pair 23px apart · legend still 1 row, 14px
 ```
 
-Guards: 184 static, 40 render. The render guard reads the drawn labels out
-of the gutter and fails on two counts — a median that is not named, and any
-two labels closer than 11px. Proven red by removing the labels:
-`AssertionError: 3 not greater than or equal to 5 : only 3 labelled values
-in the gutter: +19.8%, -17.0%, -20%`.
+### A label that is dropped is a line that lies
+
+Codex, on the first cut (P2, correct): the collision rule SKIPPED a median
+whose line sat within 11px of a label already placed. The line is still
+drawn, so the chart would show a dashed line with no number while the new
+legend tooltip promised every value was on the axis. A week that closes on
+its low is enough to trigger it — the median close lands on the median low.
+
+A colliding label is moved now, never removed: `placeGutterLabels` steps it
+just past the label it hit, in the direction it was already heading, and
+keeps it inside the plot. The generic ticks step aside from where a label
+ENDED UP rather than from the line it belongs to.
+
+Guards: 185 static, 41 render. The render guards read the drawn labels back
+out of the gutter: one fails on a median that is not named or any two
+labels closer than 11px, the other forces the collision by setting every
+week's close to the median low and fails if the two equal medians are not
+both printed and separated. Proven red — the first by removing the labels
+(`3 not greater than or equal to 5 : only 3 labelled values in the gutter`),
+the second by restoring the dropping behaviour (`3 != 2 : a median label was
+dropped instead of moved: +9.2%, -10.0%`).
 
 ## v5.14 — the bar reads as two halves, and a tenor stops being a sentence
 

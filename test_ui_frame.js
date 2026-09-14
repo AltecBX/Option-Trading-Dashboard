@@ -896,9 +896,17 @@ ok("every dashed line on the returns chart carries its value in the gutter",
    && /\{medianLines\.map\(\(m, i\) => \(/.test(read("charts.jsx"))
    && /\{m\.v >= 0 \? "\+" : ""\}\{m\.v\.toFixed\(1\)\}%/.test(read("charts.jsx")));
 // …and a label may not land on the label above it, so the generic ticks
-// step aside for the medians the same way they do for the extremes.
+// step aside for the medians the same way they do for the extremes —
+// from where the label ENDED UP, not from the line it belongs to.
 ok("the generic ticks make room for the median labels",
-   /medianLines\.some\(m => Math\.abs\(yScale\(t\) - yScale\(m\.v\)\) < 12\)\) \? null : \(/.test(read("charts.jsx")));
+   /medianLines\.some\(m => Math\.abs\(yScale\(t\) - m\.y\) < 12\)\) \? null : \(/.test(read("charts.jsx")));
+// Codex, P2: dropping a colliding label leaves its dashed line drawn and
+// unexplained, and makes the legend's promise false. Move it instead.
+ok("a colliding gutter label is moved, never dropped",
+   /function placeGutterLabels\(fixed, movers, minGap, lo, hi\) \{/.test(read("charts.jsx"))
+   && /y = y >= hit \? hit \+ minGap : hit - minGap;/.test(read("charts.jsx"))
+   && /return placeGutterLabels\(fixed, movers, 11, padT \+ 6, H - padB - 2\);/.test(read("charts.jsx"))
+   && !/if \(m\.v == null \|\| !Number\.isFinite\(m\.v\) \|\| !clear\(m\.v\)\) continue;/.test(read("charts.jsx")));
 ok("and the legend says what the dashed lines are",
    /<span className="swatch dashed" style=\{\{borderColor: "var\(--fg-3\)"\}\}><\/span>Typical week/.test(read("app.jsx")));
 ok("the returns card carries a recap under its chart",

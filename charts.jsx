@@ -35,6 +35,31 @@ function fmtPct(v, d = 2) { return (v >= 0 ? "+" : "") + v.toFixed(d) + "%"; }
 function fmtDate(d, opts = { month: "short", day: "numeric" }) {
   return d.toLocaleDateString("en-US", opts);
 }
+// Labels in an axis gutter must not sit on one another — and a label that is
+// DROPPED to avoid that makes the chart lie, because the line it belongs to is
+// still drawn. So a colliding label is MOVED, never removed: it steps just
+// past the one already placed, in the direction it was already heading, and is
+// kept inside the plot. `fixed` are labels that cannot move (the axis ends).
+function placeGutterLabels(fixed, movers, minGap, lo, hi) {
+  const taken = (fixed || []).slice();
+  const out = [];
+  for (const m of (movers || []).slice().sort((a, b) => a.y - b.y)) {
+    let y = m.y;
+    // Bounded: each pass clears one neighbour, and there are never more
+    // labels than passes.
+    for (let pass = 0; pass < 8; pass++) {
+      let hit = null;
+      for (const t of taken) if (Math.abs(y - t) < minGap) { hit = t; break; }
+      if (hit === null) break;
+      y = y >= hit ? hit + minGap : hit - minGap;
+    }
+    y = Math.min(hi, Math.max(lo, y));
+    taken.push(y);
+    out.push(Object.assign({}, m, { y }));
+  }
+  return out;
+}
+
 function niceTicks(min, max, target = 6) {
   const range = max - min;
   if (range <= 0) return [min];
@@ -1162,16 +1187,18 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
   // now. Weight is the distinction: BOLD is the record (the best high and
   // worst low, dotted), NORMAL is the typical (dashed).
   const medianLines = useMemo(() => {
-    const out = [];
-    const taken = [dataHi, dataLo].filter(v => v != null);
-    const clear = (v) => taken.every(t => Math.abs(yScale(v) - yScale(t)) >= 11);
-    for (const m of [{ v: medianHigh, c: colors.up },
-                     { v: medianLow, c: colors.down },
-                     { v: medianClose, c: "var(--fg-3)" }]) {
-      if (m.v == null || !Number.isFinite(m.v) || !clear(m.v)) continue;
-      out.push(m); taken.push(m.v);
-    }
-    return out;
+    const movers = [{ v: medianHigh, c: colors.up },
+                    { v: medianLow, c: colors.down },
+                    { v: medianClose, c: "var(--fg-3)" }]
+      .filter(m => m.v != null && Number.isFinite(m.v))
+      .map(m => Object.assign({}, m, { y: yScale(m.v) }));
+    const fixed = [dataHi, dataLo]
+      .filter(v => v != null && Number.isFinite(v))
+      .map(yScale);
+    // Two medians can land within a label's height of each other — a week
+    // that closes on its low puts the median close on the median low — and
+    // both lines are still drawn, so both keep their number.
+    return placeGutterLabels(fixed, movers, 11, padT + 6, H - padB - 2);
   }, [medianHigh, medianLow, medianClose, dataHi, dataLo, yMin, yMax]);
 
   const ticks = useMemo(() => niceTicks(yMin, yMax, 5), [yMin, yMax]);
@@ -1192,7 +1219,7 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
           // labels below (v3.47) — the true top/bottom of the data owns
           // the axis ends now.
           (Math.abs(yScale(t) - yScale(dataHi)) < 12 || Math.abs(yScale(t) - yScale(dataLo)) < 12
-           || medianLines.some(m => Math.abs(yScale(t) - yScale(m.v)) < 12)) ? null : (
+           || medianLines.some(m => Math.abs(yScale(t) - m.y) < 12)) ? null : (
           <g key={i}>
             <line x1={padL} x2={W - padR} y1={yScale(t)} y2={yScale(t)} className="grid" />
             <text x={padL - 6} y={yScale(t) + 4} className="axis-text" textAnchor="end">{t.toFixed(0)}%</text>
@@ -1226,8 +1253,8 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
             extremes use. Normal weight, so the eye still separates the
             typical week from the record one. */}
         {medianLines.map((m, i) => (
-          <text key={`ml${i}`} x={padL - 6} y={yScale(m.v) + 4} textAnchor="end"
-                className="axis-text" style={{ fill: m.c }}>
+          <text key={`ml${i}`} x={padL - 6} y={m.y + 4} textAnchor="end"
+                className="axis-text wk-median" style={{ fill: m.c }}>
             {m.v >= 0 ? "+" : ""}{m.v.toFixed(1)}%
           </text>
         ))}
@@ -2212,4 +2239,4 @@ function IntradayChart({ data }) {
   return <div className="tv-price-chart" ref={wrapRef} />;
 }
 
-Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, WeeklyRecap, _weekRows, DayBarChart, PLChart, ThetaPanel, attachTouchZoom, fmt$, fmtPct, fmtDate, niceTicks, isCompleteBar, isDrawable });
+Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, WeeklyRecap, _weekRows, DayBarChart, PLChart, ThetaPanel, attachTouchZoom, fmt$, fmtPct, fmtDate, niceTicks, isCompleteBar, isDrawable, placeGutterLabels });
