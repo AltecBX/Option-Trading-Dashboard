@@ -1154,6 +1154,26 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
   const xCenter = (i) => weekX(i, data.length);
   const yScale = (v) => padT + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
+  // v5.15: the three dashed lines are the TYPICAL week — the median high,
+  // the median low and the median close. They were drawn from the first
+  // version of this chart and never labelled, so the only way to read their
+  // values was the behaviour-summary card above the chart, which never says
+  // it is describing these lines. They carry their own number in the gutter
+  // now. Weight is the distinction: BOLD is the record (the best high and
+  // worst low, dotted), NORMAL is the typical (dashed).
+  const medianLines = useMemo(() => {
+    const out = [];
+    const taken = [dataHi, dataLo].filter(v => v != null);
+    const clear = (v) => taken.every(t => Math.abs(yScale(v) - yScale(t)) >= 11);
+    for (const m of [{ v: medianHigh, c: colors.up },
+                     { v: medianLow, c: colors.down },
+                     { v: medianClose, c: "var(--fg-3)" }]) {
+      if (m.v == null || !Number.isFinite(m.v) || !clear(m.v)) continue;
+      out.push(m); taken.push(m.v);
+    }
+    return out;
+  }, [medianHigh, medianLow, medianClose, dataHi, dataLo, yMin, yMax]);
+
   const ticks = useMemo(() => niceTicks(yMin, yMax, 5), [yMin, yMax]);
   const [hover, setHover] = useState(null);
   // Same defensive reset as PriceChart — when the rows change we drop
@@ -1171,7 +1191,8 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
           // Skip generic ticks that would collide with the exact extreme
           // labels below (v3.47) — the true top/bottom of the data owns
           // the axis ends now.
-          (Math.abs(yScale(t) - yScale(dataHi)) < 12 || Math.abs(yScale(t) - yScale(dataLo)) < 12) ? null : (
+          (Math.abs(yScale(t) - yScale(dataHi)) < 12 || Math.abs(yScale(t) - yScale(dataLo)) < 12
+           || medianLines.some(m => Math.abs(yScale(t) - yScale(m.v)) < 12)) ? null : (
           <g key={i}>
             <line x1={padL} x2={W - padR} y1={yScale(t)} y2={yScale(t)} className="grid" />
             <text x={padL - 6} y={yScale(t) + 4} className="axis-text" textAnchor="end">{t.toFixed(0)}%</text>
@@ -1200,6 +1221,16 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
               stroke={colors.down} strokeDasharray="4 3" strokeWidth="1" opacity="0.65" />
         <line x1={padL} x2={W - padR} y1={yScale(medianClose)} y2={yScale(medianClose)}
               stroke="var(--fg-3)" strokeDasharray="2 4" strokeWidth="1" opacity="0.7" />
+
+        {/* …and what each dashed line is worth, in the same gutter the
+            extremes use. Normal weight, so the eye still separates the
+            typical week from the record one. */}
+        {medianLines.map((m, i) => (
+          <text key={`ml${i}`} x={padL - 6} y={yScale(m.v) + 4} textAnchor="end"
+                className="axis-text" style={{ fill: m.c }}>
+            {m.v >= 0 ? "+" : ""}{m.v.toFixed(1)}%
+          </text>
+        ))}
 
         {data.map((d, i) => {
           const x = xCenter(i);

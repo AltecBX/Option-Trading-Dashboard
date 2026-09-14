@@ -3970,6 +3970,55 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.15 — the dashed lines now say what they are worth
+
+Jerry, on the weekly returns chart: "Whats the dash lines for the green and
+red mean? I know the dotted line is the Highest and Lowest of that period of
+time." Then: "How do I know the value?"
+
+He was right about the dotted pair, and right that the dashed ones were
+unreadable. Five lines cross that chart:
+
+| Line | What it is | Labelled before |
+|---|---|---|
+| green dotted | best high any week reached | yes, bold on the axis |
+| red dotted | worst low any week reached | yes, bold on the axis |
+| green dashed | **median** weekly high | no |
+| red dashed | **median** weekly low | no |
+| grey dashed | **median** weekly close | no |
+
+The three medians have been drawn since the first version of this chart and
+never carried a number. Their values do exist on screen — the behaviour
+summary card directly above prints Median high / Median low / Median close —
+but nothing in either place says the card is describing those lines, so the
+only way to connect them was to already know.
+
+Each dashed line now carries its value in the same gutter the extremes use,
+in its own colour. **Weight is the distinction: bold is the record, normal
+is the typical.** The generic axis ticks already stepped aside for the two
+extreme labels; they step aside for the medians now too, and a median whose
+line sits within 11px of a label already placed is skipped rather than
+stacked on top of it. One legend entry, "Typical week", names the dashed
+family, with the full explanation in its tooltip.
+
+Measured after, on the render fixture:
+
+```
++19.8%  bold    best high
+ +9.2%  normal  median high
+ +0.4%  normal  median close
+-10.0%  normal  median low
+-17.0%  bold    worst low
+  -20%  normal  surviving generic tick
+closest pair 23px apart · legend still 1 row, 14px
+```
+
+Guards: 184 static, 40 render. The render guard reads the drawn labels out
+of the gutter and fails on two counts — a median that is not named, and any
+two labels closer than 11px. Proven red by removing the labels:
+`AssertionError: 3 not greater than or equal to 5 : only 3 labelled values
+in the gutter: +19.8%, -17.0%, -20%`.
+
 ## v5.14 — the bar reads as two halves, and a tenor stops being a sentence
 
 Three asks, all about reading speed.

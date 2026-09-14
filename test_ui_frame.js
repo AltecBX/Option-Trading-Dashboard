@@ -887,6 +887,20 @@ ok("the earnings shading is still the amber it was",
    /fill=\{earningsByWeek\[i\] \? colors\.warn : "transparent"\}/.test(read("charts.jsx")));
 // The returns card drew its chart and stopped, ~200px short of its own
 // bottom edge while the card beside it ran the full height.
+// v5.15: five lines cross the returns chart. The dotted extremes were
+// labelled on the axis from the first version; the three dashed medians —
+// the typical week's high, low and close — were not, so the only place
+// their values appeared was a card above that never mentions them.
+ok("every dashed line on the returns chart carries its value in the gutter",
+   /const medianLines = useMemo\(\(\) => \{/.test(read("charts.jsx"))
+   && /\{medianLines\.map\(\(m, i\) => \(/.test(read("charts.jsx"))
+   && /\{m\.v >= 0 \? "\+" : ""\}\{m\.v\.toFixed\(1\)\}%/.test(read("charts.jsx")));
+// …and a label may not land on the label above it, so the generic ticks
+// step aside for the medians the same way they do for the extremes.
+ok("the generic ticks make room for the median labels",
+   /medianLines\.some\(m => Math\.abs\(yScale\(t\) - yScale\(m\.v\)\) < 12\)\) \? null : \(/.test(read("charts.jsx")));
+ok("and the legend says what the dashed lines are",
+   /<span className="swatch dashed" style=\{\{borderColor: "var\(--fg-3\)"\}\}><\/span>Typical week/.test(read("app.jsx")));
 ok("the returns card carries a recap under its chart",
    /<WeeklyRecap rows=\{rows\} colors=\{chartColors\} \/>/.test(app)
    && /function WeeklyRecap\(\{ rows, colors \}\)/.test(read("charts.jsx")));

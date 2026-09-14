@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.14";
+const APP_VERSION = "5.15";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -5058,6 +5058,17 @@ function App() {
                 <span className="item"><span className="swatch" style={{background: chartColors.down}}></span>Low</span>
                 <span className="item"><span className="swatch open-tick" title="Open marker — short tick on the left side of each bar"></span>Open</span>
                 <span className="item"><span className="swatch ring"></span>Close</span>
+                {/* v5.15: the dashed lines were unexplained. One entry covers
+                    all three — the colours already say which is which — and
+                    the axis carries each one's value. */}
+                <span className="item" title={"The three DASHED lines are the typical week, and each one's value is on the axis: "
+                  + "the median high (green), the median low (red) and the median close (grey). "
+                  + "Half the weeks reached past a dashed line, half did not. "
+                  + "The two DOTTED lines at the top and bottom are the single best high and single worst low "
+                  + "in this window — the record, not the typical week. "
+                  + "A strike outside the dashed line is a strike the typical week does not reach."}>
+                  <span className="swatch dashed" style={{borderColor: "var(--fg-3)"}}></span>Typical week
+                </span>
                 <span className="item"><span className="swatch" style={{background: chartColors.now}}></span>This week</span>
                 {liveEarnings.past?.length > 0 && (
                   <span className="item"><span className="swatch dot" style={{background: chartColors.warn}}></span>Earnings week</span>

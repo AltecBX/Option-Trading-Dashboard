@@ -570,6 +570,36 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     recapTiles: c.querySelectorAll('.wrc-tile').length,
                     recapBars: c.querySelectorAll('.wrc-svg rect').length,
                     recapText: recap ? recap.innerText.replace(/\\s+/g, ' ').trim() : '',
+                    // v5.15: every line drawn across this chart has to be
+                    // readable. The dotted extremes were labelled from the
+                    // start; the three dashed medians were not. Collect every
+                    // axis-gutter label with its y, so a guard can check both
+                    // that the medians are named and that no two labels sit
+                    // on top of one another.
+                    gutter: (() => {
+                      const main = c.querySelector('svg');
+                      if (!main) return [];
+                      const box = main.getBoundingClientRect();
+                      return [...main.querySelectorAll('text.axis-text')]
+                        .filter(t => {
+                          const r2 = t.getBoundingClientRect();
+                          // the gutter ends at the plot's left edge (padL); a wider
+                          // window here swallows the first x-axis date label
+                          return r2.width > 0 && r2.right <= box.left + box.width * 0.075;
+                        })
+                        .map(t => ({ text: t.textContent.trim(),
+                                     y: Math.round(t.getBoundingClientRect().top),
+                                     weight: getComputedStyle(t).fontWeight }))
+                        .sort((a, b) => a.y - b.y);
+                    })(),
+                    legendRows: (() => {
+                      const l = c.querySelector('.legend');
+                      if (!l) return null;
+                      const tops = new Set([...l.querySelectorAll('.item')]
+                        .map(e => Math.round(e.getBoundingClientRect().top)));
+                      return {rows: tops.size,
+                              h: Math.round(l.getBoundingClientRect().height)};
+                    })(),
                     // Each strip bar titles its own week. First and last
                     // are what pin the strip's direction to its label.
                     // The two SVGs read as one picture, so week i must sit
@@ -1368,6 +1398,44 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertIsNotNone(r, "the weekly returns card did not render")
             self.assertLess(r["dead"], 60,
                             f"{r['dead']}px of unused card under the last thing in it")
+        finally:
+            self._close(handles)
+
+    def test_every_line_across_the_returns_chart_carries_its_value(self):
+        """Five lines cross this chart. The two DOTTED ones — the best high
+        and worst low in the window — were labelled on the axis from the
+        start. The three DASHED ones, the typical week's high, low and
+        close, were not: the only place their values appeared was the
+        behaviour-summary card above, which never says it is describing
+        them. Now every drawn line names its own number, no two labels
+        overlap, and the legend still fits on one row."""
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=sell_payload())
+        try:
+            r = geo["returns"]
+            gut = r["gutter"]
+            self.assertTrue(gut, "no labels in the chart's axis gutter")
+            pct = [g for g in gut if g["text"].endswith("%")]
+            # Two extremes + three medians + whatever generic ticks survive.
+            self.assertGreaterEqual(
+                len(pct), 5,
+                f"only {len(pct)} labelled values in the gutter: "
+                + ", ".join(g["text"] for g in gut))
+            # BOLD is the record, NORMAL is the typical: both kinds present.
+            bold = [g for g in pct if int(g["weight"]) >= 700]
+            self.assertEqual(2, len(bold),
+                             "the two extremes are not the only bold labels")
+            # A label sitting on another label is a label nobody can read.
+            for a, b in zip(gut, gut[1:]):
+                self.assertGreaterEqual(
+                    b["y"] - a["y"], 11,
+                    f"{a['text']!r} and {b['text']!r} overlap in the gutter")
+            # And the dashes are named, not left to be guessed.
+            labels = {sw["label"] for sw in r["swatches"]}
+            self.assertIn("Typical week", labels,
+                          "nothing in the legend says what the dashed lines are")
+            self.assertEqual(1, r["legendRows"]["rows"],
+                             "the legend wrapped onto a second row")
         finally:
             self._close(handles)
 

@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.14";
+const APP_VERSION = "5.15";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -6335,6 +6335,14 @@ function App() {
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch ring"
   }), "Close"), /*#__PURE__*/React.createElement("span", {
+    className: "item",
+    title: "The three DASHED lines are the typical week, and each one's value is on the axis: " + "the median high (green), the median low (red) and the median close (grey). " + "Half the weeks reached past a dashed line, half did not. " + "The two DOTTED lines at the top and bottom are the single best high and single worst low " + "in this window — the record, not the typical week. " + "A strike outside the dashed line is a strike the typical week does not reach."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swatch dashed",
+    style: {
+      borderColor: "var(--fg-3)"
+    }
+  }), "Typical week"), /*#__PURE__*/React.createElement("span", {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch",
