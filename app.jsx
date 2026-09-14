@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.11";
+const APP_VERSION = "5.12";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2740,6 +2740,7 @@ function App() {
       warn: cs.getPropertyValue("--warn").trim() || "#d97706",
       fg2: cs.getPropertyValue("--fg-2").trim() || "#9ca3af",
       fg3: cs.getPropertyValue("--fg-3").trim() || "#6b7280",
+      now: cs.getPropertyValue("--now").trim() || "#3b6fd4",
       band: cs.getPropertyValue("--accent").trim() || "#16a34a",
       bandSolid: cs.getPropertyValue("--bg-3").trim() || "#eee",
     };
@@ -5057,7 +5058,7 @@ function App() {
                 <span className="item"><span className="swatch" style={{background: chartColors.down}}></span>Low</span>
                 <span className="item"><span className="swatch open-tick" title="Open marker — short tick on the left side of each bar"></span>Open</span>
                 <span className="item"><span className="swatch ring"></span>Close</span>
-                <span className="item"><span className="swatch" style={{background: chartColors.warn}}></span>This week</span>
+                <span className="item"><span className="swatch" style={{background: chartColors.now}}></span>This week</span>
                 {liveEarnings.past?.length > 0 && (
                   <span className="item"><span className="swatch dot" style={{background: chartColors.warn}}></span>Earnings week</span>
                 )}
@@ -5066,6 +5067,11 @@ function App() {
             <ReturnsChart rows={rows} medianHigh={medianHigh} medianLow={medianLow}
                           medianClose={medianClose} currentReturn={currReturn} colors={chartColors}
                           earnings={liveEarnings} />
+            {/* v5.12: the chart used to end here and leave ~200px of empty
+                card under it. This is what those weeks say that the bars
+                cannot: consistency, range, whether ranges are opening up,
+                and what the stock does over a weekend. */}
+            <WeeklyRecap rows={rows} colors={chartColors} />
           </div>
           <div className="card">
             <div className="card-head">

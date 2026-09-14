@@ -1709,6 +1709,8 @@ function ReturnsChart({
   const innerW = W - padL - padR,
     innerH = H - padT - padB;
   const data = useMemo(() => [...rows].sort((a, b) => a.week_start - b.week_start), [rows]);
+  // The week-in-progress colour, distinct from the earnings amber.
+  const nowC = colors.now || colors.accent;
 
   // Tag each week (Mon..Sun span starting at week_start) with whether it
   // contained an earnings announcement. We compare on the date level so the
@@ -1936,43 +1938,49 @@ function ReturnsChart({
   }), currentReturn != null && (() => {
     const x = xCenter(data.length);
     const yC = yScale(currentReturn);
-    return /*#__PURE__*/React.createElement("g", {
-      onMouseEnter: () => setHover({
-        kind: "now"
-      })
-    }, /*#__PURE__*/React.createElement("rect", {
-      x: x - slot / 2,
-      y: padT,
-      width: slot,
-      height: innerH,
-      fill: colors.warn,
-      opacity: "0.05"
-    }), /*#__PURE__*/React.createElement("line", {
-      x1: x,
-      x2: x,
-      y1: padT,
-      y2: padT + innerH,
-      stroke: colors.warn,
-      strokeWidth: "1",
-      strokeDasharray: "2 3",
-      opacity: "0.5"
-    }), /*#__PURE__*/React.createElement("circle", {
-      cx: x,
-      cy: yC,
-      r: "5",
-      fill: colors.warn,
-      stroke: "var(--bg-2)",
-      strokeWidth: "2"
-    }), /*#__PURE__*/React.createElement("text", {
-      x: x,
-      y: padT - 4,
-      className: "axis-text",
-      textAnchor: "middle",
-      fill: colors.warn,
-      style: {
-        fontWeight: 600
-      }
-    }, "NOW"));
+    return (
+      /*#__PURE__*/
+      // v5.12: the week in progress gets its OWN colour. It shared the
+      // earnings amber, so the one column that is not a past earnings
+      // week was shaded like one.
+      React.createElement("g", {
+        onMouseEnter: () => setHover({
+          kind: "now"
+        })
+      }, /*#__PURE__*/React.createElement("rect", {
+        x: x - slot / 2,
+        y: padT,
+        width: slot,
+        height: innerH,
+        fill: nowC,
+        opacity: "0.10"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: x,
+        x2: x,
+        y1: padT,
+        y2: padT + innerH,
+        stroke: nowC,
+        strokeWidth: "1",
+        strokeDasharray: "2 3",
+        opacity: "0.6"
+      }), /*#__PURE__*/React.createElement("circle", {
+        cx: x,
+        cy: yC,
+        r: "5",
+        fill: nowC,
+        stroke: "var(--bg-2)",
+        strokeWidth: "2"
+      }), /*#__PURE__*/React.createElement("text", {
+        x: x,
+        y: padT - 4,
+        className: "axis-text",
+        textAnchor: "middle",
+        fill: nowC,
+        style: {
+          fontWeight: 700
+        }
+      }, "NOW"))
+    );
   })(), data.map((d, i) => {
     const stride = Math.max(1, Math.ceil(data.length / 6));
     if (i % stride !== 0) return null;
@@ -1991,9 +1999,9 @@ function ReturnsChart({
     y: H - 10,
     className: "axis-text",
     textAnchor: "middle",
-    fill: colors.warn,
+    fill: nowC,
     style: {
-      fontWeight: 600
+      fontWeight: 700
     }
   }, "now")), hover && hover.kind === "row" && data[hover.i] && /*#__PURE__*/React.createElement("div", {
     className: "chart-tooltip small",
@@ -2035,7 +2043,7 @@ function ReturnsChart({
   }, /*#__PURE__*/React.createElement("div", {
     className: "tt-date",
     style: {
-      color: colors.warn
+      color: nowC
     }
   }, "This week so far"), /*#__PURE__*/React.createElement("div", {
     className: "tt-row"
@@ -2044,6 +2052,200 @@ function ReturnsChart({
       color: currentReturn >= 0 ? colors.up : colors.down
     }
   }, fmtPct(currentReturn, 2)))));
+}
+
+// ── What the weeks add up to (v5.12) ───────────────────────────────────────
+// The returns card drew its chart and stopped, leaving ~200px of empty card
+// under it while the Day-of-week card beside it ran to the bottom. This
+// fills that space with the four things fifteen weeks of OHLC say that the
+// bars themselves do not.
+//
+// Deliberately NOT a repeat of what is already on this screen. The row of
+// tiles above the chart gives median high, median low, median close and the
+// typical high/low weekday; the card to the right gives the weekday
+// distribution. None of them answer: does this name grind or chop, are its
+// ranges opening up or settling down, and what does it do over a weekend.
+//
+// Every number is derived from the same `rows` the chart draws, so nothing
+// here can disagree with the bars above it.
+function WeeklyRecap({
+  rows,
+  colors
+}) {
+  const data = useMemo(() => [...(rows || [])].sort((a, b) => a.week_start - b.week_start), [rows]);
+  const stats = useMemo(() => {
+    const n = data.length;
+    if (n < 3) return null;
+    const ranges = data.map(d => d.high_return - d.low_return);
+    const avgRange = ranges.reduce((a, b) => a + b, 0) / n;
+    const green = data.filter(d => d.close_return > 0).length;
+
+    // Current run, counted back from the most recent completed week.
+    const lastUp = data[n - 1].close_return > 0;
+    let streak = 0;
+    for (let i = n - 1; i >= 0; i--) {
+      if (data[i].close_return > 0 !== lastUp) break;
+      streak++;
+    }
+
+    // Recent four weeks against everything before them. Under eight weeks
+    // there is no "before", so the tile says so rather than inventing one.
+    let trend = null;
+    if (n >= 8) {
+      const recent = ranges.slice(-4);
+      const prior = ranges.slice(0, -4);
+      const rAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+      const pAvg = prior.reduce((a, b) => a + b, 0) / prior.length;
+      if (pAvg > 0) trend = {
+        pct: (rAvg / pAvg - 1) * 100,
+        recent: rAvg,
+        prior: pAvg
+      };
+    }
+
+    // The weekend gap only exists in Friday-baseline mode; in Monday-open
+    // mode open_return is 0 by construction, so an "average gap" would be a
+    // row of zeros dressed up as a finding. Detect and drop the tile.
+    const gaps = data.map(d => d.open_return).filter(v => typeof v === "number");
+    const gapReal = gaps.length >= 3 && gaps.some(v => Math.abs(v) > 0.01);
+    const gapUp = gaps.filter(v => v > 0).length;
+    const gapAvg = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null;
+    let widest = data[0],
+      tightest = data[0];
+    data.forEach((d, i) => {
+      if (ranges[i] > widest.high_return - widest.low_return) widest = d;
+      if (ranges[i] < tightest.high_return - tightest.low_return) tightest = d;
+    });
+    return {
+      n,
+      ranges,
+      avgRange,
+      green,
+      streak,
+      lastUp,
+      trend,
+      gapReal,
+      gapUp,
+      gapAvg,
+      gapN: gaps.length,
+      widest,
+      tightest
+    };
+  }, [data]);
+  if (!stats) return null;
+  const {
+    n,
+    ranges,
+    avgRange,
+    green,
+    streak,
+    lastUp,
+    trend
+  } = stats;
+  const pct = (v, d = 1) => `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`;
+  const day = d => fmtDate(d.week_start, {
+    month: "short",
+    day: "numeric"
+  });
+
+  // The range strip. One bar per completed week, oldest to newest, height by
+  // the week's high-to-low span and colour by where it closed. The bars above
+  // are positioned by return, which makes comparing SPANS across weeks hard;
+  // this isolates the span alone.
+  const SW = 720,
+    SH = 64,
+    sPadT = 6,
+    sPadB = 14;
+  const innerH = SH - sPadT - sPadB;
+  const maxRange = Math.max(...ranges, 0.01);
+  const slot = SW / n;
+  const barW = Math.max(3, Math.min(22, slot * 0.62));
+  const avgY = sPadT + (1 - avgRange / maxRange) * innerH;
+  const Tile = ({
+    lbl,
+    val,
+    sub,
+    tone,
+    tip
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "wrc-tile",
+    title: tip
+  }, /*#__PURE__*/React.createElement("em", null, lbl), /*#__PURE__*/React.createElement("b", {
+    className: tone ? `wrc-${tone}` : ""
+  }, val), /*#__PURE__*/React.createElement("span", null, sub));
+  return /*#__PURE__*/React.createElement("div", {
+    className: "wrc"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wrc-head"
+  }, "What these ", n, " weeks add up to"), /*#__PURE__*/React.createElement("div", {
+    className: "wrc-tiles"
+  }, /*#__PURE__*/React.createElement(Tile, {
+    lbl: "WEEKS CLOSED GREEN",
+    val: `${green} of ${n}`,
+    tone: green * 2 > n ? "up" : green * 2 < n ? "down" : null,
+    sub: `${streak} ${lastUp ? "green" : "red"} in a row now`,
+    tip: `How many of the ${n} completed weeks finished above their baseline, and how long the current run of same-direction weeks is. A name that grinds one way is a different sale from one that chops.`
+  }), /*#__PURE__*/React.createElement(Tile, {
+    lbl: "TYPICAL WEEK RANGE",
+    val: `${avgRange.toFixed(1)}%`,
+    sub: `widest ${(stats.widest.high_return - stats.widest.low_return).toFixed(0)}% · tightest ${(stats.tightest.high_return - stats.tightest.low_return).toFixed(0)}%`,
+    tip: `Average high-to-low span of a week, and the widest and tightest of the ${n}. This is the room a strike has to survive, not the distance to where price closed.`
+  }), trend ? /*#__PURE__*/React.createElement(Tile, {
+    lbl: "RANGE TREND",
+    val: `${trend.pct < 0 ? "narrowing" : "widening"} ${Math.abs(trend.pct).toFixed(0)}%`,
+    tone: trend.pct < 0 ? "up" : "down",
+    sub: `last 4 wks ${trend.recent.toFixed(1)}% vs ${trend.prior.toFixed(1)}%`,
+    tip: "The last four weeks' average range against every week before them. Widening ranges breach strikes that used to be safe; narrowing ranges make the same strike safer and the premium thinner."
+  }) : /*#__PURE__*/React.createElement(Tile, {
+    lbl: "RANGE TREND",
+    val: "\u2014",
+    sub: `needs 8 weeks, have ${n}`,
+    tip: "Comparing the recent weeks against the earlier ones needs at least eight weeks of history. Raise the weeks slider."
+  }), stats.gapReal ? /*#__PURE__*/React.createElement(Tile, {
+    lbl: "WEEKEND GAP",
+    val: pct(stats.gapAvg),
+    tone: stats.gapAvg > 0 ? "up" : "down",
+    sub: `opened up ${stats.gapUp} of ${stats.gapN} weeks`,
+    tip: "Monday's open against the previous Friday's close, averaged. This is the move a position held over a weekend takes before you can do anything about it."
+  }) : /*#__PURE__*/React.createElement(Tile, {
+    lbl: "WIDEST WEEK",
+    val: `${(stats.widest.high_return - stats.widest.low_return).toFixed(0)}%`,
+    sub: `week of ${day(stats.widest)}`,
+    tip: "The largest high-to-low span in the window. The weekend-gap reading needs the Friday baseline; on the Monday-open baseline every week opens at zero by definition."
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "wrc-strip"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wrc-strip-lbl"
+  }, /*#__PURE__*/React.createElement("span", null, "WEEKLY RANGE \xB7 OLDEST TO NEWEST"), /*#__PURE__*/React.createElement("span", {
+    className: "wrc-strip-avg"
+  }, "average ", avgRange.toFixed(1), "%")), /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${SW} ${SH}`,
+    className: "chart-svg wrc-svg",
+    preserveAspectRatio: "none"
+  }, /*#__PURE__*/React.createElement("line", {
+    x1: "0",
+    x2: SW,
+    y1: avgY,
+    y2: avgY,
+    stroke: "var(--fg-3)",
+    strokeDasharray: "3 4",
+    strokeWidth: "1",
+    opacity: "0.7"
+  }), data.map((d, i) => {
+    const r = ranges[i];
+    const h = Math.max(1.5, r / maxRange * innerH);
+    const x = slot * (i + 0.5) - barW / 2;
+    return /*#__PURE__*/React.createElement("rect", {
+      key: i,
+      x: x,
+      y: sPadT + innerH - h,
+      width: barW,
+      height: h,
+      rx: "1.5",
+      fill: d.close_return >= 0 ? colors.up : colors.down,
+      opacity: r >= avgRange ? 0.95 : 0.7
+    }, /*#__PURE__*/React.createElement("title", null, `${day(d)} · range ${r.toFixed(1)}% · closed ${pct(d.close_return, 1)}`));
+  }))));
 }
 
 // ── Day of week bars ───────────────────────────────────────────────────────
@@ -3093,6 +3295,7 @@ Object.assign(window, {
   TVPriceChart,
   IntradayChart,
   ReturnsChart,
+  WeeklyRecap,
   DayBarChart,
   PLChart,
   ThetaPanel,

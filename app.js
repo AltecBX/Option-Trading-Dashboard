@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.11";
+const APP_VERSION = "5.12";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3405,6 +3405,7 @@ function App() {
       warn: cs.getPropertyValue("--warn").trim() || "#d97706",
       fg2: cs.getPropertyValue("--fg-2").trim() || "#9ca3af",
       fg3: cs.getPropertyValue("--fg-3").trim() || "#6b7280",
+      now: cs.getPropertyValue("--now").trim() || "#3b6fd4",
       band: cs.getPropertyValue("--accent").trim() || "#16a34a",
       bandSolid: cs.getPropertyValue("--bg-3").trim() || "#eee"
     };
@@ -6338,7 +6339,7 @@ function App() {
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch",
     style: {
-      background: chartColors.warn
+      background: chartColors.now
     }
   }), "This week"), liveEarnings.past?.length > 0 && /*#__PURE__*/React.createElement("span", {
     className: "item"
@@ -6355,6 +6356,9 @@ function App() {
     currentReturn: currReturn,
     colors: chartColors,
     earnings: liveEarnings
+  }), /*#__PURE__*/React.createElement(WeeklyRecap, {
+    rows: rows,
+    colors: chartColors
   })), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {

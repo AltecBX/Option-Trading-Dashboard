@@ -1,4 +1,4 @@
-# The permanent frame (v5.11)
+# The permanent frame (v5.12)
 
 What changed in the presentation layer, why, what was measured, and the
 feature-preservation checklist this was built against.
@@ -903,3 +903,35 @@ Three corrections, all in the top bar.
 Layout note: the clock row is `align-items: center`. It was `baseline`,
 which was fine for three runs of text and wrong the moment the row held a
 7px dot and a 13px divider — both would have hung below the centre line.
+
+
+---
+
+## 18. A card that stopped short, and three smaller corrections (v5.12)
+
+**The measurement first.** Weekly Returns History was 665px tall with its
+chart ending at 468 — 197px of empty card — while the Day of Week card
+beside it ran to 646 of 665. Cards in a row stretch to the tallest, so the
+shorter one's content does not grow to meet it; it just leaves a hole. Any
+card that ends well short of its own bottom edge in a stretched row is a
+layout bug, and there is a render guard on this one now.
+
+It is filled with a recap of what the weeks add up to: four tiles
+(consistency, typical range, range trend, weekend gap) and a one-bar-per-
+week range strip. The content was chosen against what is already on the
+screen — the median row above the chart, the weekday card beside it — so
+it adds rather than repeats.
+
+**Three corrections to v5.11 and earlier.**
+
+- **The clock's label is neutral again.** v5.11 coloured the dot and the
+  label both. One coloured thing in a row reads faster than two saying the
+  same thing, so only the dot carries the state, at 8px.
+- **The weather pill knows about night.** Its glyph only read the weather
+  code, so a clear night drew a sun. It reads Open-Meteo's `is_day` now.
+- **"This week" has its own colour.** It shared the earnings amber, so the
+  one column that is not a past earnings week was shaded like one. `--now`
+  is a blue, deliberately outside the three hues already spoken for: green
+  is up, red is down, amber is earnings. **Two states that mean different
+  things may not share a colour** — that is the rule the guard pins, by
+  comparing the two legend swatches rather than the stylesheet.

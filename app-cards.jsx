@@ -5324,7 +5324,7 @@ function WeatherBadge({ variant }) {
     try { localStorage.setItem(WX_KEY, JSON.stringify({ useGeo: next })); } catch {}
   };
 
-  const meta = wx ? WeatherUtil.wxFromCode(wx.code) : null;
+  const meta = wx ? WeatherUtil.wxFromCode(wx.code, wx.isDay) : null;
   const temp = wx ? WeatherUtil.formatTemp(wx.temp) : "—";
   const title = err
     ? "Weather unavailable. Open-Meteo did not respond. Tap to retry."

@@ -259,7 +259,10 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
         "sellPlan": plan,
         "volRank": None, "volPct": None, "volRankN": None,
         "volRankKind": "hv_proxy", "hvCurrent": None,
-        "earningsHistory": {"past": [], "next": None},
+        # A past earnings week inside the window, so the chart draws its
+        # amber shading and the legend carries BOTH colours — which is what
+        # makes "this week is not an earnings week" a checkable claim.
+        "earningsHistory": {"past": [bars[len(bars) // 2]["date"][:10]], "next": None},
     }
 
 
@@ -509,8 +512,36 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     stateColor: mkt ? getComputedStyle(mkt).color : null,
                     dotColor: dot ? getComputedStyle(dot).backgroundColor : null,
                     when: when ? when.innerText.trim() : null,
+                    whenColor: when ? getComputedStyle(when).color : null,
                     icons: [...document.querySelectorAll('.ab-right .ab-icon')]
                              .map(b => (b.innerText || '').trim()),
+                  };
+                })(),
+                // v5.12: the returns card, its recap, and the two chart
+                // colours that must not be the same one.
+                returns: (() => {
+                  const cards = [...document.querySelectorAll('.card')].filter(c => {
+                    const k = c.querySelector('.kicker');
+                    return k && /weekly returns history/i.test(k.innerText);
+                  });
+                  const c = cards[0];
+                  if (!c) return null;
+                  const r = c.getBoundingClientRect();
+                  const kids = [...c.children];
+                  const last = kids.length ? kids[kids.length - 1].getBoundingClientRect() : null;
+                  const sw = [...c.querySelectorAll('.legend .item')].map(it => ({
+                    label: it.innerText.trim(),
+                    color: (() => { const s2 = it.querySelector('.swatch');
+                      return s2 ? getComputedStyle(s2).backgroundColor : null; })(),
+                  }));
+                  const recap = c.querySelector('.wrc');
+                  return {
+                    h: Math.round(r.height),
+                    dead: last ? Math.round(r.bottom - last.bottom) : null,
+                    swatches: sw,
+                    recapTiles: c.querySelectorAll('.wrc-tile').length,
+                    recapBars: c.querySelectorAll('.wrc-svg rect').length,
+                    recapText: recap ? recap.innerText.replace(/\\s+/g, ' ').trim() : '',
                   };
                 })(),
                 doc: {scrollW: document.documentElement.scrollWidth},
@@ -1213,9 +1244,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertEqual(c["order"], ["ab-mkt", "ab-clock-sep", "ab-when"])
             self.assertIn(c["state"], ("Markets Open", "Pre-Market",
                                        "After Hours", "Markets Closed"))
-            # Whatever the session, the dot and the label agree with each other.
-            self.assertEqual(c["stateColor"], c["dotColor"],
-                             "the dot and the label are different colours")
+            # v5.12: the DOT carries the state and the label stays neutral.
+            # One coloured thing in the row, not two saying the same thing —
+            # so these two must now DIFFER, and the label must match the
+            # date beside it rather than the dot.
+            self.assertNotEqual(c["stateColor"], c["dotColor"],
+                                "the label is coloured like the dot again")
+            self.assertEqual(c["stateColor"], c["whenColor"],
+                             "the label does not match the date beside it")
             # ...and a shut market is the red one.
             if c["state"] == "Markets Closed":
                 self.assertIn("ab-mkt-shut", c["stateCls"])
@@ -1232,6 +1268,58 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                                    r"\d{1,2}:\d{2}:\d{2} [AP]M ET$",
                              f"the clock reads {when!r}")
             self.assertNotRegex(when, r"\b(19|20)\d{2}\b", "the year is back")
+        finally:
+            self._close(handles)
+
+    def test_the_returns_card_does_not_end_in_empty_space(self):
+        # It drew its chart and stopped, leaving ~200px of empty card while
+        # the card beside it ran to the bottom. Whatever fills it, the
+        # bottom of the card has to be close to the bottom of its content.
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=sell_payload())
+        try:
+            r = geo["returns"]
+            self.assertIsNotNone(r, "the weekly returns card did not render")
+            self.assertLess(r["dead"], 60,
+                            f"{r['dead']}px of unused card under the last thing in it")
+        finally:
+            self._close(handles)
+
+    def test_this_week_is_not_coloured_like_an_earnings_week(self):
+        # Every past earnings week is shaded amber. The week in progress was
+        # shaded the same amber, so the one column that is NOT an earnings
+        # week looked like one.
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=sell_payload())
+        try:
+            sw = {s["label"]: s["color"] for s in geo["returns"]["swatches"]}
+            self.assertIn("This week", sw)
+            self.assertIn("Earnings week", sw,
+                          "the fixture lost its past-earnings week")
+            self.assertNotEqual(sw["This week"], sw["Earnings week"],
+                                "this week and an earnings week share one colour")
+        finally:
+            self._close(handles)
+
+    def test_the_recap_says_what_the_weeks_add_up_to(self):
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=sell_payload())
+        try:
+            r = geo["returns"]
+            self.assertEqual(r["recapTiles"], 4)
+            self.assertGreater(r["recapBars"], 8, "the range strip drew no bars")
+            for phrase in ("WEEKS CLOSED GREEN", "TYPICAL WEEK RANGE", "RANGE TREND"):
+                self.assertIn(phrase, r["recapText"])
+        finally:
+            self._close(handles)
+
+    def test_the_recap_fits_a_phone_without_clipping(self):
+        geo, _, handles = self._measure(440, 956, tab="analyze",
+                                        ticker_payload=sell_payload())
+        try:
+            self.assertEqual(geo["returns"]["recapTiles"], 4)
+            self.assertLessEqual(geo["doc"]["scrollW"], 441,
+                                 "the recap pushed the page sideways")
         finally:
             self._close(handles)
 

@@ -3910,3 +3910,62 @@ render checks that read the drawn bar — the children in order, the label
 and the dot agreeing on a colour, a shut market carrying the red class,
 the date matching `Sun SEP 13, 3:08:24 PM ET` with no year in it, and no
 "?" left in the bar's icon row.
+
+## v5.12 — four corrections, one of them a card that stopped short
+
+**One signal in the clock.** v5.11 coloured the dot *and* the label. Jerry:
+"Keep the label light grey, only the dot red. Make the dot 1pt larger."
+Two ways of saying one thing is one too many, so the label is back to
+`--fg-2` and the dot is 8px, because it is now the whole signal. Green
+during the regular session, amber either side, red shut — all on the dot.
+
+**A sun at 11:15 PM.** The pill's glyph only ever read the weather code,
+so a clear night drew a sun. Open-Meteo sends `is_day`; the request asks
+for it now and the three glyphs with a sun in them swap after dark: clear
+and mostly-clear become a moon, partly-cloudy drops to a cloud. Rain, snow
+and storms look the same at midnight, so they are untouched. A response
+without the field falls back to the hour the API itself reported —
+`timezone=auto` makes that hour local to the place on screen, not to the
+browser — and an unreadable stamp returns null rather than a guess.
+
+**"This week" was shaded like an earnings week.** Every past earnings week
+gets an amber column. So did the week in progress, which is the one column
+that is *not* an earnings week. It now has its own token, `--now`, a blue
+deliberately outside the three hues already spoken for: green is up, red is
+down, amber is earnings. The legend swatch moved with it.
+
+**The returns card stopped ~200px short of its own bottom.** Measured
+before touching anything: the Weekly Returns History card was 665px tall
+with its chart ending at 468 — **197px of dead card** — while the Day of
+Week card beside it ran to 646 of 665. That is the empty space Jerry saw.
+
+What fills it is the four things fifteen weeks of OHLC say that the bars
+themselves do not, chosen to avoid repeating the median row above the chart
+or the weekday card beside it:
+
+- **Weeks closed green**, with the current run. Grind or chop.
+- **Typical week range**, with the widest and tightest. The room a strike
+  has to survive, which is not the distance to where price closed.
+- **Range trend** — the last four weeks' average range against every week
+  before them. Widening ranges breach strikes that used to be safe.
+  Under eight weeks there is no "before", and the tile says so.
+- **Weekend gap** — Monday's open against Friday's close. The move a
+  position takes before you can do anything about it. `open_return` is 0
+  by construction in Monday-open mode, so the tile detects that and shows
+  the widest week instead of a row of zeros dressed up as a finding.
+
+Under them, a strip of one bar per week — range by height, close direction
+by colour, average as a dashed line. The bars above are positioned by
+*return*, which makes comparing *spans* across weeks hard; this isolates
+the span. Every number comes from the same `rows` the chart draws, so the
+recap cannot disagree with the bars above it.
+
+After: 19px of dead card, against 38 in its neighbour. On a phone the
+tiles fall to 2×2, nothing clips, nothing is under the 10px floor.
+
+Guards: 175 static checks, four new render checks — the dead space at the
+bottom of that card, "this week" and "earnings week" holding different
+colours in the legend, the recap's four tiles and its strip, and the phone
+laying it out without sideways scroll — and 40 in `test_weather.js`.
+Three v5.11 clock guards were rewritten rather than deleted: they pinned
+the old rule that the label carried the colour, and the rule changed.
