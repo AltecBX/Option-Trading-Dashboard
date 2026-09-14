@@ -1691,18 +1691,24 @@ function PriceChart({
 // One bar per week: vertical range from low_return to high_return.
 // Close shown as a dot. Median high / median low / median close drawn as dashed lines.
 // Current week marker at the right edge with a separate styling.
-// Week ordering, oldest first. `week_start` reaches these components as a
-// Date (data.js hydrates every live row), and subtracting Dates is what the
-// charts have always done. But a caller that hands over RAW payload rows
-// gets ISO strings, and subtracting two strings is NaN — a comparator that
-// returns NaN leaves the array untouched, so the rows would silently stay
-// newest-first and a strip labelled "oldest to newest" would draw backwards
-// with nothing to show for it. Comparing this way is correct for both.
-function _weekOrder(a, b) {
-  const av = a.week_start,
-    bv = b.week_start;
-  if (av instanceof Date && bv instanceof Date) return av - bv;
-  return String(av) < String(bv) ? -1 : String(av) > String(bv) ? 1 : 0;
+// The weeks, oldest first, with real Dates on them.
+//
+// `week_start` normally arrives as a Date because data.js hydrates every
+// live row. A caller handing over RAW payload rows gets ISO strings, and a
+// string breaks these components in two different places: subtracting two
+// strings is NaN, and a comparator returning NaN leaves the array untouched
+// (so a strip captioned "oldest to newest" draws backwards with nothing to
+// show for it), while fmtDate calls toLocaleDateString, which strings do not
+// have, so the render throws outright.
+//
+// An earlier pass made only the COMPARATOR tolerant, which fixed the silent
+// half and left the loud half — worse, because it advertised support for a
+// shape that still crashed. Normalizing once here fixes both at the source:
+// everything downstream sees a Date and can stop asking.
+function _weekRows(rows) {
+  return (rows || []).map(r => r.week_start instanceof Date ? r : Object.assign({}, r, {
+    week_start: new Date(r.week_start)
+  })).filter(r => !Number.isNaN(+r.week_start)).sort((a, b) => a.week_start - b.week_start);
 }
 function ReturnsChart({
   rows,
@@ -1721,7 +1727,7 @@ function ReturnsChart({
     padB = 30;
   const innerW = W - padL - padR,
     innerH = H - padT - padB;
-  const data = useMemo(() => [...rows].sort(_weekOrder), [rows]);
+  const data = useMemo(() => _weekRows(rows), [rows]);
   // The week-in-progress colour, distinct from the earnings amber.
   const nowC = colors.now || colors.accent;
 
@@ -2085,7 +2091,7 @@ function WeeklyRecap({
   rows,
   colors
 }) {
-  const data = useMemo(() => [...(rows || [])].sort(_weekOrder), [rows]);
+  const data = useMemo(() => _weekRows(rows), [rows]);
   const stats = useMemo(() => {
     const n = data.length;
     if (n < 3) return null;
@@ -3309,6 +3315,7 @@ Object.assign(window, {
   IntradayChart,
   ReturnsChart,
   WeeklyRecap,
+  _weekRows,
   DayBarChart,
   PLChart,
   ThetaPanel,
