@@ -3969,3 +3969,75 @@ colours in the legend, the recap's four tiles and its strip, and the phone
 laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
+
+## v5.13 — every week label was a day early
+
+Codex, third round on the weekly charts (P2, correct, and the most
+consequential of the three). `new Date("2026-09-07")` is midnight **UTC**,
+which is the previous day anywhere west of Greenwich. The server sends
+`week_start` as a bare `YYYY-MM-DD` Monday; `data.js` hydrated it with the
+Date constructor; `toLocaleDateString` then formatted it in the browser's
+own zone. In New York every Monday rendered as the Sunday before it.
+
+Confirmed against the deployed site with the browser placed in New York:
+
+```
+axis labels : May 31, Jun 21, Jul 12, Aug 2, Aug 23     (Sundays)
+the truth   : Jun 1,  Jun 22, Jul 13, Aug 3, Aug 24     (Mondays)
+week_start  : "Sun Sep 06 2026"  for the row dated 2026-09-07
+```
+
+This was visible on Jerry's own screenshot from the start — his axis read
+May 31 where the sandbox's read Jun 1 — and it was put down to a data
+refresh rather than chased. It predates all of this week's work: the
+constructor call in `hydrateRows` is old, and it affected the returns
+chart's axis, the recap strip, and both tooltips.
+
+**A calendar date with no time in it is a local calendar date.** `parseDay`
+in `data.js` now parses a bare `YYYY-MM-DD` by its components, into local
+midnight, and anything carrying a time (the daily bars ship an explicit
+offset) is an instant and left alone. It is exported so the charts'
+defensive path uses the same rule rather than falling back to the
+constructor and quietly reintroducing the off-by-a-day it exists to
+survive.
+
+### Why nothing caught it
+
+Playwright runs in **UTC** unless told otherwise, so every render check in
+this repo was blind to an entire class of bug — and the wrong dates still
+looked like plausible dates, so review would not catch it either. The new
+guard puts the browser in `America/New_York` on purpose and asserts every
+drawn week label is one of the Mondays **the payload actually contains**,
+built from the fixture rather than a hardcoded year. Off by one in either
+direction lands outside that set.
+
+Proven red on the shipped code before the fix:
+
+```
+AssertionError: 'May 25' not found in {... 'May 26' ...}
+  : week label 'May 25' is not one of the Mondays the server sent
+```
+
+### And the strip did not line up
+
+Jerry, on the range strip shipped in v5.12: "The newly bars you made don't
+line up with the above chart." Correct, and measurable: the strip carried
+its own x geometry — no axis padding, and one fewer slot because it has no
+NOW column — so its bars sat **59px left** of the chart's at one end and
+**72px right** at the other, drifting across the card.
+
+Two SVGs stacked in one card are read as ONE picture, so week i has to sit
+at the same x in both. The grid is defined once now (`WEEK_VB_W`,
+`WEEK_PAD_L`, `WEEK_PAD_R`, `weekSlot`, `weekX`) and both derive from it,
+including the `+1` slot that the chart fills with NOW and the strip leaves
+empty — a week still running has no finished range to show. Measured after:
+every bar within **0px** of its week's close marker.
+
+The guard measures drawn pixels, not constants: it pairs each close ring
+with each range bar and fails if any pair is more than 1.5px apart. Proven
+red by restoring the strip's own geometry (62.3px).
+
+Guards: 180 static, 38 render. Three rounds of review on this feature: the
+first finding was wrong but exposed a comparator that only worked by
+accident, the second was right about an incomplete fix, and this one was a
+real bug on screen for who knows how long.
