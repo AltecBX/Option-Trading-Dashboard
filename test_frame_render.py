@@ -542,6 +542,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     recapTiles: c.querySelectorAll('.wrc-tile').length,
                     recapBars: c.querySelectorAll('.wrc-svg rect').length,
                     recapText: recap ? recap.innerText.replace(/\\s+/g, ' ').trim() : '',
+                    // Each strip bar titles its own week. First and last
+                    // are what pin the strip's direction to its label.
+                    recapBarWeeks: [...c.querySelectorAll('.wrc-svg rect title')]
+                      .map(t => t.textContent.split(' \\u00b7')[0].trim()),
                   };
                 })(),
                 doc: {scrollW: document.documentElement.scrollWidth},
@@ -1310,6 +1314,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertGreater(r["recapBars"], 8, "the range strip drew no bars")
             for phrase in ("WEEKS CLOSED GREEN", "TYPICAL WEEK RANGE", "RANGE TREND"):
                 self.assertIn(phrase, r["recapText"])
+            # The strip says "oldest to newest". A comparator that returns
+            # NaN leaves an array untouched, so a strip drawn backwards looks
+            # exactly like one drawn forwards — nothing errors, the label
+            # just becomes a lie. Read the bars' own week labels and check.
+            weeks = r["recapBarWeeks"]
+            self.assertGreater(len(weeks), 8, "the strip bars carry no week labels")
+            import datetime as _dt
+            parsed = [_dt.datetime.strptime(w + " 2026", "%b %d %Y") for w in weeks]
+            self.assertEqual(parsed, sorted(parsed),
+                             f"the strip is labelled oldest to newest but runs {weeks[0]} to {weeks[-1]}")
         finally:
             self._close(handles)
 
