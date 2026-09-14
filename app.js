@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.14";
+const APP_VERSION = "5.15";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2866,20 +2866,22 @@ function App() {
       synthetic: true
     };
     // Helper: extract YYYY-MM-DD from a base bar's date (Date or string).
+    //
+    // v5.15: this used to project the Date into America/New_York. A daily
+    // bar's date is a CALENDAR date, not an instant — the mock bars are built
+    // at LOCAL midnight and the live ones are hydrated from a bare
+    // YYYY-MM-DD — and projecting either into New York lands on the previous
+    // evening. So this test never matched, today's live bar was APPENDED
+    // beside today's real one, and the series carried TWO BARS AT THE SAME
+    // TIME. lightweight-charts indexes a series by time: with a duplicate it
+    // cannot find a bar, and its renderer throws "Value is null" on every
+    // frame for as long as the market is open. Read the date the Date holds.
+    const pad2 = n => String(n).padStart(2, "0");
     const dateKey = d => {
       if (!d) return "";
       if (typeof d === "string") return d.slice(0, 10);
-      if (d instanceof Date) {
-        try {
-          return new Intl.DateTimeFormat("en-CA", {
-            timeZone: "America/New_York",
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit"
-          }).format(d);
-        } catch {
-          return d.toISOString().slice(0, 10);
-        }
+      if (d instanceof Date && !Number.isNaN(+d)) {
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
       }
       return "";
     };
@@ -6335,6 +6337,14 @@ function App() {
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch ring"
   }), "Close"), /*#__PURE__*/React.createElement("span", {
+    className: "item",
+    title: "The three DASHED lines are the typical week, and each one's value is on the axis: " + "the median high (green), the median low (red) and the median close (grey). " + "Half the weeks reached past a dashed line, half did not. " + "The two DOTTED lines at the top and bottom are the single best high and single worst low " + "in this window — the record, not the typical week. " + "A strike outside the dashed line is a strike the typical week does not reach."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swatch dashed",
+    style: {
+      borderColor: "var(--fg-3)"
+    }
+  }), "Typical week"), /*#__PURE__*/React.createElement("span", {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch",

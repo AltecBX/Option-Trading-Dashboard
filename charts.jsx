@@ -30,11 +30,60 @@ function isDrawable(v) {
   return v != null && typeof v === "number" && isFinite(v);
 }
 
+// A series is INDEXED BY TIME, and lightweight-charts requires those times to
+// be strictly ascending. Hand it a repeat or a step backwards and its index
+// can no longer find a bar: the renderer throws "Value is null" on every
+// frame, the chart never draws, and the console fills — the same failure mode
+// an incomplete bar causes, from a different direction.
+//
+// Upstream is where a duplicate should be prevented (app.jsx's dateKey is the
+// one that let today's live bar sit beside today's real one). This is the
+// boundary that stops any such mistake from taking the page down. A repeat
+// keeps the LATER point, because the live bar is the newer truth about that
+// day; a step backwards is dropped, because there is no honest way to place
+// it.
+function ascendingByTime(points) {
+  const out = [];
+  for (const p of points || []) {
+    if (!p || p.time == null) continue;
+    const prev = out.length ? out[out.length - 1] : null;
+    if (prev == null || p.time > prev.time) { out.push(p); continue; }
+    if (p.time === prev.time) out[out.length - 1] = p;
+    // else: out of order — dropped.
+  }
+  return out;
+}
+
 function fmt$(v, d = 2) { return "$" + (v >= 0 ? v.toFixed(d) : "-" + (-v).toFixed(d)); }
 function fmtPct(v, d = 2) { return (v >= 0 ? "+" : "") + v.toFixed(d) + "%"; }
 function fmtDate(d, opts = { month: "short", day: "numeric" }) {
   return d.toLocaleDateString("en-US", opts);
 }
+// Labels in an axis gutter must not sit on one another — and a label that is
+// DROPPED to avoid that makes the chart lie, because the line it belongs to is
+// still drawn. So a colliding label is MOVED, never removed: it steps just
+// past the one already placed, in the direction it was already heading, and is
+// kept inside the plot. `fixed` are labels that cannot move (the axis ends).
+function placeGutterLabels(fixed, movers, minGap, lo, hi) {
+  const taken = (fixed || []).slice();
+  const out = [];
+  for (const m of (movers || []).slice().sort((a, b) => a.y - b.y)) {
+    let y = m.y;
+    // Bounded: each pass clears one neighbour, and there are never more
+    // labels than passes.
+    for (let pass = 0; pass < 8; pass++) {
+      let hit = null;
+      for (const t of taken) if (Math.abs(y - t) < minGap) { hit = t; break; }
+      if (hit === null) break;
+      y = y >= hit ? hit + minGap : hit - minGap;
+    }
+    y = Math.min(hi, Math.max(lo, y));
+    taken.push(y);
+    out.push(Object.assign({}, m, { y }));
+  }
+  return out;
+}
+
 function niceTicks(min, max, target = 6) {
   const range = max - min;
   if (range <= 0) return [min];
@@ -182,10 +231,10 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
     const rows = daily.filter(d => d && (chartStyle === "area"
       ? (d.close != null && isFinite(d.close))
       : isCompleteBar(d.open, d.high, d.low, d.close)));
-    if (chartStyle === "area") mainRef.current.setData(rows.map(d => ({ time: norm(d.date), value: d.close })));
-    else mainRef.current.setData(rows.map(d => ({ time: norm(d.date), open: d.open, high: d.high, low: d.low, close: d.close })));
+    if (chartStyle === "area") mainRef.current.setData(ascendingByTime(rows.map(d => ({ time: norm(d.date), value: d.close }))));
+    else mainRef.current.setData(ascendingByTime(rows.map(d => ({ time: norm(d.date), open: d.open, high: d.high, low: d.low, close: d.close }))));
     const hasVol = rows.some(d => d.volume);
-    if (volRef.current) volRef.current.setData(hasVol ? rows.map(d => ({ time: norm(d.date), value: d.volume || 0, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" })) : []);
+    if (volRef.current) volRef.current.setData(hasVol ? ascendingByTime(rows.map(d => ({ time: norm(d.date), value: d.volume || 0, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" }))) : []);
   }, [daily, chartStyle]);
 
   // Fit the time scale only when the data actually changes (new symbol /
@@ -1154,6 +1203,28 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
   const xCenter = (i) => weekX(i, data.length);
   const yScale = (v) => padT + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
+  // v5.15: the three dashed lines are the TYPICAL week — the median high,
+  // the median low and the median close. They were drawn from the first
+  // version of this chart and never labelled, so the only way to read their
+  // values was the behaviour-summary card above the chart, which never says
+  // it is describing these lines. They carry their own number in the gutter
+  // now. Weight is the distinction: BOLD is the record (the best high and
+  // worst low, dotted), NORMAL is the typical (dashed).
+  const medianLines = useMemo(() => {
+    const movers = [{ v: medianHigh, c: colors.up },
+                    { v: medianLow, c: colors.down },
+                    { v: medianClose, c: "var(--fg-3)" }]
+      .filter(m => m.v != null && Number.isFinite(m.v))
+      .map(m => Object.assign({}, m, { y: yScale(m.v) }));
+    const fixed = [dataHi, dataLo]
+      .filter(v => v != null && Number.isFinite(v))
+      .map(yScale);
+    // Two medians can land within a label's height of each other — a week
+    // that closes on its low puts the median close on the median low — and
+    // both lines are still drawn, so both keep their number.
+    return placeGutterLabels(fixed, movers, 11, padT + 6, H - padB - 2);
+  }, [medianHigh, medianLow, medianClose, dataHi, dataLo, yMin, yMax]);
+
   const ticks = useMemo(() => niceTicks(yMin, yMax, 5), [yMin, yMax]);
   const [hover, setHover] = useState(null);
   // Same defensive reset as PriceChart — when the rows change we drop
@@ -1171,7 +1242,8 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
           // Skip generic ticks that would collide with the exact extreme
           // labels below (v3.47) — the true top/bottom of the data owns
           // the axis ends now.
-          (Math.abs(yScale(t) - yScale(dataHi)) < 12 || Math.abs(yScale(t) - yScale(dataLo)) < 12) ? null : (
+          (Math.abs(yScale(t) - yScale(dataHi)) < 12 || Math.abs(yScale(t) - yScale(dataLo)) < 12
+           || medianLines.some(m => Math.abs(yScale(t) - m.y) < 12)) ? null : (
           <g key={i}>
             <line x1={padL} x2={W - padR} y1={yScale(t)} y2={yScale(t)} className="grid" />
             <text x={padL - 6} y={yScale(t) + 4} className="axis-text" textAnchor="end">{t.toFixed(0)}%</text>
@@ -1200,6 +1272,16 @@ function ReturnsChart({ rows, medianHigh, medianLow, medianClose, currentReturn,
               stroke={colors.down} strokeDasharray="4 3" strokeWidth="1" opacity="0.65" />
         <line x1={padL} x2={W - padR} y1={yScale(medianClose)} y2={yScale(medianClose)}
               stroke="var(--fg-3)" strokeDasharray="2 4" strokeWidth="1" opacity="0.7" />
+
+        {/* …and what each dashed line is worth, in the same gutter the
+            extremes use. Normal weight, so the eye still separates the
+            typical week from the record one. */}
+        {medianLines.map((m, i) => (
+          <text key={`ml${i}`} x={padL - 6} y={m.y + 4} textAnchor="end"
+                className="axis-text wk-median" style={{ fill: m.c }}>
+            {m.v >= 0 ? "+" : ""}{m.v.toFixed(1)}%
+          </text>
+        ))}
 
         {data.map((d, i) => {
           const x = xCenter(i);
@@ -2139,12 +2221,12 @@ function IntradayChart({ data }) {
     const t = (ms) => Math.floor(ms / 1000);
     const bars = data.bars.filter(
       b => b && isCompleteBar(b.open, b.high, b.low, b.close));
-    r.candles.setData(bars.map(b => ({
+    r.candles.setData(ascendingByTime(bars.map(b => ({
       time: t(b.ts), open: b.open, high: b.high, low: b.low, close: b.close,
       // Premarket prints dimmed so the regular session pops.
       ...(b.pm ? { color: "rgba(148,163,184,0.45)", borderColor: "rgba(148,163,184,0.45)", wickColor: "rgba(148,163,184,0.45)" } : {}),
-    })));
-    r.vol.setData(bars.map(b => ({ time: t(b.ts), value: b.volume || 0, color: b.pm ? "rgba(148,163,184,0.2)" : (b.close >= b.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)") })));
+    }))));
+    r.vol.setData(ascendingByTime(bars.map(b => ({ time: t(b.ts), value: b.volume || 0, color: b.pm ? "rgba(148,163,184,0.2)" : (b.close >= b.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)") }))));
     const vw = data.vwap;
     const set = (series, arr) => series.setData(vw && arr ? vw.ts.map((ts, i) => ({ time: t(ts), value: arr[i] })).filter(p => p.value != null) : []);
     set(r.vwap, vw && vw.vwap); set(r.u1, vw && vw.upper1); set(r.l1, vw && vw.lower1);
@@ -2181,4 +2263,4 @@ function IntradayChart({ data }) {
   return <div className="tv-price-chart" ref={wrapRef} />;
 }
 
-Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, WeeklyRecap, _weekRows, DayBarChart, PLChart, ThetaPanel, attachTouchZoom, fmt$, fmtPct, fmtDate, niceTicks, isCompleteBar, isDrawable });
+Object.assign(window, { PriceChart, TVPriceChart, IntradayChart, ReturnsChart, WeeklyRecap, _weekRows, DayBarChart, PLChart, ThetaPanel, attachTouchZoom, fmt$, fmtPct, fmtDate, niceTicks, isCompleteBar, isDrawable, placeGutterLabels, ascendingByTime });

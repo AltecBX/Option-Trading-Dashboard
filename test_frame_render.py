@@ -570,6 +570,37 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     recapTiles: c.querySelectorAll('.wrc-tile').length,
                     recapBars: c.querySelectorAll('.wrc-svg rect').length,
                     recapText: recap ? recap.innerText.replace(/\\s+/g, ' ').trim() : '',
+                    // v5.15: every line drawn across this chart has to be
+                    // readable. The dotted extremes were labelled from the
+                    // start; the three dashed medians were not. Collect every
+                    // axis-gutter label with its y, so a guard can check both
+                    // that the medians are named and that no two labels sit
+                    // on top of one another.
+                    gutter: (() => {
+                      const main = c.querySelector('svg');
+                      if (!main) return [];
+                      const box = main.getBoundingClientRect();
+                      return [...main.querySelectorAll('text.axis-text')]
+                        .filter(t => {
+                          const r2 = t.getBoundingClientRect();
+                          // the gutter ends at the plot's left edge (padL); a wider
+                          // window here swallows the first x-axis date label
+                          return r2.width > 0 && r2.right <= box.left + box.width * 0.075;
+                        })
+                        .map(t => ({ text: t.textContent.trim(),
+                                     y: Math.round(t.getBoundingClientRect().top),
+                                     median: t.classList.contains('wk-median'),
+                                     weight: getComputedStyle(t).fontWeight }))
+                        .sort((a, b) => a.y - b.y);
+                    })(),
+                    legendRows: (() => {
+                      const l = c.querySelector('.legend');
+                      if (!l) return null;
+                      const tops = new Set([...l.querySelectorAll('.item')]
+                        .map(e => Math.round(e.getBoundingClientRect().top)));
+                      return {rows: tops.size,
+                              h: Math.round(l.getBoundingClientRect().height)};
+                    })(),
                     // Each strip bar titles its own week. First and last
                     // are what pin the strip's direction to its label.
                     // The two SVGs read as one picture, so week i must sit
@@ -1371,6 +1402,88 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_every_line_across_the_returns_chart_carries_its_value(self):
+        """Five lines cross this chart. The two DOTTED ones — the best high
+        and worst low in the window — were labelled on the axis from the
+        start. The three DASHED ones, the typical week's high, low and
+        close, were not: the only place their values appeared was the
+        behaviour-summary card above, which never says it is describing
+        them. Now every drawn line names its own number, no two labels
+        overlap, and the legend still fits on one row."""
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=sell_payload())
+        try:
+            r = geo["returns"]
+            gut = r["gutter"]
+            self.assertTrue(gut, "no labels in the chart's axis gutter")
+            pct = [g for g in gut if g["text"].endswith("%")]
+            # Two extremes + three medians + whatever generic ticks survive.
+            self.assertGreaterEqual(
+                len(pct), 5,
+                f"only {len(pct)} labelled values in the gutter: "
+                + ", ".join(g["text"] for g in gut))
+            # BOLD is the record, NORMAL is the typical: both kinds present.
+            bold = [g for g in pct if int(g["weight"]) >= 700]
+            self.assertEqual(2, len(bold),
+                             "the two extremes are not the only bold labels")
+            # A label sitting on another label is a label nobody can read.
+            for a, b in zip(gut, gut[1:]):
+                self.assertGreaterEqual(
+                    b["y"] - a["y"], 11,
+                    f"{a['text']!r} and {b['text']!r} overlap in the gutter")
+            # Three dashed lines are drawn, so three medians are named.
+            self.assertEqual(
+                3, len([g for g in gut if g["median"]]),
+                "a dashed line was drawn without its value: "
+                + ", ".join(g["text"] for g in gut if g["median"]))
+            # And the dashes are named, not left to be guessed.
+            labels = {sw["label"] for sw in r["swatches"]}
+            self.assertIn("Typical week", labels,
+                          "nothing in the legend says what the dashed lines are")
+            self.assertEqual(1, r["legendRows"]["rows"],
+                             "the legend wrapped onto a second row")
+        finally:
+            self._close(handles)
+
+    def test_two_medians_on_the_same_value_both_keep_their_label(self):
+        """Codex, on the first cut of this: a label dropped to avoid a
+        collision leaves its dashed line drawn and unexplained, which makes
+        the legend's promise that every value is on the axis false. A week
+        that closes on its low is enough to do it — the median close lands
+        on the median low. Both labels are kept and one is stepped clear."""
+        payload = sell_payload()
+        lows = sorted(r["low_return"] for r in payload["rows"])
+        n = len(lows)
+        med_low = (lows[n // 2] if n % 2 else (lows[n // 2 - 1] + lows[n // 2]) / 2)
+        # Every week now closes exactly at the typical week's low, so the
+        # median close and the median low are the SAME number.
+        for r in payload["rows"]:
+            r["close_return"] = med_low
+        geo, _, handles = self._measure(1900, 1200, tab="analyze",
+                                        ticker_payload=payload)
+        try:
+            gut = geo["returns"]["gutter"]
+            meds = [g for g in gut if g["median"]]
+            self.assertEqual(
+                3, len(meds),
+                "a median label was dropped instead of moved: "
+                + ", ".join(g["text"] for g in meds))
+            # The two equal ones are both there, and readable.
+            same = [g for g in meds if g["text"] == f"{med_low:.1f}%"]
+            self.assertEqual(
+                2, len(same),
+                f"the two medians at {med_low:.1f}% are not both labelled: "
+                + ", ".join(g["text"] for g in meds))
+            self.assertGreaterEqual(
+                abs(same[0]["y"] - same[1]["y"]), 10,
+                "the two equal medians are printed on top of each other")
+            for a, b in zip(gut, gut[1:]):
+                self.assertGreaterEqual(
+                    b["y"] - a["y"], 10,
+                    f"{a['text']!r} and {b['text']!r} overlap in the gutter")
+        finally:
+            self._close(handles)
+
     def test_this_week_is_not_coloured_like_an_earnings_week(self):
         # Every past earnings week is shaded amber. The week in progress was
         # shaded the same amber, so the one column that is NOT an earnings
@@ -1613,6 +1726,64 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 f"the page: {errors[:3]}")
             # And the rest of the series still draws — dropping the incomplete
             # bar must not mean dropping the chart.
+            self.assertEqual(10, geo["tiles"],
+                             "the market strip stopped rendering as well")
+            self.assertIsNotNone(geo["main"], "the workspace is gone")
+        finally:
+            self._close(handles)
+
+
+    def test_two_bars_on_the_same_day_do_not_take_the_page_down(self):
+        """The mirror of the test above, and the one that was missing.
+
+        A series is INDEXED BY TIME. lightweight-charts requires those times
+        to be strictly ascending; hand it a repeat and its index can no longer
+        find a bar, so the renderer throws "Value is null" on every frame and
+        the chart never draws.
+
+        This is not hypothetical. The app appends a live bar for today and
+        asks "does the series already end with today?" — a question it
+        answered by projecting the bar's date into New York. A daily bar's
+        date is a CALENDAR date (mock bars are built at local midnight, live
+        ones hydrated from a bare YYYY-MM-DD), so the projection landed on the
+        previous evening, the test never matched, and today's live bar was
+        appended beside today's real one. It only appeared while the market
+        was open, which is why every check in this repo passed at 11:00 UTC
+        and ten of them went red at 15:30 — including CI, on `main`.
+
+        So the duplicate goes into the data here, and no bell has to ring."""
+        doubled = """
+          (() => {
+            let real = undefined;
+            Object.defineProperty(window, 'MockData', {
+              configurable: true,
+              get() { return real; },
+              set(v) {
+                real = v;
+                if (v && typeof v.buildDaily === 'function') {
+                  const inner = v.buildDaily.bind(v);
+                  v.buildDaily = (...a) => {
+                    const rows = inner(...a);
+                    if (rows && rows.length > 6) {
+                      // Today twice — exactly what the live bar did — and a
+                      // step BACKWARDS in the middle, which a guard that only
+                      // looked at the newest row would sail past.
+                      rows.push({ ...rows[rows.length - 1] });
+                      rows.splice(4, 0, { ...rows[2] });
+                    }
+                    return rows;
+                  };
+                }
+              },
+            });
+          })();
+        """
+        geo, errors, handles = self._measure(1440, 900, init=doubled)
+        try:
+            self.assertFalse(
+                errors,
+                "two bars on one day threw out of the chart and into the "
+                f"page: {errors[:3]}")
             self.assertEqual(10, geo["tiles"],
                              "the market strip stopped rendering as well")
             self.assertIsNotNone(geo["main"], "the workspace is gone")

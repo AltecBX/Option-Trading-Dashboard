@@ -3970,6 +3970,119 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.15 — and the chart that threw on every frame while the market was open
+
+Found while verifying the labels below, not by looking for it: the full
+render suite passed 39/39 at 11:00 UTC and came back with ten failures at
+15:30, on identical code. CI said the same thing, on `main`. Every failure
+was one assertion — `pageerror: Value is null`, thrown from inside
+lightweight-charts at paint time with no application frame in the stack.
+
+The library's assert is `f(t(n, s))` in its Candlestick renderer: **give me
+the bar at this index**. Not a null FIELD — a bar the series cannot find. A
+series is indexed by time and those times must be strictly ascending, and
+this one had two bars dated the same day.
+
+Why: the app appends a live bar for today and asks whether the series
+already ends with today, by projecting the last bar's date into New York. A
+daily bar's date is a CALENDAR date — mock bars are built at local midnight,
+live ones hydrated from a bare `YYYY-MM-DD` — and midnight projected into
+New York is the previous evening. The test never matched. Today's live bar
+was appended beside today's real one, every frame threw, and the price chart
+never drew.
+
+**It exists only while the market is open**, because that is when a bar for
+today exists at all. The same shape as the `isCompleteBar` defect: green at
+7am, red at 9:31.
+
+And it is the same root cause as v5.13, one layer down. That entry says "the
+daily bars ship an explicit offset" — an assumption, not a measurement, and
+wrong. `new Date(d.date)` was left in `hydrateDaily` on the strength of it.
+
+Two layers:
+
+- **`dateKey` reads the date the Date holds** (local components) instead of
+  projecting a calendar date into a timezone. The duplicate is not built.
+- **`ascendingByTime` at the chart boundary**, on every series that draws
+  bars, at all three call sites. A repeat keeps the later point — the live
+  bar is the newer truth about that day — and a step backwards is dropped.
+  Same discipline as `isCompleteBar`: upstream should not send it, and the
+  boundary makes sure it cannot take the page down when it does.
+
+The guard puts the duplicate in the data rather than waiting for the bell:
+`MockData.buildDaily` is wrapped so today appears twice AND a bar steps
+backwards mid-series, which a guard watching only the newest row would sail
+past. Proven red with the boundary filter removed, and proven separately
+that the boundary alone holds the page up with the root cause restored —
+each half masks the other, so both carry static guards too.
+
+Guards: 187 static, 42 render.
+
+## v5.15 — the dashed lines now say what they are worth
+
+Jerry, on the weekly returns chart: "Whats the dash lines for the green and
+red mean? I know the dotted line is the Highest and Lowest of that period of
+time." Then: "How do I know the value?"
+
+He was right about the dotted pair, and right that the dashed ones were
+unreadable. Five lines cross that chart:
+
+| Line | What it is | Labelled before |
+|---|---|---|
+| green dotted | best high any week reached | yes, bold on the axis |
+| red dotted | worst low any week reached | yes, bold on the axis |
+| green dashed | **median** weekly high | no |
+| red dashed | **median** weekly low | no |
+| grey dashed | **median** weekly close | no |
+
+The three medians have been drawn since the first version of this chart and
+never carried a number. Their values do exist on screen — the behaviour
+summary card directly above prints Median high / Median low / Median close —
+but nothing in either place says the card is describing those lines, so the
+only way to connect them was to already know.
+
+Each dashed line now carries its value in the same gutter the extremes use,
+in its own colour. **Weight is the distinction: bold is the record, normal
+is the typical.** The generic axis ticks already stepped aside for the two
+extreme labels; they step aside for the medians now too, and a median whose
+line sits within 11px of a label already placed is skipped rather than
+stacked on top of it. One legend entry, "Typical week", names the dashed
+family, with the full explanation in its tooltip.
+
+Measured after, on the render fixture:
+
+```
++19.8%  bold    best high
+ +9.2%  normal  median high
+ +0.4%  normal  median close
+-10.0%  normal  median low
+-17.0%  bold    worst low
+  -20%  normal  surviving generic tick
+closest pair 23px apart · legend still 1 row, 14px
+```
+
+### A label that is dropped is a line that lies
+
+Codex, on the first cut (P2, correct): the collision rule SKIPPED a median
+whose line sat within 11px of a label already placed. The line is still
+drawn, so the chart would show a dashed line with no number while the new
+legend tooltip promised every value was on the axis. A week that closes on
+its low is enough to trigger it — the median close lands on the median low.
+
+A colliding label is moved now, never removed: `placeGutterLabels` steps it
+just past the label it hit, in the direction it was already heading, and
+keeps it inside the plot. The generic ticks step aside from where a label
+ENDED UP rather than from the line it belongs to.
+
+Guards: 185 static, 41 render. The render guards read the drawn labels back
+out of the gutter: one fails on a median that is not named or any two
+labels closer than 11px, the other forces the collision by setting every
+week's close to the median low and fails if the two equal medians are not
+both printed and separated. Proven red — the first by removing the labels
+(`3 not greater than or equal to 5 : only 3 labelled values in the gutter`),
+the second by restoring the dropping behaviour (`3 != 2 : a median label was
+dropped instead of moved: +9.2%, -10.0%`).
+
 ## v5.14 — the bar reads as two halves, and a tenor stops being a sentence
 
 Three asks, all about reading speed.

@@ -887,6 +887,44 @@ ok("the earnings shading is still the amber it was",
    /fill=\{earningsByWeek\[i\] \? colors\.warn : "transparent"\}/.test(read("charts.jsx")));
 // The returns card drew its chart and stopped, ~200px short of its own
 // bottom edge while the card beside it ran the full height.
+// v5.15: five lines cross the returns chart. The dotted extremes were
+// labelled on the axis from the first version; the three dashed medians —
+// the typical week's high, low and close — were not, so the only place
+// their values appeared was a card above that never mentions them.
+ok("every dashed line on the returns chart carries its value in the gutter",
+   /const medianLines = useMemo\(\(\) => \{/.test(read("charts.jsx"))
+   && /\{medianLines\.map\(\(m, i\) => \(/.test(read("charts.jsx"))
+   && /\{m\.v >= 0 \? "\+" : ""\}\{m\.v\.toFixed\(1\)\}%/.test(read("charts.jsx")));
+// …and a label may not land on the label above it, so the generic ticks
+// step aside for the medians the same way they do for the extremes —
+// from where the label ENDED UP, not from the line it belongs to.
+ok("the generic ticks make room for the median labels",
+   /medianLines\.some\(m => Math\.abs\(yScale\(t\) - m\.y\) < 12\)\) \? null : \(/.test(read("charts.jsx")));
+// A daily bar's date is a CALENDAR date — mock bars are built at local
+// midnight, live ones hydrated from a bare YYYY-MM-DD. Projecting either into
+// New York lands on the previous evening, so "does the series already end with
+// today?" never matched and today's live bar was appended BESIDE today's real
+// one. Two bars at one time is a series lightweight-charts cannot index.
+ok("today's live bar replaces today's bar instead of doubling it",
+   /const dateKey = \(d\) => \{/.test(read("app.jsx"))
+   && /return `\$\{d\.getFullYear\(\)\}-\$\{pad2\(d\.getMonth\(\) \+ 1\)\}-\$\{pad2\(d\.getDate\(\)\)\}`;/.test(read("app.jsx"))
+   && !/timeZone: "America\/New_York",\n *year: "numeric", month: "2-digit", day: "2-digit",\n *\}\)\.format\(d\)/.test(read("app.jsx")));
+// …and the boundary that stops any such mistake from taking the page down,
+// on every series that draws bars.
+ok("a repeated or backwards bar time never reaches the chart library",
+   /function ascendingByTime\(points\) \{/.test(read("charts.jsx"))
+   && /if \(p\.time === prev\.time\) out\[out\.length - 1\] = p;/.test(read("charts.jsx"))
+   && (read("charts.jsx").match(/ascendingByTime\(/g) || []).length >= 5
+   && /ascendingByTime\(drawable\.map/.test(read("app-cards.jsx")));
+// Codex, P2: dropping a colliding label leaves its dashed line drawn and
+// unexplained, and makes the legend's promise false. Move it instead.
+ok("a colliding gutter label is moved, never dropped",
+   /function placeGutterLabels\(fixed, movers, minGap, lo, hi\) \{/.test(read("charts.jsx"))
+   && /y = y >= hit \? hit \+ minGap : hit - minGap;/.test(read("charts.jsx"))
+   && /return placeGutterLabels\(fixed, movers, 11, padT \+ 6, H - padB - 2\);/.test(read("charts.jsx"))
+   && !/if \(m\.v == null \|\| !Number\.isFinite\(m\.v\) \|\| !clear\(m\.v\)\) continue;/.test(read("charts.jsx")));
+ok("and the legend says what the dashed lines are",
+   /<span className="swatch dashed" style=\{\{borderColor: "var\(--fg-3\)"\}\}><\/span>Typical week/.test(read("app.jsx")));
 ok("the returns card carries a recap under its chart",
    /<WeeklyRecap rows=\{rows\} colors=\{chartColors\} \/>/.test(app)
    && /function WeeklyRecap\(\{ rows, colors \}\)/.test(read("charts.jsx")));

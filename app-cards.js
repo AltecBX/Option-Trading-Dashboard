@@ -2222,18 +2222,18 @@ function SwingChart({
     // This one filtered nothing at all: one null price anywhere in the series
     // and the whole chart threw. See isCompleteBar in charts.jsx.
     const drawable = bars.filter(b => b && isCompleteBar(b.o, b.h, b.l, b.c));
-    candleRef.current.setData(drawable.map(b => ({
+    candleRef.current.setData(ascendingByTime(drawable.map(b => ({
       time: b.t,
       open: b.o,
       high: b.h,
       low: b.l,
       close: b.c
-    })));
-    volRef.current.setData(drawable.map(b => ({
+    }))));
+    volRef.current.setData(ascendingByTime(drawable.map(b => ({
       time: b.t,
       value: b.v,
       color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)"
-    })));
+    }))));
     applyHome();
     /* eslint-disable-next-line */
   }, [data, collapsed]);
