@@ -1,0 +1,72 @@
+# Is the dashboard up, and is it still private?
+#
+# This runs on GitHub, NOT on Railway, on purpose: a monitor that lives on
+# the machine it watches is silent on the one morning it matters. On
+# 2026-09-15 the site was down from before the open until mid-morning and
+# nothing told anyone — it was noticed by opening the page.
+#
+# See monitor_uptime.py for what the probes are and why a plain "did it
+# answer" check would have reported green through that entire outage.
+name: uptime
+
+on:
+  schedule:
+    # Every ten minutes. Free on a public repo, and GitHub may run it late —
+    # it is a smoke alarm, not a stopwatch.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+# Only ever reads: the run history, to decide whether this failure is new.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check the dashboard
+        id: check
+        env:
+          JT_BASE: ${{ secrets.JT_BASE }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          JT_API_KEY: ${{ secrets.JT_API_KEY }}
+          # Optional. Set it to the *.up.railway.app address on Railway's
+          # Networking page to get a warning two weeks BEFORE the certificate
+          # expires, instead of an alert once it has. It changes whenever the
+          # custom domain is re-added — the runbook says to update it.
+          RAILWAY_ORIGIN_HOST: ${{ secrets.RAILWAY_ORIGIN_HOST }}
+          # Push, using the same providers and variable names the app uses.
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MONITOR_WORKFLOW_FILE: uptime.yml
+        run: |
+          set -o pipefail
+          python3 monitor_uptime.py 2>&1 | tee /tmp/uptime.txt
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Write the result where it can be read without digging
+        if: always()
+        run: |
+          {
+            echo "## Dashboard uptime"
+            echo
+            echo '```'
+            cat /tmp/uptime.txt 2>/dev/null || echo "(no output)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
