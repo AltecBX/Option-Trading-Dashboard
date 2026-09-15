@@ -63,6 +63,8 @@ RUNBOOK = "OPERATIONS.md -> Fix \"Invalid SSL certificate\" / Error 526"
 # a real outage in front of you, few enough that the phone stays usable.
 REALERT_EVERY = 6
 
+NTFY_DEFAULT = "https://ntfy.sh"
+
 
 # ── pure decision logic (unit-tested; no network) ───────────────────────────
 
@@ -97,6 +99,19 @@ def classify_health(status, body, error):
         return (False, "WRONG BODY",
                 "The site answered 200 but not with the app's data.")
     return (True, "OK", "Reached the app through Cloudflare.")
+
+
+def ntfy_base(raw):
+    """Where to POST the push.
+
+    GitHub Actions exports EVERY env key listed in the workflow, so a secret
+    that was never set arrives as an empty string rather than absent — and an
+    empty string beats `os.environ.get(key, default)`. That built the URL
+    "/topic", urlopen refused it, the failure was caught and logged, and the
+    alert about the site being down was quietly dropped. The only wrong way
+    for a monitor to fail.
+    """
+    return (raw or "").strip().rstrip("/") or NTFY_DEFAULT
 
 
 def _looks_like_app(body):
@@ -257,7 +272,7 @@ def notify(title, message, priority=1):
     sent = []
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     if topic:
-        server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").strip().rstrip("/")
+        server = ntfy_base(os.environ.get("NTFY_SERVER"))
         try:
             req = urllib.request.Request(f"{server}/{topic}",
                                          data=message.encode("utf-8"), method="POST")

@@ -134,6 +134,30 @@ class TheAlertingIsLoudOnceNotForever(unittest.TestCase):
         self.assertTrue(M.should_alert(M.consecutive_failures(["failure"])))
 
 
+class TheAlertItselfMustNotGoMissing(unittest.TestCase):
+    """GitHub Actions exports every env key the workflow lists, so a secret
+    that was never set arrives as "" rather than absent — and "" beats
+    os.environ.get(key, default). The URL became "/topic", urlopen refused
+    it, the error was caught and logged, and the alert saying the site was
+    down was quietly dropped. A monitor may fail any way but silently."""
+
+    def test_an_empty_server_variable_still_means_the_default(self):
+        self.assertEqual(M.NTFY_DEFAULT, M.ntfy_base(""))
+        self.assertEqual(M.NTFY_DEFAULT, M.ntfy_base("   "))
+
+    def test_an_absent_server_variable_still_means_the_default(self):
+        self.assertEqual(M.NTFY_DEFAULT, M.ntfy_base(None))
+
+    def test_a_real_server_is_honoured_and_trimmed(self):
+        self.assertEqual("https://ntfy.example.com",
+                         M.ntfy_base("  https://ntfy.example.com/  "))
+
+    def test_the_result_is_never_a_relative_url(self):
+        for raw in ("", "   ", None, "/", "https://ntfy.sh/"):
+            self.assertTrue(M.ntfy_base(raw).startswith("http"),
+                            f"{raw!r} produced a URL urlopen cannot post to")
+
+
 class TheCertificateMath(unittest.TestCase):
     def test_days_left_is_counted_from_now(self):
         now = dt.datetime(2026, 9, 15, tzinfo=dt.timezone.utc)
