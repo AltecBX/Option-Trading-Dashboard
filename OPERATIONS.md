@@ -180,6 +180,79 @@ now**.
 
 ---
 
+## The watchman (so you find out before you notice)
+
+On 15 September the site was down from before the open until mid-morning and
+nothing said so — it was found by opening the page. A check now runs on
+**GitHub every ten minutes**, deliberately not on Railway: a watchman living
+in the building he is guarding is no use on the morning the building is the
+problem.
+
+**It asks three questions.**
+
+1. **Can it reach the app?** Not "did something answer" — it carries the
+   Cloudflare Access service token and insists on the app's own JSON. This
+   matters: Access answers a stranger with a redirect to its login *before*
+   Cloudflare ever contacts Railway, so a simpler check would have reported
+   everything fine throughout the outage it was built for.
+2. **Is a stranger still turned away?** It asks again with no credentials and
+   requires to be refused. If the site ever answers a stranger — a grey cloud
+   left on after the certificate fix — that is reported as loudly as an
+   outage.
+3. **When does the certificate expire?** Given the origin address it warns
+   **fourteen days ahead**, which turns a market-hours outage into a quiet
+   evening's work. This is the one that prevents rather than reports.
+
+**Switching it on.** GitHub → the repo → **Settings → Secrets and variables
+→ Actions → New repository secret**. Until `JT_BASE` exists the check runs
+and says `NOT CONFIGURED`, so it never cries wolf in a fork.
+
+| Secret | What it is | Needed? |
+|---|---|---|
+| `JT_BASE` | `https://dashboard.jerrytrade.com` | **yes** |
+| `CF_ACCESS_CLIENT_ID` | Cloudflare Access **service token** id | **yes** |
+| `CF_ACCESS_CLIENT_SECRET` | the service token secret | **yes** |
+| `JT_API_KEY` | same value as the `API_KEY` on Railway | **yes** |
+| `NTFY_TOPIC` | your ntfy topic — free, no account | for push |
+| `PUSHOVER_APP_TOKEN` / `PUSHOVER_USER_KEY` | Pushover instead of, or as well as, ntfy | for push |
+| `RAILWAY_ORIGIN_HOST` | the `*.up.railway.app` address on Railway's Networking page | for the 14-day warning |
+
+The service token is made in Cloudflare → **Access → Service Auth**, and the
+Access policy for the dashboard has to allow it. Without push configured you
+still get GitHub's own "workflow failed" email, which is a slower but real
+alarm.
+
+`RAILWAY_ORIGIN_HOST` **changes every time the custom domain is re-added**,
+so update it as the last step of the certificate fix above. If it is wrong or
+missing the other two checks still run and the certificate line reads
+`SKIPPED` rather than pretending to pass.
+
+**What the alerts mean.**
+
+| It says | What happened | What to do |
+|---|---|---|
+| `ORIGIN CERTIFICATE` | the 526 — certificate expired | the certificate fix above |
+| `ORIGIN DOWN` | Cloudflare cannot reach Railway | Railway: deployed? in credit? |
+| `WIDE OPEN` | **a stranger reached the dashboard** | set the DNS record back to Proxied (orange) now |
+| `BLOCKED BY ACCESS` | the service token was refused | remake it in Cloudflare → Access → Service Auth and update the secrets |
+| `CERTIFICATE EXPIRING` | 14 days or fewer left | do the certificate fix on a quiet evening |
+| `UNREACHABLE` | no answer at all | check Railway and Cloudflare are both up |
+
+It shouts once when something breaks, then about once an hour while it stays
+broken — loud enough to catch, quiet enough to leave your phone usable.
+
+**To check it by hand**, or to test a change to it:
+
+```
+JT_BASE=https://dashboard.jerrytrade.com \
+CF_ACCESS_CLIENT_ID=... CF_ACCESS_CLIENT_SECRET=... JT_API_KEY=... \
+python3 monitor_uptime.py
+```
+
+Three `PASS` lines and exit `0` is healthy.
+
+---
+
 ## How updates work
 
 Edit code → push to GitHub `main` → Railway redeploys automatically. Nothing
@@ -264,5 +337,6 @@ doesn't pause.
 | Check yesterday's capture actually ran | Investment tab → **Data readiness** |
 | Fix Schwab | `jerry auth` → paste token in Railway Console → Restart |
 | Site shows **Error 526** | grey cloud → re-add domain in Railway → new CNAME → orange cloud |
+| Check the watchman is working | GitHub → **Actions** → **uptime** → newest run |
 | Update the app | push to GitHub `main` |
 | Run it locally again | `python options_dashboard.py --serve --port 8765` |
