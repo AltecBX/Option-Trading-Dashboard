@@ -198,7 +198,9 @@ problem.
 2. **Is a stranger still turned away?** It asks again with no credentials and
    requires to be refused. If the site ever answers a stranger — a grey cloud
    left on after the certificate fix — that is reported as loudly as an
-   outage.
+   outage. **It only watches the `dashboard.jerrytrade.com` door.** The
+   Railway address is a second door it cannot see, and that one is still
+   unlocked — see the open item above.
 3. **When does the certificate expire?** Given the origin address it warns
    **fourteen days ahead**, which turns a market-hours outage into a quiet
    evening's work. This is the one that prevents rather than reports.
