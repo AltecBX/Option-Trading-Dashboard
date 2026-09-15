@@ -47,6 +47,83 @@ Check `/api/data_source` again — should say `"schwab"`.
 
 ---
 
+## Fix "Invalid SSL certificate" / Error 526 (the site is down)
+
+**What you see:** a Cloudflare page saying **Invalid SSL certificate ·
+Error 526**, with Browser ✅, Cloudflare ✅, and your host ❌.
+
+**What it means:** the app is fine. Railway's security certificate for
+`dashboard.jerrytrade.com` has expired, and Cloudflare refuses to hand
+traffic to a server it cannot verify. Nothing to do with the code, a
+deploy, or anything you changed.
+
+**Why it keeps happening:** that certificate lives on Railway and has to be
+renewed about every 90 days. To renew it, Railway has to be reachable at
+your domain name — but the **orange cloud** in Cloudflare stands in the
+way, and Cloudflare is refusing to connect *because the certificate is
+bad*. It is stuck in a loop it cannot leave on its own. The fix is to step
+Cloudflare out of the path for a few minutes.
+
+**The fix — about five minutes:**
+
+1. **Cloudflare → DNS → `dashboard` row → Edit.** Click the **orange cloud
+   so it turns grey** ("DNS only"). Save.
+2. **Railway → `web` → Settings → Networking.** Next to
+   `dashboard.jerrytrade.com` click the **trash icon** to remove it. Then
+   **+ Custom Domain** and type `dashboard.jerrytrade.com` again.
+3. Railway shows the DNS records it wants. **The CNAME value will be a NEW
+   address** — a fresh one is minted every time the domain is added, so
+   expect it to differ from what is in Cloudflare. Copy it.
+4. **Cloudflare → DNS → `dashboard` → Edit.** Paste Railway's new value
+   into **Content**. Leave it **grey** for now. Save.
+5. Also compare the `_railway-verify.dashboard` **TXT** record against the
+   value in Railway's dialog. Usually unchanged; if it differs, paste
+   Railway's in.
+6. Wait a minute. Check it works (below).
+7. **Cloudflare → DNS → `dashboard` → Edit → click the cloud back to
+   ORANGE.** Save. Check it works again.
+
+Step 7 is not optional: **Cloudflare Access only guards the site while the
+cloud is orange.** Grey means anyone with the address reaches the login-free
+dashboard. Keep that window to minutes, not hours.
+
+**How to check it worked.** From any terminal:
+
+```
+curl -sS -o /dev/null -w "%{http_code}\n" https://dashboard.jerrytrade.com/
+```
+
+- `302` → good. Cloudflare is bouncing you to the Access login, which is
+  what should happen to anyone not signed in.
+- `000` with *"certificate has expired"* → the certificate is still bad;
+  the renewal has not gone through yet.
+- `526` → still broken.
+
+To see the certificate error itself, which is the thing that proves the
+diagnosis rather than guessing at it:
+
+```
+curl -sSv https://dashboard.jerrytrade.com/ 2>&1 | grep -i certificate
+```
+
+Healthy looks like `SSL certificate verify ok.` Broken looks like
+`SSL certificate problem: certificate has expired`.
+
+**Do not "fix" it by turning off Full (strict).** SSL/TLS → *Full (strict)*
+is the correct setting and is what catches this. Switching to plain *Full*
+does make the site load again — Cloudflare simply stops checking the
+certificate — so it is a fair **temporary** bridge if you need the
+dashboard open during market hours. Set it back to Full (strict) once the
+certificate is reissued.
+
+**One trap worth knowing.** Railway keeps old addresses alive for a while,
+and an old one will still answer a plain request while having no valid
+certificate. So "the old address responds" proves nothing. The only
+address that counts is the one Railway's Networking page shows **right
+now**.
+
+---
+
 ## How updates work
 
 Edit code → push to GitHub `main` → Railway redeploys automatically. Nothing
@@ -62,7 +139,11 @@ else to do.
 - **Volume** (`web-volume`, mounted at `/data`) — keeps the watchlist and
   Schwab token forever, across restarts.
 - **Custom domain** — `dashboard.jerrytrade.com` (DNS lives in Cloudflare as a
-  `CNAME`, set to **DNS only / grey cloud**).
+  `CNAME` pointing at whatever address Railway's Networking page currently
+  shows, set to **Proxied / orange cloud**). Orange is required: Cloudflare
+  Access — the login that keeps the dashboard private — only applies while
+  the traffic goes through Cloudflare. The only time it should be grey is
+  the few minutes of the certificate fix above.
 
 ---
 
@@ -126,5 +207,6 @@ doesn't pause.
 | Check the Investment data will survive a deploy | Investment tab → **PRODUCTION READINESS** |
 | Check yesterday's capture actually ran | Investment tab → **Data readiness** |
 | Fix Schwab | `jerry auth` → paste token in Railway Console → Restart |
+| Site shows **Error 526** | grey cloud → re-add domain in Railway → new CNAME → orange cloud |
 | Update the app | push to GitHub `main` |
 | Run it locally again | `python options_dashboard.py --serve --port 8765` |
