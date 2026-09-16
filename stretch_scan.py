@@ -75,6 +75,7 @@ _POOL: dict = {}        # other names' crossings, in sigma (persisted)
 _ALERTS: dict = {}      # symbol|side|expiry -> first_ready / pushed (persisted)
 _CATALYSTS: dict = {}   # symbol -> (time, catalyst)  ten-minute memory
 _ILLIQUID: dict = {}    # symbol -> {day, why}: chains too thin to trade (persisted)
+_SEEN: dict = {}        # row key -> when it first appeared today (memory only)
 
 CYCLE_SECS = 180
 IDLE_SECS = 60
@@ -747,8 +748,12 @@ def _mark_and_alert(rows: list, cfg: dict, now: datetime) -> None:
         for k in [k for k, v in _ALERTS.items() if (v.get("expiration") or "9999") < today]:
             _ALERTS.pop(k, None)
             changed = True
+        if _STATE.get("seen_day") != today:
+            _STATE["seen_day"] = today
+            _SEEN.clear()
         for r in rows:
             rec = _ALERTS.get(r["alert_key"])
+            r["crossed_since"] = _SEEN.setdefault(r["key"], stamp)
             if r["state"] != "ready":
                 r["first_seen"], r["pushed"], r["is_new"] = (rec or {}).get("first_ready"), (rec or {}).get("pushed"), False
                 continue

@@ -4044,7 +4044,21 @@ finding, same fix: `spike_scan.stage1` now reads one quote call per hundred
 names every pass and falls back to the board only where a call cannot
 answer. Two guards in `test_spike_scan.py`.
 
-Guards: 20 evidence, 37 scanner, 77 source. Each proven red: the
+**Jerry, on the first live morning:** "I still don't know what this mean.
+What does -12.3% mean? what does -2.3% mean? Why do I have a slash under
+Since? Is this is what you call Simple?" No. The row was codes: `-12.3% ·
+2.73σ`, `-2.3% · rec -14%`, a State column, a dash where a time should be
+because a CROSSED name never had a READY time. The board now reads in
+words: **Down 12.3% this week · usual low −2.3% · Fri Sep 18 · 160 put ·
+$2.15 · ends past strike 25% · based on 412 similar weeks, borrowed · ready
+since 10:45 AM**. The table holds READY rows only, newest first. A name
+that crossed and found nothing is a sentence under it — "JBHT — down 12.3%
+this week (usual low −2.3%) — no put worth selling: options too thin to
+trade … · since 11:36 AM" — with the reason, not a row of dashes. Sigma,
+the record and the strike's distance from the anchor moved into the
+click-to-open detail.
+
+Guards: 20 evidence, 37 scanner, 80 source. Each proven red: the
 first-crossing test fails if outcomes are taken from the week's start; the
 put test fails if the call numbers are sign-flipped; the alert test fails if
 the memory is not persisted; the render suite still holds with the new

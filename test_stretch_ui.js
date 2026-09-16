@@ -67,10 +67,21 @@ const cols = [];
 src.replace(/^\s{2}\["([^"]+)", "(\w+)", "(\w+)"/gm, (m, label, key, tip) => {
   cols.push({ label, key, tip }); return m;
 });
-ok("the column table is complete (14)", cols.length >= 14, String(cols.length));
-["state", "symbol", "side", "horizon", "expiration", "move_pct", "line_pct", "strike", "delta",
+ok("the column table is complete (10)", cols.length >= 10, String(cols.length));
+["symbol", "move_pct", "line_pct", "strike", "delta",
  "credit", "itm_pct", "touch_pct", "grade", "first_seen"]
   .forEach((k) => ok(`column present: ${k}`, cols.some((c) => c.key === k)));
+// Jerry: "What does -12.3% mean? what does -2.3% mean?" — the row reads in words.
+ok("the move reads in words, with the horizon", /`\$\{r\.side === "call" \? "Up" : "Down"\} \$\{Math\.abs\(r\.move_pct\)\.toFixed\(1\)\}% \$\{r\.horizon === "week" \? "this week" : "today"\}`/.test(src));
+ok("the line reads as the usual high or low", /`usual \$\{r\.side === "call" \? "high" : "low"\} \$\{stPct\(r\.line_pct\)\}`/.test(src));
+ok("the sell column names the expiry, strike and side together", /`\$\{stDate\(r\.expiration\)\} · \$\{stNum\(r\.strike, 2\)\} \$\{r\.side\}`/.test(src));
+ok("the evidence reads as a count and its own/borrowed", /similar \$\{r\.horizon === "week" \? "weeks" : "days"\} · \$\{r\.grade === "MEASURED" \? "its own" : "borrowed"\}/.test(src));
+ok("the risk column says what it is in words", cols.some((c) => c.label === "Ends past strike") && cols.some((c) => c.label === "Touches strike"));
+ok("the table holds READY only; crossed names are sentences with the reason",
+   /const ready = useMemo\(\(\) => rows\.filter\(\(r\) => r\.state === "ready"\)/.test(src)
+   && /Crossed a line, but nothing to sell \(\{crossed\.length\}\)/.test(src)
+   && /no \{r\.side\} worth selling[\s\S]{0,80}r\.why\[0\]/.test(src) && /\.st-crossed li/.test(css));
+ok("no dash under Ready since: the column exists only for READY rows", cols.some((c) => c.key === "first_seen") && !/"state", "state"/.test(src));
 const tipBlock = src.slice(src.indexOf("const ST_TIP = {"), src.indexOf("};", src.indexOf("const ST_TIP = {")));
 const defined = new Set();
 tipBlock.replace(/^\s{2}(\w+):/gm, (m, k) => { defined.add(k); return m; });
@@ -96,8 +107,8 @@ ok("rows are keyed by symbol, horizon, side and expiry together",
 ok("Calls/Puts/Both and week/day filters exist and persist",
    /\["call", "Calls"\], \["put", "Puts"\]/.test(src) && /\["week", "This week"\], \["day", "Today"\]/.test(src)
    && /localStorage\.setItem\(ST_FILTER_KEY/.test(src));
-ok("order is stable while reading: state first, then the move", /if \(sortK === "state"\) return r\.state === "ready" \? 0 : 1/.test(src)
-   && /\(b\.move_sigma \|\| 0\) - \(a\.move_sigma \|\| 0\)/.test(src));
+ok("order is stable while reading: newest READY first, then the move",
+   /useState\("first_seen"\)/.test(src) && /\(b\.move_sigma \|\| 0\) - \(a\.move_sigma \|\| 0\)/.test(src));
 ok("new setups are flagged", /is_new/.test(src) && /st-new-chip/.test(src) && /\.st-new-chip/.test(css));
 
 // ── 3. the anchor and the line are named ────────────────────────────────
@@ -105,7 +116,8 @@ ok("the anchor is named on the row", /from \{r\.anchor_label\}/.test(src) && /an
 ok("the engine names both anchors", /the prior week's last close/.test(ev) && /the prior session's close/.test(ev));
 ok("the line is the median, drawn on the Analyze chart", /the same dashed line the Analyze chart draws/.test(src));
 ok("the record is context, not a ceiling", /context, not a ceiling/.test(src) && /never a ceiling/.test(ev));
-ok("the move is shown in percent AND sigma", /stPct\(r\.move_pct\)\} · \$\{stSig\(r\.move_sigma\)/.test(src));
+ok("the sigma is one click away, in the detail, not on the row",
+   /<b>\{stSig\(r\.move_sigma\)\}<\/b>/.test(src) && !/stSig\(r\.move_sigma\)/.test(src.slice(src.indexOf("const ST_COLS"), src.indexOf("function StLadder"))));
 ok("the line quantile is a configurable choice", /line_quantile/.test(scan) && thresholds.stretch.select.line_quantile === 0.5);
 
 // ── 4. the probabilities are honest ─────────────────────────────────────
@@ -126,7 +138,8 @@ ok("the vs-Monday check says premium is not on the bars", /Premium is not on the
 // ── 5. READY needs a contract; CROSSED says why ─────────────────────────
 ok("READY is defined as a cleared contract", /READY: the stock is past its line AND a listed contract cleared/.test(src)
    && /"state": "ready"/.test(scan));
-ok("CROSSED carries its reason", /Not ready:<\/b> \{\(r\.why \|\| \[\]\)\.join/.test(src) && /"state": "crossed", "why"/.test(scan));
+ok("CROSSED carries its reason", /Not ready:<\/b> \{\(r\.why \|\| \[\]\)\.join/.test(src) && /"state": "crossed", "why"/.test(scan)
+   && /r\["crossed_since"\] = _SEEN\.setdefault/.test(scan));
 ok("no expiry is the calendar and stays off the board", /the calendar, not the scanner/.test(scan) && /if not r\.get\("expiration"\):\s*\n\s*continue/.test(scan));
 ok("earnings inside the trade is refused", /_earnings_inside/.test(scan) && /inside the trade/.test(scan));
 ok("takeover headlines are refused", /_catalyst_refusal/.test(scan) && /Takeover spikes are refused/.test(src));
