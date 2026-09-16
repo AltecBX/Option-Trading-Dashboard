@@ -115,6 +115,13 @@ minutes while open — same-day premium decays by the minute.
 
 ## 5a. What stage 1 is allowed to spend
 
+**The move comes from a live quote, not the board** (v5.16). The watchlist
+board is rebuilt at 9 AM and 6 PM, so its `last` and `change` are hours old
+by mid-morning — a run that started after the rebuild was invisible to this
+board until the evening. Stage 1 now reads one quote call per hundred names
+every pass and falls back to the board only for a name a call cannot answer;
+the payload reports `quotes_live`.
+
 The watchlist is 1,289 names and several hundred of them are green on an
 ordinary day. Judging a move in sigma needs the stock's volatility, and the
 first version fetched daily bars for every green name to get it — hundreds

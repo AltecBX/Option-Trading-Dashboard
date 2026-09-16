@@ -118,6 +118,31 @@ class Stage1(unittest.TestCase):
         self.assertEqual(sk.stage1()[0], [])
 
 
+class TheQuotesAreLive(unittest.TestCase):
+    # Jerry, after the same finding on At the line: "Also fix Sold into
+    # strength so it uses live quotes too." The board is rebuilt at 9 AM and
+    # 6 PM; a run that started at 10 was invisible here until the evening.
+    def test_a_live_quote_overrides_a_flat_board(self):
+        _wire([{"symbol": "CALM", "last": 100.0, "change": 0.0, "avg_volume": 5e6}])
+        sk._QUOTES_FN = lambda syms: {"CALM": {"last": 104.0, "change_pct": 4.0}}
+        try:
+            cands, _n = sk.stage1()
+        finally:
+            sk._QUOTES_FN = None
+        self.assertEqual([c["symbol"] for c in cands], ["CALM"], "the board said flat; the quote says it ran")
+        self.assertAlmostEqual(cands[0]["last"], 104.0)
+
+    def test_the_board_answers_when_the_feed_cannot(self):
+        _wire([{"symbol": "CALM", "last": 104.0, "change": 4.0, "avg_volume": 5e6}])
+        sk._QUOTES_FN = lambda syms: (_ for _ in ()).throw(RuntimeError("feed down"))
+        try:
+            cands, _n = sk.stage1()
+        finally:
+            sk._QUOTES_FN = None
+        self.assertEqual([c["symbol"] for c in cands], ["CALM"])
+        self.assertEqual(sk.snapshot()["quotes_live"], 0)
+
+
 class Budget(unittest.TestCase):
     """A 1,289-name watchlist must not cost a daily-bar fetch per green name.
     The first version did, which is hundreds of broker calls on a shared

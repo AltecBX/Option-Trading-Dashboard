@@ -52,7 +52,9 @@ _MARKET_OPEN_FN = None
 _NOW_FN = None
 _CATALYST_FN = None
 _MINUTE_DAY_FN = None
+_QUOTES_FN = None
 _DATA_DIR: Path | None = None
+QUOTE_BATCH = 100
 
 _LOCK = threading.RLock()
 _STATE: dict = {
@@ -85,12 +87,13 @@ DEFAULTS = {
 
 
 def configure(schwab_getter=None, board_getter=None, bars_fn=None, market_open_fn=None,
-              now_fn=None, catalyst_fn=None, minute_day_fn=None, data_dir=None) -> None:
+              now_fn=None, catalyst_fn=None, minute_day_fn=None, data_dir=None,
+              quotes_fn=None) -> None:
     global _SCHWAB, _BOARD_FN, _BARS_FN, _MARKET_OPEN_FN, _NOW_FN, _CATALYST_FN
-    global _MINUTE_DAY_FN, _DATA_DIR
+    global _MINUTE_DAY_FN, _DATA_DIR, _QUOTES_FN
     _SCHWAB, _BOARD_FN, _BARS_FN = schwab_getter, board_getter, bars_fn
     _MARKET_OPEN_FN, _NOW_FN, _CATALYST_FN = market_open_fn, now_fn, catalyst_fn
-    _MINUTE_DAY_FN = minute_day_fn
+    _MINUTE_DAY_FN, _QUOTES_FN = minute_day_fn, quotes_fn
     _DATA_DIR = Path(data_dir) if data_dir else None
 
 
@@ -452,9 +455,31 @@ def _sigma_for(sym: str, bars: list) -> float | None:
 
 
 # ── stage 1: which names have actually run, in their own terms ──────────────
+def live_quotes(symbols: list) -> dict:
+    """Where every name is RIGHT NOW. The watchlist board is rebuilt twice a
+    day (9 AM and 6 PM), so its `last` and `change` are hours old by
+    mid-morning and a run that started after the rebuild was invisible to
+    this board. One quote call per hundred names, every pass; a name a call
+    cannot answer falls back to the board."""
+    out: dict = {}
+    if not _QUOTES_FN:
+        return out
+    for i in range(0, len(symbols), QUOTE_BATCH):
+        try:
+            got = _QUOTES_FN(symbols[i:i + QUOTE_BATCH]) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        for sym, q in got.items():
+            last, chg = _num((q or {}).get("last")), _num((q or {}).get("change_pct"))
+            if last and last > 0 and chg is not None:
+                out[str(sym).upper()] = (last, chg)
+    return out
+
+
 def stage1(cfg: dict | None = None) -> tuple[list, int]:
-    """Rank the board by the size of today's move IN SIGMA. Free: it reads
-    the board the app already keeps and the bars it already caches."""
+    """Rank the board by the size of today's move IN SIGMA. Cheap: the board
+    the app already keeps gives the universe, one live-quote call per
+    hundred names gives the move, and the bars are already cached."""
     cfg = cfg or config()
     st = cfg["select"]
     _load_sigmas()
@@ -464,6 +489,9 @@ def stage1(cfg: dict | None = None) -> tuple[list, int]:
     except Exception:  # noqa: BLE001
         board = {}
     rows = board.get("rows") or []
+    quotes = live_quotes([r.get("symbol") for r in rows if r.get("symbol")])
+    with _LOCK:
+        _STATE["quotes_live"] = len(quotes)
     # Pass one: everything that can be judged for free. A watchlist this size
     # would otherwise cost a daily-bar fetch for every green name before we
     # knew whether any of them was a candidate — hundreds of broker calls on
@@ -471,8 +499,9 @@ def stage1(cfg: dict | None = None) -> tuple[list, int]:
     ready, cold = [], []
     for r in rows:
         sym = r.get("symbol")
-        last = _num(r.get("last"))
-        chg = _num(r.get("change"))
+        q = quotes.get(str(sym).upper()) if sym else None
+        last = q[0] if q else _num(r.get("last"))
+        chg = q[1] if q else _num(r.get("change"))
         if not sym or not last or chg is None or last < float(st["min_price"]):
             continue
         if chg <= 0:
@@ -790,6 +819,9 @@ def snapshot(top_n: int | None = None) -> dict:
             "market_open": open_now, "error": _STATE["error"],
             "universe": _STATE["universe"], "scanned": _STATE["scanned"],
             "warming": _STATE.get("warming", 0),
+            "quotes_live": _STATE.get("quotes_live", 0),
+            "quotes": ("live" if _QUOTES_FN else "board only — rebuilt twice a day, so a run "
+                       "that started after the rebuild cannot be seen"),
             "rows": rows, "n_rows": len(_STATE["rows"]),
             "candidates": [{k: c[k] for k in ("symbol", "move_sigma", "change_pct",
                                               "sigma_annual", "last")} for c in cands],

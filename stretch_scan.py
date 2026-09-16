@@ -74,6 +74,7 @@ _PROFILES: dict = {}    # symbol -> (day, profile)  memory only
 _POOL: dict = {}        # other names' crossings, in sigma (persisted)
 _ALERTS: dict = {}      # symbol|side|expiry -> first_ready / pushed (persisted)
 _CATALYSTS: dict = {}   # symbol -> (time, catalyst)  ten-minute memory
+_ILLIQUID: dict = {}    # symbol -> {day, why}: chains too thin to trade (persisted)
 
 CYCLE_SECS = 180
 IDLE_SECS = 60
@@ -87,7 +88,14 @@ DEFAULTS = {
     "select": {"min_price": 5.0, "max_candidates": 16, "near_fraction": 0.75,
                "line_quantile": 0.5, "strike_count": 40, "top_alts": 3,
                "max_itm": 0.30, "min_delta": 0.08, "max_delta": 0.50},
-    "liquidity": {"min_underlying_dollar_volume": 2e7},
+    "liquidity": {"min_underlying_dollar_volume": 2e7,
+                  # per contract: no real bid, a spread past this, or open
+                  # interest below this, and the strike is never priced
+                  "min_bid": 0.05, "max_spread_pct": 25.0, "min_oi": 50,
+                  # per name: fewer tradable SELLABLE strikes than this (out of
+                  # the money, in the delta range) at the expiry, and the
+                  # whole name is refused for days
+                  "min_tradable_strikes": 3, "illiquid_ttl_days": 5},
     "events": {"refuse_kinds": ["BUYOUT", "MERGER DEAL", "MERGER VOTE", "DEAL CLOSED"],
                "earnings_block": True},
     "scan": {"cycle_seconds": CYCLE_SECS, "cold_fetches_per_pass": 40,
@@ -188,6 +196,7 @@ def _load_all() -> None:
         _LINES.clear(); _LINES.update(_load_json("stretch_lines.json", {}))
         _ANCHORS.clear(); _ANCHORS.update(_load_json("stretch_anchors.json", {}))
         _ALERTS.clear(); _ALERTS.update(_load_json("stretch_alerts.json", {}))
+        _ILLIQUID.clear(); _ILLIQUID.update(_load_json("stretch_illiquid.json", {}))
         _POOL.clear()
         for h, sides in (_load_json("stretch_pool.json", {}) or {}).items():
             for s, cells in sides.items():
@@ -281,6 +290,46 @@ def _profile_for(sym: str, today: date, cfg: dict, bars: list | None = None) -> 
     return prof
 
 
+def _days_since(day: str | None, today: date) -> int | None:
+    try:
+        return (today - date.fromisoformat(str(day)[:10])).days
+    except (TypeError, ValueError):
+        return None
+
+
+def contract_liquid(o: dict, lq: dict) -> tuple[bool, str | None]:
+    """Is there anyone on the other side of this order? A strike with no
+    real bid is not a trade at any price — and the strike engine would
+    otherwise read its ASK as the credit. Open interest and the spread are
+    the other two ways a fill fails."""
+    bid, ask = _num(o.get("bid")) or 0.0, _num(o.get("ask")) or 0.0
+    if bid < float(lq.get("min_bid", 0.05)):
+        return False, f"no real bid ({bid:.2f})"
+    if ask <= 0 or ask < bid:
+        return False, "no usable ask"
+    mid = (bid + ask) / 2.0
+    spread_pct = (ask - bid) / mid * 100.0
+    if spread_pct > float(lq.get("max_spread_pct", 25.0)):
+        return False, f"spread {spread_pct:.0f}% of mid"
+    oi = _num(o.get("openInterest")) or 0
+    if oi < float(lq.get("min_oi", 50)):
+        return False, f"open interest {oi:.0f}"
+    return True, None
+
+
+def chain_liquid(contracts: list, lq: dict) -> int:
+    """How many of these strikes could actually be traded. A chain with a
+    bid of zero on every out-of-the-money put and a placeholder ask is the
+    picture of nobody there."""
+    return sum(1 for o in contracts if contract_liquid(o, lq)[0])
+
+
+def _mark_illiquid(sym: str, today: date, why: str) -> None:
+    with _LOCK:
+        _ILLIQUID[sym] = {"day": today.isoformat(), "why": why}
+        _save_json("stretch_illiquid.json", _ILLIQUID)
+
+
 def _lines_fresh(rec: dict | None, today: date, ttl_days: int) -> bool:
     if not rec or not rec.get("day"):
         return False
@@ -352,7 +401,7 @@ def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
     ttl = int(sc.get("lines_ttl_days", 5))
     quotes = live_quotes([r.get("symbol") for r in rows if r.get("symbol")])
     n_live = 0
-    ready, cold = [], []
+    ready, cold, skipped = [], [], []
     for r in rows:
         sym = r.get("symbol")
         q = quotes.get(str(sym).upper()) if sym else None
@@ -379,6 +428,15 @@ def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
             _ANCHORS[sym] = anc
         if not (anc and anc.get("week_start") == monday and anc.get("close")):
             anc = None
+        # A chain found too thin to trade is not looked at again for days —
+        # there is nobody on the other side of the order, and a scanner that
+        # keeps pricing it is the noise this board exists to remove.
+        thin = _ILLIQUID.get(sym)
+        if thin and _days_since(thin.get("day"), today) is not None \
+                and _days_since(thin["day"], today) < int(cfg["liquidity"].get("illiquid_ttl_days", 5)):
+            skipped.append({"symbol": sym, "why": [thin.get("why") or "options too thin to trade"],
+                            "gate": "liquidity"})
+            continue
         ln = _LINES.get(sym)
         if anc and _lines_fresh(ln, today, ttl):
             rec["anchor"], rec["lines"] = anc["close"], ln
@@ -437,7 +495,7 @@ def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
         _STATE["quotes_live"] = n_live
     return {"candidates": cands[: int(st["max_candidates"])], "near": near,
             "universe": len(rows), "n_crossed": len(cands), "warmed": warmed,
-            "quotes_live": n_live}
+            "quotes_live": n_live, "skipped": skipped}
 
 
 # ── stage 2: one chain per crossed name, every strike priced ────────────────
@@ -543,15 +601,38 @@ def evaluate(rec: dict, trig: dict, chain: dict, prof: dict, cfg: dict, today: d
                 "why": [f"only {ev['n']} comparable crossings on record (needs {se.MIN_EVENTS}), "
                         f"even with the pool"]}
     contracts = ((chain.get("chains") or {}).get(exp.isoformat()) or {}).get(side + "s") or []
-    dte_cal = max(0.5, float((exp - today).days))
+    lq = cfg["liquidity"]
     lo_d, hi_d = float(st["min_delta"]), float(st["max_delta"])
-    ladder, ok, gates, unquoted = [], [], Counter(), 0
+    # The strikes a seller could actually use: out of the money, in the delta
+    # range. The thin-chain test is made on THESE — Codex: counting the whole
+    # side let deep in-the-money strikes with real bids vouch for a sell side
+    # that had none, so the name was never remembered as thin and cost a
+    # chain call every pass.
+    sellable = []
     for o in contracts:
         k = _num(o.get("strike"))
         if k is None or (side == "call" and k <= spot) or (side == "put" and k >= spot):
             continue
         d = _num(o.get("delta"))
         if d is not None and not (lo_d <= abs(d) <= hi_d):
+            continue
+        sellable.append(o)
+    tradable = chain_liquid(sellable, lq)
+    need = int(lq.get("min_tradable_strikes", 3))
+    if tradable < need:
+        ttl = int(lq.get("illiquid_ttl_days", 5))
+        why = (f"options too thin to trade — {tradable} of {len(sellable)} sellable {side} "
+               f"strike{'s' if len(sellable) != 1 else ''} at this expiry ha{'s' if tradable == 1 else 've'} "
+               f"a real bid, a fillable spread and open interest (needs {need}); skipped for {ttl} days")
+        _mark_illiquid(sym, today, why)
+        return {**base, "state": "crossed", "why": [why], "gate": "liquidity"}
+    dte_cal = max(0.5, float((exp - today).days))
+    ladder, ok, gates, unquoted = [], [], Counter(), 0
+    for o in sellable:
+        # Never handed to the strike engine: with a zero bid it would read
+        # the ask as the credit and price a sale nobody will take.
+        if not contract_liquid(o, lq)[0]:
+            unquoted += 1
             continue
         row = ws.evaluate_strike(o, side, spot, ev["windows"], dte_cal, None)
         if row is None:
@@ -569,7 +650,8 @@ def evaluate(rec: dict, trig: dict, chain: dict, prof: dict, cfg: dict, today: d
         if ladder:
             why = [f"every strike failed a gate — most often: {gates.most_common(1)[0][0]}"]
         elif unquoted:
-            why = [f"no usable quote on any of the {unquoted} strikes in the delta range"]
+            why = [f"none of the {unquoted} strikes in the delta range has a real bid, a fillable "
+                   f"spread and open interest"]
         else:
             why = [f"no strike between {lo_d:.2f} and {hi_d:.2f} delta is listed"]
         return {**base, "state": "crossed", "why": why}
@@ -594,7 +676,7 @@ def _scan(sc, cfg: dict | None = None, now: datetime | None = None) -> None:
     s1 = stage1(cfg, n)
     cands = s1["candidates"]
     to_date = last_session_of_week(today).isoformat()
-    refused, rows = [], []
+    refused, rows = list(s1["skipped"]), []
 
     def one(c):
         sym = c["symbol"]
@@ -619,7 +701,8 @@ def _scan(sc, cfg: dict | None = None, now: datetime | None = None) -> None:
             r = evaluate(c, t, chain, prof, cfg, today, _POOL)
             if r["state"] != "ready":
                 ref.append({"symbol": sym, "horizon": r["horizon"], "side": r["side"],
-                            "why": r["why"], "gate": "expiry" if not r.get("expiration") else "select"})
+                            "why": r["why"],
+                            "gate": r.get("gate") or ("expiry" if not r.get("expiration") else "select")})
             # A name with nothing expiring in the window is the calendar, not a
             # setup — most stocks list options only on Fridays. It is counted
             # among the refusals, where the reason is, and kept off the board.
@@ -902,4 +985,5 @@ def status() -> dict:
                 "lines_cached": len(_LINES), "anchors_cached": len(_ANCHORS),
                 "quotes_live": _STATE.get("quotes_live", 0), "quotes_fn": bool(_QUOTES_FN),
                 "alerts_remembered": len(_ALERTS), "pushed_today": _STATE["pushed_today"],
+                "illiquid_remembered": len(_ILLIQUID),
                 "background": bool(config()["scan"].get("background", True))}

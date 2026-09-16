@@ -5054,6 +5054,9 @@ try:
         # this module, and passing the bare name here would fail at import
         catalyst_fn=lambda sym: _gap_news_catalyst(sym),
         minute_day_fn=lambda sym, d: (lambda c: c.get_intraday_day(sym, d) if c is not None else None)(_schwab()),
+        # where every name is right now; the board's own prices are rebuilt
+        # only twice a day
+        quotes_fn=lambda syms: (lambda c: c.get_quotes(syms) if c is not None else None)(_schwab()),
         data_dir=_STABLE_DIR,
     )
     _SPIKE_AVAILABLE = True

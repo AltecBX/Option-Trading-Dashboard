@@ -1132,7 +1132,12 @@
       "max_delta": 0.5
     },
     "liquidity": {
-      "min_underlying_dollar_volume": 20000000.0
+      "min_underlying_dollar_volume": 20000000.0,
+      "min_bid": 0.05,
+      "max_spread_pct": 25.0,
+      "min_oi": 50,
+      "min_tradable_strikes": 3,
+      "illiquid_ttl_days": 5
     },
     "events": {
       "refuse_kinds": [

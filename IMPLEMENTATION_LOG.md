@@ -4029,7 +4029,22 @@ the first READY regardless. (P2) The alert key carried the horizon, so on a
 Friday the day and the week — the same contract — would have pushed twice;
 the key is symbol, side and expiry.
 
-Guards: 20 evidence, 32 scanner, 77 source. Each proven red: the
+**Jerry, on a chain with bid 0 / ask 4.90 on every put below the price:**
+"This is not liquid. How can I sell a 20% delta put if there is nobody
+there to fill my order. Please ignore stocks like this." Worse than
+illiquid: the reused strike engine reads a zero-bid strike's ask as its
+credit, so that chain would have priced a $4.90 sale nobody would take.
+Now a strike without a real bid, a fillable spread and open interest is
+never priced, and a name with fewer than three such strikes among the sellable ones
+(out of the money, in the delta range) at the expiry is refused as "options too thin to trade" and skipped for five
+days, remembered on disk, so no chain call is spent on it again.
+
+**"Also fix Sold into strength so it uses live quotes too."** Same
+finding, same fix: `spike_scan.stage1` now reads one quote call per hundred
+names every pass and falls back to the board only where a call cannot
+answer. Two guards in `test_spike_scan.py`.
+
+Guards: 20 evidence, 37 scanner, 77 source. Each proven red: the
 first-crossing test fails if outcomes are taken from the week's start; the
 put test fails if the call numbers are sign-flipped; the alert test fails if
 the memory is not persisted; the render suite still holds with the new
