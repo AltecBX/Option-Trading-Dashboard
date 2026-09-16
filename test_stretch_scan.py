@@ -286,7 +286,7 @@ class ReadyNeedsAContract(Base):
         self.assertNotIn("strike", r)
 
     def test_nothing_that_pays_is_crossed_with_the_gate_named(self):
-        self.wire([_row("UP", 0.2)], schwab=FakeSchwab(chain=_chain(BARS["UP"][-1]["close"], [FRIDAY], rich=0.02)))
+        self.wire([_row("UP", 0.2)], schwab=FakeSchwab(chain=_chain(BARS["UP"][-1]["close"], [FRIDAY], rich=0.3)))
         self._cross()
         r = self.scan()["rows"][0]
         self.assertEqual(r["state"], "crossed")
@@ -312,6 +312,89 @@ class ReadyNeedsAContract(Base):
             sk._CATALYST_FN = None
         self.assertEqual(out["rows"], [])
         self.assertEqual(out["refused"][0]["gate"], "event")
+
+
+class NobodyThere(Base):
+    """Jerry, on a chain where every put below the price showed bid 0 / ask
+    4.90 and a handful of open interest: "This is not liquid. How can I sell
+    a 20% delta put if there is nobody there to fill my order. Please
+    ignore stocks like this." The strike engine would have read that ask as
+    the credit."""
+
+    @staticmethod
+    def _dead_chain(spot, exps, ask=4.90):
+        out = {"underlying": {"last": spot}, "chains": {}}
+        for e in exps:
+            calls, puts = [], []
+            k = math.floor(spot * 0.6)
+            while k <= spot * 1.4:
+                d = 0.5 - (k - spot) / spot
+                calls.append({"strike": k, "bid": 0.0, "ask": ask, "delta": max(0.02, min(0.98, d)),
+                              "openInterest": 6, "volume": 0, "iv": 2.0})
+                puts.append({"strike": k, "bid": 0.0, "ask": ask, "delta": -max(0.02, min(0.98, 1 - d)),
+                             "openInterest": 6, "volume": 0, "iv": 2.0})
+                k += 1
+            out["chains"][e.isoformat()] = {"calls": calls, "puts": puts}
+        return out
+
+    def _cross(self, sym="DN", side="put", by=3.0):
+        ln = self.lines(sym)
+        wk = ln["week"]["high_pct"] if side == "call" else ln["week"]["low_pct"]
+        sk._ANCHORS[sym] = {"week_start": "2026-09-14", "close": BARS[sym][-1]["close"] / (1 + wk * by)}
+
+    def test_a_zero_bid_chain_is_refused_not_priced_off_the_ask(self):
+        spot = BARS["DN"][-1]["close"]
+        self.wire([_row("DN", -0.2)], schwab=FakeSchwab(chain=self._dead_chain(spot, [FRIDAY])))
+        self._cross()
+        out = self.scan()
+        self.assertEqual(out["rows"][0]["state"], "crossed")
+        self.assertIn("too thin to trade", out["rows"][0]["why"][0])
+        self.assertNotIn("strike", out["rows"][0])
+        self.assertEqual(self.pushed, [])
+        self.assertEqual(sk._ILLIQUID["DN"]["day"], TODAY.isoformat())
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "stretch_illiquid.json")))
+
+    def test_a_thin_name_is_skipped_without_a_chain_call_until_the_memory_expires(self):
+        spot = BARS["DN"][-1]["close"]
+        self.wire([_row("DN", -0.2)], schwab=FakeSchwab(chain=self._dead_chain(spot, [FRIDAY])))
+        self._cross()
+        self.scan()
+        calls = self.schwab.calls
+        out = self.scan()
+        self.assertEqual(self.schwab.calls, calls, "no second chain call for a name known to be thin")
+        self.assertEqual(out["rows"], [])
+        self.assertEqual(out["refused"][0]["gate"], "liquidity")
+        self.assertIn("skipped for 5 days", out["refused"][0]["why"][0])
+        # Six days on, it is looked at again.
+        later = datetime(2026, 9, 22, 11, 0).astimezone()
+        sk._ANCHORS["DN"]["week_start"] = "2026-09-21"
+        sk._scan(self.schwab, None, later)
+        self.assertEqual(self.schwab.calls, calls + 1)
+
+    def test_a_strike_with_no_bid_is_never_handed_to_the_strike_engine(self):
+        spot = BARS["UP"][-1]["close"]
+        chain = _chain(spot, [FRIDAY])
+        # Kill the bid on every call more than 3% above the price: the far
+        # strikes are the ones a 0.10-delta seller wants, and each must be
+        # refused rather than priced at its ask.
+        for o in chain["chains"][FRIDAY.isoformat()]["calls"]:
+            if o["strike"] > spot * 1.03:
+                o["bid"] = 0.0
+        self.wire([_row("UP", 0.2)], schwab=FakeSchwab(chain=chain))
+        ln = self.lines("UP")
+        sk._ANCHORS["UP"] = {"week_start": "2026-09-14", "close": spot / (1 + ln["week"]["high_pct"] * 1.2)}
+        r = self.scan()["rows"][0]
+        self.assertTrue(all(x["strike"] <= spot * 1.03 for x in r["ladder"]),
+                        "a zero-bid strike must not appear in the ladder at any price")
+        if r["state"] == "ready":
+            self.assertLessEqual(r["strike"], spot * 1.03)
+
+    def test_the_contract_gate_names_its_reason(self):
+        lq = sk.config()["liquidity"]
+        self.assertEqual(sk.contract_liquid({"bid": 0, "ask": 4.9, "openInterest": 900}, lq)[1], "no real bid (0.00)")
+        self.assertEqual(sk.contract_liquid({"bid": 1.0, "ask": 1.05, "openInterest": 3}, lq)[1], "open interest 3")
+        self.assertIn("spread", sk.contract_liquid({"bid": 0.10, "ask": 0.50, "openInterest": 900}, lq)[1])
+        self.assertTrue(sk.contract_liquid({"bid": 1.0, "ask": 1.05, "openInterest": 900}, lq)[0])
 
 
 class TheAlert(Base):

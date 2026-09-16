@@ -34,7 +34,7 @@ const ST_TIP = {
   closed_back: "After crossing the line, how often the window CLOSED back inside it. This is the belief the workflow rests on — the week usually closes below its high — measured rather than assumed. It is near a coin flip on most names.",
   beyond: "How much further past the line the stock typically travelled after crossing (the median), and the level nine in ten stayed within. The strike wants to sit beyond the second number, not the first.",
   near: "Names within reach of a line — at least three quarters of the way there — but not across it. Nothing is priced until it crosses.",
-  refused: "Names that crossed a line and did not make the board, each with its reason. “No option expires” is the calendar, not the scanner: most stocks list options only on Fridays. Earnings inside the trade, a takeover headline, thin evidence and a failed gate each say so.",
+  refused: "Names that crossed a line and did not make the board, each with its reason. “No option expires” is the calendar, not the scanner: most stocks list options only on Fridays. “Options too thin to trade” means fewer than five strikes on that side had a real bid, a fillable spread and open interest — nobody is there to fill the order — and the name is skipped for five days. Earnings inside the trade, a takeover headline, thin evidence and a failed gate each say so.",
   no_trade: "Nothing is READY, and the sentence says which kind of nothing: the market is closed, nothing has crossed a line yet, or names crossed and nothing paid. Most sessions are quiet; a board that always has something on it is not measuring anything.",
   alerts: "Pushes sent today. One per symbol, side and expiry, remembered across restarts, sent only when the credit clears the floor — and only if a push channel (ntfy or Pushover) is configured on the server.",
   limits: "The gates in force: the finished-through limit and the delta range scanned. Both live in thresholds.json under “stretch” and are research choices, not proven constants.",
@@ -404,8 +404,10 @@ function StretchCard({ apiFetch, onPickTicker }) {
         <p title={ST_TIP.day_upper}>
           Daily bars cannot see the time of day a line was crossed, so the crossing bar is charged in
           full and a same-day expiry is charged the whole day — an upper bound on the risk. Takeover
-          headlines and earnings inside the trade are refused. Names with thin records borrow the
-          pool, in sigma, and are labelled POOLED.
+          headlines and earnings inside the trade are refused, and so is a chain with nobody there:
+          a strike without a real bid, a fillable spread and open interest is never priced, and a
+          name with fewer than five such strikes is skipped for five days. Names with thin records
+          borrow the pool, in sigma, and are labelled POOLED.
         </p>
       </PanelMethod>
 
