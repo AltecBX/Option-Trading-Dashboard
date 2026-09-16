@@ -238,7 +238,7 @@ in the alert.
 ## 7. Tests
 
 `test_stretch_evidence.py` (20) · `test_stretch_scan.py` (37) ·
-`test_stretch_ui.js` (77 source guards) · HTTP smoke (+6 routes).
+`test_stretch_ui.js` (80 source guards) · HTTP smoke (+6 routes).
 Invariants: the event is the first crossing and nothing before it counts;
 a window that never reached the level is not an event; puts are measured on
 lows and closes-below; sigma is point-in-time; the comparable set widens

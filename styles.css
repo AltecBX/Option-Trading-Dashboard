@@ -13744,6 +13744,10 @@ a.tabsheet-btn.site { text-decoration: none; }
 .st-new-chip { color: var(--warn); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; }
 .st-row.st-crossed td { color: var(--fg-3); }
 .st-ladder .st-gated td { color: var(--fg-3); }
+.st-crossed { margin: 10px 0 4px; padding: 8px 12px; border: 1px dashed var(--line-2); border-radius: 11px; }
+.st-crossed ul { margin: 4px 0 0; padding-left: 18px; }
+.st-crossed li { font-size: 13px; line-height: 1.55; color: var(--fg-2); cursor: pointer; }
+.st-crossed li.st-crossed-open { color: var(--fg); }
 .st-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .st-side-block p { font-size: 13px; line-height: 1.5; margin: 4px 0; }
 @media (max-width: 720px) { .st-sides { grid-template-columns: 1fr; } }

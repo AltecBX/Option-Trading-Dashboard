@@ -18,19 +18,20 @@
 
 const ST_TIP = {
   card: "Stocks that have reached their usual high or low — the dashed line the Analyze chart draws — and what the calls above or the puts below pay. The line is this stock's own median weekly high/low from last week's close (or median daily high/low from yesterday's close), not a fixed percentage.",
-  state: "READY: the stock is past its line AND a listed contract cleared the risk limit and the fill gates. CROSSED: past its line, but nothing on the chain pays for the measured risk — the row says why. A crossed line is a candidate, never a recommendation by itself.",
+  state: "READY: the stock is past its line AND a listed contract cleared the risk limit and the fill gates. CROSSED: past its line, but nothing on the chain pays for the measured risk — the sentence says why. A crossed line is a candidate, never a recommendation by itself.",
+  crossed_list: "These stocks moved past their usual high or low, but nothing on their option chain was worth selling — no real bid, too few tradable strikes, earnings inside the trade, too little history, or every strike failed the risk limit. Each line says which. Click one for the numbers.",
   side: "Call after a move UP through the usual high; put after a move DOWN through the usual low. Each side is measured on its own crossings — the put numbers are not the call numbers with the sign flipped.",
   horizon: "WEEK: the move is measured from the prior week's last close and the trade is this week's last listed expiry. DAY: the move is from the prior session's close and the trade is a same-day expiry — only the Monday/Wednesday/Friday names have one.",
   expiration: "The expiry being sold. For the week it is the last listed expiry of this week (usually Friday); for the day it is today.",
-  move: "How far the stock has moved from its anchor, in percent and in its own sigma. The anchor is named on the row: last week's close for the week, yesterday's close for the day.",
-  line: "Its usual high or low from that anchor — the median of the last N weeks (or days), the same dashed line the Analyze chart draws. Half of the past windows reached it and half did not. It is the trigger, not a ceiling: the record beside it says how far past it the stock has gone.",
-  strike: "The strike picked, and how far it sits from the anchor in percent — the number to compare with the line and with the record.",
+  move: "How far the stock has moved. \u201CThis week\u201D is measured from last Friday's close; \u201Ctoday\u201D from yesterday's close. The same move in the stock's own sigma is in the detail.",
+  line: "What this stock usually does: its median weekly high or low from last Friday's close (or daily, from yesterday's close) — the same dashed line the Analyze chart draws. Half of past weeks reached it, half did not. It is the trigger, not a ceiling; the record is in the detail.",
+  strike: "What to sell: the expiry and the strike picked. How far the strike sits from where the week started is in the detail.",
   delta: "The option's delta: the market's own price-based odds of finishing in the money. Shown so you can see which delta bucket the pick landed in — the measured column beside it is what actually happened after crossings like this one.",
   credit: "The mid of the quote. The bid is in the detail; a resting sell order is only promised the bid.",
-  itm: "THE RISK NUMBER. Of the comparable crossings on record, the share that FINISHED through a strike this far beyond the level — measured from the crossing bar on, never from the start of the week. This is what assigns you. The gate refuses anything above the limit in the footer.",
-  touch: "The share of comparable crossings that TRADED at the strike at some point before expiry, whether or not they finished there. Always at least the finished-through rate. A touch is what you feel mid-week; the close is what settles.",
-  grade: "MEASURED: 20 or more comparable crossings on this stock's own record. MOSTLY POOLED / POOLED: its own record is thin and other watchlist names' crossings, in each stock's own sigma, are answering. The count is the total behind the number.",
-  since: "When this setup first became READY today. NEW marks rows that turned READY on the latest scan.",
+  itm: "THE RISK NUMBER. After similar moves on record, how often the stock FINISHED past a strike this far out by expiry — measured from the moment it crossed, never from the start of the week. This is what assigns you. The gate refuses anything above the limit in the footer.",
+  touch: "After similar moves, how often the stock TRADED at the strike at some point before expiry, whether or not it finished there. Always at least the finished-through rate. A touch is what you feel mid-week; the close is what settles.",
+  grade: "How many similar moves the odds are measured on. \u201CIts own\u201D: 20 or more on this stock's own record (MEASURED). \u201CBorrowed\u201D: its own record is thin and other watchlist names' similar moves, in each stock's own sigma, are answering (MOSTLY POOLED / POOLED).",
+  since: "The time this setup first became READY. NEW marks rows that turned READY on the latest scan.",
   basis: "Which past crossings count as comparable: the same number of sessions left when the sample is deep enough; otherwise every crossing with at least that many sessions left — those had MORE room to run, so the risk shown is an upper bound.",
   closed_back: "After crossing the line, how often the window CLOSED back inside it. This is the belief the workflow rests on — the week usually closes below its high — measured rather than assumed. It is near a coin flip on most names.",
   beyond: "How much further past the line the stock typically travelled after crossing (the median), and the level nine in ten stayed within. The strike wants to sit beyond the second number, not the first.",
@@ -92,10 +93,19 @@ async function stReadJson(r) {
   }
 }
 
+// Plain words. Jerry, on the first cut: "What does -12.3% mean? what does
+// -2.3% mean? Why do I have a slash under Since?" A row is read in the
+// morning by someone who did not write it. The sigma, the record and the
+// anchor distance live in the detail, one click away.
+const stMoveWords = r => `${r.side === "call" ? "Up" : "Down"} ${Math.abs(r.move_pct).toFixed(1)}% ${r.horizon === "week" ? "this week" : "today"}`;
+const stUsualWords = r => `usual ${r.side === "call" ? "high" : "low"} ${stPct(r.line_pct)}`;
+const stSellWords = r => r.strike == null ? "—" : `${stDate(r.expiration)} · ${stNum(r.strike, 2)} ${r.side}`;
+const stBasedOn = r => r.n == null ? "—" : `${r.n} similar ${r.horizon === "week" ? "weeks" : "days"} · ${r.grade === "MEASURED" ? "its own" : "borrowed"}`;
+
 // label, key, tooltip, formatter, numeric
-const ST_COLS = [["State", "state", "state", r => r.state.toUpperCase(), false], ["Symbol", "symbol", "card", null, false], ["Side", "side", "side", r => r.side, false], ["Horizon", "horizon", "horizon", r => r.horizon, false], ["Expiry", "expiration", "expiration", r => stDate(r.expiration), false], ["Move", "move_pct", "move", r => `${stPct(r.move_pct)} · ${stSig(r.move_sigma)}`, true], ["Its line", "line_pct", "line", r => `${stPct(r.line_pct)} · rec ${stPct(r.record_pct * 100, 0)}`, true], ["Strike", "strike", "strike", r => r.strike == null ? "—" : `${stNum(r.strike, 2)} · ${stPct(r.strike_pct)}`, true], ["Delta", "delta", "delta", r => r.delta == null ? "—" : `${Math.abs(r.delta).toFixed(2)}Δ`, true], ["Credit", "credit", "credit", r => stMoney(r.credit), true], ["Finished through", "itm_pct", "itm", r => stPct0(r.itm_pct), true], ["Touched", "touch_pct", "touch", r => stPct0(r.touch_pct), true], ["Evidence", "grade", "grade", r => r.grade ? `${r.grade} · ${r.n}` : "—", false], ["Since", "first_seen", "since", r => stTime(r.first_seen), false]];
-const ST_ASC = new Set(["state", "symbol", "side", "horizon", "expiration", "itm_pct", "touch_pct", "first_seen"]);
-const ST_MOBILE = new Set(["state", "symbol", "side", "expiration", "move_pct", "strike", "credit", "itm_pct", "grade"]);
+const ST_COLS = [["Symbol", "symbol", "card", null, false], ["What it did", "move_pct", "move", stMoveWords, false], ["Its usual", "line_pct", "line", stUsualWords, false], ["Sell", "strike", "strike", stSellWords, false], ["Delta", "delta", "delta", r => r.delta == null ? "—" : Math.abs(r.delta).toFixed(2), true], ["Credit", "credit", "credit", r => stMoney(r.credit), true], ["Ends past strike", "itm_pct", "itm", r => stPct0(r.itm_pct), true], ["Touches strike", "touch_pct", "touch", r => stPct0(r.touch_pct), true], ["Based on", "grade", "grade", stBasedOn, false], ["Ready since", "first_seen", "since", r => stTime(r.first_seen), false]];
+const ST_ASC = new Set(["symbol", "itm_pct", "touch_pct"]);
+const ST_MOBILE = new Set(["symbol", "move_pct", "strike", "credit", "itm_pct", "first_seen"]);
 function StLadder({
   rows,
   side,
@@ -223,8 +233,8 @@ function StretchCard({
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [sortK, setSortK] = useState("state");
-  const [sortD, setSortD] = useState(1);
+  const [sortK, setSortK] = useState("first_seen");
+  const [sortD, setSortD] = useState(-1);
   const [open, setOpen] = useState(null);
   const [details, setDetails] = useState({});
   const [showNear, setShowNear] = useState(false);
@@ -287,21 +297,25 @@ function StretchCard({
   }, [data && data.market_open, load]);
   const rows = useMemo(() => (data && data.rows || []).filter(r => (filters.side === "both" || r.side === filters.side) && (filters.horizon === "both" || r.horizon === filters.horizon)), [data, filters]);
   // Order stays put while you read: state first, then the size of the move.
+  // The table is READY only — a thing you can sell now, newest first.
+  // Names that crossed and found nothing are sentences under it, with the
+  // reason, not rows full of dashes.
+  const ready = useMemo(() => rows.filter(r => r.state === "ready"), [rows]);
+  const crossed = useMemo(() => rows.filter(r => r.state !== "ready"), [rows]);
   const sorted = useMemo(() => {
     const key = r => {
-      if (sortK === "state") return r.state === "ready" ? 0 : 1;
       const v = r[sortK];
       if (v == null) return sortD > 0 ? Infinity : -Infinity;
       return typeof v === "string" ? v.toLowerCase() : v;
     };
-    return rows.slice().sort((a, b) => {
+    return ready.slice().sort((a, b) => {
       const ka = key(a),
         kb = key(b);
       const c = (ka < kb ? -1 : ka > kb ? 1 : 0) * sortD;
       return c !== 0 ? c : (b.move_sigma || 0) - (a.move_sigma || 0);
     });
-  }, [rows, sortK, sortD]);
-  const openRow = open ? sorted.find(r => stRowKey(r) === open) || null : null;
+  }, [ready, sortK, sortD]);
+  const openRow = open ? rows.find(r => stRowKey(r) === open) || null : null;
   const nNew = rows.filter(r => r.is_new).length;
   const th = (label, k, tipKey, numeric) => /*#__PURE__*/React.createElement("th", {
     key: k,
@@ -434,14 +448,34 @@ function StretchCard({
         onPickTicker && onPickTicker(r.symbol);
       },
       title: `Load ${r.symbol}`
-    }, r.symbol) : ck === "state" ? /*#__PURE__*/React.createElement("span", {
-      className: `st-state st-state-${r.state}`
-    }, f(r), r.is_new ? /*#__PURE__*/React.createElement("span", {
+    }, r.symbol) : ck === "first_seen" ? /*#__PURE__*/React.createElement("span", null, f(r), r.is_new ? /*#__PURE__*/React.createElement("span", {
       className: "st-new-chip"
     }, " NEW") : null) : f(r))));
-  })))) : data && !data.no_trade && rows.length === 0 ? /*#__PURE__*/React.createElement("p", {
+  })))) : data && !data.no_trade && ready.length === 0 ? /*#__PURE__*/React.createElement("p", {
     className: "sl-muted"
-  }, "Nothing matches the filters; ", data.n_ready, " ready on the other side or horizon.") : null, openRow ? /*#__PURE__*/React.createElement(StDetail, {
+  }, "Nothing matches the filters; ", data.n_ready, " ready on the other side or horizon.") : null, crossed.length ? /*#__PURE__*/React.createElement("div", {
+    className: "st-crossed",
+    title: ST_TIP.crossed_list
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sl-block-title"
+  }, "Crossed a line, but nothing to sell (", crossed.length, ")"), /*#__PURE__*/React.createElement("ul", null, crossed.map(r => {
+    const k = stRowKey(r);
+    return /*#__PURE__*/React.createElement("li", {
+      key: k,
+      className: open === k ? "st-crossed-open" : "",
+      onClick: () => toggle(r),
+      title: "Click for the numbers behind this"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "su-blink",
+      onClick: e => {
+        e.stopPropagation();
+        onPickTicker && onPickTicker(r.symbol);
+      },
+      title: `Load ${r.symbol}`
+    }, r.symbol), " — ", stMoveWords(r).toLowerCase(), " (", stUsualWords(r), ") \u2014 no ", r.side, " worth selling", r.why && r.why.length ? `: ${r.why[0]}` : "", r.crossed_since ? /*#__PURE__*/React.createElement("span", {
+      className: "sl-muted"
+    }, " \xB7 since ", stTime(r.crossed_since)) : null);
+  }))) : null, openRow ? /*#__PURE__*/React.createElement(StDetail, {
     r: openRow,
     detail: details[openRow.symbol],
     limits: data && data.limits,
