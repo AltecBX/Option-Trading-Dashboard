@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.15";
+const APP_VERSION = "5.16";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -159,7 +159,7 @@ function LiveClock() {
 // Spread". Pinning the whole string would silently unfile a panel the first
 // time you picked a different strategy.
 const TRADE_SECTION_GROUPS = [
-  ["Opportunities", ["sold into strength", "best sales today", "best setup",
+  ["Opportunities", ["at the line", "sold into strength", "best sales today", "best setup",
                      "worth selling today", "this week's setup"]],
   ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]],
   ["Contracts & strategies", ["decision engine", "where the premium goes",
@@ -726,6 +726,19 @@ function App() {
   }, []);
 
   // ── /next dock wiring (v3.46) — inert unless embedded by the shell ──
+  // A push from the At the line watchman links to /?symbol=SYM&tab=analyze.
+  // Outside the /next embed nothing read those parameters, so the link
+  // opened the dashboard on whatever it last showed. Read them once.
+  useEffect(() => {
+    if (window.__JT_EMBED) return;
+    try {
+      const q = new URLSearchParams(location.search);
+      const sym = q.get("symbol");
+      const tab = q.get("tab");
+      if (sym && /^[A-Za-z0-9.\-]{1,12}$/.test(sym)) switchTicker(sym.toUpperCase());
+      if (tab && TABS.some(x => x.id === tab)) changeTab(tab);
+    } catch {}
+  }, []);
   useEffect(() => {
     if (!window.__JT_EMBED) return;
     try { document.body.classList.add("jt-embed"); } catch {}
@@ -4134,9 +4147,20 @@ function App() {
         {/* Watchlist alerts (v1.15) — fresh upgrades and downgrades on
             watchlist tickers in the past 7 days. Scoped to the Trade tab
             (home dashboard) so it doesn't render on every tab. */}
-        {/* Sold into strength (v4.82) — the time-critical one, so it sits
-            first: a spike's premium decays by the minute, and this board is
-            only worth anything while the move is live. */}
+        {/* At the line (v5.16) — the watchman. Names that have reached their
+            usual weekly or daily high/low, both sides, priced against what
+            followed comparable crossings. It alerts the phone on its own;
+            this is where the reasoning lives, so it sits at the top. */}
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
+          <CardErrorBoundary label="At the line">
+            <LazyTab chunk="tab-stretch" component="StretchCard" label="At the line"
+                     apiFetch={apiFetch}
+                     onPickTicker={(t) => { switchTicker(t); }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        {/* Sold into strength (v4.82) — the time-critical one: a spike's
+            premium decays by the minute, and this board is only worth
+            anything while the move is live. */}
         <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
           <CardErrorBoundary label="Sold into strength">
             <LazyTab chunk="tab-spike" component="SpikeCard" label="Sold into strength"
@@ -5048,6 +5072,14 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* After it reaches the line (v5.16) — the sentence the dashed
+            median lines cannot say: how often the stock got there and what
+            it did next, on its own record, with the count. */}
+        <CardErrorBoundary label="After it reaches the line">
+          <LazyTab chunk="tab-stretch" component="StretchLineCard" label="After it reaches the line"
+                   apiFetch={apiFetch} ticker={ticker} />
+        </CardErrorBoundary>
 
         {/* Two charts row */}
         <div className={`row ${layout === "swapped" ? "split-1-2" : "split-2-1"}`}>

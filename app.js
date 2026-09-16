@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.15";
+const APP_VERSION = "5.16";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -222,7 +222,7 @@ function LiveClock() {
 // Strangle", "IV by strike · Fri, Sep 11", "Position sizing · Calendar
 // Spread". Pinning the whole string would silently unfile a panel the first
 // time you picked a different strategy.
-const TRADE_SECTION_GROUPS = [["Opportunities", ["sold into strength", "best sales today", "best setup", "worth selling today", "this week's setup"]], ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]], ["Contracts & strategies", ["decision engine", "where the premium goes", "iv by strike", "strategy menu", "p/l at expiration", "options chain"]], ["Risk & management", ["dealer gamma", "net greeks", "roll candidates", "position sizing"]]];
+const TRADE_SECTION_GROUPS = [["Opportunities", ["at the line", "sold into strength", "best sales today", "best setup", "worth selling today", "this week's setup"]], ["Chart & timing", ["120 day price", "friday 0dte", "theta vs gamma"]], ["Contracts & strategies", ["decision engine", "where the premium goes", "iv by strike", "strategy menu", "p/l at expiration", "options chain"]], ["Risk & management", ["dealer gamma", "net greeks", "roll candidates", "position sizing"]]];
 function tradeSectionGroup(heading) {
   const h = String(heading || "").toLowerCase();
   for (const [label, prefixes] of TRADE_SECTION_GROUPS) {
@@ -929,6 +929,19 @@ function App() {
   }, []);
 
   // ── /next dock wiring (v3.46) — inert unless embedded by the shell ──
+  // A push from the At the line watchman links to /?symbol=SYM&tab=analyze.
+  // Outside the /next embed nothing read those parameters, so the link
+  // opened the dashboard on whatever it last showed. Read them once.
+  useEffect(() => {
+    if (window.__JT_EMBED) return;
+    try {
+      const q = new URLSearchParams(location.search);
+      const sym = q.get("symbol");
+      const tab = q.get("tab");
+      if (sym && /^[A-Za-z0-9.\-]{1,12}$/.test(sym)) switchTicker(sym.toUpperCase());
+      if (tab && TABS.some(x => x.id === tab)) changeTab(tab);
+    } catch {}
+  }, []);
   useEffect(() => {
     if (!window.__JT_EMBED) return;
     try {
@@ -5115,6 +5128,21 @@ function App() {
     pending: dataPending,
     pendingLabel: ticker
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "At the line"
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-stretch",
+    component: "StretchCard",
+    label: "At the line",
+    apiFetch: apiFetch,
+    onPickTicker: t => {
+      switchTicker(t);
+    }
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "trade",
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Sold into strength"
   }, /*#__PURE__*/React.createElement(LazyTab, {
     chunk: "tab-spike",
@@ -6301,7 +6329,15 @@ function App() {
       fontSize: 11,
       marginTop: 2
     }
-  }, "most common trough")))), /*#__PURE__*/React.createElement("div", {
+  }, "most common trough")))), /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "After it reaches the line"
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-stretch",
+    component: "StretchLineCard",
+    label: "After it reaches the line",
+    apiFetch: apiFetch,
+    ticker: ticker
+  })), /*#__PURE__*/React.createElement("div", {
     className: `row ${layout === "swapped" ? "split-1-2" : "split-2-1"}`
   }, /*#__PURE__*/React.createElement("div", {
     className: "card"

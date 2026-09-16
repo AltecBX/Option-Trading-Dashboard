@@ -80,7 +80,11 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `hf_names.py` | Which stocks the readable books agree on, from the watched managers' own filings — an opaque book is never counted as a view, a put is never counted as ownership, and it says "among their ten largest" rather than "most owned" — pure |
 | `hf_alert.py` | Decides which board changes deserve a notification — on a change never a state, never the same event twice, the first run primes and stays silent, and an anonymous alert can never name a fund — pure |
 | `hf_report.py` | The weekly report: the Pulse, the Named Fund Watch and the press assembled into one stored document, with conflicts printed and a compare-with-week-N diff — pure |
-| `tab-spike.jsx` | The Sold Into Strength card at the top of the Trade tab (lazy chunk) |
+| `tab-spike.jsx` | The Sold Into Strength card near the top of the Trade tab (lazy chunk) |
+| `stretch_evidence.py` | At the line: what a stock does AFTER it reaches its usual weekly or daily high/low — first-crossing events, outcomes measured from the crossing bar on, both sides, pooled in sigma when thin — pure |
+| `stretch_scan.py` | At the line: the watchman. Free stage 1 off the board, one bounded chain per crossed name, READY/CROSSED with reasons, one alert per symbol/side/expiry remembered across restarts, runs whether or not the tab is open |
+| `tab-stretch.jsx` | The At the line board at the top of the Trade tab, and the "After it reaches the line" card on Analyze (lazy chunk) |
+| `STRETCH.md` | What was measured about waiting for the line (it is a coin flip whether the week closes back inside it), the like-for-like check against selling Monday, what was taken from the outside brief and what was left out |
 | `tab-hedge.jsx` | Hedge Funds tab: the Pulse (aggregate), the Named Fund Watch (per manager) and the Weekly Report, the first two kept apart on purpose (lazy chunk) |
 | `SPIKE_FADE.md` | What was measured about spikes, why sigma is the ruler, and what the feature refuses |
 | `HEDGE_FUND_INTEL.md` | Hedge fund intelligence: source audit (verified September 6, 2026), what updates daily/weekly/quarterly, evidence classes, and the three-phase design |

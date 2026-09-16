@@ -237,6 +237,12 @@ for p in [
     f"/api/spike/detail?symbol={S}",
     "/api/spike/status",
     "/api/spike/config",
+    "/api/stretch",
+    f"/api/stretch/detail?symbol={S}",
+    f"/api/stretch/profile?symbol={S}",
+    "/api/stretch/status",
+    "/api/stretch/config",
+    "/api/stretch/alerts",
     # Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). Offline every route
     # still answers 200 — NOT READ YET is an answer, and the card renders it.
     "/api/hf",

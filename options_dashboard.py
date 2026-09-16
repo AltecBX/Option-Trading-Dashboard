@@ -5063,6 +5063,31 @@ except Exception as _exc:  # noqa: BLE001
     _spike = None  # type: ignore
     _spikeev = None  # type: ignore
 
+# ── At the line: reached its usual high or low, priced (STRETCH.md) ─────────
+# Same board, same bars, same broker as Sold into strength; both sides and
+# two horizons; runs in the background while the market is open so an alert
+# reaches the phone whether or not the tab is open.
+try:
+    import stretch_evidence as _stretchev
+    import stretch_scan as _stretch
+    _stretch.configure(
+        schwab_getter=lambda: _schwab(),
+        board_getter=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}),
+        bars_fn=lambda sym: (lambda c: c.get_price_history(sym, days=900) if c is not None else None)(_schwab()),
+        market_open_fn=lambda: _intraday.market_open(),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+        catalyst_fn=lambda sym: _gap_news_catalyst(sym),
+        notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
+        data_dir=_STABLE_DIR,
+        base_url=os.environ.get("PUBLIC_BASE_URL") or "https://dashboard.jerrytrade.com",
+    )
+    _STRETCH_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[stretch_scan] wiring failed: {_exc}", file=sys.stderr)
+    _STRETCH_AVAILABLE = False
+    _stretch = None  # type: ignore
+    _stretchev = None  # type: ignore
+
 # ── Hedge Fund Intelligence: Named Fund Watch (HEDGE_FUND_INTEL.md) ─────────
 # EDGAR is the source of record; Unusual Whales is a cross-check. The sector
 # of a held name comes from the app's own board first (the user's sector map)
@@ -10478,6 +10503,38 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn(None, "api/juice", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
             return
+        if parsed.path == "/api/stretch" or parsed.path.startswith("/api/stretch/"):
+            if not _STRETCH_AVAILABLE:
+                self._send_json({"error": "at the line unavailable", "rows": []}, status=503)
+                return
+            section = parsed.path[len("/api/stretch"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "":
+                    self._send_json(_stretch.snapshot(), no_store=True)
+                elif section in ("detail", "profile"):
+                    sym = (qs.get("symbol", [""])[0] or "").strip().upper()
+                    if not sym:
+                        self._send_json({"error": "symbol required"}, status=400)
+                        return
+                    out = _stretch.detail(sym) if section == "detail" else _stretch.profile_for(sym)
+                    self._send_json(out, status=404 if not out.get("ok") else 200, no_store=True)
+                elif section == "status":
+                    self._send_json(_stretch.status(), no_store=True)
+                elif section == "alerts":
+                    days = qs.get("days", [""])[0]
+                    self._send_json({"rows": _stretch.alerts_log(int(days) if days.isdigit() else 30)},
+                                    no_store=True)
+                elif section == "config":
+                    self._send_json({"config": _stretch.config(),
+                                     "version": _stretch.STRETCH_SCAN_VERSION,
+                                     "evidence": _stretchev.SCHEMA}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown stretch section {section}"}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/stretch", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
         if parsed.path == "/api/spike" or parsed.path.startswith("/api/spike/"):
             if not _SPIKE_AVAILABLE:
                 self._send_json({"error": "sold into strength unavailable", "rows": []},
@@ -13754,6 +13811,14 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _gap.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[gap_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _STRETCH_AVAILABLE:
+        try:
+            # watches the whole board for names at their usual high or low,
+            # independent of whether anyone has the tab open
+            if _stretch.config()["scan"].get("background", True):
+                _stretch.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[stretch_scan] scheduler start failed: {exc}", file=sys.stderr)
     if _SELL_AVAILABLE:
         try:
             # grades every recorded Best Sales recommendation after its expiry
