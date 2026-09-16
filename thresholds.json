@@ -1136,7 +1136,7 @@
       "min_bid": 0.05,
       "max_spread_pct": 25.0,
       "min_oi": 50,
-      "min_tradable_strikes": 5,
+      "min_tradable_strikes": 3,
       "illiquid_ttl_days": 5
     },
     "events": {

@@ -374,20 +374,44 @@ class NobodyThere(Base):
     def test_a_strike_with_no_bid_is_never_handed_to_the_strike_engine(self):
         spot = BARS["UP"][-1]["close"]
         chain = _chain(spot, [FRIDAY])
-        # Kill the bid on every call more than 3% above the price: the far
+        # Kill the bid on every call more than 2% above the price: the far
         # strikes are the ones a 0.10-delta seller wants, and each must be
-        # refused rather than priced at its ask.
+        # refused rather than priced at its ask. Enough near strikes keep
+        # a bid that the chain itself still counts as tradable.
         for o in chain["chains"][FRIDAY.isoformat()]["calls"]:
-            if o["strike"] > spot * 1.03:
+            if o["strike"] > spot * 1.02:
                 o["bid"] = 0.0
         self.wire([_row("UP", 0.2)], schwab=FakeSchwab(chain=chain))
         ln = self.lines("UP")
         sk._ANCHORS["UP"] = {"week_start": "2026-09-14", "close": spot / (1 + ln["week"]["high_pct"] * 1.2)}
         r = self.scan()["rows"][0]
-        self.assertTrue(all(x["strike"] <= spot * 1.03 for x in r["ladder"]),
+        self.assertTrue(r.get("ladder"), "near strikes keep a bid, so the chain is tradable and priced")
+        self.assertTrue(all(x["strike"] <= spot * 1.02 for x in r["ladder"]),
                         "a zero-bid strike must not appear in the ladder at any price")
         if r["state"] == "ready":
-            self.assertLessEqual(r["strike"], spot * 1.03)
+            self.assertLessEqual(r["strike"], spot * 1.02)
+
+    def test_deep_in_the_money_bids_cannot_vouch_for_an_empty_sell_side(self):
+        # Codex on #402 (P2, correct): the thin-chain count looked at the
+        # whole side, so liquid in-the-money puts let a name through whose
+        # every sellable put had no bid — never remembered, re-fetched every
+        # pass. PLSE's chain was exactly this: bids on the 55-75 puts, none
+        # below the price.
+        spot = BARS["DN"][-1]["close"]
+        chain = self._dead_chain(spot, [FRIDAY])
+        for o in chain["chains"][FRIDAY.isoformat()]["puts"]:
+            if o["strike"] > spot * 1.05:
+                o.update({"bid": round(o["strike"] - spot, 2), "ask": round(o["strike"] - spot + 0.5, 2),
+                          "openInterest": 900})
+        self.wire([_row("DN", -0.2)], schwab=FakeSchwab(chain=chain))
+        self._cross()
+        out = self.scan()
+        self.assertEqual(out["rows"][0]["state"], "crossed")
+        self.assertIn("too thin to trade", out["rows"][0]["why"][0])
+        self.assertIn("DN", sk._ILLIQUID)
+        calls = self.schwab.calls
+        self.scan()
+        self.assertEqual(self.schwab.calls, calls)
 
     def test_the_contract_gate_names_its_reason(self):
         lq = sk.config()["liquidity"]

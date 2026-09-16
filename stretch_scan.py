@@ -92,9 +92,10 @@ DEFAULTS = {
                   # per contract: no real bid, a spread past this, or open
                   # interest below this, and the strike is never priced
                   "min_bid": 0.05, "max_spread_pct": 25.0, "min_oi": 50,
-                  # per name: fewer tradable strikes than this on the side
-                  # at the expiry, and the whole name is refused for days
-                  "min_tradable_strikes": 5, "illiquid_ttl_days": 5},
+                  # per name: fewer tradable SELLABLE strikes than this (out of
+                  # the money, in the delta range) at the expiry, and the
+                  # whole name is refused for days
+                  "min_tradable_strikes": 3, "illiquid_ttl_days": 5},
     "events": {"refuse_kinds": ["BUYOUT", "MERGER DEAL", "MERGER VOTE", "DEAL CLOSED"],
                "earnings_block": True},
     "scan": {"cycle_seconds": CYCLE_SECS, "cold_fetches_per_pass": 40,
@@ -317,9 +318,9 @@ def contract_liquid(o: dict, lq: dict) -> tuple[bool, str | None]:
 
 
 def chain_liquid(contracts: list, lq: dict) -> int:
-    """How many strikes on this side, at this expiry, could actually be
-    traded. A chain with a bid of zero on every put and a placeholder ask
-    is the picture of nobody there."""
+    """How many of these strikes could actually be traded. A chain with a
+    bid of zero on every out-of-the-money put and a placeholder ask is the
+    picture of nobody there."""
     return sum(1 for o in contracts if contract_liquid(o, lq)[0])
 
 
@@ -601,18 +602,13 @@ def evaluate(rec: dict, trig: dict, chain: dict, prof: dict, cfg: dict, today: d
                         f"even with the pool"]}
     contracts = ((chain.get("chains") or {}).get(exp.isoformat()) or {}).get(side + "s") or []
     lq = cfg["liquidity"]
-    tradable = chain_liquid(contracts, lq)
-    need = int(lq.get("min_tradable_strikes", 5))
-    if tradable < need:
-        ttl = int(lq.get("illiquid_ttl_days", 5))
-        why = (f"options too thin to trade — {tradable} {side} strike{'s' if tradable != 1 else ''} "
-               f"with a real bid, a fillable spread and open interest at this expiry (needs {need}); "
-               f"skipped for {ttl} days")
-        _mark_illiquid(sym, today, why)
-        return {**base, "state": "crossed", "why": [why], "gate": "liquidity"}
-    dte_cal = max(0.5, float((exp - today).days))
     lo_d, hi_d = float(st["min_delta"]), float(st["max_delta"])
-    ladder, ok, gates, unquoted = [], [], Counter(), 0
+    # The strikes a seller could actually use: out of the money, in the delta
+    # range. The thin-chain test is made on THESE — Codex: counting the whole
+    # side let deep in-the-money strikes with real bids vouch for a sell side
+    # that had none, so the name was never remembered as thin and cost a
+    # chain call every pass.
+    sellable = []
     for o in contracts:
         k = _num(o.get("strike"))
         if k is None or (side == "call" and k <= spot) or (side == "put" and k >= spot):
@@ -620,6 +616,19 @@ def evaluate(rec: dict, trig: dict, chain: dict, prof: dict, cfg: dict, today: d
         d = _num(o.get("delta"))
         if d is not None and not (lo_d <= abs(d) <= hi_d):
             continue
+        sellable.append(o)
+    tradable = chain_liquid(sellable, lq)
+    need = int(lq.get("min_tradable_strikes", 3))
+    if tradable < need:
+        ttl = int(lq.get("illiquid_ttl_days", 5))
+        why = (f"options too thin to trade — {tradable} of {len(sellable)} sellable {side} "
+               f"strike{'s' if len(sellable) != 1 else ''} at this expiry ha{'s' if tradable == 1 else 've'} "
+               f"a real bid, a fillable spread and open interest (needs {need}); skipped for {ttl} days")
+        _mark_illiquid(sym, today, why)
+        return {**base, "state": "crossed", "why": [why], "gate": "liquidity"}
+    dte_cal = max(0.5, float((exp - today).days))
+    ladder, ok, gates, unquoted = [], [], Counter(), 0
+    for o in sellable:
         # Never handed to the strike engine: with a zero bid it would read
         # the ask as the credit and price a sale nobody will take.
         if not contract_liquid(o, lq)[0]:

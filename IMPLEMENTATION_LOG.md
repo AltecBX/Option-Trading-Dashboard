@@ -4035,11 +4035,16 @@ there to fill my order. Please ignore stocks like this." Worse than
 illiquid: the reused strike engine reads a zero-bid strike's ask as its
 credit, so that chain would have priced a $4.90 sale nobody would take.
 Now a strike without a real bid, a fillable spread and open interest is
-never priced, and a name with fewer than five such strikes on the side at
-the expiry is refused as "options too thin to trade" and skipped for five
+never priced, and a name with fewer than three such strikes among the sellable ones
+(out of the money, in the delta range) at the expiry is refused as "options too thin to trade" and skipped for five
 days, remembered on disk, so no chain call is spent on it again.
 
-Guards: 20 evidence, 36 scanner, 77 source. Each proven red: the
+**"Also fix Sold into strength so it uses live quotes too."** Same
+finding, same fix: `spike_scan.stage1` now reads one quote call per hundred
+names every pass and falls back to the board only where a call cannot
+answer. Two guards in `test_spike_scan.py`.
+
+Guards: 20 evidence, 37 scanner, 77 source. Each proven red: the
 first-crossing test fails if outcomes are taken from the week's start; the
 put test fails if the call numbers are sign-flipped; the alert test fails if
 the memory is not persisted; the render suite still holds with the new

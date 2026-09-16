@@ -207,8 +207,8 @@ says on a Wednesday morning.
 - **Nobody there is refused, at two levels.** A strike without a real bid
   (≥ $0.05), a fillable spread (≤ 25% of mid) and open interest (≥ 50) is
   never handed to the strike engine — which would otherwise read a zero-bid
-  strike's *ask* as the credit. A name with fewer than five such strikes on
-  the side at the expiry is refused as "options too thin to trade" and
+  strike's *ask* as the credit. A name with fewer than three such strikes among
+  the sellable ones (out of the money, in the delta range) at the expiry is refused as "options too thin to trade" and
   skipped for five days (`stretch_illiquid.json`), so the scanner stops
   spending chain calls on it. Jerry's example: a chain with bid 0 / ask
   4.90 on every put below the price and single-digit open interest.
@@ -237,7 +237,7 @@ in the alert.
 
 ## 7. Tests
 
-`test_stretch_evidence.py` (20) · `test_stretch_scan.py` (36) ·
+`test_stretch_evidence.py` (20) · `test_stretch_scan.py` (37) ·
 `test_stretch_ui.js` (77 source guards) · HTTP smoke (+6 routes).
 Invariants: the event is the first crossing and nothing before it counts;
 a window that never reached the level is not an event; puts are measured on
