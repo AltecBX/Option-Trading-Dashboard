@@ -5076,7 +5076,13 @@ try:
         bars_fn=lambda sym: (lambda c: c.get_price_history(sym, days=900) if c is not None else None)(_schwab()),
         market_open_fn=lambda: _intraday.market_open(),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
-        catalyst_fn=lambda sym: _gap_news_catalyst(sym),
+        # the filing-aware tag: earnings, EDGAR events (a buyout among them),
+        # offerings, analyst actions, then headlines — the headline-only
+        # helper cannot see a merger
+        catalyst_fn=lambda sym: _gap_catalyst(sym),
+        # where every name is right now; the board's own prices are rebuilt
+        # only twice a day
+        quotes_fn=lambda syms: (lambda c: c.get_quotes(syms) if c is not None else None)(_schwab()),
         notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
         data_dir=_STABLE_DIR,
         base_url=os.environ.get("PUBLIC_BASE_URL") or "https://dashboard.jerrytrade.com",

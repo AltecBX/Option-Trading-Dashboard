@@ -186,8 +186,8 @@ class ComparableCrossings(unittest.TestCase):
     def test_thin_own_evidence_is_pooled_and_graded(self):
         prof = self._prof()
         prof["events"]["week"]["call"]["1"] = [(3, 0.5, -0.2)] * 4
-        pool = {"week": {"call": {"1": [(3, 1.0, 0.3)] * 40}}}
-        ev = se.evidence(prof, "week", "call", 1.0, 3, pool)
+        pool = {"week": {"call": {"1": {"OTHER": [(3, 1.0, 0.3)] * 40}}}}
+        ev = se.evidence(prof, "week", "call", 1.0, 3, pool, exclude="ME")
         self.assertEqual(ev["grade"], "POOLED")
         self.assertEqual((ev["n_own"], ev["n_pool"]), (4, 40))
         ev2 = se.evidence(prof, "week", "call", 1.0, 3, None)
@@ -196,8 +196,8 @@ class ComparableCrossings(unittest.TestCase):
 
     def test_pooled_events_are_read_in_this_stocks_own_sigma(self):
         prof = self._prof()
-        pool = {"week": {"call": {"1": [(3, 1.0, 1.0)] * 40}}}
-        ev = se.evidence(prof, "week", "call", 1.0, 3, pool)
+        pool = {"week": {"call": {"1": {"OTHER": [(3, 1.0, 1.0)] * 40}}}}
+        ev = se.evidence(prof, "week", "call", 1.0, 3, pool, exclude="ME")
         sw = 0.02 * math.sqrt(5)
         self.assertAlmostEqual(ev["windows"][0]["high"], math.exp(sw) - 1)
         self.assertAlmostEqual(ev["windows"][0]["term"], math.exp(sw) - 1)
@@ -211,13 +211,36 @@ class ComparableCrossings(unittest.TestCase):
         self.assertLess(w["term"], 0, "closed below the put line = negative fraction")
         self.assertEqual(w["high"], 0.0)
 
-    def test_the_pool_is_bounded(self):
+    def test_the_pool_keeps_provenance_and_never_counts_a_name_twice(self):
+        # Codex, first round (P1, correct): the pool used to be one flat list
+        # per cell, so a name's own crossings went in under nobody's name —
+        # counted again as "pooled" beside its own, and appended a second
+        # time on every recompute. Ten own events plus the same ten from the
+        # pool made twenty and turned THIN into READY.
         pool = {}
-        prof = {"events": {"week": {"call": {"1": [(3, 0.5, 0.1)] * 3000}, "put": {}},
+        prof = {"events": {"week": {"call": {"1": [(3, 0.5, 0.1)] * 10}, "put": {}},
                            "day": {"call": {}, "put": {}}}}
-        se.add_to_pool(pool, prof, cap=4000)
-        se.add_to_pool(pool, prof, cap=4000)
-        self.assertEqual(len(pool["week"]["call"]["1"]), 4000)
+        se.add_to_pool(pool, prof, "ME")
+        se.add_to_pool(pool, prof, "ME")                       # tomorrow's recompute
+        self.assertEqual(list(pool["week"]["call"]["1"]), ["ME"])
+        self.assertEqual(len(pool["week"]["call"]["1"]["ME"]), 10)
+        self.assertEqual(se.pool_cell(pool, "week", "call", "1", exclude="ME"), [])
+        self.assertEqual(len(se.pool_cell(pool, "week", "call", "1", exclude="OTHER")), 10)
+        me = {"sigma_daily": 0.02, "sigma_weekly": 0.02 * math.sqrt(5),
+              "events": {"week": {"call": {"1": [(3, 0.5, 0.1)] * 10}, "put": {}}, "day": {"call": {}, "put": {}}}}
+        ev = se.evidence(me, "week", "call", 1.0, 3, pool, exclude="ME")
+        self.assertEqual((ev["n_own"], ev["n_pool"], ev["grade"]), (10, 0, "THIN"))
+
+    def test_the_pool_is_bounded_per_name_and_per_cell(self):
+        pool = {}
+        big = {"events": {"week": {"call": {"1": [(3, 0.5, 0.1)] * 500}, "put": {}},
+                          "day": {"call": {}, "put": {}}}}
+        for i in range(se.POOL_NAMES_PER_CELL + 5):
+            se.add_to_pool(pool, big, f"N{i}")
+        cell = pool["week"]["call"]["1"]
+        self.assertEqual(len(cell), se.POOL_NAMES_PER_CELL)
+        self.assertNotIn("N0", cell, "the oldest-added name drops first")
+        self.assertEqual(len(cell["N100"]), se.POOL_EVENTS_PER_NAME)
 
 
 class VersusMonday(unittest.TestCase):

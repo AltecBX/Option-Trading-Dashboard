@@ -135,8 +135,17 @@ ok("the risk limit is shown in the footer and the detail", /limit \{Math\.round\
    && /the limit is \$\{Math\.round\(limits\.max_itm \* 100\)\}% finished through/.test(src));
 
 // ── 6. alerts and the watchman ───────────────────────────────────────────
-ok("alerts are once per symbol, side and expiry and remembered", /_ALERTS\[r\["key"\]\] = rec/.test(scan)
+ok("alerts are once per symbol, side and expiry and remembered", /_ALERTS\[r\["alert_key"\]\] = rec/.test(scan)
+   && /r\["alert_key"\] = f"\{sym\}\|\{r\['side'\]\}\|\{r\['expiration'\]\}"/.test(scan)
    && /_save_json\("stretch_alerts\.json", _ALERTS\)/.test(scan) && /remembered across restarts/.test(src));
+ok("every READY is logged whether or not it is pushed",
+   /_ALERTS\[r\["alert_key"\]\] = rec[\s\S]{0,500}_log_alert\(r, stamp\)[\s\S]*?if \(rec\.get\("pushed"\) is None/.test(scan));
+ok("the pool keeps provenance and a name is kept out of its own evidence",
+   /def pool_cell/.test(ev) && /cell\.pop\(sym, None\)/.test(ev) && /exclude=sym\)/.test(scan));
+ok("stage 1 reads live quotes, not the twice-a-day board",
+   /def live_quotes/.test(scan) && /quotes_fn=lambda syms: \(lambda c: c\.get_quotes\(syms\)/.test(dash));
+ok("the takeover gate is wired to the catalyst source that can see a merger",
+   /import stretch_scan as _stretch[\s\S]{0,1200}catalyst_fn=lambda sym: _gap_catalyst\(sym\)/.test(dash));
 ok("an alert is never sent below the credit floor", /min_credit/.test(scan) && /sent only when the credit clears the floor/.test(src));
 ok("the push carries the link into Analyze", /\?symbol=\{r\['symbol'\]\}&tab=analyze/.test(scan));
 ok("the push names ticker, side, expiry, contract, credit and risk",

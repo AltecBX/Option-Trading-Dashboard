@@ -15,11 +15,12 @@ watchlist, both sides, on two horizons:
          daily high/low; the trade is a same-day expiry, which only the
          Monday/Wednesday/Friday names have.
 
-Stage 1 is free: it reads the board the app already keeps. Each name's
-lines (its usual high and low, in percent, and its sigma) are computed once
-from daily bars and cached for days; the week's anchor is learned for
-nothing on the first session of the week, when the board's own previous
-close IS last week's close. Stage 2 spends one bounded chain call on each
+Stage 1 is cheap: the board the app already keeps supplies the universe,
+and one live-quote call per hundred names supplies where each is right now
+(the board's own prices are rebuilt only twice a day). Each name's lines
+(its usual high and low, in percent, and its sigma) are computed once from
+daily bars and cached for days; the week's anchor is learned for nothing on
+the first session of the week, when the previous close IS last week's close. Stage 2 spends one bounded chain call on each
 name that has actually crossed a line, and prices every out-of-the-money
 strike against what happened AFTER comparable crossings on this stock's
 own record (stretch_evidence) — pooled with other names only when its own
@@ -56,6 +57,7 @@ _BARS_FN = None
 _MARKET_OPEN_FN = None
 _NOW_FN = None
 _CATALYST_FN = None
+_QUOTES_FN = None
 _NOTIFY_FN = None
 _DATA_DIR: Path | None = None
 _BASE_URL = "https://dashboard.jerrytrade.com"
@@ -70,10 +72,13 @@ _LINES: dict = {}       # symbol -> the stock's lines and sigma (persisted)
 _ANCHORS: dict = {}     # symbol -> this week's anchor (persisted)
 _PROFILES: dict = {}    # symbol -> (day, profile)  memory only
 _POOL: dict = {}        # other names' crossings, in sigma (persisted)
-_ALERTS: dict = {}      # key -> first_ready / pushed (persisted)
+_ALERTS: dict = {}      # symbol|side|expiry -> first_ready / pushed (persisted)
+_CATALYSTS: dict = {}   # symbol -> (time, catalyst)  ten-minute memory
 
 CYCLE_SECS = 180
 IDLE_SECS = 60
+QUOTE_BATCH = 100       # symbols per live-quote call
+CATALYST_TTL = 600
 
 DEFAULTS = {
     "_doc": ("At the line (stretch_scan.py, STRETCH.md). Names that have reached "
@@ -86,18 +91,20 @@ DEFAULTS = {
     "events": {"refuse_kinds": ["BUYOUT", "MERGER DEAL", "MERGER VOTE", "DEAL CLOSED"],
                "earnings_block": True},
     "scan": {"cycle_seconds": CYCLE_SECS, "cold_fetches_per_pass": 40,
-             "lines_ttl_days": 5, "background": True, "pool_cap": 4000},
+             "lines_ttl_days": 5, "background": True},
     "alerts": {"enabled": True, "min_credit": 0.10, "priority": 0},
 }
 
 
 def configure(schwab_getter=None, board_getter=None, bars_fn=None, market_open_fn=None,
               now_fn=None, catalyst_fn=None, notify_fn=None, data_dir=None,
-              base_url=None) -> None:
+              base_url=None, quotes_fn=None) -> None:
     global _SCHWAB, _BOARD_FN, _BARS_FN, _MARKET_OPEN_FN, _NOW_FN, _CATALYST_FN
-    global _NOTIFY_FN, _DATA_DIR, _BASE_URL
+    global _NOTIFY_FN, _DATA_DIR, _BASE_URL, _QUOTES_FN
     _SCHWAB, _BOARD_FN, _BARS_FN = schwab_getter, board_getter, bars_fn
     _MARKET_OPEN_FN, _NOW_FN, _CATALYST_FN, _NOTIFY_FN = market_open_fn, now_fn, catalyst_fn, notify_fn
+    _QUOTES_FN = quotes_fn
+    _CATALYSTS.clear()
     _DATA_DIR = Path(data_dir) if data_dir else None
     if base_url:
         _BASE_URL = str(base_url).rstrip("/")
@@ -184,13 +191,17 @@ def _load_all() -> None:
         _POOL.clear()
         for h, sides in (_load_json("stretch_pool.json", {}) or {}).items():
             for s, cells in sides.items():
-                for k, evs in cells.items():
-                    _POOL.setdefault(h, {}).setdefault(s, {})[k] = [tuple(e) for e in evs]
+                for k, by_sym in cells.items():
+                    if not isinstance(by_sym, dict):
+                        continue          # an older, unattributed pool: rebuilt as names warm
+                    _POOL.setdefault(h, {}).setdefault(s, {})[k] = {
+                        sym: [tuple(e) for e in evs] for sym, evs in by_sym.items()}
 
 
 def _save_pool() -> None:
-    compact = {h: {s: {k: [[e[0], round(e[1], 3), round(e[2], 3)] for e in evs]
-                       for k, evs in cells.items()}
+    compact = {h: {s: {k: {sym: [[e[0], round(e[1], 3), round(e[2], 3)] for e in evs]
+                           for sym, evs in by_sym.items()}
+                       for k, by_sym in cells.items()}
                    for s, cells in sides.items()}
                for h, sides in _POOL.items()}
     _save_json("stretch_pool.json", compact)
@@ -266,7 +277,7 @@ def _profile_for(sym: str, today: date, cfg: dict, bars: list | None = None) -> 
             _ANCHORS[sym] = {"week_start": a["week_start"], "close": a["week_close"],
                              "source": "bars"}
         if fresh:
-            se.add_to_pool(_POOL, prof, cap=int(cfg["scan"].get("pool_cap", 4000)))
+            se.add_to_pool(_POOL, prof, sym)
     return prof
 
 
@@ -299,6 +310,33 @@ def _trigger(move: float, line: float | None, sigma: float | None, side: str,
             "line_sigma": abs(math.log1p(line)) / sigma, "fraction": frac}
 
 
+def live_quotes(symbols: list) -> dict:
+    """Where every name is RIGHT NOW. The watchlist board is rebuilt twice a
+    day, so its `last` and `change` are hours old by mid-morning; a scanner
+    that reads them would miss every crossing that happened since. One
+    quote call per hundred names, every pass. Names a call cannot answer
+    fall back to the board and are counted as such."""
+    out: dict = {}
+    if not _QUOTES_FN:
+        return out
+    for i in range(0, len(symbols), QUOTE_BATCH):
+        batch = symbols[i:i + QUOTE_BATCH]
+        try:
+            got = _QUOTES_FN(batch) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        for sym, q in got.items():
+            last = _num((q or {}).get("last"))
+            chg = _num((q or {}).get("change_pct"))
+            pc = _num((q or {}).get("close_prev"))
+            if last and last > 0 and (chg is not None or (pc and pc > 0)):
+                if chg is None:
+                    chg = (last / pc - 1.0) * 100.0
+                out[str(sym).upper()] = {"last": last, "change_pct": chg,
+                                         "prev_close": pc if (pc and pc > 0) else None}
+    return out
+
+
 def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
     cfg = cfg or config()
     st, sc = cfg["select"], cfg["scan"]
@@ -312,16 +350,24 @@ def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
         board = {}
     rows = board.get("rows") or []
     ttl = int(sc.get("lines_ttl_days", 5))
+    quotes = live_quotes([r.get("symbol") for r in rows if r.get("symbol")])
+    n_live = 0
     ready, cold = [], []
     for r in rows:
         sym = r.get("symbol")
-        last, chg = _num(r.get("last")), _num(r.get("change"))
+        q = quotes.get(str(sym).upper()) if sym else None
+        if q:
+            last, chg = q["last"], q["change_pct"]
+            n_live += 1
+        else:
+            last, chg = _num(r.get("last")), _num(r.get("change"))
         if not sym or not last or chg is None or last < float(st["min_price"]):
             continue
-        prev_close = last / (1.0 + chg / 100.0)
+        prev_close = (q or {}).get("prev_close") or (last / (1.0 + chg / 100.0))
         if prev_close <= 0:
             continue
         rec = {"symbol": sym, "last": last, "change_pct": chg, "prev_close": prev_close,
+               "quote": "live" if q else "board",
                "dollar_volume": (_num(r.get("avg_volume")) or 0) * last,
                "sector": r.get("sector"), "next_earnings": r.get("next_earnings")}
         # The anchor for the week is free on its first session: the board's
@@ -329,7 +375,7 @@ def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
         # is remembered, and only a name never seen this week costs bars.
         anc = _ANCHORS.get(sym)
         if today == first:
-            anc = {"week_start": monday, "close": prev_close, "source": "board"}
+            anc = {"week_start": monday, "close": prev_close, "source": rec["quote"]}
             _ANCHORS[sym] = anc
         if not (anc and anc.get("week_start") == monday and anc.get("close")):
             anc = None
@@ -388,8 +434,10 @@ def stage1(cfg: dict | None = None, now: datetime | None = None) -> dict:
     near.sort(key=lambda x: -x["fraction"])
     with _LOCK:
         _STATE["warming"] = max(0, len(cold) - budget)
+        _STATE["quotes_live"] = n_live
     return {"candidates": cands[: int(st["max_candidates"])], "near": near,
-            "universe": len(rows), "n_crossed": len(cands), "warmed": warmed}
+            "universe": len(rows), "n_crossed": len(cands), "warmed": warmed,
+            "quotes_live": n_live}
 
 
 # ── stage 2: one chain per crossed name, every strike priced ────────────────
@@ -404,12 +452,20 @@ def _expiries(chain: dict) -> list[date]:
 
 
 def _catalyst_refusal(sym: str, cfg: dict) -> str | None:
+    """The filing-aware catalyst (earnings, EDGAR events, offerings, analyst
+    actions, then headlines), remembered ten minutes a name so a candidate
+    that stays on the board does not re-read its filings every pass."""
     if not _CATALYST_FN:
         return None
-    try:
-        cat = _CATALYST_FN(sym) or {}
-    except Exception:  # noqa: BLE001
-        return None
+    hit = _CATALYSTS.get(sym)
+    if hit and time.time() - hit[0] < CATALYST_TTL:
+        cat = hit[1]
+    else:
+        try:
+            cat = _CATALYST_FN(sym) or {}
+        except Exception:  # noqa: BLE001
+            return None
+        _CATALYSTS[sym] = (time.time(), cat)
     kind = str(cat.get("kind") or "").upper()
     if kind in {str(k).upper() for k in cfg["events"]["refuse_kinds"]}:
         return f"{kind.lower()} headline — the one move that does not come back"
@@ -476,7 +532,7 @@ def evaluate(rec: dict, trig: dict, chain: dict, prof: dict, cfg: dict, today: d
             return {**base, "state": "crossed", "why": [e_why]}
     if (rec.get("dollar_volume") or 0) < float(cfg["liquidity"]["min_underlying_dollar_volume"]):
         return {**base, "state": "crossed", "why": ["the underlying is too thin to manage"]}
-    ev = se.evidence(prof, horizon, side, trig["move_sigma"], base["sessions_left"], pool)
+    ev = se.evidence(prof, horizon, side, trig["move_sigma"], base["sessions_left"], pool, exclude=sym)
     base.update({"n": ev["n"], "n_own": ev["n_own"], "n_pool": ev["n_pool"], "grade": ev["grade"],
                  "basis": ev["basis"], "level": ev["level"], "clamped": ev["clamped"],
                  "p_closed_back": ev["p_closed_back"],
@@ -570,6 +626,10 @@ def _scan(sc, cfg: dict | None = None, now: datetime | None = None) -> None:
             if not r.get("expiration"):
                 continue
             r["key"] = f"{sym}|{r['horizon']}|{r['side']}|{r['expiration']}"
+            # The alert memory is per symbol, side and EXPIRY: on a Friday the
+            # day and the week resolve to the same contract, and that is one
+            # alert, not two.
+            r["alert_key"] = f"{sym}|{r['side']}|{r['expiration']}"
             out.append(r)
         return sym, out, ref
 
@@ -587,7 +647,8 @@ def _scan(sc, cfg: dict | None = None, now: datetime | None = None) -> None:
                                       | {"triggers": [f"{t['horizon']} {t['side']}" for t in c["triggers"]]}
                                       for c in cands],
                        "universe": s1["universe"], "scanned": len(cands),
-                       "n_crossed": s1["n_crossed"], "as_of": stamp, "tick": stamp,
+                       "n_crossed": s1["n_crossed"], "quotes_live": s1["quotes_live"],
+                       "as_of": stamp, "tick": stamp,
                        "ticks": _STATE["ticks"] + 1, "error": None})
 
 
@@ -604,15 +665,19 @@ def _mark_and_alert(rows: list, cfg: dict, now: datetime) -> None:
             _ALERTS.pop(k, None)
             changed = True
         for r in rows:
-            rec = _ALERTS.get(r["key"])
+            rec = _ALERTS.get(r["alert_key"])
             if r["state"] != "ready":
                 r["first_seen"], r["pushed"], r["is_new"] = (rec or {}).get("first_ready"), (rec or {}).get("pushed"), False
                 continue
             if rec is None:
                 rec = {"first_ready": stamp, "pushed": None, "expiration": r.get("expiration"),
                        "strike": r.get("strike"), "credit": r.get("credit")}
-                _ALERTS[r["key"]] = rec
+                _ALERTS[r["alert_key"]] = rec
                 changed = True
+                # The ledger records every first READY, whether or not a push
+                # follows — a prediction below the push floor, or one made
+                # with no channel configured, is still a prediction to grade.
+                _log_alert(r, stamp)
             r["first_seen"], r["is_new"] = rec["first_ready"], rec["first_ready"] == stamp
             if (rec.get("pushed") is None and al.get("enabled", True) and _NOTIFY_FN
                     and (r.get("credit") or 0) >= float(al.get("min_credit", 0.10))):
@@ -620,7 +685,6 @@ def _mark_and_alert(rows: list, cfg: dict, now: datetime) -> None:
                     rec["pushed"] = stamp
                     _STATE["pushed_today"] += 1
                     changed = True
-                _log_alert(r, stamp)
             r["pushed"] = rec.get("pushed")
         if changed:
             _save_json("stretch_alerts.json", _ALERTS)
@@ -749,8 +813,10 @@ def snapshot() -> dict:
         "scanned": st["scanned"], "n_crossed": st.get("n_crossed", 0), "warming": st["warming"],
         "rows": rows, "n_ready": len(ready), "near": st["near"][:40],
         "candidates": st["candidates"], "refused": st["refused"][:40],
-        "pool": {h: {s: sum(len(v) for v in cells.values()) for s, cells in sides.items()}
-                 for h, sides in _POOL.items()},
+        "pool": se.pool_size(_POOL),
+        "quotes_live": st.get("quotes_live", 0),
+        "quotes": ("live" if _QUOTES_FN else "board only — the watchlist board is rebuilt twice a day, "
+                   "so between rebuilds a crossing cannot be seen"),
         "lines_cached": len(_LINES), "alerts": {"pushed_today": st["pushed_today"],
                                                 "enabled": bool(cfg["alerts"].get("enabled", True)),
                                                 "configured": bool(_NOTIFY_FN)},
@@ -798,7 +864,7 @@ def profile_for(symbol: str, today: date | None = None) -> dict:
         ln = se.describe(prof, "week", side)
         if ln["sigma"] is None:
             continue
-        ev = se.evidence(prof, "week", side, ln["sigma"], 3, _POOL)
+        ev = se.evidence(prof, "week", side, ln["sigma"], 3, _POOL, exclude=sym)
         after[side] = {"line": ln, "n": ev["n"], "n_own": ev["n_own"], "grade": ev["grade"],
                        "basis": ev["basis"], "p_closed_back": ev["p_closed_back"],
                        "median_beyond_pct": ev["median_beyond_pct"], "p90_beyond_pct": ev["p90_beyond_pct"]}
@@ -834,5 +900,6 @@ def status() -> dict:
                 "universe": _STATE["universe"], "scanned": _STATE["scanned"],
                 "rows": len(_STATE["rows"]), "warming": _STATE["warming"],
                 "lines_cached": len(_LINES), "anchors_cached": len(_ANCHORS),
+                "quotes_live": _STATE.get("quotes_live", 0), "quotes_fn": bool(_QUOTES_FN),
                 "alerts_remembered": len(_ALERTS), "pushed_today": _STATE["pushed_today"],
                 "background": bool(config()["scan"].get("background", True))}

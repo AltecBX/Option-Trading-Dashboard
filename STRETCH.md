@@ -117,9 +117,12 @@ move (never above — the sample is always of crossings at least as large),
 then the exact sessions-left bucket when it holds 20 or more, otherwise
 every crossing with at least that many sessions left (those had *more* room
 to run; the basis says "upper bound"). Below 20 on the stock's own record
-the **pool** answers — every other warmed name's crossings, in sigma,
+the **pool** answers — every *other* warmed name's crossings, in sigma,
 converted into this stock's dollars — and the grade says MEASURED, MOSTLY
-POOLED, POOLED or THIN. THIN is refused, not guessed.
+POOLED, POOLED or THIN. THIN is refused, not guessed. The pool is kept
+under each name's own symbol (at most 80 crossings a name per cell, 300
+names a cell), so a recompute replaces rather than appends, and the name
+being priced is never counted twice.
 
 The comparable set is handed to `weekly_sell.evaluate_strike` as `{high,
 low, term}` fractions relative to the crossing level, so every strike on
@@ -129,8 +132,12 @@ the same gates.
 
 ## 3. The scanner (`stretch_scan.py`)
 
-**Stage 1 is free.** It reads the board the app already keeps. Each name
-needs its lines (four percentages and a sigma, computed from bars once and
+**Stage 1 is cheap.** The watchlist board supplies the universe, the
+sectors, the volumes and the earnings dates — but its prices are rebuilt
+only twice a day, so every pass reads **live quotes** instead, one call per
+hundred names (about thirteen a pass on the full list), falling back to the
+board for any name a call cannot answer and saying how many were live. Each
+name needs its lines (four percentages and a sigma, computed from bars once and
 cached five days on disk) and this week's anchor. The anchor costs nothing
 on the first session of the week — the board's own previous close *is* last
 week's close — and is remembered on disk for the rest of the week. Only a
@@ -192,7 +199,9 @@ says on a Wednesday morning.
 
 ## 5. Refusals and limits, stated plainly
 
-- A takeover or merger headline is refused outright.
+- A takeover or merger is refused outright — through the filing-aware
+  catalyst (`_gap_catalyst`: earnings, EDGAR events, offerings, analyst
+  actions, then headlines), remembered ten minutes a name.
 - A scheduled earnings date between today and the expiry is refused.
 - Fewer than 20 comparable crossings, even with the pool, is refused.
 - No bid, a spread too wide to fill, or no open interest is refused by the
@@ -222,8 +231,8 @@ in the alert.
 
 ## 7. Tests
 
-`test_stretch_evidence.py` (19) · `test_stretch_scan.py` (27) ·
-`test_stretch_ui.js` (73 source guards) · HTTP smoke (+6 routes).
+`test_stretch_evidence.py` (20) · `test_stretch_scan.py` (32) ·
+`test_stretch_ui.js` (77 source guards) · HTTP smoke (+6 routes).
 Invariants: the event is the first crossing and nothing before it counts;
 a window that never reached the level is not an event; puts are measured on
 lows and closes-below; sigma is point-in-time; the comparable set widens

@@ -104,13 +104,13 @@ class Base(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def wire(self, rows, now=NOW, open_=True, notify=True, bars=None, schwab=None):
+    def wire(self, rows, now=NOW, open_=True, notify=True, bars=None, schwab=None, quotes=None):
         self.schwab = schwab or FakeSchwab()
         sk.configure(schwab_getter=lambda: self.schwab, board_getter=lambda: {"rows": rows},
                      bars_fn=(bars or (lambda s: BARS.get(s))), market_open_fn=lambda: open_,
                      now_fn=lambda: now,
                      notify_fn=(lambda t, m, p=0: (self.pushed.append((t, m, p)) or {"ok": True})) if notify else None,
-                     data_dir=self.dir)
+                     data_dir=self.dir, quotes_fn=quotes)
         with sk._LOCK:
             sk._STATE.update({"rows": [], "refused": [], "near": [], "candidates": [], "as_of": None,
                               "tick": None, "scanned": 0, "universe": 0, "pushed_today": 0,
@@ -162,6 +162,40 @@ class WhoIsACandidate(Base):
         self.assertEqual(s1["candidates"], [])
 
 
+class TheQuotesAreLive(Base):
+    # Codex, first round (P1, correct): the watchlist board is rebuilt at 9 AM
+    # and 6 PM, so its prices are hours old by mid-morning. A scanner that
+    # read them would miss every crossing that happened since.
+    def test_live_quotes_override_the_board(self):
+        last = BARS["UP"][-1]["close"]
+        d_hi = self.lines("UP")["day"]["high_pct"]
+        live = {"UP": {"last": last * (1 + d_hi * 1.5), "change_pct": d_hi * 150, "close_prev": last}}
+        self.wire([_row("UP", 0.0)], quotes=lambda syms: {s: live[s] for s in syms if s in live})
+        self.lines("UP")
+        sk._ANCHORS["UP"] = {"week_start": "2026-09-14", "close": last}
+        s1 = sk.stage1(None, NOW)
+        self.assertEqual([c["symbol"] for c in s1["candidates"]], ["UP"], "the board said flat; the quote says crossed")
+        self.assertEqual(s1["candidates"][0]["quote"], "live")
+        self.assertEqual(s1["quotes_live"], 1)
+
+    def test_the_board_answers_when_quotes_cannot(self):
+        d_hi = self.lines("UP")["day"]["high_pct"]
+        self.wire([_row("UP", d_hi * 150)], quotes=lambda syms: (_ for _ in ()).throw(RuntimeError("feed down")))
+        self.lines("UP")
+        sk._ANCHORS["UP"] = {"week_start": "2026-09-14", "close": BARS["UP"][-1]["close"]}
+        s1 = sk.stage1(None, NOW)
+        self.assertEqual([c["symbol"] for c in s1["candidates"]], ["UP"])
+        self.assertEqual(s1["candidates"][0]["quote"], "board")
+        self.assertEqual(s1["quotes_live"], 0)
+
+    def test_quotes_go_out_in_batches(self):
+        calls = []
+        rows = [dict(_row("UP", 0.0), symbol=f"N{i}") for i in range(250)]
+        self.wire(rows, quotes=lambda syms: calls.append(len(syms)) or {})
+        sk.stage1(None, NOW)
+        self.assertEqual(calls, [100, 100, 50])
+
+
 class TheAnchorIsFreeOnMonday(Base):
     def test_learned_from_the_board_on_the_first_session_and_remembered(self):
         monday = datetime(2026, 9, 14, 10, 0).astimezone()
@@ -175,7 +209,7 @@ class TheAnchorIsFreeOnMonday(Base):
                               "d_hi": 0.01, "d_lo": -0.01, "n_weeks": 100, "n_days": 500}
         sk.stage1(None, monday)
         self.assertEqual(fetches, [], "Monday's previous close IS last week's close: no bars")
-        self.assertEqual(sk._ANCHORS["QUIET"]["source"], "board")
+        self.assertEqual(sk._ANCHORS["QUIET"]["source"], "board", "no quote feed wired here, so the board answered")
         self.assertAlmostEqual(sk._ANCHORS["QUIET"]["close"], BARS["QUIET"][-1]["close"] / 1.01)
         # Tuesday: still no bars for a name seen Monday.
         sk.stage1(None, datetime(2026, 9, 15, 10, 0).astimezone())
@@ -316,6 +350,33 @@ class TheAlert(Base):
                        "/?symbol=UP&tab=analyze"):
             self.assertIn(needle, body)
         self.assertIn("Friday, September 18", body)
+
+    def test_one_alert_when_the_day_and_the_week_share_the_expiry(self):
+        # Codex, first round (P2, correct): on a Friday the day and the week
+        # both resolve to today's contract. That is one alert, not two.
+        friday = datetime(2026, 9, 18, 11, 0).astimezone()
+        d_hi = self.lines("UP")["day"]["high_pct"]
+        self.wire([_row("UP", d_hi * 150)], now=friday)
+        ln = self.lines("UP")
+        sk._ANCHORS["UP"] = {"week_start": "2026-09-14", "close": BARS["UP"][-1]["close"] / (1 + ln["week"]["high_pct"] * 1.2)}
+        sk._scan(self.schwab, None, friday)
+        rows = [r for r in sk.snapshot()["rows"] if r["state"] == "ready"]
+        self.assertEqual(sorted(r["horizon"] for r in rows), ["day", "week"])
+        self.assertEqual(len({r["alert_key"] for r in rows}), 1)
+        self.assertEqual(len(self.pushed), 1)
+        self.assertEqual(len(sk._ALERTS), 1)
+
+    def test_every_ready_is_logged_even_with_no_channel(self):
+        # Codex, first round (P2, correct): the ledger used to be written
+        # only on a push, so a READY below the floor or with no channel left
+        # no record to grade.
+        self.wire([_row("UP", 0.2)], notify=False)
+        ln = self.lines("UP")
+        sk._ANCHORS["UP"] = {"week_start": "2026-09-14", "close": BARS["UP"][-1]["close"] / (1 + ln["week"]["high_pct"] * 1.2)}
+        self.scan()
+        self.scan()
+        self.assertEqual(self.pushed, [])
+        self.assertEqual(len(sk.alerts_log(30)), 1, "logged once, on the first READY, and not again")
 
     def test_below_the_credit_floor_nothing_is_sent(self):
         self._ready()

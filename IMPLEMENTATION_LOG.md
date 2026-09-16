@@ -4012,7 +4012,24 @@ Deliberately not built: walk-forward validation splits, regime and sector
 features, intraday timing claims, a six-state machine, latency
 instrumentation. The crossing bar is charged in full and the card says so.
 
-Guards: 19 evidence, 27 scanner, 73 source. Each proven red: the
+**Codex, first round** — five findings, all correct, all fixed before
+merge. (P1) Stage 1 read the watchlist board's `last` and `change`, which
+are rebuilt at 9 AM and 6 PM: by mid-morning every crossing since was
+invisible. It now reads live quotes, a hundred names a call, and falls back
+to the board only for names a call cannot answer, counting them. (P1) The
+takeover gate was wired to the headline-only helper, which cannot see a
+merger; it is wired to the filing-aware `_gap_catalyst`, cached ten minutes
+a name. (P1) The pool was one flat list per cell with no provenance, so a
+name's own crossings were counted again as "pooled" beside its own — ten
+plus the same ten made twenty and turned THIN into READY — and every
+recompute appended another copy. The pool is now kept under each name's
+symbol, replaced on recompute, and the name being priced is excluded.
+(P2) The prediction ledger was written only on a push; it is written on
+the first READY regardless. (P2) The alert key carried the horizon, so on a
+Friday the day and the week — the same contract — would have pushed twice;
+the key is symbol, side and expiry.
+
+Guards: 20 evidence, 32 scanner, 77 source. Each proven red: the
 first-crossing test fails if outcomes are taken from the week's start; the
 put test fails if the call numbers are sign-flipped; the alert test fails if
 the memory is not persisted; the render suite still holds with the new

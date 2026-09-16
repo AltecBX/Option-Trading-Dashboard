@@ -1147,8 +1147,7 @@
       "cycle_seconds": 180,
       "cold_fetches_per_pass": 40,
       "lines_ttl_days": 5,
-      "background": true,
-      "pool_cap": 4000
+      "background": true
     },
     "alerts": {
       "enabled": true,

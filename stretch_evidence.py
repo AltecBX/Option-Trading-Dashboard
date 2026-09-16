@@ -296,10 +296,11 @@ def windows_from(evs: Sequence[tuple], side: str, sigma: float) -> list[dict]:
 
 
 def evidence(prof: dict, horizon: str, side: str, move_sigma: float, left: int,
-             pool: dict | None = None) -> dict:
+             pool: dict | None = None, exclude: str | None = None) -> dict:
     """The comparable record for a live crossing: this name's own events
-    first; the pool (other names' crossings, in sigma) only when its own
-    are thin, and graded so the card can say which it was."""
+    first; the pool (OTHER names' crossings, in sigma — `exclude` keeps
+    this name's own out of it, so its record is never counted twice) only
+    when its own are thin, and graded so the card can say which it was."""
     lvl, clamped = level_for(move_sigma, horizon)
     key = f"{lvl:g}"
     own_all = ((prof.get("events") or {}).get(horizon) or {}).get(side, {}).get(key, [])
@@ -308,8 +309,7 @@ def evidence(prof: dict, horizon: str, side: str, move_sigma: float, left: int,
     n_own = len(own)
     pooled: list = []
     if n_own < MIN_EVENTS and pool:
-        cell = ((pool.get(horizon) or {}).get(side) or {}).get(key) or []
-        pooled, _ = _select(cell, left if horizon == "week" else 0)
+        pooled, _ = _select(pool_cell(pool, horizon, side, key, exclude), left if horizon == "week" else 0)
     n_pool = len(pooled)
     if n_own >= MIN_EVENTS:
         grade = "MEASURED"
@@ -336,16 +336,44 @@ def _pct(sorted_vals: Sequence[float], p: float) -> float:
     return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (k - lo)
 
 
-def add_to_pool(pool: dict, prof: dict, cap: int = 4000) -> None:
-    """Fold one name's events into the shared pool, in sigma. Bounded per
-    cell so a thousand-name watchlist does not grow without limit."""
+POOL_EVENTS_PER_NAME = 80     # the most recent crossings a name contributes per cell
+POOL_NAMES_PER_CELL = 300     # names kept per cell; the oldest-added drops first
+
+
+def add_to_pool(pool: dict, prof: dict, symbol: str, per_name: int = POOL_EVENTS_PER_NAME,
+                names: int = POOL_NAMES_PER_CELL) -> None:
+    """Fold one name's events into the shared pool, in sigma, UNDER ITS OWN
+    NAME — so recomputing the same profile tomorrow replaces yesterday's
+    entry rather than appending a second copy, and a name can be kept out
+    of its own evidence. Bounded per name and per cell so a thousand-name
+    watchlist does not grow without limit."""
+    sym = (symbol or "").upper()
     for h in HORIZONS:
         for s in SIDES:
             for k, evs in ((prof.get("events") or {}).get(h, {}).get(s, {}) or {}).items():
-                cell = pool.setdefault(h, {}).setdefault(s, {}).setdefault(k, [])
-                cell.extend(evs)
-                if len(cell) > cap:
-                    del cell[: len(cell) - cap]
+                cell = pool.setdefault(h, {}).setdefault(s, {}).setdefault(k, {})
+                cell.pop(sym, None)
+                cell[sym] = list(evs[-per_name:])
+                while len(cell) > names:
+                    cell.pop(next(iter(cell)))
+
+
+def pool_cell(pool: dict | None, horizon: str, side: str, key: str,
+              exclude: str | None = None) -> list:
+    """Every other name's crossings in one cell."""
+    cell = (((pool or {}).get(horizon) or {}).get(side) or {}).get(key) or {}
+    ex = (exclude or "").upper()
+    out: list = []
+    for sym, evs in cell.items():
+        if sym != ex:
+            out.extend(evs)
+    return out
+
+
+def pool_size(pool: dict | None) -> dict:
+    return {h: {s: sum(len(v) for cell in cells.values() for v in cell.values())
+                for s, cells in sides.items()}
+            for h, sides in (pool or {}).items()}
 
 
 def vs_monday(weeks: Sequence[dict], hist: Sequence[dict], side: str, line: dict) -> dict | None:
