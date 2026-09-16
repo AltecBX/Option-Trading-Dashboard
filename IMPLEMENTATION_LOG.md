@@ -3970,6 +3970,71 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.16 — At the line: the watching is done for you, both sides, whole watchlist
+
+Jerry's ask, in his words: "if a stock averages a high of 10% from Friday
+close, I wait until it gets there and I normally sell a call for 15-20%
+delta from that stock price… I do the same thing in reverse for puts… I
+also want to make this an automated process, so I don't have to put each
+stock manually." Plus: is 10% the right number, is 15-20 delta the right
+strike, and what patterns is he not seeing. An outside brief (GPT) was
+supplied alongside; STRETCH.md §4 says what was kept from it and what was
+left out.
+
+**Measured first** (43 liquid names, three years of daily bars). The line
+is the stock's own median weekly high or low from last week's close — the
+dashed line the Analyze chart already draws — so "10%" becomes a number per
+stock, per horizon. After the line is crossed, the week closed back inside
+it **47%** of the time for calls and **51%** for puts: a coin flip, not the
+edge the workflow assumes. The further travel after a crossing runs a
+little *ahead* of a random walk. The like-for-like check (same 20-delta rule,
+sold Monday versus sold after the line) shows the line entry buys a strike
+**half again further from where the week started** (+7.7% vs +5.1% for
+calls) at a finished-through rate slightly *higher* (24.5% vs 21.4%), in
+half the weeks. That is the honest shape of the trade: not a safer strike,
+a further one, when you get it.
+
+**Built**: `stretch_evidence.py` (first-crossing events at a sigma grid on
+two horizons and two sides, outcomes measured only from the crossing bar
+on, sessions-left buckets, pooled in sigma when a name is thin);
+`stretch_scan.py` (free stage 1 off the board, the week's anchor learned
+for nothing on Monday from the board's own previous close and remembered,
+one bounded chain call per crossed name, every strike in the 0.08–0.50
+delta range priced by `weekly_sell.evaluate_strike` against the comparable
+crossings, READY needs a contract, CROSSED says why, one push per
+symbol/side/expiry persisted across restarts, prediction log, background
+loop from server start); `tab-stretch.jsx` (the board at the top of Trade
+with Calls/Puts/Both and week/day filters, the ladder on expand, and the
+"After it reaches the line" card on Analyze); a plain `?symbol=&tab=` deep
+link so the push opens Analyze on the name.
+
+Deliberately not built: walk-forward validation splits, regime and sector
+features, intraday timing claims, a six-state machine, latency
+instrumentation. The crossing bar is charged in full and the card says so.
+
+**Codex, first round** — five findings, all correct, all fixed before
+merge. (P1) Stage 1 read the watchlist board's `last` and `change`, which
+are rebuilt at 9 AM and 6 PM: by mid-morning every crossing since was
+invisible. It now reads live quotes, a hundred names a call, and falls back
+to the board only for names a call cannot answer, counting them. (P1) The
+takeover gate was wired to the headline-only helper, which cannot see a
+merger; it is wired to the filing-aware `_gap_catalyst`, cached ten minutes
+a name. (P1) The pool was one flat list per cell with no provenance, so a
+name's own crossings were counted again as "pooled" beside its own — ten
+plus the same ten made twenty and turned THIN into READY — and every
+recompute appended another copy. The pool is now kept under each name's
+symbol, replaced on recompute, and the name being priced is excluded.
+(P2) The prediction ledger was written only on a push; it is written on
+the first READY regardless. (P2) The alert key carried the horizon, so on a
+Friday the day and the week — the same contract — would have pushed twice;
+the key is symbol, side and expiry.
+
+Guards: 20 evidence, 32 scanner, 77 source. Each proven red: the
+first-crossing test fails if outcomes are taken from the week's start; the
+put test fails if the call numbers are sign-flipped; the alert test fails if
+the memory is not persisted; the render suite still holds with the new
+Analyze card in the frame.
+
 ## v5.15 — and the chart that threw on every frame while the market was open
 
 Found while verifying the labels below, not by looking for it: the full

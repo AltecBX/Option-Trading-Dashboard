@@ -13733,6 +13733,20 @@ a.tabsheet-btn.site { text-decoration: none; }
 .sk-row-top td { font-weight: 600; }
 .sk-edge-up { color: var(--up); }
 .sk-edge-dn { color: var(--down); }
+/* At the line (v5.16) — shares the Sold into strength table chrome. */
+.st-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.st-seg { display: inline-flex; gap: 2px; }
+.st-seg .su-more-btn { padding: 3px 8px; }
+.st-seg .st-seg-on { background: var(--bg-3); color: var(--fg); border-color: var(--line-2); }
+.st-state { font-family: var(--font-mono); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.st-state-ready { color: var(--up); }
+.st-state-crossed { color: var(--fg-3); }
+.st-new-chip { color: var(--warn); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; }
+.st-row.st-crossed td { color: var(--fg-3); }
+.st-ladder .st-gated td { color: var(--fg-3); }
+.st-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.st-side-block p { font-size: 13px; line-height: 1.5; margin: 4px 0; }
+@media (max-width: 720px) { .st-sides { grid-template-columns: 1fr; } }
 .sk-detail-wrap {
   margin: 10px 0; border: 1px solid var(--sk-line); border-radius: 12px;
   background: var(--bg-2); padding: 10px 12px; max-width: 100%;
