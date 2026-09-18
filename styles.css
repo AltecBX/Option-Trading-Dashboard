@@ -14641,7 +14641,7 @@ body { overflow: hidden; overscroll-behavior: none; }
   .mko-chg, .mko-pts { font-size: 9px; }
   .frame-top { padding: 4px 12px 3px; }
   .frame-body { padding: 6px 12px 0; }
-  .frame-bottom { padding: 2px 12px 0; }
+  .frame-bottom { padding: 2px 12px env(safe-area-inset-bottom, 0px); }  /* v5.18: keeps the home-indicator inset a phone on its side reports */
   /* Kept, not hidden (v4.94). It used to go here to buy back thirteen pixels,
      which made the version present in three of the app's four shapes — and
      "which build am I on" is a question you ask in whatever shape you happen
@@ -14832,6 +14832,12 @@ body { overflow: hidden; overscroll-behavior: none; }
    ══════════════════════════════════════════════════════════════════════════ */
 @media (max-height: 560px) and (max-width: 1180px) and (min-width: 901px) {
   .frame-top, .frame-body { grid-template-columns: minmax(0, 1fr); }
+  /* v5.18 (Codex on #405): a phone on its side reports the notch on one
+     edge, its mirror on the other and the home indicator below. The upright
+     rule lives under max-width:900px, which this width is past, so the
+     insets are carried here too — sides on the shell, bottom on the footer. */
+  .shell { padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px) !important; }
+  .frame-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .ab-menu { display: inline-flex !important; }
 
   .mobile-overlay {

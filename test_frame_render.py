@@ -431,10 +431,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # so a phone test can measure the geometry Jerry's screenshots show
         # instead of guessing at it.
         if safe_area:
-            top, bottom = safe_area
+            if len(safe_area) == 2:       # upright: (top, bottom)
+                top, bottom = safe_area
+                left = right = 0
+            else:                          # on its side: (top, right, bottom, left)
+                top, right, bottom, left = safe_area
             cdp = ctx.new_cdp_session(page)
             cdp.send("Emulation.setSafeAreaInsetsOverride",
-                     {"insets": {"top": top, "left": 0, "bottom": bottom, "right": 0}})
+                     {"insets": {"top": top, "left": left, "bottom": bottom, "right": right}})
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
         page.wait_for_selector(".shell", timeout=30000)
         page.wait_for_timeout(6000)
@@ -1279,6 +1283,35 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             hdr = geo["mobileHeader"]
             self.assertIsNotNone(hdr, "no phone header")
             self.assertGreaterEqual(hdr["t"], 59, f"the header begins at {hdr['t']}px — under the notch")
+        finally:
+            self._close(handles)
+
+    def test_a_phone_on_its_side_keeps_clear_of_the_notch_and_home_indicator(self):
+        """Codex on #405: the upright fix lives under max-width:900px, and a
+        phone on its side is 956px wide — its own branch, where a later
+        short-viewport rule also reset the footer's bottom inset. On its
+        side an iPhone reports the notch on one edge, its mirror on the
+        other (59px each) and a 21px home indicator below. Measured before:
+        the app bar began 24px in, under the notch, and the status line sat
+        inside the indicator's 21px."""
+        geo, errors, handles = self._measure(956, 440, safe_area=(0, 59, 21, 59))
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual(["0px", "0px"], geo["bodyPad"], f"the body is padded {geo['bodyPad']}")
+            shell = geo["shell"]
+            self.assertLessEqual(shell["t"] + shell["h"], geo["vh"], "the shell runs past the bottom")
+            appbar = geo["appbar"]
+            self.assertIsNotNone(appbar, "no app bar in landscape")
+            self.assertGreaterEqual(appbar["l"], 59, f"the app bar begins {appbar['l']}px in — under the notch")
+            main = geo["main"]
+            self.assertLessEqual(main["l"] + main["w"], geo["vw"] - 59,
+                                 f"the workspace ends at {main['l'] + main['w']}px on a {geo['vw']}px screen "
+                                 "whose last 59px is the notch's mirror")
+            status = geo["statusline"]
+            self.assertIsNotNone(status, "no status line in landscape")
+            self.assertLessEqual(status["t"] + status["h"], geo["vh"] - 21,
+                                 f"the status line ends at {status['t'] + status['h']}px on a {geo['vh']}px "
+                                 "screen whose bottom 21px is the home indicator")
         finally:
             self._close(handles)
 

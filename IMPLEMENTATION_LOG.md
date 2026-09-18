@@ -3996,10 +3996,23 @@ inset was already frame-bottom padding. Measured after, same insets: shell
 indicator room below it. Without insets, and at 375×667 and 320×568,
 nothing moved.
 
+Codex, on the PR: the upright rule lives under `max-width: 900px`, and a
+phone on its side is 956px wide — its own branch — where the short-viewport
+block also reset the footer to `padding: 2px 12px 0`, dropping the bottom
+inset. Correct, apart from the action bar: it does not exist in landscape.
+Measured with the insets a phone on its side reports (59 each side, 21
+below): the app bar began 24px in, under the notch, and the status line sat
+inside the indicator's 21px. The landscape branch now carries the side
+insets on the shell and the bottom one on the footer, and the short-viewport
+footer rule keeps `env(safe-area-inset-bottom)`. After: app bar from 69px,
+status line ending 21px above the edge; an 844×390 phone (≤900px, short)
+keeps its bar 21px up too.
+
 Guards: a render test that emulates the iPhone insets and requires body
 padding 0, shell within the screen, the bar above the indicator and the
-header below the notch (red on v5.17: shell 59px past the edge); two static
-guards on the two rules.
+header below the notch (red on v5.17: shell 59px past the edge); a second
+for the phone on its side (red before: app bar at 24px); two static guards
+on the two rules.
 
 ## v5.17 — the phone gets the desktop's navigation, and the tool comes first
 
