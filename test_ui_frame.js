@@ -164,6 +164,15 @@ ok("the phone header carries the desktop's Focus switch",
    && /body\.focus-frame \.mko-head \{ flex-direction: column/.test(css));
 ok("the picker is grouped the same way, so nothing is hidden behind a menu",
    /TAB_GROUPS\.map\(g => \{/.test(app));
+// v5.18. Jerry, on v5.17: "But the bottom is still cut off." The body
+// carried the iPhone's safe-area insets as padding while the shell was one
+// screen tall, so the shell ran past the bottom edge by the top inset and
+// the action bar lost its lower half. The insets belong inside the shell.
+ok("the body no longer wears the safe-area insets as padding",
+   !/body \{\s*padding: env\(safe-area-inset-top\)/.test(css));
+ok("the shell absorbs the top inset inside its own height",
+   /\.shell \{\s*padding: calc\(8px \+ env\(safe-area-inset-top, 0px\)\)/.test(css)
+   && /\.frame-bottom \{[^}]*padding-bottom: env\(safe-area-inset-bottom, 0px\)/.test(css));
 
 // ── 7. one version, from the one source ───────────────────────────────────
 ok("the status line shows the app's real version",

@@ -52,6 +52,7 @@ decided in the component:
 | Four high/low lists | fixed side rails (≥2080 px) | one tabbed card in the workspace |
 | Market band (posture, regime, catalysts, opportunity ribbon) | in the frame, as the reference shows | in the Trade workspace, folded into one line with the four high/low lists so the tool is first (v5.17) |
 | The grouped navigation bar | in the frame | in the frame too, compact — the four groups on one line, the open group's tools on the next (v5.17; it was hidden behind the Tabs picker from v4.92, and the picker stays for search) |
+| The iPhone notch and home indicator (safe-area insets) | — | inside the shell: the top inset is shell padding, the bottom one frame-bottom padding. Never body padding — the shell is one screen tall, and padding outside it pushed the action bar below the edge (v5.18) |
 
 Only the *selected* high/low list mounts on a phone, so the card polls **less**
 than the four hidden rails it replaces.

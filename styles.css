@@ -2122,10 +2122,11 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
    - Hide UI that doesn't translate well to mobile
    ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 760px) {
-  /* Honor iPhone safe-area insets so brand content isn't under the notch */
-  body {
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  }
+  /* The iPhone safe-area insets used to be padding on the body here. That
+     was right while the page scrolled. Now the shell is the page and is
+     sized to the viewport, so body padding pushed it down by the top inset
+     and hid its bottom — the action bar — behind the home indicator
+     (v5.18). The shell carries the insets itself; see the frame block. */
 
   /* Shell: single column, tighter padding */
   .shell {
@@ -14168,7 +14169,17 @@ body { overflow: hidden; overscroll-behavior: none; }
   }
   .statusline .sl-note, .statusline .sl-sep,
   .statusline .sl-spacer, .statusline .sl-link { display: none; }
-  .shell { padding-bottom: 0 !important; }
+  /* The shell is exactly one screen tall, so the notch and home-indicator
+     insets live inside it: the top inset as shell padding, the bottom one
+     as frame-bottom padding (below). With the insets on the body instead,
+     the shell started under the notch and ran the same distance past the
+     bottom edge — Jerry's clipped action bar (v5.18). */
+  .shell {
+    padding: calc(8px + env(safe-area-inset-top, 0px))
+             calc(10px + env(safe-area-inset-right, 0px))
+             0
+             calc(10px + env(safe-area-inset-left, 0px)) !important;
+  }
   .mbb-btn { min-height: 40px; }
 
   /* The drawer sidebar keeps its own scroll inside the frame body. */
