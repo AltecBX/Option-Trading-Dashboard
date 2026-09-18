@@ -3970,6 +3970,38 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.17 — the phone gets the desktop's navigation, and the tool comes first
+
+Jerry, from his phone, with a screenshot of ten tiles and the Ask AI panel:
+"I can't do anything on my mobile phone. Please optimize it so I use it
+like I use it on my desktop."
+
+Measured at 440×956 before: the section bar was `display: none` (since
+v4.92; the bottom bar's Tabs picker stood in for it — one tap away and
+invisible), and on Trade the market band and the four high/low lists sat
+in the workspace ahead of the tool, so At the line began about 700px down
+a 457px box. A person who did not know the picker existed saw ten charts
+and a panel of chips, and nothing to tap.
+
+Three changes, all presentation:
+
+- **The same grouped bar as the desktop, compact.** The four groups on one
+  line, the open group's tools on the next, swipeable; 72px. Tapping
+  Analyze on the phone does what it does on the desktop. The picker stays
+  for search. The `display: none !important` rule that hid it is gone.
+- **Trade's band folds into one line** — "MARKET posture · gamma ·
+  opportunities · highs & lows ›" — and opens in place with everything
+  still mounted and live. The first tool now begins **~130px** into the
+  workspace instead of ~700.
+- **Focus on the phone.** The desktop's switch, as a header button: the
+  ten tiles become four columns of numbers (frame 345px → 208px, workspace
+  381px → 518px), every label whole. Off by default; remembered.
+
+Guards: two render tests (the bar is visible with its groups and tools,
+the first tool is on the first screen, the fold is folded; focus shrinks
+the charts without clipping a label), three source guards; the landscape
+and ten-pixel-floor tests still hold.
+
 ## v5.16 — At the line: the watching is done for you, both sides, whole watchlist
 
 Jerry's ask, in his words: "if a stock averages a high of 10% from Friday

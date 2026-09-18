@@ -677,6 +677,40 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 earnSyms: document.querySelectorAll('.mctx-earn-sym').length,
                 headlines: document.querySelectorAll('.nt-item, .newsticker a').length,
                 bodyScrollW: Math.round(document.documentElement.scrollWidth),
+                // v5.17: the phone shows the desktop's grouped bar. Which
+                // tools a person can actually see and tap, and how tall the
+                // bar is for it.
+                tabBarPhone: (() => {
+                  const bar = document.querySelector('.tab-bar');
+                  if (!bar || getComputedStyle(bar).display === 'none') return null;
+                  const vis = (sel) => [...bar.querySelectorAll(sel)]
+                    .filter(b => b.getBoundingClientRect().width > 0).map(b => b.textContent.trim());
+                  return {h: Math.round(bar.getBoundingClientRect().height),
+                          groups: vis('.tab-grp'), tools: vis('.tab-btn')}; })(),
+                // Where the first tool on Trade begins inside the workspace,
+                // and what stands in front of it.
+                firstTool: (() => {
+                  const m = document.querySelector('.main');
+                  const c = document.querySelector('.st-card');
+                  return (m && c) ? Math.round(c.getBoundingClientRect().top
+                                               - m.getBoundingClientRect().top) : null; })(),
+                phoneBand: box('.phone-band'),
+                // The harness runs with the network off, so a throttle
+                // banner sits in the workspace that production does not
+                // show; it is measured so the tool's position can be read
+                // net of it.
+                errBannerH: (() => { const e = document.querySelector('.main > .error-banner');
+                  return e ? Math.round(e.getBoundingClientRect().height) : 0; })(),
+                // What stands in front of the first tool, by name and height.
+                mainFirst: (() => {
+                  const m = document.querySelector('.main');
+                  return m ? [...m.children].filter(c => c.getBoundingClientRect().height > 0).slice(0, 8).map(c => ({
+                    cls: String(c.className || c.tagName).split(' ').slice(0, 3).join(' '),
+                    tab: c.getAttribute('data-tab'),
+                    inner: c.firstElementChild ? String(c.firstElementChild.className || '').split(' ').slice(0, 3).join(' ') : null,
+                    h: Math.round(c.getBoundingClientRect().height)})) : null; })(),
+                labelClip: [...document.querySelectorAll('.mko-label')]
+                  .filter(e => e.scrollWidth > e.clientWidth + 1).length,
               };
             }""")
         return geo, errors, (pw, browser)
@@ -1100,6 +1134,59 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "the jump control is still the chip strip in landscape")
             self.assertIsNone(
                 geo["secnavRow"], "the chip strip is rendering here too")
+        finally:
+            self._close(handles)
+
+    def test_the_phone_has_the_desktops_navigation(self):
+        """v5.17. Jerry, from his phone: "I can't do anything on my mobile
+        phone. Please optimize it so I use it like I use it on my desktop."
+        The section bar was display:none on phones from v4.92, with the
+        bottom bar's Tabs picker in its place — every destination one tap
+        away, and none of them visible. The phone now shows the same grouped
+        bar, compact: the four groups on one line and the open group's tools
+        on the next, and Trade's market band folds into one line so the
+        first tool is on the first screen."""
+        geo, errors, handles = self._measure(440, 956)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            bar = geo["tabBarPhone"]
+            self.assertIsNotNone(bar, "the section bar is hidden on the phone")
+            self.assertEqual(["Workspace", "Scan", "Research", "Connected"], bar["groups"],
+                             "the four groups are not all visible on the phone")
+            for t in ("Trade", "Analyze", "Watchlist", "Manage"):
+                self.assertIn(t, bar["tools"], f"{t} is not a visible tap target on the phone")
+            self.assertLessEqual(bar["h"], 84, f"the bar is {bar['h']}px tall on a phone — two short lines, not more")
+            # The tool is the first thing. Measured 158px behind the jump
+            # control and the folded band; the floor is a regression line.
+            self.assertIsNotNone(geo["firstTool"], "no tool on the Trade screen")
+            ahead = geo["firstTool"] - geo["errBannerH"]
+            self.assertLessEqual(ahead, 200,
+                                 f"the first tool begins {ahead}px down the workspace (net of the "
+                                 f"harness's {geo['errBannerH']}px offline banner) — the market band "
+                                 "is standing in front of it again")
+            self.assertIsNotNone(geo["phoneBand"], "the market band fold is gone from Trade")
+            self.assertLessEqual(geo["phoneBand"]["h"], 80,
+                                 f"the folded band is {geo['phoneBand']['h']}px — it is not folded")
+            self.assertEqual(10, geo["tiles"], "the ten charts are still there")
+        finally:
+            self._close(handles)
+
+    def test_focus_on_the_phone_shrinks_the_charts_without_clipping_them(self):
+        """The desktop's Focus switch, reached from the phone header. The ten
+        tiles become four columns of numbers; every label still fits."""
+        geo, errors, handles = self._measure(
+            440, 956, init="try{localStorage.setItem('jerry_focus_frame_v1','1')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertTrue(geo["focus"], "the remembered switch did not take on the phone")
+            self.assertEqual(10, geo["tiles"], "focus dropped charts on the phone")
+            self.assertLessEqual(geo["charts"]["h"], 150,
+                                 f"the instruments are {geo['charts']['h']}px tall in focus on a phone")
+            self.assertEqual(0, geo["labelClip"], f"{geo['labelClip']} tile labels are clipped in focus")
+            # Measured 476 in the render harness (518 in the sandbox); the
+            # floor is a regression line, not a target.
+            self.assertGreaterEqual(geo["main"]["h"], 440,
+                                    f"the workspace is {geo['main']['h']}px in focus on a phone")
         finally:
             self._close(handles)
 
