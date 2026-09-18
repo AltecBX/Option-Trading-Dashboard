@@ -60,7 +60,7 @@ ok("the Analyze companion sits above the weekly charts", lineAt > 0 && weeklyAt 
 ok("the Analyze companion is fed the ticker", /component="StretchLineCard"[\s\S]{0,200}ticker=\{ticker\}/.test(appSrc));
 ok("a push link opens Analyze on the name outside the embed",
    /if \(window\.__JT_EMBED\) return;[\s\S]{0,400}q\.get\("symbol"\)[\s\S]{0,300}changeTab\(tab\)/.test(appSrc));
-ok("the version moved", /APP_VERSION = "5\.16"/.test(appSrc));
+ok("the version moved (5.16 or later)", /APP_VERSION = "5\.(1[6-9]|[2-9]\d)"/.test(appSrc));
 
 // ── 2. columns, tooltips, the risk column, mobile ────────────────────────
 const cols = [];

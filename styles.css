@@ -14070,10 +14070,54 @@ body { overflow: hidden; overscroll-behavior: none; }
     position: static; margin: 0; z-index: auto;
     backdrop-filter: none; background: var(--bg-2);
   }
-  /* Four rows of grouped navigation do not fit above a phone's workspace.
-     Every destination stays one tap away through the bottom bar's tool
-     picker, which is searchable and carries the same four groups. */
-  .tab-bar { display: none; }
+  /* v5.17: the SAME grouped navigation as the desktop, compact. Jerry, from
+     his phone: "I can't do anything on my mobile phone. Please optimize it
+     so I use it like I use it on my desktop." The bar was display:none here
+     and every destination sat behind the bottom bar's Tabs picker — one
+     tap away, and invisible. Two short lines now: the four groups, then
+     the open group's tools, swipeable. The picker stays for search. */
+  /* (the bar's own rules sit after `.tab-bar-grouped` further down, where
+     they win by source order) */
+
+  /* The market band and the highs/lows on Trade fold into one line, so the
+     first thing on the home screen is the tool. Everything in the fold is
+     still mounted and live; it opens in place. */
+  .card.phone-band { padding: 0 !important; margin: 0 0 8px; }
+  .phone-band > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    min-height: 40px; padding: 6px 12px; font-size: 13px; color: var(--fg-2);
+    white-space: nowrap; overflow: hidden;
+  }
+  .phone-band > summary .pb-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .phone-band > summary::-webkit-details-marker { display: none; }
+  .phone-band > summary .pb-kicker {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 800;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3);
+  }
+  .phone-band > summary .pb-arrow { margin-left: auto; color: var(--fg-3); transition: transform .15s; }
+  .phone-band[open] > summary .pb-arrow { transform: rotate(90deg); }
+  .phone-band > .card, .phone-band .posture-card, .phone-band .opp-ribbon { margin-left: 8px; margin-right: 8px; }
+  .phone-band[open] { padding-bottom: 8px; }
+
+  /* Focus on the phone: the ten tiles become two columns of numbers — the
+     same switch the desktop has, reached from the header. */
+  body.focus-frame .mko-grid, body.focus-frame .mko-grid-skel { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  body.focus-frame .mko-tile { padding: 3px 5px 2px; min-height: 0; }
+  body.focus-frame .mko-head { flex-direction: column; align-items: flex-start; gap: 0; }
+  body.focus-frame .mko-dot { display: none; }
+  body.focus-frame .mko-label { letter-spacing: -0.02em; max-width: 100%; }
+  /* five controls in the header now; the buttons give up 4px each so the
+     quote keeps its whole width */
+  .mh-btn { width: 38px; height: 40px; font-size: 18px; }
+  .mh-ident { min-width: 0; }
+  .mh-quote { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* Ask AI is a tab on the bar now, so the header's copy of it goes — the
+     room it took is what the quote and the Focus switch needed. */
+  .mobile-header .mh-ask { display: none; }
+  body.focus-frame .mko-spark, body.focus-frame .mko-pts, body.focus-frame .mko-proxy { display: none; }
+  body.focus-frame .mko-price { font-size: 12px; }
+  body.focus-frame .mko-label, body.focus-frame .mko-chg { font-size: 10px; }
+  .mh-focus.on { color: var(--accent); border-color: var(--accent); }
 
   /* TWO COLUMNS, FIVE ROWS — not a carousel. This overrides the older
      760px flex/scroll-snap rule by source order. */
@@ -14129,6 +14173,25 @@ body { overflow: hidden; overscroll-behavior: none; }
 
   /* The drawer sidebar keeps its own scroll inside the frame body. */
   .sidebar { margin-bottom: 0; }
+}
+
+/* Tiny phones (Codex on #404, both correct): at 320-360px the fifth header
+   control left the quote painting under the buttons, and four focus columns
+   left ~60px a tile — less than "NASDAQ Fut." The weather pill keeps its
+   icon and drops its number; the buttons give up four more pixels; focus
+   goes to three columns so every label stays whole. This block sits AFTER
+   the phone block above — the first cut opened it inside that block and
+   handed half the phone rules to 360px-and-under phones only. */
+@media (max-width: 360px) {
+  .mh-btn { width: 34px; height: 38px; font-size: 17px; }
+  .mobile-header .wx-inline .wx-temp { display: none; }
+  .mobile-header .wx-inline { padding-left: 6px; padding-right: 6px; }
+  /* five across, and a label that needs two lines gets two lines rather
+     than an ellipsis — at 320px nothing else keeps ten whole labels in
+     two rows */
+  body.focus-frame .mko-grid, body.focus-frame .mko-grid-skel { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+  body.focus-frame .mko-tile { padding: 2px 4px; }
+  body.focus-frame .mko-label { display: block; white-space: normal; line-height: 1.1; overflow: visible; text-overflow: clip; }
 }
 
 /* Landscape phones are short, not narrow: give the workspace the height. */
@@ -14327,11 +14390,24 @@ body { overflow: hidden; overscroll-behavior: none; }
    their natural height and the box scrolls. */
 .main > * { flex-shrink: 0; }
 
-/* Phone: hide the desktop section bar. This must come after
-   `.tab-bar-grouped { display:flex }` — equal specificity, later wins, and
-   that is exactly how it lost the first time. */
+/* Phone (v5.17): the desktop section bar, compact and visible. It was
+   display:none here from v4.92 to v5.16 with the picker in its place, and
+   Jerry could not find his way around the phone. This must come after
+   `.tab-bar-grouped { display:flex }` — equal specificity, later wins. */
 @media (max-width: 900px) {
-  .tab-bar, .tab-bar-grouped { display: none !important; }
+  .tab-bar, .tab-bar-grouped {
+    display: block !important; margin: 0 0 6px; padding: 4px 2px 2px;
+    -webkit-mask-image: none; mask-image: none; overflow: visible;
+  }
+  .tab-row-one { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .tab-groups {
+    border-right: 0; padding-right: 0; align-self: auto; gap: 2px;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .tab-groups::-webkit-scrollbar { display: none; }
+  .tab-grp { min-height: 28px; padding: 4px 9px; font-size: 11px; }
+  .tab-bar-grouped .tab-btn { font-size: 13px; padding: 5px 11px !important; min-height: 32px; }
+  .tab-earn { display: none; }
 }
 
 /* The tape when the feed has nothing to say yet, or is not answering. */

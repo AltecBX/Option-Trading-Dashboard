@@ -50,8 +50,8 @@ decided in the component:
 | | Desktop | Phone / short viewport |
 |---|---|---|
 | Four high/low lists | fixed side rails (≥2080 px) | one tabbed card in the workspace |
-| Market band (posture, regime, catalysts, opportunity ribbon) | in the frame, as the reference shows | first thing in the Trade workspace |
-| Four navigation rows | in the frame | hidden; the grouped, searchable tool picker replaces them |
+| Market band (posture, regime, catalysts, opportunity ribbon) | in the frame, as the reference shows | in the Trade workspace, folded into one line with the four high/low lists so the tool is first (v5.17) |
+| The grouped navigation bar | in the frame | in the frame too, compact — the four groups on one line, the open group's tools on the next (v5.17; it was hidden behind the Tabs picker from v4.92, and the picker stays for search) |
 
 Only the *selected* high/low list mounts on a phone, so the card polls **less**
 than the four hidden rails it replaces.
@@ -61,7 +61,7 @@ than the four hidden rails it replaces.
 ### The ten market charts
 - [x] All ten present: S&P, NASDAQ, Dow, US Dollar, VIX, Bitcoin, Gold, 10Y, Hi-Yield, Crude
 - [x] Real data, labels, prices, changes, sparklines, source dots, symbol links
-- [x] 5×2 on wide desktop · 2×5 in portrait · 5×2 in landscape and on short screens
+- [x] 5×2 on wide desktop · 2×5 in portrait · 5×2 in landscape and on short screens · on a phone, Focus (label, price, change; no sparkline; four columns) is the default and the ⊟ header button brings the full tiles back (v5.17)
 - [x] Never a carousel, never text-only badges, never collapsible
 - [x] A strip that fails to load keeps its ten tiles and says *Not answering* rather than vanishing
 

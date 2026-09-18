@@ -147,9 +147,21 @@ ok("the bar is grouped rows and the selected state is unmistakable",
    /tab-bar-grouped/.test(cards) && /\.tab-bar-grouped \.tab-btn\.active \{/.test(css));
 ok("drag-to-reorder survives, within a group",
    /groupOf\(dragId\) === groupOf\(t\.id\)/.test(cards));
-ok("the phone hides the desktop bar but keeps a searchable picker",
-   /\.tab-bar, \.tab-bar-grouped \{ display: none !important; \}/.test(css)
+// v5.17. Jerry, from his phone: "I can't do anything on my mobile phone.
+// Please optimize it so I use it like I use it on my desktop." The bar was
+// display:none on phones with the picker in its place — one tap away and
+// invisible. The phone now shows the same grouped bar, compact, and keeps
+// the picker for search.
+ok("the phone shows the desktop bar, compact, and keeps the searchable picker",
+   /@media \(max-width: 900px\) \{\s*\.tab-bar, \.tab-bar-grouped \{\s*display: block !important;/.test(css)
+   && !/\.tab-bar, \.tab-bar-grouped \{ display: none !important; \}\s*\}\s*\n\s*\/\* The tape/.test(css)
    && /tabsheet-find/.test(app) && /toolFind/.test(app));
+ok("on the phone the market band folds so the tool is first, and stays mounted",
+   /<details className="card phone-band">/.test(app) && /\{marketBand\}[\s\S]{0,200}<HighLowCard/.test(app)
+   && /\.phone-band > summary \{/.test(css));
+ok("the phone header carries the desktop's Focus switch",
+   /className=\{`mh-btn mh-focus\$\{focusFrame \? " on" : ""\}`\}/.test(app)
+   && /body\.focus-frame \.mko-head \{ flex-direction: column/.test(css));
 ok("the picker is grouped the same way, so nothing is hidden behind a menu",
    /TAB_GROUPS\.map\(g => \{/.test(app));
 
@@ -531,7 +543,7 @@ ok("and it is built from the same numbers the stylesheet branch uses",
 ok("mount points ask the frame, not the width",
    /const phoneFrame = useIsPhoneFrame\(\);/.test(app)
    && /\{!phoneFrame && \(\s*\n\s*<React\.Fragment>\s*\n\s*<ExtremeRail/.test(app)
-   && /\{phoneFrame && \(\s*\n\s*<CardErrorBoundary label="Highs and lows">/.test(app));
+   && /\(phoneFrame \? \(\s*\n[\s\S]{0,500}<details className="card phone-band">[\s\S]{0,600}<CardErrorBoundary label="Highs and lows">/.test(app));
 // The weather pill is the deliberate exception, and it has to stay one: the
 // mobile header is shown by a width-keyed rule, so in landscape it is off
 // screen and the app bar is the only bar there is. Moving this to the frame's
@@ -631,8 +643,10 @@ ok("and an empty board's status is a disclosure, not a wall of paragraphs",
 // folds the frame rather than removing anything, and the phone frame is
 // untouched because every rule sits under the desktop breakpoint.
 const shellSrc = read("app.jsx");
-ok("focus is a body class with a remembered switch",
-   /localStorage\.getItem\("jerry_focus_frame_v1"\) === "1"/.test(shellSrc)
+// v5.17: the remembered switch wins; with nothing remembered, a phone
+// starts in focus and a desktop does not.
+ok("focus is a body class with a remembered switch, and a phone default",
+   /const saved = localStorage\.getItem\("jerry_focus_frame_v1"\);\s*\n\s*if \(saved === "1" \|\| saved === "0"\) return saved === "1";\s*\n\s*return !!\(window\.matchMedia && window\.matchMedia\(PHONE_Q\)\.matches\);/.test(shellSrc)
    && /classList\.toggle\("focus-frame", focusFrame\)/.test(shellSrc));
 // Bare F only: Ctrl+F and Cmd+F are the browser's Find, and a shortcut that
 // also flipped the layout would be a surprise on every search.

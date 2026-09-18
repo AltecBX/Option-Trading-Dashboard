@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.16";
+const APP_VERSION = "5.17";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -557,9 +557,15 @@ function App() {
   // posture card. All of it is worth a glance; none of it is worth half the
   // window all day. Remembered per browser; F toggles it.
   const focusWide = useMediaQuery(FOCUS_FRAME_Q);
+  // v5.17: on a phone, Focus is the DEFAULT — ten charts at 272px on a
+  // 956px screen left 381px for the tool; as numbers they take 135px and
+  // the tool gets 518. The ⊟ button in the phone header brings the charts
+  // back, and the choice is remembered. The desktop default is unchanged.
   const [focusFrame, setFocusFrame] = useState(() => {
     try {
-      return localStorage.getItem("jerry_focus_frame_v1") === "1";
+      const saved = localStorage.getItem("jerry_focus_frame_v1");
+      if (saved === "1" || saved === "0") return saved === "1";
+      return !!(window.matchMedia && window.matchMedia(PHONE_Q).matches);
     } catch {
       return false;
     }
@@ -4116,6 +4122,12 @@ function App() {
   }, loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel), isPhone && /*#__PURE__*/React.createElement(WeatherBadge, {
     variant: "bar"
   }), /*#__PURE__*/React.createElement("button", {
+    className: `mh-btn mh-focus${focusFrame ? " on" : ""}`,
+    onClick: () => setFocusFrame(v => !v),
+    "aria-pressed": focusFrame ? "true" : "false",
+    "aria-label": "Focus: shrink the ten charts",
+    title: focusFrame ? "Focus is on: the ten charts are numbers only. Tap to bring the charts back." : "Focus: shrink the ten charts to numbers so the tool gets the screen. Tap again to bring them back."
+  }, focusFrame ? "⊞" : "⊟"), /*#__PURE__*/React.createElement("button", {
     className: "mh-btn mh-ask",
     "aria-label": "Ask AI",
     title: "Ask AI \u2014 describe a scan, backtest, or alert in plain English.",
@@ -4682,12 +4694,29 @@ function App() {
     tab: "scanners",
     active: activeTab === "scanners",
     label: "Scanner tools"
-  })), bandInWorkspace && activeTab === "trade" && /*#__PURE__*/React.createElement(React.Fragment, null, marketBand, phoneFrame && /*#__PURE__*/React.createElement(CardErrorBoundary, {
+  })), bandInWorkspace && activeTab === "trade" && (phoneFrame ?
+  /*#__PURE__*/
+  /* v5.17: on the phone frame these fold into one line so the first
+     thing on the home screen is the tool — At the line began about
+     700px down a 457px workspace with the band and the four lists
+     ahead of it. Everything inside stays mounted and live. */
+  React.createElement("details", {
+    className: "card phone-band"
+  }, /*#__PURE__*/React.createElement("summary", {
+    title: "Market posture, gamma and rotation, the opportunity ribbon and the four high/low lists. Tap to open them here."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "pb-kicker"
+  }, "Market"), /*#__PURE__*/React.createElement("span", {
+    className: "pb-text"
+  }, "posture \xB7 gamma \xB7 opportunities \xB7 highs & lows"), /*#__PURE__*/React.createElement("span", {
+    className: "pb-arrow",
+    "aria-hidden": "true"
+  }, "\u203A")), marketBand, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Highs and lows"
   }, /*#__PURE__*/React.createElement(HighLowCard, {
     apiFetch: apiFetch,
     onSwitchTicker: switchTicker
-  }))), dataPending ? /*#__PURE__*/React.createElement("div", {
+  }))) : /*#__PURE__*/React.createElement(React.Fragment, null, marketBand)), dataPending ? /*#__PURE__*/React.createElement("div", {
     className: `card sym-pending${loadError ? " sym-pending-failed" : ""}`,
     "aria-busy": loadError ? undefined : "true",
     title: loadError ? `The fetch for ${ticker} failed, so there is nothing to draw. The panels below need this symbol's own history, quote and chain.` : `Waiting for ${ticker}. Nothing is drawn from another symbol's numbers while this loads.`

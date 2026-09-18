@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.16";
+const APP_VERSION = "5.17";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -414,8 +414,16 @@ function App() {
   // posture card. All of it is worth a glance; none of it is worth half the
   // window all day. Remembered per browser; F toggles it.
   const focusWide = useMediaQuery(FOCUS_FRAME_Q);
+  // v5.17: on a phone, Focus is the DEFAULT — ten charts at 272px on a
+  // 956px screen left 381px for the tool; as numbers they take 135px and
+  // the tool gets 518. The ⊟ button in the phone header brings the charts
+  // back, and the choice is remembered. The desktop default is unchanged.
   const [focusFrame, setFocusFrame] = useState(() => {
-    try { return localStorage.getItem("jerry_focus_frame_v1") === "1"; } catch { return false; }
+    try {
+      const saved = localStorage.getItem("jerry_focus_frame_v1");
+      if (saved === "1" || saved === "0") return saved === "1";
+      return !!(window.matchMedia && window.matchMedia(PHONE_Q).matches);
+    } catch { return false; }
   });
   useEffect(() => {
     document.body.classList.toggle("focus-frame", focusFrame);
@@ -3252,6 +3260,18 @@ function App() {
         </button>
         <span className="mh-section">{loading ? "Loading…" : _isStale ? `${_staleMin}m old` : _sectionLabel}</span>
         {isPhone && <WeatherBadge variant="bar" />}
+        {/* v5.17: the desktop's Focus switch, on the phone too — the ten
+            tiles become two columns of numbers and the tool gets the screen.
+            There is no F key on a phone, so it is a button. */}
+        <button className={`mh-btn mh-focus${focusFrame ? " on" : ""}`}
+                onClick={() => setFocusFrame(v => !v)}
+                aria-pressed={focusFrame ? "true" : "false"}
+                aria-label="Focus: shrink the ten charts"
+                title={focusFrame
+                  ? "Focus is on: the ten charts are numbers only. Tap to bring the charts back."
+                  : "Focus: shrink the ten charts to numbers so the tool gets the screen. Tap again to bring them back."}>
+          {focusFrame ? "⊞" : "⊟"}
+        </button>
         <button className="mh-btn mh-ask" aria-label="Ask AI"
                 title="Ask AI — describe a scan, backtest, or alert in plain English."
                 onClick={() => changeTab("ask")}>✦</button>
@@ -3774,16 +3794,27 @@ function App() {
             move the "the first screen never reaches the actual tool" problem
             from the frame into the workspace, which is the thing this whole
             change is undoing. Trade is the home screen; one tap gets here. */}
-        {bandInWorkspace && activeTab === "trade" && (
+        {bandInWorkspace && activeTab === "trade" && (phoneFrame ? (
+          /* v5.17: on the phone frame these fold into one line so the first
+             thing on the home screen is the tool — At the line began about
+             700px down a 457px workspace with the band and the four lists
+             ahead of it. Everything inside stays mounted and live. */
+          <details className="card phone-band">
+            <summary title="Market posture, gamma and rotation, the opportunity ribbon and the four high/low lists. Tap to open them here.">
+              <span className="pb-kicker">Market</span>
+              <span className="pb-text">posture · gamma · opportunities · highs &amp; lows</span>
+              <span className="pb-arrow" aria-hidden="true">›</span>
+            </summary>
+            {marketBand}
+            <CardErrorBoundary label="Highs and lows">
+              <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
+            </CardErrorBoundary>
+          </details>
+        ) : (
           <React.Fragment>
             {marketBand}
-            {phoneFrame && (
-              <CardErrorBoundary label="Highs and lows">
-                <HighLowCard apiFetch={apiFetch} onSwitchTicker={switchTicker} />
-              </CardErrorBoundary>
-            )}
           </React.Fragment>
-        )}
+        ))}
         {/* Nothing below is drawn until the payload belongs to the SELECTED
             symbol. Every panel here reads `rows`, `chain` and `current`, and
             JSX children are evaluated eagerly — so a panel that is merely
