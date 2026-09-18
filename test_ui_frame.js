@@ -643,8 +643,10 @@ ok("and an empty board's status is a disclosure, not a wall of paragraphs",
 // folds the frame rather than removing anything, and the phone frame is
 // untouched because every rule sits under the desktop breakpoint.
 const shellSrc = read("app.jsx");
-ok("focus is a body class with a remembered switch",
-   /localStorage\.getItem\("jerry_focus_frame_v1"\) === "1"/.test(shellSrc)
+// v5.17: the remembered switch wins; with nothing remembered, a phone
+// starts in focus and a desktop does not.
+ok("focus is a body class with a remembered switch, and a phone default",
+   /const saved = localStorage\.getItem\("jerry_focus_frame_v1"\);\s*\n\s*if \(saved === "1" \|\| saved === "0"\) return saved === "1";\s*\n\s*return !!\(window\.matchMedia && window\.matchMedia\(PHONE_Q\)\.matches\);/.test(shellSrc)
    && /classList\.toggle\("focus-frame", focusFrame\)/.test(shellSrc));
 // Bare F only: Ctrl+F and Cmd+F are the browser's Find, and a shortcut that
 // also flipped the layout would be a surprise on every search.
