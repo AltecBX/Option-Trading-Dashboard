@@ -14110,6 +14110,10 @@ body { overflow: hidden; overscroll-behavior: none; }
      quote keeps its whole width */
   .mh-btn { width: 38px; height: 40px; font-size: 18px; }
   .mh-ident { min-width: 0; }
+  .mh-quote { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* Ask AI is a tab on the bar now, so the header's copy of it goes — the
+     room it took is what the quote and the Focus switch needed. */
+  .mobile-header .mh-ask { display: none; }
   body.focus-frame .mko-spark, body.focus-frame .mko-pts, body.focus-frame .mko-proxy { display: none; }
   body.focus-frame .mko-price { font-size: 12px; }
   body.focus-frame .mko-label, body.focus-frame .mko-chg { font-size: 10px; }
@@ -14169,6 +14173,25 @@ body { overflow: hidden; overscroll-behavior: none; }
 
   /* The drawer sidebar keeps its own scroll inside the frame body. */
   .sidebar { margin-bottom: 0; }
+}
+
+/* Tiny phones (Codex on #404, both correct): at 320-360px the fifth header
+   control left the quote painting under the buttons, and four focus columns
+   left ~60px a tile — less than "NASDAQ Fut." The weather pill keeps its
+   icon and drops its number; the buttons give up four more pixels; focus
+   goes to three columns so every label stays whole. This block sits AFTER
+   the phone block above — the first cut opened it inside that block and
+   handed half the phone rules to 360px-and-under phones only. */
+@media (max-width: 360px) {
+  .mh-btn { width: 34px; height: 38px; font-size: 17px; }
+  .mobile-header .wx-inline .wx-temp { display: none; }
+  .mobile-header .wx-inline { padding-left: 6px; padding-right: 6px; }
+  /* five across, and a label that needs two lines gets two lines rather
+     than an ellipsis — at 320px nothing else keeps ten whole labels in
+     two rows */
+  body.focus-frame .mko-grid, body.focus-frame .mko-grid-skel { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+  body.focus-frame .mko-tile { padding: 2px 4px; }
+  body.focus-frame .mko-label { display: block; white-space: normal; line-height: 1.1; overflow: visible; text-overflow: clip; }
 }
 
 /* Landscape phones are short, not narrow: give the workspace the height. */

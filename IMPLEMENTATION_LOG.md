@@ -3993,14 +3993,35 @@ Three changes, all presentation:
   opportunities · highs & lows ›" — and opens in place with everything
   still mounted and live. The first tool now begins **~130px** into the
   workspace instead of ~700.
-- **Focus on the phone.** The desktop's switch, as a header button: the
-  ten tiles become four columns of numbers (frame 345px → 208px, workspace
-  381px → 518px), every label whole. Off by default; remembered.
+- **Focus on the phone, and on by default there.** The desktop's switch,
+  as a header button (⊟): the ten tiles become four columns of numbers
+  (frame 345px → 208px, workspace 381px → 518px), every label whole. The
+  first cut left it off by default and CI said no: the 72px bar had taken
+  the height the phone Watchlist needed to show its first stock (24px of
+  it left, on CI's taller fonts, against a 64px floor). Ten charts at
+  272px on a 956px screen are the thing charging the tool; as numbers
+  they are 135px. So on a phone the numbers are the default and one tap
+  brings the charts back, remembered either way. The desktop default is
+  unchanged. The header's Ask AI button goes — Ask AI is on the bar now —
+  which is the room the Focus button and the quote needed.
+
+**Codex, first round on #404** (P2 ×2, both correct, both at the smallest
+supported width): at 320px the fifth header control pushed the quote
+under the buttons, and four focus columns clipped six of ten labels. Below
+360px the weather pill keeps its icon and drops its number, the buttons
+give up four pixels, and focus labels wrap to two lines instead of
+clipping. The first cut of that fix opened a new media block inside the
+phone block, which handed half the phone rules to 360px-and-under phones
+only — the 440px phone got the old carousel back. Measured before it
+shipped; the block now sits after the phone block, and the guards run at
+320 as well as 440.
 
 Guards: two render tests (the bar is visible with its groups and tools,
-the first tool is on the first screen, the fold is folded; focus shrinks
-the charts without clipping a label), three source guards; the landscape
-and ten-pixel-floor tests still hold.
+the first tool is on the first screen net of the harness's offline banner,
+the fold is folded, focus is on by default on a phone and a remembered
+"off" brings the charts back; focus never clips a label at 440 or 320 and
+the header quote never overflows), three source guards; the landscape,
+Watchlist and ten-pixel-floor tests still hold.
 
 ## v5.16 — At the line: the watching is done for you, both sides, whole watchlist
 

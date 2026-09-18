@@ -711,6 +711,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     h: Math.round(c.getBoundingClientRect().height)})) : null; })(),
                 labelClip: [...document.querySelectorAll('.mko-label')]
                   .filter(e => e.scrollWidth > e.clientWidth + 1).length,
+                // The phone header's quote must not paint under the buttons
+                // beside it: how many pixels of it do not fit.
+                identClip: (() => { const e = document.querySelector('.mh-ident');
+                  return e ? Math.max(0, e.scrollWidth - e.clientWidth) : null; })(),
               };
             }""")
         return geo, errors, (pw, browser)
@@ -1168,6 +1172,13 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertLessEqual(geo["phoneBand"]["h"], 80,
                                  f"the folded band is {geo['phoneBand']['h']}px — it is not folded")
             self.assertEqual(10, geo["tiles"], "the ten charts are still there")
+            self.assertEqual(0, geo["identClip"], f"the header quote overflows by {geo['identClip']}px")
+            # Focus is the phone's default: the charts as numbers, one tap
+            # from the header to bring them back. The desktop default is
+            # measured off in test_focus_gives_the_tool_the_frames_height.
+            self.assertTrue(geo["focus"], "focus is off by default on a phone")
+            self.assertLessEqual(geo["charts"]["h"], 150,
+                                 f"the charts are {geo['charts']['h']}px on a phone by default")
         finally:
             self._close(handles)
 
@@ -1179,6 +1190,22 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         try:
             self.assertFalse(errors, f"page errors: {errors[:3]}")
             self.assertTrue(geo["focus"], "the remembered switch did not take on the phone")
+        finally:
+            self._close(handles)
+        # And the switch works the other way: a remembered "off" brings the
+        # full charts back on the phone.
+        geo, errors, handles = self._measure(
+            440, 956, init="try{localStorage.setItem('jerry_focus_frame_v1','0')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertFalse(geo["focus"], "a remembered 'off' did not take on the phone")
+            self.assertGreaterEqual(geo["charts"]["h"], 200, "the full charts did not come back")
+        finally:
+            self._close(handles)
+        geo, errors, handles = self._measure(
+            440, 956, init="try{localStorage.setItem('jerry_focus_frame_v1','1')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
             self.assertEqual(10, geo["tiles"], "focus dropped charts on the phone")
             self.assertLessEqual(geo["charts"]["h"], 150,
                                  f"the instruments are {geo['charts']['h']}px tall in focus on a phone")
@@ -1187,6 +1214,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             # floor is a regression line, not a target.
             self.assertGreaterEqual(geo["main"]["h"], 440,
                                     f"the workspace is {geo['main']['h']}px in focus on a phone")
+        finally:
+            self._close(handles)
+        # Codex on #404 (P2, both correct): the smallest supported phone. At
+        # 320 wide, four focus columns clipped six of the ten labels and the
+        # fifth header control pushed the quote under the buttons. Three
+        # columns and an icon-only weather pill there.
+        geo, errors, handles = self._measure(
+            320, 568, init="try{localStorage.setItem('jerry_focus_frame_v1','1')}catch(e){}")
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual(10, geo["tiles"])
+            self.assertEqual(0, geo["labelClip"], f"{geo['labelClip']} tile labels are clipped in focus at 320px")
+            self.assertEqual(0, geo["identClip"], f"the header quote overflows by {geo['identClip']}px at 320px")
+            self.assertIsNotNone(geo["tabBarPhone"], "the section bar is hidden at 320px")
         finally:
             self._close(handles)
 

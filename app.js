@@ -557,9 +557,15 @@ function App() {
   // posture card. All of it is worth a glance; none of it is worth half the
   // window all day. Remembered per browser; F toggles it.
   const focusWide = useMediaQuery(FOCUS_FRAME_Q);
+  // v5.17: on a phone, Focus is the DEFAULT — ten charts at 272px on a
+  // 956px screen left 381px for the tool; as numbers they take 135px and
+  // the tool gets 518. The ⊟ button in the phone header brings the charts
+  // back, and the choice is remembered. The desktop default is unchanged.
   const [focusFrame, setFocusFrame] = useState(() => {
     try {
-      return localStorage.getItem("jerry_focus_frame_v1") === "1";
+      const saved = localStorage.getItem("jerry_focus_frame_v1");
+      if (saved === "1" || saved === "0") return saved === "1";
+      return !!(window.matchMedia && window.matchMedia(PHONE_Q).matches);
     } catch {
       return false;
     }
