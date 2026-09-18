@@ -325,7 +325,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             cls.tmp.cleanup()
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
-                 timezone=None):
+                 timezone=None, safe_area=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -425,6 +425,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 + ")}catch(e){}")
         if init:
             page.add_init_script(init)
+        # v5.18: an iPhone in home-screen mode reports its notch and home
+        # indicator as safe-area insets, and the stylesheet lays the page out
+        # around them with env(). Chromium can emulate exactly those numbers,
+        # so a phone test can measure the geometry Jerry's screenshots show
+        # instead of guessing at it.
+        if safe_area:
+            if len(safe_area) == 2:       # upright: (top, bottom)
+                top, bottom = safe_area
+                left = right = 0
+            else:                          # on its side: (top, right, bottom, left)
+                top, right, bottom, left = safe_area
+            cdp = ctx.new_cdp_session(page)
+            cdp.send("Emulation.setSafeAreaInsetsOverride",
+                     {"insets": {"top": top, "left": left, "bottom": bottom, "right": right}})
         page.goto(f"{self.base}/", wait_until="domcontentloaded")
         page.wait_for_selector(".shell", timeout=30000)
         page.wait_for_timeout(6000)
@@ -695,6 +709,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return (m && c) ? Math.round(c.getBoundingClientRect().top
                                                - m.getBoundingClientRect().top) : null; })(),
                 phoneBand: box('.phone-band'),
+                // v5.18: the phone's action bar and header, the body's own
+                // padding, and the top inset the page actually resolved.
+                bottombar: box('.mobile-bottombar'),
+                mobileHeader: box('.mobile-header'),
+                bodyPad: [getComputedStyle(document.body).paddingTop,
+                          getComputedStyle(document.body).paddingBottom],
+                insetTop: (() => { const d = document.createElement('div');
+                  d.style.cssText = 'position:fixed;top:0;width:1px;height:env(safe-area-inset-top,0px);pointer-events:none;';
+                  document.body.appendChild(d); const h = Math.round(d.getBoundingClientRect().height);
+                  d.remove(); return h; })(),
                 // The harness runs with the network off, so a throttle
                 // banner sits in the workspace that production does not
                 // show; it is measured so the tool's position can be read
@@ -1228,6 +1252,66 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertEqual(0, geo["labelClip"], f"{geo['labelClip']} tile labels are clipped in focus at 320px")
             self.assertEqual(0, geo["identClip"], f"the header quote overflows by {geo['identClip']}px at 320px")
             self.assertIsNotNone(geo["tabBarPhone"], "the section bar is hidden at 320px")
+        finally:
+            self._close(handles)
+
+    def test_the_phones_bottom_bar_is_not_under_the_home_indicator(self):
+        """v5.18. Jerry, from his iPhone, on v5.17: "But the bottom is still
+        cut off." The action bar's lower half was below the screen, and had
+        been in his v5.16 screenshot too. The body carried the safe-area
+        insets as padding (the ≤760px notch rule) while the shell was
+        100dvh tall — so on an iPhone in home-screen mode the shell began
+        59px down and ran 59px past the bottom edge, where body
+        overflow:hidden cut it. Measured with the insets an iPhone reports
+        (59 top, 34 bottom): shell bottom 1015 on a 956px screen, bar
+        933–981. The shell carries the insets itself now."""
+        geo, errors, handles = self._measure(440, 956, safe_area=(59, 34))
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual(59, geo["insetTop"], "the harness did not emulate the iPhone insets")
+            self.assertEqual(["0px", "0px"], geo["bodyPad"],
+                             f"the body is padded {geo['bodyPad']} — the insets are outside the shell again")
+            shell = geo["shell"]
+            self.assertLessEqual(shell["t"] + shell["h"], geo["vh"],
+                                 f"the shell ends {shell['t'] + shell['h'] - geo['vh']}px below the screen")
+            bar = geo["bottombar"]
+            self.assertIsNotNone(bar, "no action bar on the phone")
+            self.assertGreaterEqual(bar["h"], 40, f"the action bar is {bar['h']}px — not a tap target")
+            self.assertLessEqual(bar["t"] + bar["h"], geo["vh"] - 34,
+                                 f"the action bar ends at {bar['t'] + bar['h']}px on a {geo['vh']}px screen "
+                                 "whose bottom 34px is the home indicator")
+            hdr = geo["mobileHeader"]
+            self.assertIsNotNone(hdr, "no phone header")
+            self.assertGreaterEqual(hdr["t"], 59, f"the header begins at {hdr['t']}px — under the notch")
+        finally:
+            self._close(handles)
+
+    def test_a_phone_on_its_side_keeps_clear_of_the_notch_and_home_indicator(self):
+        """Codex on #405: the upright fix lives under max-width:900px, and a
+        phone on its side is 956px wide — its own branch, where a later
+        short-viewport rule also reset the footer's bottom inset. On its
+        side an iPhone reports the notch on one edge, its mirror on the
+        other (59px each) and a 21px home indicator below. Measured before:
+        the app bar began 24px in, under the notch, and the status line sat
+        inside the indicator's 21px."""
+        geo, errors, handles = self._measure(956, 440, safe_area=(0, 59, 21, 59))
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual(["0px", "0px"], geo["bodyPad"], f"the body is padded {geo['bodyPad']}")
+            shell = geo["shell"]
+            self.assertLessEqual(shell["t"] + shell["h"], geo["vh"], "the shell runs past the bottom")
+            appbar = geo["appbar"]
+            self.assertIsNotNone(appbar, "no app bar in landscape")
+            self.assertGreaterEqual(appbar["l"], 59, f"the app bar begins {appbar['l']}px in — under the notch")
+            main = geo["main"]
+            self.assertLessEqual(main["l"] + main["w"], geo["vw"] - 59,
+                                 f"the workspace ends at {main['l'] + main['w']}px on a {geo['vw']}px screen "
+                                 "whose last 59px is the notch's mirror")
+            status = geo["statusline"]
+            self.assertIsNotNone(status, "no status line in landscape")
+            self.assertLessEqual(status["t"] + status["h"], geo["vh"] - 21,
+                                 f"the status line ends at {status['t'] + status['h']}px on a {geo['vh']}px "
+                                 "screen whose bottom 21px is the home indicator")
         finally:
             self._close(handles)
 

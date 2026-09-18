@@ -3970,6 +3970,50 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.18 — the phone's action bar was under the home indicator
+
+Jerry, from his iPhone, on v5.17: "But the bottom is still cut off." The
+bar with TABS · SEARCH · the quote · TOP showed its top half and lost the
+rest below the screen edge — and looking back, his v5.16 screenshot had
+the same cut.
+
+Playwright at 440×956 had shown the bar whole every time, because a plain
+Chromium viewport has no notch. An iPhone in home-screen mode
+(`viewport-fit=cover`, translucent status bar) reports its notch and home
+indicator as safe-area insets — about 59px top and 34px bottom — and two
+rules read them at once. The ≤760px block (from the notch era, when the
+page scrolled) padded the **body** by the insets; the frame block sizes the
+**shell** to `100dvh`, the whole screen. So the shell began 59px down,
+ended 59px past the bottom, and `body { overflow: hidden }` cut it there.
+Chromium can emulate exactly those insets (`Emulation.setSafeAreaInsetsOverride`),
+and with them the bug reproduces to the pixel: shell bottom 1015 on a
+956px screen, bar 933–981.
+
+The fix is where the insets live. The body padding is gone; the shell's
+phone padding is `calc(8px + env(safe-area-inset-top))` and the bottom
+inset was already frame-bottom padding. Measured after, same insets: shell
+0–956, header at 73 (clear of the notch), bar 874–922 with the 34px
+indicator room below it. Without insets, and at 375×667 and 320×568,
+nothing moved.
+
+Codex, on the PR: the upright rule lives under `max-width: 900px`, and a
+phone on its side is 956px wide — its own branch — where the short-viewport
+block also reset the footer to `padding: 2px 12px 0`, dropping the bottom
+inset. Correct, apart from the action bar: it does not exist in landscape.
+Measured with the insets a phone on its side reports (59 each side, 21
+below): the app bar began 24px in, under the notch, and the status line sat
+inside the indicator's 21px. The landscape branch now carries the side
+insets on the shell and the bottom one on the footer, and the short-viewport
+footer rule keeps `env(safe-area-inset-bottom)`. After: app bar from 69px,
+status line ending 21px above the edge; an 844×390 phone (≤900px, short)
+keeps its bar 21px up too.
+
+Guards: a render test that emulates the iPhone insets and requires body
+padding 0, shell within the screen, the bar above the indicator and the
+header below the notch (red on v5.17: shell 59px past the edge); a second
+for the phone on its side (red before: app bar at 24px); two static guards
+on the two rules.
+
 ## v5.17 — the phone gets the desktop's navigation, and the tool comes first
 
 Jerry, from his phone, with a screenshot of ten tiles and the Ask AI panel:
