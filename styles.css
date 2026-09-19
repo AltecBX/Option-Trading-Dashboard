@@ -395,6 +395,14 @@ input, select, textarea {
   letter-spacing: 0.04em;
 }
 .preset-pill:hover { color: var(--fg); border-color: var(--line-2); }
+/* v5.20: what a watchlist chip has done this year, beside its symbol. It
+   is a second-rank number on a chip you read for its symbol, so it is
+   smaller and lighter; on the selected (filled) chip it borrows the
+   chip's own colour rather than fighting it. */
+.pp-ytd { font-size: 9.5px; font-weight: 700; letter-spacing: 0; opacity: 0.95; }
+.pp-ytd.up { color: var(--up); }
+.pp-ytd.down { color: var(--down); }
+.preset-pill.active .pp-ytd { color: inherit; opacity: 0.85; }
 .preset-pill.active { background: var(--accent); color: var(--accent-text); }
 /* Editable presets: pill becomes a container with a go-button + remove (×). */
 .preset-pill { display: inline-flex; align-items: center; gap: 3px; }

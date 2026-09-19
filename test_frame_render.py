@@ -327,12 +327,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             cls.tmp.cleanup()
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
-                 timezone=None, safe_area=None):
+                 timezone=None, safe_area=None, starred=None, ytd_bases=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
         self._tab = tab
         self._ticker_payload = ticker_payload
+        # v5.20: the sidebar's watchlist chips and what they read. Both are
+        # off unless a test asks, so no other test's geometry moves.
+        self._starred = starred
+        self._ytd_bases = ytd_bases
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -398,6 +402,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             if "/api/ticker" in url and self._ticker_payload is not None:
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps(self._ticker_payload))
+                return
+            if self._starred is not None and url.rstrip("/").endswith("/api/watchlist"):
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"version": 1, "tag_order": [],
+                                           "symbols": [{"symbol": sym, "starred": True, "tags": []}
+                                                       for sym in self._starred]}))
+                return
+            if "/api/ytd_base" in url:
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"results": self._ytd_bases or {}}))
                 return
             if "/api/quote" in url:
                 syms = []
@@ -711,6 +725,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return (m && c) ? Math.round(c.getBoundingClientRect().top
                                                - m.getBoundingClientRect().top) : null; })(),
                 phoneBand: box('.phone-band'),
+                // v5.20: the watchlist chips, each with whatever year-to-date
+                // reading it carries. NOT `chips` — that name was taken by
+                // the rotation ribbon's chip COUNT, and shadowing it turned
+                // a number into a list under a test that reads it as one.
+                wlChips: [...document.querySelectorAll('.sb-section .sb-preset-row .preset-pill')]
+                  .filter(c => c.closest('.sb-section').textContent.includes('Watchlist'))
+                  .map(c => { const y = c.querySelector('.pp-ytd'); const r = c.getBoundingClientRect();
+                    return {sym: (c.childNodes[0] || {}).textContent, ytd: y ? y.textContent.trim() : null,
+                            cls: y ? y.className : null, lines: Math.round(r.height),
+                            clip: c.scrollWidth - c.clientWidth}; }),
                 // v5.19: the P/E line and the YTD line under it. `clip` is
                 // how much of the text is past the box; a wrapped line
                 // shows as height instead.
@@ -1360,6 +1384,45 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 self.assertEqual(0, ytd["clip"], f"the YTD line is cut off at {w}px")
             finally:
                 self._close(handles)
+
+    def test_the_watchlist_chips_carry_their_year_to_date(self):
+        """v5.20. Jerry, after the ticker card's YTD line: "Now make the YTD
+        show on the watchlist chips too." Each chip reads the price against
+        last year's final close, the same anchor the card above it uses.
+
+        The arithmetic is checked, not just the presence of a number, and
+        each chip checks a different path. DOUBLE and HALF are not the
+        open symbol, so nothing polls a quote for them and they read their
+        latest close: 100 against 50 is +100%, 100 against 200 is -50%.
+        LIVE is the open symbol, so the harness's quote (123.45) reaches
+        it; its stored close is deliberately far away, so reading +0.0%
+        instead of +709.7% is what proves the live price wins. NOBASE
+        keeps its bare symbol rather than showing a placeholder."""
+        starred = ["LIVE", "DOUBLE", "HALF", "NOBASE"]
+        geo, errors, handles = self._measure(
+            1440, 900, starred=starred,
+            init="try{localStorage.setItem('weeklyOptionsTimer.settings.v1',"
+                 "JSON.stringify({ticker:'LIVE',weeks:32,baseline:'friday'}))}catch(e){}",
+            ytd_bases={"LIVE": {"base": 123.45, "last": 999.0},
+                       "DOUBLE": {"base": 50.0, "last": 100.0},
+                       "HALF": {"base": 200.0, "last": 100.0}})
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            chips = {c["sym"]: c for c in geo["wlChips"]}
+            self.assertEqual(set(starred), set(chips), f"the chips are {list(chips)}")
+            self.assertEqual("+100.0%", chips["DOUBLE"]["ytd"])
+            self.assertIn("up", chips["DOUBLE"]["cls"].split())
+            self.assertEqual("-50.0%", chips["HALF"]["ytd"])
+            self.assertIn("down", chips["HALF"]["cls"].split())
+            self.assertEqual("+0.0%", chips["LIVE"]["ytd"],
+                             "the open symbol's chip read its stored close, not the live quote")
+            self.assertIsNone(chips["NOBASE"]["ytd"],
+                              "a symbol with no base drew a number anyway")
+            for sym, c in chips.items():
+                self.assertLessEqual(c["lines"], 30, f"the {sym} chip is {c['lines']}px — it wrapped")
+                self.assertEqual(0, c["clip"], f"the {sym} chip is cut off by {c['clip']}px")
+        finally:
+            self._close(handles)
 
     def test_the_phone_jump_control_is_a_picker_not_a_strip(self):
         """Seventeen chips with clipped labels in a horizontally scrolling row

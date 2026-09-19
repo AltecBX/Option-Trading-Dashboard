@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.19";
+const APP_VERSION = "5.20";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -590,6 +590,11 @@ function App() {
   // Live quote state — populated by polling effects further down (after
   // dependent state is declared). Components use getLivePrice() to read.
   const [liveQuotes, setLiveQuotes] = useState({}); // {sym: {last, change_pct, source, ts}}
+  // v5.20: what each watchlist chip has done this year. The server hands
+  // back last year's final close per symbol (cached there a day at a time);
+  // the percentage is computed here against the LIVE price, so a chip moves
+  // with the market like the ticker card above it does.
+  const [ytdBases, setYtdBases] = useState({}); // {sym: {base, last}}
   // Coarse "now" for staleness display (minutes since last fetch). Ticks every
   // 30s instead of every second — the live wall clock that needs 1s updates is
   // its own <LiveClock> component, so the whole app no longer re-renders once a
@@ -1508,6 +1513,49 @@ function App() {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [ticker, starredSymbols.join(",")]);
+
+  // The chips' year-start closes. A base only changes when the year does,
+  // so this is not polling: it refetches when the chip list changes, and
+  // once an hour after that — enough to pick up the new year, and the
+  // latest close that a chip falls back on when quotes are not being
+  // polled (outside market hours).
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBases = async () => {
+      if (!starredSymbols.length) return;
+      const asked = starredSymbols.slice();
+      try {
+        const url = `/api/ytd_base?tickers=${encodeURIComponent(asked.join(","))}`;
+        const d = await sharedJson(apiFetch, url, 300000);
+        if (cancelled || !d || !d.results) return;
+        setYtdBases(prev => {
+          // A symbol the server left out has no base to give — its history
+          // does not reach last year, or the fetch failed. Merging would
+          // leave the OLD base in place, and on the first refresh of a new
+          // year that old base is last year's: the chip would keep
+          // reporting the whole of last year as this year's move (Codex,
+          // #407). What was asked for is replaced, not merged; symbols
+          // outside this ask (a chip unstarred a moment ago) are left be.
+          const next = { ...prev };
+          for (const sym of asked) delete next[sym];
+          return { ...next, ...d.results };
+        });
+      } catch (_) {}
+    };
+    fetchBases();
+    const timer = setInterval(skipWhenHidden(fetchBases), 3600000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [starredSymbols.join(",")]);
+
+  // What a chip shows: the live price against last year's final close, and
+  // the latest close when no quote has been polled for that symbol.
+  const ytdPctFor = (sym) => {
+    const row = ytdBases[sym];
+    if (!row || !row.base) return null;
+    const px = liveQuotes[sym]?.last ?? row.last;
+    if (px == null || !Number.isFinite(px)) return null;
+    return ((px - row.base) / row.base) * 100;
+  };
 
   // Slow poll: watchlist scanner symbols. Once per 60s. Same gates.
   useEffect(() => {
@@ -3658,18 +3706,34 @@ function App() {
                 No starred tickers. Click ☆ to star, or Manage to add.
               </div>
             )}
-            {starredSymbols.map(t => (
-              <button
-                key={`wl-${t}`}
-                className={`preset-pill ${ticker === t ? "active" : ""}`}
-                onClick={() => { setTicker(t); setTickerInput(t); }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  wlToggleStar(t);
-                }}
-                title="Click to switch · right-click to unstar"
-              >{t}</button>
-            ))}
+            {starredSymbols.map(t => {
+              /* v5.20, Jerry: "Now make the YTD show on the watchlist chips
+                 too." Same reading as the ticker card's line — the live
+                 price against last year's final close — beside the symbol
+                 rather than under it, so a chip stays one line and the row
+                 still wraps the way it did. A symbol whose base has not
+                 arrived (or whose history does not reach last year) shows
+                 the bare symbol, never a placeholder. */
+              const y = ytdPctFor(t);
+              return (
+                <button
+                  key={`wl-${t}`}
+                  className={`preset-pill ${ticker === t ? "active" : ""}`}
+                  onClick={() => { setTicker(t); setTickerInput(t); }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    wlToggleStar(t);
+                  }}
+                  title={y == null
+                    ? "Click to switch · right-click to unstar"
+                    : `${t} is ${y >= 0 ? "up" : "down"} ${Math.abs(y).toFixed(1)}% this year · click to switch · right-click to unstar`}
+                >{t}{y != null && (
+                  <span className={`pp-ytd ${y >= 0 ? "up" : "down"}`}>
+                    {y >= 0 ? "+" : ""}{y.toFixed(1)}%
+                  </span>
+                )}</button>
+              );
+            })}
           </div>
         </div>
 

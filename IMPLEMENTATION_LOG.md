@@ -3970,6 +3970,86 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.20 — one CI run per push, not two
+
+Jerry, on a pair of GitHub emails: "Why do I keep getting these emails".
+Two per failure, and their subjects said why — "Run failed: CI -
+claude/…" beside "PR run failed: CI - v5.20: …", the same commit. CI
+triggered on `push: ["**"]` AND on `pull_request`, so a push to a branch
+with a PR open ran the same tests twice in parallel, and GitHub mails the
+repo owner once per failed run. The two could not even cancel each other:
+the concurrency group keys on `github.ref`, which is `refs/heads/<branch>`
+for one and `refs/pull/<n>/merge` for the other.
+
+`push` is `main` only now. Branch work is proven by the `pull_request`
+run and `main` by its own push run, so nothing that ships is unproven.
+The trade, written into the workflow: a branch pushed with no PR open
+gets no CI until one is opened, with `workflow_dispatch` there to run it
+by hand.
+
+## v5.20 — the watchlist chips carry their year to date
+
+Jerry, straight after the ticker card's YTD line: "Now make the YTD show
+on the watchlist chips too."
+
+Same reading, same anchor: the live price against last year's final close.
+It sits beside the symbol rather than under it, so a chip is still one
+line and the row wraps the way it always did — three to a row in the phone
+drawer.
+
+The anchor moved out of `options_dashboard` into `ytd.py`, so the card and
+the chips share one definition rather than two that can drift. The module
+also answers for a handful of symbols at once (`bases`), and that is the
+part worth care: a base only changes when the year does, so it is cached
+per symbol per day and persisted, and a warm sidebar costs no fetch at
+all. Three cases are deliberately different from one another — a symbol
+whose bars do not reach last year is a MISS and is remembered as one (it
+will not be asked again today); a provider that answers with nothing is a
+FAILURE and is retried (caching it would hide the chip until tomorrow); a
+provider that throws is neither an outage nor fatal for the symbols beside
+it. The route (`/api/ytd_base`) hands back the base and the latest close
+and never a percentage of its own: the division happens in the browser
+against the live quote, which is what makes the chips move with the market.
+The close is the fallback for a chip whose symbol nothing is polling —
+outside market hours, that is all of them.
+
+Codex, on the PR, found two more, both right. The browser MERGED each
+answer into what it already had, so a symbol the server leaves out (no
+base, or the fetch failed) kept its old base — and on the first refresh of
+a new year that old base is last year's, so the chip would report all of
+last year as this year's move. What was asked for is replaced now, not
+merged. And a cold sidebar fetched its ten histories one after another
+inside a foreground request, so the latencies added up and one slow name
+held every chip blank; they overlap now, five at a time.
+
+Writing the guard for that second one turned up a third, mine: the first
+cut used `ThreadPoolExecutor.map`, which hands results back in the order
+they were ASKED for. The fetches overlapped, but a finished symbol still
+queued behind the slow one and nothing reached the cache until the last
+one landed — the exact thing the parallel fetch exists to stop. It is
+`as_completed` now, and the test that caught it watches a fast symbol
+reach the cache while a slow one is still blocked.
+
+And one of my own guards was itself date-dependent, which CI caught and
+this machine could not: `test_the_default_year_is_this_one` built its bars
+from `datetime.now().year` while the module answered from a clock the
+class below it had left pinned. Those agree on any ordinary day. Under the
+suite's 400-days-forward run they do not, and it went red there — which is
+exactly what that run is for. The clock is pinned in the test now, and
+both classes hand the module's global state back the way they found it.
+(The local run had been silently inert: `test_time_travel.py` skips
+without freezegun, and freezegun was not installed here. It is now.)
+
+Guards: thirteen unit tests on `bases` (the cache holds, a miss is not
+re-fetched, a failure is, a new day refetches, the cache survives a
+restart, the symbol cap, duplicates, an unwired host, a throwing provider,
+the fetches overlap within their bound, each result lands as it arrives)
+on top of the six on the anchor; a render test where each chip proves a
+different path — two read their stored close (+100.0%, -50.0%), the open
+symbol reads the live quote instead of its deliberately-wrong stored close
+(+0.0%, not +709.7%), and a symbol with no base keeps its bare symbol
+(red before: no numbers at all); five static guards; two smoke routes.
+
 ## v5.19 — the P/E line is one line, and YTD sits under it
 
 Jerry, from his phone, on the sidebar: "The P/E 153.1 · Fwd 76.5 should
