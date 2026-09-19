@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.21";
+const APP_VERSION = "5.22";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -8903,9 +8903,14 @@ function App() {
       <div className="frame-bottom">
       <NewsTicker apiFetch={apiFetch} onSwitchTicker={switchTicker} placement="bottom" />
       <div className="statusline">
-        <span className="sl-brand" title="This app and the version you are running right now.">
+        {/* v5.22: the version is also the way into the screen check. On a
+            phone there is no address bar to type a path into, so a tap here
+            is how the diagnostics page gets opened INSIDE the home-screen
+            app — which is the only place its numbers mean anything. */}
+        <a className="sl-brand" href="/viewport"
+           title="This app and the version you are running right now. Tap for the screen check.">
           Jerry&rsquo;s Setup <b className="sl-ver">v{APP_VERSION}</b>
-        </span>
+        </a>
         <span className="sl-sep" aria-hidden="true">·</span>
         <span className="sl-note" title="Quotes can be delayed depending on which source answered. Each panel says which source and which moment its own numbers came from.">
           Market data may be delayed

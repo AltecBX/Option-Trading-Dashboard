@@ -142,7 +142,7 @@ failed = 0
 fails = []
 
 
-def hit(method, path, body=None, timeout=60):
+def hit(method, path, body=None, timeout=60, html=False):
     global passed, failed
     url = BASE + path
     data = json.dumps(body).encode() if body is not None else None
@@ -156,11 +156,18 @@ def hit(method, path, body=None, timeout=60):
             status, ctype, raw = resp.status, resp.headers.get("Content-Type", ""), resp.read()
         except urllib.error.HTTPError as e:
             status, ctype, raw = e.code, e.headers.get("Content-Type", ""), e.read()
-        ok_json = "json" in ctype.lower()
-        try:
-            json.loads(raw.decode("utf-8"))
-        except Exception:
-            ok_json = False
+        if html:
+            # v5.22: /viewport is a page, not an endpoint — the screen check
+            # has to render when the app's own layout is what is in doubt,
+            # so it carries no build step and no JSON.
+            ok_json = ("html" in ctype.lower() and status == 200
+                       and b"<title>Screen check</title>" in raw)
+        else:
+            ok_json = "json" in ctype.lower()
+            try:
+                json.loads(raw.decode("utf-8"))
+            except Exception:
+                ok_json = False
         if ok_json:
             passed += 1
             print(f"  PASS  {label} [{status}]")
@@ -176,6 +183,7 @@ def hit(method, path, body=None, timeout=60):
 
 S = "FAKE"
 # GET endpoints — params chosen to drive the real code paths.
+hit("GET", "/viewport", html=True)
 for p in [
     f"/api/ticker?symbol={S}&weeks=8",
     f"/api/quote?symbol={S}",

@@ -13454,6 +13454,98 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
             return
+        if parsed.path == "/viewport":
+            # v5.22 — what this phone actually gives the page.
+            #
+            # Jerry's iPhone 16 Pro Max leaves a band of background below the
+            # frame. Two readings of his screenshot fit its TOP equally well
+            # (a viewport that starts at y=0 and is short, or one that starts
+            # below the island and is full height) and they need opposite
+            # fixes, so this page reports the numbers instead of inferring
+            # them. It is a plain page with no build step and no data: it has
+            # to work when the app's own layout is the thing in question.
+            #
+            # The magenta outline is the point. It is drawn at the edges of
+            # the viewport, so a screenshot shows exactly where the viewport
+            # ends and the unreachable part of the screen begins.
+            page = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Screen check</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0e1014; color: #e9e9ea;
+               font: 15px/1.45 ui-monospace, Menlo, monospace; }
+  .edge { position: fixed; inset: 0; border: 2px solid #ff3ea5; pointer-events: none; z-index: 9; }
+  .pad { padding: calc(14px + env(safe-area-inset-top, 0px)) 16px
+                 calc(14px + env(safe-area-inset-bottom, 0px)); }
+  h1 { font-size: 17px; margin: 0 0 4px; color: #3ec78f; }
+  p.sub { margin: 0 0 14px; color: #9aa0aa; font-size: 12.5px; }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 5px 0; border-bottom: 1px solid #22252d; vertical-align: top; }
+  td.k { color: #9aa0aa; padding-right: 10px; }
+  td.v { text-align: right; font-weight: 700; }
+  .big { color: #ffd166; }
+  a { display: inline-block; margin-top: 16px; color: #0e1014; background: #3ec78f;
+      padding: 11px 18px; border-radius: 10px; text-decoration: none; font-weight: 700; }
+</style></head>
+<body><div class="edge"></div><div class="pad">
+<h1>Screen check</h1>
+<p class="sub">The pink outline is the edge of the page area. Screenshot this
+whole screen and send it back.</p>
+<table id="t"></table>
+<a href="/">Back to the dashboard</a>
+</div>
+<script>
+(function () {
+  function inset(side) {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-' + side + ',0px)';
+    document.body.appendChild(d);
+    var h = Math.round(d.getBoundingClientRect().height);
+    d.remove();
+    return h;
+  }
+  function unit(u) {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:100' + u;
+    document.body.appendChild(d);
+    var h = Math.round(d.getBoundingClientRect().height);
+    d.remove();
+    return h;
+  }
+  var vv = window.visualViewport;
+  var standalone = !!(window.navigator.standalone ||
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+  var rows = [
+    ['screen', screen.width + ' x ' + screen.height, true],
+    ['window inner', window.innerWidth + ' x ' + window.innerHeight, true],
+    ['visual viewport', vv ? Math.round(vv.width) + ' x ' + Math.round(vv.height) : '-', false],
+    ['visual offset top', vv ? Math.round(vv.offsetTop) + ' / pageTop ' + Math.round(vv.pageTop) : '-', false],
+    ['document client', document.documentElement.clientWidth + ' x ' +
+       document.documentElement.clientHeight, false],
+    ['100vh / 100dvh / 100lvh', unit('vh') + ' / ' + unit('dvh') + ' / ' + unit('lvh'), true],
+    ['inset top / bottom', inset('top') + ' / ' + inset('bottom'), true],
+    ['inset left / right', inset('left') + ' / ' + inset('right'), false],
+    ['home screen app', standalone ? 'yes' : 'no (browser)', true],
+    ['pixel ratio', String(window.devicePixelRatio), false]
+  ];
+  document.getElementById('t').innerHTML = rows.map(function (r) {
+    return '<tr><td class="k">' + r[0] + '</td><td class="v' + (r[2] ? ' big' : '') +
+           '">' + r[1] + '</td></tr>';
+  }).join('');
+})();
+</script></body></html>"""
+            body = page.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if parsed.path == "/api/ytd_base":
             # The year-start close for a handful of chips. The sidebar
             # divides the LIVE price by it, so this answers with the anchor
