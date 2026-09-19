@@ -678,19 +678,24 @@ _MKT_INSTRUMENTS = [
 ]
 
 
-def ytd_base(daily) -> float | None:
+def ytd_base(daily, year=None) -> float | None:
     """The close year-to-date is measured from: the last bar dated before
-    January 1 of the latest bar's year (v5.19, the sidebar's YTD line, the
-    same anchor the watchlist board uses). None when the bars stop short
-    of last year, so the line stays off rather than measuring from the
-    wrong day. Dates are ISO strings, so the year is the first four
-    characters and compares as text."""
+    January 1 of THIS calendar year (v5.19, the sidebar's YTD line, the
+    same anchor the watchlist board uses). The year is the clock's, in
+    Eastern time, not the latest bar's — Codex on #406: from January 1
+    until the first bar of the new year prints, the latest bar is still
+    dated last year, and taking its year would anchor two year-ends back
+    and call all of last year "YTD". None when the bars stop short of last
+    year, so the line stays off rather than measuring from the wrong day.
+    Dates are ISO strings, so the year is the first four characters and
+    compares as text."""
     try:
         if not daily:
             return None
-        year = str(daily[-1].get("date") or "")[:4]
-        if len(year) < 4:
-            return None
+        if year is None:
+            tz = globals().get("_ET")
+            year = (datetime.now(tz) if tz else datetime.now()).year
+        year = str(year)
         for row in reversed(daily):
             d = str(row.get("date") or "")[:4]
             if len(d) == 4 and d < year:

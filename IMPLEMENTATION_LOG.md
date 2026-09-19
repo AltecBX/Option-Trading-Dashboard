@@ -3985,7 +3985,10 @@ YTD is the live price against last year's final close. The payload
 carries the base (`current.ytd_base`, from `ytd_base(daily)`: the last bar
 dated before January 1 of the latest bar's year — the same day the
 watchlist board's YTD column measures from), and the sidebar does the
-division on the live quote, so the number moves with the price. No base
+division on the live quote, so the number moves with the price. The year
+is the clock's (Eastern), not the latest bar's — Codex on the PR: on
+January 1, before the first new-year bar prints, the bar's year would
+anchor two year-ends back and call all of last year YTD. No base
 (bars stop short of last year) means no line, not a wrong one.
 
 Guards: five unit tests on the anchor (last year's final close, not this
