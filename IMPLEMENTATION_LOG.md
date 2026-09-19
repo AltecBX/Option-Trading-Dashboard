@@ -3996,14 +3996,32 @@ against the live quote, which is what makes the chips move with the market.
 The close is the fallback for a chip whose symbol nothing is polling —
 outside market hours, that is all of them.
 
-Guards: eleven unit tests on `bases` (the cache holds, a miss is not
+Codex, on the PR, found two more, both right. The browser MERGED each
+answer into what it already had, so a symbol the server leaves out (no
+base, or the fetch failed) kept its old base — and on the first refresh of
+a new year that old base is last year's, so the chip would report all of
+last year as this year's move. What was asked for is replaced now, not
+merged. And a cold sidebar fetched its ten histories one after another
+inside a foreground request, so the latencies added up and one slow name
+held every chip blank; they overlap now, five at a time.
+
+Writing the guard for that second one turned up a third, mine: the first
+cut used `ThreadPoolExecutor.map`, which hands results back in the order
+they were ASKED for. The fetches overlapped, but a finished symbol still
+queued behind the slow one and nothing reached the cache until the last
+one landed — the exact thing the parallel fetch exists to stop. It is
+`as_completed` now, and the test that caught it watches a fast symbol
+reach the cache while a slow one is still blocked.
+
+Guards: thirteen unit tests on `bases` (the cache holds, a miss is not
 re-fetched, a failure is, a new day refetches, the cache survives a
-restart, the symbol cap, duplicates, an unwired host, a throwing provider)
+restart, the symbol cap, duplicates, an unwired host, a throwing provider,
+the fetches overlap within their bound, each result lands as it arrives)
 on top of the six on the anchor; a render test where each chip proves a
 different path — two read their stored close (+100.0%, -50.0%), the open
 symbol reads the live quote instead of its deliberately-wrong stored close
 (+0.0%, not +709.7%), and a symbol with no base keeps its bare symbol
-(red before: no numbers at all); four static guards; two smoke routes.
+(red before: no numbers at all); five static guards; two smoke routes.
 
 ## v5.19 — the P/E line is one line, and YTD sits under it
 

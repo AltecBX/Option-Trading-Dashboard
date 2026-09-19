@@ -133,6 +133,69 @@ class TheChipsBases(unittest.TestCase):
         ytd.configure(data_dir=None, bars_fn=None, now_fn=None)
         self.assertEqual({}, ytd.bases(["AAPL"]))
 
+    def test_a_cold_sidebar_fetches_in_parallel_within_a_bound(self):
+        """Codex on #407: ten symbols fetched one after another add up
+        their provider latencies inside a foreground request, and a single
+        slow name holds every chip blank for the sum. The fetches overlap
+        now — bounded, so this never becomes a burst at the broker."""
+        import threading
+        import time
+        live = 0
+        peak = 0
+        seen = threading.Lock()
+
+        def slow(sym, days):
+            nonlocal live, peak
+            with seen:
+                live += 1
+                peak = max(peak, live)
+            time.sleep(0.05)
+            with seen:
+                live -= 1
+            return bars(("2025-12-31", 10.0), ("2026-09-18", 12.0))
+
+        ytd.configure(data_dir=self.tmp.name, bars_fn=slow,
+                      now_fn=lambda: datetime(2026, 9, 18, 10, 30))
+        started = time.monotonic()
+        out = ytd.bases([f"N{i}" for i in range(10)])
+        elapsed = time.monotonic() - started
+        self.assertEqual(10, len(out), "a parallel fetch lost symbols")
+        self.assertGreater(peak, 1, "the fetches still ran one at a time")
+        self.assertLessEqual(peak, ytd.FETCH_WORKERS,
+                             f"{peak} fetches at once, above the {ytd.FETCH_WORKERS} bound")
+        # Serial would be 10 x 50ms; the bound puts it near 100ms. The
+        # ceiling is loose so a slow machine cannot make this flap.
+        self.assertLess(elapsed, 0.4, f"ten fetches took {elapsed:.2f}s — they did not overlap")
+
+    def test_each_symbol_reaches_the_cache_as_it_lands(self):
+        """The cache used to be written only after the whole batch, so a
+        second page load during a slow batch repeated all of it."""
+        import threading
+        held = threading.Event()
+
+        def one_blocks(sym, days):
+            if sym == "SLOW":
+                # Long enough that a serial batch cannot reach FAST inside
+                # the window below, whatever the machine is doing.
+                held.wait(10.0)
+            return bars(("2025-12-31", 10.0), ("2026-09-18", 12.0))
+
+        ytd.configure(data_dir=self.tmp.name, bars_fn=one_blocks,
+                      now_fn=lambda: datetime(2026, 9, 18, 10, 30))
+        done = threading.Event()
+        threading.Thread(target=lambda: (ytd.bases(["SLOW", "FAST"]), done.set()),
+                         daemon=True).start()
+        for _ in range(100):          # up to 1s, vs the slow symbol's 10
+            with ytd._LOCK:
+                if "FAST" in ytd._CACHE:
+                    break
+            threading.Event().wait(0.01)
+        with ytd._LOCK:
+            landed = "FAST" in ytd._CACHE
+        held.set()
+        done.wait(12.0)
+        self.assertTrue(landed, "a finished symbol waited on the slow one to reach the cache")
+
     def test_a_provider_that_throws_is_not_an_outage(self):
         def boom(sym, days):
             self.calls.append(sym)

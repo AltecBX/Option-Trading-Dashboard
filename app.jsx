@@ -1523,11 +1523,23 @@ function App() {
     let cancelled = false;
     const fetchBases = async () => {
       if (!starredSymbols.length) return;
+      const asked = starredSymbols.slice();
       try {
-        const url = `/api/ytd_base?tickers=${encodeURIComponent(starredSymbols.join(","))}`;
+        const url = `/api/ytd_base?tickers=${encodeURIComponent(asked.join(","))}`;
         const d = await sharedJson(apiFetch, url, 300000);
         if (cancelled || !d || !d.results) return;
-        setYtdBases(prev => ({ ...prev, ...d.results }));
+        setYtdBases(prev => {
+          // A symbol the server left out has no base to give — its history
+          // does not reach last year, or the fetch failed. Merging would
+          // leave the OLD base in place, and on the first refresh of a new
+          // year that old base is last year's: the chip would keep
+          // reporting the whole of last year as this year's move (Codex,
+          // #407). What was asked for is replaced, not merged; symbols
+          // outside this ask (a chip unstarred a moment ago) are left be.
+          const next = { ...prev };
+          for (const sym of asked) delete next[sym];
+          return { ...next, ...d.results };
+        });
       } catch (_) {}
     };
     fetchBases();

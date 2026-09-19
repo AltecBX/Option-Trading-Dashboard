@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +40,13 @@ MAX_SYMBOLS = 25
 # How far back to ask for bars. A year plus the run-up to it, with room for
 # a symbol whose history is thin around the turn of the year.
 LOOKBACK_DAYS = 400
+
+# How many histories to fetch at once on a cold cache. This runs inside a
+# foreground request, so ten symbols fetched one after another would add up
+# their provider latencies — and a slow one would hold the chips blank for
+# the sum of all of them (Codex, #407). Small enough not to lean on the
+# broker: the same order as the board's own fan-out.
+FETCH_WORKERS = 5
 
 _LOCK = threading.RLock()
 _CACHE: dict[str, dict] = {}   # SYM -> {"year": int, "day": "YYYY-MM-DD", "base": float, "last": float}
@@ -163,24 +171,41 @@ def bases(symbols) -> dict[str, dict]:
                 misses.append(sym)
 
     if misses and _BARS_FN is not None:
-        fresh: dict[str, dict] = {}
-        for sym in misses:
+        bars_fn = _BARS_FN
+
+        def fetch(sym):
             try:
-                daily = _BARS_FN(sym, LOOKBACK_DAYS)
+                return sym, bars_fn(sym, LOOKBACK_DAYS)
             except Exception:  # noqa: BLE001
-                daily = None
-            if not daily:
-                # A fetch that FAILED is not a remembered miss: the answer
-                # may be there on the next poll, and caching the failure for
-                # a day would hide the chip until tomorrow.
-                continue
-            base = base_close(daily, year)
-            fresh[sym] = {"year": year, "day": today,
-                          "base": base, "last": _last_close(daily)}
-            if base is not None:
-                out[sym] = {"base": base, "last": fresh[sym]["last"]}
-        if fresh:
+                return sym, None
+
+        wrote = False
+        workers = max(1, min(FETCH_WORKERS, len(misses)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            # as_completed, not map: map hands results back in the order
+            # they were ASKED for, so one slow symbol would hold every
+            # finished one behind it and put them all in the cache at the
+            # end — the very thing the parallel fetch is here to stop.
+            futures = [pool.submit(fetch, sym) for sym in misses]
+            for done in as_completed(futures):
+                sym, daily = done.result()
+                if not daily:
+                    # A fetch that FAILED is not a remembered miss: the
+                    # answer may be there on the next poll, and caching the
+                    # failure for a day would hide the chip until tomorrow.
+                    continue
+                base = base_close(daily, year)
+                row = {"year": year, "day": today,
+                       "base": base, "last": _last_close(daily)}
+                # Into the cache as each one lands, not after the last one:
+                # a second page load a moment later should benefit from the
+                # symbols already fetched rather than repeat them.
+                with _LOCK:
+                    _CACHE[sym] = row
+                wrote = True
+                if base is not None:
+                    out[sym] = {"base": base, "last": row["last"]}
+        if wrote:
             with _LOCK:
-                _CACHE.update(fresh)
                 _save()
     return out

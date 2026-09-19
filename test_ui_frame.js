@@ -197,6 +197,13 @@ ok("a chip's percentage is the live price against the base, with the close as fa
    && /\(\(px - row\.base\) \/ row\.base\) \* 100/.test(app));
 ok("the bases are fetched, not polled like a quote",
    /\/api\/ytd_base\?tickers=/.test(app) && /setInterval\(skipWhenHidden\(fetchBases\), 3600000\)/.test(app));
+// Codex on #407: the server leaves out a symbol it has no base for, so
+// merging the answer left the OLD base in place — and on the first refresh
+// of a new year that old base is last year's, so the chip would report the
+// whole of last year as this year's move.
+ok("a symbol the server leaves out loses its old base rather than keeping it",
+   /for \(const sym of asked\) delete next\[sym\];/.test(app)
+   && /const asked = starredSymbols\.slice\(\);/.test(app));
 ok("the selected chip's number borrows the chip's colour instead of fighting it",
    /\.preset-pill\.active \.pp-ytd \{ color: inherit/.test(css));
 
