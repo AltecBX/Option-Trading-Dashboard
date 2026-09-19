@@ -3970,6 +3970,36 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.23 — the numbers ride in the footer (temporary)
+
+Jerry, a third identical screenshot: "Is clearly staying the same. Why the
+space on the bottom?" Measured: content ends at y=850 in all three, with
+105px below, to the pixel, across v5.20, v5.21 and v5.22.
+
+The honest answer is that two causes fit his screenshot and I cannot tell
+them apart from here:
+
+* the page area is ~894 tall rather than 956, and the band below it is
+  outside the viewport — unreachable, and the 34px reserved inside for the
+  home indicator is waste to reclaim;
+* the page area IS 956, and the device reports a bottom inset near 105
+  rather than 34, so the frame reserves all of it — in which case
+  956 − 105 = 851 is exactly where his content stops, and the fix is to
+  cap that reserve.
+
+The second fits his number to within a pixel, which is suggestive, not
+proof. Both are one measurement away from being settled, and v5.22 already
+built the page that measures it — but asking him to go and open it is
+friction he should not have to spend to get his own bug fixed. He is
+already sending screenshots of the dashboard, so the numbers go where the
+screenshots already point: the footer, beside the version, tiny and dim.
+
+`screen height · window height · visible height · top/bottom insets`. Here
+that reads `956·956·956·62/34`. Whatever it reads on his phone names the
+cause.
+
+This is evidence, not information, and it leaves with the bug.
+
 ## v5.22 — a screen check, because the fix changed nothing
 
 Jerry, on v5.21, with a second screenshot: "What changed?"
