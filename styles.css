@@ -381,6 +381,10 @@ input, select, textarea {
 }
 
 /* preset pills inside sidebar */
+/* v5.23: the temporary screen check in the footer. Dim and small — it is
+   evidence, not information, and it leaves with the bug. */
+.sl-screen { font-family: var(--font-mono); font-size: 9.5px; color: var(--fg-4);
+  letter-spacing: 0; margin-left: 6px; white-space: nowrap; }
 /* v5.22: the version reads as text, not as a link, but it is one. */
 .statusline a.sl-brand { color: inherit; text-decoration: none; }
 .statusline a.sl-brand:hover .sl-ver { text-decoration: underline; }
@@ -14189,6 +14193,8 @@ body { overflow: hidden; overscroll-behavior: none; }
   }
   .statusline .sl-note, .statusline .sl-sep,
   .statusline .sl-spacer, .statusline .sl-link { display: none; }
+  /* v5.23: but the screen check stays — the phone is the one that needs it. */
+  .statusline .sl-screen { display: inline; }
   /* The shell is exactly one screen tall, so the notch and home-indicator
      insets live inside it: the top inset as shell padding, the bottom one
      as frame-bottom padding (below). With the insets on the body instead,

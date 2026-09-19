@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.22";
+const APP_VERSION = "5.23";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -589,6 +589,13 @@ function App() {
   }, [oiChartMetric]);
   // Live quote state — populated by polling effects further down (after
   // dependent state is declared). Components use getLivePrice() to read.
+  // v5.23 TEMPORARY, and it comes out once the bottom band is solved.
+  // Jerry has sent three screenshots of the same 105px band and the fix for
+  // it depends on numbers only his phone knows. A separate page exists
+  // (/viewport) but asking him to go there is friction he should not have
+  // to spend: the numbers ride in the footer he is already screenshotting.
+  // screen height · window height · visual viewport · top/bottom insets.
+  const [screenNote, setScreenNote] = useState("");
   const [liveQuotes, setLiveQuotes] = useState({}); // {sym: {last, change_pct, source, ts}}
   // v5.20: what each watchlist chip has done this year. The server hands
   // back last year's final close per symbol (cached there a day at a time);
@@ -2049,6 +2056,34 @@ function App() {
       }).catch(() => {});
     return () => { stop = true; };
   }, [ticker]);
+
+  useEffect(() => {
+    const probe = (side) => {
+      try {
+        const d = document.createElement("div");
+        d.style.cssText = "position:fixed;top:0;left:0;width:1px;pointer-events:none;"
+          + `height:env(safe-area-inset-${side},0px)`;
+        document.body.appendChild(d);
+        const h = Math.round(d.getBoundingClientRect().height);
+        d.remove();
+        return h;
+      } catch (_) { return "?"; }
+    };
+    const read = () => {
+      try {
+        const vv = window.visualViewport;
+        setScreenNote(`${(window.screen || {}).height || "?"}·${window.innerHeight}`
+          + `·${vv ? Math.round(vv.height) : "-"}·${probe("top")}/${probe("bottom")}`);
+      } catch (_) { setScreenNote(""); }
+    };
+    read();
+    window.addEventListener("resize", read);
+    window.addEventListener("orientationchange", read);
+    return () => {
+      window.removeEventListener("resize", read);
+      window.removeEventListener("orientationchange", read);
+    };
+  }, []);
 
   // Global keyboard shortcuts. Never fire while typing in a field.
   useEffect(() => {
@@ -8911,6 +8946,12 @@ function App() {
            title="This app and the version you are running right now. Tap for the screen check.">
           Jerry&rsquo;s Setup <b className="sl-ver">v{APP_VERSION}</b>
         </a>
+        {screenNote && (
+          <span className="sl-screen"
+                title="Temporary screen check: screen height · window height · visible height · top/bottom insets. It comes out once the empty band at the bottom is fixed.">
+            {screenNote}
+          </span>
+        )}
         <span className="sl-sep" aria-hidden="true">·</span>
         <span className="sl-note" title="Quotes can be delayed depending on which source answered. Each panel says which source and which moment its own numbers came from.">
           Market data may be delayed
