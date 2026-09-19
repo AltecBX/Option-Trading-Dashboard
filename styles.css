@@ -381,6 +381,9 @@ input, select, textarea {
 }
 
 /* preset pills inside sidebar */
+/* v5.22: the version reads as text, not as a link, but it is one. */
+.statusline a.sl-brand { color: inherit; text-decoration: none; }
+.statusline a.sl-brand:hover .sl-ver { text-decoration: underline; }
 .sb-preset-row, .preset-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .preset-pill {
   font-family: var(--font-mono);

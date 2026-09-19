@@ -3970,6 +3970,50 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.22 — a screen check, because the fix changed nothing
+
+Jerry, on v5.21, with a second screenshot: "What changed?"
+
+Nothing, and the pixels say so exactly: content from y=75 to y=850 and 105
+pixels of background below it, identical to the v5.20 shot to the pixel.
+The rule did ship — `dist/styles.min.css` carries
+`.shell{position:fixed;inset:0;height:auto!important}` inside the 900px
+block, and his footer reads v5.21.
+
+So a fixed box gives the same height there as `100dvh` did, which means
+the LAYOUT VIEWPORT itself is short and the band below it is painted only
+because a page's background covers the whole canvas, viewport or not.
+Nothing can be laid out in it.
+
+Two readings of his screenshot fit its top equally well:
+
+* the viewport starts at y=0 and is ~894 tall, with the island inset
+  reported as 62 — the 62px top padding is needed, and the bottom 34px
+  reserved for a home indicator that is already outside the viewport is
+  waste that can be reclaimed;
+* the viewport starts at y=62 and is full height, with the inset reported
+  as 0 — in which case reclaiming that 34px would put the action bar under
+  the home indicator, which is the v5.18 complaint all over again.
+
+They need opposite changes, and this sandbox reports 956/956/956 for
+`vh`/`dvh`/`lvh` however the insets are emulated, so it cannot choose
+between them. Guessing a third time is not a plan.
+
+`/viewport` is a plain page — no build step, no data, no React, since the
+app's own layout is the thing in question — that prints what the device
+actually gives a page: screen, `innerHeight`, visual viewport and its
+offset, `clientHeight`, all three viewport units, the four insets, and
+whether it is running from the home screen. It draws a magenta outline at
+the viewport's edges, so one screenshot shows where the viewport ends and
+the unreachable part of the screen begins.
+
+A phone has no address bar, so the version in the status line is the way
+in: it is a link now, and tapping it opens the check INSIDE the
+home-screen app, which is the only place its numbers mean anything.
+
+Guard: the smoke suite asks for the page and checks it renders (it had to
+learn that one route answers HTML rather than JSON).
+
 ## v5.21 — the phone frame is the screen, measured as a fixed box
 
 Jerry, with a screenshot of an iPhone 16 Pro Max on the home screen: "Now
