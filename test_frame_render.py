@@ -747,6 +747,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 // v5.18: the phone's action bar and header, the body's own
                 // padding, and the top inset the page actually resolved.
                 bottombar: box('.mobile-bottombar'),
+                // v5.21: how the frame gets its size. A fixed box measures
+                // the layout viewport; viewport units do not, on iOS.
+                shellPos: getComputedStyle(document.querySelector('.shell')).position,
                 mobileHeader: box('.mobile-header'),
                 bodyPad: [getComputedStyle(document.body).paddingTop,
                           getComputedStyle(document.body).paddingBottom],
@@ -1318,6 +1321,42 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             hdr = geo["mobileHeader"]
             self.assertIsNotNone(hdr, "no phone header")
             self.assertGreaterEqual(hdr["t"], 59, f"the header begins at {hdr['t']}px — under the notch")
+        finally:
+            self._close(handles)
+
+    def test_the_phone_frame_is_sized_as_a_fixed_box_not_in_viewport_units(self):
+        """v5.21. Jerry, on an iPhone 16 Pro Max added to the home screen:
+        "Now you have all this space empty on the bottom." Measured off his
+        screenshot: 440x956, app content from 75 to 850, and the last 105
+        pixels the app's own background. The top matched this sandbox to
+        the pixel, so only the height was short — by about his 62px island
+        inset. That is iOS in standalone: `100dvh` is the screen minus the
+        status-bar inset while the page still paints from y=0.
+
+        This sandbox cannot reproduce that (here dvh == innerHeight == 956),
+        so what it can hold is the shape of the fix: the phone frame takes
+        its size from a fixed box, which measures the layout viewport and
+        cannot overshoot it. Reverting to a dvh-sized shell turns this red
+        on the position, which is the part that matters."""
+        geo, errors, handles = self._measure(440, 956, safe_area=(62, 34))
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            self.assertEqual("fixed", geo["shellPos"],
+                             "the phone frame is sized in viewport units again")
+            shell = geo["shell"]
+            self.assertEqual(0, shell["t"], f"the frame starts at {shell['t']}px")
+            self.assertEqual(geo["vh"], shell["h"],
+                             f"the frame is {shell['h']}px on a {geo['vh']}px screen")
+            # Nothing may hang below the screen either — the v5.18 failure.
+            bar = geo["bottombar"]
+            self.assertIsNotNone(bar, "no action bar on the phone")
+            self.assertLessEqual(bar["t"] + bar["h"], geo["vh"] - 34,
+                                 f"the action bar ends at {bar['t'] + bar['h']}px, inside the "
+                                 "home indicator's 34px")
+            # And the recovered height belongs to the workspace.
+            main = geo["main"]
+            self.assertGreaterEqual(main["h"], 300,
+                                    f"the workspace is only {main['h']}px tall")
         finally:
             self._close(handles)
 

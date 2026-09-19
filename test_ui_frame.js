@@ -170,8 +170,15 @@ ok("the picker is grouped the same way, so nothing is hidden behind a menu",
 // the action bar lost its lower half. The insets belong inside the shell.
 ok("the body no longer wears the safe-area insets as padding",
    !/body \{\s*padding: env\(safe-area-inset-top\)/.test(css));
+// v5.21. Jerry, on an iPhone 16 Pro Max added to the home screen: "Now you
+// have all this space empty on the bottom." In standalone iOS `100dvh` is
+// the screen MINUS the status-bar inset while the page paints from y=0, so
+// a dvh-sized frame stops an inset short of the bottom. A fixed box is
+// measured against the layout viewport and cannot overshoot it.
+ok("the phone frame is a fixed box, not a height in viewport units",
+   /@media \(max-width: 900px\)[\s\S]*?\.shell \{[\s\S]{0,1400}?position: fixed;\s*inset: 0;\s*height: auto !important;/.test(css));
 ok("the shell absorbs the top inset inside its own height",
-   /\.shell \{\s*padding: calc\(8px \+ env\(safe-area-inset-top, 0px\)\)/.test(css)
+   /\.shell \{[\s\S]{0,1600}?padding: calc\(8px \+ env\(safe-area-inset-top, 0px\)\)/.test(css)
    && /\.frame-bottom \{[^}]*padding-bottom: env\(safe-area-inset-bottom, 0px\)/.test(css));
 
 // v5.19. Jerry: "The P/E 153.1 · Fwd 76.5 should always be on 1 line. Also

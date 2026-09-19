@@ -3970,6 +3970,46 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.21 — the phone frame is the screen, measured as a fixed box
+
+Jerry, with a screenshot of an iPhone 16 Pro Max on the home screen: "Now
+you have all this space empty on the bottom. I'm using a iPhone 16 Pro Max
+phone. Optimize for it."
+
+Measured off the screenshot rather than guessed: it is exactly 440x956 CSS
+pixels, app content runs from y=75 to y=850, and every pixel of the last
+105 is `--bg` (14,16,19) — the app's own background, not browser chrome,
+so the page owns that band and simply is not filling it.
+
+The same page in this sandbox at 440x956 with his insets (62 top, 34
+bottom) puts the frame at 0..956 and the action bar at 874..922, with the
+34px home indicator below it. His top edge matches to the pixel — content
+at 75 against 76 here — so the top inset is being honoured and the notch
+handling from v5.18 is right. Only the HEIGHT is short, by about the same
+62px as the inset.
+
+That is iOS in standalone: `100dvh` measures the screen MINUS the
+status-bar inset while the page still paints from y=0, so a shell sized in
+dvh stops an inset above the bottom edge. The sandbox cannot reproduce it
+(here `100dvh`, `innerHeight` and `body` are all 956), which is why three
+rounds of phone work never saw it.
+
+On phones the frame is now `position: fixed; inset: 0` with `height: auto`.
+A fixed box is laid out against the layout viewport, which `viewport-fit=
+cover` makes the whole screen, and it cannot overshoot that viewport — so
+where dvh was already right nothing moves, and where it came up short the
+frame now reaches the bottom. That "cannot be worse" property is the whole
+reason for choosing it over adding the inset back by hand, which would
+overshoot and clip the bar the day iOS fixes dvh. The recovered height
+goes to the workspace, which is the `1fr` row.
+
+Guards: a render test at 440x956 with his insets that requires the frame
+to be a fixed box covering the viewport, the action bar to stay clear of
+the home indicator and the workspace to keep its height — the position is
+the part that goes red on a revert, since the sandbox cannot show the
+shortfall itself; one static guard on the rule. The v5.18 inset guard was
+rewritten to match the fact rather than the old rule's exact shape.
+
 ## v5.20 — one CI run per push, not two
 
 Jerry, on a pair of GitHub emails: "Why do I keep getting these emails".

@@ -52,6 +52,7 @@ decided in the component:
 | Four high/low lists | fixed side rails (≥2080 px) | one tabbed card in the workspace |
 | Market band (posture, regime, catalysts, opportunity ribbon) | in the frame, as the reference shows | in the Trade workspace, folded into one line with the four high/low lists so the tool is first (v5.17) |
 | The grouped navigation bar | in the frame | in the frame too, compact — the four groups on one line, the open group's tools on the next (v5.17; it was hidden behind the Tabs picker from v4.92, and the picker stays for search) |
+| The frame's height | `100dvh` | a fixed box, `inset: 0` (v5.21) — iOS in standalone reports `100dvh` as the screen minus the status-bar inset, so a dvh-sized frame stopped ~62px short of the bottom |
 | Year to date | on the ticker card, under the P/E line | the same on the chips, beside each symbol (v5.20) — one anchor, `ytd.py`, live price against last year's final close |
 | The iPhone notch and home indicator (safe-area insets) | — | inside the shell: the top inset is shell padding, the bottom one frame-bottom padding. Never body padding — the shell is one screen tall, and padding outside it pushed the action bar below the edge (v5.18). On its side, the landscape branch carries the side insets on the shell and the bottom one on the footer |
 
