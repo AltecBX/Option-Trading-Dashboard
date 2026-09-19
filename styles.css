@@ -14192,6 +14192,27 @@ body { overflow: hidden; overscroll-behavior: none; }
      the shell started under the notch and ran the same distance past the
      bottom edge — Jerry's clipped action bar (v5.18). */
   .shell {
+    /* v5.21: THE FRAME IS THE SCREEN, and on a phone it is measured as a
+       fixed box rather than in viewport units.
+
+       Jerry's iPhone 16 Pro Max, added to the home screen: content stopped
+       at 850 of 956 CSS pixels with 105 of the app's own background below
+       it. The top matched this sandbox to the pixel (75px, the 62px island
+       inset plus the card's margin) — only the HEIGHT was short, by about
+       the same 62px. That is iOS in standalone: `100dvh` measures the
+       screen MINUS the status-bar inset, while the page still paints from
+       y=0, so a shell sized in dvh ends an inset above the bottom edge.
+
+       A fixed box takes its size from the layout viewport instead, which
+       `viewport-fit=cover` makes the whole screen. It also cannot overshoot
+       that viewport, so where dvh was already right this changes nothing —
+       which is why it is the safe fix for a device this sandbox cannot
+       reproduce. `height: auto` is required: it beats the frame block's
+       `height: 100dvh` by source order, and without it the fixed box would
+       keep the short height and ignore `bottom`. */
+    position: fixed;
+    inset: 0;
+    height: auto !important;
     padding: calc(8px + env(safe-area-inset-top, 0px))
              calc(10px + env(safe-area-inset-right, 0px))
              0
