@@ -3970,6 +3970,41 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.20 — the watchlist chips carry their year to date
+
+Jerry, straight after the ticker card's YTD line: "Now make the YTD show
+on the watchlist chips too."
+
+Same reading, same anchor: the live price against last year's final close.
+It sits beside the symbol rather than under it, so a chip is still one
+line and the row wraps the way it always did — three to a row in the phone
+drawer.
+
+The anchor moved out of `options_dashboard` into `ytd.py`, so the card and
+the chips share one definition rather than two that can drift. The module
+also answers for a handful of symbols at once (`bases`), and that is the
+part worth care: a base only changes when the year does, so it is cached
+per symbol per day and persisted, and a warm sidebar costs no fetch at
+all. Three cases are deliberately different from one another — a symbol
+whose bars do not reach last year is a MISS and is remembered as one (it
+will not be asked again today); a provider that answers with nothing is a
+FAILURE and is retried (caching it would hide the chip until tomorrow); a
+provider that throws is neither an outage nor fatal for the symbols beside
+it. The route (`/api/ytd_base`) hands back the base and the latest close
+and never a percentage of its own: the division happens in the browser
+against the live quote, which is what makes the chips move with the market.
+The close is the fallback for a chip whose symbol nothing is polling —
+outside market hours, that is all of them.
+
+Guards: eleven unit tests on `bases` (the cache holds, a miss is not
+re-fetched, a failure is, a new day refetches, the cache survives a
+restart, the symbol cap, duplicates, an unwired host, a throwing provider)
+on top of the six on the anchor; a render test where each chip proves a
+different path — two read their stored close (+100.0%, -50.0%), the open
+symbol reads the live quote instead of its deliberately-wrong stored close
+(+0.0%, not +709.7%), and a symbol with no base keeps its bare symbol
+(red before: no numbers at all); four static guards; two smoke routes.
+
 ## v5.19 — the P/E line is one line, and YTD sits under it
 
 Jerry, from his phone, on the sidebar: "The P/E 153.1 · Fwd 76.5 should

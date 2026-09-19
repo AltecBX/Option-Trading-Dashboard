@@ -186,6 +186,20 @@ ok("neither line may wrap",
 ok("YTD is the live price against last year's final close from the payload",
    /\(currentPrice - base\) \/ base/.test(app) && /current\.ytd_base/.test(app));
 
+// v5.20. Jerry: "Now make the YTD show on the watchlist chips too." The
+// chips read the same thing the ticker card does — the live price against
+// last year's final close — from a base the server caches per day.
+ok("the watchlist chips carry a year-to-date reading",
+   /className=\{`pp-ytd \$\{y >= 0 \? "up" : "down"\}`\}/.test(app)
+   && /const y = ytdPctFor\(t\);/.test(app));
+ok("a chip's percentage is the live price against the base, with the close as fallback",
+   /const px = liveQuotes\[sym\]\?\.last \?\? row\.last;/.test(app)
+   && /\(\(px - row\.base\) \/ row\.base\) \* 100/.test(app));
+ok("the bases are fetched, not polled like a quote",
+   /\/api\/ytd_base\?tickers=/.test(app) && /setInterval\(skipWhenHidden\(fetchBases\), 3600000\)/.test(app));
+ok("the selected chip's number borrows the chip's colour instead of fighting it",
+   /\.preset-pill\.active \.pp-ytd \{ color: inherit/.test(css));
+
 // ── 7. one version, from the one source ───────────────────────────────────
 ok("the status line shows the app's real version",
    /className="statusline"/.test(app) && /v\{APP_VERSION\}/.test(app));

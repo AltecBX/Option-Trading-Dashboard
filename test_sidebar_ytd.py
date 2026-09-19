@@ -1,13 +1,15 @@
-"""v5.19 — the sidebar's YTD line measures from last year's final close.
+"""v5.19/v5.20 — year to date, one definition (ytd.py).
 
-Jerry: "I want to put the YTD % underneath this" (the P/E line). The
-anchor is the last bar dated before January 1 of the latest bar's year —
-the same day the watchlist board's YTD column uses — and the line stays
-off when the bars do not reach back that far.
+Jerry: "I want to put the YTD % underneath this" (the sidebar's P/E line),
+then "Now make the YTD show on the watchlist chips too". Both read the live
+price against last year's final close — the same anchor the watchlist
+board's YTD column uses.
 """
+import tempfile
 import unittest
+from datetime import datetime
 
-from options_dashboard import ytd_base
+import ytd
 
 
 def bars(*pairs):
@@ -18,34 +20,131 @@ class TheYtdAnchor(unittest.TestCase):
     def test_it_is_last_years_final_close_not_this_years_first(self):
         b = bars(("2025-12-30", 98.0), ("2025-12-31", 100.0),
                  ("2026-01-02", 104.0), ("2026-09-18", 177.46))
-        self.assertEqual(100.0, ytd_base(b, year=2026))
+        self.assertEqual(100.0, ytd.base_close(b, year=2026))
 
     def test_bars_that_stop_short_of_last_year_give_nothing(self):
         b = bars(("2026-01-02", 104.0), ("2026-09-18", 177.46))
-        self.assertIsNone(ytd_base(b, year=2026))
+        self.assertIsNone(ytd.base_close(b, year=2026))
 
     def test_the_year_is_the_clocks_not_the_latest_bars(self):
         """Codex on #406: on January 1, before the first bar of the new
         year prints, the latest bar is dated last year. Its year would
         anchor two year-ends back and call all of last year YTD."""
         b = bars(("2024-12-31", 50.0), ("2025-06-02", 80.0), ("2025-12-31", 100.0))
-        self.assertEqual(100.0, ytd_base(b, year=2026), "January 1: last year's final close, YTD is flat")
-        self.assertEqual(50.0, ytd_base(b, year=2025), "December 31: still last year's anchor")
+        self.assertEqual(100.0, ytd.base_close(b, year=2026),
+                         "January 1: last year's final close, YTD is flat")
+        self.assertEqual(50.0, ytd.base_close(b, year=2025),
+                         "December 31: still last year's anchor")
 
     def test_the_default_year_is_this_one(self):
-        from datetime import datetime
         y = datetime.now().year
         b = bars((f"{y - 1}-12-31", 100.0), (f"{y}-01-02", 104.0))
-        self.assertEqual(100.0, ytd_base(b))
+        self.assertEqual(100.0, ytd.base_close(b))
 
     def test_empty_and_broken_rows_give_nothing(self):
-        self.assertIsNone(ytd_base([]))
-        self.assertIsNone(ytd_base(None))
-        self.assertIsNone(ytd_base([{"date": None, "close": 5}, {"date": "", "close": 6}]))
+        self.assertIsNone(ytd.base_close([]))
+        self.assertIsNone(ytd.base_close(None))
+        self.assertIsNone(ytd.base_close([{"date": None, "close": 5}, {"date": "", "close": 6}]))
 
     def test_a_zero_close_is_not_a_base(self):
         b = bars(("2025-12-31", 0.0), ("2026-01-02", 104.0))
-        self.assertIsNone(ytd_base(b, year=2026))
+        self.assertIsNone(ytd.base_close(b, year=2026))
+
+
+class TheChipsBases(unittest.TestCase):
+    """v5.20: the same anchor for a handful of chips at once, cached so a
+    sidebar full of chips does not cost a history fetch per poll."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.calls = []
+        self.history = {
+            "AAPL": bars(("2025-12-31", 200.0), ("2026-09-18", 250.0)),
+            "PLTR": bars(("2025-12-31", 100.0), ("2026-09-18", 177.46)),
+            # A symbol whose bars do not reach last year.
+            "IPO": bars(("2026-03-02", 40.0), ("2026-09-18", 60.0)),
+        }
+
+        def bars_fn(sym, days):
+            self.calls.append(sym)
+            return self.history.get(sym)
+
+        ytd.configure(data_dir=self.tmp.name, bars_fn=bars_fn,
+                      now_fn=lambda: datetime(2026, 9, 18, 10, 30))
+
+    def test_it_answers_with_the_base_and_the_latest_close(self):
+        out = ytd.bases(["AAPL", "PLTR"])
+        self.assertEqual({"base": 200.0, "last": 250.0}, out["AAPL"])
+        self.assertEqual({"base": 100.0, "last": 177.46}, out["PLTR"])
+
+    def test_a_symbol_without_a_base_is_absent_rather_than_wrong(self):
+        out = ytd.bases(["IPO", "AAPL"])
+        self.assertNotIn("IPO", out)
+        self.assertIn("AAPL", out)
+
+    def test_the_second_ask_the_same_day_costs_no_fetch(self):
+        ytd.bases(["AAPL", "PLTR"])
+        self.assertEqual(["AAPL", "PLTR"], self.calls)
+        again = ytd.bases(["AAPL", "PLTR"])
+        self.assertEqual(["AAPL", "PLTR"], self.calls, "the cache did not hold")
+        self.assertEqual(200.0, again["AAPL"]["base"])
+
+    def test_a_symbol_with_no_base_is_not_asked_for_twice_today(self):
+        ytd.bases(["IPO"])
+        ytd.bases(["IPO"])
+        self.assertEqual(["IPO"], self.calls, "a known miss was re-fetched")
+
+    def test_a_failed_fetch_is_retried_rather_than_remembered(self):
+        """A provider that answers with nothing is not the same as a symbol
+        with no base: caching the failure would hide the chip until
+        tomorrow."""
+        ytd.bases(["NEW"])
+        ytd.bases(["NEW"])
+        self.assertEqual(["NEW", "NEW"], self.calls)
+        self.history["NEW"] = bars(("2025-12-31", 10.0), ("2026-09-18", 12.0))
+        self.assertEqual(10.0, ytd.bases(["NEW"])["NEW"]["base"])
+
+    def test_a_new_day_refetches_so_the_latest_close_is_not_stale(self):
+        ytd.bases(["AAPL"])
+        ytd.configure(data_dir=self.tmp.name, bars_fn=lambda s, d: self.history.get(s),
+                      now_fn=lambda: datetime(2026, 9, 19, 10, 30))
+        self.history["AAPL"] = bars(("2025-12-31", 200.0), ("2026-09-19", 260.0))
+        self.assertEqual(260.0, ytd.bases(["AAPL"])["AAPL"]["last"])
+
+    def test_the_cache_survives_a_restart(self):
+        ytd.bases(["AAPL"])
+        calls = []
+        ytd.configure(data_dir=self.tmp.name,
+                      bars_fn=lambda s, d: calls.append(s) or self.history.get(s),
+                      now_fn=lambda: datetime(2026, 9, 18, 15, 0))
+        self.assertEqual(200.0, ytd.bases(["AAPL"])["AAPL"]["base"])
+        self.assertEqual([], calls, "a restart re-fetched what was on disk")
+
+    def test_it_asks_for_no_more_symbols_than_the_cap(self):
+        ytd.bases([f"S{i}" for i in range(60)])
+        self.assertEqual(ytd.MAX_SYMBOLS, len(self.calls))
+
+    def test_duplicates_and_blanks_are_not_fetches(self):
+        ytd.bases(["AAPL", "aapl", " ", None, "AAPL"])
+        self.assertEqual(["AAPL"], self.calls)
+
+    def test_nothing_raises_when_the_host_never_wired_it(self):
+        ytd.configure(data_dir=None, bars_fn=None, now_fn=None)
+        self.assertEqual({}, ytd.bases(["AAPL"]))
+
+    def test_a_provider_that_throws_is_not_an_outage(self):
+        def boom(sym, days):
+            self.calls.append(sym)
+            if sym == "BAD":
+                raise RuntimeError("provider down")
+            return self.history.get(sym)
+
+        ytd.configure(data_dir=self.tmp.name, bars_fn=boom,
+                      now_fn=lambda: datetime(2026, 9, 18, 10, 30))
+        out = ytd.bases(["BAD", "AAPL"])
+        self.assertNotIn("BAD", out)
+        self.assertEqual(200.0, out["AAPL"]["base"])
 
 
 if __name__ == "__main__":

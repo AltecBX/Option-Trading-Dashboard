@@ -179,6 +179,8 @@ S = "FAKE"
 for p in [
     f"/api/ticker?symbol={S}&weeks=8",
     f"/api/quote?symbol={S}",
+    f"/api/ytd_base?tickers={S},AAPL",
+    "/api/ytd_base",
     f"/api/option_quote?symbol={S}&strike=100&kind=call",
     "/api/search?q=fa",
     "/api/scan",

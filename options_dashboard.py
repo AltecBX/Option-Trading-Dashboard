@@ -678,34 +678,6 @@ _MKT_INSTRUMENTS = [
 ]
 
 
-def ytd_base(daily, year=None) -> float | None:
-    """The close year-to-date is measured from: the last bar dated before
-    January 1 of THIS calendar year (v5.19, the sidebar's YTD line, the
-    same anchor the watchlist board uses). The year is the clock's, in
-    Eastern time, not the latest bar's — Codex on #406: from January 1
-    until the first bar of the new year prints, the latest bar is still
-    dated last year, and taking its year would anchor two year-ends back
-    and call all of last year "YTD". None when the bars stop short of last
-    year, so the line stays off rather than measuring from the wrong day.
-    Dates are ISO strings, so the year is the first four characters and
-    compares as text."""
-    try:
-        if not daily:
-            return None
-        if year is None:
-            tz = globals().get("_ET")
-            year = (datetime.now(tz) if tz else datetime.now()).year
-        year = str(year)
-        for row in reversed(daily):
-            d = str(row.get("date") or "")[:4]
-            if len(d) == 4 and d < year:
-                close = row.get("close")
-                return float(close) if close is not None and float(close) > 0 else None
-        return None
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _num(v):
     try:
         return float(v)
@@ -4172,7 +4144,7 @@ def build_payload(
             "dividend_yield": div_yield,
             "pe": pe,
             "forward_pe": forward_pe,
-            "ytd_base": ytd_base(daily),
+            "ytd_base": (_ytd.base_close(daily) if _YTD_AVAILABLE else None),
             "earnings": has_earnings,
             "earningsDate": earnings_date,
             "next_earnings": earnings_date,
@@ -5094,6 +5066,22 @@ except Exception as _exc:  # noqa: BLE001
     _SPIKE_AVAILABLE = False
     _spike = None  # type: ignore
     _spikeev = None  # type: ignore
+
+# ── Year to date: one anchor for the ticker card and the watchlist chips ───
+# The live price against last year's final close. The bases are cached per
+# symbol per day, so a sidebar full of chips costs nothing once warm.
+try:
+    import ytd as _ytd
+    _ytd.configure(
+        data_dir=_STABLE_DIR,
+        bars_fn=lambda sym, days: load_daily(sym, days),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+    )
+    _YTD_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[ytd] wiring failed: {_exc}", file=sys.stderr)
+    _YTD_AVAILABLE = False
+    _ytd = None  # type: ignore
 
 # ── At the line: reached its usual high or low, priced (STRETCH.md) ─────────
 # Same board, same bars, same broker as Sold into strength; both sides and
@@ -13465,6 +13453,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/ytd_base":
+            # The year-start close for a handful of chips. The sidebar
+            # divides the LIVE price by it, so this answers with the anchor
+            # and the latest close (the fallback outside market hours),
+            # never with a percentage of its own.
+            qs = parse_qs(parsed.query)
+            raw = (qs.get("tickers", [""])[0] or "").upper().strip()
+            symbols = [s.strip() for s in raw.split(",") if s.strip()]
+            if not _YTD_AVAILABLE:
+                self._send_json({"results": {}}, no_store=True)
+                return
+            try:
+                self._send_json({"results": _ytd.bases(symbols)}, no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/ytd_base", exc)
+                self._send_json({"results": {}}, status=500)
             return
         if parsed.path == "/api/quote":
             # Lightweight quote endpoint for live-price polling. Accepts
