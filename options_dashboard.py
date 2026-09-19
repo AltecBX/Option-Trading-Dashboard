@@ -678,6 +678,34 @@ _MKT_INSTRUMENTS = [
 ]
 
 
+def ytd_base(daily, year=None) -> float | None:
+    """The close year-to-date is measured from: the last bar dated before
+    January 1 of THIS calendar year (v5.19, the sidebar's YTD line, the
+    same anchor the watchlist board uses). The year is the clock's, in
+    Eastern time, not the latest bar's — Codex on #406: from January 1
+    until the first bar of the new year prints, the latest bar is still
+    dated last year, and taking its year would anchor two year-ends back
+    and call all of last year "YTD". None when the bars stop short of last
+    year, so the line stays off rather than measuring from the wrong day.
+    Dates are ISO strings, so the year is the first four characters and
+    compares as text."""
+    try:
+        if not daily:
+            return None
+        if year is None:
+            tz = globals().get("_ET")
+            year = (datetime.now(tz) if tz else datetime.now()).year
+        year = str(year)
+        for row in reversed(daily):
+            d = str(row.get("date") or "")[:4]
+            if len(d) == 4 and d < year:
+                close = row.get("close")
+                return float(close) if close is not None and float(close) > 0 else None
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _num(v):
     try:
         return float(v)
@@ -4144,6 +4172,7 @@ def build_payload(
             "dividend_yield": div_yield,
             "pe": pe,
             "forward_pe": forward_pe,
+            "ytd_base": ytd_base(daily),
             "earnings": has_earnings,
             "earningsDate": earnings_date,
             "next_earnings": earnings_date,

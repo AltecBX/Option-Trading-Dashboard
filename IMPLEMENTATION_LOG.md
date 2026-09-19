@@ -3970,6 +3970,34 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.19 — the P/E line is one line, and YTD sits under it
+
+Jerry, from his phone, on the sidebar: "The P/E 153.1 · Fwd 76.5 should
+always be on 1 line. Also I want to put the YTD % underneath this."
+
+The line lived in the price column beside the logo. In the phone drawer
+that column is about 120px wide and "P/E 153.1 · Fwd 76.5" in 11px mono
+needs about 136px, so the forward number dropped to a second line. Nowrap
+alone would have clipped it instead. Both lines are a full-width block
+under the ticker row now (`.sb-ratios`): the ratios, then YTD.
+
+YTD is the live price against last year's final close. The payload
+carries the base (`current.ytd_base`, from `ytd_base(daily)`: the last bar
+dated before January 1 of the latest bar's year — the same day the
+watchlist board's YTD column measures from), and the sidebar does the
+division on the live quote, so the number moves with the price. The year
+is the clock's (Eastern), not the latest bar's — Codex on the PR: on
+January 1, before the first new-year bar prints, the bar's year would
+anchor two year-ends back and call all of last year YTD. No base
+(bars stop short of last year) means no line, not a wrong one.
+
+Guards: five unit tests on the anchor (last year's final close, not this
+year's first; short bars, empty rows, a zero close give nothing; the year
+is the latest bar's); a render test at 390, 440 and 1440px that requires
+the exact P/E text on one unclipped line and the YTD text computed from
+the harness's stubbed live quote (red before: no YTD line); three static
+guards.
+
 ## v5.18 — the phone's action bar was under the home indicator
 
 Jerry, from his iPhone, on v5.17: "But the bottom is still cut off." The

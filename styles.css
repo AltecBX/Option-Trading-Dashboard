@@ -1408,10 +1408,19 @@ input, select, textarea {
   font-family: var(--font-mono); margin-top: 2px;
 }
 .sb-ticker-price-row .sb-price { font-size: 17px; color: var(--fg-2); font-weight: 600; }
+/* v5.19: the ratios and YTD are a full-width block under the ticker row,
+   so "P/E 153.1 · Fwd 76.5" is one line in the phone drawer too. */
+.sb-ratios { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sb-pe {
   font-family: var(--font-mono); font-size: 11px; font-weight: 600;
-  color: var(--fg-3); letter-spacing: 0.02em; margin-top: 3px;
+  color: var(--fg-3); letter-spacing: 0.02em; white-space: nowrap;
 }
+.sb-ytd {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.02em; white-space: nowrap;
+}
+.sb-ytd.up { color: var(--up); }
+.sb-ytd.down { color: var(--down); }
 .sb-ticker-price-row .delta { font-size: 11px; font-weight: 700; }
 .sb-ticker-price-row .delta.up   { color: var(--up); }
 .sb-ticker-price-row .delta.down { color: var(--down); }
