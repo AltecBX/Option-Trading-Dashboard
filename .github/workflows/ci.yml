@@ -14,9 +14,22 @@
 #      everything else runs on deterministic fixtures/stubs.
 name: CI
 
+# WHY `push` IS ONLY `main` (v5.20). Jerry: "Why do I keep getting these
+# emails" — two per failure, every time. With `push: ["**"]` AND
+# `pull_request`, a push to a branch that has a PR open fired BOTH: the same
+# tests twice, in parallel, and GitHub mails the repo owner once per failed
+# run. (Their subjects gave it away: "Run failed: CI - claude/…" beside "PR
+# run failed: CI - v5.20: …", same commit aabaa97.) They also cannot cancel
+# each other — the concurrency group keys on `github.ref`, which is
+# `refs/heads/<branch>` for one and `refs/pull/<n>/merge` for the other.
+#
+# Branch work is covered by the `pull_request` run, and `main` by its own
+# push run, so nothing that ships is unproven. What this gives up: a branch
+# pushed with NO pull request open gets no CI until one is opened. That is
+# the deliberate trade — `workflow_dispatch` is there to run it by hand.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request: {}
   workflow_dispatch: {}
 

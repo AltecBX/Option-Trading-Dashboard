@@ -3970,6 +3970,23 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.20 — one CI run per push, not two
+
+Jerry, on a pair of GitHub emails: "Why do I keep getting these emails".
+Two per failure, and their subjects said why — "Run failed: CI -
+claude/…" beside "PR run failed: CI - v5.20: …", the same commit. CI
+triggered on `push: ["**"]` AND on `pull_request`, so a push to a branch
+with a PR open ran the same tests twice in parallel, and GitHub mails the
+repo owner once per failed run. The two could not even cancel each other:
+the concurrency group keys on `github.ref`, which is `refs/heads/<branch>`
+for one and `refs/pull/<n>/merge` for the other.
+
+`push` is `main` only now. Branch work is proven by the `pull_request`
+run and `main` by its own push run, so nothing that ships is unproven.
+The trade, written into the workflow: a branch pushed with no PR open
+gets no CI until one is opened, with `workflow_dispatch` there to run it
+by hand.
+
 ## v5.20 — the watchlist chips carry their year to date
 
 Jerry, straight after the ticker card's YTD line: "Now make the YTD show
