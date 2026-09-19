@@ -4013,6 +4013,16 @@ one landed — the exact thing the parallel fetch exists to stop. It is
 `as_completed` now, and the test that caught it watches a fast symbol
 reach the cache while a slow one is still blocked.
 
+And one of my own guards was itself date-dependent, which CI caught and
+this machine could not: `test_the_default_year_is_this_one` built its bars
+from `datetime.now().year` while the module answered from a clock the
+class below it had left pinned. Those agree on any ordinary day. Under the
+suite's 400-days-forward run they do not, and it went red there — which is
+exactly what that run is for. The clock is pinned in the test now, and
+both classes hand the module's global state back the way they found it.
+(The local run had been silently inert: `test_time_travel.py` skips
+without freezegun, and freezegun was not installed here. It is now.)
+
 Guards: thirteen unit tests on `bases` (the cache holds, a miss is not
 re-fetched, a failure is, a new day refetches, the cache survives a
 restart, the symbol cap, duplicates, an unwired host, a throwing provider,

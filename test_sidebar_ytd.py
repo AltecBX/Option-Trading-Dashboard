@@ -17,6 +17,13 @@ def bars(*pairs):
 
 
 class TheYtdAnchor(unittest.TestCase):
+    def setUp(self):
+        # The module's clock is module-level state, and the class below
+        # pins it. Start each of these from a known one, and hand it back
+        # the same way, so neither class can decide the other's answers.
+        ytd.configure(data_dir=None, bars_fn=None, now_fn=None)
+        self.addCleanup(ytd.configure, data_dir=None, bars_fn=None, now_fn=None)
+
     def test_it_is_last_years_final_close_not_this_years_first(self):
         b = bars(("2025-12-30", 98.0), ("2025-12-31", 100.0),
                  ("2026-01-02", 104.0), ("2026-09-18", 177.46))
@@ -36,10 +43,22 @@ class TheYtdAnchor(unittest.TestCase):
         self.assertEqual(50.0, ytd.base_close(b, year=2025),
                          "December 31: still last year's anchor")
 
-    def test_the_default_year_is_this_one(self):
-        y = datetime.now().year
-        b = bars((f"{y - 1}-12-31", 100.0), (f"{y}-01-02", 104.0))
+    def test_the_default_year_comes_from_the_modules_clock(self):
+        """With no year given the anchor reads the clock the host wired in.
+
+        Pinned, not `datetime.now()`: the first cut built its bars from the
+        real year while the module answered from a clock a previous test
+        had left pinned. Those agree on any ordinary day, which is why it
+        passed here and went red in the suite's 400-days-forward run — the
+        run that exists to catch exactly this."""
+        ytd.configure(data_dir=None, bars_fn=None, now_fn=lambda: datetime(2031, 4, 2))
+        b = bars(("2030-12-31", 100.0), ("2031-01-02", 104.0))
         self.assertEqual(100.0, ytd.base_close(b))
+        # And with no clock wired at all, the machine's own year.
+        ytd.configure(data_dir=None, bars_fn=None, now_fn=None)
+        y = datetime.now().year
+        self.assertEqual(100.0, ytd.base_close(
+            bars((f"{y - 1}-12-31", 100.0), (f"{y}-01-02", 104.0))))
 
     def test_empty_and_broken_rows_give_nothing(self):
         self.assertIsNone(ytd.base_close([]))
@@ -72,6 +91,8 @@ class TheChipsBases(unittest.TestCase):
 
         ytd.configure(data_dir=self.tmp.name, bars_fn=bars_fn,
                       now_fn=lambda: datetime(2026, 9, 18, 10, 30))
+        # Leave the module as it was found: its state is global.
+        self.addCleanup(ytd.configure, data_dir=None, bars_fn=None, now_fn=None)
 
     def test_it_answers_with_the_base_and_the_latest_close(self):
         out = ytd.bases(["AAPL", "PLTR"])
