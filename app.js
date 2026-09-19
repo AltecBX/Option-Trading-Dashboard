@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.18";
+const APP_VERSION = "5.19";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -4472,10 +4472,21 @@ function App() {
     }, " \xB7 stale"))), /*#__PURE__*/React.createElement("span", {
       className: `delta ${displayChg >= 0 ? "up" : "down"}`
     }, displayChg >= 0 ? "▲" : "▼", " ", Math.abs(displayChg).toFixed(2), "%"));
-  })()), !loadError && !dataPending && (current.pe != null || current.forward_pe != null) && /*#__PURE__*/React.createElement("div", {
-    className: "sb-pe",
-    title: "Trailing and forward price-to-earnings ratio"
-  }, "P/E ", current.pe != null ? current.pe : "—", " \xB7 Fwd ", current.forward_pe != null ? current.forward_pe : "—")))), /*#__PURE__*/React.createElement("div", {
+  })()))), !loadError && !dataPending && (() => {
+    const hasPe = current.pe != null || current.forward_pe != null;
+    const base = current.ytd_base;
+    const ytd = base != null && base > 0 && currentPrice != null && Number.isFinite(currentPrice) ? (currentPrice - base) / base * 100 : null;
+    if (!hasPe && ytd == null) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "sb-ratios"
+    }, hasPe && /*#__PURE__*/React.createElement("div", {
+      className: "sb-pe",
+      title: "Trailing and forward price-to-earnings ratio"
+    }, "P/E ", current.pe != null ? current.pe : "—", " \xB7 Fwd ", current.forward_pe != null ? current.forward_pe : "—"), ytd != null && /*#__PURE__*/React.createElement("div", {
+      className: `sb-ytd ${ytd >= 0 ? "up" : "down"}`,
+      title: `Year to date: the live price against last year's final close ($${base.toFixed(2)})`
+    }, "YTD ", ytd >= 0 ? "+" : "", ytd.toFixed(1), "%"));
+  })()), /*#__PURE__*/React.createElement("div", {
     className: "sb-section"
   }, /*#__PURE__*/React.createElement("div", {
     className: "sb-label-row"

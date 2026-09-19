@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.18";
+const APP_VERSION = "5.19";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -3573,13 +3573,36 @@ function App() {
                   );
                 })()}
               </div>
-              {!loadError && !dataPending && (current.pe != null || current.forward_pe != null) && (
-                <div className="sb-pe" title="Trailing and forward price-to-earnings ratio">
-                  P/E {current.pe != null ? current.pe : "—"} · Fwd {current.forward_pe != null ? current.forward_pe : "—"}
-                </div>
-              )}
             </div>
           </div>
+          {/* v5.19: the P/E line used to sit in the price column beside the
+              logo — about 120px wide in the phone drawer — and "P/E 153.1 ·
+              Fwd 76.5" needs ~136px, so the forward number dropped to a
+              second line. Both lines run the width of the card now, under
+              the ticker row: the ratios, then YTD from the live price
+              against last year's final close (the payload's ytd_base). */}
+          {!loadError && !dataPending && (() => {
+            const hasPe = current.pe != null || current.forward_pe != null;
+            const base = current.ytd_base;
+            const ytd = (base != null && base > 0 && currentPrice != null && Number.isFinite(currentPrice))
+              ? ((currentPrice - base) / base) * 100 : null;
+            if (!hasPe && ytd == null) return null;
+            return (
+              <div className="sb-ratios">
+                {hasPe && (
+                  <div className="sb-pe" title="Trailing and forward price-to-earnings ratio">
+                    P/E {current.pe != null ? current.pe : "—"} · Fwd {current.forward_pe != null ? current.forward_pe : "—"}
+                  </div>
+                )}
+                {ytd != null && (
+                  <div className={`sb-ytd ${ytd >= 0 ? "up" : "down"}`}
+                       title={`Year to date: the live price against last year's final close ($${base.toFixed(2)})`}>
+                    YTD {ytd >= 0 ? "+" : ""}{ytd.toFixed(1)}%
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="sb-section">

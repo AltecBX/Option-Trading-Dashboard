@@ -174,6 +174,18 @@ ok("the shell absorbs the top inset inside its own height",
    /\.shell \{\s*padding: calc\(8px \+ env\(safe-area-inset-top, 0px\)\)/.test(css)
    && /\.frame-bottom \{[^}]*padding-bottom: env\(safe-area-inset-bottom, 0px\)/.test(css));
 
+// v5.19. Jerry: "The P/E 153.1 · Fwd 76.5 should always be on 1 line. Also
+// I want to put the YTD % underneath this." The line sat in the ~120px
+// price column of the phone drawer and wrapped; it now runs under the
+// whole ticker row, with YTD beneath it from the live price.
+ok("the P/E line and the YTD line sit under the ticker row, not in the price column",
+   /<\/div>\s*\{\/\* v5\.19[\s\S]{0,1200}className="sb-ratios"/.test(app)
+   && /className=\{`sb-ytd \$\{ytd >= 0 \? "up" : "down"\}`\}/.test(app));
+ok("neither line may wrap",
+   /\.sb-pe \{[^}]*white-space: nowrap/.test(css) && /\.sb-ytd \{[^}]*white-space: nowrap/.test(css));
+ok("YTD is the live price against last year's final close from the payload",
+   /\(currentPrice - base\) \/ base/.test(app) && /current\.ytd_base/.test(app));
+
 // ── 7. one version, from the one source ───────────────────────────────────
 ok("the status line shows the app's real version",
    /className="statusline"/.test(app) && /v\{APP_VERSION\}/.test(app));

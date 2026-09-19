@@ -252,7 +252,9 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
         "baselineMode": "friday", "rows": rows, "daily": bars,
         "current": {"current": spot, "baseline": rows[0]["baseline"],
                     "monday_open": spot, "name": symbol, "sector": "Technology",
-                    "dividend_yield": None, "pe": None, "forward_pe": None,
+                    # v5.19: Jerry's PLTR numbers, the ones that wrapped.
+                    "dividend_yield": None, "pe": 153.1, "forward_pe": 76.5,
+                    "ytd_base": round(spot * 0.8, 2),
                     "earnings": False, "earningsDate": None, "next_earnings": None,
                     "days_to_earnings": None, "week_start": wk.isoformat()},
         "chain": {"calls": calls, "puts": puts, "atm": spot},
@@ -709,6 +711,15 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return (m && c) ? Math.round(c.getBoundingClientRect().top
                                                - m.getBoundingClientRect().top) : null; })(),
                 phoneBand: box('.phone-band'),
+                // v5.19: the P/E line and the YTD line under it. `clip` is
+                // how much of the text is past the box; a wrapped line
+                // shows as height instead.
+                sbPe: (() => { const e = document.querySelector('.sb-pe'); if (!e) return null;
+                  return {h: Math.round(e.getBoundingClientRect().height), w: Math.round(e.getBoundingClientRect().width),
+                          clip: e.scrollWidth - e.clientWidth, text: e.textContent.trim()}; })(),
+                sbYtd: (() => { const e = document.querySelector('.sb-ytd'); if (!e) return null;
+                  return {h: Math.round(e.getBoundingClientRect().height), clip: e.scrollWidth - e.clientWidth,
+                          text: e.textContent.trim(), cls: e.className}; })(),
                 // v5.18: the phone's action bar and header, the body's own
                 // padding, and the top inset the page actually resolved.
                 bottombar: box('.mobile-bottombar'),
@@ -1314,6 +1325,41 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                                  "screen whose bottom 21px is the home indicator")
         finally:
             self._close(handles)
+
+    def test_the_pe_line_is_one_line_with_the_ytd_under_it(self):
+        """v5.19. Jerry, from his phone, on the sidebar: "The P/E 153.1 ·
+        Fwd 76.5 should always be on 1 line. Also I want to put the YTD %
+        underneath this." The line lived in the price column beside the
+        logo, about 120px wide in the phone drawer, and 'P/E 153.1 · Fwd
+        76.5' needs ~136px — so 76.5 dropped to a second line. Both lines
+        now run the width of the card under the ticker row; YTD is the
+        live price against last year's final close."""
+        payload = sell_payload()
+        base = payload["current"]["ytd_base"]
+        # The harness answers every live quote with 123.45, and YTD is the
+        # LIVE price against the base — not the payload's own close — so the
+        # expected figure is built from the stub, which also proves which
+        # price the line reads.
+        live = 123.45
+        pct = (live - base) / base * 100
+        expected = f"YTD {'+' if pct >= 0 else ''}{pct:.1f}%"
+        for w, h in ((390, 844), (440, 956), (1440, 900)):
+            geo, errors, handles = self._measure(w, h, ticker_payload=payload)
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                pe = geo["sbPe"]
+                self.assertIsNotNone(pe, f"no P/E line at {w}px")
+                self.assertEqual("P/E 153.1 · Fwd 76.5", pe["text"])
+                self.assertLessEqual(pe["h"], 18, f"the P/E line is {pe['h']}px tall at {w}px — it wrapped")
+                self.assertEqual(0, pe["clip"], f"the P/E line is cut off by {pe['clip']}px at {w}px")
+                ytd = geo["sbYtd"]
+                self.assertIsNotNone(ytd, f"no YTD line under the P/E at {w}px")
+                self.assertEqual(expected, ytd["text"], f"YTD at {w}px is not the live price against the base")
+                self.assertIn("up" if pct >= 0 else "down", ytd["cls"].split())
+                self.assertLessEqual(ytd["h"], 18, f"the YTD line is {ytd['h']}px tall at {w}px")
+                self.assertEqual(0, ytd["clip"], f"the YTD line is cut off at {w}px")
+            finally:
+                self._close(handles)
 
     def test_the_phone_jump_control_is_a_picker_not_a_strip(self):
         """Seventeen chips with clipped labels in a horizontally scrolling row
