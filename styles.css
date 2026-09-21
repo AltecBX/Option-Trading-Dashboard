@@ -385,6 +385,23 @@ input, select, textarea {
    evidence, not information, and it leaves with the bug. */
 .sl-screen { font-family: var(--font-mono); font-size: 9.5px; color: var(--fg-4);
   letter-spacing: 0; margin-left: 6px; white-space: nowrap; }
+/* ── Friday (v5.24) ─────────────────────────────────────────────────────
+   The head of the Friday tab: three facts, sized to be read at a glance
+   from across a desk, and one of them lights up on the day. */
+.fri-state { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.fri-pill {
+  display: flex; flex-direction: column; gap: 2px; min-width: 132px;
+  padding: 8px 12px; border-radius: 10px;
+  background: var(--bg-3); border: 1px solid var(--line);
+}
+.fri-pill-k { font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--fg-4); }
+.fri-pill-v { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--fg); }
+.fri-pill.on { border-color: color-mix(in oklch, var(--accent), transparent 45%); }
+.fri-pill.on .fri-pill-v { color: var(--accent); }
+.fri-note { margin: 10px 0 0; font-size: 11.5px; color: var(--fg-4); }
+.fri-link { background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; text-decoration: underline; }
+
 /* v5.22: the version reads as text, not as a link, but it is one. */
 .statusline a.sl-brand { color: inherit; text-decoration: none; }
 .statusline a.sl-brand:hover .sl-ver { text-decoration: underline; }
@@ -1844,6 +1861,17 @@ input, select, textarea {
   font-weight: 600;
 }
 .scan-table .scan-th-num { text-align: right; }
+/* v5.24, Jerry on Worth selling today: "The results are not lining up with
+   the header." They did not, and in 130 header cells across six tab files:
+   the house spelling for a numeric HEADER is `scan-th-num`, but those were
+   written `scan-num` — the spelling for a numeric CELL. `.scan-num` does
+   say `text-align: right`, and loses anyway, because `.scan-table th`
+   (a class AND an element) outranks a lone class. So every one of those
+   columns put its header hard left and its numbers hard right, which on a
+   column as wide as PREMIUM OVER REALIZED is half a card apart.
+   Teaching the cell spelling to work on a header fixes all of them at once
+   and leaves the 110 that already say `scan-th-num` exactly as they are. */
+.scan-table th.scan-num { text-align: right; }
 .scan-table .scan-th-strat { text-align: left; }
 .scan-row {
   border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
@@ -13896,38 +13924,43 @@ body { overflow: hidden; overscroll-behavior: none; }
 /* ── The desktop app bar ─────────────────────────────────────────────────── */
 /* v4.94: 46px + a 10px margin was 56px of frame for a brand, a search box and
    a clock. The workspace is the scarce thing on this screen, not the app bar. */
+/* v5.24, Jerry: "Make everything 1pt larger in the first screenshot." The
+   whole top bar, text and the things sized to sit beside it, so nothing
+   ends up a point out of proportion with its neighbours. The bar itself
+   grows with the type — 34px was cut to the old 13.5px brand, and keeping
+   it would have clipped the descenders rather than shown the larger text. */
 .appbar {
   display: flex; align-items: center; gap: 12px;
-  height: 34px; flex: 0 0 auto;
+  height: 36px; flex: 0 0 auto;
   border-bottom: 1px solid var(--line);
   margin-bottom: 5px;
 }
 .ab-brand {
   display: inline-flex; align-items: center; gap: 9px;
   background: none; border: 0; padding: 0; cursor: pointer; color: var(--fg);
-  font-family: var(--font-display); font-weight: 700; font-size: 13.5px;
+  font-family: var(--font-display); font-weight: 700; font-size: 14.5px;
   letter-spacing: -0.01em; white-space: nowrap;
 }
-.ab-mark { width: 21px; height: 21px; border-radius: 6px; object-fit: cover; }
+.ab-mark { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; }
 .ab-search {
   flex: 1 1 auto; min-width: 0; max-width: 560px;
   display: inline-flex; align-items: center; gap: 8px;
   padding: 4px 11px; cursor: pointer; text-align: left;
   background: var(--bg-2); color: var(--fg-3);
   border: 1px solid var(--line); border-radius: 999px;
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 .ab-search:hover { border-color: var(--line-2); color: var(--fg-2); }
-.ab-search-ico { font-size: 14px; flex: 0 0 auto; }
+.ab-search-ico { font-size: 15px; flex: 0 0 auto; }
 .ab-search-txt { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ab-kbd {
-  flex: 0 0 auto; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   color: var(--fg-4); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
 }
 .ab-right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
 .ab-clock {
   display: inline-flex; align-items: center; gap: 10px; cursor: help;
-  font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-3); white-space: nowrap;
 }
 /* v5.11: the market state leads the clock and carries the colour. Closed is
    RED, not the grey it used to be — grey reads as "nothing to report", and
@@ -13946,9 +13979,9 @@ body { overflow: hidden; overscroll-behavior: none; }
 .ab-mkt-ext  .ab-mkt-dot { background: var(--warn); }
 .ab-mkt-shut .ab-mkt-dot { background: var(--down); }
 .ab-icon {
-  width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
   background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-3);
-  font-weight: 700; font-size: 13px; line-height: 1;
+  font-weight: 700; font-size: 14px; line-height: 1;
 }
 .ab-icon:hover { color: var(--fg); border-color: var(--line-2); }
 
@@ -14680,7 +14713,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 @media (max-height: 520px) {
   .tab-bar, .tab-bar-grouped { display: none !important; }
   .ab-tools { display: inline-flex !important; }
-  .appbar { height: 26px; margin-bottom: 3px; }
+  .appbar { height: 28px; margin-bottom: 3px; }   /* v5.24: +2px with the type */
   .mko-grid, .mko-grid-skel { grid-template-columns: repeat(5, 1fr) !important; gap: 4px; }
   .mko-tile  { padding: 3px 7px 2px; border-radius: 8px; }
   .mko-price { font-size: 13px; }
@@ -14703,8 +14736,9 @@ body { overflow: hidden; overscroll-behavior: none; }
    navigation rows plus a 46-pixel app bar still cost the workspace about
    sixty pixels it can use. Trim the chrome, keep every row. */
 @media (min-width: 1081px) and (max-height: 920px) {
-  .appbar { height: 30px; margin-bottom: 4px; }
-  .ab-icon { width: 22px; height: 22px; }
+  /* v5.24: +2px each, so a laptop keeps the same trim but fits the type. */
+  .appbar { height: 32px; margin-bottom: 4px; }
+  .ab-icon { width: 24px; height: 24px; }
   .tab-bar-grouped { padding: 1px 8px; gap: 0; }
   .tab-bar-grouped .tab-btn { font-size: 11.5px; padding: 2px 9px; }
   .tab-row + .tab-row { padding-top: 0; }
@@ -15053,7 +15087,10 @@ body { overflow: hidden; overscroll-behavior: none; }
 .mko-pts { font-size: 10px; }
 .pc-stats span, .pc-picks-h, .pc-rot-lbl, .opp-title, .opp-chip em, .mctx-rlbl { font-size: 10px; }
 .mctx-earn-sym small { font-size: 10px; }
-.pc-kicker, .pc-stats small, .pc-score-row b small, .mctx-gamma, .ab-kbd { font-size: 10.5px; }
+.pc-kicker, .pc-stats small, .pc-score-row b small, .mctx-gamma { font-size: 10.5px; }
+/* v5.24: the ⌘K hint leaves that group — the whole app bar went up a point
+   and this rule, declared later, was quietly holding it back. */
+.ab-kbd { font-size: 11.5px; }
 /* Not `.term`: the sidebar's "Return baseline" is a glossary term that
    also carries .sb-label, so .sb-label is the floor for it — and `.term`
    itself is a wrapper that INHERITS its size from wherever it sits (17px

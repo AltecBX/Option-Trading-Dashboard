@@ -15649,6 +15649,7 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
 
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
+  FridayCard: _memo(FridayCard),
   WeeklySellSetupCard: _memo(WeeklySellSetupCard),
   PremiumJuiceCard: _memo(PremiumJuiceCard),
   FinvizPanel: _memo(FinvizPanel),
@@ -16150,4 +16151,122 @@ function LegacySide({ label, c, side, currentPrice, baselinePrice, rows, weeks, 
       <R l="Return on BP" v={<span className="num">{rbp.toFixed(2)}%</span>} />
     </div>
   );
+}
+
+// ── Friday (v5.24) ──────────────────────────────────────────────────────────
+//
+// Jerry: "Lets put anything that has to do with selling Friday options or
+// 0DTE on Friday's on its own Tab called Friday."
+//
+// This is the head of that tab: which Friday the weeklies expire on, how much
+// of it is left, and whether today is the day the expiring ones are 0DTE. The
+// boards under it are the ones that already answer "sell what" — this answers
+// "when", which nothing did, and which is the thing his whole routine hangs
+// on.
+//
+// Everything here is the Eastern calendar, not the browser's: a seller in any
+// other zone still trades New York's Friday. A market holiday can move an
+// expiry and this does not know the calendar, so it says Friday, not "the
+// expiry" — naming what it actually computed.
+function FridayCard({ onOpenTab }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(skipWhenHidden(() => setNow(new Date())), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const et = useMemo(() => {
+    // Weekday and wall clock in New York, whatever the browser's zone.
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York", weekday: "short", month: "short",
+        day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(now);
+      const get = (t) => (parts.find(p => p.type === t) || {}).value;
+      return {
+        wd: get("weekday"),
+        month: get("month"),
+        day: parseInt(get("day"), 10),
+        mins: parseInt(get("hour"), 10) * 60 + parseInt(get("minute"), 10),
+      };
+    } catch (_) { return null; }
+  }, [now]);
+
+  if (!et) return null;
+
+  const ORDER = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const idx = ORDER.indexOf(et.wd);
+  const CLOSE = 16 * 60;            // 4:00pm ET
+  const OPEN = 9 * 60 + 30;
+  // Days until Friday's close. On Friday after the close, and at the weekend,
+  // the weeklies that matter are next week's.
+  const isFriday = et.wd === "Fri";
+  const afterClose = et.mins >= CLOSE;
+  let daysOut = (5 - idx + 7) % 7;                 // 5 = Friday
+  if (isFriday && afterClose) daysOut = 7;
+  else if (idx === 6) daysOut = 6;                 // Saturday
+  const zeroDte = isFriday && !afterClose;
+  const minsLeft = zeroDte ? Math.max(0, CLOSE - et.mins) : null;
+  const preOpen = zeroDte && et.mins < OPEN;
+
+  const when = daysOut === 0
+    ? "today"
+    : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`;
+  const left = minsLeft == null ? null
+    : preOpen ? `opens in ${Math.floor((OPEN - et.mins) / 60)}h ${(OPEN - et.mins) % 60}m`
+    : minsLeft >= 60 ? `${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m to the close`
+    : `${minsLeft}m to the close`;
+
+  return (
+    <div className="card fri-card">
+      <div className="card-head">
+        <div>
+          <span className="kicker">Friday</span>
+          <h3 className="card-title">
+            {zeroDte ? "The weeklies expire today" : `The weeklies expire ${when}`}
+          </h3>
+          <p className="card-sub">
+            Everything on this tab is about the option that dies at Friday&rsquo;s
+            close: the names that have reached their usual weekly high or low,
+            and — on the day itself — what the last session is paying.
+          </p>
+        </div>
+      </div>
+      <div className="fri-state">
+        <div className={`fri-pill ${zeroDte ? "on" : ""}`}>
+          <span className="fri-pill-k">Expiry</span>
+          <span className="fri-pill-v">Fri {fridayDate(et, daysOut)}</span>
+        </div>
+        <div className="fri-pill">
+          <span className="fri-pill-k">{zeroDte ? "Today" : "Sessions out"}</span>
+          <span className="fri-pill-v">{zeroDte ? (left || "0DTE") : String(daysOut)}</span>
+        </div>
+        <div className={`fri-pill ${zeroDte ? "on" : ""}`}>
+          <span className="fri-pill-k">0DTE</span>
+          <span className="fri-pill-v">{zeroDte ? "yes — today is the day" : "not today"}</span>
+        </div>
+      </div>
+      <p className="fri-note">
+        A market holiday can move an expiry; this reads the calendar&rsquo;s
+        Friday, not the exchange&rsquo;s. {onOpenTab ? (
+          <button className="fri-link" onClick={() => onOpenTab("trade")}>
+            The per-symbol strike lives on Trade
+          </button>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+// The date of the Friday `daysOut` days from the Eastern today. Built from a
+// real Date so month ends and leap years are the calendar's problem, not
+// arithmetic's.
+function fridayDate(et, daysOut) {
+  try {
+    const base = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    base.setDate(base.getDate() + daysOut);
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(base);
+  } catch (_) {
+    return "";
+  }
 }

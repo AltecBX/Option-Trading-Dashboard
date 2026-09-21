@@ -327,7 +327,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             cls.tmp.cleanup()
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
-                 timezone=None, safe_area=None, starred=None, ytd_bases=None):
+                 timezone=None, safe_area=None, starred=None, ytd_bases=None,
+                 quotes=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -337,6 +338,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # off unless a test asks, so no other test's geometry moves.
         self._starred = starred
         self._ytd_bases = ytd_bases
+        # v5.24: per-symbol stub prices. A flat price for every symbol made
+        # the chips test depend on whether the market happened to be open
+        # while it ran — see the note on that test.
+        self._quotes = quotes
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -417,9 +422,11 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 syms = []
                 if "tickers=" in url:
                     syms = url.split("tickers=")[-1].split("&")[0].replace("%2C", ",").split(",")
+                px = self._quotes or {}
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"results": {
-                              s: {"last": 123.45, "change_pct": 1.23} for s in syms if s}}))
+                              s: {"last": px.get(s, 123.45), "change_pct": 1.23}
+                              for s in syms if s}}))
                 return
             r.continue_()
 
@@ -779,10 +786,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return e ? Math.max(0, e.scrollWidth - e.clientWidth) : null; })(),
               };
             }""")
-        return geo, errors, (pw, browser)
+        # v5.24: the page rides along too. Most tests read the geometry
+        # probe above and never touch it, but a cascade question ("does this
+        # header align with its numbers?") is answered by asking the live
+        # stylesheet, not by a snapshot taken before the question existed.
+        return geo, errors, (pw, browser, page)
 
     def _close(self, handles):
-        pw, browser = handles
+        pw, browser = handles[0], handles[1]
         browser.close()
         pw.stop()
 
@@ -1430,16 +1441,23 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         last year's final close, the same anchor the card above it uses.
 
         The arithmetic is checked, not just the presence of a number, and
-        each chip checks a different path. DOUBLE and HALF are not the
-        open symbol, so nothing polls a quote for them and they read their
-        latest close: 100 against 50 is +100%, 100 against 200 is -50%.
-        LIVE is the open symbol, so the harness's quote (123.45) reaches
-        it; its stored close is deliberately far away, so reading +0.0%
-        instead of +709.7% is what proves the live price wins. NOBASE
-        keeps its bare symbol rather than showing a placeholder."""
+        each chip checks a different path.
+
+        DOUBLE and HALF are quoted at exactly their stored close, so they
+        read +100.0% and -50.0% whether or not a quote was polled for them.
+        That is deliberate and was learned the hard way: the first cut gave
+        every symbol the same stub price and relied on those two NOT being
+        polled, which is true only while the market is shut. It passed on a
+        Saturday and failed on the Monday, on code that had not changed.
+
+        LIVE is the open symbol, whose quote is fetched on every symbol
+        change regardless of the hour, and its stored close is deliberately
+        far away — reading +0.0% rather than +709.7% is what proves the live
+        price wins. NOBASE keeps its bare symbol rather than a placeholder."""
         starred = ["LIVE", "DOUBLE", "HALF", "NOBASE"]
         geo, errors, handles = self._measure(
             1440, 900, starred=starred,
+            quotes={"LIVE": 123.45, "DOUBLE": 100.0, "HALF": 100.0, "NOBASE": 50.0},
             init="try{localStorage.setItem('weeklyOptionsTimer.settings.v1',"
                  "JSON.stringify({ticker:'LIVE',weeks:32,baseline:'friday'}))}catch(e){}",
             ytd_bases={"LIVE": {"base": 123.45, "last": 999.0},
@@ -1460,6 +1478,81 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             for sym, c in chips.items():
                 self.assertLessEqual(c["lines"], 30, f"the {sym} chip is {c['lines']}px — it wrapped")
                 self.assertEqual(0, c["clip"], f"the {sym} chip is cut off by {c['clip']}px")
+        finally:
+            self._close(handles)
+
+    def test_a_numeric_header_lines_up_with_its_numbers(self):
+        """v5.24. Jerry on Worth selling today: "The results are not lining
+        up with the header."
+
+        The defect was a cascade one, so this measures the cascade with the
+        real stylesheet: `.scan-table th` is a class AND an element, which
+        outranks the lone `.scan-num` class, so a header written with the
+        CELL spelling stayed hard left above numbers hard right — half a
+        card apart on a column as wide as PREMIUM OVER REALIZED. 130 header
+        cells across six tab files were written that way."""
+        geo, errors, handles = self._measure(1440, 900)
+        page = handles[2]
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            align = page.evaluate("""(() => {
+              const d = document.createElement('div');
+              d.innerHTML = '<table class="scan-table"><thead><tr>'
+                + '<th>Symbol</th><th class="scan-num">Premium over realized</th>'
+                + '<th class="scan-th-num">Credit</th></tr></thead>'
+                + '<tbody><tr><td>AMZN</td><td class="scan-num">+3.2</td>'
+                + '<td class="scan-num">$1.42</td></tr></tbody></table>';
+              document.body.appendChild(d);
+              const cs = (s) => getComputedStyle(d.querySelector(s)).textAlign;
+              const out = {plain: cs('th:not([class])'), cellSpelling: cs('th.scan-num'),
+                           headerSpelling: cs('th.scan-th-num'), value: cs('td.scan-num')};
+              d.remove(); return out; })()""")
+            self.assertEqual("right", align["value"], "a numeric cell stopped right-aligning")
+            self.assertEqual(align["value"], align["cellSpelling"],
+                             "a header written `scan-num` does not line up with its numbers")
+            self.assertEqual(align["value"], align["headerSpelling"],
+                             "a header written `scan-th-num` does not line up with its numbers")
+            self.assertEqual("left", align["plain"],
+                             "a header with no numeric class was dragged right too")
+        finally:
+            self._close(handles)
+
+    def test_friday_is_a_destination_with_its_expiry_on_it(self):
+        """v5.24. Jerry: "Lets put anything that has to do with selling
+        Friday options or 0DTE on Friday's on its own Tab called Friday. We
+        can put it under Workspace." The head card answers WHEN — which
+        Friday, how far out, whether today is the 0DTE day — which nothing
+        answered before; the boards under it answer what to sell."""
+        geo, errors, handles = self._measure(1600, 1000, timezone="America/New_York")
+        page = handles[2]
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            tools = [t.strip() for t in page.evaluate(
+                """[...document.querySelectorAll('.tab-bar .tab-btn')].map(b => b.textContent)""")]
+            self.assertIn("Friday", tools, f"no Friday destination; the bar has {tools[:10]}")
+            self.assertEqual(tools.index("Trade") + 1, tools.index("Friday"),
+                             "Friday is not next to Trade in Workspace")
+            self.assertNotIn("0DTE Juice", tools, "the 0DTE destination was duplicated, not moved")
+            page.evaluate("""(() => { const b = [...document.querySelectorAll('.tab-bar .tab-btn')]
+              .find(x => x.textContent.trim() === 'Friday'); if (b) b.click(); })()""")
+            page.wait_for_timeout(3500)
+            card = page.evaluate("""(() => { const c = document.querySelector('.fri-card');
+              if (!c) return null;
+              return {title: (c.querySelector('.card-title') || {}).textContent || '',
+                      pills: [...c.querySelectorAll('.fri-pill')].map(p => p.textContent.trim())}; })()""")
+            self.assertIsNotNone(card, "the Friday tab has no head card")
+            self.assertIn("expire", card["title"].lower(),
+                          f"the head card does not say when the weeklies expire: {card['title']!r}")
+            self.assertEqual(3, len(card["pills"]), f"expected three facts, got {card['pills']}")
+            self.assertTrue(any(p.startswith("Expiry") and "Fri" in p for p in card["pills"]),
+                            f"no Friday date on the card: {card['pills']}")
+            self.assertTrue(any(p.startswith("0DTE") for p in card["pills"]),
+                            f"the card does not say whether today is 0DTE: {card['pills']}")
+            titles = page.evaluate(
+                """[...document.querySelectorAll('[data-tab="friday"] .card-title')]
+                     .map(e => e.textContent.trim())""")
+            self.assertGreaterEqual(len(titles), 3,
+                                    f"the Friday tab carries only {titles} — the boards are missing")
         finally:
             self._close(handles)
 
