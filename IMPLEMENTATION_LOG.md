@@ -4021,6 +4021,29 @@ and the phone could be swiped sideways. How far depended on where in the
 1.1s loop you looked, which is why it had never been pinned down. One
 `overflow: hidden`, and the guard is now identical three runs running.
 
+### Which Friday, asked twice, answered differently
+
+Codex on the PR: the head card and the timing card's expiry picker now sit
+on the same tab and were computing Friday two different ways, so outside
+Eastern the header could name one Friday above a picker defaulted to
+another — and Watch would send the expiry the header said had gone.
+
+The picker's own version was worse than the finding. It read the BROWSER's
+weekday and hour, then serialised through `toISOString()`, which is UTC.
+From 8pm Eastern the UTC date is already tomorrow, so it answered SATURDAY
+— in Eastern, on a correctly set clock, for anyone opening the app in the
+evening. Jerry trades pre-market and evenings.
+
+One definition now (`etNextFridayISO` in app-lib): the Eastern weekday and
+hour, rolling after the 4pm close, with the day arithmetic done in UTC on
+the Eastern Y/M/D so no zone can drag it across a midnight. The picker
+calls it and the head card derives both its date and its day count from the
+same call, so there is nothing left for the two to disagree about.
+
+Guard: the same five instants asked in New York, Los Angeles and Tokyo,
+including Thursday 9pm Eastern. Red on the old version with
+`'2026-09-25' != '2026-09-26'` — the Saturday.
+
 Guards: the sweep (proven red by reverting the move), two static on the
 phone trim, one render at 440×956 that pins the head card's height, the
 first tool's position, three facts on one row uncut, both warnings alive

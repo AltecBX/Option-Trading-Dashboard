@@ -301,6 +301,21 @@ ok("no link still points at the destination that moved",
      owned.length >= 2, "found " + owned.length);
 }
 
+// Codex on #412: the head card and the expiry picker sat on one tab
+// computing Friday two different ways. The picker's own version read the
+// BROWSER's weekday and hour and serialised through toISOString() — UTC —
+// so from 8pm Eastern it answered Saturday, in Eastern, on a correct clock.
+ok("which Friday has one definition, and it is Eastern",
+   /function etNextFridayISO\(now\)/.test(lib)
+   && /timeZone: "America\/New_York"/.test(lib)
+   && /Object\.assign\(window, \{ etNextFridayISO,/.test(lib));
+ok("the expiry picker asks for it instead of reading the browser's clock",
+   /etNextFridayISO\(\) : null/.test(read("timing.jsx"))
+   && !/d\.getDay\(\)[\s\S]{0,120}toISOString\(\)\.slice\(0, 10\)/.test(read("timing.jsx")));
+ok("and the head card derives its date from the same call",
+   /const fridayISO = etNextFridayISO\(now\);/.test(cards)
+   && !/function fridayDate\(/.test(cards));
+
 // v5.25: the head card was 352px of a 520px phone workspace, so the tool
 // the tab exists for started below the fold — the v5.17 mistake again.
 ok("the Friday head card is trimmed for a phone rather than filling it",

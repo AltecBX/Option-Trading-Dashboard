@@ -1637,6 +1637,49 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_which_friday_is_the_same_answer_in_every_timezone(self):
+        """v5.25 (Codex on #412). The Friday head card and the timing card's
+        expiry picker share this tab, and were computing Friday two
+        different ways — so outside Eastern the header could name one Friday
+        above a picker defaulted to another, and Watch would send the wrong
+        expiry.
+
+        The picker's own version was worse than that: it read the BROWSER's
+        weekday and hour, then serialised through `toISOString()`, which is
+        UTC. From 8pm Eastern the UTC date is already tomorrow, so it
+        answered Saturday — in Eastern, on a correctly set clock, for anyone
+        looking at the app in the evening. That is the 21:00 case below.
+
+        One definition now, checked against a browser five hours west of the
+        one it computes in."""
+        for tz in ("America/New_York", "America/Los_Angeles", "Asia/Tokyo"):
+            geo, errors, handles = self._measure(1440, 900, timezone=tz)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors in {tz}: {errors[:3]}")
+                got = page.evaluate("""(() => {
+                  const at = (iso) => window.etNextFridayISO(new Date(iso));
+                  return {
+                    // Eastern is UTC-4 in September.
+                    monMorning:  at('2026-09-21T13:00:00Z'),  // Mon 09:00 ET
+                    friBefore:   at('2026-09-25T18:00:00Z'),  // Fri 14:00 ET
+                    friAfter:    at('2026-09-25T20:30:00Z'),  // Fri 16:30 ET
+                    thuEvening:  at('2026-09-25T01:00:00Z'),  // Thu 21:00 ET
+                    satMorning:  at('2026-09-26T14:00:00Z'),  // Sat 10:00 ET
+                  }; })()""")
+            finally:
+                self._close(handles)
+            self.assertEqual("2026-09-25", got["monMorning"], f"Monday, in {tz}")
+            self.assertEqual("2026-09-25", got["friBefore"],
+                             f"Friday before the close is still this Friday, in {tz}")
+            self.assertEqual("2026-10-02", got["friAfter"],
+                             f"after Friday's close it is next week's, in {tz}")
+            # The one the old code got wrong even in Eastern: 9pm ET Thursday
+            # is already Friday in UTC, and it answered Saturday.
+            self.assertEqual("2026-09-25", got["thuEvening"],
+                             f"Thursday evening must still be this Friday, in {tz}")
+            self.assertEqual("2026-10-02", got["satMorning"], f"Saturday, in {tz}")
+
     def test_the_phone_jump_control_is_a_picker_not_a_strip(self):
         """Seventeen chips with clipped labels in a horizontally scrolling row
         does not help you reach a panel near the bottom. The tool picker solved
