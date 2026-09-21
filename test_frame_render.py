@@ -1587,6 +1587,56 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_friday_tab_is_usable_on_a_phone(self):
+        """v5.25. Jerry: "Optimize the Friday tab for my phone too."
+
+        Measured at 440x956 before: the head card alone was 352px of a
+        520px workspace, its three facts were stacked 2+1 by a 132px
+        minimum width, and At the line — the tool the tab exists for —
+        started below the fold. That is the v5.17 mistake repeated, where
+        the market band stood in front of the first tool on Trade.
+
+        What this pins is that the head card stays a head and does not
+        become the screen, and that trimming it did not cost either
+        warning: one of them is the reason a trade would be wrong."""
+        geo, errors, handles = self._measure(
+            440, 956, tab="friday", timezone="America/New_York")
+        page = handles[2]
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            cards = page.evaluate("""(() => {
+              const main = document.querySelector('.main');
+              const mt = main.getBoundingClientRect().top;
+              return [...document.querySelectorAll('[data-tab="friday"] .card')].map(c => ({
+                title: ((c.querySelector('.card-title') || {}).textContent || '').trim(),
+                top: Math.round(c.getBoundingClientRect().top - mt),
+                h: Math.round(c.getBoundingClientRect().height)})); })()""")
+            self.assertGreaterEqual(len(cards), 4,
+                                    f"the Friday tab carries only {[c['title'][:28] for c in cards]}")
+            head = cards[0]
+            self.assertLessEqual(head["h"], 260,
+                                 f"the head card is {head['h']}px of a phone workspace — it is the screen")
+            self.assertLessEqual(cards[1]["top"], 300,
+                                 f"the first tool starts {cards[1]['top']}px down; it is below the fold")
+            pills = page.evaluate("""(() => {
+              const ps = [...document.querySelectorAll('.fri-pill')];
+              const tops = new Set(ps.map(p => Math.round(p.getBoundingClientRect().top)));
+              return {n: ps.length, rows: tops.size,
+                      clip: Math.max(0, ...ps.map(p => p.scrollWidth - p.clientWidth))}; })()""")
+            self.assertEqual(3, pills["n"], "the three facts are not all there")
+            self.assertEqual(1, pills["rows"], "the three facts wrapped onto two rows")
+            self.assertEqual(0, pills["clip"], f"a fact is cut off by {pills['clip']}px")
+            notes = page.evaluate(
+                """[...document.querySelectorAll('.fri-card .fri-note')]
+                     .filter(n => n.getBoundingClientRect().height > 0).length""")
+            self.assertEqual(2, notes, f"{notes} of the two warnings survived the phone trim")
+            # And nothing on the tab forces the workspace sideways.
+            over = page.evaluate("""(() => { const m = document.querySelector('.main');
+              return Math.max(0, m.scrollWidth - m.clientWidth); })()""")
+            self.assertLessEqual(over, 2, f"the workspace scrolls {over}px sideways on the Friday tab")
+        finally:
+            self._close(handles)
+
     def test_the_phone_jump_control_is_a_picker_not_a_strip(self):
         """Seventeen chips with clipped labels in a horizontally scrolling row
         does not help you reach a panel near the bottom. The tool picker solved

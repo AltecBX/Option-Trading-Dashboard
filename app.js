@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.24";
+const APP_VERSION = "5.25";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -5404,14 +5404,7 @@ function App() {
     livePrice: getLivePrice(ticker) ?? currentPrice,
     apiFetch: apiFetch,
     uwHealth: uwHealth
-  }), /*#__PURE__*/React.createElement(CardErrorBoundary, {
-    label: "0DTE timing"
-  }, /*#__PURE__*/React.createElement(TimingCard, {
-    apiFetch: apiFetch,
-    ticker: ticker,
-    currentPrice: getLivePrice(ticker) ?? currentPrice,
-    positions: positions
-  })), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
     id: "jump-chart",
     className: "jump-anchor",
     "aria-hidden": "true"
@@ -7488,6 +7481,18 @@ function App() {
     onPickTicker: t => {
       switchTicker(t);
     }
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "friday",
+    active: activeTab,
+    pending: dataPending,
+    pendingLabel: ticker
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "0DTE timing"
+  }, /*#__PURE__*/React.createElement(TimingCard, {
+    apiFetch: apiFetch,
+    ticker: ticker,
+    currentPrice: getLivePrice(ticker) ?? currentPrice,
+    positions: positions
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "friday",
     active: activeTab

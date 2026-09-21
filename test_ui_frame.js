@@ -266,6 +266,49 @@ ok("a saved tab order carrying the old id puts Friday where it was",
    /const t = id === "juice" \? "friday" : id;/.test(app));
 ok("no link still points at the destination that moved",
    !/0DTE Juice tab/.test(cards) && /See the Friday tab for structures/.test(cards));
+// v5.25. Jerry, on a card titled "Friday 0DTE · optimal stopping" that was
+// still sitting on Trade: "Wouldn't this go under Friday too? If so, why
+// I'm I catching these mistakes."
+//
+// Because the tab was assembled from the cards I had in mind rather than
+// from a search. This IS that search, run every time the suite runs: find
+// every card whose own kicker or title names Friday or 0DTE, and require
+// it to be mounted on the Friday tab. A new one arrives and forgets to be
+// moved, this fails with its name.
+{
+  const SOURCES = ["app.jsx", "app-cards.jsx", "timing.jsx"]
+    .concat(fs.readdirSync(__dirname).filter(f => /^tab-.*\.jsx$/.test(f)));
+  // The friday zone: what each `tab="friday"` panel encloses.
+  const zone = (app.match(/tab="friday"[\s\S]{0,900}?<\/TabPanel>/g) || []).join("\n");
+  const owned = [], stray = [];
+  for (const f of SOURCES) {
+    const src = read(f);
+    const re = /className="(?:kicker|card-title)"[^>]*>\s*([^<{][^<]{0,80})/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      const text = m[1];
+      if (!/\b0DTE\b|\bFriday\b/i.test(text)) continue;
+      // The component it belongs to: the nearest `function Name(` above it.
+      const before = src.slice(0, m.index);
+      const fn = [...before.matchAll(/function ([A-Z][A-Za-z0-9_]*)\s*\(/g)].pop();
+      const name = fn ? fn[1] : "(unknown)";
+      (zone.includes("<" + name) ? owned : stray).push(name + " — " + text.trim().slice(0, 40));
+    }
+  }
+  ok("every card that names Friday or 0DTE in its own title is on the Friday tab",
+     stray.length === 0, stray.join(" | "));
+  ok("and that search actually found some (an empty sweep proves nothing)",
+     owned.length >= 2, "found " + owned.length);
+}
+
+// v5.25: the head card was 352px of a 520px phone workspace, so the tool
+// the tab exists for started below the fold — the v5.17 mistake again.
+ok("the Friday head card is trimmed for a phone rather than filling it",
+   /@media \(max-width: 900px\) \{\s*\.fri-card \.card-sub \{ display: none; \}/.test(css)
+   && /\.fri-pill \{ min-width: 0; flex: 1 1 0;/.test(css));
+ok("but neither warning is dropped on the way",
+   !/\.fri-note \{ display: none/.test(css));
+
 ok("the Friday head card says which Friday and whether today is the day",
    /function FridayCard/.test(cards) && /const zeroDte = isFriday && !afterClose;/.test(cards)
    && /FridayCard: _memo\(FridayCard\)/.test(cards));
