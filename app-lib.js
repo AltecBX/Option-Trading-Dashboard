@@ -128,6 +128,9 @@ const TABS = [{
   id: "trade",
   label: "Trade"
 }, {
+  id: "friday",
+  label: "Friday"
+}, {
   id: "ask",
   label: "Ask AI"
 }, {
@@ -175,9 +178,6 @@ const TABS = [{
 }, {
   id: "recovery",
   label: "Recovery"
-}, {
-  id: "juice",
-  label: "0DTE Juice"
 }, {
   id: "backtest",
   label: "Backtest"
@@ -229,13 +229,13 @@ const TAB_KEY = "jerry_active_tab_v1";
 const TAB_GROUPS = [{
   id: "workspace",
   label: "Workspace",
-  tip: "Where you decide and record: the trade screen, research on one name, your list, your positions and your journal.",
-  ids: ["trade", "discover", "analyze", "watchlist", "manage", "journal", "ask"]
+  tip: "Where you decide and record: the trade screen, Friday's expiry, research on one name, your list, your positions and your journal.",
+  ids: ["trade", "friday", "discover", "analyze", "watchlist", "manage", "journal", "ask"]
 }, {
   id: "scan",
   label: "Scan",
   tip: "Tools that look across many names at once and hand back candidates.",
-  ids: ["scanners", "patterns", "streaks", "edge", "gap", "juice", "earnops", "recovery"]
+  ids: ["scanners", "patterns", "streaks", "edge", "gap", "earnops", "recovery"]
 }, {
   id: "research",
   label: "Research",

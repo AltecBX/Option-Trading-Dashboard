@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.23";
+const APP_VERSION = "5.24";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -839,6 +839,10 @@ function App() {
       const qt = new URLSearchParams(location.search).get("tab");
       if (window.__JT_EMBED && qt && TABS.some(x => x.id === qt)) return qt;
       const t = localStorage.getItem(TAB_KEY);
+      // v5.24: "0DTE Juice" became the Friday tab. Anyone whose last
+      // destination was that one lands where it went, not on Trade with no
+      // explanation — an unknown id otherwise falls through silently.
+      if (t === "juice") return "friday";
       return TABS.some(x => x.id === t) ? t : "trade";
     } catch {
       return "trade";
@@ -863,7 +867,17 @@ function App() {
         const p = await r.json();
         const saved = Array.isArray(p && p.tab_order) ? p.tab_order : [];
         const known = new Set(TABS.map(t => t.id));
-        const ordered = saved.filter(id => known.has(id));
+        // v5.24 (Codex on #411): a saved order predating the Friday tab
+        // still names `juice`. Filtering on `known` alone would drop it and
+        // append `friday` at the END, so the one destination this release
+        // is about would arrive last in Workspace for everyone who has ever
+        // dragged a tab. It takes the place the old one held.
+        const ordered = [];
+        for (const id of saved) {
+          const t = id === "juice" ? "friday" : id;
+          if (known.has(t) && !ordered.includes(t)) ordered.push(t);
+        }
+        for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         if (ordered.length && !cancelled) setTabOrder(ordered);
         if (!cancelled && Array.isArray(p && p.presets) && p.presets.length) {
@@ -7455,7 +7469,27 @@ function App() {
     },
     onResearch1m: openIntraday
   }))), /*#__PURE__*/React.createElement(TabPanel, {
-    tab: "juice",
+    tab: "friday",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Friday"
+  }, /*#__PURE__*/React.createElement(FridayCard, {
+    onOpenTab: changeTab
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "friday",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "At the line"
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-stretch",
+    component: "StretchCard",
+    label: "At the line",
+    apiFetch: apiFetch,
+    onPickTicker: t => {
+      switchTicker(t);
+    }
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "friday",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Premium Juice"

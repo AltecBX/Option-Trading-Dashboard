@@ -214,6 +214,62 @@ ok("a symbol the server leaves out loses its old base rather than keeping it",
 ok("the selected chip's number borrows the chip's colour instead of fighting it",
    /\.preset-pill\.active \.pp-ytd \{ color: inherit/.test(css));
 
+// v5.24, Jerry: "Make everything 1pt larger in the first screenshot" — the
+// desktop app bar. Text and the things sized to sit beside it, so nothing is
+// left a point out of proportion with its neighbours.
+ok("the app bar went up a point, text and furniture together",
+   /\.ab-brand \{[\s\S]{0,240}?font-size: 14\.5px/.test(css)
+   && /\.ab-search \{[\s\S]{0,320}?font-size: 13\.5px/.test(css)
+   && /\.ab-search-ico \{ font-size: 15px/.test(css)
+   && /\.ab-clock \{[\s\S]{0,200}?font-size: 12\.5px/.test(css)
+   && /\.ab-icon \{\s*width: 26px; height: 26px/.test(css)
+   && /\.ab-mark \{ width: 22px; height: 22px/.test(css));
+ok("and the bar itself grew, so the bigger type is not clipped",
+   /\.appbar \{[\s\S]{0,160}?height: 36px/.test(css));
+// The ⌘K hint was in a later rule that pinned a group of small labels to
+// 10.5px. Raising it in the app-bar block alone changed nothing on screen.
+ok("the keyboard hint is not held back by the small-label group",
+   !/\.mctx-gamma, \.ab-kbd \{ font-size: 10\.5px; \}/.test(css)
+   && /\.ab-kbd \{ font-size: 11\.5px; \}/.test(css));
+
+// v5.24, Jerry on Worth selling today: "The results are not lining up with
+// the header." A numeric header written with the CELL spelling lost to
+// `.scan-table th` (a class AND an element beats a lone class), so the
+// header sat hard left above numbers hard right.
+ok("a numeric header lines up with its numbers whichever spelling it uses",
+   /\.scan-table th\.scan-num \{ text-align: right; \}/.test(css)
+   && /\.scan-table \.scan-th-num \{ text-align: right; \}/.test(css));
+
+// v5.24, Jerry: "Lets put anything that has to do with selling Friday
+// options or 0DTE on Friday's on its own Tab called Friday. We can put it
+// under Workspace." The 0DTE board MOVED rather than being copied — two
+// doors to one room is how a destination gets forgotten.
+ok("there is a Friday destination, and it sits in Workspace next to Trade",
+   /\{ id: "friday", label: "Friday" \}/.test(lib)
+   && /ids: \["trade", "friday",/.test(lib));
+ok("the 0DTE destination moved into it rather than being duplicated",
+   !/\{ id: "juice", label: "0DTE Juice" \}/.test(lib)
+   && !/"gap", "juice"/.test(lib)
+   && /tab="friday"[\s\S]{0,600}?PremiumJuiceCard/.test(app));
+ok("anyone whose last destination was the old one lands where it went",
+   /if \(t === "juice"\) return "friday";/.test(app));
+// Codex on #411, all three right. The premium board reads the nearest
+// expiry within three days (`min(exps)`, no weekday test), so under a card
+// headed Friday it was quoting Wednesday on a Wednesday. The tab says what
+// the board shows rather than the board being made to lie.
+ok("the tab does not promise Friday for a board that reads the nearest expiry",
+   /nearest expiry within three days/.test(cards)
+   && !/Everything on this tab is about the option that dies/.test(cards));
+// A saved order predating the tab still names `juice`; dropping it as
+// unknown appended `friday` LAST for everyone who has ever dragged a tab.
+ok("a saved tab order carrying the old id puts Friday where it was",
+   /const t = id === "juice" \? "friday" : id;/.test(app));
+ok("no link still points at the destination that moved",
+   !/0DTE Juice tab/.test(cards) && /See the Friday tab for structures/.test(cards));
+ok("the Friday head card says which Friday and whether today is the day",
+   /function FridayCard/.test(cards) && /const zeroDte = isFriday && !afterClose;/.test(cards)
+   && /FridayCard: _memo\(FridayCard\)/.test(cards));
+
 // ── 7. one version, from the one source ───────────────────────────────────
 ok("the status line shows the app's real version",
    /className="statusline"/.test(app) && /v\{APP_VERSION\}/.test(app));

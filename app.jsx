@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.23";
+const APP_VERSION = "5.24";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -655,6 +655,10 @@ function App() {
       const qt = new URLSearchParams(location.search).get("tab");
       if (window.__JT_EMBED && qt && TABS.some(x => x.id === qt)) return qt;
       const t = localStorage.getItem(TAB_KEY);
+      // v5.24: "0DTE Juice" became the Friday tab. Anyone whose last
+      // destination was that one lands where it went, not on Trade with no
+      // explanation — an unknown id otherwise falls through silently.
+      if (t === "juice") return "friday";
       return TABS.some(x => x.id === t) ? t : "trade";
     } catch { return "trade"; }
   });
@@ -678,7 +682,17 @@ function App() {
         const p = await r.json();
         const saved = Array.isArray(p && p.tab_order) ? p.tab_order : [];
         const known = new Set(TABS.map(t => t.id));
-        const ordered = saved.filter(id => known.has(id));
+        // v5.24 (Codex on #411): a saved order predating the Friday tab
+        // still names `juice`. Filtering on `known` alone would drop it and
+        // append `friday` at the END, so the one destination this release
+        // is about would arrive last in Workspace for everyone who has ever
+        // dragged a tab. It takes the place the old one held.
+        const ordered = [];
+        for (const id of saved) {
+          const t = id === "juice" ? "friday" : id;
+          if (known.has(t) && !ordered.includes(t)) ordered.push(t);
+        }
+        for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         if (ordered.length && !cancelled) setTabOrder(ordered);
         if (!cancelled && Array.isArray(p && p.presets) && p.presets.length) {
@@ -5967,7 +5981,36 @@ function App() {
           </CardErrorBoundary>
         </TabPanel>
 
-        <TabPanel tab="juice" active={activeTab}>
+        {/* ── Friday (v5.24) ────────────────────────────────────────────
+            Jerry: "Lets put anything that has to do with selling Friday
+            options or 0DTE on Friday's on its own Tab called Friday. We can
+            put it under Workspace."
+
+            One destination for the option that dies at Friday's close.
+            The head card answers WHEN — which Friday, how much of it is
+            left, whether today is the 0DTE day — which nothing answered
+            before. Under it sit the two boards that answer WHAT to sell.
+
+            At the line is mounted here as well as on Trade, deliberately:
+            it is the same board and the same snapshot of a scan that runs
+            in the background, so a second mount costs a snapshot fetch and
+            no scanning, and its weekly side IS this tab's subject. The
+            0DTE board MOVED — it was its own destination ("0DTE Juice")
+            and 0DTE is exactly what this tab is for, so keeping both would
+            have been two doors to one room. */}
+        <TabPanel tab="friday" active={activeTab}>
+          <CardErrorBoundary label="Friday">
+            <FridayCard onOpenTab={changeTab} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="friday" active={activeTab}>
+          <CardErrorBoundary label="At the line">
+            <LazyTab chunk="tab-stretch" component="StretchCard" label="At the line"
+                     apiFetch={apiFetch}
+                     onPickTicker={(t) => { switchTicker(t); }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="friday" active={activeTab}>
           <CardErrorBoundary label="Premium Juice">
             <PremiumJuiceCard apiFetch={apiFetch} onSwitchTicker={switchTicker} onOpenFinviz={openFinviz} />
           </CardErrorBoundary>

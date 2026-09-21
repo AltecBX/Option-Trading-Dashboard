@@ -3970,6 +3970,108 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.24 — a bigger top bar, headers that line up, and a Friday tab
+
+Three from Jerry in one message.
+
+### "Make everything 1pt larger in the first screenshot"
+
+The desktop app bar. Text and the furniture sized to sit beside it, so
+nothing is left a point out of proportion: brand 13.5 → 14.5, search 12.5
+→ 13.5 with its icon 14 → 15, the clock 11.5 → 12.5, the round buttons
+24 → 26px at 13 → 14, the logo 21 → 22. The bar itself went 34 → 36px,
+because 34 was cut to the old brand and keeping it would have clipped the
+larger type rather than shown it; the two short-screen variants took the
+same +2 so a laptop keeps its trim and still fits.
+
+The ⌘K hint needed a second edit. Raising it in the app-bar block changed
+nothing on screen, because a rule 1,100 lines later pinned a group of small
+labels — `.pc-kicker, … , .ab-kbd` — to 10.5px and won on source order. It
+has left that group.
+
+### "The results are not lining up with the header"
+
+They did not, and in 130 header cells across six tab files. The house
+spelling for a numeric HEADER is `scan-th-num`; those were written
+`scan-num`, the spelling for a numeric CELL. `.scan-num` does say
+`text-align: right` and loses anyway: `.scan-table th` is a class AND an
+element, which outranks a lone class. So the header sat hard left above
+numbers hard right — on a column as wide as PREMIUM OVER REALIZED, half a
+card apart.
+
+Teaching the cell spelling to work on a header (`.scan-table th.scan-num`)
+fixes every one of them in one rule and leaves the 110 that already say
+`scan-th-num` untouched. Editing 130 call sites would have been the same
+result with 130 chances to mistype.
+
+### "Its own Tab called Friday … under Workspace"
+
+"Anything that has to do with selling Friday options or 0DTE on Friday's."
+It sits next to Trade in Workspace and holds three cards:
+
+* a head card that answers WHEN — which Friday the weeklies expire, how far
+  out it is, and whether today is the day they are 0DTE. Nothing answered
+  that before, and his whole routine hangs on it. Eastern calendar, not the
+  browser's; after Friday's close it rolls to next week's. It says Friday,
+  not "the expiry", because it does not know the exchange's holidays and
+  should not imply it does;
+* At the line, whose weekly side IS this tab's subject. Mounted here as
+  well as on Trade, deliberately: it is a snapshot of a scan that already
+  runs in the background, so a second mount costs a snapshot fetch and no
+  scanning;
+* the 0DTE board, which MOVED. It was its own destination ("0DTE Juice")
+  and 0DTE is exactly what this tab is for, so keeping both would have been
+  two doors to one room. Anyone whose last destination was that one lands
+  on Friday rather than silently back on Trade.
+
+### Three from Codex, all right
+
+**The tab promised Friday for a board that does not read Friday.** The
+premium board takes `min(exps)` over every expiry within three days
+(`juice.py`) with no weekday test, so on a Tuesday it quotes Wednesday —
+under a head card that said "everything on this tab is about the option
+that dies at Friday's close". Two ways out: filter the board, or stop
+claiming. Filtering would have bent a board the whole app shares to suit
+one tab's framing, so the tab says what the board actually shows: on
+Friday it notes the two coincide, and on any other day it says, in the
+warning colour, that the board is reading the nearest expiry and that is
+not Friday's yet.
+
+**A saved tab order still named the old id.** The loader kept the ids it
+knew and appended the rest, so `juice` was dropped as unknown and `friday`
+arrived LAST — the one destination this release is about, at the end of
+Workspace, for everyone who has ever dragged a tab. It takes the old one's
+place now. The default order hid this completely; the guard stubs
+`/api/prefs` with a saved order, which is the only case that has the bug.
+
+**A link pointed at a destination that no longer exists.** The Finviz
+panel's Juice badge said "See the 0DTE Juice tab for structures". It says
+Friday.
+
+### And a test of mine that only passed while the market was shut
+
+The full render run went red on the v5.20 chips test, on code that had not
+changed: `'+100.0%' != '+146.9%'`. That test gave every symbol the same
+stub quote and relied on two of its chips NOT being polled — which is true
+only outside market hours. It was written on a Saturday and failed on the
+Monday.
+
+The stub now prices each symbol, and the two chips that test the stored
+close are quoted at exactly that close, so they read the same number
+whether or not a quote was polled. The one that tests the live price is the
+open symbol, whose quote is fetched on every symbol change whatever the
+hour. The 400-days-forward run could not have caught this: it moves the
+date, and the dependency was on the clock's time of day.
+
+Guards: five static on the app bar (including the one that catches the
+small-label rule holding the hint back), one on the alignment rule, four on
+the Friday destination; two render tests — the alignment one asks the LIVE
+stylesheet whether a numeric header and its numbers agree, since the defect
+was a cascade question and a probe taken before the question existed cannot
+answer it, and the Friday one opens the tab and reads the three facts off
+the card. Both proven red. The render harness now hands tests the page as
+well as the geometry probe.
+
 ## v5.23 — the numbers ride in the footer (temporary)
 
 Jerry, a third identical screenshot: "Is clearly staying the same. Why the

@@ -98,6 +98,7 @@ class CardErrorBoundary extends React.Component {
 
 const TABS = [
   { id: "trade", label: "Trade" },
+  { id: "friday", label: "Friday" },
   { id: "ask", label: "Ask AI" },
   { id: "discover", label: "Discover" },
   { id: "analyze", label: "Analyze" },
@@ -114,7 +115,6 @@ const TABS = [
   { id: "edge", label: "Premium Edge" },
   { id: "gap", label: "Gap Scan" },
   { id: "recovery", label: "Recovery" },
-  { id: "juice", label: "0DTE Juice" },
   { id: "backtest", label: "Backtest" },
   { id: "sectors", label: "Sectors" },
   { id: "context", label: "Market Context" },
@@ -142,11 +142,11 @@ const TAB_KEY = "jerry_active_tab_v1";
 // destination that silently disappears from the bar.
 const TAB_GROUPS = [
   { id: "workspace", label: "Workspace",
-    tip: "Where you decide and record: the trade screen, research on one name, your list, your positions and your journal.",
-    ids: ["trade", "discover", "analyze", "watchlist", "manage", "journal", "ask"] },
+    tip: "Where you decide and record: the trade screen, Friday's expiry, research on one name, your list, your positions and your journal.",
+    ids: ["trade", "friday", "discover", "analyze", "watchlist", "manage", "journal", "ask"] },
   { id: "scan", label: "Scan",
     tip: "Tools that look across many names at once and hand back candidates.",
-    ids: ["scanners", "patterns", "streaks", "edge", "gap", "juice", "earnops", "recovery"] },
+    ids: ["scanners", "patterns", "streaks", "edge", "gap", "earnops", "recovery"] },
   { id: "research", label: "Research",
     tip: "Whole-market context: breadth, rotation, positioning, rates, the calendar and the news.",
     ids: ["context", "sectors", "gex", "breadth", "flow", "hedge", "invest",
