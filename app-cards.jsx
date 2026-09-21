@@ -15530,7 +15530,7 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
       )}
       {juiceHit && (
         <span className="emx-chip earn"
-              title={`${ticker} is on the 0-3 DTE Premium Juice board (score ${juiceHit.score}, ${juiceHit.dte}d to expiry) — fat same-week premium. See the 0DTE Juice tab for structures.`}>
+              title={`${ticker} is on the 0-3 DTE Premium Juice board (score ${juiceHit.score}, ${juiceHit.dte}d to expiry) — fat same-week premium. See the Friday tab for structures.`}>
           juice {juiceHit.score}
         </span>
       )}
@@ -16226,9 +16226,8 @@ function FridayCard({ onOpenTab }) {
             {zeroDte ? "The weeklies expire today" : `The weeklies expire ${when}`}
           </h3>
           <p className="card-sub">
-            Everything on this tab is about the option that dies at Friday&rsquo;s
-            close: the names that have reached their usual weekly high or low,
-            and — on the day itself — what the last session is paying.
+            The names that have reached their usual weekly high or low, priced
+            for the option that dies at Friday&rsquo;s close.
           </p>
         </div>
       </div>
@@ -16246,6 +16245,19 @@ function FridayCard({ onOpenTab }) {
           <span className="fri-pill-v">{zeroDte ? "yes — today is the day" : "not today"}</span>
         </div>
       </div>
+      {/* Codex on #411, and right: the premium board below this card reads
+          the NEAREST expiry inside three days (juice.py takes `min(exps)`
+          with no weekday test), so on a Tuesday it is quoting Wednesday.
+          Under a card headed "Friday" that is a promise the tab cannot
+          keep, so the tab says what the board actually shows rather than
+          the board being made to lie. On Friday the two coincide, which is
+          the day the pairing was for. */}
+      <p className={`fri-note ${zeroDte ? "" : "warn"}`}>
+        {zeroDte
+          ? "Today is Friday, so the premium board below is reading this same expiry."
+          : "The premium board below reads the nearest expiry within three days — "
+            + "that is not Friday's until Friday."}
+      </p>
       <p className="fri-note">
         A market holiday can move an expiry; this reads the calendar&rsquo;s
         Friday, not the exchange&rsquo;s. {onOpenTab ? (

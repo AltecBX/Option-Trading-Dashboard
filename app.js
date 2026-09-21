@@ -867,7 +867,17 @@ function App() {
         const p = await r.json();
         const saved = Array.isArray(p && p.tab_order) ? p.tab_order : [];
         const known = new Set(TABS.map(t => t.id));
-        const ordered = saved.filter(id => known.has(id));
+        // v5.24 (Codex on #411): a saved order predating the Friday tab
+        // still names `juice`. Filtering on `known` alone would drop it and
+        // append `friday` at the END, so the one destination this release
+        // is about would arrive last in Workspace for everyone who has ever
+        // dragged a tab. It takes the place the old one held.
+        const ordered = [];
+        for (const id of saved) {
+          const t = id === "juice" ? "friday" : id;
+          if (known.has(t) && !ordered.includes(t)) ordered.push(t);
+        }
+        for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         for (const t of TABS) if (!ordered.includes(t.id)) ordered.push(t.id);
         if (ordered.length && !cancelled) setTabOrder(ordered);
         if (!cancelled && Array.isArray(p && p.presets) && p.presets.length) {

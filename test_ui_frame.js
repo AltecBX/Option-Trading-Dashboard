@@ -253,6 +253,19 @@ ok("the 0DTE destination moved into it rather than being duplicated",
    && /tab="friday"[\s\S]{0,600}?PremiumJuiceCard/.test(app));
 ok("anyone whose last destination was the old one lands where it went",
    /if \(t === "juice"\) return "friday";/.test(app));
+// Codex on #411, all three right. The premium board reads the nearest
+// expiry within three days (`min(exps)`, no weekday test), so under a card
+// headed Friday it was quoting Wednesday on a Wednesday. The tab says what
+// the board shows rather than the board being made to lie.
+ok("the tab does not promise Friday for a board that reads the nearest expiry",
+   /nearest expiry within three days/.test(cards)
+   && !/Everything on this tab is about the option that dies/.test(cards));
+// A saved order predating the tab still names `juice`; dropping it as
+// unknown appended `friday` LAST for everyone who has ever dragged a tab.
+ok("a saved tab order carrying the old id puts Friday where it was",
+   /const t = id === "juice" \? "friday" : id;/.test(app));
+ok("no link still points at the destination that moved",
+   !/0DTE Juice tab/.test(cards) && /See the Friday tab for structures/.test(cards));
 ok("the Friday head card says which Friday and whether today is the day",
    /function FridayCard/.test(cards) && /const zeroDte = isFriday && !afterClose;/.test(cards)
    && /FridayCard: _memo\(FridayCard\)/.test(cards));

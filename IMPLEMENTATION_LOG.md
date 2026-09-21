@@ -4024,6 +4024,30 @@ It sits next to Trade in Workspace and holds three cards:
   two doors to one room. Anyone whose last destination was that one lands
   on Friday rather than silently back on Trade.
 
+### Three from Codex, all right
+
+**The tab promised Friday for a board that does not read Friday.** The
+premium board takes `min(exps)` over every expiry within three days
+(`juice.py`) with no weekday test, so on a Tuesday it quotes Wednesday —
+under a head card that said "everything on this tab is about the option
+that dies at Friday's close". Two ways out: filter the board, or stop
+claiming. Filtering would have bent a board the whole app shares to suit
+one tab's framing, so the tab says what the board actually shows: on
+Friday it notes the two coincide, and on any other day it says, in the
+warning colour, that the board is reading the nearest expiry and that is
+not Friday's yet.
+
+**A saved tab order still named the old id.** The loader kept the ids it
+knew and appended the rest, so `juice` was dropped as unknown and `friday`
+arrived LAST — the one destination this release is about, at the end of
+Workspace, for everyone who has ever dragged a tab. It takes the old one's
+place now. The default order hid this completely; the guard stubs
+`/api/prefs` with a saved order, which is the only case that has the bug.
+
+**A link pointed at a destination that no longer exists.** The Finviz
+panel's Juice badge said "See the 0DTE Juice tab for structures". It says
+Friday.
+
 ### And a test of mine that only passed while the market was shut
 
 The full render run went red on the v5.20 chips test, on code that had not

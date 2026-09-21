@@ -328,7 +328,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
-                 quotes=None):
+                 quotes=None, tab_order=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -342,6 +342,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # the chips test depend on whether the market happened to be open
         # while it ran — see the note on that test.
         self._quotes = quotes
+        # v5.24: a saved tab order, to stand in for a user who has dragged
+        # their tabs at some point — which is when the order comes from
+        # /api/prefs rather than from TABS.
+        self._tab_order = tab_order
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -413,6 +417,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                           body=json.dumps({"version": 1, "tag_order": [],
                                            "symbols": [{"symbol": sym, "starred": True, "tags": []}
                                                        for sym in self._starred]}))
+                return
+            if self._tab_order is not None and url.rstrip("/").endswith("/api/prefs"):
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"tab_order": self._tab_order, "presets": []}))
                 return
             if "/api/ytd_base" in url:
                 r.fulfill(status=200, content_type="application/json",
@@ -1553,6 +1561,29 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                      .map(e => e.textContent.trim())""")
             self.assertGreaterEqual(len(titles), 3,
                                     f"the Friday tab carries only {titles} — the boards are missing")
+        finally:
+            self._close(handles)
+
+    def test_a_saved_tab_order_naming_the_old_id_puts_friday_where_it_was(self):
+        """Codex on #411. A tab order saved before v5.24 still names
+        `juice`. The loader kept only ids it knows and appended the rest, so
+        the old id was dropped and `friday` arrived LAST — the one
+        destination this release is about, at the end of Workspace, for
+        everyone who has ever dragged a tab. The default order hid it: this
+        stubs a saved one, which is the only case that has the bug."""
+        geo, errors, handles = self._measure(
+            1600, 1000, timezone="America/New_York",
+            tab_order=["trade", "juice", "discover", "analyze", "watchlist",
+                       "manage", "journal", "ask"])
+        page = handles[2]
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            tools = [t.strip() for t in page.evaluate(
+                """[...document.querySelectorAll('.tab-bar .tab-btn')].map(b => b.textContent)""")]
+            self.assertIn("Friday", tools, f"Friday is not on the bar: {tools[:10]}")
+            self.assertEqual(tools.index("Trade") + 1, tools.index("Friday"),
+                             f"Friday did not take the old destination's place: {tools[:10]}")
+            self.assertNotIn("0DTE Juice", tools, "the old destination came back")
         finally:
             self._close(handles)
 

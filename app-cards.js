@@ -20084,7 +20084,7 @@ function FinvizPanel({
     title: `The Reversal Radar has a live ${radarHit.side.toUpperCase()} signal on ${ticker} right now (score ${radarHit.score}/100). See the Scanners tab for the ticket.`
   }, "radar ", radarHit.side === "long" ? "▲" : "▼", radarHit.score), juiceHit && /*#__PURE__*/React.createElement("span", {
     className: "emx-chip earn",
-    title: `${ticker} is on the 0-3 DTE Premium Juice board (score ${juiceHit.score}, ${juiceHit.dte}d to expiry) — fat same-week premium. See the 0DTE Juice tab for structures.`
+    title: `${ticker} is on the 0-3 DTE Premium Juice board (score ${juiceHit.score}, ${juiceHit.dte}d to expiry) — fat same-week premium. See the Friday tab for structures.`
   }, "juice ", juiceHit.score), onResearch && /*#__PURE__*/React.createElement("button", {
     className: "rr-btn",
     onClick: () => onResearch(ticker),
@@ -20971,7 +20971,7 @@ function FridayCard({
     className: "card-title"
   }, zeroDte ? "The weeklies expire today" : `The weeklies expire ${when}`), /*#__PURE__*/React.createElement("p", {
     className: "card-sub"
-  }, "Everything on this tab is about the option that dies at Friday\u2019s close: the names that have reached their usual weekly high or low, and \u2014 on the day itself \u2014 what the last session is paying."))), /*#__PURE__*/React.createElement("div", {
+  }, "The names that have reached their usual weekly high or low, priced for the option that dies at Friday\u2019s close."))), /*#__PURE__*/React.createElement("div", {
     className: "fri-state"
   }, /*#__PURE__*/React.createElement("div", {
     className: `fri-pill ${zeroDte ? "on" : ""}`
@@ -20992,6 +20992,8 @@ function FridayCard({
   }, "0DTE"), /*#__PURE__*/React.createElement("span", {
     className: "fri-pill-v"
   }, zeroDte ? "yes — today is the day" : "not today"))), /*#__PURE__*/React.createElement("p", {
+    className: `fri-note ${zeroDte ? "" : "warn"}`
+  }, zeroDte ? "Today is Friday, so the premium board below is reading this same expiry." : "The premium board below reads the nearest expiry within three days — " + "that is not Friday's until Friday."), /*#__PURE__*/React.createElement("p", {
     className: "fri-note"
   }, "A market holiday can move an expiry; this reads the calendar\u2019s Friday, not the exchange\u2019s. ", onOpenTab ? /*#__PURE__*/React.createElement("button", {
     className: "fri-link",

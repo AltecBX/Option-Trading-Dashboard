@@ -399,6 +399,7 @@ input, select, textarea {
 .fri-pill.on { border-color: color-mix(in oklch, var(--accent), transparent 45%); }
 .fri-pill.on .fri-pill-v { color: var(--accent); }
 .fri-note { margin: 10px 0 0; font-size: 11.5px; color: var(--fg-4); }
+.fri-note.warn { color: var(--warn); }
 .fri-link { background: none; border: 0; padding: 0; cursor: pointer;
   color: var(--accent); font: inherit; text-decoration: underline; }
 
