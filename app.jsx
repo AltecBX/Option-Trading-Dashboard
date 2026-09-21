@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.24";
+const APP_VERSION = "5.25";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4406,14 +4406,6 @@ function App() {
           apiFetch={apiFetch}
           uwHealth={uwHealth}
         />
-        <CardErrorBoundary label="0DTE timing">
-          <TimingCard
-            apiFetch={apiFetch}
-            ticker={ticker}
-            currentPrice={getLivePrice(ticker) ?? currentPrice}
-            positions={positions}
-          />
-        </CardErrorBoundary>
 
         {/* Hero: chart + strikes */}
         <div id="jump-chart" className="jump-anchor" aria-hidden="true"></div>
@@ -6008,6 +6000,22 @@ function App() {
             <LazyTab chunk="tab-stretch" component="StretchCard" label="At the line"
                      apiFetch={apiFetch}
                      onPickTicker={(t) => { switchTicker(t); }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        {/* v5.25, Jerry: "Wouldn't this go under Friday too?" Yes — its own
+            kicker reads "Friday 0DTE · optimal stopping". It was on Trade
+            and I built the tab from the cards I already had in mind rather
+            than from a search for every card that names Friday or 0DTE.
+            test_ui_frame now does that search and fails on any card whose
+            own title names either and is not mounted here. */}
+        <TabPanel tab="friday" active={activeTab} pending={dataPending} pendingLabel={ticker}>
+          <CardErrorBoundary label="0DTE timing">
+            <TimingCard
+              apiFetch={apiFetch}
+              ticker={ticker}
+              currentPrice={getLivePrice(ticker) ?? currentPrice}
+              positions={positions}
+            />
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="friday" active={activeTab}>

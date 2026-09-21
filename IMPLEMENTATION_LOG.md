@@ -3970,6 +3970,85 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.25 — the card the Friday tab forgot, and the tab on a phone
+
+Jerry, with a screenshot of a card headed "FRIDAY 0DTE · OPTIMAL STOPPING"
+still sitting on Trade: "Wouldn't this go under Friday too? If so, why I'm
+I catching these mistakes."
+
+Yes it would, and the answer to the second question is that v5.24's tab was
+assembled from the cards I already had in mind, not from a search of the
+codebase for everything that names Friday or 0DTE. `TimingCard` names both
+in its own kicker and I never looked.
+
+So the search is now a guard that runs every time the suite does. It reads
+`app.jsx`, `app-cards.jsx`, `timing.jsx` and every `tab-*.jsx`, finds each
+card whose own kicker or title says Friday or 0DTE, resolves the component
+it belongs to, and fails unless that component is mounted inside a
+`tab="friday"` panel. Proven by reverting the move: it fails with
+`TimingCard — Friday 0DTE · optimal stopping`, which is exactly the
+sentence that should have appeared a release ago. A second assertion
+requires the sweep to have found at least two, so an empty search can never
+pass as a clean one.
+
+The boundary it draws is deliberately narrow: a card has to name Friday or
+0DTE ITSELF. "This week's setup" and "Is premium expensive this week?" are
+about the weekly expiry too, but they are the per-symbol panels that sit
+with the chart on Trade, and dragging them here would empty the screen he
+actually trades from.
+
+### The tab on a phone
+
+Measured at 440×956 first: the head card alone was 352px of a 520px
+workspace, its three facts stacked 2+1 behind a 132px minimum width, and At
+the line — the tool the tab exists for — started below the fold. That is
+the v5.17 mistake repeated, where the market band stood in front of the
+first tool.
+
+The sub-line goes on phones (it says in a sentence what the three facts say
+in three words) and the pills lose their width floor, so they sit three
+across. Head card 352px → 223px, the first tool now starts 239px in. Both
+notes stay: one of them is the reason a trade would be wrong, and a phone
+is not a reason to stop saying so.
+
+### A sideways swipe that had been there all along
+
+The phone guard kept measuring a different overflow each run: 182px, then
+0, then 166. The loading bar is the cause. Its fill is 30% wide and
+animates to `translateX(400%)` — past its own right edge — and nothing
+clipped it, so while ANYTHING was loading the workspace's scrollWidth grew
+and the phone could be swiped sideways. How far depended on where in the
+1.1s loop you looked, which is why it had never been pinned down. One
+`overflow: hidden`, and the guard is now identical three runs running.
+
+### Which Friday, asked twice, answered differently
+
+Codex on the PR: the head card and the timing card's expiry picker now sit
+on the same tab and were computing Friday two different ways, so outside
+Eastern the header could name one Friday above a picker defaulted to
+another — and Watch would send the expiry the header said had gone.
+
+The picker's own version was worse than the finding. It read the BROWSER's
+weekday and hour, then serialised through `toISOString()`, which is UTC.
+From 8pm Eastern the UTC date is already tomorrow, so it answered SATURDAY
+— in Eastern, on a correctly set clock, for anyone opening the app in the
+evening. Jerry trades pre-market and evenings.
+
+One definition now (`etNextFridayISO` in app-lib): the Eastern weekday and
+hour, rolling after the 4pm close, with the day arithmetic done in UTC on
+the Eastern Y/M/D so no zone can drag it across a midnight. The picker
+calls it and the head card derives both its date and its day count from the
+same call, so there is nothing left for the two to disagree about.
+
+Guard: the same five instants asked in New York, Los Angeles and Tokyo,
+including Thursday 9pm Eastern. Red on the old version with
+`'2026-09-25' != '2026-09-26'` — the Saturday.
+
+Guards: the sweep (proven red by reverting the move), two static on the
+phone trim, one render at 440×956 that pins the head card's height, the
+first tool's position, three facts on one row uncut, both warnings alive
+and no sideways scroll.
+
 ## v5.24 — a bigger top bar, headers that line up, and a Friday tab
 
 Three from Jerry in one message.

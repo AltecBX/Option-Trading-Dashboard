@@ -129,6 +129,41 @@ const TABS = [
   { id: "manage", label: "Manage" },
 ];
 
+// ── The next Friday, on New York's calendar (v5.25) ────────────────────────
+//
+// Codex on #412: the Friday head card and the timing card's expiry picker
+// sat on the same tab computing Friday two different ways, so in a browser
+// outside Eastern they could disagree and Watch would submit the expiry the
+// header said had already gone.
+//
+// The picker's own version was worse than that finding: it took the
+// browser's weekday and hour and then serialised through `toISOString()`,
+// which is UTC. From 8pm Eastern the UTC date is already tomorrow, so it
+// answered SATURDAY — in Eastern, on a machine with the clock set right,
+// for anyone looking at the app in the evening.
+//
+// One definition, and the arithmetic is done in UTC on the Eastern Y/M/D so
+// no zone can drag it across a midnight.
+function etNextFridayISO(now) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", weekday: "short", year: "numeric",
+      month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false,
+    }).formatToParts(now || new Date());
+    const get = (t) => (parts.find(p => p.type === t) || {}).value;
+    const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+    if (dow < 0) return null;
+    const hour = parseInt(get("hour"), 10) % 24;   // some ICU builds say "24"
+    let add = (5 - dow + 7) % 7;
+    if (add === 0 && hour >= 16) add = 7;          // after Friday's close, next week's
+    const base = new Date(Date.UTC(+get("year"), +get("month") - 1, +get("day")));
+    base.setUTCDate(base.getUTCDate() + add);
+    return base.toISOString().slice(0, 10);
+  } catch (_) {
+    return null;
+  }
+}
+
 const TAB_KEY = "jerry_active_tab_v1";
 
 // ── Navigation groups (v4.92) ──────────────────────────────────────────────
@@ -892,4 +927,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, FOCUS_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });
+Object.assign(window, { etNextFridayISO, useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, FOCUS_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });

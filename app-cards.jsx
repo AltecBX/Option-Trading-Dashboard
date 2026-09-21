@@ -16194,18 +16194,26 @@ function FridayCard({ onOpenTab }) {
 
   if (!et) return null;
 
-  const ORDER = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const idx = ORDER.indexOf(et.wd);
   const CLOSE = 16 * 60;            // 4:00pm ET
   const OPEN = 9 * 60 + 30;
-  // Days until Friday's close. On Friday after the close, and at the weekend,
-  // the weeklies that matter are next week's.
   const isFriday = et.wd === "Fri";
   const afterClose = et.mins >= CLOSE;
-  let daysOut = (5 - idx + 7) % 7;                 // 5 = Friday
-  if (isFriday && afterClose) daysOut = 7;
-  else if (idx === 6) daysOut = 6;                 // Saturday
   const zeroDte = isFriday && !afterClose;
+  // v5.25 (Codex on #412): WHICH Friday comes from the one shared Eastern
+  // definition, the same call the timing card's expiry picker makes. The
+  // two sit on this tab together, and a head card that names one Friday
+  // above a picker defaulted to another is how a wrong expiry gets sent.
+  // Days out is then derived from that date rather than computed a second
+  // time, so there is nothing for the two to disagree about.
+  const fridayISO = etNextFridayISO(now);
+  const daysOut = (() => {
+    if (!fridayISO) return null;
+    const today = etTodayISO(now);
+    if (!today) return null;
+    return Math.round((Date.parse(fridayISO + "T00:00:00Z")
+                       - Date.parse(today + "T00:00:00Z")) / 86400000);
+  })();
+  if (daysOut == null) return null;
   const minsLeft = zeroDte ? Math.max(0, CLOSE - et.mins) : null;
   const preOpen = zeroDte && et.mins < OPEN;
 
@@ -16234,7 +16242,7 @@ function FridayCard({ onOpenTab }) {
       <div className="fri-state">
         <div className={`fri-pill ${zeroDte ? "on" : ""}`}>
           <span className="fri-pill-k">Expiry</span>
-          <span className="fri-pill-v">Fri {fridayDate(et, daysOut)}</span>
+          <span className="fri-pill-v">Fri {fridayLabel(fridayISO)}</span>
         </div>
         <div className="fri-pill">
           <span className="fri-pill-k">{zeroDte ? "Today" : "Sessions out"}</span>
@@ -16270,14 +16278,27 @@ function FridayCard({ onOpenTab }) {
   );
 }
 
-// The date of the Friday `daysOut` days from the Eastern today. Built from a
-// real Date so month ends and leap years are the calendar's problem, not
-// arithmetic's.
-function fridayDate(et, daysOut) {
+// Today, on New York's calendar — the other half of the day count, and the
+// same shape as etNextFridayISO so the two subtract cleanly.
+function etTodayISO(now) {
   try {
-    const base = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    base.setDate(base.getDate() + daysOut);
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(base);
+    const p = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(now || new Date());
+    const get = (t) => (p.find(x => x.type === t) || {}).value;
+    return `${get("year")}-${get("month")}-${get("day")}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+// "Sep 25" from an ISO date, read as a calendar date rather than an instant
+// (the Z, so no zone can shift which day it names).
+function fridayLabel(iso) {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "UTC", month: "short", day: "numeric",
+    }).format(new Date(iso + "T00:00:00Z"));
   } catch (_) {
     return "";
   }

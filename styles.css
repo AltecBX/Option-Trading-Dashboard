@@ -400,6 +400,28 @@ input, select, textarea {
 .fri-pill.on .fri-pill-v { color: var(--accent); }
 .fri-note { margin: 10px 0 0; font-size: 11.5px; color: var(--fg-4); }
 .fri-note.warn { color: var(--warn); }
+
+/* v5.25, Jerry: "Optimize the Friday tab for my phone too."
+   Measured at 440x956 before: this head card alone was 352px of a 520px
+   workspace, so At the line — the tool the tab exists for — started below
+   the fold. That is the same mistake v5.17 fixed on Trade, where the
+   market band stood in front of the first tool.
+
+   What goes: the sub-line, which says in a sentence what the three facts
+   below it say in three words, and the pills' 132px floor, which forced
+   3-across into 2+1. What stays: both notes. One of them is the reason a
+   trade would be wrong (the board below is not reading Friday yet) and
+   the other is the caveat that the date is the calendar's, not the
+   exchange's — a phone is not a reason to stop saying either. */
+@media (max-width: 900px) {
+  .fri-card .card-sub { display: none; }
+  .fri-card .card-title { font-size: 17px; line-height: 1.22; }
+  .fri-state { gap: 6px; margin-top: 2px; }
+  .fri-pill { min-width: 0; flex: 1 1 0; padding: 6px 9px; border-radius: 9px; }
+  .fri-pill-k { font-size: 9px; letter-spacing: 0.05em; }
+  .fri-pill-v { font-size: 12px; }
+  .fri-note { margin-top: 7px; font-size: 11px; line-height: 1.35; }
+}
 .fri-link { background: none; border: 0; padding: 0; cursor: pointer;
   color: var(--accent); font: inherit; text-decoration: underline; }
 
@@ -1256,6 +1278,13 @@ input, select, textarea {
   pointer-events: none;
   margin-bottom: 0;
   opacity: 0; transition: opacity 0.2s ease-out;
+  /* v5.25: the fill is 30% wide and animates to translateX(400%), i.e. past
+     this box's right edge — with nothing clipping it, it widened the
+     workspace's scrollWidth and the phone could be swiped sideways by up to
+     166px WHILE ANYTHING WAS LOADING. It measured differently run to run
+     because the overflow depends where in the 1.1s loop you look, which is
+     why it had never been pinned down. */
+  overflow: hidden;
 }
 .load-bar.loading { opacity: 1; }
 .load-bar-fill {

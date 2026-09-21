@@ -24,14 +24,19 @@ function tmPct(v) {
   return `${Math.round(v * 100)}%`;
 }
 
+// v5.25: the one Eastern definition (app-lib). This used to read the
+// BROWSER's weekday and hour and then serialise through toISOString(),
+// which is UTC — so from 8pm Eastern it defaulted the picker to SATURDAY,
+// and outside Eastern it could disagree with the Friday header it now sits
+// under. The fallback is the same shape, for the case where the helper is
+// somehow not there; it is not the path anything takes.
 function tmNextFriday() {
-  const now = new Date();
-  const d = new Date(now);
-  const dow = d.getDay();
-  let add = (5 - dow + 7) % 7;
-  if (add === 0 && d.getHours() >= 16) add = 7;
-  d.setDate(d.getDate() + add);
-  return d.toISOString().slice(0, 10);
+  const iso = typeof etNextFridayISO === "function" ? etNextFridayISO() : null;
+  if (iso) return iso;
+  const d = new Date();
+  d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    + `-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function TmSection({ label, badge, open, onToggle, children }) {
