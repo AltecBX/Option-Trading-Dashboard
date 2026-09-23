@@ -3970,6 +3970,113 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.26 — every destination on a phone
+
+Jerry: "Optimize the rest of the tabs for my phone too."
+
+Measured first rather than guessed: one page driven through all thirty
+destinations at his iPhone 16 Pro Max (440x956, 62/34 insets), then again
+at 390 and 375, recording per destination the sideways scroll, anything
+past the right edge that is not inside a deliberate scroller, text under
+10px, text boxes under 16px and buttons under 28px.
+
+What it found, and what changed (all in one `@media (max-width: 900px)`
+block in `styles.css`, placed after every base rule and before the type
+floor):
+
+- **Text boxes under 16px on ten destinations.** iPhone zooms the page into
+  any field smaller than that the moment it is tapped, and stays zoomed.
+  Every text box, select and textarea is 16px on a phone now, and
+  `text-size-adjust` is pinned so rotating the phone does not re-inflate
+  the type.
+- **Buttons 12 to 27px tall** on most destinations — the Both/Calls/Puts and
+  horizon segments, filter chips, window pickers. Every workspace button has
+  a 32px floor, in width as well as height — Codex (#413) pointed out that
+  the ✕ buttons on calculator rows were still 22px wide. Three classes are
+  exempt because they are links written into a sentence (`.fri-link`,
+  `.su-blink`, `.sl-link`).
+- **Text under 10px** on Analyze (35 labels), Earnings Ops, Gap, Scanners and
+  Friday — the last one mine, from v5.25, because the phone font guard only
+  ever looked at Trade. The first draft raised each label the sweep named,
+  and the full render run then found "REAL TRADED CREDIT" at 9px on
+  Analyze: it only draws once the FRED spreads load, so the sweep's walk had
+  never seen it. A walk sees only what its data draws — the Friday card
+  lesson again. So the phone floor is now every selector in the stylesheet
+  that sets a size under 10px (137 of them), read from the file itself, and
+  a static guard re-reads the file and fails if a new one is added without
+  joining the list (proven red with a planted 8px rule).
+- **Sideways scroll on smaller phones.** Analyze was 43px wider than a 390
+  screen before this release; the 16px rule would have pushed the backtest
+  form 77px further. Every cause was the same thing: a grid column written
+  `1fr`, which is `minmax(auto, 1fr)` and will not shrink below its
+  content. The layout rows, the analyst stat grid, the backtest form and
+  the day-of-week extremes grid are bounded at zero now, and the option
+  chain legend wraps.
+
+Result: clean at 440, 390 and 375 on all thirty destinations. The only
+things still under 28px are links inside sentences and TradingView's
+attribution logo.
+
+Guard: `test_every_destination_is_usable_on_a_phone` in the render suite
+walks every group and every tool at 375x812. The destinations are read off
+the page, not listed in the test, so a tab added later is measured without
+anyone remembering to add it — the way the Friday card slipped through in
+v5.25. It fails if a destination renders nothing, scrolls sideways, puts
+anything past the edge, shows text under 10px, a text box under 16px or a
+button under 30px either way, and it requires at least 25 destinations reached so an
+empty walk cannot pass. Only a sideways SCROLLER excuses something past
+the edge; a `hidden` or `clip` ancestor does not, because what it cuts off
+cannot be reached at all (Codex, #413). Proven red on v5.25's stylesheet, where it lists
+30 problems across 17 destinations. Three static guards in
+`test_ui_frame.js` pin the rules it depends on.
+
+### And the render suite stopped asking Yahoo
+
+The v5.25 Friday phone test went red on this PR, in CI and locally, and
+it went red on `main` too, with no code changed. The render server is
+started with `JERRY_NO_NET=1`, but that flag was a promise each module
+kept for itself, and `/api/ticker` had never checked it. Every symbol
+load in the suite went to Yahoo. When Yahoo rate-limited the machine, the
+page grew a 100px "slow down" banner, every card moved down, and "the
+first tool starts 373px down" failed.
+
+- **`no_net.py`** now makes the flag hold for the whole process:
+  - It refuses Python socket connections to anything but this machine.
+  - It also refuses the address a proxy variable names, even on loopback.
+    A sandbox's egress proxy usually listens on 127.0.0.1, and urllib and
+    requests route everything through it.
+  - It guards curl_cffi's session `request` separately. yfinance uses
+    curl_cffi, which does its networking in C and never touches Python's
+    sockets.
+  - `main()` installs it before serving. It is not installed at import,
+    because test files import the module and clear the flag for the tests
+    that need it.
+- **The harness serves the page's fonts from `fixtures/vendor/fonts`.**
+  They are Google Fonts' latin and latin-ext faces, under the OFL. Text is
+  measured in the real typefaces without a download.
+- **The harness refuses every other off-machine request.** Logos and
+  widgets fall back exactly as they do with no signal.
+- **The harness answers `/api/ticker` with the suite's deterministic
+  payload.** It already existed: a seeded price path and a real engine
+  plan, keyed to whichever symbol was asked for. Before, the answer was
+  whatever Yahoo said that minute.
+- **The default price stub is $100 when that payload is on screen, to
+  match its spot.** A 123.45 quote against a chain built around $100 put
+  the skew chart's "spot" label off its own strike axis. The new all-tabs
+  phone test caught that the first time it saw a populated Trade tab.
+- **Guards:**
+  - `test_no_net.py` runs each way out (raw socket, urllib, requests,
+    curl_cffi and yfinance) in a child process whose proxy is a listener
+    the test owns. Each must be refused, and the listener must see no
+    connection.
+  - It checks that loopback still works, and that with the flag unset
+    nothing is touched.
+  - A static check requires `main()` to install the guard.
+  - The render harness refuses to run against a server whose log lacks
+    the guard's startup line.
+  - Proven red twice: once without the proxy check, where urllib reached
+    the proxy, and once without the install, where the static check fails.
+
 ## v5.25 — the card the Friday tab forgot, and the tab on a phone
 
 Jerry, with a screenshot of a card headed "FRIDAY 0DTE · OPTIMAL STOPPING"

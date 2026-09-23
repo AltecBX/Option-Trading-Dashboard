@@ -324,6 +324,43 @@ ok("the Friday head card is trimmed for a phone rather than filling it",
 ok("but neither warning is dropped on the way",
    !/\.fri-note \{ display: none/.test(css));
 
+// v5.26: every destination, not just Friday. The render suite walks all of
+// them (test_every_destination_is_usable_on_a_phone); these pin the rules it
+// depends on, so a rule cannot quietly go missing between render runs.
+ok("on a phone no text box is small enough for iPhone to zoom into",
+   /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\)[^{]*select, textarea \{\s*font-size: 16px !important;/.test(css));
+ok("on a phone every workspace button is thumb-sized both ways, not just tall",
+   /\.main button:not\(\.fri-link\):not\(\.su-blink\):not\(\.sl-link\) \{ min-height: 32px; min-width: 32px; \}/.test(css));
+// The phone's 10px floor is read from the stylesheet, not from a walk of the
+// tabs: a walk sees only what its stub data draws, and "REAL TRADED CREDIT"
+// (drawn once the FRED spreads load) was 9px on Analyze after the first
+// draft of v5.26 passed it. Every selector anywhere in the file that sets a
+// size under 10px must be in the phone's floor list.
+{
+  const nc = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const at = nc.indexOf("{ font-size: 10px !important; }", nc.indexOf(".sl-screen, .fri-pill-k"));
+  const floorList = at > 0
+    ? nc.slice(nc.lastIndexOf("}", at) + 1, at).split(",").map(x => x.trim().replace(/\s+/g, " "))
+    : [];
+  const under = [];
+  for (const m of nc.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim();
+    if (sel.startsWith("@")) continue;
+    const small = [...m[2].matchAll(/font-size:\s*([\d.]+)px/g)].some(f => parseFloat(f[1]) < 10);
+    if (!small) continue;
+    for (const one of sel.split(",").map(x => x.trim().replace(/\s+/g, " ")))
+      if (one && !one.includes("::") && !floorList.includes(one)) under.push(one);
+  }
+  ok("on a phone every selector the file sizes under 10px is raised to the floor",
+     floorList.length > 100 && under.length === 0,
+     `floor list ${floorList.length}; missing: ${[...new Set(under)].slice(0, 8).join(" | ")}`);
+}
+ok("on a phone the page's layout rows cannot outgrow the screen",
+   /\.row\.two, \.row\.three, \.row\.split-2-1, \.row\.split-1-2 \{\s*grid-template-columns: minmax\(0, 1fr\) !important;/.test(css));
+ok("on a phone the day-of-week grid and the chain legend fit a small screen",
+   /\.dow-extremes-head, \.dow-extremes-row \{\s*grid-template-columns: 64px repeat\(5, minmax\(0, 1fr\)\);/.test(css)
+   && /\.oc-legend \{ flex-wrap: wrap;/.test(css));
+
 ok("the Friday head card says which Friday and whether today is the day",
    /function FridayCard/.test(cards) && /const zeroDte = isFriday && !afterClose;/.test(cards)
    && /FridayCard: _memo\(FridayCard\)/.test(cards));

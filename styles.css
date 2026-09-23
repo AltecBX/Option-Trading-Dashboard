@@ -15100,6 +15100,136 @@ body { overflow: hidden; overscroll-behavior: none; }
   .ab-card .card-head .card-title { font-size: 14.5px; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   v5.26 — EVERY DESTINATION ON A PHONE
+   ──────────────────────────────────────────────────────────────────────────
+   Jerry: "Optimize the rest of the tabs for my phone too."
+
+   Measured first, all thirty destinations, at his iPhone 16 Pro Max
+   (440x956, 62/34 insets), rather than from memory — the Friday card that
+   slipped through a release ago was the cost of the other way. None of
+   them scrolled sideways any more (the v5.25 loading-bar fix). Three
+   things recurred instead, and they are phone problems, not layout ones:
+
+   1. Text boxes under 16px on ten destinations. iOS zooms the whole page
+      into any field smaller than that the moment it is tapped, and leaves
+      it zoomed — the most recognisable phone annoyance there is.
+   2. Buttons 12 to 27px tall on most destinations: the Both/Calls/Puts
+      and horizon segments, the filter chips, the window pickers. A thumb
+      needs more than that to hit one and not its neighbour.
+   3. Text under 10px on Analyze (35 labels), Earnings Ops, Gap, Scanners
+      — and on Friday, where I put it myself in v5.25, because the 10px
+      phone guard only ever looked at Trade.
+
+   This block sits after every base rule on purpose: at equal specificity
+   the later rule wins, and three bugs in this stylesheet's history came
+   from a phone rule that lost to a base rule declared further down. Only
+   the type floor comes after it, and the floor only raises sizes.
+   ══════════════════════════════════════════════════════════════════════════ */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+@media (max-width: 900px) {
+  /* 1. No field small enough for iOS to zoom into. Checkboxes, radios,
+        sliders and swatches have no text to zoom, so they are left alone. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select, textarea {
+    font-size: 16px !important;
+    max-width: 100%;
+  }
+  /* The one field that was already 3px too wide at 13px: at 16px it would
+     have been worse, so it takes its column's width instead of its own. */
+  .lr-field { min-width: 0; }
+  .lr-field input { width: 100%; min-width: 0; }
+
+  /* 2. A thumb-sized floor for every button in the workspace. min-height
+        only ever grows a control, so nothing already bigger moves. The
+        three exceptions are buttons that are really inline text links —
+        a 32px box in the middle of a sentence would be worse, not better.
+        And a width floor too: the ✕ on a calculator row, a journal entry
+        or a strategy leg was 22px wide, as hard to hit as 22px tall (Codex,
+        #413). min-width only grows the icon buttons; a labelled one is
+        already wider. */
+  .main button:not(.fri-link):not(.su-blink):not(.sl-link) { min-height: 32px; min-width: 32px; }
+
+  /* The pullback backtest form. Its grid columns were `1fr`, which is
+     minmax(AUTO, 1fr): a column never shrinks below its content's minimum,
+     and a text box's minimum is its 20-character default width — which
+     grows with the font. At 16px that pushed the form 77px off the screen
+     and the whole workspace scrolled sideways. The one regression the
+     16px rule caused; bounding the columns at zero lets them share. */
+  .pullback-backtest-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pbb-field { min-width: 0; }
+  .pbb-input { width: 100%; min-width: 0; }
+  /* Same shape on the analyst row: four `1fr` columns each refusing to go
+     below the width of "AVG TARGET", which a 390px phone cannot give four
+     times over. It scrolled sideways there before this release (43px, via
+     the form above) and again once that was fixed (33px, here). Bounded
+     columns, and a label that may take two lines rather than push. */
+  .analyst-stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .analyst-stat { min-width: 0; padding-left: 6px; padding-right: 6px; }
+  .analyst-stat-lbl { overflow-wrap: anywhere; }
+  /* And the page's own layout rows. On a phone every .row collapses to one
+     column — but that column was written `1fr`, which is minmax(AUTO, 1fr),
+     so it could not go narrower than the widest thing in it. On Analyze at
+     375px two cards came out 379px wide in a 335px workspace and the page
+     scrolled sideways 44px. Every row, one bounded column: the fix the
+     analyst grid and the backtest form needed, applied where it started. */
+  .row.two, .row.three, .row.split-2-1, .row.split-1-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .row > * { min-width: 0; }
+
+  /* 3. Nothing a person reads under 10px. The first draft listed what the
+        sweep measured — and missed "REAL TRADED CREDIT" on Analyze, which
+        only draws once the FRED spreads load: a walk sees only what its
+        data draws. So this is every selector in the file that sets a size
+        under 10px, read from the stylesheet itself, plus the few the sweep
+        found sized in em. test_ui_frame.js re-reads the file and fails if
+        a new one is added without joining this list. */
+  .sl-screen, .fri-pill-k, .pp-ytd, .rec-with-kicker .rec-kicker,
+  .strategy-mode-kicker, .earn-badge .earn-dot, .sb-symtag, .manual-tag,
+  .pos-stat-lbl, .ladder-pill, .bt-stat-lbl, .bt-trades-table th, .src-badge,
+  .sb-manage-btn, .wlm-tag-pill, .wlm-strategy-pill, .wlm-cat-pill,
+  .wlm-wk-pill, .wlm-sec-pill, .wlm-ind-pill, .wr-table th, .sb-version-pill,
+  .pcalc-label, .pcalc-from-meta, .basing-heatmap-timeaxis, .basing-tag,
+  .pick-label, .roll-itm-badge, .pullback-stat-label, .pullback-today-label,
+  .pullback-level-label, .pbb-label, .pbb-stat-label, .chart-perf-lbl,
+  .chart-stat-lbl, .flow-verdict-label, .flow-overall-cap, .strike-flow-lbl,
+  .ema-stat-lbl, .ema-trades-head, .ema-scan-head, .ema-param-lbl,
+  .analyst-stat-lbl, .analyst-history-head, .grade-arrow,
+  .analyst-needs-finnhub, .em-stat-lbl, .emx-pill-dte, .rr-tk span, .pj-sub,
+  .pj-q span, .pj-risk, .tfr-reason-pill, .trade-lbl,
+  .trade-builder-disclaimer, .trade-multi-head, .wr-tile-lbl,
+  .wr-extreme-lbl, .ec-head, .roll-pl-kicker, .bi-head, .bt-score-chip em,
+  .bt-month em, .bt-hist-lbls, .bt-maemfe-lbl, .bt-bd em, .cr-skew em,
+  .cr-mkt em, .mko-proxy, .pc-src, .pc-stats span, .pc-stats small,
+  .pc-picks-h, .pc-rot-lbl, .opp-title, .opp-chip em, .opp-stale,
+  .mctx-earn-sym small, .mctx-rlbl, .mb-badge, .nt-sep, .wstk-flag,
+  .wl-tag-chip, .cp-tag, .val-yr, .bt-tile span, .bt-trades th, .pd-kind,
+  .pd-stats span, .pd-label, .pd-cs-grid em, .wos-end em, .wos-est,
+  .wos-prox-box em, .wos-dayctx em, .rgs-out, .rgs-side, .tsy-pill,
+  .tsy-ycard-t i, .tsy-ycard-chg em, .tsy-52lbl, .tsy-cd em, .tsy-upauc em,
+  .tsy-cpicell b i, .tsy-mini-h em, .tsy-ycell em, .tsy-matrix th,
+  .tsy-sigbox em, .tsy-ycell i, .tsy-bands span, .eop-table thead th,
+  .eop-sub, .eop-demo, .eop-dgrid em, .pb-reg, .pb-play, .pb-flag,
+  .inv-stat-label, .inv-entry-sm, .inv-fv-ends, .inv-scenario-pill, .kl-ctx,
+  .kl-prov, .kl-move, .kl-fresh, .gx-map-chg, .mko-pts, .tab-glbl,
+  .secnav-lbl, .secnav-lbl-sm, .secnav-group, .wl-cols-lbl, .mko-chg,
+  .statusline, .eop-table th, .analyst-history-head span, .gap-bt small.muted { font-size: 10px !important; }
+
+  /* 4. The last two things wider than a smaller phone. The day-of-week
+        extremes grid gave its row labels a fixed 86px and each day an
+        unbounded 1fr, so at 375px the Friday column hung 16px off the card.
+        The option chain's legend was one row that never wrapped. */
+  .dow-extremes-head, .dow-extremes-row {
+    grid-template-columns: 64px repeat(5, minmax(0, 1fr));
+    gap: 2px;
+  }
+  .dow-extremes-label { letter-spacing: 0.02em; overflow-wrap: anywhere; }
+  .dow-extremes-cell { font-size: 11px; min-width: 0; }
+  .oc-legend { flex-wrap: wrap; gap: 6px 14px; }
+}
+
 /* ── The type floor (v5.03 desktop, v5.04 everywhere) ─────────────────────
    Measured with a probe that lists every visible text element under 10.5px
    band by band: eight- and nine-pixel uppercase mono captions in the

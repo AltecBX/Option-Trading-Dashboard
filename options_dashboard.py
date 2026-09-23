@@ -14019,6 +14019,16 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=default_port)
     args = ap.parse_args()
 
+    # JERRY_NO_NET is a property of the process, not a promise each module
+    # keeps for itself: /api/ticker never checked it and went to Yahoo from
+    # inside the render suite. Here and not at import, because test files
+    # import this module and clear the flag for the tests that need it.
+    import no_net
+    if no_net.install():
+        # Flushed: stdout is a file under a test harness, block-buffered,
+        # and the render suite reads this line to know the process is sealed.
+        print(f"    {no_net.ENV} set — outbound network refused for this process", flush=True)
+
     ticker = args.ticker.upper().strip()
 
     # ── Serve mode: act as a website. Don't bake unless --bake. The frontend
