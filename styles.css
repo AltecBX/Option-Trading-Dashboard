@@ -15179,14 +15179,43 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   }
   .row > * { min-width: 0; }
 
-  /* 3. Nothing a person reads under 10px. Found by the sweep, not by eye:
-        each is the actual element that measured under 10px on a phone. */
-  .fri-pill-k, .val-yr, .wos-end em, .kl-ctx, .kl-prov, .kl-fresh,
-  .ema-param-lbl, .eop-table th,
-  .wos-prox-box em, .wos-dayctx em, .wos-est,
-  .analyst-stat-lbl, .analyst-needs-finnhub, .analyst-history-head span,
-  .pullback-stat-label, .pullback-today-label, .pullback-level-label, .pbb-label,
-  .gap-bt small.muted { font-size: 10px !important; }
+  /* 3. Nothing a person reads under 10px. The first draft listed what the
+        sweep measured — and missed "REAL TRADED CREDIT" on Analyze, which
+        only draws once the FRED spreads load: a walk sees only what its
+        data draws. So this is every selector in the file that sets a size
+        under 10px, read from the stylesheet itself, plus the few the sweep
+        found sized in em. test_ui_frame.js re-reads the file and fails if
+        a new one is added without joining this list. */
+  .sl-screen, .fri-pill-k, .pp-ytd, .rec-with-kicker .rec-kicker,
+  .strategy-mode-kicker, .earn-badge .earn-dot, .sb-symtag, .manual-tag,
+  .pos-stat-lbl, .ladder-pill, .bt-stat-lbl, .bt-trades-table th, .src-badge,
+  .sb-manage-btn, .wlm-tag-pill, .wlm-strategy-pill, .wlm-cat-pill,
+  .wlm-wk-pill, .wlm-sec-pill, .wlm-ind-pill, .wr-table th, .sb-version-pill,
+  .pcalc-label, .pcalc-from-meta, .basing-heatmap-timeaxis, .basing-tag,
+  .pick-label, .roll-itm-badge, .pullback-stat-label, .pullback-today-label,
+  .pullback-level-label, .pbb-label, .pbb-stat-label, .chart-perf-lbl,
+  .chart-stat-lbl, .flow-verdict-label, .flow-overall-cap, .strike-flow-lbl,
+  .ema-stat-lbl, .ema-trades-head, .ema-scan-head, .ema-param-lbl,
+  .analyst-stat-lbl, .analyst-history-head, .grade-arrow,
+  .analyst-needs-finnhub, .em-stat-lbl, .emx-pill-dte, .rr-tk span, .pj-sub,
+  .pj-q span, .pj-risk, .tfr-reason-pill, .trade-lbl,
+  .trade-builder-disclaimer, .trade-multi-head, .wr-tile-lbl,
+  .wr-extreme-lbl, .ec-head, .roll-pl-kicker, .bi-head, .bt-score-chip em,
+  .bt-month em, .bt-hist-lbls, .bt-maemfe-lbl, .bt-bd em, .cr-skew em,
+  .cr-mkt em, .mko-proxy, .pc-src, .pc-stats span, .pc-stats small,
+  .pc-picks-h, .pc-rot-lbl, .opp-title, .opp-chip em, .opp-stale,
+  .mctx-earn-sym small, .mctx-rlbl, .mb-badge, .nt-sep, .wstk-flag,
+  .wl-tag-chip, .cp-tag, .val-yr, .bt-tile span, .bt-trades th, .pd-kind,
+  .pd-stats span, .pd-label, .pd-cs-grid em, .wos-end em, .wos-est,
+  .wos-prox-box em, .wos-dayctx em, .rgs-out, .rgs-side, .tsy-pill,
+  .tsy-ycard-t i, .tsy-ycard-chg em, .tsy-52lbl, .tsy-cd em, .tsy-upauc em,
+  .tsy-cpicell b i, .tsy-mini-h em, .tsy-ycell em, .tsy-matrix th,
+  .tsy-sigbox em, .tsy-ycell i, .tsy-bands span, .eop-table thead th,
+  .eop-sub, .eop-demo, .eop-dgrid em, .pb-reg, .pb-play, .pb-flag,
+  .inv-stat-label, .inv-entry-sm, .inv-fv-ends, .inv-scenario-pill, .kl-ctx,
+  .kl-prov, .kl-move, .kl-fresh, .gx-map-chg, .mko-pts, .tab-glbl,
+  .secnav-lbl, .secnav-lbl-sm, .secnav-group, .wl-cols-lbl, .mko-chg,
+  .statusline, .eop-table th, .analyst-history-head span, .gap-bt small.muted { font-size: 10px !important; }
 
   /* 4. The last two things wider than a smaller phone. The day-of-week
         extremes grid gave its row labels a fixed 86px and each day an

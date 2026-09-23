@@ -3997,7 +3997,14 @@ floor):
   `.su-blink`, `.sl-link`).
 - **Text under 10px** on Analyze (35 labels), Earnings Ops, Gap, Scanners and
   Friday — the last one mine, from v5.25, because the phone font guard only
-  ever looked at Trade. Each offender the sweep named is raised to 10px.
+  ever looked at Trade. The first draft raised each label the sweep named,
+  and the full render run then found "REAL TRADED CREDIT" at 9px on
+  Analyze: it only draws once the FRED spreads load, so the sweep's walk had
+  never seen it. A walk sees only what its data draws — the Friday card
+  lesson again. So the phone floor is now every selector in the stylesheet
+  that sets a size under 10px (137 of them), read from the file itself, and
+  a static guard re-reads the file and fails if a new one is added without
+  joining the list (proven red with a planted 8px rule).
 - **Sideways scroll on smaller phones.** Analyze was 43px wider than a 390
   screen before this release; the 16px rule would have pushed the backtest
   form 77px further. Every cause was the same thing: a grid column written
