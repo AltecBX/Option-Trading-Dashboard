@@ -32,12 +32,17 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 VENDOR = HERE / "fixtures" / "vendor"
+# The page's typefaces, served from disk (see fixtures/vendor/fonts/README.md):
+# text has to be measured in the fonts Jerry sees, and fetching them from
+# Google made every run depend on the network.
+FONTS = VENDOR / "fonts"
 CDN = {"react@18.3.1/umd/react.production.min.js": "react.js",
        "react-dom@18.3.1/umd/react-dom.production.min.js": "react-dom.js",
        "lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js": "lwc.js"}
@@ -179,7 +184,7 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
     for i in range(420):
         px *= 1 + rnd.gauss(0, 0.019) + (0.06 if i % 53 == 0 else 0)
         closes.append(px)
-    closes = [c * 100.0 / closes[-1] for c in closes]
+    closes = [c * DEFAULT_SPOT / closes[-1] for c in closes]
 
     d, bars = date(2024, 6, 3), []
     for c in closes:
@@ -209,7 +214,7 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
             "day_breakdown": {},
         })
 
-    spot = 100.0
+    spot = DEFAULT_SPOT
     # A chain priced by Black-Scholes at one implied vol, not by eye. Hand
     # numbers made far-OTM weeklies worth dollars, which handed the engine a
     # fake edge and would have let a broken ranking pass this test.
@@ -268,6 +273,18 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
     }
 
 
+_DEFAULT_PAYLOADS: dict[str, str] = {}
+DEFAULT_SPOT = 100.0   # the spot sell_payload() builds its chain around
+
+
+def _default_payload(symbol: str) -> str:
+    """sell_payload() for `symbol`, serialized once per symbol per run —
+    the plan is built by the real engine, which is not free."""
+    if symbol not in _DEFAULT_PAYLOADS:
+        _DEFAULT_PAYLOADS[symbol] = json.dumps(sell_payload(symbol))
+    return _DEFAULT_PAYLOADS[symbol]
+
+
 def _dt_key(label: str):
     """'Jul 6' -> a sortable date. The strip labels its bars this way."""
     return datetime.strptime(label + " 2026", "%b %d %Y")
@@ -300,6 +317,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         for _ in range(90):
             try:
                 urllib.request.urlopen(f"{cls.base}/api/prefs", timeout=2)
+                # The server under test must have sealed itself. Before it
+                # did, /api/ticker fetched from Yahoo, and when Yahoo rate-
+                # limited the machine a "slow down" banner moved every card
+                # 100px down and layout tests failed on untouched code.
+                log = Path(cls.log.name).read_text(errors="replace")
+                if "outbound network refused" not in log:
+                    cls.tearDownClass()
+                    raise AssertionError("the server started without its JERRY_NO_NET "
+                                         "guard; the suite would depend on the network:\n"
+                                         + log[-1500:])
                 return
             except Exception:  # noqa: BLE001
                 if cls.server.poll() is not None:
@@ -362,6 +389,25 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 if frag in url:
                     r.fulfill(path=str(VENDOR / local))
                     return
+            host = urllib.parse.urlsplit(url).hostname or ""
+            if host == "fonts.googleapis.com":
+                r.fulfill(path=str(FONTS / "fonts.css"), content_type="text/css")
+                return
+            if host == "fonts.gstatic.com":
+                f = FONTS / urllib.parse.urlsplit(url).path.lstrip("/").replace("/", "_")
+                if f.exists():
+                    r.fulfill(path=str(f), content_type="font/woff2")
+                else:
+                    r.abort()
+                return
+            # Nothing else leaves the machine. Company logos, the TradingView
+            # widget and the like fail here exactly as they do on a phone
+            # with no signal, and the page's own fallbacks draw instead. What
+            # was refused is kept, so a test can see it.
+            if host not in ("127.0.0.1", "localhost", "::1", "[::1]"):
+                self.offsite.append(host)
+                r.abort()
+                return
             # THE POINT OF THIS FILE: a tape with real headlines in it.
             if "/api/finviz_news" in url:
                 r.fulfill(status=200, content_type="application/json",
@@ -412,6 +458,19 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps(self._ticker_payload))
                 return
+            # Every other symbol load gets the same synthetic payload, keyed
+            # to the symbol asked for. The server is sealed (JERRY_NO_NET),
+            # so unanswered it would say "No data for AAPL" and draw a banner
+            # over the page — and before it was sealed, the answer was
+            # whatever Yahoo said that minute: live bars on a good run, a
+            # 100px rate-limit banner on a bad one. The layout tests were
+            # written against a populated page; this is one, every time.
+            if urllib.parse.urlsplit(url).path == "/api/ticker":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+                sym = (q.get("symbol") or ["AAPL"])[0].upper()
+                r.fulfill(status=200, content_type="application/json",
+                          body=_default_payload(sym))
+                return
             if self._starred is not None and url.rstrip("/").endswith("/api/watchlist"):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"version": 1, "tag_order": [],
@@ -431,13 +490,21 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 if "tickers=" in url:
                     syms = url.split("tickers=")[-1].split("&")[0].replace("%2C", ",").split(",")
                 px = self._quotes or {}
+                # With the default payload on screen, a quote has to agree
+                # with it: that payload's chain is built around a $100 spot,
+                # and a live 123.45 against it put the skew chart's "spot"
+                # label off the end of its own strike axis. A test that
+                # passes its own payload keeps 123.45 — the YTD test is
+                # built on that number.
+                dflt = 123.45 if self._ticker_payload is not None else DEFAULT_SPOT
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"results": {
-                              s: {"last": px.get(s, 123.45), "change_pct": 1.23}
+                              s: {"last": px.get(s, dflt), "change_pct": 1.23}
                               for s in syms if s}}))
                 return
             r.continue_()
 
+        self.offsite = []
         page.route("**/*", route)
         page.add_init_script(
             "try{localStorage.setItem('jerry_active_tab_v1','" + tab + "');"

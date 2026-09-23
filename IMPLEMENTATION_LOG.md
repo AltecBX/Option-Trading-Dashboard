@@ -4030,6 +4030,53 @@ cannot be reached at all (Codex, #413). Proven red on v5.25's stylesheet, where 
 30 problems across 17 destinations. Three static guards in
 `test_ui_frame.js` pin the rules it depends on.
 
+### And the render suite stopped asking Yahoo
+
+The v5.25 Friday phone test went red on this PR, in CI and locally, and
+it went red on `main` too, with no code changed. The render server is
+started with `JERRY_NO_NET=1`, but that flag was a promise each module
+kept for itself, and `/api/ticker` had never checked it. Every symbol
+load in the suite went to Yahoo. When Yahoo rate-limited the machine, the
+page grew a 100px "slow down" banner, every card moved down, and "the
+first tool starts 373px down" failed.
+
+- **`no_net.py`** now makes the flag hold for the whole process:
+  - It refuses Python socket connections to anything but this machine.
+  - It also refuses the address a proxy variable names, even on loopback.
+    A sandbox's egress proxy usually listens on 127.0.0.1, and urllib and
+    requests route everything through it.
+  - It guards curl_cffi's session `request` separately. yfinance uses
+    curl_cffi, which does its networking in C and never touches Python's
+    sockets.
+  - `main()` installs it before serving. It is not installed at import,
+    because test files import the module and clear the flag for the tests
+    that need it.
+- **The harness serves the page's fonts from `fixtures/vendor/fonts`.**
+  They are Google Fonts' latin and latin-ext faces, under the OFL. Text is
+  measured in the real typefaces without a download.
+- **The harness refuses every other off-machine request.** Logos and
+  widgets fall back exactly as they do with no signal.
+- **The harness answers `/api/ticker` with the suite's deterministic
+  payload.** It already existed: a seeded price path and a real engine
+  plan, keyed to whichever symbol was asked for. Before, the answer was
+  whatever Yahoo said that minute.
+- **The default price stub is $100 when that payload is on screen, to
+  match its spot.** A 123.45 quote against a chain built around $100 put
+  the skew chart's "spot" label off its own strike axis. The new all-tabs
+  phone test caught that the first time it saw a populated Trade tab.
+- **Guards:**
+  - `test_no_net.py` runs each way out (raw socket, urllib, requests,
+    curl_cffi and yfinance) in a child process whose proxy is a listener
+    the test owns. Each must be refused, and the listener must see no
+    connection.
+  - It checks that loopback still works, and that with the flag unset
+    nothing is touched.
+  - A static check requires `main()` to install the guard.
+  - The render harness refuses to run against a server whose log lacks
+    the guard's startup line.
+  - Proven red twice: once without the proxy check, where urllib reached
+    the proxy, and once without the install, where the static check fails.
+
 ## v5.25 — the card the Friday tab forgot, and the tab on a phone
 
 Jerry, with a screenshot of a card headed "FRIDAY 0DTE · OPTIMAL STOPPING"
