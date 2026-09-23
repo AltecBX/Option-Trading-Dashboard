@@ -1637,6 +1637,99 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    # One destination, measured the way a phone sees it. Each check is a
+    # thing that went wrong on a real tab before v5.26 (see the test below).
+    _PHONE_PROBE = r"""(tab) => {
+      const main = document.querySelector('.main');
+      const mr = main.getBoundingClientRect();
+      const roots = [...document.querySelectorAll('.tab-panel[data-tab="' + tab + '"]')]
+                      .filter(p => p.offsetParent);
+      const shown = e => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
+        return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
+      // Inside something that scrolls sideways on purpose: a wide table's
+      // wrapper, a chip strip. Those are allowed past the edge.
+      const scrolls = e => { for (let p = e.parentElement; p && p !== main; p = p.parentElement) {
+          const o = getComputedStyle(p).overflowX;
+          if (o === 'auto' || o === 'scroll' || o === 'hidden' || o === 'clip') return true; }
+        return false; };
+      const name = e => String(e.className || e.tagName).slice(0, 30);
+      const over = [], tiny = [], inputs = [], taps = [];
+      for (const e of roots.flatMap(r => [...r.querySelectorAll('*')])) {
+        if (!shown(e)) continue;
+        const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+        if (r.right > mr.right + 2 && !scrolls(e)) over.push(name(e) + ' +' + Math.round(r.right - mr.right));
+        const own = [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+        if (own && parseFloat(cs.fontSize) < 10 && !e.closest('svg'))
+          tiny.push(name(e) + ' ' + cs.fontSize + ' "' + e.textContent.trim().slice(0, 16) + '"');
+        const field = (e.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'color', 'hidden'].includes(e.type))
+                      || e.tagName === 'SELECT' || e.tagName === 'TEXTAREA';
+        if (field && parseFloat(cs.fontSize) < 16) inputs.push(name(e) + ' ' + cs.fontSize);
+        // Buttons only: a link written into a sentence is a line of text tall
+        // on purpose, and the chart's attribution logo is TradingView's.
+        const inline = e.matches('.fri-link, .su-blink, .sl-link');
+        if (e.tagName === 'BUTTON' && !inline && r.height < 30)
+          taps.push(name(e) + ' ' + Math.round(r.height) + 'px "' + e.textContent.trim().slice(0, 16) + '"');
+      }
+      const uniq = a => [...new Set(a)];
+      return {panels: roots.length, sideways: Math.max(0, main.scrollWidth - main.clientWidth),
+              over: uniq(over).slice(0, 5), tiny: uniq(tiny).slice(0, 5),
+              inputs: uniq(inputs).slice(0, 5), taps: uniq(taps).slice(0, 5)};
+    }"""
+
+    def test_every_destination_is_usable_on_a_phone(self):
+        """v5.26. Jerry: "Optimize the rest of the tabs for my phone too."
+
+        v5.25 fixed the Friday tab and its test only looked at the Friday
+        tab, so the other twenty-nine went unmeasured. Swept before this
+        release, at a 375px phone: Analyze scrolled 44px sideways, text
+        boxes on ten tabs were under 16px (iPhone zooms the page in when
+        one is tapped, and it does not zoom back out), buttons were as
+        short as 12px, and Analyze alone had 35 kinds of text under 10px.
+
+        The destinations are read off the page, not listed here, so a tab
+        added later is measured without anyone remembering to add it — the
+        very way the Friday card slipped through in v5.25. 375px is the
+        narrowest iPhone still sold; Jerry's is 440, so it passes there too."""
+        geo, errors, handles = self._measure(
+            375, 812, tab="trade", timezone="America/New_York", safe_area=(47, 34))
+        page = handles[2]
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            groups = page.evaluate("""[...document.querySelectorAll('.tab-bar .tab-grp')]
+                                        .map(b => b.textContent.trim())""")
+            self.assertGreaterEqual(len(groups), 4, f"the tab groups did not render: {groups}")
+            seen, problems = [], []
+            for grp in groups:
+                page.evaluate("""(g) => [...document.querySelectorAll('.tab-bar .tab-grp')]
+                                   .find(b => b.textContent.trim() === g).click()""", grp)
+                page.wait_for_timeout(200)
+                ids = page.evaluate("""[...document.querySelectorAll('.tab-bar button[data-tab]')]
+                                         .filter(b => b.offsetParent).map(b => b.dataset.tab)""")
+                for tid in ids:
+                    if tid in seen:
+                        continue
+                    seen.append(tid)
+                    page.evaluate("""(id) => document.querySelector(
+                                       '.tab-bar button[data-tab="' + id + '"]').click()""", tid)
+                    page.wait_for_timeout(1800)
+                    m = page.evaluate(self._PHONE_PROBE, tid)
+                    page.evaluate("document.querySelector('.main').scrollTop = 0")
+                    where = f"{grp} › {tid}"
+                    if not m["panels"]:
+                        problems.append(f"{where}: nothing rendered")
+                    if m["sideways"] > 2:
+                        problems.append(f"{where}: the page scrolls {m['sideways']}px sideways")
+                    for key, what in (("over", "past the right edge"),
+                                      ("tiny", "text under 10px"),
+                                      ("inputs", "a text box iPhone zooms into (under 16px)"),
+                                      ("taps", "a button too short to tap (under 30px)")):
+                        if m[key]:
+                            problems.append(f"{where}: {what}: {m[key]}")
+            self.assertGreaterEqual(len(seen), 25, f"only {len(seen)} destinations were reached: {seen}")
+            self.assertFalse(problems, "\n" + "\n".join(problems))
+        finally:
+            self._close(handles)
+
     def test_which_friday_is_the_same_answer_in_every_timezone(self):
         """v5.25 (Codex on #412). The Friday head card and the timing card's
         expiry picker share this tab, and were computing Friday two

@@ -324,6 +324,17 @@ ok("the Friday head card is trimmed for a phone rather than filling it",
 ok("but neither warning is dropped on the way",
    !/\.fri-note \{ display: none/.test(css));
 
+// v5.26: every destination, not just Friday. The render suite walks all of
+// them (test_every_destination_is_usable_on_a_phone); these pin the rules it
+// depends on, so a rule cannot quietly go missing between render runs.
+ok("on a phone no text box is small enough for iPhone to zoom into",
+   /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\)[^{]*select, textarea \{\s*font-size: 16px !important;/.test(css));
+ok("on a phone the page's layout rows cannot outgrow the screen",
+   /\.row\.two, \.row\.three, \.row\.split-2-1, \.row\.split-1-2 \{\s*grid-template-columns: minmax\(0, 1fr\) !important;/.test(css));
+ok("on a phone the day-of-week grid and the chain legend fit a small screen",
+   /\.dow-extremes-head, \.dow-extremes-row \{\s*grid-template-columns: 64px repeat\(5, minmax\(0, 1fr\)\);/.test(css)
+   && /\.oc-legend \{ flex-wrap: wrap;/.test(css));
+
 ok("the Friday head card says which Friday and whether today is the day",
    /function FridayCard/.test(cards) && /const zeroDte = isFriday && !afterClose;/.test(cards)
    && /FridayCard: _memo\(FridayCard\)/.test(cards));

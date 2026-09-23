@@ -3970,6 +3970,55 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.26 — every destination on a phone
+
+Jerry: "Optimize the rest of the tabs for my phone too."
+
+Measured first rather than guessed: one page driven through all thirty
+destinations at his iPhone 16 Pro Max (440x956, 62/34 insets), then again
+at 390 and 375, recording per destination the sideways scroll, anything
+past the right edge that is not inside a deliberate scroller, text under
+10px, text boxes under 16px and buttons under 28px.
+
+What it found, and what changed (all in one `@media (max-width: 900px)`
+block in `styles.css`, placed after every base rule and before the type
+floor):
+
+- **Text boxes under 16px on ten destinations.** iPhone zooms the page into
+  any field smaller than that the moment it is tapped, and stays zoomed.
+  Every text box, select and textarea is 16px on a phone now, and
+  `text-size-adjust` is pinned so rotating the phone does not re-inflate
+  the type.
+- **Buttons 12 to 27px tall** on most destinations — the Both/Calls/Puts and
+  horizon segments, filter chips, window pickers. Every workspace button has
+  a 32px floor. Three classes are exempt because they are links written into
+  a sentence (`.fri-link`, `.su-blink`, `.sl-link`).
+- **Text under 10px** on Analyze (35 labels), Earnings Ops, Gap, Scanners and
+  Friday — the last one mine, from v5.25, because the phone font guard only
+  ever looked at Trade. Each offender the sweep named is raised to 10px.
+- **Sideways scroll on smaller phones.** Analyze was 43px wider than a 390
+  screen before this release; the 16px rule would have pushed the backtest
+  form 77px further. Every cause was the same thing: a grid column written
+  `1fr`, which is `minmax(auto, 1fr)` and will not shrink below its
+  content. The layout rows, the analyst stat grid, the backtest form and
+  the day-of-week extremes grid are bounded at zero now, and the option
+  chain legend wraps.
+
+Result: clean at 440, 390 and 375 on all thirty destinations. The only
+things still under 28px are links inside sentences and TradingView's
+attribution logo.
+
+Guard: `test_every_destination_is_usable_on_a_phone` in the render suite
+walks every group and every tool at 375x812. The destinations are read off
+the page, not listed in the test, so a tab added later is measured without
+anyone remembering to add it — the way the Friday card slipped through in
+v5.25. It fails if a destination renders nothing, scrolls sideways, puts
+anything past the edge, shows text under 10px, a text box under 16px or a
+button under 30px, and it requires at least 25 destinations reached so an
+empty walk cannot pass. Proven red on v5.25's stylesheet, where it lists
+30 problems across 17 destinations. Three static guards in
+`test_ui_frame.js` pin the rules it depends on.
+
 ## v5.25 — the card the Friday tab forgot, and the tab on a phone
 
 Jerry, with a screenshot of a card headed "FRIDAY 0DTE · OPTIMAL STOPPING"
