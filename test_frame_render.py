@@ -1647,10 +1647,12 @@ class TheFrameStaysOnScreen(unittest.TestCase):
       const shown = e => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
         return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
       // Inside something that scrolls sideways on purpose: a wide table's
-      // wrapper, a chip strip. Those are allowed past the edge.
+      // wrapper, a chip strip. Those are allowed past the edge. A `hidden`
+      // or `clip` ancestor is not: what it hides past the screen's edge is
+      // not scrolled to, it is simply gone (Codex, #413).
       const scrolls = e => { for (let p = e.parentElement; p && p !== main; p = p.parentElement) {
           const o = getComputedStyle(p).overflowX;
-          if (o === 'auto' || o === 'scroll' || o === 'hidden' || o === 'clip') return true; }
+          if (o === 'auto' || o === 'scroll') return true; }
         return false; };
       const name = e => String(e.className || e.tagName).slice(0, 30);
       const over = [], tiny = [], inputs = [], taps = [];
@@ -1667,8 +1669,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         // Buttons only: a link written into a sentence is a line of text tall
         // on purpose, and the chart's attribution logo is TradingView's.
         const inline = e.matches('.fri-link, .su-blink, .sl-link');
-        if (e.tagName === 'BUTTON' && !inline && r.height < 30)
-          taps.push(name(e) + ' ' + Math.round(r.height) + 'px "' + e.textContent.trim().slice(0, 16) + '"');
+        // Both ways: a 22px-wide ✕ is as hard to hit as a 22px-tall one.
+        if (e.tagName === 'BUTTON' && !inline && (r.height < 30 || r.width < 30))
+          taps.push(name(e) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' "' + e.textContent.trim().slice(0, 16) + '"');
       }
       const uniq = a => [...new Set(a)];
       return {panels: roots.length, sideways: Math.max(0, main.scrollWidth - main.clientWidth),
@@ -1722,7 +1725,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     for key, what in (("over", "past the right edge"),
                                       ("tiny", "text under 10px"),
                                       ("inputs", "a text box iPhone zooms into (under 16px)"),
-                                      ("taps", "a button too short to tap (under 30px)")):
+                                      ("taps", "a button too small to tap (under 30px either way)")):
                         if m[key]:
                             problems.append(f"{where}: {what}: {m[key]}")
             self.assertGreaterEqual(len(seen), 25, f"only {len(seen)} destinations were reached: {seen}")

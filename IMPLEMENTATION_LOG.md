@@ -3991,8 +3991,10 @@ floor):
   the type.
 - **Buttons 12 to 27px tall** on most destinations — the Both/Calls/Puts and
   horizon segments, filter chips, window pickers. Every workspace button has
-  a 32px floor. Three classes are exempt because they are links written into
-  a sentence (`.fri-link`, `.su-blink`, `.sl-link`).
+  a 32px floor, in width as well as height — Codex (#413) pointed out that
+  the ✕ buttons on calculator rows were still 22px wide. Three classes are
+  exempt because they are links written into a sentence (`.fri-link`,
+  `.su-blink`, `.sl-link`).
 - **Text under 10px** on Analyze (35 labels), Earnings Ops, Gap, Scanners and
   Friday — the last one mine, from v5.25, because the phone font guard only
   ever looked at Trade. Each offender the sweep named is raised to 10px.
@@ -4014,8 +4016,10 @@ the page, not listed in the test, so a tab added later is measured without
 anyone remembering to add it — the way the Friday card slipped through in
 v5.25. It fails if a destination renders nothing, scrolls sideways, puts
 anything past the edge, shows text under 10px, a text box under 16px or a
-button under 30px, and it requires at least 25 destinations reached so an
-empty walk cannot pass. Proven red on v5.25's stylesheet, where it lists
+button under 30px either way, and it requires at least 25 destinations reached so an
+empty walk cannot pass. Only a sideways SCROLLER excuses something past
+the edge; a `hidden` or `clip` ancestor does not, because what it cuts off
+cannot be reached at all (Codex, #413). Proven red on v5.25's stylesheet, where it lists
 30 problems across 17 destinations. Three static guards in
 `test_ui_frame.js` pin the rules it depends on.
 

@@ -15144,8 +15144,12 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   /* 2. A thumb-sized floor for every button in the workspace. min-height
         only ever grows a control, so nothing already bigger moves. The
         three exceptions are buttons that are really inline text links —
-        a 32px box in the middle of a sentence would be worse, not better. */
-  .main button:not(.fri-link):not(.su-blink):not(.sl-link) { min-height: 32px; }
+        a 32px box in the middle of a sentence would be worse, not better.
+        And a width floor too: the ✕ on a calculator row, a journal entry
+        or a strategy leg was 22px wide, as hard to hit as 22px tall (Codex,
+        #413). min-width only grows the icon buttons; a labelled one is
+        already wider. */
+  .main button:not(.fri-link):not(.su-blink):not(.sl-link) { min-height: 32px; min-width: 32px; }
 
   /* The pullback backtest form. Its grid columns were `1fr`, which is
      minmax(AUTO, 1fr): a column never shrinks below its content's minimum,

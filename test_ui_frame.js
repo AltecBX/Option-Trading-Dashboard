@@ -329,6 +329,8 @@ ok("but neither warning is dropped on the way",
 // depends on, so a rule cannot quietly go missing between render runs.
 ok("on a phone no text box is small enough for iPhone to zoom into",
    /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\)[^{]*select, textarea \{\s*font-size: 16px !important;/.test(css));
+ok("on a phone every workspace button is thumb-sized both ways, not just tall",
+   /\.main button:not\(\.fri-link\):not\(\.su-blink\):not\(\.sl-link\) \{ min-height: 32px; min-width: 32px; \}/.test(css));
 ok("on a phone the page's layout rows cannot outgrow the screen",
    /\.row\.two, \.row\.three, \.row\.split-2-1, \.row\.split-1-2 \{\s*grid-template-columns: minmax\(0, 1fr\) !important;/.test(css));
 ok("on a phone the day-of-week grid and the chain legend fit a small screen",
