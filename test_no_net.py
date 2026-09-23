@@ -183,6 +183,10 @@ class TheServerInstallsIt(unittest.TestCase):
         self.assertGreater(at, 0, "main() never installs the JERRY_NO_NET guard")
         self.assertLess(at, main.index("if args.serve:"),
                         "the guard is installed after the server starts")
+        # Flushed, or a harness reading the log races the buffer: CI runs
+        # without PYTHONUNBUFFERED and the render suite saw no line at all.
+        self.assertRegex(main, r'outbound network refused for this process", flush=True\)',
+                         "the seal line is not flushed; the render suite would not see it")
         head = src[:src.index("\ndef main() -> None:")]
         self.assertNotIn("no_net.install()", head,
                          "installed at import: every test that imports the module would lose the network")

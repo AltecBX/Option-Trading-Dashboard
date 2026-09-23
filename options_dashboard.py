@@ -14025,7 +14025,9 @@ def main() -> None:
     # import this module and clear the flag for the tests that need it.
     import no_net
     if no_net.install():
-        print(f"    {no_net.ENV} set — outbound network refused for this process")
+        # Flushed: stdout is a file under a test harness, block-buffered,
+        # and the render suite reads this line to know the process is sealed.
+        print(f"    {no_net.ENV} set — outbound network refused for this process", flush=True)
 
     ticker = args.ticker.upper().strip()
 

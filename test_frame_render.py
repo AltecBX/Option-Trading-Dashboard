@@ -314,27 +314,28 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         cls.server = subprocess.Popen(
             [sys.executable, "options_dashboard.py", "--serve", "--port", str(port)],
             cwd=str(HERE), env=env, stdout=cls.log, stderr=subprocess.STDOUT)
+        up = False
         for _ in range(90):
             try:
                 urllib.request.urlopen(f"{cls.base}/api/prefs", timeout=2)
-                # The server under test must have sealed itself. Before it
-                # did, /api/ticker fetched from Yahoo, and when Yahoo rate-
-                # limited the machine a "slow down" banner moved every card
-                # 100px down and layout tests failed on untouched code.
-                log = Path(cls.log.name).read_text(errors="replace")
-                if "outbound network refused" not in log:
-                    cls.tearDownClass()
-                    raise AssertionError("the server started without its JERRY_NO_NET "
-                                         "guard; the suite would depend on the network:\n"
-                                         + log[-1500:])
-                return
+                up = True
+                break
             except Exception:  # noqa: BLE001
                 if cls.server.poll() is not None:
                     break
                 time.sleep(1)
-        cls.tearDownClass()
-        raise AssertionError("the server never came up:\n"
-                             + Path(cls.log.name).read_text()[-2000:])
+        log = Path(cls.log.name).read_text(errors="replace")
+        if not up:
+            cls.tearDownClass()
+            raise AssertionError("the server never came up:\n" + log[-2000:])
+        # The server under test must have sealed itself. Before it did,
+        # /api/ticker fetched from Yahoo, and when Yahoo rate-limited the
+        # machine a "slow down" banner moved every card 100px down and
+        # layout tests failed on untouched code.
+        if "outbound network refused" not in log:
+            cls.tearDownClass()
+            raise AssertionError("the server started without its JERRY_NO_NET guard; "
+                                 "the suite would depend on the network:\n" + log[-1500:])
 
     @classmethod
     def tearDownClass(cls):
