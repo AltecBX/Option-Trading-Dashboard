@@ -319,3 +319,49 @@ class TestTheRefusalTally(unittest.TestCase):
                    {"danger": "HIGH"}, {"earnings_inside": True}):
             g = SB.gate(scan_row("A", **kw))
             self.assertTrue(g["codes"], kw)
+
+
+class TestTheRowSaysWhatTheTradeIs(unittest.TestCase):
+    """v5.27. Jerry, on a GOOGL row reading "305.00 0.17Δ $1.66": "I don't
+    know if is a Call or a Put?" The premium-only scan picks spreads and
+    condors, so a strike alone named half a trade and neither side."""
+
+    def spread(self, kind, short, long_):
+        return {**scan_row("GOOGL"), "best_kind": kind, "best_strike": short,
+                "best_long_strike": long_, "best_max_loss": 13.34}
+
+    def test_a_put_spread_is_a_sold_put_over_a_bought_put(self):
+        legs = SB.legs(self.spread("put_credit_spread", 305.0, 290.0))
+        self.assertEqual([("sell", "put", 305.0), ("buy", "put", 290.0)],
+                         [(l["action"], l["right"], l["strike"]) for l in legs])
+
+    def test_a_call_spread_is_calls_on_both_legs(self):
+        legs = SB.legs(self.spread("call_credit_spread", 530.0, 555.0))
+        self.assertEqual({"call"}, {l["right"] for l in legs})
+        self.assertEqual("sell", legs[0]["action"])
+
+    def test_a_condor_is_four_legs_both_sides(self):
+        row = {**scan_row("AMD"), "best_kind": "iron_condor", "best_strike": None,
+               "best_short_put": 150.0, "best_long_put": 142.0,
+               "best_short_call": 172.0, "best_long_call": 180.0}
+        legs = SB.legs(row)
+        self.assertEqual(4, len(legs))
+        self.assertEqual({"put", "call"}, {l["right"] for l in legs})
+
+    def test_what_it_cannot_name_it_does_not_guess(self):
+        # An unknown kind, or a condor missing a wing, is no legs at all —
+        # never a put or a call made up to fill the cell.
+        self.assertEqual([], SB.legs(scan_row("A")))          # kind "short_put"
+        row = {**scan_row("AMD"), "best_kind": "iron_condor", "best_short_put": 150.0}
+        self.assertEqual([], SB.legs(row))
+
+    def test_the_board_carries_the_words_the_legs_and_the_loss(self):
+        out = SB.build([self.spread("put_credit_spread", 305.0, 290.0)])
+        row = out["rows"][0]
+        self.assertEqual("Put credit spread", row["trade"])
+        self.assertEqual(2, len(row["legs"]))
+        self.assertEqual(290.0, row["long_strike"])
+        self.assertEqual(13.34, row["max_loss"])
+        # And it still never touches the trade it was handed.
+        self.assertEqual(305.0, row["strike"])
+

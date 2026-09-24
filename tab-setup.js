@@ -144,12 +144,17 @@ const SU_TIP = {
   board: "What is worth SELLING today, ranked by how rich each option is against what that stock itself realizes — not by how many dollars it pays, which mostly just tracks how volatile the stock is.",
   richness: "Where today's premium sits against this stock's OWN past premiums. 90 means richer than 90% of the readings on file. When too few readings exist for a percentile, it falls back to the raw ratio and the row says which.",
   rich_basis: "Which measurement the ranking used. PERCENTILE means enough of this stock's own history is on file to say where today sits in it. RATIO means there is not yet, so this is simply how many times over the option pays what the stock realizes.",
-  roc: "The credit as a percentage of the collateral the trade ties up — what the money actually earns, independent of share price.",
+  roc: "What you collect as a percentage of the money the trade ties up — for a spread, the most you can lose. Independent of share price.",
   board_skip: "Names the scan measured and then refused, with the reason. A short list is only trustworthy if you can see what did not make it and why.",
   universe: "How many names were ranked for free against how many had their option chain actually measured. Every chain costs a network round trip, so the scan ranks everything and measures the best few.",
   expiry: "The expiration this credit and return are quoted for — the one the premium engine judged richest inside the selling window, not automatically the nearest monthly.",
   stale: "The Premium Edge scan writes its board to disk and reloads it on restart, so a board can outlive the connection that produced it. When the scan has not completed within the day, every price and premium below is from whenever it last succeeded — usually a lapsed broker sign-in.",
   tally: "Why the measured names did not qualify, counted by reason. If nearly all of them say the same thing — especially 'no premium reading' — that points at the data upstream rather than a quiet market.",
+  collect: "The credit for one contract (100 shares), at the BID — the only price a resting sell order is promised. Yours to keep if the stock stays on the right side of the strike you sell.",
+  max_loss: "The most this trade can lose, per contract, if the stock runs all the way through the strikes: the width between the two strikes minus the credit you collected. The bought option is what caps it.",
+  iv_vs_erv: "Implied volatility (what the market is charging) against expected realized volatility (what this stock is forecast to actually move). The first bigger than the second is the whole reason to sell.",
+  delta_short: "The delta of the option you SELL — roughly the market's odds that it finishes in the money. 0.17 is about a 1-in-6 chance.",
+  board_how: "Ranked by how rich each option is against what that stock itself realizes, not by how many dollars it pays. Same delta you always sell: this picks the names and the days, not the strike.",
   board_earn: "Earnings inside the option's life excludes a name here. That is the opposite of the Premium Edge scan, which seeks earnings out — because a trader who closes before the report harvests that premium, and one who holds to expiry underwrites it."
 };
 const suNum = (v, d = 2) => v == null || !isFinite(v) ? "—" : Number(v).toFixed(d);
@@ -570,47 +575,116 @@ function BestSetupCard({
 // same strike is paying more than that stock's own history says the risk
 // is worth — a selection claim, which the data does support.
 
+// What the row IS, in the words a broker's order ticket uses. Before v5.27
+// the board showed a strike, a delta and a credit and nothing else, so a
+// row read the same whether it was a put spread, a call spread or a
+// condor — Jerry: "I don't know if is a Call or a Put?" The side, the
+// legs and the dollars now lead the row; the measurements behind the
+// ranking follow it.
+const SU_KIND_SHORT = {
+  put_credit_spread: "Put spread",
+  call_credit_spread: "Call spread",
+  iron_condor: "Iron condor",
+  cash_secured_put: "Put",
+  covered_call: "Call"
+};
+const suKindSide = kind => !kind ? "" : kind === "iron_condor" ? "both" : kind.indexOf("put") === 0 || kind === "cash_secured_put" ? "put" : kind.indexOf("call") === 0 || kind === "covered_call" ? "call" : "";
+// Per contract, whole dollars: "$166", "$1,334". What a person sees on the
+// order ticket and in the account, not a per-share decimal to multiply.
+const suContract = perShare => perShare == null || !isFinite(perShare) ? "—" : `$${Math.round(perShare * 100).toLocaleString("en-US")}`;
+// "Oct 30 · 36 days". The full-date house rule is for sentences; a column
+// someone scans wants the day and how far away it is.
+const suExpiry = (s, dte) => {
+  if (!s) return "—";
+  const d = new Date(String(s).length <= 10 ? `${s}T12:00:00` : s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  const day = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric"
+  });
+  return dte == null || !isFinite(dte) ? day : `${day} · ${Math.round(dte)} days`;
+};
+function SuTrade({
+  r
+}) {
+  const side = suKindSide(r.kind);
+  const legs = r.legs || [];
+  // Old scans carried only the short strike. Say what is known, not more.
+  const fallback = r.strike == null || !(side === "put" || side === "call") ? [] : [{
+    action: "sell",
+    right: side,
+    strike: r.strike
+  }];
+  const shown = legs.length ? legs : fallback;
+  // One line per side: a condor reads as its put spread over its call spread.
+  const lines = ["put", "call"].map(right => shown.filter(l => l.right === right)).filter(ls => ls.length);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "su-trade"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `su-kind su-kind-${side || "other"}`,
+    title: (r.trade || "") + (r.kind === "iron_condor" ? " — a put spread below the price and a call spread above it, sold together." : side === "put" ? " — you want the stock to stay ABOVE the strike you sell." : side === "call" ? " — you want the stock to stay BELOW the strike you sell." : "")
+  }, SU_KIND_SHORT[r.kind] || r.trade || "Trade"), lines.map((ls, li) => /*#__PURE__*/React.createElement("span", {
+    key: li,
+    className: "su-legs"
+  }, ls.map((l, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    className: `su-leg su-leg-${l.action}`
+  }, i ? " · " : "", l.action === "sell" ? "Sell" : "Buy", " ", suNum(l.strike, l.strike % 1 ? 2 : 0), " ", l.right)), li === 0 && r.delta != null ? /*#__PURE__*/React.createElement("span", {
+    className: "su-bdelta",
+    title: SU_TIP.delta_short
+  }, suNum(Math.abs(r.delta), 2), "\u0394") : null)));
+}
 function SuBoardRow({
   r,
   onPick
 }) {
   const rich = r.richness;
   const tone = rich >= 80 ? "up" : rich >= 50 ? "" : "muted";
+  // data-label: on a phone the header row is hidden and each cell names
+  // itself, so a row reads as a small block rather than a table to scroll.
   return /*#__PURE__*/React.createElement("tr", {
     className: "su-brow"
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "su-c-sym"
+  }, /*#__PURE__*/React.createElement("button", {
     className: "su-blink",
     onClick: () => onPick && onPick(r.symbol),
     title: `Load ${r.symbol} in the Best Setup card above`
   }, r.symbol)), /*#__PURE__*/React.createElement("td", {
-    className: `scan-num ${tone}`,
+    className: "su-c-trade",
+    title: SU_TIP.action
+  }, /*#__PURE__*/React.createElement(SuTrade, {
+    r: r
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "su-c-exp",
+    title: SU_TIP.expiry
+  }, suExpiry(r.expiration, r.dte)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num su-c-money up",
+    "data-label": "You collect",
+    title: SU_TIP.collect
+  }, suContract(r.credit)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num su-c-money",
+    "data-label": "Most you can lose",
+    title: SU_TIP.max_loss
+  }, suContract(r.max_loss)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num su-c-money",
+    "data-label": "Return",
+    title: SU_TIP.roc
+  }, suPct(r.roc_pct, 1)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num su-c-why ${tone}`,
+    "data-label": "Richness",
     title: r.richness_why
   }, suNum(rich, 0), /*#__PURE__*/React.createElement("span", {
     className: "su-bbasis",
     title: SU_TIP.rich_basis
   }, r.richness_basis === "percentile" ? "pctl" : "ratio")), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
+    className: "scan-num su-c-why",
+    "data-label": "Over realized",
     title: SU_TIP.vrp
-  }, r.vrp_points == null ? "—" : `${r.vrp_points > 0 ? "+" : "−"}${Math.abs(r.vrp_points).toFixed(1)}`), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: SU_TIP.iv30
-  }, suPct(r.iv30 * 100, 0)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: SU_TIP.erv
-  }, suPct(r.erv30 * 100, 0)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: SU_TIP.action
-  }, r.strike == null ? "—" : suNum(r.strike, 2), r.delta == null ? null : /*#__PURE__*/React.createElement("span", {
-    className: "su-bdelta"
-  }, suNum(Math.abs(r.delta), 2), "\u0394")), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: SU_TIP.credit
-  }, suMoney(r.credit)), /*#__PURE__*/React.createElement("td", {
-    className: "scan-num",
-    title: SU_TIP.roc
-  }, suPct(r.roc_pct, 2)), /*#__PURE__*/React.createElement("td", {
-    title: SU_TIP.action
-  }, suDate(r.expiration)));
+  }, r.vrp_points == null ? "—" : `${r.vrp_points > 0 ? "+" : "−"}${Math.abs(r.vrp_points).toFixed(1)}`, /*#__PURE__*/React.createElement("span", {
+    className: "su-bsub",
+    title: SU_TIP.iv_vs_erv
+  }, suPct(r.iv30 * 100, 0), " vs ", suPct(r.erv30 * 100, 0))));
 }
 function SellBoardCard({
   apiFetch,
@@ -676,8 +750,9 @@ function SellBoardCard({
   }, "Worth selling today"), /*#__PURE__*/React.createElement("h3", {
     className: "card-title"
   }, "Where the premium is actually rich"), /*#__PURE__*/React.createElement("p", {
-    className: "card-sub"
-  }, "Ranked by how rich each option is against what that stock itself realizes. Same delta you always sell \u2014 this picks the names and the days, not the strike.")), /*#__PURE__*/React.createElement("div", {
+    className: "card-sub",
+    title: SU_TIP.board_how
+  }, "Each row is one trade to place: what to sell, what to buy as protection, what you collect and the most you can lose. Dollars are per contract. Richest premium first.")), /*#__PURE__*/React.createElement("div", {
     className: "toolbar"
   }, /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
@@ -693,15 +768,7 @@ function SellBoardCard({
   React.createElement("div", {
     className: "su-refused",
     title: SU_TIP.stale
-  }, /*#__PURE__*/React.createElement("b", null, "This scan is ", staleWord, ", not today\u2019s."), " ", "It last completed ", suDate(data.as_of), " at ", suTime(data.as_of), ". Prices and premiums below are from then. If the sidebar badge shows a Schwab problem, re-authorize under Manage \u2014 the scan cannot refresh without it.") : null, data && (data.refused_by || []).length ? /*#__PURE__*/React.createElement("p", {
-    className: "su-uni su-tally",
-    title: SU_TIP.tally
-  }, "Refused: ", (data.refused_by || []).map(r => `${r.n} ${r.label}`).join(" · ")) : null, uni ? /*#__PURE__*/React.createElement("p", {
-    className: "su-uni",
-    title: SU_TIP.universe
-  }, uni.ranked, " names ranked \xB7 ", data.measured || 0, " had their option chain measured \xB7 ", rows.length, " qualified", uni.dropped && uni.dropped["earnings inside the option's life"] ? /*#__PURE__*/React.createElement("span", {
-    title: SU_TIP.board_earn
-  }, " ", "\xB7 ", uni.dropped["earnings inside the option's life"], " skipped for earnings inside the option\u2019s life") : null) : null, busy && !data ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, "This scan is ", staleWord, ", not today\u2019s."), " ", "It last completed ", suDate(data.as_of), " at ", suTime(data.as_of), ". Prices and premiums below are from then. If the sidebar badge shows a Schwab problem, re-authorize under Manage \u2014 the scan cannot refresh without it.") : null, busy && !data ? /*#__PURE__*/React.createElement("div", {
     className: "st-loading",
     "aria-busy": "true"
   }, /*#__PURE__*/React.createElement("div", {
@@ -728,33 +795,37 @@ function SellBoardCard({
   }, /*#__PURE__*/React.createElement("table", {
     className: "scan-table su-btable"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    title: SU_TIP.action
+  }, "Trade"), /*#__PURE__*/React.createElement("th", {
+    title: SU_TIP.expiry
+  }, "Expires"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.collect
+  }, "You collect"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.max_loss
+  }, "Most you can lose"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num",
+    title: SU_TIP.roc
+  }, "Return"), /*#__PURE__*/React.createElement("th", {
     className: "scan-num",
     title: SU_TIP.richness
   }, "Richness"), /*#__PURE__*/React.createElement("th", {
     className: "scan-num",
     title: SU_TIP.vrp
-  }, "Premium over realized"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-num",
-    title: SU_TIP.iv30
-  }, "Implied"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-num",
-    title: SU_TIP.erv
-  }, "Expected realized"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-num",
-    title: SU_TIP.action
-  }, "Strike"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-num",
-    title: SU_TIP.credit
-  }, "Credit"), /*#__PURE__*/React.createElement("th", {
-    className: "scan-num",
-    title: SU_TIP.roc
-  }, "Return on collateral"), /*#__PURE__*/React.createElement("th", {
-    title: SU_TIP.expiry
-  }, "Expiration"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement(SuBoardRow, {
+  }, "Over realized"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement(SuBoardRow, {
     key: r.symbol,
     r: r,
     onPick: onPickTicker
-  }))))) : null, skipped.length ? /*#__PURE__*/React.createElement("div", {
+  }))))) : null, data && (data.refused_by || []).length ? /*#__PURE__*/React.createElement("p", {
+    className: "su-uni su-tally",
+    title: SU_TIP.tally
+  }, "Refused: ", (data.refused_by || []).map(r => `${r.n} ${r.label}`).join(" · ")) : null, uni ? /*#__PURE__*/React.createElement("p", {
+    className: "su-uni",
+    title: SU_TIP.universe
+  }, uni.ranked, " names ranked \xB7 ", data.measured || 0, " had their option chain measured \xB7 ", rows.length, " qualified", uni.dropped && uni.dropped["earnings inside the option's life"] ? /*#__PURE__*/React.createElement("span", {
+    title: SU_TIP.board_earn
+  }, " ", "\xB7 ", uni.dropped["earnings inside the option's life"], " skipped for earnings inside the option\u2019s life") : null) : null, skipped.length ? /*#__PURE__*/React.createElement("div", {
     className: "su-more"
   }, /*#__PURE__*/React.createElement("button", {
     className: "su-more-btn",
