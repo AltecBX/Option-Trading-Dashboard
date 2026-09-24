@@ -735,6 +735,33 @@ def _spread_from(short_m, rows, spot, side, t_years, erv, cfg, rate, width_pref)
     }
 
 
+def _per_tail(s: dict) -> float:
+    """EV per unit of tail risk, the ranking objective. Single options carry
+    it as `ev_per_tail`; spreads and condors carry the two parts
+    (`ev_per_share`, `es5_per_share`), so it is computed from them by the
+    same formula. When the tail is too small to divide by, EV / 10 — the
+    fallback `rank()` has always used."""
+    if s.get("ev_per_tail") is not None:
+        return s["ev_per_tail"]
+    ev, es = s.get("ev_per_share"), s.get("es5_per_share")
+    if ev is None:
+        return float("-inf")
+    if es is not None and es > 0.01:
+        return ev / es
+    return ev / 10.0
+
+
+def best_structure(structures: list) -> dict | None:
+    """The winner on the stated objective: liquid before illiquid, then the
+    most EV per unit of tail risk. Before v5.28, premium_only called its
+    FIRST structure best, and the put spread is always built first — so
+    the board showed a put spread whenever one existed, whatever the call
+    side or the condor paid."""
+    if not structures:
+        return None
+    return min(structures, key=lambda s: (0 if s.get("liquidity_ok") else 1, -_per_tail(s)))
+
+
 def select_structures(chain: dict, now: date, intent: str, erv_pack: dict,
                       cfg: dict, term: dict | None = None,
                       rate: float = 0.04) -> dict | None:
@@ -805,7 +832,9 @@ def select_structures(chain: dict, now: date, intent: str, erv_pack: dict,
             })
     if not out["structures"]:
         return None
-    out["best"] = out["structures"][0]
+    # Ranked, not first. The list keeps its build order (put spread, call
+    # spread, condor) because the Edge tab lists it; only "best" is chosen.
+    out["best"] = best_structure(out["structures"])
     return out
 
 

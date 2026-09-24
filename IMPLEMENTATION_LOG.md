@@ -3970,6 +3970,45 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.28 — the "best" trade is ranked, not just first
+
+**Jerry: the Worth-selling-today board will now show more call spreads and
+iron condors.** Until now it showed a put credit spread on nearly every
+row. That was not because put spreads were the best trade. It was because
+of the order the code built them in.
+
+In premium-only mode `premium_edge.select_structures` builds its three
+defined-risk trades in a fixed order: the put credit spread, then the call
+credit spread, then the iron condor. It then set `best` to
+`structures[0]`, with no sort in between. The docstring says "Ranking = EV
+per unit of tail risk, liquidity-gated". The single-option intents
+(covered calls, cash-secured puts) did rank within their side, but
+premium-only never ranked across its three structures. So `best` was the
+put spread whenever one could be built. `edge_scan` copies `best` into
+the scan row, and the board is built from those rows.
+
+- **`best_structure()` picks the winner on the stated objective.** It
+  ranks liquid trades before illiquid ones, then the most EV per unit of
+  tail risk.
+  - Spreads and condors don't store EV per tail. They store its two parts,
+    so `_per_tail()` computes `ev_per_share / es5_per_share`, the same
+    formula single options use.
+  - When the tail is too small to divide by, it falls back to EV / 10,
+    as `rank()` always has. For single options the key is identical to
+    `rank()`, so covered-call and cash-secured-put picks do not move.
+- **`structures` keeps its build order.** The Premium Edge tab lists every
+  structure in that order. Only `best` changed.
+- **Checked what depended on put-first.** The only consumer of `best` is
+  `edge_scan.analyze_symbol`. No test relied on the order.
+
+**Guards, in `test_premium_edge.py`:**
+- A chain with rich upside calls (negative skew) must pick the call side
+  or the condor. Proven red on the old code, where it picked the put
+  spread.
+- A chain with rich downside puts still picks the put side.
+- The listed order is unchanged.
+- Liquidity outranks value.
+
 ## v5.27 — Worth selling today says what the trade is
 
 Jerry, on a row reading "GOOGL · 46 ratio · +6.1 · 33% · 27% · 305.00

@@ -310,6 +310,54 @@ class TestStructureSelection(unittest.TestCase):
             self.assertAlmostEqual(c["max_loss"], max(pw, cw) - c["credit"], delta=0.02)
 
 
+class TestBestIsRankedNotFirst(unittest.TestCase):
+    """premium_only built its three structures in a fixed order (put
+    spread, call spread, condor) and called whichever came first "best",
+    so the Worth-selling-today board showed a put spread whenever one
+    existed, whatever the call side paid. "best" is now the winner on the
+    objective the docstring states: liquidity first, then EV per unit of
+    tail risk."""
+
+    def setUp(self):
+        self.erv = {"erv30": 0.30, "erv30_event": 0.30}
+
+    def per_tail(self, s):
+        return s["ev_per_share"] / s["es5_per_share"]
+
+    def test_a_richer_call_side_wins(self):
+        # Negative skew: upside calls priced well above the downside puts.
+        chain = mk_chain(expiries={30: 0.40}, skew_slope=-0.9)
+        out = pe.select_structures(chain, NOW, "premium_only", self.erv, cfg())
+        by = {s["kind"]: s for s in out["structures"]}
+        self.assertIn("put_credit_spread", by)
+        self.assertIn("call_credit_spread", by)
+        self.assertGreater(self.per_tail(by["call_credit_spread"]),
+                           self.per_tail(by["put_credit_spread"]))
+        self.assertIn(out["best"]["kind"], ("call_credit_spread", "iron_condor"))
+        best = out["best"]
+        self.assertEqual(max(self.per_tail(s) for s in out["structures"]
+                             if s.get("liquidity_ok") == best.get("liquidity_ok")),
+                         self.per_tail(best))
+
+    def test_a_richer_put_side_still_wins_when_it_should(self):
+        chain = mk_chain(expiries={30: 0.40}, skew_slope=0.9)
+        out = pe.select_structures(chain, NOW, "premium_only", self.erv, cfg())
+        self.assertIn(out["best"]["kind"], ("put_credit_spread", "iron_condor"))
+
+    def test_the_listed_order_does_not_change(self):
+        # The Edge tab lists every structure; only "best" is ranked.
+        chain = mk_chain(expiries={30: 0.40}, skew_slope=-0.9)
+        out = pe.select_structures(chain, NOW, "premium_only", self.erv, cfg())
+        kinds = [s["kind"] for s in out["structures"]]
+        order = ["put_credit_spread", "call_credit_spread", "iron_condor"]
+        self.assertEqual(kinds, [k for k in order if k in kinds])
+
+    def test_liquidity_outranks_value(self):
+        a = {"kind": "put_credit_spread", "liquidity_ok": True, "ev_per_share": 0.1, "es5_per_share": 1.0}
+        b = {"kind": "call_credit_spread", "liquidity_ok": False, "ev_per_share": 0.9, "es5_per_share": 1.0}
+        self.assertIs(a, pe.best_structure([b, a]))
+
+
 class TestScoreAndSignal(unittest.TestCase):
     def test_score_explains_z_substitution(self):
         parts = {"vrp_ratio": 1.4,
