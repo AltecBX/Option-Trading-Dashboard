@@ -89,6 +89,27 @@ class TestAnalyzeSymbol(unittest.TestCase):
         self.assertTrue(d["score_breakdown"])
         self.assertIn("config_hash", d["engine"])
 
+    def test_the_row_carries_the_whole_trade_not_just_its_short_strike(self):
+        """v5.27. The Worth-selling-today board is built from these rows,
+        and a row that carried only the short strike could not say which
+        side it was selling or what protected it. Jerry: "I don't know if
+        is a Call or a Put?" The best structure's other legs and its
+        capped loss ride along, and the board turns them into orders."""
+        import setup_board as sb
+        d = es.analyze_symbol("FAKE", intent="premium_only", record=False, now=NOW)
+        r, best = d["row"], d["structures"]["best"]
+        self.assertEqual(r["best_kind"], best["kind"])
+        self.assertEqual(r["best_max_loss"], best["max_loss"])
+        if best["kind"] == "iron_condor":
+            for k in ("short_put", "long_put", "short_call", "long_call"):
+                self.assertEqual(r[f"best_{k}"], best[k], k)
+        else:
+            self.assertEqual(r["best_strike"], best["short_strike"])
+            self.assertEqual(r["best_long_strike"], best["long_strike"])
+        legs = sb.legs(r)
+        self.assertGreaterEqual(len(legs), 2, f"{best['kind']} became {legs}")
+        self.assertEqual({"sell", "buy"}, {l["action"] for l in legs})
+
     def test_record_writes_observation_and_iv_history(self):
         es.analyze_symbol("FAKE", record=True, now=NOW)
         obs = pe.load_observations("FAKE")

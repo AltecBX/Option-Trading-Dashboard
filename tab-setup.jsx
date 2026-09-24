@@ -143,12 +143,17 @@ const SU_TIP = {
   board: "What is worth SELLING today, ranked by how rich each option is against what that stock itself realizes — not by how many dollars it pays, which mostly just tracks how volatile the stock is.",
   richness: "Where today's premium sits against this stock's OWN past premiums. 90 means richer than 90% of the readings on file. When too few readings exist for a percentile, it falls back to the raw ratio and the row says which.",
   rich_basis: "Which measurement the ranking used. PERCENTILE means enough of this stock's own history is on file to say where today sits in it. RATIO means there is not yet, so this is simply how many times over the option pays what the stock realizes.",
-  roc: "The credit as a percentage of the collateral the trade ties up — what the money actually earns, independent of share price.",
+  roc: "What you collect as a percentage of the money the trade ties up — for a spread, the most you can lose. Independent of share price.",
   board_skip: "Names the scan measured and then refused, with the reason. A short list is only trustworthy if you can see what did not make it and why.",
   universe: "How many names were ranked for free against how many had their option chain actually measured. Every chain costs a network round trip, so the scan ranks everything and measures the best few.",
   expiry: "The expiration this credit and return are quoted for — the one the premium engine judged richest inside the selling window, not automatically the nearest monthly.",
   stale: "The Premium Edge scan writes its board to disk and reloads it on restart, so a board can outlive the connection that produced it. When the scan has not completed within the day, every price and premium below is from whenever it last succeeded — usually a lapsed broker sign-in.",
   tally: "Why the measured names did not qualify, counted by reason. If nearly all of them say the same thing — especially 'no premium reading' — that points at the data upstream rather than a quiet market.",
+  collect: "The credit for one contract (100 shares), at the BID — the only price a resting sell order is promised. Yours to keep if the stock stays on the right side of the strike you sell.",
+  max_loss: "The most this trade can lose, per contract, if the stock runs all the way through the strikes: the width between the two strikes minus the credit you collected. The bought option is what caps it.",
+  iv_vs_erv: "Implied volatility (what the market is charging) against expected realized volatility (what this stock is forecast to actually move). The first bigger than the second is the whole reason to sell.",
+  delta_short: "The delta of the option you SELL — roughly the market's odds that it finishes in the money. 0.17 is about a 1-in-6 chance.",
+  board_how: "Ranked by how rich each option is against what that stock itself realizes, not by how many dollars it pays. Same delta you always sell: this picks the names and the days, not the strike.",
   board_earn: "Earnings inside the option's life excludes a name here. That is the opposite of the Premium Edge scan, which seeks earnings out — because a trader who closes before the report harvests that premium, and one who holds to expiry underwrites it.",
 };
 
@@ -548,37 +553,104 @@ function BestSetupCard({ apiFetch, ticker, onOpenTab }) {
 // same strike is paying more than that stock's own history says the risk
 // is worth — a selection claim, which the data does support.
 
+// What the row IS, in the words a broker's order ticket uses. Before v5.27
+// the board showed a strike, a delta and a credit and nothing else, so a
+// row read the same whether it was a put spread, a call spread or a
+// condor — Jerry: "I don't know if is a Call or a Put?" The side, the
+// legs and the dollars now lead the row; the measurements behind the
+// ranking follow it.
+const SU_KIND_SHORT = {
+  put_credit_spread: "Put spread", call_credit_spread: "Call spread",
+  iron_condor: "Iron condor", cash_secured_put: "Put", covered_call: "Call",
+};
+const suKindSide = (kind) =>
+  !kind ? "" : kind === "iron_condor" ? "both"
+  : kind.indexOf("put") === 0 || kind === "cash_secured_put" ? "put"
+  : kind.indexOf("call") === 0 || kind === "covered_call" ? "call" : "";
+// Per contract, whole dollars: "$166", "$1,334". What a person sees on the
+// order ticket and in the account, not a per-share decimal to multiply.
+const suContract = (perShare) => (perShare == null || !isFinite(perShare) ? "—"
+  : `$${Math.round(perShare * 100).toLocaleString("en-US")}`);
+// "Oct 30 · 36 days". The full-date house rule is for sentences; a column
+// someone scans wants the day and how far away it is.
+const suExpiry = (s, dte) => {
+  if (!s) return "—";
+  const d = new Date(String(s).length <= 10 ? `${s}T12:00:00` : s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  const day = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return dte == null || !isFinite(dte) ? day : `${day} · ${Math.round(dte)} days`;
+};
+
+function SuTrade({ r }) {
+  const side = suKindSide(r.kind);
+  const legs = r.legs || [];
+  // Old scans carried only the short strike. Say what is known, not more.
+  const fallback = r.strike == null || !(side === "put" || side === "call") ? []
+    : [{ action: "sell", right: side, strike: r.strike }];
+  const shown = legs.length ? legs : fallback;
+  // One line per side: a condor reads as its put spread over its call spread.
+  const lines = ["put", "call"].map(right => shown.filter(l => l.right === right))
+                               .filter(ls => ls.length);
+  return (
+    <div className="su-trade">
+      <span className={`su-kind su-kind-${side || "other"}`}
+            title={(r.trade || "") + (r.kind === "iron_condor"
+              ? " — a put spread below the price and a call spread above it, sold together."
+              : side === "put" ? " — you want the stock to stay ABOVE the strike you sell."
+              : side === "call" ? " — you want the stock to stay BELOW the strike you sell." : "")}>
+        {SU_KIND_SHORT[r.kind] || r.trade || "Trade"}
+      </span>
+      {lines.map((ls, li) => (
+        <span key={li} className="su-legs">
+          {ls.map((l, i) => (
+            <span key={i} className={`su-leg su-leg-${l.action}`}>
+              {i ? " · " : ""}{l.action === "sell" ? "Sell" : "Buy"} {suNum(l.strike, l.strike % 1 ? 2 : 0)} {l.right}
+            </span>
+          ))}
+          {li === 0 && r.delta != null
+            ? <span className="su-bdelta" title={SU_TIP.delta_short}>{suNum(Math.abs(r.delta), 2)}Δ</span>
+            : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function SuBoardRow({ r, onPick }) {
   const rich = r.richness;
   const tone = rich >= 80 ? "up" : rich >= 50 ? "" : "muted";
+  // data-label: on a phone the header row is hidden and each cell names
+  // itself, so a row reads as a small block rather than a table to scroll.
   return (
     <tr className="su-brow">
-      <td>
+      <td className="su-c-sym">
         <button className="su-blink" onClick={() => onPick && onPick(r.symbol)}
                 title={`Load ${r.symbol} in the Best Setup card above`}>
           {r.symbol}
         </button>
       </td>
-      <td className={`scan-num ${tone}`} title={r.richness_why}>
+      <td className="su-c-trade" title={SU_TIP.action}><SuTrade r={r} /></td>
+      <td className="su-c-exp" title={SU_TIP.expiry}>{suExpiry(r.expiration, r.dte)}</td>
+      <td className="scan-num su-c-money up" data-label="You collect" title={SU_TIP.collect}>
+        {suContract(r.credit)}
+      </td>
+      <td className="scan-num su-c-money" data-label="Most you can lose" title={SU_TIP.max_loss}>
+        {suContract(r.max_loss)}
+      </td>
+      <td className="scan-num su-c-money" data-label="Return" title={SU_TIP.roc}>{suPct(r.roc_pct, 1)}</td>
+      <td className={`scan-num su-c-why ${tone}`} data-label="Richness" title={r.richness_why}>
         {suNum(rich, 0)}
         <span className="su-bbasis" title={SU_TIP.rich_basis}>
           {r.richness_basis === "percentile" ? "pctl" : "ratio"}
         </span>
       </td>
-      <td className="scan-num" title={SU_TIP.vrp}>
+      <td className="scan-num su-c-why" data-label="Over realized" title={SU_TIP.vrp}>
         {r.vrp_points == null ? "—"
           : `${r.vrp_points > 0 ? "+" : "−"}${Math.abs(r.vrp_points).toFixed(1)}`}
+        <span className="su-bsub" title={SU_TIP.iv_vs_erv}>
+          {suPct(r.iv30 * 100, 0)} vs {suPct(r.erv30 * 100, 0)}
+        </span>
       </td>
-      <td className="scan-num" title={SU_TIP.iv30}>{suPct(r.iv30 * 100, 0)}</td>
-      <td className="scan-num" title={SU_TIP.erv}>{suPct(r.erv30 * 100, 0)}</td>
-      <td className="scan-num" title={SU_TIP.action}>
-        {r.strike == null ? "—" : suNum(r.strike, 2)}
-        {r.delta == null ? null
-          : <span className="su-bdelta">{suNum(Math.abs(r.delta), 2)}Δ</span>}
-      </td>
-      <td className="scan-num" title={SU_TIP.credit}>{suMoney(r.credit)}</td>
-      <td className="scan-num" title={SU_TIP.roc}>{suPct(r.roc_pct, 2)}</td>
-      <td title={SU_TIP.action}>{suDate(r.expiration)}</td>
     </tr>
   );
 }
@@ -637,10 +709,10 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
         <div>
           <span className="kicker" title={SU_TIP.board}>Worth selling today</span>
           <h3 className="card-title">Where the premium is actually rich</h3>
-          <p className="card-sub">
-            Ranked by how rich each option is against what that stock itself
-            realizes. Same delta you always sell — this picks the names and
-            the days, not the strike.
+          <p className="card-sub" title={SU_TIP.board_how}>
+            Each row is one trade to place: what to sell, what to buy as
+            protection, what you collect and the most you can lose. Dollars
+            are per contract. Richest premium first.
           </p>
         </div>
         <div className="toolbar">
@@ -663,29 +735,6 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
           a Schwab problem, re-authorize under Manage — the scan cannot
           refresh without it.
         </div>
-      ) : null}
-
-      {/* Why the list is short. "0 qualified" reads the same whether the
-          market is quiet or something upstream broke, and those want
-          completely different responses. */}
-      {data && (data.refused_by || []).length ? (
-        <p className="su-uni su-tally" title={SU_TIP.tally}>
-          Refused: {(data.refused_by || [])
-            .map(r => `${r.n} ${r.label}`).join(" · ")}
-        </p>
-      ) : null}
-
-      {uni ? (
-        <p className="su-uni" title={SU_TIP.universe}>
-          {uni.ranked} names ranked · {data.measured || 0} had their option
-          chain measured · {rows.length} qualified
-          {uni.dropped && uni.dropped["earnings inside the option's life"]
-            ? <span title={SU_TIP.board_earn}>
-                {" "}· {uni.dropped["earnings inside the option's life"]} skipped
-                for earnings inside the option&rsquo;s life
-              </span>
-            : null}
-        </p>
       ) : null}
 
       {busy && !data ? (
@@ -717,14 +766,13 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
             <thead>
               <tr>
                 <th>Symbol</th>
+                <th title={SU_TIP.action}>Trade</th>
+                <th title={SU_TIP.expiry}>Expires</th>
+                <th className="scan-num" title={SU_TIP.collect}>You collect</th>
+                <th className="scan-num" title={SU_TIP.max_loss}>Most you can lose</th>
+                <th className="scan-num" title={SU_TIP.roc}>Return</th>
                 <th className="scan-num" title={SU_TIP.richness}>Richness</th>
-                <th className="scan-num" title={SU_TIP.vrp}>Premium over realized</th>
-                <th className="scan-num" title={SU_TIP.iv30}>Implied</th>
-                <th className="scan-num" title={SU_TIP.erv}>Expected realized</th>
-                <th className="scan-num" title={SU_TIP.action}>Strike</th>
-                <th className="scan-num" title={SU_TIP.credit}>Credit</th>
-                <th className="scan-num" title={SU_TIP.roc}>Return on collateral</th>
-                <th title={SU_TIP.expiry}>Expiration</th>
+                <th className="scan-num" title={SU_TIP.vrp}>Over realized</th>
               </tr>
             </thead>
             <tbody>
@@ -734,6 +782,30 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
             </tbody>
           </table>
         </div>
+      ) : null}
+
+      {/* Below the trades, not above them: the rows are what a glance is
+          for (v5.27). Why the list is short. "0 qualified" reads the same whether the
+          market is quiet or something upstream broke, and those want
+          completely different responses. */}
+      {data && (data.refused_by || []).length ? (
+        <p className="su-uni su-tally" title={SU_TIP.tally}>
+          Refused: {(data.refused_by || [])
+            .map(r => `${r.n} ${r.label}`).join(" · ")}
+        </p>
+      ) : null}
+
+      {uni ? (
+        <p className="su-uni" title={SU_TIP.universe}>
+          {uni.ranked} names ranked · {data.measured || 0} had their option
+          chain measured · {rows.length} qualified
+          {uni.dropped && uni.dropped["earnings inside the option's life"]
+            ? <span title={SU_TIP.board_earn}>
+                {" "}· {uni.dropped["earnings inside the option's life"]} skipped
+                for earnings inside the option&rsquo;s life
+              </span>
+            : null}
+        </p>
       ) : null}
 
       {skipped.length ? (

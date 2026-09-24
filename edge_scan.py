@@ -356,6 +356,13 @@ def analyze_symbol(sym: str, intent: str = "premium_only", record: bool = False,
         "best_kind": best.get("kind"), "best_expiry": (structures or {}).get("expiry"),
         "best_dte": (structures or {}).get("dte"),
         "best_strike": best.get("strike") or best.get("short_strike"),
+        # The rest of the trade. A spread is two options and a condor four;
+        # a board that carries only the short strike cannot say which side
+        # it is selling or what protects it (v5.27).
+        "best_long_strike": best.get("long_strike"),
+        "best_short_put": best.get("short_put"), "best_long_put": best.get("long_put"),
+        "best_short_call": best.get("short_call"), "best_long_call": best.get("long_call"),
+        "best_max_loss": best.get("max_loss"),
         "best_credit": best.get("credit_exec") or best.get("credit"),
         "best_delta": best.get("delta"),
         "best_p_itm": best.get("p_itm_model"), "best_p_touch": best.get("p_touch_model"),

@@ -181,6 +181,22 @@ ok("refused names are reachable with their reasons",
    /it refused/.test(src) && /su-bskip/.test(src) && /\.su-bskip/.test(css));
 ok("the board table scrolls rather than bursting the page",
    /\.su-btable-wrap \{ overflow-x: auto; \}/.test(css));
+// v5.27. Jerry: "I don't know if is a Call or a Put?" The row now leads
+// with the trade — its kind, both legs as orders, and the dollars per
+// contract — and the scan hands over every leg, not just the short strike.
+ok("the board row names the trade before any measurement",
+   /<th title=\{SU_TIP\.action\}>Trade<\/th>/.test(src)
+   && src.indexOf(">Trade</th>") < src.indexOf(">Richness</th>")
+   && /function SuTrade\(/.test(src) && /SU_KIND_SHORT/.test(src));
+ok("the dollars are per contract and include the most you can lose",
+   />You collect<\/th>/.test(src) && />Most you can lose<\/th>/.test(src)
+   && /Math\.round\(perShare \* 100\)/.test(src));
+ok("the scan hands the board every leg, not just the short strike",
+   /"best_long_strike": best\.get\("long_strike"\)/.test(read("edge_scan.py"))
+   && /"best_max_loss": best\.get\("max_loss"\)/.test(read("edge_scan.py"))
+   && /"legs": legs\(r\)/.test(board));
+ok("put and call wear different colours",
+   /\.su-kind-put\s*\{ color: var\(--accent\)/.test(css) && /\.su-kind-call \{ color: var\(--warn\)/.test(css));
 ok("the board's new styles use tokens, never literal colours",
    !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Worth selling today board"))),
    (css.slice(css.indexOf("Worth selling today board")).match(/#[0-9a-fA-F]{6}\b/g) || []).join(","));

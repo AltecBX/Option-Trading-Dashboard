@@ -3970,6 +3970,56 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.27 — Worth selling today says what the trade is
+
+Jerry, on a row reading "GOOGL · 46 ratio · +6.1 · 33% · 27% · 305.00
+0.17Δ · $1.66 · 12.40% · October 30, 2026": "what does this mean? I
+don't know if is a Call or a Put? ... I need to see it and glance through
+it and understand it really quick."
+
+The row could not tell him. The board is built from the Premium Edge
+scan in its premium-only mode, which only ever picks defined-risk
+structures: a put credit spread, a call credit spread or an iron condor.
+The scan row carried the short strike and nothing else, so the card
+showed half a spread and neither side. His GOOGL row was a 305/290 put
+credit spread. The 12.40% is $1.66 over the $13.34 at risk on a $15-wide
+spread.
+
+- **The whole trade reaches the board.** `edge_scan` now writes
+  `best_long_strike`, the condor's four strikes and `best_max_loss` on
+  each row. `setup_board.legs()` turns them into orders, sells first
+  (`[{action, right, strike}]`), and names the kind in words. It never
+  guesses: an unknown kind, or a condor missing a wing, gives no legs
+  rather than an invented put.
+- **The row leads with the trade.** A PUT SPREAD, CALL SPREAD or IRON
+  CONDOR badge comes first, in a different colour for each side, then the
+  legs as orders ("Sell 305 put · Buy 290 put"), the expiry as "Oct 30 ·
+  36 days", and then **You collect** / **Most you can lose** / **Return**,
+  in whole dollars per contract. The measurements behind the ranking come
+  last. Implied against expected realized is now one small line under
+  "Over realized" instead of two columns.
+- **On a phone each row is a small block** that fits the screen: symbol
+  and expiry, the trade, then the three numbers, each naming itself.
+  There is no table to scroll sideways. This needed `!important` over the
+  v4.59 rule that gave this table a 620px floor on a narrow screen.
+- **The explanation comes after the trades.** The "Refused: …" and
+  "N names ranked …" lines moved below the table. The intro line says what
+  a row is in one sentence, and the ranking method moved to its tooltip.
+- **Scans from before this release** carry only the short strike. Those
+  rows still show the kind badge and the sold leg ("Sell 305 put"), and
+  pick up the bought leg on the next scan.
+
+Guards:
+- `test_the_board_says_which_side_and_both_legs` renders a board built by
+  the real `setup_board.build` at 1440 and at 440, with one put spread,
+  one call spread and one condor. It checks each row's badge, legs,
+  dollars and colours, that the expiry stays on one line on desktop, and
+  that nothing runs off the phone's screen. Proven red on the v5.26 card.
+- Unit tests for `legs()` on every kind and for its refusal to guess.
+- An `edge_scan` test that the scan row carries the best structure's
+  every leg.
+- Four static checks in `test_setup_ui.js`.
+
 ## v5.26 — every destination on a phone
 
 Jerry: "Optimize the rest of the tabs for my phone too."

@@ -55,7 +55,7 @@ few. It says so in the payload rather than implying it looked at everything.
 
 from __future__ import annotations
 
-SETUP_BOARD_VERSION = "setup-board-1.0.0"
+SETUP_BOARD_VERSION = "setup-board-1.1.0"
 
 # ── stage 1: the free screen ──────────────────────────────────────────────
 MIN_PRICE = 20.0             # penny-ish names have unsellable option chains
@@ -84,6 +84,51 @@ MIN_HIST_N = 30
 # An earnings report this many days beyond expiry still counts as inside:
 # the date drifts, and an unconfirmed date drifts more.
 EARNINGS_BUFFER_DAYS = 2
+
+
+# What each structure the scan can hand over is called, in words. The scan
+# runs in "premium only" mode, so today that is one of the three defined-risk
+# shapes; the two single-option kinds are here so a later mode cannot show
+# up on the board as an unlabelled strike.
+KIND_LABEL = {
+    "put_credit_spread": "Put credit spread",
+    "call_credit_spread": "Call credit spread",
+    "iron_condor": "Iron condor",
+    "cash_secured_put": "Cash-secured put",
+    "covered_call": "Covered call",
+}
+
+
+def legs(row: dict) -> list:
+    """The trade as the orders a person would place: [{"action": "sell" |
+    "buy", "right": "put" | "call", "strike": float}], sells first. Empty
+    when the scan row does not carry enough to say — never a guess."""
+    kind = row.get("best_kind")
+    short, long_ = _num(row.get("best_strike")), _num(row.get("best_long_strike"))
+
+    def leg(action, right, strike):
+        return {"action": action, "right": right, "strike": strike}
+
+    if kind in ("put_credit_spread", "call_credit_spread"):
+        right = "put" if kind.startswith("put") else "call"
+        if short is None:
+            return []
+        out = [leg("sell", right, short)]
+        if long_ is not None:
+            out.append(leg("buy", right, long_))
+        return out
+    if kind == "iron_condor":
+        sp, lp = _num(row.get("best_short_put")), _num(row.get("best_long_put"))
+        sc, lc = _num(row.get("best_short_call")), _num(row.get("best_long_call"))
+        if None in (sp, lp, sc, lc):
+            return []
+        return [leg("sell", "put", sp), leg("buy", "put", lp),
+                leg("sell", "call", sc), leg("buy", "call", lc)]
+    if kind == "cash_secured_put" and short is not None:
+        return [leg("sell", "put", short)]
+    if kind == "covered_call" and short is not None:
+        return [leg("sell", "call", short)]
+    return []
 
 
 def _num(v):
@@ -265,6 +310,12 @@ def build(rows, horizon_days: float | None = None, limit: int = 10,
             "roc_pct": _num(r.get("best_roc_pct")),
             "ev_per_share": _num(r.get("best_ev")),
             "kind": r.get("best_kind"),
+            "trade": KIND_LABEL.get(r.get("best_kind") or ""),
+            "legs": legs(r),
+            "long_strike": _num(r.get("best_long_strike")),
+            # Per share, like the credit. The most the trade can lose once
+            # the credit is counted: spread width minus credit.
+            "max_loss": _num(r.get("best_max_loss")),
             "danger": r.get("danger"),
             "earnings_date": r.get("earnings_date"),
             "premium_class": r.get("premium_class"),

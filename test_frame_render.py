@@ -273,6 +273,36 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
     }
 
 
+def board_payload():
+    """A Worth-selling-today payload built by the REAL setup_board from
+    scan rows shaped the way edge_scan writes them: one of each side the
+    premium-only scan can pick. GOOGL is Jerry's row from his screenshot —
+    305/290 put spread, $1.66 credit, 12.4% on the $13.34 at risk."""
+    import setup_board as SB
+
+    def scan(sym, kind, spot, strike, long_strike, credit, max_loss, delta, **legs):
+        return {"symbol": sym, "spot": spot, "data_ok": True,
+                "vrp_ratio": 1.46, "vrp_points": 6.1, "vrp_percentile": None,
+                "hist_n": 3, "iv30": 0.33, "erv30": 0.27,
+                "best_expiry": "2026-10-30", "best_dte": 36.0,
+                "best_strike": strike, "best_long_strike": long_strike,
+                "best_credit": credit, "best_max_loss": max_loss,
+                "best_roc_pct": round(credit / max_loss * 100, 1),
+                "best_delta": delta, "best_ev": 0.3, "best_kind": kind,
+                "liquidity_ok": True, "earnings_inside": False, "danger": "LOW",
+                "earnings_date": None, "premium_class": "rich",
+                **{f"best_{k}": v for k, v in legs.items()}}
+
+    rows = [scan("GOOGL", "put_credit_spread", 322.0, 305.0, 290.0, 1.66, 13.34, -0.17),
+            scan("MSFT", "call_credit_spread", 500.0, 530.0, 555.0, 2.10, 22.90, 0.18),
+            scan("AMD", "iron_condor", 160.0, None, None, 3.05, 4.95, None,
+                 short_put=150.0, long_put=142.0, short_call=172.0, long_call=180.0)]
+    out = SB.build(rows, limit=12)
+    out.update({"ok": True, "as_of": datetime.now().astimezone().isoformat(),
+                "measured": len(rows), "universe": None})
+    return out
+
+
 _DEFAULT_PAYLOADS: dict[str, str] = {}
 DEFAULT_SPOT = 100.0   # the spot sell_payload() builds its chain around
 
@@ -356,7 +386,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
-                 quotes=None, tab_order=None):
+                 quotes=None, tab_order=None, setup_board=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -374,6 +404,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # their tabs at some point — which is when the order comes from
         # /api/prefs rather than from TABS.
         self._tab_order = tab_order
+        # v5.27: a Worth-selling-today board. Off unless a test asks.
+        self._setup_board = setup_board
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -481,6 +513,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             if self._tab_order is not None and url.rstrip("/").endswith("/api/prefs"):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"tab_order": self._tab_order, "presets": []}))
+                return
+            if self._setup_board is not None and "/api/setup_board" in url:
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(self._setup_board))
                 return
             if "/api/ytd_base" in url:
                 r.fulfill(status=200, content_type="application/json",
@@ -1592,6 +1628,65 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                              "a header with no numeric class was dragged right too")
         finally:
             self._close(handles)
+
+    def test_the_board_says_which_side_and_both_legs(self):
+        """v5.27. Jerry, on Worth selling today: "I don't know if is a Call
+        or a Put? ... I need to see it and glance through it and understand
+        it really quick." The row read "GOOGL · 46 ratio · +6.1 · 33% ·
+        27% · 305.00 0.17Δ · $1.66 · 12.40% · October 30, 2026" — the
+        measurements first, half the trade, and no side at all.
+
+        Now the trade leads: which kind, both legs as orders, then what
+        you collect and the most you can lose, per contract. Put and call
+        wear different colours so two rows never read alike. On a phone
+        each row is a block that fits the screen — nothing to scroll."""
+        want = {"GOOGL": ("PUT SPREAD", "Sell 305 put · Buy 290 put", "$166", "$1,334"),
+                "MSFT": ("CALL SPREAD", "Sell 530 call · Buy 555 call", "$210", "$2,290"),
+                "AMD": ("IRON CONDOR", "Sell 150 put · Buy 142 put", "$305", "$495")}
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, setup_board=board_payload())
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".su-brow", timeout=15000)
+                rows = page.evaluate("""(() => {
+                  const card = document.querySelector('.su-board');
+                  const cr = card.getBoundingClientRect();
+                  return [...card.querySelectorAll('.su-brow')].map(tr => {
+                    const k = tr.querySelector('.su-kind');
+                    const exp = tr.querySelector('.su-c-exp');
+                    const cells = [...tr.querySelectorAll('td')];
+                    return {
+                      sym: tr.querySelector('.su-blink').innerText.trim(),
+                      kind: k.innerText.trim(), color: getComputedStyle(k).color,
+                      legs: [...tr.querySelectorAll('.su-legs')].map(l => l.innerText.replace(/\\s*[0-9.]+Δ$/, '').trim()),
+                      money: [...tr.querySelectorAll('.su-c-money')].map(c => c.innerText.split('\\n').pop().trim()),
+                      // Lines of TEXT, not the cell's height: a table cell
+                      // stretches to its row, and a condor row is three tall.
+                      expLines: (() => { const rg = document.createRange();
+                        rg.selectNodeContents(exp);
+                        return new Set([...rg.getClientRects()].map(q => Math.round(q.top))).size; })(),
+                      past: Math.max(0, ...cells.map(c => c.getBoundingClientRect().right - cr.right)),
+                    }; }); })()""")
+                self.assertEqual(3, len(rows), f"{len(rows)} rows at {w}px")
+                by = {r["sym"]: r for r in rows}
+                for sym, (kind, legs, collect, lose) in want.items():
+                    r = by[sym]
+                    self.assertEqual(kind, r["kind"], f"{sym} at {w}px")
+                    self.assertEqual(legs, r["legs"][0], f"{sym} legs at {w}px")
+                    self.assertEqual([collect, lose], r["money"][:2], f"{sym} dollars at {w}px")
+                self.assertEqual("Sell 172 call · Buy 180 call", by["AMD"]["legs"][1],
+                                 "the condor's call side is missing")
+                self.assertNotEqual(by["GOOGL"]["color"], by["MSFT"]["color"],
+                                    "a put spread and a call spread wear the same colour")
+                if w < 900:
+                    self.assertLessEqual(max(r["past"] for r in rows), 1,
+                                         "a row runs off the phone's screen")
+                else:
+                    self.assertTrue(all(r["expLines"] <= 1 for r in rows),
+                                    "the expiry wrapped onto more than one line")
+            finally:
+                self._close(handles)
 
     def test_friday_is_a_destination_with_its_expiry_on_it(self):
         """v5.24. Jerry: "Lets put anything that has to do with selling

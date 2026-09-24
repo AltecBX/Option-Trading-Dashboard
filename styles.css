@@ -13580,6 +13580,51 @@ a.tabsheet-btn.site { text-decoration: none; }
   text-transform: uppercase; color: var(--fg-3); font-weight: 600;
 }
 .su-bdelta { margin-left: 6px; font-size: 11px; color: var(--fg-3); }
+/* v5.27: the trade, in words, first. The badge says which side at a glance
+   — PUT SPREAD and CALL SPREAD in different colours, so two rows of
+   different sides never read alike — and the legs say what to order. */
+.su-trade { display: flex; flex-direction: column; gap: 3px; white-space: nowrap; }
+.su-kind {
+  align-self: flex-start;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 5px; border: 1px solid transparent;
+}
+.su-kind-put  { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+                border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.su-kind-call { color: var(--warn);   background: color-mix(in srgb, var(--warn) 14%, transparent);
+                border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.su-kind-both, .su-kind-other { color: var(--fg-2); background: var(--bg-3); border-color: var(--line); }
+.su-legs { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
+.su-leg-sell { color: var(--fg); font-weight: 700; }
+.su-c-exp { white-space: nowrap; }
+.su-bsub { display: block; font-size: 11px; color: var(--fg-3); white-space: nowrap; }
+/* On a phone each row is a small block, not a table row to scroll: the
+   symbol and expiry on top, the trade under them, then the three numbers
+   that decide it — collect, can lose, return — each naming itself. The
+   measurements behind the ranking come last and smallest. */
+@media (max-width: 900px) {
+  /* !important: the v4.59 rule below gives this table a 620px floor on a
+     narrow screen, which is what made it a thing to scroll sideways. */
+  .su-btable { min-width: 0 !important; }
+  .su-btable thead { display: none; }
+  .su-btable, .su-btable tbody { display: block; }
+  .su-btable tr.su-brow {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px 10px; padding: 12px 0; border-bottom: 1px solid var(--line);
+  }
+  .su-btable tr.su-brow td { display: block; padding: 0 !important; text-align: left; }
+  .su-btable .su-c-sym { grid-column: 1 / 3; font-size: 15px; }
+  .su-btable .su-c-exp { grid-column: 3; grid-row: 1; align-self: center; text-align: right; color: var(--fg-2); }
+  .su-btable .su-c-trade { grid-column: 1 / -1; }
+  .su-btable .su-c-money { font-size: 15px; font-weight: 700; }
+  .su-btable .su-c-why { font-size: 12px; color: var(--fg-3); }
+  .su-btable td[data-label]::before {
+    content: attr(data-label); display: block;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
+    margin-bottom: 2px;
+  }
+}
 .su-bskip { margin-top: 8px; }
 .su-bskip li { margin-bottom: 6px; }
 @media (max-width: 620px) {
