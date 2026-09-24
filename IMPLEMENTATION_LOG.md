@@ -4000,6 +4000,13 @@ the scan row, and the board is built from those rows.
   structure in that order. Only `best` changed.
 - **Checked what depended on put-first.** The only consumer of `best` is
   `edge_scan.analyze_symbol`. No test relied on the order.
+- **Every structure now stores `ev_per_tail`,** via the same
+  `_ev_per_tail()` single options use (Codex, #415). Before this, spreads
+  and condors never carried it, so the scan's edge score fell back to raw
+  EV and showed it under the "EV/tail-risk" label: 0.149 where the ratio
+  was 3.48 on the test chain. **So Premium Edge scores for spreads and
+  condors will move, mostly up.** That input is capped at 1.0 and weighs
+  14 points; it now measures what its label says.
 
 **Guards, in `test_premium_edge.py`:**
 - A chain with rich upside calls (negative skew) must pick the call side
@@ -4008,6 +4015,8 @@ the scan row, and the board is built from those rows.
 - A chain with rich downside puts still picks the put side.
 - The listed order is unchanged.
 - Liquidity outranks value.
+- The winner carries the ratio it won on. Proven red on the pre-fix
+  engine, where the spread's `ev_per_tail` was None.
 
 ## v5.27 — Worth selling today says what the trade is
 

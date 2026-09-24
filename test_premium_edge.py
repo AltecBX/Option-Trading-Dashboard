@@ -352,6 +352,21 @@ class TestBestIsRankedNotFirst(unittest.TestCase):
         order = ["put_credit_spread", "call_credit_spread", "iron_condor"]
         self.assertEqual(kinds, [k for k in order if k in kinds])
 
+    def test_the_winner_carries_the_ratio_it_won_on(self):
+        """Codex (#415): a spread won on EV/tail but did not carry it, so the
+        scan's score fell back to raw EV (0.149 against 3.48 on this chain)
+        under the "EV/tail-risk" label."""
+        chain = mk_chain(expiries={30: 0.40}, skew_slope=-0.9)
+        out = pe.select_structures(chain, NOW, "premium_only", self.erv, cfg())
+        for s in out["structures"]:
+            self.assertIsNotNone(s.get("ev_per_tail"), s["kind"])
+            # Stored from the unrounded parts; the dict's parts are rounded.
+            self.assertAlmostEqual(s["ev_per_tail"], self.per_tail(s),
+                                   delta=abs(self.per_tail(s)) * 0.01 + 0.001)
+        self.assertEqual(out["best"]["ev_per_tail"],
+                         max(s["ev_per_tail"] for s in out["structures"]
+                             if s.get("liquidity_ok") == out["best"].get("liquidity_ok")))
+
     def test_liquidity_outranks_value(self):
         a = {"kind": "put_credit_spread", "liquidity_ok": True, "ev_per_share": 0.1, "es5_per_share": 1.0}
         b = {"kind": "call_credit_spread", "liquidity_ok": False, "ev_per_share": 0.9, "es5_per_share": 1.0}

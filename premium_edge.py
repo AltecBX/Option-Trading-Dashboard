@@ -612,7 +612,7 @@ def contract_economics(row: dict, spot: float, side: str, t_years: float,
         "ev_per_share": round(ev_share, 3),
         "ev_per_contract": round(ev_share * 100.0, 0),
         "es5_per_share": es_share,
-        "ev_per_tail": round(ev_share / es_share, 3) if es_share and es_share > 0.01 else None,
+        "ev_per_tail": _ev_per_tail(ev_share, es_share),
         "p_itm_model": pi, "p_touch_model": pt,
         "prob_basis": "model (driftless lognormal at ExpectedRV30)",
         "dist_pct": round((strike / spot - 1.0) * 100.0, 2),
@@ -727,6 +727,10 @@ def _spread_from(short_m, rows, spot, side, t_years, erv, cfg, rate, width_pref)
         "collateral": round(max_loss * 100.0, 0),
         "ev_per_share": round(ev, 3),
         "es5_per_share": round(min(short_m["es5_per_share"], max_loss), 4),
+        # Stored, not left for a consumer to derive: edge_scan's score reads
+        # `ev_per_tail` off the best structure and, finding none on a spread,
+        # used raw EV under the "EV/tail-risk" label (Codex, #415).
+        "ev_per_tail": _ev_per_tail(ev, min(short_m["es5_per_share"], max_loss)),
         "p_itm_model": short_m["p_itm_model"], "p_touch_model": short_m["p_touch_model"],
         "prem_pct_collateral": round(credit / max_loss * 100.0, 1) if max_loss > 0 else None,
         "spread_pct": short_m["spread_pct"], "oi": short_m["oi"], "volume": short_m["volume"],
@@ -735,12 +739,17 @@ def _spread_from(short_m, rows, spot, side, t_years, erv, cfg, rate, width_pref)
     }
 
 
+def _ev_per_tail(ev, es):
+    """EV per unit of tail risk — the one formula, for single options and
+    structures alike. None when the tail is too small to divide by."""
+    return round(ev / es, 3) if ev is not None and es and es > 0.01 else None
+
+
 def _per_tail(s: dict) -> float:
-    """EV per unit of tail risk, the ranking objective. Single options carry
-    it as `ev_per_tail`; spreads and condors carry the two parts
-    (`ev_per_share`, `es5_per_share`), so it is computed from them by the
-    same formula. When the tail is too small to divide by, EV / 10 — the
-    fallback `rank()` has always used."""
+    """EV per unit of tail risk, the ranking objective. Every structure
+    carries it as `ev_per_tail`; it is re-derived from the two parts only
+    for a dict built elsewhere without it. When the tail is too small to
+    divide by, EV / 10 — the fallback `rank()` has always used."""
     if s.get("ev_per_tail") is not None:
         return s["ev_per_tail"]
     ev, es = s.get("ev_per_share"), s.get("es5_per_share")
@@ -825,6 +834,8 @@ def select_structures(chain: dict, now: date, intent: str, erv_pack: dict,
                 "collateral": round((max(pcs["width"], ccs["width"]) - (pcs["credit"] + ccs["credit"])) * 100.0, 0),
                 "ev_per_share": round(pcs["ev_per_share"] + ccs["ev_per_share"], 3),
                 "es5_per_share": round(max(pcs["es5_per_share"], ccs["es5_per_share"]), 4),
+                "ev_per_tail": _ev_per_tail(pcs["ev_per_share"] + ccs["ev_per_share"],
+                                            max(pcs["es5_per_share"], ccs["es5_per_share"])),
                 "p_itm_model": round(min(1.0, (pcs["p_itm_model"] or 0) + (ccs["p_itm_model"] or 0)), 4),
                 "p_touch_model": round(min(1.0, (pcs["p_touch_model"] or 0) + (ccs["p_touch_model"] or 0)), 4),
                 "liquidity_ok": pcs["liquidity_ok"] and ccs["liquidity_ok"],
