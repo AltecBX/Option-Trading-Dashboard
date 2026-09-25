@@ -153,7 +153,11 @@ function LvRankings({ rankings, phase, onOpen }) {
     .sort((a, b) => counts[b] - counts[a]);
   const colour = (g) => { const i = shared.indexOf(g); return i >= 0 && i < LV_GROUP_COLOURS ? i : -1; };
   const [only, setOnly] = useState(null);
-  const shown = only && counts[only] ? rows.filter(r => lvGroup(r) === only) : rows;
+  // The filter holds only while its chip is on screen: a later poll can
+  // leave the group with one row, its chip gone, and no way back to the
+  // full list (Codex, #419).
+  const filtering = only != null && shared.includes(only);
+  const shown = filtering ? rows.filter(r => lvGroup(r) === only) : rows;
   const pickList = (k) => { setPick(k); setOnly(null); };
   return (
     <div className="lv-ranks" title={LV_TIP.lists}>
@@ -166,11 +170,11 @@ function LvRankings({ rankings, phase, onOpen }) {
       </div>
       {shared.length ? (
         <div className="lv-groups" title="Groups with more than one stock on this list. Tap one to show only those; tap it again to show everything.">
-          {shared.slice(0, 5).map(g => (
+          {shared.slice(0, LV_GROUP_COLOURS).map(g => (
             <button key={g} type="button"
-                    className={`lv-grp lv-grp-${colour(g)}${only === g ? " on" : ""}`}
-                    aria-pressed={only === g}
-                    onClick={() => setOnly(only === g ? null : g)}>
+                    className={`lv-grp lv-grp-${colour(g)}${filtering && only === g ? " on" : ""}`}
+                    aria-pressed={filtering && only === g}
+                    onClick={() => setOnly(filtering && only === g ? null : g)}>
               {g} <b>{counts[g]}</b>
             </button>
           ))}

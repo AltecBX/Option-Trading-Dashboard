@@ -5253,3 +5253,12 @@ header order, each row's label against the engine's rows, colour only
 for repeats, one colour per group, the summary chip, and filter on/off.
 On the phone it checks the table doesn't run off the screen and the chip
 isn't squeezed. It was red on the old screen. Two new static guards.
+
+Codex on #419, both right and both fixed:
+- The summary showed five chips, but six groups can be coloured. The
+  sixth group was coloured with no chip to tap. It now shows
+  `LV_GROUP_COLOURS` chips.
+- A filter survived its group dropping to one row on a later poll. The
+  chip disappeared and the list stayed filtered, with no way back except
+  switching lists. The filter now applies only while its group is still
+  shared. Two static guards cover this; both fail on the old code.
