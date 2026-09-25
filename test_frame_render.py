@@ -1803,7 +1803,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     verdicts = page.evaluate("""[...document.querySelectorAll('.lv-check-verdict')]
                                                 .map(v => v.innerText.trim())""")
                     # Fired, then live, then stopped by a condition, then idle (v5.30).
-                    rank = lambda r: (0 if r["fired_ts"] else 1 if r["live"] else 2 if r["blocked"] else 3)
+                    order = {"fired": 0, "live_blocked": 1, "live": 1, "blocked": 2,
+                             "idle": 3, "session": 4, "off": 5}
+                    rank = lambda r: order[r["status"]]
                     self.assertEqual([r["verdict"] for r in sorted(live["check"]["setups"], key=rank)],
                                      verdicts)
                 else:

@@ -1010,25 +1010,31 @@ def check(symbol: str, now: datetime | None = None) -> dict:
             live, _c, side, why = _trigger_state(s["trigger"], pic, pic, st, s["params"], now)
             blocked = _blocked_by(s["conditions"], pic)
             fired = st["fired"].get(s["id"])
+            # One status per row, decided by eligibility FIRST: a switched-
+            # off setup, or one for the other session, is never "live" on
+            # the screen however its raw trigger reads (Codex, #417).
             if not s.get("enabled"):
-                verdict = "Setup is switched off."
+                status, verdict = "off", "Setup is switched off."
             elif spec["session"] != (_STATE["phase"] or phase(now)):
+                status = "session"
                 verdict = ("Runs before the open only." if spec["session"] == "pre"
                            else "Runs while the market is open only.")
             elif fired is not None:
+                status = "fired"
                 verdict = f"Fired at {datetime.fromtimestamp(fired, now.tzinfo).strftime('%H:%M')}."
             elif live and blocked:
-                verdict = "Trigger is live, but " + "; ".join(blocked) + "."
+                status, verdict = "live_blocked", "Trigger is live, but " + "; ".join(blocked) + "."
             elif live:
+                status = "live"
                 verdict = "Trigger is live and nothing blocks it — it fires on the next crossing."
             elif blocked:
-                verdict = "Trigger is not live, and " + "; ".join(blocked) + "."
+                status, verdict = "blocked", "Trigger is not live, and " + "; ".join(blocked) + "."
             else:
-                verdict = "Trigger is not live."
+                status, verdict = "idle", "Trigger is not live."
             rows.append({"setup_id": s["id"], "setup": s["name"], "trigger": s["trigger"],
                          "enabled": s.get("enabled"), "live": bool(live), "side": side,
                          "detail": why, "blocked": blocked, "verdict": verdict,
-                         "fired_ts": fired})
+                         "fired_ts": fired, "status": status})
         return {"symbol": sym, "known": True,
                 "picture": {k: pic.get(k) for k in ("last", "change_pct", "gap_pct", "rvol",
                                                     "high", "low", "open", "prev_close",

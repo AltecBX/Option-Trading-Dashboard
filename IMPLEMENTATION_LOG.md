@@ -4004,6 +4004,14 @@ Also, at every width: **Check a stock lists fired and live setups first**,
 then ones a condition stopped, then idle ones dimmed. The answer is no
 longer under eleven "Trigger is not live" rows.
 
+Codex (#417) pointed out that the first draft sorted on the raw trigger.
+A switched-off setup, or a pre-market one during the session, whose trigger
+happened to read live would jump above the setups that actually explain
+things. Each check row now carries one `status` from the server, decided by
+eligibility first: fired, live, live_blocked, blocked, idle, session or
+off. The screen sorts and colours on that. Proven red first (the old rows
+had no status at all).
+
 Caught on the way: `.lv-side` names both the lists column (a section) and
 each alert's ▲/▼ badge (a span). The first draft's rule hiding the column
 also hid every arrow, and the screenshot showed it. The rule now names the

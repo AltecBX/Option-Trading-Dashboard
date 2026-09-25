@@ -167,7 +167,13 @@ function LvRankings({ rankings, phase, onOpen }) {
   );
 }
 
-const lvCheckRank = (r) => (r.fired_ts ? 0 : r.live ? 1 : (r.blocked && r.blocked.length) ? 2 : 3);
+// Ranked on the server's one status per row, which decides eligibility
+// first — never on the raw trigger, which reads "live" for a switched-off
+// setup too (Codex, #417).
+const LV_CHECK_RANK = { fired: 0, live_blocked: 1, live: 1, blocked: 2, idle: 3, session: 4, off: 5 };
+const lvCheckRank = (r) => (r.status in LV_CHECK_RANK ? LV_CHECK_RANK[r.status] : 3);
+const LV_CHECK_CLASS = { fired: "fired", live: "live", live_blocked: "live", blocked: "",
+                         idle: "idle", session: "idle", off: "idle" };
 
 function LvCheck({ apiFetch, initial }) {
   const [sym, setSym] = useState(initial || "");
@@ -199,11 +205,11 @@ function LvCheck({ apiFetch, initial }) {
               condition, then idle (dimmed). The answer to "why didn't it
               alert?" is near the top, not under eleven "not live" rows. */}
           {res.setups.slice().sort((a, b) => lvCheckRank(a) - lvCheckRank(b)).map(r => (
-            <li key={r.setup_id}
-                className={`lv-check-row ${r.fired_ts ? "fired" : r.live ? "live" : r.blocked && r.blocked.length ? "" : "idle"}`}>
+            <li key={r.setup_id} className={`lv-check-row ${LV_CHECK_CLASS[r.status] ?? "idle"}`}>
               <span className="lv-check-name">{r.setup}</span>
               <span className="lv-check-verdict">{r.verdict}</span>
-              {r.live || r.fired_ts ? <span className="lv-check-detail">{r.detail}</span> : null}
+              {r.status === "fired" || r.status === "live" || r.status === "live_blocked"
+                ? <span className="lv-check-detail">{r.detail}</span> : null}
             </li>
           ))}
         </ul>

@@ -134,6 +134,26 @@ class NewHighOfDay(Harness):
         self.assertIn("Trigger is live, but", hod["verdict"])
 
 
+class SetupCheckStatus(Harness):
+    def test_an_ineligible_setup_is_never_reported_live(self):
+        """Codex (#417): the check sorted on the raw trigger, so a switched-
+        off setup, or a pre-market one during the session, whose trigger
+        happened to be live ranked above the setups that explain things.
+        Each row now carries one status, and eligibility decides it first."""
+        items = LS.setups()
+        for s in items:
+            s["enabled"] = s["id"] != "new_hod"          # new_hod switched off
+        LS.save_setups(items)
+        self.step(at(10, 0), AAA=quote(101, high=101, vol=2_000_000))
+        self.step(at(10, 0, 30), AAA=quote(102, high=102, vol=2_100_000))
+        rows = {r["setup_id"]: r for r in LS.check("AAA", at(10, 0, 30))["setups"]}
+        self.assertEqual("off", rows["new_hod"]["status"])
+        self.assertEqual("session", rows["premarket_mover"]["status"])
+        self.assertIn(rows["gap_down_extending"]["status"], ("idle", "blocked"))
+        for r in rows.values():
+            self.assertIn(r["status"], ("fired", "live", "live_blocked", "blocked", "idle", "session", "off"))
+
+
 class Gaps(Harness):
     def test_gap_up_holding_fires_once_a_day(self):
         self.only("gap_up_holding")
