@@ -252,6 +252,10 @@ for p in [
     f"/api/stretch/profile?symbol={S}",
     "/api/stretch/status",
     "/api/stretch/config",
+    # the Live Scanner (v5.29)
+    "/api/live",
+    "/api/live/setups",
+    f"/api/live/check?symbol={S}",
     "/api/stretch/alerts",
     # Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). Offline every route
     # still answers 200 — NOT READ YET is an answer, and the card renders it.

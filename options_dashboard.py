@@ -5114,6 +5114,26 @@ except Exception as _exc:  # noqa: BLE001
     _stretch = None  # type: ignore
     _stretchev = None  # type: ignore
 
+# ── Live Scanner: what is moving right now, and why (v5.29) ─────────────────
+# One batch quote per ~300 names every 30 seconds while the market is open,
+# over the watchlist board's universe. Alerts, rankings and each setup's own
+# graded track record; runs whether or not the tab is open.
+try:
+    import live_scan as _live
+    _live.configure(
+        quotes_fn=lambda syms: (lambda c: c.get_quotes(syms) if c is not None else None)(_schwab()),
+        universe_fn=lambda: (((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                               else {}) or {}).get("rows") or []),
+        notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+        data_dir=_STABLE_DIR,
+    )
+    _LIVE_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[live_scan] wiring failed: {_exc}", file=sys.stderr)
+    _LIVE_AVAILABLE = False
+    _live = None  # type: ignore
+
 # ── Hedge Fund Intelligence: Named Fund Watch (HEDGE_FUND_INTEL.md) ─────────
 # EDGAR is the source of record; Unusual Whales is a cross-check. The sector
 # of a held name comes from the app's own board first (the user's sector map)
@@ -8561,6 +8581,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
+        if parsed.path == "/api/live/setups":
+            # Save the Live Scanner's setup list, or put the defaults back.
+            if not (_LIVE_AVAILABLE and _live is not None):
+                self._send_json({"ok": False, "error": "live scanner unavailable"}, status=503)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                if length <= 0 or length > 500_000:
+                    raise ValueError("invalid content length")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                out = (_live.reset_setups() if payload.get("action") == "reset"
+                       else _live.save_setups(payload.get("setups")))
+                self._send_json(out, status=200 if out.get("ok") else 400)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
         # ── Dismiss a watchlist alert (v1.15) ──────────────────────
         # ── Pattern watches (v3.44): pattern → live signal / alert ─────
         if parsed.path == "/api/patterns/watch":
@@ -10528,6 +10564,32 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/juice", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
+        if parsed.path == "/api/live" or parsed.path.startswith("/api/live/"):
+            # The Live Scanner (v5.29): snapshot, one symbol's Setup Check,
+            # and the setup list with the vocabulary the editor needs.
+            if not (_LIVE_AVAILABLE and _live is not None):
+                self._send_json({"error": "live scanner unavailable"}, status=503)
+                return
+            section = parsed.path[len("/api/live"):].lstrip("/")
+            qs = parse_qs(parsed.query)
+            try:
+                if section == "":
+                    since = qs.get("since", [""])[0]
+                    try:
+                        since_ts = float(since) if since else None
+                    except ValueError:
+                        since_ts = None
+                    self._send_json(_live.snapshot(since_ts=since_ts), no_store=True)
+                elif section == "check":
+                    self._send_json(_live.check(qs.get("symbol", [""])[0]), no_store=True)
+                elif section == "setups":
+                    self._send_json({"setups": _live.setups(), "meta": _live.meta()}, no_store=True)
+                else:
+                    self._send_json({"error": f"unknown live section {section}"}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/live", exc)
+                self._send_json({"error": str(exc)}, status=500)
             return
         if parsed.path == "/api/stretch" or parsed.path.startswith("/api/stretch/"):
             if not _STRETCH_AVAILABLE:
@@ -13954,6 +14016,13 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                 _stretch.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[stretch_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _LIVE_AVAILABLE and not os.environ.get("JERRY_NO_NET"):
+        try:
+            # sweeps the watchlist every 30 seconds while the market is open
+            # (60 before it), so alerts reach the phone with the tab closed
+            _live.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[live_scan] scheduler start failed: {exc}", file=sys.stderr)
     if _SELL_AVAILABLE:
         try:
             # grades every recorded Best Sales recommendation after its expiry

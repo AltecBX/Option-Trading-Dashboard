@@ -3970,6 +3970,130 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.29 — the Live Scanner
+
+Jerry, with three screenshots of an open-source day-trading scanner ("Edge
+Scanner": a live alert feed, ranked gainers/losers/volume lists, a setup
+editor, a "stock check"): "I would love to add this idea to my app but
+make it 100x better."
+
+The original streams 1-minute bars for the 300 most liquid symbols over a
+broker WebSocket and leaves the judgement to the user. This version is
+built on what the app already has: batch Schwab quotes, the watchlist
+board, the push channel and the market calendar. That makes it cheap to
+run and lets it cover Jerry's whole watchlist.
+
+### The engine: `live_scan.py`
+
+- **One batch quote per 300 names.** A sweep runs every 30 seconds while
+  the market is open and every 60 before it. That is about 5 calls a
+  minute for the full ~1,300-name watchlist, against the app's 110-a-minute
+  budget. There is no streaming socket and no per-symbol bar fetch.
+- **Everything is derived from those quotes plus the board:**
+  - the day's high and low, and the gap from yesterday's close;
+  - pre-market price and volume;
+  - relative volume against the 20-day average, on a U-shaped intraday
+    volume curve, so 9:45 is not "3x volume" by arithmetic;
+  - 5- and 15-minute moves, and breakouts measured against the previous
+    half hour's 5-minute volume, from the scanner's own ticks;
+  - yesterday's high and low, from the scanner's own end-of-day record;
+  - the 52-week range, from the board.
+- **15 triggers:**
+  - new high / new low of day;
+  - breakout / breakdown on volume;
+  - gap up holding / fading, gap down recovering / extending;
+  - above yesterday's high / below yesterday's low;
+  - new 52-week high / low;
+  - fast 5-minute move;
+  - volume surge;
+  - pre-market mover.
+
+  Each one has its own knobs.
+- **Setups are data** (`setups.json`): a trigger, its knobs, six
+  conditions (price, average volume, market cap, relative volume, day
+  move), a cooldown, and push-to-phone. Validation clamps every number,
+  refuses unknown triggers by name, and **refuses a save with nothing
+  valid in it**. The first draft wiped every setup when handed a bad list;
+  the route smoke caught it.
+- **Pushes are capped at 12 an hour** across all setups.
+
+### What makes it better than a feed
+
+1. **Every alert is a sentence:** "Broke above yesterday's high of
+   $212.40 on 3.1x normal volume", not a code.
+2. **Every alert is graded.** The scanner keeps watching the stock and
+   records the move in the alert's direction at 15, 30 and 60 minutes,
+   plus the best and worst excursion along the way. Each setup therefore
+   carries its own measured record: "followed through 58% of 212, +0.21%
+   after 30 minutes", over the last 20 sessions. A setup that does not
+   work shows it.
+3. **Setup Check** answers "why didn't NVDA alert?". It shows each setup,
+   whether its trigger is live, and exactly which condition stopped it, in
+   words.
+4. **A restart does not re-fire a once-a-day alert.** What already fired
+   is rebuilt from the day's alert log.
+
+### The screen: `tab-live.jsx`, Scan › Live Scanner
+
+- **Status line:** live / pre-market / closed, when prices were last
+  checked, how many names were quoted, and alerts today.
+- **The feed:** filters for All / Long / Short and by setup, with the
+  newest alert on top. Each alert shows its side, the symbol (tap to open
+  it on Trade), the setup, price, day move, relative volume, the reason,
+  and the setup's record.
+- **The lists:** gainers, losers, most active, volume surge, 5-minute
+  movers, gap up, gap down, and the three pre-market lists, which lead
+  before the bell. Names under $5 or 500K shares a day are left out.
+- **Setups editor, Check a stock, and an optional beep** for new alerts
+  only (off until turned on; remembered per browser).
+- **It polls only while the tab is showing,** and on a phone it stacks
+  with every row fitting the screen.
+
+Found and fixed while testing:
+- **History length.** The breakout reads the last 5 minutes against the
+  30 before. The first draft kept exactly 35 minutes of ticks, so the
+  oldest was always just gone and the trigger could never fire. It now
+  keeps 45, with a guard pinning the arithmetic.
+- **"5-minute" moves.** A move is only called 5-minute when the scanner
+  has a price from about 5 minutes ago. After a gap in sweeps, a
+  10-minute move had been reported as a 5-minute one. Proven red.
+- **The bell.** Pre-market ticks are cleared at the open, so the extended
+  tape is never mixed into the session's windows.
+
+Codex review (#416), three findings, each proven red first and fixed:
+- **Pre-market alerts were graded on the wrong price.** Before the bell
+  the regular price is cleared, so a pre-market alert went ungraded until
+  9:30 and then every horizon got the opening price. That would have
+  corrupted the setup's advertised record. It is now graded on the
+  pre-market tape until there is a regular price.
+- **A restart mid-session lost yesterday's range.** Today's periodic
+  record replaced yesterday's in the one file, so the prior-day setups
+  went dark after any deploy. Yesterday now rides along inside today's
+  record.
+- **The ranking lists defaulted to Gainers before the bell.** The screen
+  mounts before the first answer says it is pre-market, so the remembered
+  default was the empty regular Gainers list. The default now follows the
+  session until the viewer picks a list.
+
+Not in this release:
+- **Free-floating, saved window layouts.** The app's layout is fixed and
+  phone-first.
+- **Replay of a past session.**
+- **VWAP triggers.** VWAP needs minute bars, which cost one call per
+  symbol.
+
+Guards:
+- `test_live_scan.py`: 24 tests with fake quotes and a fake clock. They
+  cover every trigger family, conditions, cooldown, once-a-day, restart,
+  the prior-day record, pre-market, grading in both directions, rankings,
+  setup validation, the wipe refusal, the push cap and the gap-in-sweeps
+  rule.
+- `test_the_live_scanner_reads_at_a_glance` renders the screen from the
+  real engine's output at 1440 and 440, and drives the setups editor and
+  Setup Check.
+- Six static guards in `test_ui_frame.js`.
+- The three routes are in the HTTP smoke test.
+
 ## v5.28 — the "best" trade is ranked, not just first
 
 **Jerry: the Worth-selling-today board will now show more call spreads and

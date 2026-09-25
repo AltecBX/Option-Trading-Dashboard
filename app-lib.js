@@ -161,6 +161,9 @@ const TABS = [{
   id: "flow",
   label: "Flow"
 }, {
+  id: "live",
+  label: "Live Scanner"
+}, {
   id: "scanners",
   label: "Scanners"
 }, {
@@ -275,7 +278,7 @@ const TAB_GROUPS = [{
   id: "scan",
   label: "Scan",
   tip: "Tools that look across many names at once and hand back candidates.",
-  ids: ["scanners", "patterns", "streaks", "edge", "gap", "earnops", "recovery"]
+  ids: ["live", "scanners", "patterns", "streaks", "edge", "gap", "earnops", "recovery"]
 }, {
   id: "research",
   label: "Research",

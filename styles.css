@@ -15145,6 +15145,125 @@ body { overflow: hidden; overscroll-behavior: none; }
   .ab-card .card-head .card-title { font-size: 14.5px; }
 }
 
+/* ── Live Scanner (v5.29) ─────────────────────────────────────────────────
+   The alert feed beside the ranked lists. Each alert is two lines: what and
+   where on the first (time, side, symbol, setup, price, move, volume), WHY
+   on the second, and the setup's own graded record under it. Tokens only. */
+.lv-toolbar { gap: 8px; flex-wrap: wrap; }
+.lv-btn {
+  font: inherit; font-size: 12.5px; color: var(--fg-2); cursor: pointer;
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 11px;
+}
+.lv-btn.on { color: var(--fg); border-color: var(--accent); }
+.lv-btn:disabled { opacity: 0.5; cursor: default; }
+.lv-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+  margin: 0 0 12px; font-size: 12.5px; color: var(--fg-3);
+}
+.lv-status b { color: var(--fg); }
+.lv-status-note { color: var(--fg-3); }
+.lv-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-4); }
+.lv-ph-open .lv-pulse { background: var(--up); box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 25%, transparent); }
+.lv-ph-pre .lv-pulse { background: var(--warn); }
+.lv-err { margin: 0 0 12px; color: var(--down); font-size: 13px; }
+.lv-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; }
+.lv-feed-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.lv-seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.lv-seg-btn {
+  font: inherit; font-family: var(--font-body); font-size: 12px; cursor: pointer; color: var(--fg-2);
+  background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
+}
+.lv-seg-btn.on { color: var(--fg); background: color-mix(in srgb, var(--accent) 16%, transparent);
+                 border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.lv-input {
+  font: inherit; font-size: 13px; color: var(--fg); background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; min-width: 0;
+}
+.lv-setup-filter { max-width: 240px; }
+.lv-alerts { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow-y: auto; }
+.lv-alert {
+  padding: 9px 10px; border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+}
+.lv-long { border-left-color: var(--up); }
+.lv-short { border-left-color: var(--down); }
+.lv-a-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.lv-time { font-family: var(--font-mono); color: var(--fg-3); font-size: 12px; }
+.lv-side { font-family: var(--font-mono); font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
+.lv-sym {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 800; color: var(--fg); text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--line-2);
+}
+.lv-sym:hover { color: var(--accent); }
+.lv-setup {
+  font-size: 11.5px; font-weight: 600; color: var(--fg-2);
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px;
+}
+.lv-a-nums { margin-left: auto; display: flex; gap: 10px; font-family: var(--font-mono); font-size: 12.5px; }
+.lv-rv { color: var(--fg-3); }
+.lv-why { margin-top: 4px; font-size: 13px; color: var(--fg-2); line-height: 1.4; }
+.lv-a-foot { margin-top: 4px; }
+.lv-rec { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.lv-rec.up { color: var(--up); }
+.lv-rec.down { color: var(--down); }
+.lv-rec-new { font-style: italic; }
+.lv-empty { color: var(--fg-3); font-size: 13px; margin: 10px 0; }
+.lv-rtable { width: 100%; margin-top: 8px; }
+.lv-rank { color: var(--fg-3); font-family: var(--font-mono); width: 26px; }
+.lv-metric { font-weight: 700; }
+.lv-check { margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.lv-check-form { display: flex; gap: 8px; }
+.lv-check-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.lv-check-row { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 2px 12px;
+                padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.lv-check-name { font-weight: 700; color: var(--fg); }
+.lv-check-verdict { color: var(--fg-2); }
+.lv-check-detail { grid-column: 2; color: var(--fg-3); }
+.lv-check-row.fired .lv-check-name { color: var(--accent); }
+.lv-check-row.live .lv-check-name { color: var(--warn); }
+.lv-editor { margin: 0 0 16px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg-2); }
+.lv-ed-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.lv-ed-sub { color: var(--fg-3); font-size: 12.5px; }
+.lv-x { margin-left: auto; background: none; border: none; color: var(--fg-2); cursor: pointer; font-size: 16px; }
+.lv-ed-body { display: grid; grid-template-columns: minmax(0, 250px) minmax(0, 1fr); }
+.lv-ed-list { list-style: none; margin: 0; padding: 8px; border-right: 1px solid var(--line); max-height: 520px; overflow-y: auto; }
+.lv-ed-item {
+  width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
+  font: inherit; font-size: 13px; color: var(--fg-2); cursor: pointer;
+  background: none; border: 1px solid transparent; border-radius: 8px; padding: 7px 8px;
+}
+.lv-ed-item.on { background: var(--bg-3); border-color: var(--line); color: var(--fg); }
+.lv-ed-name { flex: 1; min-width: 0; }
+.lv-ed-state { font-size: 11px; color: var(--fg-3); }
+.lv-ed-state.on { color: var(--up); }
+.lv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); flex: none; }
+.lv-dot.long { background: var(--up); }
+.lv-dot.short { background: var(--down); }
+.lv-dot.either { background: var(--accent); }
+.lv-ed-form { padding: 12px 14px; min-width: 0; }
+.lv-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-3); margin-bottom: 10px; min-width: 0; }
+.lv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.lv-help { margin: -2px 0 12px; color: var(--fg-2); font-size: 12.5px; line-height: 1.4; }
+.lv-ed-toggles { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 12px; }
+.lv-check-box { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
+.lv-ed-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.lv-msg { margin: 10px 0 0; font-size: 12.5px; color: var(--fg-2); }
+@media (max-width: 900px) {
+  /* On a phone the feed and the lists stack, the feed first; the editor's
+     list sits above its form; the numbers wrap under the symbol. */
+  .lv-cols { grid-template-columns: minmax(0, 1fr); }
+  .lv-ed-body { grid-template-columns: minmax(0, 1fr); }
+  .lv-ed-list { border-right: none; border-bottom: 1px solid var(--line); max-height: 220px; }
+  .lv-grid { grid-template-columns: minmax(0, 1fr); }
+  .lv-a-nums { margin-left: 0; width: 100%; }
+  .lv-alerts { max-height: none; }
+  .lv-setup-filter { max-width: none; flex: 1; }
+  .lv-check-row { grid-template-columns: minmax(0, 1fr); }
+  .lv-check-detail { grid-column: 1; }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    v5.26 — EVERY DESTINATION ON A PHONE
    ──────────────────────────────────────────────────────────────────────────
