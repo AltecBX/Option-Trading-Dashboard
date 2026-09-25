@@ -134,7 +134,8 @@ const tabIds = [...tabsBlock.matchAll(/\{ id: "([a-z]+)", label: "/g)].map(m => 
 const groupBlock = lib.slice(lib.indexOf("const TAB_GROUPS"), lib.indexOf("class RootErrorBoundary"));
 const grouped = [...groupBlock.matchAll(/"([a-z]+)"/g)].map(m => m[1])
   .filter(x => tabIds.includes(x));
-ok("every destination is still declared", tabIds.length === 30, String(tabIds.length));
+// 31 since v5.29: the Live Scanner joined the Scan group.
+ok("every destination is still declared", tabIds.length === 31, String(tabIds.length));
 ok("every destination belongs to exactly one group",
    tabIds.every(id => grouped.filter(g => g === id).length === 1),
    tabIds.filter(id => grouped.filter(g => g === id).length !== 1).join(","));
@@ -364,6 +365,30 @@ ok("on a phone the day-of-week grid and the chain legend fit a small screen",
 ok("the Friday head card says which Friday and whether today is the day",
    /function FridayCard/.test(cards) && /const zeroDte = isFriday && !afterClose;/.test(cards)
    && /FridayCard: _memo\(FridayCard\)/.test(cards));
+
+// ── v5.29: the Live Scanner ────────────────────────────────────────────────
+// A new destination has four places to be registered; missing any one is a
+// tab that silently never loads. And it polls — only while it is showing.
+{
+  const live = read("tab-live.jsx");
+  ok("the Live Scanner is a destination in the Scan group",
+     /\{ id: "live", label: "Live Scanner" \}/.test(lib)
+     && /ids: \["live", "scanners",/.test(lib));
+  ok("its chunk is built, verified and mounted",
+     /"tab-live\.jsx"/.test(read("build_frontend.js")) && /"tab-live\.js"/.test(read("verify_frontend.js"))
+     && /chunk="tab-live" component="LiveScanTab"/.test(app)
+     && /Object\.assign\(window, \{ LiveScanTab: React\.memo\(LiveScanTab\) \}\)/.test(live));
+  ok("it polls only while the tab is showing",
+     /visible=\{activeTab === "live"\}/.test(app)
+     && /if \(!visible\) return undefined;/.test(live));
+  ok("every alert shows its reason and its setup's record",
+     /className="lv-why">\{a\.why\}/.test(live) && /<LvRecord rec=\{rec\} \/>/.test(live));
+  ok("the sound is off until the viewer turns it on, and never beeps for the backlog",
+     /localStorage\.getItem\("jerry_live_sound"\) === "1"/.test(live)
+     && /seenRef\.current != null && newest > seenRef\.current && sound/.test(live));
+  ok("the Live Scanner's styles use tokens, never literal colours",
+     !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Live Scanner (v5.29)"), css.indexOf("v5.26 — EVERY DESTINATION"))));
+}
 
 // ── 7. one version, from the one source ───────────────────────────────────
 ok("the status line shows the app's real version",

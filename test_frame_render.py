@@ -303,6 +303,50 @@ def board_payload():
     return out
 
 
+def live_payload():
+    """The Live Scanner's answers, produced by the REAL engine: live_scan
+    walked through a morning of fake quotes — a gap up that holds, a new
+    high of day, a name breaking down — with the grading and the rankings
+    it computes on the way. The screen is drawn from what the engine says,
+    not from a hand-written snapshot."""
+    import tempfile as _tf
+    from zoneinfo import ZoneInfo as _Z
+    import live_scan as LS
+    et = _Z("America/New_York")
+    day = datetime(2026, 9, 24, tzinfo=et)
+    clock = {"t": day.replace(hour=9, minute=50)}
+    quotes = {}
+    rows = [{"symbol": s, "avg_volume": 8_000_000, "market_cap": 9e10,
+             "high_52w": 400.0, "low_52w": 20.0} for s in ("NVDA", "MOS", "BBWI", "XE", "META")]
+    tmp = _tf.mkdtemp()
+    LS.configure(quotes_fn=lambda syms: {x: quotes[x] for x in syms if x in quotes},
+                 universe_fn=lambda: rows, now_fn=lambda: clock["t"], data_dir=tmp)
+
+    def q(last, prev, opn, high, low, vol):
+        return {"regular_last": last, "last": last, "close_prev": prev, "open": opn,
+                "high": high, "low": low, "volume": vol, "name": "x"}
+
+    def step(minute, second=0, **kw):
+        clock["t"] = day.replace(hour=10 if minute < 60 else 11, minute=minute % 60, second=second) \
+            if minute >= 0 else day.replace(hour=9, minute=50)
+        quotes.update(kw)
+        LS.sweep(clock["t"])
+
+    step(-1, NVDA=q(210.0, 213.05, 212.0, 212.5, 209.8, 9e6), MOS=q(24.9, 24.27, 24.9, 25.1, 24.6, 4e6),
+         BBWI=q(18.3, 17.6, 18.2, 18.4, 18.0, 6e6), XE=q(19.2, 19.1, 19.2, 19.4, 19.0, 3e6),
+         META=q(590.0, 570.0, 588.0, 591.0, 585.0, 5e6))
+    step(0, NVDA=q(209.5, 213.05, 212.0, 212.5, 209.5, 9.5e6), MOS=q(25.2, 24.27, 24.9, 25.2, 24.6, 4.4e6),
+         BBWI=q(18.5, 17.6, 18.2, 18.5, 18.0, 6.6e6), XE=q(19.0, 19.1, 19.2, 19.4, 19.0, 3.2e6),
+         META=q(592.0, 570.0, 588.0, 592.0, 585.0, 5.4e6))
+    step(40, NVDA=q(210.8, 213.05, 212.0, 212.5, 209.5, 1.2e7), MOS=q(25.5, 24.27, 24.9, 25.5, 24.6, 5e6),
+         BBWI=q(18.4, 17.6, 18.2, 18.5, 18.0, 7e6), XE=q(18.8, 19.1, 19.2, 19.4, 18.8, 3.6e6),
+         META=q(593.0, 570.0, 588.0, 593.0, 585.0, 5.8e6))
+    snap = LS.snapshot()
+    snap["last_sweep"] = datetime.now().astimezone().isoformat()
+    return {"snapshot": snap, "setups": {"setups": LS.setups(), "meta": LS.meta()},
+            "check": LS.check("NVDA", clock["t"])}
+
+
 _DEFAULT_PAYLOADS: dict[str, str] = {}
 DEFAULT_SPOT = 100.0   # the spot sell_payload() builds its chain around
 
@@ -386,7 +430,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
-                 quotes=None, tab_order=None, setup_board=None):
+                 quotes=None, tab_order=None, setup_board=None, live=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -406,6 +450,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self._tab_order = tab_order
         # v5.27: a Worth-selling-today board. Off unless a test asks.
         self._setup_board = setup_board
+        # v5.29: the Live Scanner's three answers. Off unless a test asks.
+        self._live = live
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -514,6 +560,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"tab_order": self._tab_order, "presets": []}))
                 return
+            if self._live is not None and "/api/live" in url:
+                path = urllib.parse.urlsplit(url).path
+                key = {"/api/live": "snapshot", "/api/live/setups": "setups",
+                       "/api/live/check": "check"}.get(path)
+                if key:
+                    r.fulfill(status=200, content_type="application/json",
+                              body=json.dumps(self._live[key]))
+                    return
             if self._setup_board is not None and "/api/setup_board" in url:
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps(self._setup_board))
@@ -1685,6 +1739,64 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 else:
                     self.assertTrue(all(r["expLines"] <= 1 for r in rows),
                                     "the expiry wrapped onto more than one line")
+            finally:
+                self._close(handles)
+
+    def test_the_live_scanner_reads_at_a_glance(self):
+        """v5.29. Jerry, with three screenshots of an open-source day-trading
+        scanner: "I would love to add this idea to my app but make it 100x
+        better." The screen is drawn from the REAL engine (live_payload()
+        walks live_scan through a morning of quotes), and what it must show
+        is what makes it better than a feed: each alert says which way, the
+        symbol, the setup and WHY in a sentence, and carries its setup's
+        own graded record; the ranked lists beside it; the setups editable;
+        Setup Check answering for a named stock; and on a phone every row
+        fits the screen."""
+        live = live_payload()
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, tab="live", live=live)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".lv-alert", timeout=15000)
+                rows = page.evaluate("""(() => {
+                  const card = document.querySelector('.lv-card');
+                  const cr = card.getBoundingClientRect();
+                  return [...card.querySelectorAll('.lv-alert')].map(li => ({
+                    side: li.querySelector('.lv-side').innerText.trim(),
+                    sym: li.querySelector('.lv-sym').innerText.trim(),
+                    setup: li.querySelector('.lv-setup').innerText.trim(),
+                    why: li.querySelector('.lv-why').innerText.trim(),
+                    rec: li.querySelector('.lv-rec').innerText.trim(),
+                    past: Math.max(0, li.getBoundingClientRect().right - cr.right),
+                  })); })()""")
+                snap = live["snapshot"]
+                self.assertEqual(len(snap["alerts"]), len(rows), f"alerts drawn at {w}px")
+                for r, a in zip(rows, snap["alerts"]):
+                    self.assertIn("LONG" if a["side"] == "long" else "SHORT", r["side"])
+                    self.assertEqual(a["symbol"], r["sym"])
+                    self.assertEqual(a["setup"], r["setup"])
+                    self.assertEqual(a["why"], r["why"], "the reason is the engine's sentence")
+                    self.assertTrue(r["rec"], "every alert carries its setup's record")
+                self.assertLessEqual(max(r["past"] for r in rows), 1, f"an alert runs off the card at {w}px")
+                ranked = page.evaluate("document.querySelectorAll('.lv-rtable tbody tr').length")
+                self.assertEqual(len(snap["rankings"]["gainers"]), ranked, "the gainers list")
+                over = page.evaluate("""(() => { const m = document.querySelector('.main');
+                  return Math.max(0, m.scrollWidth - m.clientWidth); })()""")
+                self.assertLessEqual(over, 2, f"the page scrolls {over}px sideways at {w}px")
+                if w > 900:
+                    page.click(".lv-toolbar .research-run-btn")
+                    page.wait_for_selector(".lv-ed-item", timeout=8000)
+                    n = page.evaluate("document.querySelectorAll('.lv-ed-item').length")
+                    self.assertEqual(len(live["setups"]["setups"]), n, "every setup is listed to edit")
+                    page.click(".lv-x")
+                    page.click(".lv-toolbar .lv-btn:nth-child(2)")
+                    page.fill(".lv-check-form input", "NVDA")
+                    page.click(".lv-check-form button")
+                    page.wait_for_selector(".lv-check-row", timeout=8000)
+                    verdicts = page.evaluate("""[...document.querySelectorAll('.lv-check-verdict')]
+                                                .map(v => v.innerText.trim())""")
+                    self.assertEqual([r["verdict"] for r in live["check"]["setups"]], verdicts)
             finally:
                 self._close(handles)
 
