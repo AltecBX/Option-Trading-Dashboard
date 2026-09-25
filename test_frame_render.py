@@ -316,8 +316,13 @@ def live_payload():
     day = datetime(2026, 9, 24, tzinfo=et)
     clock = {"t": day.replace(hour=9, minute=50)}
     quotes = {}
+    # Two names share Jerry's own tag, one has only a sector, one has
+    # neither: the lists' Group column has all three cases to draw (v5.32).
+    groups = {"NVDA": ("AI", "Technology"), "META": ("AI", "Communication Services"),
+              "MOS": ("", "Basic Materials"), "BBWI": ("", "Consumer Cyclical"), "XE": ("", None)}
     rows = [{"symbol": s, "avg_volume": 8_000_000, "market_cap": 9e10,
-             "high_52w": 400.0, "low_52w": 20.0} for s in ("NVDA", "MOS", "BBWI", "XE", "META")]
+             "high_52w": 400.0, "low_52w": 20.0, "tag": groups[s][0], "sector": groups[s][1]}
+            for s in ("NVDA", "MOS", "BBWI", "XE", "META")]
     tmp = _tf.mkdtemp()
     LS.configure(quotes_fn=lambda syms: {x: quotes[x] for x in syms if x in quotes},
                  universe_fn=lambda: rows, now_fn=lambda: clock["t"], data_dir=tmp)
@@ -1742,6 +1747,53 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             finally:
                 self._close(handles)
 
+    def _lists_show_the_group(self, page, gainers, w):
+        """v5.32. Jerry: "Since we have the empty space between Price and
+        Percentage, lets put the Tag of the stock. This way if I see the
+        same tag in the list, I can quickly see what sector is doing what."
+        Each row names its group (his tag, else the sector); a group on the
+        list more than once is coloured and counted above the table; the
+        Day column that repeated the gainers' own number is gone."""
+        if w <= 900:
+            page.click(".lv-view .lv-seg-btn:nth-child(2)")
+            page.wait_for_timeout(200)
+        got = page.evaluate("""(() => ({
+          head: [...document.querySelectorAll('.lv-rtable thead th')].map(t => t.innerText.trim().toLowerCase()),
+          rows: [...document.querySelectorAll('.lv-rtable tbody tr')].map(tr => {
+            const g = tr.querySelector('.lv-grp-col > *');
+            return {sym: tr.querySelector('.lv-sym').innerText.trim(), group: g.innerText.trim(),
+                    colour: (g.className.match(/lv-grp-(\\d)/) || [])[1] || null}; }),
+          chips: [...document.querySelectorAll('.lv-groups .lv-grp')].map(b => b.innerText.replace(/\\s+/g, ' ').trim()),
+        }))()""")
+        short = {"Technology": "Tech", "Basic Materials": "Materials",
+                 "Consumer Cyclical": "Consumer", "Communication Services": "Comms"}
+        want = {r["symbol"]: (r.get("tag") or short.get(r.get("sector") or "", r.get("sector")) or "—")
+                for r in gainers}
+        self.assertEqual(["#", "symbol", "price", "group", "gainers"], got["head"],
+                         f"the Group column sits after Price and the repeated Day column is gone at {w}px")
+        self.assertEqual(want, {r["sym"]: r["group"] for r in got["rows"]}, f"group labels at {w}px")
+        seen = [r["group"] for r in got["rows"]]
+        for r in got["rows"]:
+            if seen.count(r["group"]) > 1 and r["group"] != "—":
+                self.assertIsNotNone(r["colour"], f"{r['sym']}'s repeated group is not coloured")
+            else:
+                self.assertIsNone(r["colour"], f"{r['sym']}'s one-off group is coloured like a cluster")
+        ai = [r["colour"] for r in got["rows"] if r["group"] == "AI"]
+        self.assertEqual(2, len(ai), got)
+        self.assertEqual(1, len(set(ai)), "one group, one colour")
+        self.assertEqual(["AI 2"], got["chips"])
+        if w > 900:
+            page.click(".lv-groups .lv-grp")
+            page.wait_for_timeout(150)
+            only = page.evaluate("[...document.querySelectorAll('.lv-rtable .lv-sym')].map(b => b.innerText.trim())")
+            self.assertEqual(sorted(s for s, g in want.items() if g == "AI"), sorted(only), "tapping a group shows only it")
+            page.click(".lv-groups .lv-grp")
+            page.wait_for_timeout(150)
+            self.assertEqual(len(gainers), page.evaluate("document.querySelectorAll('.lv-rtable tbody tr').length"))
+        else:
+            page.click(".lv-view .lv-seg-btn:nth-child(1)")
+            page.wait_for_timeout(200)
+
     def test_the_live_scanner_reads_at_a_glance(self):
         """v5.29. Jerry, with three screenshots of an open-source day-trading
         scanner: "I would love to add this idea to my app but make it 100x
@@ -1787,6 +1839,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 self.assertLessEqual(max(r["past"] for r in rows), 1, f"an alert runs off the card at {w}px")
                 ranked = page.evaluate("document.querySelectorAll('.lv-rtable tbody tr').length")
                 self.assertEqual(len(snap["rankings"]["gainers"]), ranked, "the gainers list")
+                self._lists_show_the_group(page, snap["rankings"]["gainers"], w)
                 over = page.evaluate("""(() => { const m = document.querySelector('.main');
                   return Math.max(0, m.scrollWidth - m.clientWidth); })()""")
                 self.assertLessEqual(over, 2, f"the page scrolls {over}px sideways at {w}px")
@@ -1825,12 +1878,22 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     page.wait_for_timeout(200)
                     li = page.evaluate("""(() => {
                       const m = document.querySelector('.main'), mt = m.getBoundingClientRect().top;
-                      return {table: Math.round(document.querySelector('.lv-rtable').getBoundingClientRect().top - mt),
+                      // The lists begin with the group summary when there is one (v5.32).
+                      const first = document.querySelector('.lv-groups') || document.querySelector('.lv-rtable');
+                      return {table: Math.round(first.getBoundingClientRect().top - mt),
+                              strip: Math.round((document.querySelector('.lv-groups') || {getBoundingClientRect: () => ({height: 0})}).getBoundingClientRect().height),
                               seg: Math.round(document.querySelector('.lv-ranks .lv-seg').getBoundingClientRect().height),
                               feed: !!document.querySelector('.lv-feed').offsetParent}; })()""")
                     self.assertLessEqual(li["table"], 160, f"the lists start {li['table']}px down after one tap")
                     self.assertLessEqual(li["seg"], 44, "the list buttons are one row, not four")
+                    self.assertLessEqual(li["strip"], 36, "the group summary is one row on a phone")
                     self.assertFalse(li["feed"], "Lists shows the lists instead of the feed")
+                    fit = page.evaluate("""(() => {
+                      const t = document.querySelector('.lv-rtable'), c = document.querySelector('.lv-ranks');
+                      return {over: Math.round(t.getBoundingClientRect().right - c.getBoundingClientRect().right),
+                              chip: Math.round(document.querySelector('.lv-rtable .lv-grp').getBoundingClientRect().width)}; })()""")
+                    self.assertLessEqual(fit["over"], 1, f"the lists run {fit['over']}px off the screen with the Group column")
+                    self.assertGreaterEqual(fit["chip"], 20, "the group label is squeezed to nothing on a phone")
             finally:
                 self._close(handles)
         # Before the bell the list to show is the pre-market one, even though

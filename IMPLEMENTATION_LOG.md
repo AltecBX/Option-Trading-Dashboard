@@ -5218,3 +5218,38 @@ Guards: 180 static, 38 render. Three rounds of review on this feature: the
 first finding was wrong but exposed a comparator that only worked by
 accident, the second was right about an incomplete fix, and this one was a
 real bug on screen for who knows how long.
+
+## v5.32 — the lists say which group each stock is in
+
+Jerry, with a screenshot of Pre-market gainers: "Since we have the empty
+space between Price and Percentage, lets put the Tag of the stock. This way
+if I see the same tag in the list, I can quickly see what sector is doing
+what."
+
+- **Where the label comes from.** His own watchlist tag (the CSV he imports
+  in Manage) when the stock has one, else a short sector name ("Tech",
+  "Health", "Materials"…), else a dash. That is the order the Recovery
+  board already uses. `live_scan` now carries `tag` and `sector` onto
+  every list row, from the watchlist row the sweep already had.
+- **Repeats stand out without reading.** A group that appears more than
+  once on the list gets a coloured chip, one colour per group, and six
+  hues that avoid green and red because those mean up and down. A group
+  that appears once stays plain grey text. A summary above the table
+  ("Semis 4 · AI 2") names the clusters; tapping one shows only those
+  rows, and tapping it again brings the whole list back. Each row keeps its
+  original rank number while filtered.
+- **The Day column is gone where it repeated itself.** On Gainers, Losers
+  and the two pre-market % lists, the ranked number *is* the day's change,
+  so the table showed +17.05% and +17.1% side by side. That duplicate
+  column was the empty space; it is dropped only where it duplicates. Most
+  active, Volume surge, the 5-minute movers and Gap up/down keep it.
+- **Phone.** The summary is one row that scrolls sideways. The Lists view
+  still starts within 160px of the top, now measured to the summary,
+  which is the first thing in the lists.
+
+Tests: `Rankings.test_every_row_carries_its_group` (red before the engine
+change). The render test's `_lists_show_the_group` covers both widths:
+header order, each row's label against the engine's rows, colour only
+for repeats, one colour per group, the summary chip, and filter on/off.
+On the phone it checks the table doesn't run off the screen and the chip
+isn't squeezed. It was red on the old screen. Two new static guards.

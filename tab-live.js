@@ -29,6 +29,31 @@ const LV_TIP = {
 };
 const LV_LISTS = [["gainers", "Gainers", "change_pct"], ["losers", "Losers", "change_pct"], ["active", "Most active", "volume"], ["rvol", "Volume surge", "rvol"], ["movers_5m", "5-min movers", "move_5m"], ["gap_up", "Gap up", "gap_pct"], ["gap_down", "Gap down", "gap_pct"]];
 const LV_PM_LISTS = [["pm_gainers", "Pre-market gainers", "pm_change_pct"], ["pm_losers", "Pre-market losers", "pm_change_pct"], ["pm_volume", "Pre-market volume", "pm_volume"]];
+
+// A list row's group: Jerry's own watchlist tag when he gave the stock
+// one, else a short sector name. Several rows sharing a group on one list
+// is a sector moving together, and that is what the column is for (v5.32).
+const LV_SECTOR_SHORT = {
+  Technology: "Tech",
+  "Information Technology": "Tech",
+  "Financial Services": "Financials",
+  Financials: "Financials",
+  Healthcare: "Health",
+  "Health Care": "Health",
+  Energy: "Energy",
+  "Consumer Cyclical": "Consumer",
+  "Consumer Discretionary": "Consumer",
+  "Consumer Defensive": "Staples",
+  "Consumer Staples": "Staples",
+  Industrials: "Industrials",
+  "Basic Materials": "Materials",
+  Materials: "Materials",
+  Utilities: "Utilities",
+  "Real Estate": "Real Estate",
+  "Communication Services": "Comms"
+};
+const lvGroup = r => r.tag ? String(r.tag) : r.sector ? LV_SECTOR_SHORT[r.sector] || String(r.sector) : null;
+const LV_GROUP_COLOURS = 6;
 const lvNum = (v, d = 2) => v == null || !isFinite(v) ? "—" : Number(v).toFixed(d);
 const lvPct = (v, d = 1) => v == null || !isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}%`;
 const lvVol = v => {
@@ -136,6 +161,28 @@ function LvRankings({
   const rows = rankings && rankings[cur[0]] || [];
   const metric = cur[2];
   const fmt = r => metric === "volume" || metric === "pm_volume" ? lvVol(r[metric]) : metric === "rvol" ? `${lvNum(r.rvol, 1)}x` : lvPct(r[metric], 2);
+  const pm = cur[0].startsWith("pm_");
+  // On the gainers and losers lists the ranked number IS the day's change;
+  // a second column repeating it was the empty space the group now uses.
+  const dayCol = metric !== (pm ? "pm_change_pct" : "change_pct");
+  // Groups that show up more than once on this list, most first. Each gets
+  // its own colour, so repeats stand out without reading a word.
+  const counts = {};
+  rows.forEach(r => {
+    const g = lvGroup(r);
+    if (g) counts[g] = (counts[g] || 0) + 1;
+  });
+  const shared = Object.keys(counts).filter(g => counts[g] > 1).sort((a, b) => counts[b] - counts[a]);
+  const colour = g => {
+    const i = shared.indexOf(g);
+    return i >= 0 && i < LV_GROUP_COLOURS ? i : -1;
+  };
+  const [only, setOnly] = useState(null);
+  const shown = only && counts[only] ? rows.filter(r => lvGroup(r) === only) : rows;
+  const pickList = k => {
+    setPick(k);
+    setOnly(null);
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "lv-ranks",
     title: LV_TIP.lists
@@ -147,32 +194,52 @@ function LvRankings({
     role: "tab",
     "aria-selected": cur[0] === k,
     className: `lv-seg-btn ${cur[0] === k ? "on" : ""}`,
-    onClick: () => setPick(k)
-  }, label))), rows.length ? /*#__PURE__*/React.createElement("table", {
+    onClick: () => pickList(k)
+  }, label))), shared.length ? /*#__PURE__*/React.createElement("div", {
+    className: "lv-groups",
+    title: "Groups with more than one stock on this list. Tap one to show only those; tap it again to show everything."
+  }, shared.slice(0, 5).map(g => /*#__PURE__*/React.createElement("button", {
+    key: g,
+    type: "button",
+    className: `lv-grp lv-grp-${colour(g)}${only === g ? " on" : ""}`,
+    "aria-pressed": only === g,
+    onClick: () => setOnly(only === g ? null : g)
+  }, g, " ", /*#__PURE__*/React.createElement("b", null, counts[g])))) : null, rows.length ? /*#__PURE__*/React.createElement("table", {
     className: "scan-table lv-rtable"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "#"), /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", {
     className: "scan-num"
   }, "Price"), /*#__PURE__*/React.createElement("th", {
+    className: "lv-grp-col"
+  }, "Group"), /*#__PURE__*/React.createElement("th", {
     className: "scan-num"
-  }, cur[1]), /*#__PURE__*/React.createElement("th", {
+  }, cur[1]), dayCol ? /*#__PURE__*/React.createElement("th", {
     className: "scan-num"
-  }, "Day"))), /*#__PURE__*/React.createElement("tbody", null, rows.map((r, i) => {
+  }, "Day") : null)), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => {
     const px = r.last != null ? r.last : r.pm_last;
-    const day = cur[0].startsWith("pm_") ? r.pm_change_pct : r.change_pct;
+    const day = pm ? r.pm_change_pct : r.change_pct;
+    const g = lvGroup(r);
+    const c = g ? colour(g) : -1;
     return /*#__PURE__*/React.createElement("tr", {
       key: r.symbol
     }, /*#__PURE__*/React.createElement("td", {
       className: "lv-rank"
-    }, i + 1), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    }, rows.indexOf(r) + 1), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
       className: "lv-sym",
       onClick: () => onOpen && onOpen(r.symbol)
     }, r.symbol)), /*#__PURE__*/React.createElement("td", {
       className: "scan-num"
     }, px != null ? `$${lvNum(px)}` : "—"), /*#__PURE__*/React.createElement("td", {
+      className: "lv-grp-col"
+    }, g ? /*#__PURE__*/React.createElement("span", {
+      className: `lv-grp${c >= 0 ? ` lv-grp-${c}` : ""}`,
+      title: (r.tag ? `Your tag: ${r.tag}` : "Sector") + (r.sector ? ` · ${r.sector}` : "") + (counts[g] > 1 ? ` · ${counts[g]} on this list` : "")
+    }, g) : /*#__PURE__*/React.createElement("span", {
+      className: "lv-grp-none"
+    }, "\u2014")), /*#__PURE__*/React.createElement("td", {
       className: "scan-num lv-metric"
-    }, fmt(r)), /*#__PURE__*/React.createElement("td", {
+    }, fmt(r)), dayCol ? /*#__PURE__*/React.createElement("td", {
       className: `scan-num ${day > 0 ? "up" : day < 0 ? "down" : ""}`
-    }, lvPct(day)));
+    }, lvPct(day)) : null);
   }))) : /*#__PURE__*/React.createElement("p", {
     className: "lv-empty"
   }, "Nothing on this list yet", phase === "pre" && !cur[0].startsWith("pm_") ? " — before the bell the regular-session lists are empty; the pre-market lists are live." : "."));

@@ -396,6 +396,13 @@ ok("the Friday head card says which Friday and whether today is the day",
   ok("hiding the lists column never hides an alert's arrow",
      /\.lv-show-alerts section\.lv-side \{ display: none; \}/.test(css)
      && !/\.lv-show-alerts \.lv-side \{/.test(css));
+  // v5.32 — each list row names its group (Jerry's tag, else the sector),
+  // and the gainers/losers lists drop the Day column that repeated their
+  // own number, which is the space the group took.
+  ok("the lists carry a Group column after Price",
+     /<th className="lv-grp-col">Group<\/th>/.test(live) && /const lvGroup = \(r\) => \(r\.tag \?/.test(live));
+  ok("the Day column is dropped where it repeats the list's own number",
+     /const dayCol = metric !== \(pm \? "pm_change_pct" : "change_pct"\);/.test(live));
   ok("the Live Scanner's styles use tokens, never literal colours",
      !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Live Scanner (v5.29)"), css.indexOf("v5.26 — EVERY DESTINATION"))));
 }
