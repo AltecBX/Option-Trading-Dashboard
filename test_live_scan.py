@@ -275,6 +275,44 @@ class Grading(Harness):
         self.assertGreater(g["r30"], 0, "a short that falls followed through")
 
 
+class PreMarketGrading(Harness):
+    def test_a_premarket_alert_is_graded_on_the_premarket_tape(self):
+        """Codex (#416): before the bell `last` is cleared by design, so a
+        pre-market alert went ungraded until 9:30 and then every horizon
+        got the opening price."""
+        self.only("premarket_mover")
+        self.step(at(8, 0), AAA=quote(100, ext=101, ext_vol=10_000))
+        self.step(at(8, 1), AAA=quote(100, ext=103, ext_vol=80_000))
+        self.step(at(8, 16), AAA=quote(100, ext=104, ext_vol=90_000))
+        self.step(at(8, 31), AAA=quote(100, ext=102, ext_vol=95_000))
+        g = self.alerts()[0]["grade"]
+        self.assertAlmostEqual((104 / 103 - 1) * 100, g["r15"], places=1)
+        self.assertAlmostEqual((102 / 103 - 1) * 100, g["r30"], places=1)
+
+
+class RestartKeepsYesterday(Harness):
+    def test_a_restart_in_the_session_keeps_yesterdays_range(self):
+        """Codex (#416): the day's own record overwrote yesterday's in the
+        one file, so a restart mid-session lost the prior-day range."""
+        self.only("above_prior_high")
+        for i in range(10):
+            self.step(at(15, 50) + timedelta(seconds=30 * i),
+                      AAA=quote(105, high=108, low=99, vol=5_000_000 + i))
+        nxt = DAY + timedelta(days=1)
+        for i in range(10):                     # today's record gets written
+            self.step(at(10, 0, day=nxt) + timedelta(seconds=30 * i),
+                      AAA=quote(106, prev=105, high=107, low=104, vol=3_000_000 + i))
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows, now_fn=lambda: self.clock,
+                     data_dir=self.tmp.name)
+        self.only("above_prior_high")
+        self.step(at(10, 30, day=nxt), AAA=quote(107, prev=105, high=107, low=104, vol=3_500_000))
+        self.step(at(10, 30, 30, day=nxt), AAA=quote(108.5, prev=105, high=108.5, low=104, vol=3_600_000))
+        a = self.alerts("above_prior_high")
+        self.assertEqual(1, len(a), "yesterday's high survived the restart")
+        self.assertIn("$108.00", a[0]["why"])
+
+
 class Restart(Harness):
     def test_a_restart_does_not_fire_a_once_a_day_alert_again(self):
         self.only("gap_up_holding")

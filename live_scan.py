@@ -681,6 +681,12 @@ def _roll_day(now: datetime) -> None:
     rec = _read_json("session_hl.json", {})
     if isinstance(rec, dict) and rec.get("date") and rec["date"] < day:
         _STATE["prior"] = rec.get("rows") or {}
+    elif isinstance(rec, dict) and rec.get("date") == day and (rec.get("prior") or {}).get("rows"):
+        # A restart in the middle of a session: today's record has already
+        # replaced yesterday's as the main one, so yesterday rides along in
+        # it (Codex, #416). Without this the prior-day setups went dark for
+        # the rest of the day after any deploy.
+        _STATE["prior"] = rec["prior"]["rows"]
     elif _STATE["day"] and _STATE["sym"]:
         _STATE["prior"] = {s: [v["pic"]["high"], v["pic"]["low"], v["pic"]["last"]]
                            for s, v in _STATE["sym"].items()
@@ -709,7 +715,8 @@ def _save_session_hl() -> None:
             for s, v in _STATE["sym"].items()
             if v.get("pic") and v["pic"].get("high") and v["pic"].get("low")}
     if rows:
-        _write_json("session_hl.json", {"date": _STATE["day"], "rows": rows})
+        _write_json("session_hl.json", {"date": _STATE["day"], "rows": rows,
+                                        "prior": {"rows": _STATE["prior"] or {}}})
 
 
 def _grade(now: datetime) -> bool:
@@ -721,7 +728,10 @@ def _grade(now: datetime) -> bool:
         st = _STATE["sym"].get(a["symbol"])
         g = a.setdefault("grade", {})
         pic = (st or {}).get("pic") or {}
-        last = pic.get("last")
+        # Before the bell the regular-session price is cleared by design;
+        # a pre-market alert is graded on the pre-market tape, and switches
+        # to the regular price only once there is one (Codex, #416).
+        last = pic.get("last") if pic.get("last") is not None else pic.get("pm_last")
         if last and a.get("price"):
             sign = 1.0 if a["side"] == "long" else -1.0
             r = (last / a["price"] - 1.0) * 100.0 * sign

@@ -1799,6 +1799,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     self.assertEqual([r["verdict"] for r in live["check"]["setups"]], verdicts)
             finally:
                 self._close(handles)
+        # Before the bell the list to show is the pre-market one, even though
+        # the screen mounted before the first answer said so (Codex, #416).
+        import copy as _copy
+        pre = _copy.deepcopy(live)
+        pre["snapshot"]["phase"] = "pre"
+        pre["snapshot"]["rankings"]["pm_gainers"] = pre["snapshot"]["rankings"]["gainers"]
+        geo, errors, handles = self._measure(1440, 900, tab="live", live=pre)
+        page = handles[2]
+        try:
+            page.wait_for_selector(".lv-rtable", timeout=15000)
+            on = page.evaluate("document.querySelector('.lv-ranks .lv-seg-btn.on').innerText.trim()")
+            self.assertEqual("Pre-market gainers", on)
+        finally:
+            self._close(handles)
 
     def test_friday_is_a_destination_with_its_expiry_on_it(self):
         """v5.24. Jerry: "Lets put anything that has to do with selling

@@ -4060,6 +4060,21 @@ Found and fixed while testing:
 - **The bell.** Pre-market ticks are cleared at the open, so the extended
   tape is never mixed into the session's windows.
 
+Codex review (#416), three findings, each proven red first and fixed:
+- **Pre-market alerts were graded on the wrong price.** Before the bell
+  the regular price is cleared, so a pre-market alert went ungraded until
+  9:30 and then every horizon got the opening price. That would have
+  corrupted the setup's advertised record. It is now graded on the
+  pre-market tape until there is a regular price.
+- **A restart mid-session lost yesterday's range.** Today's periodic
+  record replaced yesterday's in the one file, so the prior-day setups
+  went dark after any deploy. Yesterday now rides along inside today's
+  record.
+- **The ranking lists defaulted to Gainers before the bell.** The screen
+  mounts before the first answer says it is pre-market, so the remembered
+  default was the empty regular Gainers list. The default now follows the
+  session until the viewer picks a list.
+
 Not in this release:
 - **Free-floating, saved window layouts.** The app's layout is fixed and
   phone-first.

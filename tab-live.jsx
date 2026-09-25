@@ -107,8 +107,12 @@ function LvAlertRow({ a, rec, onOpen }) {
 
 function LvRankings({ rankings, phase, onOpen }) {
   const lists = phase === "pre" ? LV_PM_LISTS.concat(LV_LISTS) : LV_LISTS.concat(LV_PM_LISTS);
-  const [pick, setPick] = useState(lists[0][0]);
-  const cur = lists.find(l => l[0] === pick) || lists[0];
+  // null = "the right list for the session": Pre-market gainers before the
+  // bell, Gainers after. The screen mounts before the first answer says
+  // which phase it is, so a remembered default would stay on the empty
+  // regular list all morning (Codex, #416). A tap is kept.
+  const [pick, setPick] = useState(null);
+  const cur = (pick && lists.find(l => l[0] === pick)) || lists[0];
   const rows = (rankings && rankings[cur[0]]) || [];
   const metric = cur[2];
   const fmt = (r) => metric === "volume" || metric === "pm_volume" ? lvVol(r[metric])
@@ -117,8 +121,8 @@ function LvRankings({ rankings, phase, onOpen }) {
     <div className="lv-ranks" title={LV_TIP.lists}>
       <div className="lv-seg" role="tablist">
         {lists.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={pick === k}
-                  className={`lv-seg-btn ${pick === k ? "on" : ""}`}
+          <button key={k} role="tab" aria-selected={cur[0] === k}
+                  className={`lv-seg-btn ${cur[0] === k ? "on" : ""}`}
                   onClick={() => setPick(k)}>{label}</button>
         ))}
       </div>
