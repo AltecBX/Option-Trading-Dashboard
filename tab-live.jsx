@@ -88,7 +88,7 @@ function LvAlertRow({ a, rec, onOpen }) {
       <div className="lv-a-top">
         <span className="lv-time">{a.time}</span>
         <span className={`lv-side ${long ? "up" : "down"}`} title={LV_TIP.side}>
-          {long ? "▲ LONG" : "▼ SHORT"}
+          {long ? "▲" : "▼"}<span className="lv-side-word">{long ? " LONG" : " SHORT"}</span>
         </span>
         <button className="lv-sym" onClick={() => onOpen && onOpen(a.symbol)}
                 title={`Open ${a.symbol} on the Trade tab`}>{a.symbol}</button>
@@ -100,7 +100,14 @@ function LvAlertRow({ a, rec, onOpen }) {
         </span>
       </div>
       <div className="lv-why">{a.why}</div>
-      <div className="lv-a-foot"><LvRecord rec={rec} /></div>
+      <div className="lv-a-foot">
+        {/* On a phone the time and the volume ride down here, so the first
+            line is only what decides a glance: which way, what, how much. */}
+        <span className="lv-foot-meta">
+          {a.time}{a.rvol != null ? ` · ${lvNum(a.rvol, 1)}x vol` : ""} ·{" "}
+        </span>
+        <LvRecord rec={rec} />
+      </div>
     </li>
   );
 }
@@ -160,6 +167,8 @@ function LvRankings({ rankings, phase, onOpen }) {
   );
 }
 
+const lvCheckRank = (r) => (r.fired_ts ? 0 : r.live ? 1 : (r.blocked && r.blocked.length) ? 2 : 3);
+
 function LvCheck({ apiFetch, initial }) {
   const [sym, setSym] = useState(initial || "");
   const [res, setRes] = useState(null);
@@ -186,8 +195,12 @@ function LvCheck({ apiFetch, initial }) {
       {res && !res.known ? <p className="lv-empty">{res.why}</p> : null}
       {res && res.known ? (
         <ul className="lv-check-list">
-          {res.setups.map(r => (
-            <li key={r.setup_id} className={`lv-check-row ${r.fired_ts ? "fired" : r.live ? "live" : ""}`}>
+          {/* What happened first: fired, then live, then stopped by a
+              condition, then idle (dimmed). The answer to "why didn't it
+              alert?" is near the top, not under eleven "not live" rows. */}
+          {res.setups.slice().sort((a, b) => lvCheckRank(a) - lvCheckRank(b)).map(r => (
+            <li key={r.setup_id}
+                className={`lv-check-row ${r.fired_ts ? "fired" : r.live ? "live" : r.blocked && r.blocked.length ? "" : "idle"}`}>
               <span className="lv-check-name">{r.setup}</span>
               <span className="lv-check-verdict">{r.verdict}</span>
               {r.live || r.fired_ts ? <span className="lv-check-detail">{r.detail}</span> : null}
@@ -336,6 +349,7 @@ function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
   const [setupFilter, setSetupFilter] = useState("");
   const [editing, setEditing] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [view, setView] = useState("alerts");
   const [sound, setSound] = useState(() => {
     try { return localStorage.getItem("jerry_live_sound") === "1"; } catch (_) { return false; }
   });
@@ -391,10 +405,15 @@ function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
           <h3 className="card-title">What is moving right now, and why</h3>
         </div>
         <div className="toolbar lv-toolbar">
-          <button className={`lv-btn ${sound ? "on" : ""}`} onClick={toggleSound} title={LV_TIP.sound}
-                  aria-pressed={sound}>{sound ? "🔔 Sound on" : "🔕 Sound off"}</button>
-          <button className={`lv-btn ${checking ? "on" : ""}`} onClick={() => setChecking(v => !v)}
-                  title={LV_TIP.check}>Check a stock</button>
+          <span className={`lv-mini lv-ph-${phase}`} title={LV_TIP.status}>
+            <span className="lv-pulse" /><b>{LV_PHASE[phase] || phase}</b>{ago ? <> · {ago}</> : null}
+          </span>
+          <button className={`lv-btn lv-sound ${sound ? "on" : ""}`} onClick={toggleSound} title={LV_TIP.sound}
+                  aria-pressed={sound} aria-label={sound ? "Sound on" : "Sound off"}>
+            {sound ? "🔔" : "🔕"}<span className="lv-wide"> {sound ? "Sound on" : "Sound off"}</span>
+          </button>
+          <button className={`lv-btn lv-check-btn ${checking ? "on" : ""}`} onClick={() => setChecking(v => !v)}
+                  title={LV_TIP.check}>Check<span className="lv-wide"> a stock</span></button>
           <button className="research-run-btn" onClick={() => setEditing(true)} title={LV_TIP.setups}>Setups</button>
         </div>
       </div>
@@ -414,7 +433,19 @@ function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
       {editing ? <LvSetupEditor apiFetch={apiFetch} onClose={() => setEditing(false)} onSaved={load} /> : null}
       {checking ? <LvCheck apiFetch={apiFetch} initial={ticker} /> : null}
 
-      <div className="lv-cols">
+      {/* Phone only: the feed and the lists side by side do not fit, and
+          stacked the lists sat 2,000px down, past every alert. One tap
+          between them instead. Hidden on a wide screen, where both show. */}
+      <div className="lv-view lv-seg" role="tablist" aria-label="Show">
+        <button role="tab" aria-selected={view === "alerts"}
+                className={`lv-seg-btn ${view === "alerts" ? "on" : ""}`}
+                onClick={() => setView("alerts")}>Alerts{data ? ` (${alerts.length})` : ""}</button>
+        <button role="tab" aria-selected={view === "lists"}
+                className={`lv-seg-btn ${view === "lists" ? "on" : ""}`}
+                onClick={() => setView("lists")}>Lists</button>
+      </div>
+
+      <div className={`lv-cols lv-show-${view}`}>
         <section className="lv-feed">
           <div className="lv-feed-head">
             <div className="lv-seg" role="tablist" aria-label="Direction">

@@ -94,7 +94,9 @@ function LvAlertRow({
   }, a.time), /*#__PURE__*/React.createElement("span", {
     className: `lv-side ${long ? "up" : "down"}`,
     title: LV_TIP.side
-  }, long ? "▲ LONG" : "▼ SHORT"), /*#__PURE__*/React.createElement("button", {
+  }, long ? "▲" : "▼", /*#__PURE__*/React.createElement("span", {
+    className: "lv-side-word"
+  }, long ? " LONG" : " SHORT")), /*#__PURE__*/React.createElement("button", {
     className: "lv-sym",
     onClick: () => onOpen && onOpen(a.symbol),
     title: `Open ${a.symbol} on the Trade tab`
@@ -113,7 +115,9 @@ function LvAlertRow({
     className: "lv-why"
   }, a.why), /*#__PURE__*/React.createElement("div", {
     className: "lv-a-foot"
-  }, /*#__PURE__*/React.createElement(LvRecord, {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lv-foot-meta"
+  }, a.time, a.rvol != null ? ` · ${lvNum(a.rvol, 1)}x vol` : "", " \xB7", " "), /*#__PURE__*/React.createElement(LvRecord, {
     rec: rec
   })));
 }
@@ -173,6 +177,7 @@ function LvRankings({
     className: "lv-empty"
   }, "Nothing on this list yet", phase === "pre" && !cur[0].startsWith("pm_") ? " — before the bell the regular-session lists are empty; the pre-market lists are live." : "."));
 }
+const lvCheckRank = r => r.fired_ts ? 0 : r.live ? 1 : r.blocked && r.blocked.length ? 2 : 3;
 function LvCheck({
   apiFetch,
   initial
@@ -218,9 +223,9 @@ function LvCheck({
     className: "lv-empty"
   }, res.why) : null, res && res.known ? /*#__PURE__*/React.createElement("ul", {
     className: "lv-check-list"
-  }, res.setups.map(r => /*#__PURE__*/React.createElement("li", {
+  }, res.setups.slice().sort((a, b) => lvCheckRank(a) - lvCheckRank(b)).map(r => /*#__PURE__*/React.createElement("li", {
     key: r.setup_id,
-    className: `lv-check-row ${r.fired_ts ? "fired" : r.live ? "live" : ""}`
+    className: `lv-check-row ${r.fired_ts ? "fired" : r.live ? "live" : r.blocked && r.blocked.length ? "" : "idle"}`
   }, /*#__PURE__*/React.createElement("span", {
     className: "lv-check-name"
   }, r.setup), /*#__PURE__*/React.createElement("span", {
@@ -463,6 +468,7 @@ function LiveScanTab({
   const [setupFilter, setSetupFilter] = useState("");
   const [editing, setEditing] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [view, setView] = useState("alerts");
   const [sound, setSound] = useState(() => {
     try {
       return localStorage.getItem("jerry_live_sound") === "1";
@@ -528,16 +534,26 @@ function LiveScanTab({
     className: "card-title"
   }, "What is moving right now, and why")), /*#__PURE__*/React.createElement("div", {
     className: "toolbar lv-toolbar"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: `lv-btn ${sound ? "on" : ""}`,
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `lv-mini lv-ph-${phase}`,
+    title: LV_TIP.status
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "lv-pulse"
+  }), /*#__PURE__*/React.createElement("b", null, LV_PHASE[phase] || phase), ago ? /*#__PURE__*/React.createElement(React.Fragment, null, " \xB7 ", ago) : null), /*#__PURE__*/React.createElement("button", {
+    className: `lv-btn lv-sound ${sound ? "on" : ""}`,
     onClick: toggleSound,
     title: LV_TIP.sound,
-    "aria-pressed": sound
-  }, sound ? "🔔 Sound on" : "🔕 Sound off"), /*#__PURE__*/React.createElement("button", {
-    className: `lv-btn ${checking ? "on" : ""}`,
+    "aria-pressed": sound,
+    "aria-label": sound ? "Sound on" : "Sound off"
+  }, sound ? "🔔" : "🔕", /*#__PURE__*/React.createElement("span", {
+    className: "lv-wide"
+  }, " ", sound ? "Sound on" : "Sound off")), /*#__PURE__*/React.createElement("button", {
+    className: `lv-btn lv-check-btn ${checking ? "on" : ""}`,
     onClick: () => setChecking(v => !v),
     title: LV_TIP.check
-  }, "Check a stock"), /*#__PURE__*/React.createElement("button", {
+  }, "Check", /*#__PURE__*/React.createElement("span", {
+    className: "lv-wide"
+  }, " a stock")), /*#__PURE__*/React.createElement("button", {
     className: "research-run-btn",
     onClick: () => setEditing(true),
     title: LV_TIP.setups
@@ -558,7 +574,21 @@ function LiveScanTab({
     apiFetch: apiFetch,
     initial: ticker
   }) : null, /*#__PURE__*/React.createElement("div", {
-    className: "lv-cols"
+    className: "lv-view lv-seg",
+    role: "tablist",
+    "aria-label": "Show"
+  }, /*#__PURE__*/React.createElement("button", {
+    role: "tab",
+    "aria-selected": view === "alerts",
+    className: `lv-seg-btn ${view === "alerts" ? "on" : ""}`,
+    onClick: () => setView("alerts")
+  }, "Alerts", data ? ` (${alerts.length})` : ""), /*#__PURE__*/React.createElement("button", {
+    role: "tab",
+    "aria-selected": view === "lists",
+    className: `lv-seg-btn ${view === "lists" ? "on" : ""}`,
+    onClick: () => setView("lists")
+  }, "Lists")), /*#__PURE__*/React.createElement("div", {
+    className: `lv-cols lv-show-${view}`
   }, /*#__PURE__*/React.createElement("section", {
     className: "lv-feed"
   }, /*#__PURE__*/React.createElement("div", {

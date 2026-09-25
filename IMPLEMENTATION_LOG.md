@@ -3970,6 +3970,57 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.30 — the Live Scanner on a phone
+
+Jerry: "Optimize the Live Scanner for my phone too."
+
+Measured first, at his iPhone 16 Pro Max (440x956):
+- **The workspace is 408px tall,** and the first alert started 216px down
+  it.
+- **Each alert was 119px tall,** so about one and a half fit.
+- **The ranked lists were 2,167px down,** stacked under the whole feed:
+  unreachable in practice.
+
+At 375 only one alert showed at all.
+
+Changes, all phone-only (desktop is unchanged):
+- **The header is one row:** "● Live · 7s ago", the sound icon, Check and
+  Setups. The kicker and title are dropped, since the nav already says
+  "Live Scanner". The alert count moved onto the switch below it.
+- **An Alerts | Lists switch** replaces the stacked columns. The lists are
+  one tap away, and their ten buttons are one sideways-scrolling row
+  instead of four rows.
+- **An alert is three short lines:**
+  1. ▲/▼, symbol, setup, price and move;
+  2. the reason;
+  3. time, volume and the setup's record, in small type.
+
+  The LONG/SHORT word gives way to the arrow and the coloured stripe.
+
+After: the header is 38px, the first alert starts 145px down, each alert is
+86px, and three fit on his phone. The lists start 145px down after one tap.
+
+Also, at every width: **Check a stock lists fired and live setups first**,
+then ones a condition stopped, then idle ones dimmed. The answer is no
+longer under eleven "Trigger is not live" rows.
+
+Caught on the way: `.lv-side` names both the lists column (a section) and
+each alert's ▲/▼ badge (a span). The first draft's rule hiding the column
+also hid every arrow, and the screenshot showed it. The rule now names the
+section, and a static guard keeps it that way.
+
+Guards:
+- `test_the_live_scanner_reads_at_a_glance` now asserts at 440:
+  - the first alert starts within 160px;
+  - an alert is at most 100px tall;
+  - the header is at most 50px;
+  - one tap on Lists shows the lists within 160px, with the buttons on
+    one row and the feed hidden.
+
+  The v5.29 screen measured 216, 119 and 2,167px against those limits.
+- The check order is asserted too.
+- Two static guards in `test_ui_frame.js`.
+
 ## v5.29 — the Live Scanner
 
 Jerry, with three screenshots of an open-source day-trading scanner ("Edge

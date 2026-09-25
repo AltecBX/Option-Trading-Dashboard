@@ -1764,6 +1764,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   const cr = card.getBoundingClientRect();
                   return [...card.querySelectorAll('.lv-alert')].map(li => ({
                     side: li.querySelector('.lv-side').innerText.trim(),
+                    cls: li.className,
                     sym: li.querySelector('.lv-sym').innerText.trim(),
                     setup: li.querySelector('.lv-setup').innerText.trim(),
                     why: li.querySelector('.lv-why').innerText.trim(),
@@ -1773,7 +1774,12 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 snap = live["snapshot"]
                 self.assertEqual(len(snap["alerts"]), len(rows), f"alerts drawn at {w}px")
                 for r, a in zip(rows, snap["alerts"]):
-                    self.assertIn("LONG" if a["side"] == "long" else "SHORT", r["side"])
+                    # The arrow always; the word only where there is room
+                    # (v5.30: a phone shows ▲/▼ and the stripe colour).
+                    self.assertIn("▲" if a["side"] == "long" else "▼", r["side"])
+                    self.assertIn("lv-long" if a["side"] == "long" else "lv-short", r["cls"])
+                    if w > 900:
+                        self.assertIn("LONG" if a["side"] == "long" else "SHORT", r["side"])
                     self.assertEqual(a["symbol"], r["sym"])
                     self.assertEqual(a["setup"], r["setup"])
                     self.assertEqual(a["why"], r["why"], "the reason is the engine's sentence")
@@ -1790,13 +1796,39 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     n = page.evaluate("document.querySelectorAll('.lv-ed-item').length")
                     self.assertEqual(len(live["setups"]["setups"]), n, "every setup is listed to edit")
                     page.click(".lv-x")
-                    page.click(".lv-toolbar .lv-btn:nth-child(2)")
+                    page.click(".lv-toolbar .lv-check-btn")
                     page.fill(".lv-check-form input", "NVDA")
                     page.click(".lv-check-form button")
                     page.wait_for_selector(".lv-check-row", timeout=8000)
                     verdicts = page.evaluate("""[...document.querySelectorAll('.lv-check-verdict')]
                                                 .map(v => v.innerText.trim())""")
-                    self.assertEqual([r["verdict"] for r in live["check"]["setups"]], verdicts)
+                    # Fired, then live, then stopped by a condition, then idle (v5.30).
+                    rank = lambda r: (0 if r["fired_ts"] else 1 if r["live"] else 2 if r["blocked"] else 3)
+                    self.assertEqual([r["verdict"] for r in sorted(live["check"]["setups"], key=rank)],
+                                     verdicts)
+                else:
+                    # v5.30 — Jerry: "Optimize the Live Scanner for my phone
+                    # too." Before: the first alert 216px down a 408px
+                    # workspace, 119px per alert, the lists 2,167px down.
+                    ph = page.evaluate("""(() => {
+                      const m = document.querySelector('.main'), mt = m.getBoundingClientRect().top;
+                      const a = document.querySelector('.lv-alert');
+                      return {first: Math.round(a.getBoundingClientRect().top - mt),
+                              h: Math.round(a.getBoundingClientRect().height),
+                              head: Math.round(document.querySelector('.lv-card .card-head').getBoundingClientRect().height)}; })()""")
+                    self.assertLessEqual(ph["first"], 160, f"the first alert starts {ph['first']}px down")
+                    self.assertLessEqual(ph["h"], 100, f"an alert is {ph['h']}px tall on a phone")
+                    self.assertLessEqual(ph["head"], 50, f"the header is {ph['head']}px on a phone")
+                    page.click(".lv-view .lv-seg-btn:nth-child(2)")
+                    page.wait_for_timeout(200)
+                    li = page.evaluate("""(() => {
+                      const m = document.querySelector('.main'), mt = m.getBoundingClientRect().top;
+                      return {table: Math.round(document.querySelector('.lv-rtable').getBoundingClientRect().top - mt),
+                              seg: Math.round(document.querySelector('.lv-ranks .lv-seg').getBoundingClientRect().height),
+                              feed: !!document.querySelector('.lv-feed').offsetParent}; })()""")
+                    self.assertLessEqual(li["table"], 160, f"the lists start {li['table']}px down after one tap")
+                    self.assertLessEqual(li["seg"], 44, "the list buttons are one row, not four")
+                    self.assertFalse(li["feed"], "Lists shows the lists instead of the feed")
             finally:
                 self._close(handles)
         # Before the bell the list to show is the pre-market one, even though
