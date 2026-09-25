@@ -386,6 +386,16 @@ ok("the Friday head card says which Friday and whether today is the day",
   ok("the sound is off until the viewer turns it on, and never beeps for the backlog",
      /localStorage\.getItem\("jerry_live_sound"\) === "1"/.test(live)
      && /seenRef\.current != null && newest > seenRef\.current && sound/.test(live));
+  // v5.30: the phone. One tap between the feed and the lists (they sat
+  // 2,000px apart stacked), and the rule hiding the lists column is scoped
+  // to the SECTION — `.lv-side` also names each alert's ▲/▼, and the first
+  // draft's unscoped rule hid every arrow.
+  ok("on a phone the feed and the lists are one tap apart",
+     /className="lv-view lv-seg"/.test(live) && /lv-cols lv-show-\$\{view\}/.test(live)
+     && /\.lv-show-lists \.lv-feed \{ display: none; \}/.test(css));
+  ok("hiding the lists column never hides an alert's arrow",
+     /\.lv-show-alerts section\.lv-side \{ display: none; \}/.test(css)
+     && !/\.lv-show-alerts \.lv-side \{/.test(css));
   ok("the Live Scanner's styles use tokens, never literal colours",
      !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Live Scanner (v5.29)"), css.indexOf("v5.26 — EVERY DESTINATION"))));
 }

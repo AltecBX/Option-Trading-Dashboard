@@ -15163,7 +15163,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 .lv-status b { color: var(--fg); }
 .lv-status-note { color: var(--fg-3); }
-.lv-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-4); }
+.lv-pulse { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--fg-4); }
 .lv-ph-open .lv-pulse { background: var(--up); box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 25%, transparent); }
 .lv-ph-pre .lv-pulse { background: var(--warn); }
 .lv-err { margin: 0 0 12px; color: var(--down); font-size: 13px; }
@@ -15223,6 +15223,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 .lv-check-detail { grid-column: 2; color: var(--fg-3); }
 .lv-check-row.fired .lv-check-name { color: var(--accent); }
 .lv-check-row.live .lv-check-name { color: var(--warn); }
+.lv-check-row.idle { opacity: 0.6; }
 .lv-editor { margin: 0 0 16px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg-2); }
 .lv-ed-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .lv-ed-sub { color: var(--fg-3); font-size: 12.5px; }
@@ -15250,16 +15251,58 @@ body { overflow: hidden; overscroll-behavior: none; }
 .lv-check-box { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
 .lv-ed-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .lv-msg { margin: 10px 0 0; font-size: 12.5px; color: var(--fg-2); }
+/* Phone-only pieces, off on a wide screen (v5.30). */
+.lv-view, .lv-foot-meta, .lv-mini { display: none; }
 @media (max-width: 900px) {
-  /* On a phone the feed and the lists stack, the feed first; the editor's
-     list sits above its form; the numbers wrap under the symbol. */
+  /* v5.30 — Jerry: "Optimize the Live Scanner for my phone too."
+     Measured at 440x956 before: the workspace is 408px tall and the first
+     alert started 216px down it, each alert was 119px, and the ranked
+     lists were 2,167px down — past every alert, unreachable in practice.
+     At 375 only one alert showed at all.
+
+     So on a phone: the header is one row of buttons (the nav already says
+     "Live Scanner"); an Alerts | Lists switch replaces the stacked
+     columns; and an alert is three short lines — which way, what and how
+     much; why; then when, the volume and the setup's record. */
+  .lv-card > .card-head > div:not(.toolbar) { display: none; }
+  .lv-card > .card-head { margin-bottom: 8px; }
+  .lv-toolbar { width: 100%; flex-wrap: nowrap; gap: 6px; }
+  .lv-toolbar > * { flex: 1 1 0; min-width: 0; padding-left: 6px; padding-right: 6px; }
+  .lv-wide, .lv-status-note, .lv-status { display: none; }
+  /* The status folds into the button row: the phase and how fresh the
+     prices are is what a glance needs; the alert count is on the switch. */
+  .lv-mini { display: flex; align-items: center; gap: 5px; flex: 1.4 1 0 !important;
+             font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; }
+  .lv-mini b { color: var(--fg); }
+  .lv-mini .lv-pulse { flex: none; }
+  .lv-toolbar > .lv-sound { flex: 0 0 44px; }
+  .lv-view { display: flex; gap: 6px; margin: 0 0 8px; }
+  .lv-view .lv-seg-btn { flex: 1 1 0; font-size: 13px; }
   .lv-cols { grid-template-columns: minmax(0, 1fr); }
+  /* section.lv-side is the lists column; span.lv-side is an alert's ▲/▼ —
+     same class, so the element is named (the first draft hid the arrows). */
+  .lv-show-alerts section.lv-side { display: none; }
+  .lv-show-lists .lv-feed { display: none; }
+  .lv-feed-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 4px; }
+  .lv-feed-head .lv-seg { flex-wrap: nowrap; flex: none; }
+  .lv-setup-filter { max-width: none; flex: 1 1 auto; min-width: 0; }
+  .lv-alerts { max-height: none; }
+  .lv-alert { padding: 7px 6px 8px 8px; }
+  .lv-a-top { flex-wrap: nowrap; gap: 6px; }
+  .lv-time, .lv-rv, .lv-side-word { display: none; }
+  .lv-setup { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lv-a-nums { margin-left: auto; flex: none; gap: 8px; }
+  .lv-why { margin-top: 1px; }
+  .lv-a-foot { margin-top: 2px; }
+  .lv-foot-meta { display: inline; font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+  /* The ten list buttons: one row that scrolls sideways, not four rows. */
+  .lv-ranks .lv-seg { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px;
+                      scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .lv-ranks .lv-seg::-webkit-scrollbar { display: none; }
+  .lv-ranks .lv-seg-btn { flex: none; white-space: nowrap; }
   .lv-ed-body { grid-template-columns: minmax(0, 1fr); }
   .lv-ed-list { border-right: none; border-bottom: 1px solid var(--line); max-height: 220px; }
   .lv-grid { grid-template-columns: minmax(0, 1fr); }
-  .lv-a-nums { margin-left: 0; width: 100%; }
-  .lv-alerts { max-height: none; }
-  .lv-setup-filter { max-width: none; flex: 1; }
   .lv-check-row { grid-template-columns: minmax(0, 1fr); }
   .lv-check-detail { grid-column: 1; }
 }
