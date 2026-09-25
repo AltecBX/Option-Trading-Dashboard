@@ -3970,6 +3970,55 @@ laying it out without sideways scroll — and 40 in `test_weather.js`.
 Three v5.11 clock guards were rewritten rather than deleted: they pinned
 the old rule that the label carried the colour, and the rule changed.
 
+## v5.31 — the pre-market lists read the newest trade
+
+Jerry, with the Live Scanner's Pre-market gainers list at 8:55 AM: "Why is
+this stale. It should have the realtime on it. And the percentage should
+be dynamic as well." The list had AKAM at $133.91, +21.28%. His sidebar
+had it live at $126.37, +14.45%.
+
+Both figures are measured from the same base, AKAM's close of $110.41, so
+the price was the stale part. The two paths read different fields:
+- **The broker client** picks the regular quote's price or the extended
+  one by trade time, whichever printed last. The sidebar uses that.
+- **The scanner's pre-market lists** read Schwab's extended price
+  unconditionally, and that field held an older print. The newest
+  pre-market trade was in the regular quote.
+
+The fix:
+- **`schwab_client`** now passes both prints' times on every quote
+  (`regular_trade_ms`, `extended_trade_ms`). Before, it kept only the
+  chosen one's.
+- **`live_scan._premarket_print()`** picks the newer print, as the client
+  does, plus one rule a pre-market list needs: the trade must be from
+  after 4:00 this morning. A print from last night's after-hours is not a
+  pre-market move, and a name that has not traded yet today stays off the
+  list. The volume comes from the same print's side. Grading and the
+  5-minute ticks use the same price.
+- **Pre-market sweeps run every 30 seconds, not 60,** the same as the
+  session, so the numbers move while he watches. That costs about 5 more
+  broker calls a minute.
+
+Codex (#418), two findings on the first draft, each reproduced as a failing
+test first:
+- **A crash on a tie.** When both blocks carried the same time, the
+  comparison went on to compare volumes, and a missing one raised
+  mid-sweep. The pick is now by time only.
+- **The lists would have gone intraday after the bell.** A regular trade
+  after 9:30 is also "after 4:00", so the pre-market lists would have
+  tracked intraday prices all day. Eligible prints are now bounded to 4:00
+  until the bell, and the sweep keeps each name's last pre-market print for
+  after the open.
+
+Guards:
+- Four tests replay his AKAM case: the newer regular print wins over an
+  old extended one; a newer extended print still wins; nothing traded
+  today means off the list; sweeps every 30 seconds. Three were red before
+  the fix.
+- A contract test drives the real `SchwabClient.get_quotes` with a
+  Schwab-shaped response and asserts both times survive. It was red on the
+  old client (`KeyError: 'regular_trade_ms'`).
+
 ## v5.30 — the Live Scanner on a phone
 
 Jerry: "Optimize the Live Scanner for my phone too."

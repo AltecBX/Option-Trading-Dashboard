@@ -614,6 +614,11 @@ class SchwabClient:
             #                                 or session boundary; price may
             #                                 not reflect current value
             "trade_time_ms": (ext_trade_time if use_extended else regular_trade_time) or None,
+            # Both prints' times, not only the chosen one's: the Live
+            # Scanner's pre-market lists must tell an old extended print
+            # from a new one (v5.31).
+            "regular_trade_ms": regular_trade_time or None,
+            "extended_trade_ms": ext_trade_time or None,
             "stale_seconds": _stale_seconds_from_ms(ext_trade_time if use_extended else regular_trade_time),
         }
         self._cache_set(cache_key, out, TTL_QUOTE)
@@ -690,6 +695,11 @@ class SchwabClient:
                 "session": "extended" if use_extended else "regular",
                 "source": "schwab",
                 "trade_time_ms": (ext_trade_time if use_extended else regular_trade_time) or None,
+                # Both prints' times, not only the chosen one's: the Live
+                # Scanner's pre-market lists must tell an old extended print
+                # from a new one (v5.31).
+                "regular_trade_ms": regular_trade_time or None,
+                "extended_trade_ms": ext_trade_time or None,
                 "stale_seconds": _stale_seconds_from_ms(ext_trade_time if use_extended else regular_trade_time),
             }
             out[sym] = entry

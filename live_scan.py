@@ -59,7 +59,7 @@ LIVE_SCAN_VERSION = "live-scan-1.0.0"
 
 # ── cadence and budget ──────────────────────────────────────────────────────
 SWEEP_OPEN_S = 30          # while the market is open
-SWEEP_PRE_S = 60           # 4:00 to the open
+SWEEP_PRE_S = 30           # 4:00 to the open (was 60 until v5.31)
 CHUNK = 300                # symbols per quote call
 PRE_START = dtime(4, 0)
 POST_END = dtime(20, 0)
@@ -486,11 +486,58 @@ def _interval_volume(ticks, t0, t1):
     return max(0.0, b[-1][2] - a[-1][2])
 
 
+def _premarket_print(q: dict, now: datetime) -> tuple:
+    """(price, volume) of this morning's newest extended-hours trade, or
+    (None, None) when nothing has traded since 4:00 today.
+
+    Jerry, at 8:55 (v5.31): "Why is this stale." The lists read Schwab's
+    EXTENDED price unconditionally, and it held an old print ($133.91 on
+    AKAM) while the newest pre-market trade ($126.37) sat in the regular
+    quote — the price the sidebar showed, because the broker client picks
+    by trade time. This picks the same way, plus the one rule a pre-market
+    list needs on top: the trade has to be from this morning. A print from
+    last night's after-hours is not a pre-market move."""
+    ext, reg = _num(q.get("extended_last")), _num(q.get("regular_last"))
+    ext_t, reg_t = _num(q.get("extended_trade_ms")), _num(q.get("regular_trade_ms"))
+    if ext_t is None and reg_t is None:
+        # A source without per-print times: the extended field is all
+        # there is to go on.
+        return ext, _num(q.get("extended_volume"))
+    start = now.replace(hour=PRE_START.hour, minute=PRE_START.minute, second=0,
+                        microsecond=0).timestamp() * 1000.0
+    # ...and before the bell: after 9:30 a regular trade is also "after
+    # 4:00", and the pre-market lists would track intraday prices all day
+    # (Codex, #418). The sweep keeps the last pre-market print for later.
+    span = _cal.session_span(now.date())
+    o = span[0] if span else dtime(9, 30)
+    end = now.replace(hour=o.hour, minute=o.minute, second=0, microsecond=0).timestamp() * 1000.0
+    cands = []
+    if ext and ext_t and start <= ext_t < end:
+        cands.append((ext_t, ext, _num(q.get("extended_volume"))))
+    if reg and reg_t and start <= reg_t < end:
+        # The regular quote only carries this morning's trades when it has
+        # traded this morning; then its volume is this morning's too.
+        cands.append((reg_t, reg, _num(q.get("volume"))))
+    if not cands:
+        return None, None
+    # By time ONLY: on a tie the tuple would go on to compare volumes, and
+    # a missing one raises mid-sweep (Codex, #418).
+    _t, price, vol = max(cands, key=lambda c: c[0])
+    return price, vol
+
+
 def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
     """Everything the triggers, conditions and rankings read for one
     symbol, computed once per sweep."""
     last = _num(q.get("regular_last")) or _num(q.get("last"))
-    ext = _num(q.get("extended_last"))
+    ext, ext_vol = _premarket_print(q, now)
+    # Remember this morning's last pre-market print, so after the bell the
+    # pre-market lists still show it even when the quote's own pre-market
+    # fields have been overwritten by the session.
+    if ext is not None:
+        st["pm_keep"] = (ext, ext_vol)
+    elif st.get("pm_keep"):
+        ext, ext_vol = st["pm_keep"]
     prev = _num(q.get("close_prev"))
     opn = _num(q.get("open"))
     vol = _num(q.get("volume"))
@@ -506,7 +553,7 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
         "change_pct": _pct(last, prev),
         "gap_pct": _pct(opn, prev) if opn else None,
         "pm_last": ext, "pm_change_pct": _pct(ext, prev),
-        "pm_volume": _num(q.get("extended_volume")),
+        "pm_volume": ext_vol,
         "move_5m": _window_move(ticks, now_ts, 5),
         "move_15m": _window_move(ticks, now_ts, 15),
         "market_cap": _num(row.get("market_cap")),
@@ -852,9 +899,10 @@ def sweep(now: datetime | None = None) -> dict:
                 st["ticks"].clear()
                 st["pic"] = None
                 st["phase"] = ph
-            price = _num(q.get("regular_last")) if ph == "open" else _num(q.get("extended_last"))
-            price = price or _num(q.get("last"))
-            vol = _num(q.get("volume")) if ph == "open" else _num(q.get("extended_volume"))
+            if ph == "open":
+                price, vol = _num(q.get("regular_last")) or _num(q.get("last")), _num(q.get("volume"))
+            else:
+                price, vol = _premarket_print(q, now)
             if price:
                 st["ticks"].append((now_ts, price, vol))
             prev_pic = st["pic"]

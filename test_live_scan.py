@@ -295,6 +295,91 @@ class Grading(Harness):
         self.assertGreater(g["r30"], 0, "a short that falls followed through")
 
 
+def ms(dt):
+    return int(dt.timestamp() * 1000)
+
+
+class PreMarketUsesTheNewestTrade(Harness):
+    """Jerry, with the Pre-market gainers list at 8:55: "Why is this stale.
+    It should have the realtime on it." AKAM read $133.91, +21.28% on the
+    list while the sidebar had it live at $126.37, +14.45%. The list read
+    Schwab's EXTENDED price unconditionally; the newest pre-market trade
+    was in the regular quote, and the extended field held an older print.
+    The sidebar picks by trade time. So does the scanner now."""
+
+    def aapl(self, reg, reg_t, ext, ext_t, vol=900_000, ext_vol=300_000, prev=110.41):
+        q = quote(reg, prev=prev, vol=vol, ext=ext, ext_vol=ext_vol)
+        q.update({"regular_trade_ms": ms(reg_t), "extended_trade_ms": ms(ext_t)})
+        return q
+
+    def test_the_newer_regular_print_wins_over_an_old_extended_one(self):
+        yesterday_post = at(19, 30, day=DAY - timedelta(days=1))
+        self.step(at(8, 54), AAA=self.aapl(126.0, at(8, 54), 133.91, yesterday_post))
+        self.step(at(8, 55), AAA=self.aapl(126.37, at(8, 55), 133.91, yesterday_post))
+        top = LS.snapshot()["rankings"]["pm_gainers"][0]
+        self.assertEqual("AAA", top["symbol"])
+        self.assertAlmostEqual(126.37, top["last"], places=2)
+        self.assertAlmostEqual(14.45, top["pm_change_pct"], places=1)
+
+    def test_a_newer_extended_print_wins_the_other_way(self):
+        self.step(at(8, 54), AAA=self.aapl(110.41, at(16, 0, day=DAY - timedelta(days=1)), 118.0, at(8, 54)))
+        top = LS.snapshot()["rankings"]["pm_gainers"][0]
+        self.assertAlmostEqual(118.0, top["last"], places=2)
+
+    def test_nothing_traded_today_is_not_a_premarket_mover(self):
+        # Both prints are from yesterday: it has not traded pre-market yet.
+        y = DAY - timedelta(days=1)
+        self.step(at(8, 55), AAA=self.aapl(110.41, at(16, 0, day=y), 133.91, at(19, 30, day=y)))
+        self.assertEqual([], LS.snapshot()["rankings"]["pm_gainers"])
+
+    def test_a_tie_on_time_never_compares_volumes(self):
+        """Codex (#418): the same time and price on both blocks fell through
+        to comparing volumes, and a missing one raised mid-sweep."""
+        q = self.aapl(120.0, at(8, 55), 120.0, at(8, 55), vol=None, ext_vol=50_000)
+        price, _v = LS._premarket_print(q, at(8, 55))
+        self.assertEqual(120.0, price)
+
+    def test_after_the_bell_the_lists_keep_the_last_premarket_print(self):
+        """Codex (#418): a regular-session trade is also "after 4:00", so the
+        pre-market lists would have tracked intraday prices all day."""
+        y = DAY - timedelta(days=1)
+        self.step(at(9, 20), AAA=self.aapl(121.0, at(9, 20), 133.91, at(19, 30, day=y)))
+        self.step(at(9, 29), AAA=self.aapl(122.0, at(9, 29), 133.91, at(19, 30, day=y)))
+        self.step(at(10, 30), AAA=self.aapl(131.0, at(10, 30), 133.91, at(19, 30, day=y), vol=5_000_000))
+        self.step(at(10, 30, 30), AAA=self.aapl(132.0, at(10, 30, 30), 133.91, at(19, 30, day=y), vol=5_100_000))
+        top = LS.snapshot()["rankings"]["pm_gainers"][0]
+        self.assertAlmostEqual(122.0, top["pm_last"], places=2, msg="the last pre-market print, not 10:30's")
+
+    def test_premarket_sweeps_are_every_30_seconds(self):
+        self.assertEqual(30, LS.SWEEP_PRE_S)
+
+
+class TheBrokerClientCarriesBothPrintTimes(unittest.TestCase):
+    """The scanner can only pick the newest print if the broker client
+    hands over BOTH prints' times. Drives the real SchwabClient.get_quotes
+    with a Schwab-shaped response (AKAM at 8:55, Jerry's case) instead of
+    trusting a fake to have the fields."""
+
+    def test_get_quotes_keeps_the_regular_and_extended_trade_times(self):
+        import threading as _th
+        import schwab_client as sc
+        c = object.__new__(sc.SchwabClient)
+        c._lock, c._cache = _th.RLock(), {}
+        t_reg = ms(at(8, 55))
+        t_ext = ms(at(19, 30, day=DAY - timedelta(days=1)))
+        c._get = lambda url, params: {"AKAM": {
+            "quote": {"lastPrice": 126.37, "closePrice": 110.41, "tradeTime": t_reg,
+                      "totalVolume": 900_000, "openPrice": 0, "highPrice": 0, "lowPrice": 0},
+            "extended": {"lastPrice": 133.91, "tradeTime": t_ext, "totalVolume": 300_000},
+            "reference": {"description": "Akamai"}}}
+        q = c.get_quotes(["AKAM"])["AKAM"]
+        self.assertEqual(t_reg, q["regular_trade_ms"])
+        self.assertEqual(t_ext, q["extended_trade_ms"])
+        self.assertEqual(126.37, q["last"], "the client already picks the newer print")
+        price, _vol = LS._premarket_print(q, at(8, 55))
+        self.assertEqual(126.37, price, "and now the scanner does too")
+
+
 class PreMarketGrading(Harness):
     def test_a_premarket_alert_is_graded_on_the_premarket_tape(self):
         """Codex (#416): before the bell `last` is cleared by design, so a
