@@ -441,6 +441,25 @@ class Rankings(Harness):
         self.assertEqual("BBB", r["losers"][0]["symbol"])
         self.assertNotIn("TINY", [x["symbol"] for x in r["gainers"]])
 
+    def test_every_row_carries_its_group(self):
+        """Jerry: the empty space between Price and the percentage should
+        show the stock's tag, so the same tag down a list reads as a sector
+        moving. His own watchlist tag and the sector both reach the row; a
+        stock with no tag carries None, not an empty string."""
+        tagged = dict(row("AAA"), tag="Semis")
+        self.rows = [tagged, row("BBB")]
+        self.clock = at(8, 0)
+        self.step(at(8, 0), AAA=quote(None, ext=104, ext_vol=900_000),
+                  BBB=quote(None, ext=102, ext_vol=900_000))
+        self.step(at(11, 0), AAA=quote(103), BBB=quote(98))
+        r = LS.snapshot()["rankings"]
+        for key in ("gainers", "losers", "active"):
+            got = {x["symbol"]: (x.get("tag"), x.get("sector")) for x in r[key]}
+            self.assertEqual(("Semis", "Technology"), got["AAA"], key)
+            self.assertEqual((None, "Technology"), got["BBB"], key)
+        pm = {x["symbol"]: x.get("tag") for x in r["pm_gainers"]}
+        self.assertEqual("Semis", pm.get("AAA"), "the pre-market lists lost the tag")
+
 
 class SetupsAreData(Harness):
     def test_unknown_triggers_are_refused_by_name_and_numbers_clamped(self):

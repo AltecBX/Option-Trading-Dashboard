@@ -558,7 +558,8 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
         "move_15m": _window_move(ticks, now_ts, 15),
         "market_cap": _num(row.get("market_cap")),
         "high_52w": _num(row.get("high_52w")), "low_52w": _num(row.get("low_52w")),
-        "sector": row.get("sector"), "name": q.get("name") or row.get("company"),
+        "sector": row.get("sector"), "tag": (row.get("tag") or None),
+        "name": q.get("name") or row.get("company"),
         "prior": (_STATE["prior"] or {}).get(sym),
         "minutes": minutes_since_open(now),
     }
@@ -821,7 +822,11 @@ def _rank(pics: list, key, reverse=True, filt=None, n=RANK_N) -> list:
              "change_pct": _r(p["change_pct"]), "rvol": p["rvol"],
              "volume": p["volume"], "move_5m": _r(p["move_5m"]),
              "gap_pct": _r(p["gap_pct"]), "pm_change_pct": _r(p["pm_change_pct"]),
-             "pm_volume": p["pm_volume"], "pm_last": p.get("pm_last")}
+             "pm_volume": p["pm_volume"], "pm_last": p.get("pm_last"),
+             # Jerry's own watchlist tag first, the sector under it: the
+             # lists show one group label per row so a sector moving
+             # together reads at a glance (v5.32).
+             "tag": p.get("tag"), "sector": p.get("sector")}
             for p in rows[:n]]
 
 

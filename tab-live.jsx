@@ -39,6 +39,23 @@ const LV_PM_LISTS = [
   ["pm_volume", "Pre-market volume", "pm_volume"],
 ];
 
+// A list row's group: Jerry's own watchlist tag when he gave the stock
+// one, else a short sector name. Several rows sharing a group on one list
+// is a sector moving together, and that is what the column is for (v5.32).
+const LV_SECTOR_SHORT = {
+  Technology: "Tech", "Information Technology": "Tech",
+  "Financial Services": "Financials", Financials: "Financials",
+  Healthcare: "Health", "Health Care": "Health", Energy: "Energy",
+  "Consumer Cyclical": "Consumer", "Consumer Discretionary": "Consumer",
+  "Consumer Defensive": "Staples", "Consumer Staples": "Staples",
+  Industrials: "Industrials", "Basic Materials": "Materials", Materials: "Materials",
+  Utilities: "Utilities", "Real Estate": "Real Estate",
+  "Communication Services": "Comms",
+};
+const lvGroup = (r) => (r.tag ? String(r.tag)
+  : r.sector ? (LV_SECTOR_SHORT[r.sector] || String(r.sector)) : null);
+const LV_GROUP_COLOURS = 6;
+
 const lvNum = (v, d = 2) => (v == null || !isFinite(v) ? "—" : Number(v).toFixed(d));
 const lvPct = (v, d = 1) => (v == null || !isFinite(v) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}%`);
 const lvVol = (v) => {
@@ -124,36 +141,76 @@ function LvRankings({ rankings, phase, onOpen }) {
   const metric = cur[2];
   const fmt = (r) => metric === "volume" || metric === "pm_volume" ? lvVol(r[metric])
     : metric === "rvol" ? `${lvNum(r.rvol, 1)}x` : lvPct(r[metric], 2);
+  const pm = cur[0].startsWith("pm_");
+  // On the gainers and losers lists the ranked number IS the day's change;
+  // a second column repeating it was the empty space the group now uses.
+  const dayCol = metric !== (pm ? "pm_change_pct" : "change_pct");
+  // Groups that show up more than once on this list, most first. Each gets
+  // its own colour, so repeats stand out without reading a word.
+  const counts = {};
+  rows.forEach(r => { const g = lvGroup(r); if (g) counts[g] = (counts[g] || 0) + 1; });
+  const shared = Object.keys(counts).filter(g => counts[g] > 1)
+    .sort((a, b) => counts[b] - counts[a]);
+  const colour = (g) => { const i = shared.indexOf(g); return i >= 0 && i < LV_GROUP_COLOURS ? i : -1; };
+  const [only, setOnly] = useState(null);
+  // The filter holds only while its chip is on screen: a later poll can
+  // leave the group with one row, its chip gone, and no way back to the
+  // full list (Codex, #419).
+  const filtering = only != null && shared.includes(only);
+  const shown = filtering ? rows.filter(r => lvGroup(r) === only) : rows;
+  const pickList = (k) => { setPick(k); setOnly(null); };
   return (
     <div className="lv-ranks" title={LV_TIP.lists}>
       <div className="lv-seg" role="tablist">
         {lists.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={cur[0] === k}
                   className={`lv-seg-btn ${cur[0] === k ? "on" : ""}`}
-                  onClick={() => setPick(k)}>{label}</button>
+                  onClick={() => pickList(k)}>{label}</button>
         ))}
       </div>
+      {shared.length ? (
+        <div className="lv-groups" title="Groups with more than one stock on this list. Tap one to show only those; tap it again to show everything.">
+          {shared.slice(0, LV_GROUP_COLOURS).map(g => (
+            <button key={g} type="button"
+                    className={`lv-grp lv-grp-${colour(g)}${filtering && only === g ? " on" : ""}`}
+                    aria-pressed={filtering && only === g}
+                    onClick={() => setOnly(filtering && only === g ? null : g)}>
+              {g} <b>{counts[g]}</b>
+            </button>
+          ))}
+        </div>
+      ) : null}
       {rows.length ? (
         <table className="scan-table lv-rtable">
           <thead>
             <tr>
               <th>#</th><th>Symbol</th>
               <th className="scan-num">Price</th>
+              <th className="lv-grp-col">Group</th>
               <th className="scan-num">{cur[1]}</th>
-              <th className="scan-num">Day</th>
+              {dayCol ? <th className="scan-num">Day</th> : null}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => {
+            {shown.map((r) => {
               const px = r.last != null ? r.last : r.pm_last;
-              const day = cur[0].startsWith("pm_") ? r.pm_change_pct : r.change_pct;
+              const day = pm ? r.pm_change_pct : r.change_pct;
+              const g = lvGroup(r);
+              const c = g ? colour(g) : -1;
               return (
                 <tr key={r.symbol}>
-                  <td className="lv-rank">{i + 1}</td>
+                  <td className="lv-rank">{rows.indexOf(r) + 1}</td>
                   <td><button className="lv-sym" onClick={() => onOpen && onOpen(r.symbol)}>{r.symbol}</button></td>
                   <td className="scan-num">{px != null ? `$${lvNum(px)}` : "—"}</td>
+                  <td className="lv-grp-col">
+                    {g ? <span className={`lv-grp${c >= 0 ? ` lv-grp-${c}` : ""}`}
+                               title={(r.tag ? `Your tag: ${r.tag}` : "Sector") +
+                                      (r.sector ? ` · ${r.sector}` : "") +
+                                      (counts[g] > 1 ? ` · ${counts[g]} on this list` : "")}>{g}</span>
+                       : <span className="lv-grp-none">—</span>}
+                  </td>
                   <td className="scan-num lv-metric">{fmt(r)}</td>
-                  <td className={`scan-num ${day > 0 ? "up" : day < 0 ? "down" : ""}`}>{lvPct(day)}</td>
+                  {dayCol ? <td className={`scan-num ${day > 0 ? "up" : day < 0 ? "down" : ""}`}>{lvPct(day)}</td> : null}
                 </tr>
               );
             })}
