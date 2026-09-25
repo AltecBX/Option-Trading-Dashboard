@@ -505,16 +505,24 @@ def _premarket_print(q: dict, now: datetime) -> tuple:
         return ext, _num(q.get("extended_volume"))
     start = now.replace(hour=PRE_START.hour, minute=PRE_START.minute, second=0,
                         microsecond=0).timestamp() * 1000.0
+    # ...and before the bell: after 9:30 a regular trade is also "after
+    # 4:00", and the pre-market lists would track intraday prices all day
+    # (Codex, #418). The sweep keeps the last pre-market print for later.
+    span = _cal.session_span(now.date())
+    o = span[0] if span else dtime(9, 30)
+    end = now.replace(hour=o.hour, minute=o.minute, second=0, microsecond=0).timestamp() * 1000.0
     cands = []
-    if ext and ext_t and ext_t >= start:
+    if ext and ext_t and start <= ext_t < end:
         cands.append((ext_t, ext, _num(q.get("extended_volume"))))
-    if reg and reg_t and reg_t >= start:
+    if reg and reg_t and start <= reg_t < end:
         # The regular quote only carries this morning's trades when it has
         # traded this morning; then its volume is this morning's too.
         cands.append((reg_t, reg, _num(q.get("volume"))))
     if not cands:
         return None, None
-    _t, price, vol = max(cands)
+    # By time ONLY: on a tie the tuple would go on to compare volumes, and
+    # a missing one raises mid-sweep (Codex, #418).
+    _t, price, vol = max(cands, key=lambda c: c[0])
     return price, vol
 
 
@@ -523,6 +531,13 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
     symbol, computed once per sweep."""
     last = _num(q.get("regular_last")) or _num(q.get("last"))
     ext, ext_vol = _premarket_print(q, now)
+    # Remember this morning's last pre-market print, so after the bell the
+    # pre-market lists still show it even when the quote's own pre-market
+    # fields have been overwritten by the session.
+    if ext is not None:
+        st["pm_keep"] = (ext, ext_vol)
+    elif st.get("pm_keep"):
+        ext, ext_vol = st["pm_keep"]
     prev = _num(q.get("close_prev"))
     opn = _num(q.get("open"))
     vol = _num(q.get("volume"))

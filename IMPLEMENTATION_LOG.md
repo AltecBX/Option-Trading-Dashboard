@@ -3999,6 +3999,17 @@ The fix:
   session, so the numbers move while he watches. That costs about 5 more
   broker calls a minute.
 
+Codex (#418), two findings on the first draft, each reproduced as a failing
+test first:
+- **A crash on a tie.** When both blocks carried the same time, the
+  comparison went on to compare volumes, and a missing one raised
+  mid-sweep. The pick is now by time only.
+- **The lists would have gone intraday after the bell.** A regular trade
+  after 9:30 is also "after 4:00", so the pre-market lists would have
+  tracked intraday prices all day. Eligible prints are now bounded to 4:00
+  until the bell, and the sweep keeps each name's last pre-market print for
+  after the open.
+
 Guards:
 - Four tests replay his AKAM case: the newer regular print wins over an
   old extended one; a newer extended print still wins; nothing traded

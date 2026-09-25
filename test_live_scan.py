@@ -332,6 +332,24 @@ class PreMarketUsesTheNewestTrade(Harness):
         self.step(at(8, 55), AAA=self.aapl(110.41, at(16, 0, day=y), 133.91, at(19, 30, day=y)))
         self.assertEqual([], LS.snapshot()["rankings"]["pm_gainers"])
 
+    def test_a_tie_on_time_never_compares_volumes(self):
+        """Codex (#418): the same time and price on both blocks fell through
+        to comparing volumes, and a missing one raised mid-sweep."""
+        q = self.aapl(120.0, at(8, 55), 120.0, at(8, 55), vol=None, ext_vol=50_000)
+        price, _v = LS._premarket_print(q, at(8, 55))
+        self.assertEqual(120.0, price)
+
+    def test_after_the_bell_the_lists_keep_the_last_premarket_print(self):
+        """Codex (#418): a regular-session trade is also "after 4:00", so the
+        pre-market lists would have tracked intraday prices all day."""
+        y = DAY - timedelta(days=1)
+        self.step(at(9, 20), AAA=self.aapl(121.0, at(9, 20), 133.91, at(19, 30, day=y)))
+        self.step(at(9, 29), AAA=self.aapl(122.0, at(9, 29), 133.91, at(19, 30, day=y)))
+        self.step(at(10, 30), AAA=self.aapl(131.0, at(10, 30), 133.91, at(19, 30, day=y), vol=5_000_000))
+        self.step(at(10, 30, 30), AAA=self.aapl(132.0, at(10, 30, 30), 133.91, at(19, 30, day=y), vol=5_100_000))
+        top = LS.snapshot()["rankings"]["pm_gainers"][0]
+        self.assertAlmostEqual(122.0, top["pm_last"], places=2, msg="the last pre-market print, not 10:30's")
+
     def test_premarket_sweeps_are_every_30_seconds(self):
         self.assertEqual(30, LS.SWEEP_PRE_S)
 
