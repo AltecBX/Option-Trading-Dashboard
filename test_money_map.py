@@ -211,6 +211,28 @@ class NeverRaises(unittest.TestCase):
         self.assertEqual("2026-06-27", call[2]["start_date"])
 
 
+class LevelsForTheLiveScanner(unittest.TestCase):
+    """v5.34: the gamma flip and the three busiest dark pool prices."""
+
+    def test_the_two_levels(self):
+        got = MM.live_levels(FakeUW(), "spy")
+        self.assertEqual(560.0, got["gamma_flip"])
+        self.assertEqual([[566.0, 910000], [580.5, 450000], [552.0, 300000]], got["dark"])
+
+    def test_the_server_hands_them_to_the_scanner(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        at = src.index("_live.configure(")
+        self.assertIn('levels_fn=lambda sym:', src[at:at + 1500])
+        self.assertIn('live_levels(uw, sym)', src[at:at + 1500])
+
+    def test_nothing_answered_is_none_and_half_is_half(self):
+        self.assertIsNone(MM.live_levels(FakeUW(gex_levels=None, darkpool_levels=None), "SPY"))
+        half = MM.live_levels(FakeUW(gex_levels=RuntimeError("x")), "SPY")
+        self.assertIsNone(half["gamma_flip"])
+        self.assertEqual(3, len(half["dark"]))
+
+
 class PremiumChecksForTheBoard(unittest.TestCase):
     """v5.34: the Worth Selling Today board asks for several at once."""
 

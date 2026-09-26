@@ -507,3 +507,111 @@ class Push(Harness):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class UnusualWhalesLevels(Harness):
+    """v5.34. Jerry: Live Scanner alerts when a stock crosses its gamma
+    flip or one of the day's big dark pool levels. The levels come from
+    Unusual Whales for the stocks in play, a few at a time."""
+
+    def setUp(self):
+        super().setUp()
+        self.levels = {"AAA": {"gamma_flip": 100.0, "dark": [[102.0, 500_000], [98.5, 50_000]]}}
+        self.fetched = []
+
+        def levels_fn(sym):
+            self.fetched.append(sym)
+            return self.levels.get(sym)
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows,
+                     notify_fn=lambda t, m, p=0: self.pushes.append((t, m)),
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name, levels_fn=levels_fn)
+
+    def warm(self, px=99.0):
+        self.step(at(10, 0), AAA=quote(px, vol=5_000_000))
+        self.assertEqual(1, LS.refresh_levels(at(10, 0)), "the stock in play got its levels")
+
+    def test_crossing_the_gamma_flip_fires_both_ways(self):
+        self.only("gamma_flip_cross")
+        self.warm(99.0)
+        self.step(at(10, 1), AAA=quote(100.4, vol=5_100_000))
+        a = self.alerts("gamma_flip_cross")
+        self.assertEqual(1, len(a))
+        self.assertEqual("long", a[0]["side"])
+        self.assertIn("Crossed above the gamma flip at $100.00", a[0]["why"])
+        self.clock = at(10, 40)
+        self.step(at(10, 40), AAA=quote(99.5, vol=6_000_000))
+        a = self.alerts("gamma_flip_cross")
+        self.assertEqual(2, len(a), "the other way, after the cooldown")
+        self.assertEqual("short", a[0]["side"] if a[0]["ts"] > a[1]["ts"] else a[1]["side"])
+
+    def test_crossing_a_dark_pool_level_names_the_shares(self):
+        self.only("dark_pool_level")
+        self.warm(101.5)
+        self.step(at(10, 1), AAA=quote(102.2, vol=5_100_000))
+        a = self.alerts("dark_pool_level")
+        self.assertEqual(1, len(a))
+        self.assertEqual("long", a[0]["side"])
+        self.assertIn("Crossed above $102.00", a[0]["why"])
+        self.assertIn("500.0K shares traded in dark pools today", a[0]["why"])
+
+    def test_a_thin_dark_pool_level_is_ignored(self):
+        self.only("dark_pool_level")
+        self.warm(98.9)
+        self.step(at(10, 1), AAA=quote(98.3, vol=5_100_000))
+        self.assertEqual([], self.alerts("dark_pool_level"), "50K shares is under the 100K floor")
+
+    def test_setup_check_says_when_there_are_no_levels(self):
+        self.step(at(10, 0), BBB=quote(99, vol=5_000_000))
+        rows = {r["trigger"]: r for r in LS.check("BBB", at(10, 0))["setups"]}
+        self.assertIn("No Unusual Whales levels", rows["gamma_flip_cross"]["detail"])
+        self.assertIn("No Unusual Whales levels", rows["dark_pool_level"]["detail"])
+
+    def test_levels_are_refreshed_on_a_timer_a_few_at_a_time_and_only_in_session(self):
+        self.warm(99.0)
+        self.assertEqual(0, LS.refresh_levels(at(10, 5)), "fresh levels are not refetched")
+        self.assertEqual(1, LS.refresh_levels(at(10, 11)), "ten minutes later they are")
+        self.assertEqual(0, LS.refresh_levels(at(8, 0)), "not before the open")
+        with LS._LOCK:
+            LS._STATE["rankings"] = {"gainers": [{"symbol": f"S{i:02d}"} for i in range(25)],
+                                     "losers": [{"symbol": f"L{i:02d}"} for i in range(25)]}
+        want = LS.levels_wanted()
+        self.assertEqual(LS.LEVEL_SYMS, len(want))
+        self.assertEqual(["S00", "L00", "S01", "L01"], want[:4], "lists take turns")
+        self.fetched.clear()
+        self.assertEqual(LS.LEVEL_FETCH_PER_PASS, LS.refresh_levels(at(10, 30)))
+
+
+class NewTriggersReachASavedList(unittest.TestCase):
+    """A setups.json saved before v5.34 gets the two new setups once;
+    deleting one afterwards sticks."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "live_scan"
+        self.dir.mkdir()
+        old = [s for s in LS.default_setups() if s["trigger"] in LS.TRIGGERS_BEFORE_V534][:3]
+        (self.dir / "setups.json").write_text(json.dumps(old))
+
+    def tearDown(self):
+        LS.stop_scheduler()
+        self.tmp.cleanup()
+
+    def load(self):
+        LS.configure(quotes_fn=lambda s: {}, universe_fn=lambda: [], data_dir=self.tmp.name)
+        return [s["trigger"] for s in LS.setups()]
+
+    def test_offered_once(self):
+        got = self.load()
+        self.assertEqual(5, len(got))
+        self.assertIn("gamma_flip_cross", got)
+        self.assertIn("dark_pool_level", got)
+        keep = [s for s in LS.setups() if s["trigger"] != "dark_pool_level"]
+        self.assertTrue(LS.save_setups(keep)["ok"])
+        self.assertNotIn("dark_pool_level", self.load(), "a deleted setup came back")
+
+    def test_a_fresh_install_has_them_by_default(self):
+        (self.dir / "setups.json").unlink()
+        got = self.load()
+        self.assertIn("gamma_flip_cross", got)
+        self.assertEqual(len(LS.DEFAULT_SETUPS), len(got))

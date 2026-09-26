@@ -5127,6 +5127,10 @@ try:
         notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
         data_dir=_STABLE_DIR,
+        # v5.34: gamma flip and dark pool levels for the stocks in play.
+        levels_fn=lambda sym: (lambda uw: (__import__("money_map").live_levels(uw, sym)
+                                           if uw is not None else None))(
+            _uw_client.get_client() if (_UW_AVAILABLE and _uw_client is not None) else None),
     )
     _LIVE_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001
