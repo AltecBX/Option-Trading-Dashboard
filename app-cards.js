@@ -20242,11 +20242,13 @@ function MoneyMapCard({
 }) {
   const [map, setMap] = useState(null);
   const [error, setError] = useState(null);
+  const [loadedAt, setLoadedAt] = useState(null);
   const priceRef = React.useRef(currentPrice);
   priceRef.current = currentPrice;
   useEffect(() => {
     setMap(null);
     setError(null);
+    setLoadedAt(null);
   }, [ticker]);
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) return;
@@ -20260,6 +20262,7 @@ function MoneyMapCard({
         if (j.error) setError(j.error);else if (j.data) {
           setMap(j.data);
           setError(null);
+          setLoadedAt(new Date());
         }
       } catch (e) {
         if (!cancelled) setError(String(e.message || e));
@@ -20319,7 +20322,12 @@ function MoneyMapCard({
   const missing = (map.missing || []).map(k => MM_MISSING[k] || k);
   return /*#__PURE__*/React.createElement("div", {
     className: "card mm-card"
-  }, head, map.regime ? /*#__PURE__*/React.createElement("div", {
+  }, head, error ? /*#__PURE__*/React.createElement("p", {
+    className: "mm-stale"
+  }, "Couldn't refresh (", error, "). Showing the answer from ", loadedAt ? loadedAt.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  }) : "earlier", ".") : null, map.regime ? /*#__PURE__*/React.createElement("div", {
     className: `mm-regime mm-${map.regime.state}`
   }, /*#__PURE__*/React.createElement("b", null, map.regime.state === "calm" ? "Calm tape" : "Wild tape"), " ", map.regime.text) : null, (map.levels || []).length ? /*#__PURE__*/React.createElement("section", {
     className: "mm-sec"

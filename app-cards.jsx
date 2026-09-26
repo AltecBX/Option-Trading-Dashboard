@@ -15677,9 +15677,10 @@ const mmDay = (iso) => {
 function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
   const [map, setMap] = useState(null);
   const [error, setError] = useState(null);
+  const [loadedAt, setLoadedAt] = useState(null);
   const priceRef = React.useRef(currentPrice);
   priceRef.current = currentPrice;
-  useEffect(() => { setMap(null); setError(null); }, [ticker]);
+  useEffect(() => { setMap(null); setError(null); setLoadedAt(null); }, [ticker]);
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) return;
     let cancelled = false;
@@ -15691,7 +15692,7 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
         const j = await r.json();
         if (cancelled) return;
         if (j.error) setError(j.error);
-        else if (j.data) { setMap(j.data); setError(null); }
+        else if (j.data) { setMap(j.data); setError(null); setLoadedAt(new Date()); }
       } catch (e) {
         if (!cancelled) setError(String(e.message || e));
       }
@@ -15738,6 +15739,14 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
   return (
     <div className="card mm-card">
       {head}
+      {/* A failed refresh after a good load says so, with the time of the
+          answer still on screen: gamma levels go stale in minutes (Codex, #420). */}
+      {error ? (
+        <p className="mm-stale">
+          Couldn't refresh ({error}). Showing the answer from {loadedAt
+            ? loadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "earlier"}.
+        </p>
+      ) : null}
       {map.regime ? (
         <div className={`mm-regime mm-${map.regime.state}`}>
           <b>{map.regime.state === "calm" ? "Calm tape" : "Wild tape"}</b> {map.regime.text}

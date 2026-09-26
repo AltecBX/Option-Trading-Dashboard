@@ -5330,3 +5330,10 @@ checks the ladder order with "Price now" in place, the regime, the seller
 lines, the premium verdict, what opened, and the insider and Congress
 sentences, with nothing running off the card. Three static guards cover
 the card too.
+
+Codex on #420, right and fixed: after a good load, a failed refresh set
+`error` but the note only showed when there was no map. The card kept
+showing old gamma levels as if they were current. A failed refresh now
+shows a warning line above the map naming the error and the time of the
+answer still on screen. A static guard covers it and fails on the old
+code.

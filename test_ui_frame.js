@@ -423,6 +423,8 @@ ok("the Friday head card says which Friday and whether today is the day",
   ok("it reads the one route and stays hidden without Unusual Whales",
      /\/api\/uw\/money_map\?symbol=/.test(cards)
      && /function MoneyMapCard[\s\S]{0,2400}if \(!uwHealth\?\.configured\) return null;/.test(cards));
+  ok("a failed refresh is shown over the last good answer, never hidden behind it",
+     /\{error \? \(\s*<p className="mm-stale">/.test(cards) && /setLoadedAt\(new Date\(\)\)/.test(cards));
   ok("it polls once a minute, and not while the page is hidden",
      /setInterval\(skipWhenHidden\(load\), 60000\)/.test(cards));
 }
