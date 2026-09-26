@@ -135,7 +135,8 @@ const groupBlock = lib.slice(lib.indexOf("const TAB_GROUPS"), lib.indexOf("class
 const grouped = [...groupBlock.matchAll(/"([a-z]+)"/g)].map(m => m[1])
   .filter(x => tabIds.includes(x));
 // 31 since v5.29: the Live Scanner joined the Scan group.
-ok("every destination is still declared", tabIds.length === 31, String(tabIds.length));
+// 32 since v5.34: Insider & Congress buying joined it too.
+ok("every destination is still declared", tabIds.length === 32, String(tabIds.length));
 ok("every destination belongs to exactly one group",
    tabIds.every(id => grouped.filter(g => g === id).length === 1),
    tabIds.filter(id => grouped.filter(g => g === id).length !== 1).join(","));
@@ -373,7 +374,7 @@ ok("the Friday head card says which Friday and whether today is the day",
   const live = read("tab-live.jsx");
   ok("the Live Scanner is a destination in the Scan group",
      /\{ id: "live", label: "Live Scanner" \}/.test(lib)
-     && /ids: \["live", "scanners",/.test(lib));
+     && /ids: \["live", "buyers", "scanners",/.test(lib));
   ok("its chunk is built, verified and mounted",
      /"tab-live\.jsx"/.test(read("build_frontend.js")) && /"tab-live\.js"/.test(read("verify_frontend.js"))
      && /chunk="tab-live" component="LiveScanTab"/.test(app)
@@ -412,6 +413,24 @@ ok("the Friday head card says which Friday and whether today is the day",
      /const dayCol = metric !== \(pm \? "pm_change_pct" : "change_pct"\);/.test(live));
   ok("the Live Scanner's styles use tokens, never literal colours",
      !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Live Scanner (v5.29)"), css.indexOf("v5.26 — EVERY DESTINATION"))));
+}
+
+// ── v5.34: Insider & Congress buying ──────────────────────────────────────
+{
+  const buyers = read("tab-buyers.jsx");
+  ok("Insider & Congress is a destination in the Scan group",
+     /\{ id: "buyers", label: "Insider & Congress" \}/.test(lib) && /ids: \["live", "buyers",/.test(lib));
+  ok("its chunk is built, verified and mounted",
+     /"tab-buyers\.jsx"/.test(read("build_frontend.js")) && /"tab-buyers\.js"/.test(read("verify_frontend.js"))
+     && /chunk="tab-buyers" component="BuyersTab"/.test(app)
+     && /Object\.assign\(window, \{ BuyersTab: React\.memo\(BuyersTab\) \}\)/.test(buyers));
+  ok("it loads only while the tab is showing",
+     /visible=\{activeTab === "buyers"\}/.test(app) && /if \(!visible\) return undefined;/.test(buyers));
+  ok("stocks on both lists come first, and the watchlist filter is one tap",
+     buyers.indexOf('className="sb-both"') < buyers.indexOf('className="lv-seg sb-view"')
+     && /★ My watchlist/.test(buyers));
+  ok("the Buying page's styles use tokens, never literal colours",
+     !/#[0-9a-fA-F]{6}\b/.test(css.slice(css.indexOf("Insider & Congress buying (v5.34)"), css.indexOf("v5.26 — EVERY DESTINATION"))));
 }
 
 // ── v5.33: the Big Money Map ──────────────────────────────────────────────

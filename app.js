@@ -5043,6 +5043,21 @@ function App() {
       changeTab("trade");
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "buyers",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Insider & Congress"
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-buyers",
+    component: "BuyersTab",
+    label: "Insider & Congress",
+    apiFetch: apiFetch,
+    visible: activeTab === "buyers",
+    onOpenTicker: sym => {
+      switchTicker(sym);
+      changeTab("trade");
+    }
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "gap",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {

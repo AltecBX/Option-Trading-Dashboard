@@ -324,6 +324,28 @@ def congress_section(rows, today: date) -> Optional[dict]:
     return {"text": text, "buys": nb, "sells": ns, "recent": trades[:4]}
 
 
+def premium_checks(uw, symbols, workers: int = 6, budget_s: float = 12.0) -> dict:
+    """{symbol: premium_section} for several symbols at once, in parallel
+    and inside a time budget: a board must not wait on the slowest call.
+    A symbol with no answer maps to None. Never raises."""
+    from concurrent.futures import ThreadPoolExecutor, wait
+    syms = [str(s).upper() for s in dict.fromkeys(symbols or []) if s]
+    out: dict = {s: None for s in syms}
+    fn = getattr(uw, "variance_risk_premium", None)
+    if fn is None or not syms:
+        return out
+    pool = ThreadPoolExecutor(max_workers=max(1, min(workers, len(syms))))
+    try:
+        futs = {pool.submit(_call, fn, s): s for s in syms}
+        done, _ = wait(futs, timeout=budget_s)
+        for f in done:
+            v, _err = f.result()
+            out[futs[f]] = premium_section(v) if v is not None else None
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return out
+
+
 def build(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] = None) -> dict:
     """Every section for one ticker. Never raises."""
     symbol = str(symbol or "").upper().strip()

@@ -13598,6 +13598,14 @@ a.tabsheet-btn.site { text-decoration: none; }
 .su-leg-sell { color: var(--fg); font-weight: 700; }
 .su-c-exp { white-space: nowrap; }
 .su-bsub { display: block; font-size: 11px; color: var(--fg-3); white-space: nowrap; }
+/* v5.34 — Unusual Whales' second opinion on the premium. */
+.su-uw { display: inline-block; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;
+         padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line); color: var(--fg-2); }
+.su-uw-rich { color: var(--fg); background: color-mix(in srgb, var(--up) 20%, transparent);
+              border-color: color-mix(in srgb, var(--up) 55%, transparent); }
+.su-uw-thin { color: var(--fg); background: color-mix(in srgb, var(--down) 18%, transparent);
+              border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.su-uw-none { border-color: transparent; color: var(--fg-4); }
 /* On a phone each row is a small block, not a table row to scroll: the
    symbol and expiry on top, the trade under them, then the three numbers
    that decide it — collect, can lose, return — each naming itself. The
@@ -15403,6 +15411,41 @@ body { overflow: hidden; overscroll-behavior: none; }
   .mm-now .mm-why, .mm-now .mm-dist { display: none; }
   .mm-lean { min-width: 0; }
   .mm-list li, .mm-verdict { flex-wrap: wrap; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Insider & Congress buying (v5.34). One row per stock: the symbol and the
+   dollars first, the tags that make it stronger (a cluster, the boss, your
+   watchlist), then the sentence. Tokens only.
+   ══════════════════════════════════════════════════════════════════════════ */
+.sb-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.sb-view { margin: 4px 0 8px; }
+.sb-h { font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--fg-3); margin: 0 0 6px; }
+.sb-both { margin: 0 0 14px; padding: 10px 12px; border-radius: 10px;
+           border: 1px solid color-mix(in srgb, var(--up) 45%, transparent);
+           background: color-mix(in srgb, var(--up) 8%, transparent); }
+.sb-list { list-style: none; margin: 0; padding: 0; }
+.sb-row { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.sb-row:last-child { border-bottom: none; }
+.sb-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.sb-sym { font-size: 15px; }
+.sb-amt { font-family: var(--font-mono); font-weight: 700; color: var(--up); font-size: 13.5px; }
+.sb-tag { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+          border: 1px solid var(--line); color: var(--fg-2); background: var(--bg-3); }
+.sb-cluster { color: var(--fg); border-color: color-mix(in srgb, var(--up) 55%, transparent);
+              background: color-mix(in srgb, var(--up) 18%, transparent); }
+.sb-chief { color: var(--fg); border-color: color-mix(in srgb, var(--now) 55%, transparent);
+            background: color-mix(in srgb, var(--now) 16%, transparent); }
+.sb-watch { color: var(--fg); border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+            background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.sb-text { margin-top: 4px; font-size: 13px; color: var(--fg-2); line-height: 1.45; }
+.sb-meta { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--fg-3); }
+.sb-earn { color: var(--warn); font-weight: 600; }
+.sb-foot { margin: 12px 0 0; font-size: 12px; color: var(--fg-3); line-height: 1.45; }
+@media (max-width: 900px) {
+  .sb-view .lv-seg-btn, .sb-bar .lv-seg-btn { flex: 1 1 0; font-size: 13px; }
+  .sb-bar .lv-seg, .sb-view { display: flex; width: 100%; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

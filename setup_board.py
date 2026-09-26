@@ -284,6 +284,37 @@ def richness(row: dict, min_hist_n: int = MIN_HIST_N) -> dict:
                        " No past readings on file yet for a percentile."))}
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# THE SECOND OPINION (v5.34) — Unusual Whales' implied vs realized
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Jerry: rank the board by the RICH/THIN check from his Unusual Whales plan.
+# UW measures the same idea from a different angle: its 30-day implied
+# volatility against the 21 trading days the stock actually moved, where
+# this board uses its own forecast of realized. Every row already passed
+# this board's gates, so UW's verdict does not decide whether a name
+# qualifies; it decides the ORDER. Where both say rich, the name leads.
+# Where UW calls it thin, the two measurements disagree, the row drops to
+# the bottom and says so. Within each tier the board's own richness order
+# is kept, so nothing about how this board ranks has been thrown away.
+UW_TIER = {"rich": 0, "fair": 1, None: 1, "thin": 2}
+
+
+def second_opinion(rows, checks: dict | None) -> list:
+    """Attach UW's premium verdict to each row and order rows by it: UW
+    rich first, then fair or unknown, then thin. Stable within a tier."""
+    checks = checks or {}
+    out = []
+    for r in (rows or []):
+        c = checks.get(r.get("symbol"))
+        state = (c or {}).get("state")
+        out.append({**r, "uw_check": ({"state": state, "text": c.get("text"),
+                                       "iv": c.get("iv"), "rv": c.get("rv"),
+                                       "gap": c.get("gap")} if c else None)})
+    out.sort(key=lambda r: UW_TIER.get((r.get("uw_check") or {}).get("state"), 1))
+    return out
+
+
 def build(rows, horizon_days: float | None = None, limit: int = 10,
           min_vrp_ratio: float = MIN_VRP_RATIO,
           min_hist_n: int = MIN_HIST_N) -> dict:

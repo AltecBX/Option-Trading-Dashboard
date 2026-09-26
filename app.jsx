@@ -4103,6 +4103,14 @@ function App() {
                      onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
           </CardErrorBoundary>
         </TabPanel>
+        <TabPanel tab="buyers" active={activeTab}>
+          <CardErrorBoundary label="Insider & Congress">
+            <LazyTab chunk="tab-buyers" component="BuyersTab" label="Insider & Congress"
+                     apiFetch={apiFetch}
+                     visible={activeTab === "buyers"}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
+          </CardErrorBoundary>
+        </TabPanel>
         <TabPanel tab="gap" active={activeTab}>
           <CardErrorBoundary label="Gap Scan">
             <LazyTab chunk="tab-gap" component="GapTab" label="Gap Scan"

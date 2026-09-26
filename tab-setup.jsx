@@ -136,6 +136,7 @@ const SU_TIP = {
   iv30: "Constant-maturity 30-day implied volatility — what the market is charging.",
   erv: "The volatility this stock is forecast to actually realize. The gap between this and implied volatility is where premium selling makes money.",
   vrp: "Implied volatility minus expected realized volatility, in points. Positive means options are priced above what the stock is likely to do.",
+  uw_check: "Unusual Whales' second opinion: its 30-day implied volatility against how much the stock actually moved over the last 21 trading days. RICH means options are priced for more than the stock has been doing, so sellers are overpaid; THIN means underpaid. Rows where UW agrees it is RICH lead the board; THIN rows drop to the bottom because the two measurements disagree.",
   measured: "How often price actually travelled each distance within the life of this option — in this state, and from any ordinary bar for comparison. The keep rate is shown on its conservative lower bound.",
   baseline: "The same question asked of every ordinary bar. The conditional rate has to beat this, or the state is not special.",
   alt: "The other side, for comparison. It is shown so the choice is visible rather than assumed.",
@@ -651,6 +652,16 @@ function SuBoardRow({ r, onPick }) {
           {suPct(r.iv30 * 100, 0)} vs {suPct(r.erv30 * 100, 0)}
         </span>
       </td>
+      {/* v5.34 — Unusual Whales' own implied-vs-realized verdict, the
+          second opinion the rows are ordered by. */}
+      <td className="su-c-uw" data-label="UW check"
+          title={r.uw_check && r.uw_check.text ? r.uw_check.text : SU_TIP.uw_check}>
+        {r.uw_check && r.uw_check.state ? (
+          <span className={`su-uw su-uw-${r.uw_check.state}`}>
+            {r.uw_check.state === "rich" ? "RICH" : r.uw_check.state === "thin" ? "THIN" : "FAIR"}
+          </span>
+        ) : <span className="su-uw su-uw-none">—</span>}
+      </td>
     </tr>
   );
 }
@@ -712,7 +723,8 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
           <p className="card-sub" title={SU_TIP.board_how}>
             Each row is one trade to place: what to sell, what to buy as
             protection, what you collect and the most you can lose. Dollars
-            are per contract. Richest premium first.
+            are per contract. Richest premium first{data && data.uw_checked
+              ? ", and where Unusual Whales also calls it RICH, those lead" : ""}.
           </p>
         </div>
         <div className="toolbar">
@@ -773,6 +785,7 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
                 <th className="scan-num" title={SU_TIP.roc}>Return</th>
                 <th className="scan-num" title={SU_TIP.richness}>Richness</th>
                 <th className="scan-num" title={SU_TIP.vrp}>Over realized</th>
+                <th title={SU_TIP.uw_check}>UW check</th>
               </tr>
             </thead>
             <tbody>

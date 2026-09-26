@@ -10062,6 +10062,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _uw_send({"data": data})
                 return
 
+            if parsed.path == "/api/uw/buyers":
+                # Insider & Congress buying (v5.34): the whole market's
+                # open-market insider purchases and congressional buys,
+                # grouped by stock, with Jerry's watchlist names marked.
+                if uw is None:
+                    _uw_send({"data": None})
+                    return
+                try:
+                    import smart_buyers as _smart_buyers
+                    board = ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                              else {}) or {})
+                    watch = [str(r.get("symbol") or r.get("ticker") or "") for r in (board.get("rows") or [])]
+                    _uw_send({"data": _smart_buyers.build(uw, watch)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200]}, status=500)
+                return
+
             if parsed.path == "/api/uw/money_map":
                 # Big Money Map (v5.33): gamma levels, max pain, dark pool
                 # levels, overnight OI, implied vs realized, insiders and
@@ -12844,7 +12861,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     limit = 10
                 snap = _edge.snapshot() if _EDGE_AVAILABLE else {}
                 rows = (snap or {}).get("rows") or []
-                out = _sboard.build(rows, limit=limit)
+                # Every qualifier, so UW's second opinion (v5.34) can lift a
+                # name from below the cut; the cut is taken after it.
+                out = _sboard.build(rows, limit=50)
+                uw = None
+                try:
+                    if _UW_AVAILABLE and _uw_client is not None:
+                        uw = _uw_client.get_client()
+                except Exception:  # noqa: BLE001
+                    uw = None
+                out["uw_checked"] = False
+                if uw is not None and out.get("rows"):
+                    try:
+                        import money_map as _money_map
+                        checks = _money_map.premium_checks(uw, [r["symbol"] for r in out["rows"]])
+                        out["rows"] = _sboard.second_opinion(out["rows"], checks)
+                        out["uw_checked"] = any(v is not None for v in checks.values())
+                    except Exception as exc:  # noqa: BLE001
+                        _log_warn("*", "api/setup_board uw", exc)
+                out["rows"] = out["rows"][:limit]
+                out["shown"] = len(out["rows"])
                 # Stage 1 over the WHOLE watchlist, so the payload can say
                 # how many names were ranked versus how many were actually
                 # measured. Without it the board silently implies the scan

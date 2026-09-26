@@ -342,6 +342,7 @@ for p in [
     f"/api/uw/flow_alerts?symbol={S}",
     f"/api/uw/flow_score?symbol={S}",
     f"/api/uw/money_map?symbol={S}&price=100",
+    "/api/uw/buyers",
     f"/api/uw/flow_trades?symbol={S}",
     f"/api/uw/greek_exposure?symbol={S}",
     "/api/uw/market_dashboard",
