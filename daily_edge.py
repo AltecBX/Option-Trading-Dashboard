@@ -100,6 +100,7 @@ _LOCK = threading.RLock()
 _STATE: dict = {"rows": [], "as_of": None, "error": None, "scanning": False, "thread": None, "ticks": 0}
 _BARS: dict = {}        # symbol -> (day, profile)
 _FIRED: dict = {}       # "YYYY-MM-DD|SYM" -> fired record (persisted)
+_GRADES: dict = {}      # "YYYY-MM-DD|SYM" -> grade, kept once the expiry has closed (persisted)
 
 
 def configure(schwab_getter=None, quotes_fn=None, bars_fn=None, now_fn=None,
@@ -114,6 +115,8 @@ def configure(schwab_getter=None, quotes_fn=None, bars_fn=None, now_fn=None,
         _BARS.clear()
         _FIRED.clear()
         _FIRED.update(_load_json("daily_edge_fired.json", {}))
+        _GRADES.clear()
+        _GRADES.update(_load_json("daily_edge_grades.json", {}))
 
 
 def config() -> dict:
@@ -204,7 +207,7 @@ def profile_from_bars(bars: list, today: date) -> dict | None:
     mu = sum(last20) / 20.0
     sd = math.sqrt(sum((r - mu) ** 2 for r in last20) / 19.0)
     return {"sigma": sd, "prev_close": closes[-1], "prev_date": rows[-1][0],
-            "prev_day_ret": rets[-1], "closes": rows[-30:]}
+            "prev_day_ret": rets[-1], "closes": rows[-60:]}
 
 
 def _profile(sym: str, today: date) -> dict | None:
@@ -394,8 +397,12 @@ def build_row(sym: str, q: dict | None, prof: dict | None, now: datetime, cfg: d
 
 
 def _fire(row: dict, now: datetime, cfg: dict) -> None:
-    """First SELL per ticker per day: remembered, logged, pushed."""
+    """First SELL per ticker per day: remembered, logged, pushed. Only once
+    a real contract with a bid is on the screen: a signal nobody could fill
+    is not a trade, and it must not take the day's slot or the record."""
     if row.get("state") != "SELL":
+        return
+    if not (row.get("contract") or {}).get("bid"):
         return
     key = f"{now.date().isoformat()}|{row['symbol']}"
     with _LOCK:
@@ -492,10 +499,21 @@ def forward(days: int = 120) -> dict:
             hit = _BARS.get(s)
         for d, c in ((hit[1].get("closes") if hit else None) or []):
             closes.setdefault(s, {})[d] = c
-    graded, open_ = [], []
+    graded, open_, new = [], [], False
     for r in recs:
-        g = grade(r, closes.get(r["symbol"], {}))
+        key = f"{r.get('date')}|{r.get('symbol')}"
+        with _LOCK:
+            g = _GRADES.get(key)
+        if g is None:
+            g = grade(r, closes.get(r["symbol"], {}))
+            if g:
+                with _LOCK:
+                    _GRADES[key] = g
+                new = True
         (graded if g else open_).append({**r, **(g or {})})
+    if new:
+        with _LOCK:
+            _save_json("daily_edge_grades.json", _GRADES)
     n = len(graded)
     pnl = [g["pnl"] for g in graded if g.get("pnl") is not None]
     return {"n": len(recs), "graded": n, "open": len(open_),

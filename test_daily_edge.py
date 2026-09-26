@@ -240,3 +240,33 @@ def test_scan_end_to_end_with_fakes(tmp_path):
     assert by["SMH"]["state"] == "SELL"
     assert by["SPY"]["state"] == "NO_EDGE"
     assert snap["n_sell"] == 1 and snap["forward"]["n"] == 1
+
+
+def test_no_fire_without_a_priced_contract(tmp_path):
+    pushes = []
+    de.configure(data_dir=tmp_path, notify_fn=lambda t, m, p=0: pushes.append(t) or {"ok": True})
+    now = at(MON, 12, 30)
+    row = de.build_row("SPY", {"last": 101.0, "prev_close": 100.0}, PROF, now, de.DEFAULTS, None)
+    assert row["state"] == "SELL" and row["contract"] is None
+    de._fire(row, now, de.DEFAULTS)
+    assert not pushes and "fired" not in row
+    assert not (tmp_path / "daily_edge_log.jsonl").exists()
+    # a later pass with a real contract still gets the day's slot
+    row2 = de.build_row("SPY", {"last": 101.0, "prev_close": 100.0}, PROF, now, de.DEFAULTS, FakeSchwab())
+    de._fire(row2, now + timedelta(minutes=1), de.DEFAULTS)
+    assert len(pushes) == 1 and row2["fired"]["bid"] == 0.9
+
+
+def test_grades_survive_once_the_close_leaves_the_cache(tmp_path):
+    de.configure(data_dir=tmp_path, now_fn=lambda: at(MON, 17, 0))
+    rec = {"date": "2026-09-21", "symbol": "SMH", "side": "call", "strike": 102.0, "bid": 0.5,
+           "expiry": "2026-09-22", "at": "2026-09-21T12:30:00-04:00"}
+    (tmp_path / "daily_edge_log.jsonl").write_text(json.dumps(rec) + "\n")
+    de._BARS["SMH"] = (MON.isoformat(), {"closes": [("2026-09-22", 103.0)]})
+    f1 = de.forward()
+    assert f1["graded"] == 1 and f1["breach_pct"] == 100.0
+    de._BARS.clear()                      # the close is no longer in any cache
+    f2 = de.forward()
+    assert f2["graded"] == 1 and f2["open"] == 0
+    de.configure(data_dir=tmp_path, now_fn=lambda: at(MON, 17, 0))    # and across a restart
+    assert de.forward()["graded"] == 1
