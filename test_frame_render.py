@@ -352,6 +352,24 @@ def live_payload():
             "check": LS.check("NVDA", clock["t"])}
 
 
+def money_map_payload(spot=100.0):
+    """The Big Money Map's answer, built by the REAL money_map module
+    from payloads shaped like UW's published examples (test_money_map's
+    FakeUW), scaled around the default $100 spot the page shows."""
+    from datetime import date as _d
+    import money_map as MM
+    from test_money_map import FakeUW
+    k = 100.0 / 568.0
+    uw = FakeUW()
+    g = dict(uw.data["gex_levels"])
+    for f in ("call_wall", "put_wall", "gamma_flip", "gamma_magnet"):
+        g[f] = str(round(float(g[f]) * k, 2))
+    uw.data["gex_levels"] = g
+    uw.data["max_pain"] = [dict(r, max_pain=str(round(float(r["max_pain"]) * k, 2))) for r in uw.data["max_pain"]]
+    uw.data["darkpool_levels"] = [dict(r, price=str(round(float(r["price"]) * k, 2))) for r in uw.data["darkpool_levels"]]
+    return MM.build(uw, "AAPL", spot=spot, today=_d(2026, 9, 25))
+
+
 _DEFAULT_PAYLOADS: dict[str, str] = {}
 DEFAULT_SPOT = 100.0   # the spot sell_payload() builds its chain around
 
@@ -435,7 +453,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
-                 quotes=None, tab_order=None, setup_board=None, live=None):
+                 quotes=None, tab_order=None, setup_board=None, live=None, uw=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -457,6 +475,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self._setup_board = setup_board
         # v5.29: the Live Scanner's three answers. Off unless a test asks.
         self._live = live
+        # v5.33: Unusual Whales connected, and the Big Money Map's answer.
+        self._uw = uw
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -573,6 +593,16 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if self._uw is not None and "/api/uw/" in url:
+                path = urllib.parse.urlsplit(url).path
+                if path == "/api/uw/health":
+                    body = {"configured": True, "connected": True, "rate": {}}
+                elif path == "/api/uw/money_map":
+                    body = {"symbol": self._uw["symbol"], "data": self._uw, "configured": True}
+                else:
+                    body = {"configured": True, "data": None}
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+                return
             if self._setup_board is not None and "/api/setup_board" in url:
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps(self._setup_board))
@@ -1744,6 +1774,56 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 else:
                     self.assertTrue(all(r["expLines"] <= 1 for r in rows),
                                     "the expiry wrapped onto more than one line")
+            finally:
+                self._close(handles)
+
+    def test_the_big_money_map_reads_at_a_glance(self):
+        """v5.33. Jerry upgraded Unusual Whales to API Basic: "figure out
+        how to use my App for this features I may not have coded". The
+        Big Money Map on the Flow tab shows what the plan unlocked: the
+        levels around the price (highest first, the price itself in its
+        place among them), what they mean to a seller, whether premium is
+        rich, what opened overnight, and what insiders and Congress did.
+        Drawn from the real module's answer; on a phone nothing runs off
+        the card."""
+        mm = money_map_payload()
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, tab="flow", uw=mm)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".mm-card .mm-ladder", timeout=15000)
+                got = page.evaluate("""(() => {
+                  const c = document.querySelector('.mm-card'), cr = c.getBoundingClientRect();
+                  return {
+                    title: c.querySelector('.card-title').innerText.trim(),
+                    ladder: [...c.querySelectorAll('.mm-lv')].map(li => ({
+                      px: li.querySelector('.mm-px').innerText.trim(),
+                      name: li.querySelector('.mm-name').innerText.trim(),
+                      past: Math.round(li.getBoundingClientRect().right - cr.right)})),
+                    regime: (c.querySelector('.mm-regime') || {}).className || '',
+                    seller: [...c.querySelectorAll('.mm-seller li')].map(l => l.innerText.trim()),
+                    prem: [...c.querySelectorAll('.mm-verdict b')].map(b => b.innerText.trim()),
+                    opened: [...c.querySelectorAll('.mm-lean')].map(b => b.innerText.trim()),
+                    texts: c.innerText,
+                    over: Math.max(0, document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth),
+                  }; })()""")
+                self.assertEqual("Big Money Map · AAPL", got["title"])
+                names = [r["name"] for r in got["ladder"]]
+                want = [lv["label"] for lv in mm["levels"] if lv["price"] > mm["spot"]] + ["Price now"] + \
+                       [lv["label"] for lv in mm["levels"] if lv["price"] <= mm["spot"]]
+                self.assertEqual(want, names, f"the ladder at {w}px")
+                self.assertEqual("Call wall", names[0])
+                self.assertEqual("Put wall", names[-1])
+                self.assertIn("mm-calm", got["regime"])
+                self.assertEqual(2, len(got["seller"]))
+                self.assertTrue(got["seller"][0].startswith("Selling puts"))
+                self.assertEqual(["RICH"], got["prem"])
+                self.assertEqual(["▲ Bullish", "▲ Bullish"], got["opened"][:2])
+                for s in (mm["insiders"]["text"], mm["congress"]["text"], mm["premium"]["text"]):
+                    self.assertIn(s, got["texts"])
+                self.assertLessEqual(max(r["past"] for r in got["ladder"]), 1, f"a level runs off the card at {w}px")
+                self.assertLessEqual(got["over"], 2, f"the page scrolls sideways at {w}px")
             finally:
                 self._close(handles)
 

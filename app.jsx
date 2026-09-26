@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.32";
+const APP_VERSION = "5.33";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -5386,6 +5386,10 @@ function App() {
         <TabPanel tab="flow" active={activeTab}>
         <div id="jump-flow" className="jump-anchor" aria-hidden="true"></div>
         <FlowScoreCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} uwHealth={uwHealth} />
+        {/* v5.33 — what the Unusual Whales API Basic plan unlocked. */}
+        <CardErrorBoundary label="Big Money Map">
+          <MoneyMapCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice} apiFetch={apiFetch} uwHealth={uwHealth} />
+        </CardErrorBoundary>
         </TabPanel>
 
         {/* Analyst price targets, ratings, and catalyst signals */}

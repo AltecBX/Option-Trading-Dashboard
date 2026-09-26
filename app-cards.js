@@ -20198,6 +20198,196 @@ function FinvizPanel({
     title: "Why is this needed? Finviz sends X-Frame-Options: SAMEORIGIN, which makes browsers refuse to render it inside any other website. The helper uses Chrome's official declarativeNetRequest API \u2014 installed and controlled by you \u2014 to permit exactly one thing: Finviz displayed inside this dashboard. Nothing is proxied or scraped; Finviz loads from Finviz with your own cookies, so your Elite login and account data work as normal."
   }, "Why a helper? Finviz blocks all embedding at the browser level; this is the official, user-consented way to allow it \u2014 for this dashboard only. Hover for the full story.")));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Big Money Map (v5.33). Jerry upgraded Unusual Whales to API Basic and
+// asked what it could do that the app did not. This card reads what the
+// plan unlocked for one ticker: the gamma levels dealers hedge around,
+// max pain, the dark pool's busiest prices, what opened overnight,
+// whether premium is rich, and what insiders and Congress did. Every
+// section is one plain sentence first; the numbers sit under it.
+// ─────────────────────────────────────────────────────────────────────────
+const MM_MISSING = {
+  gex_levels: "gamma levels",
+  max_pain: "max pain",
+  darkpool_levels: "dark pool levels",
+  variance_risk_premium: "implied vs realized",
+  oi_change: "overnight open interest",
+  insider_transactions: "insider trades",
+  congress_trades: "Congress trades"
+};
+const mmPx = v => v == null ? "—" : `$${Number(v).toLocaleString(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+})}`;
+const mmMoney = v => {
+  if (v == null || !isFinite(v)) return "—";
+  const a = Math.abs(v);
+  return a >= 1e9 ? `$${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `$${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `$${Math.round(a / 1e3)}K` : `$${Math.round(a)}`;
+};
+const mmPct = v => v == null ? "" : `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}%`;
+const mmDay = iso => {
+  if (!iso) return "";
+  const d = new Date(`${iso}T12:00:00`);
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
+};
+function MoneyMapCard({
+  ticker,
+  currentPrice,
+  apiFetch,
+  uwHealth
+}) {
+  const [map, setMap] = useState(null);
+  const [error, setError] = useState(null);
+  const [loadedAt, setLoadedAt] = useState(null);
+  const priceRef = React.useRef(currentPrice);
+  priceRef.current = currentPrice;
+  useEffect(() => {
+    setMap(null);
+    setError(null);
+    setLoadedAt(null);
+  }, [ticker]);
+  useEffect(() => {
+    if (!ticker || !uwHealth?.connected) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const url = `/api/uw/money_map?symbol=${encodeURIComponent(ticker)}` + (priceRef.current ? `&price=${priceRef.current}` : "");
+        const r = await apiFetch(url);
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.error) setError(j.error);else if (j.data) {
+          setMap(j.data);
+          setError(null);
+          setLoadedAt(new Date());
+        }
+      } catch (e) {
+        if (!cancelled) setError(String(e.message || e));
+      }
+    };
+    load();
+    // Gamma levels refresh about once a minute on UW's side; the filings
+    // and overnight OI once a day. A minute costs seven cached calls.
+    const id = setInterval(skipWhenHidden(load), 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [ticker, uwHealth?.connected]);
+  if (!uwHealth?.configured) return null;
+  const head = /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Unusual Whales \xB7 where the big money sits"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Big Money Map \xB7 ", ticker)));
+  if (!uwHealth?.connected) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card mm-card"
+    }, head, /*#__PURE__*/React.createElement(CardNote, {
+      kind: "error"
+    }, "Can't reach Unusual Whales right now. The map comes back when the connection does."));
+  }
+  if (!map) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card mm-card"
+    }, head, error ? /*#__PURE__*/React.createElement(CardNote, {
+      kind: "error"
+    }, error) : /*#__PURE__*/React.createElement(CardNote, {
+      kind: "loading"
+    }, "Reading the levels\u2026"));
+  }
+  const spot = map.spot;
+  const above = (map.levels || []).filter(l => spot == null || l.price > spot);
+  const below = (map.levels || []).filter(l => spot != null && l.price <= spot);
+  const lvRow = (l, i) => /*#__PURE__*/React.createElement("li", {
+    key: `${l.kind}-${l.price}-${i}`,
+    className: `mm-lv mm-k-${l.kind}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mm-px"
+  }, mmPx(l.price)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-name"
+  }, l.label), /*#__PURE__*/React.createElement("span", {
+    className: `mm-dist ${l.side || ""}`
+  }, mmPct(l.pct)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-why"
+  }, l.meaning));
+  const prem = map.premium;
+  const ins = map.insiders;
+  const cong = map.congress;
+  const missing = (map.missing || []).map(k => MM_MISSING[k] || k);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card mm-card"
+  }, head, error ? /*#__PURE__*/React.createElement("p", {
+    className: "mm-stale"
+  }, "Couldn't refresh (", error, "). Showing the answer from ", loadedAt ? loadedAt.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  }) : "earlier", ".") : null, map.regime ? /*#__PURE__*/React.createElement("div", {
+    className: `mm-regime mm-${map.regime.state}`
+  }, /*#__PURE__*/React.createElement("b", null, map.regime.state === "calm" ? "Calm tape" : "Wild tape"), " ", map.regime.text) : null, (map.levels || []).length ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Price levels that matter"), /*#__PURE__*/React.createElement("ul", {
+    className: "mm-ladder"
+  }, above.map(lvRow), spot != null ? /*#__PURE__*/React.createElement("li", {
+    className: "mm-lv mm-now"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mm-px"
+  }, mmPx(spot)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-name"
+  }, "Price now"), /*#__PURE__*/React.createElement("span", {
+    className: "mm-dist"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "mm-why"
+  })) : null, below.map(lvRow)), (map.seller || []).length ? /*#__PURE__*/React.createElement("ul", {
+    className: "mm-seller"
+  }, map.seller.map(s => /*#__PURE__*/React.createElement("li", {
+    key: s.side,
+    className: `mm-sell-${s.side}`
+  }, s.text))) : null) : null, prem ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Is premium worth selling?"), /*#__PURE__*/React.createElement("div", {
+    className: `mm-verdict mm-${prem.state}`
+  }, /*#__PURE__*/React.createElement("b", null, prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"), /*#__PURE__*/React.createElement("span", null, prem.text))) : null, (map.opened || []).length ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "New positions opened since yesterday"), /*#__PURE__*/React.createElement("ul", {
+    className: "mm-list"
+  }, map.opened.map(o => /*#__PURE__*/React.createElement("li", {
+    key: o.symbol
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `mm-lean ${o.lean || "none"}`
+  }, o.lean === "bullish" ? "▲ Bullish" : o.lean === "bearish" ? "▼ Bearish" : "• Mixed"), /*#__PURE__*/React.createElement("span", null, o.text))))) : null, ins ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Insiders"), /*#__PURE__*/React.createElement("div", {
+    className: `mm-verdict mm-ins-${ins.state}`
+  }, /*#__PURE__*/React.createElement("span", null, ins.text)), (ins.recent || []).length ? /*#__PURE__*/React.createElement("ul", {
+    className: "mm-list mm-small"
+  }, ins.recent.map((x, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `mm-lean ${x.sell ? "bearish" : "bullish"}`
+  }, x.sell ? "Sold" : "Bought"), /*#__PURE__*/React.createElement("span", null, x.title ? `${x.title} ` : "", x.name, " \xB7 ", mmMoney(x.value), " \xB7 ", mmDay(x.date), x.planned ? " · pre-planned" : "")))) : null) : null, cong ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Congress"), /*#__PURE__*/React.createElement("div", {
+    className: "mm-verdict"
+  }, /*#__PURE__*/React.createElement("span", null, cong.text))) : null, missing.length ? /*#__PURE__*/React.createElement("p", {
+    className: "mm-missing"
+  }, "Not available right now: ", missing.join(", "), ".") : null);
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
@@ -20250,6 +20440,7 @@ Object.assign(window, {
   PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
   FlowScoreCard: _memo(FlowScoreCard),
+  MoneyMapCard: _memo(MoneyMapCard),
   PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard),
   AnalystCard: _memo(AnalystCard),

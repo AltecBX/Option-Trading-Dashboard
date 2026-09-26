@@ -122,6 +122,23 @@ ENDPOINTS = {
     # the fast leg of the analyst feed: Yahoo's per-firm history can trail a
     # note by a session, which is the whole session Jerry trades on it.
     "analyst_ratings": "/api/screener/analysts",
+    # ── Big Money Map (v5.33) — what the API Basic plan unlocked ──
+    # Gamma levels dealers hedge around: call wall, put wall, gamma
+    # flip, gamma magnet. Built from directionalized volume by default.
+    "gex_levels": "/api/stock/{ticker}/gex-levels",
+    # Max pain for every expiry of the last 120 days.
+    "max_pain": "/api/stock/{ticker}/max-pain",
+    # Dark pool vs lit volume bucketed by price for one session.
+    "darkpool_levels": "/api/darkpool/{ticker}/price-levels",
+    # Contracts ordered by the size of yesterday-to-today OI change,
+    # with how the prior session's volume printed (ask/bid/mid).
+    "oi_change": "/api/stock/{ticker}/oi-change",
+    # Form 4 / 144 rows, filterable by ticker_symbol.
+    "insider_transactions": "/api/insider/transactions",
+    # Congressional trades, filterable by ticker.
+    "congress_trades": "/api/congress/recent-trades",
+    # 30-day implied vs 21-day realized volatility, and the gap.
+    "variance_risk_premium": "/api/stock/{ticker}/volatility/variance-risk-premium",
 }
 
 
@@ -152,6 +169,15 @@ TTL_BY_KEY = {
     # A rating change is worth the most in the first minutes after it prints.
     # Two minutes is the refresh cadence the board and the card both use.
     "analyst_ratings": 120,
+    # Gamma levels move with the day's volume; a minute is fresh enough.
+    "gex_levels": 60,
+    "max_pain": 900,
+    "darkpool_levels": 300,
+    # OI settles once a day overnight, and so do filings.
+    "oi_change": 3600,
+    "insider_transactions": 3600,
+    "congress_trades": 3600,
+    "variance_risk_premium": 3600,
     "_default": 15,
 }
 
@@ -338,6 +364,34 @@ class UWClient:
         if action:
             p["action"] = str(action)
         return self._get("analyst_ratings", p)
+
+    # ── Big Money Map (v5.33) ──
+    def gex_levels(self, ticker: str) -> Optional[dict]:
+        return self._get("gex_levels", {"ticker": str(ticker).upper()})
+
+    def max_pain(self, ticker: str) -> Optional[list[dict]]:
+        return self._get("max_pain", {"ticker": str(ticker).upper()})
+
+    def darkpool_levels(self, ticker: str) -> Optional[list[dict]]:
+        return self._get("darkpool_levels", {"ticker": str(ticker).upper()})
+
+    def oi_change(self, ticker: str, limit: int = 25) -> Optional[list[dict]]:
+        return self._get("oi_change", {"ticker": str(ticker).upper(),
+                                       "limit": str(max(1, min(100, int(limit))))})
+
+    def insider_transactions(self, ticker: str, start_date: str | None = None,
+                             limit: int = 100) -> Optional[list[dict]]:
+        p = {"ticker_symbol": str(ticker).upper(), "limit": str(max(1, min(500, int(limit))))}
+        if start_date:
+            p["start_date"] = str(start_date)
+        return self._get("insider_transactions", p)
+
+    def congress_trades(self, ticker: str, limit: int = 50) -> Optional[list[dict]]:
+        return self._get("congress_trades", {"ticker": str(ticker).upper(),
+                                             "limit": str(max(1, min(200, int(limit))))})
+
+    def variance_risk_premium(self, ticker: str) -> Any:
+        return self._get("variance_risk_premium", {"ticker": str(ticker).upper()})
 
     def rate_snapshot(self) -> dict[str, Any]:
         """Read-only copy of the latest rate-limit info."""
