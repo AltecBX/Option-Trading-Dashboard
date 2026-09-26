@@ -35,7 +35,7 @@ const ORDER = ["config.js", "data.js", "recommendation.js", "weather.js",
                // so linting/loading them last models the real load order.
                "tab-patterns.js", "tab-backtest.js", "tab-treasuries.js", "tab-earnops.js",
                "tab-recovery.js", "tab-ask.js", "tab-edge.js", "tab-gap.js",
-               "tab-invest.js", "tab-strat.js", "tab-setup.js", "tab-sell.js", "tab-spike.js", "tab-stretch.js", "tab-hedge.js", "tab-live.js"];
+               "tab-invest.js", "tab-strat.js", "tab-setup.js", "tab-sell.js", "tab-spike.js", "tab-stretch.js", "tab-hedge.js", "tab-live.js", "tab-buyers.js"];
 
 // ── Layer 1: free variable lint ─────────────────────────────────────
 const ENV = new Set(("window document navigator localStorage sessionStorage fetch console " +

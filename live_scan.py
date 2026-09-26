@@ -165,6 +165,19 @@ TRIGGERS = {
         "help": "Trading at least X times its normal volume for this time of day. Long if up on the day, short if down.",
         "params": {"mult": (3.0, 1.5, 20.0, "Times normal volume")},
     },
+    # v5.34 — levels from Unusual Whales, fetched for the stocks in play
+    # (see refresh_levels): where dealers' hedging flips, and the prices
+    # the dark pools traded the most shares at.
+    "gamma_flip_cross": {
+        "label": "Crossed the gamma flip", "side": "either", "once": False, "session": "open",
+        "help": "Crosses the gamma flip from Unusual Whales. Above it dealers sell rallies and buy dips, so moves calm; below it they chase the move, so swings get bigger. Levels are fetched for stocks on a ranked list.",
+        "params": {},
+    },
+    "dark_pool_level": {
+        "label": "Crossed a dark pool level", "side": "either", "once": False, "session": "open",
+        "help": "Crosses one of the three prices where the most shares traded in dark pools today (Unusual Whales): prices big money cared about, which often act as support or resistance. Levels are fetched for stocks on a ranked list.",
+        "params": {"min_shares": (100_000, 0, 50_000_000, "Dark pool shares at the level at least")},
+    },
     "premarket_mover": {
         "label": "Pre-market mover", "side": "either", "once": True, "session": "pre",
         "help": "Before the open: at least X% from yesterday's close on at least N shares traded.",
@@ -199,7 +212,22 @@ DEFAULT_SETUPS = [
     ("move_5m", "Fast 5-minute move", {}, {}, 1800),
     ("rvol_surge", "Volume surge", {}, {}, 0),
     ("premarket_mover", "Pre-market mover", {}, {}, 0),
+    ("gamma_flip_cross", "Crossed the gamma flip", {}, {"min_rvol": 1.0}, 1800),
+    ("dark_pool_level", "Crossed a dark pool level", {}, {"min_rvol": 1.0}, 1200),
 ]
+# The triggers a setups.json written before a release already knew. A
+# trigger added later is offered once to a saved list (see _load_setups);
+# after that, deleting it from the list sticks.
+TRIGGERS_BEFORE_V534 = frozenset({
+    "new_hod", "new_lod", "range_break_up", "range_break_down", "gap_up_holding",
+    "gap_up_fading", "gap_down_recovering", "gap_down_extending", "above_prior_high",
+    "below_prior_low", "high_52w", "low_52w", "move_5m", "rvol_surge", "premarket_mover"})
+
+# ── Unusual Whales levels (v5.34) ──────────────────────────────────────────
+LEVEL_SYMS = 40            # stocks in play that get levels
+LEVEL_TTL_S = 600          # a symbol's levels are refetched after this
+LEVEL_FETCH_PER_PASS = 6   # fetches per refresh pass, so one pass stays short
+LEVEL_LISTS = ("movers_5m", "rvol", "gainers", "losers", "active")
 
 # Grading: minutes after an alert at which its move is recorded.
 HORIZONS = (15, 30, 60)
@@ -212,6 +240,7 @@ _QUOTES_FN = None      # (symbols) -> {SYM: quote}
 _UNIVERSE_FN = None    # () -> [board rows]
 _NOTIFY_FN = None      # (title, message, priority=0) -> None
 _NOW_FN = None         # () -> aware datetime in Eastern
+_LEVELS_FN = None      # (symbol) -> {"gamma_flip": float|None, "dark": [[price, shares], ...]} | None
 _DATA_DIR: Path | None = None
 
 _LOCK = threading.RLock()
@@ -225,6 +254,7 @@ def _fresh_state() -> dict:
         "alerts": [],            # today's alerts, newest last
         "pending": [],           # alerts still being graded
         "prior": {},             # SYM -> [high, low, close] of the prior session
+        "levels": {},            # SYM -> {"at", "gamma_flip", "dark"} from Unusual Whales
         "rankings": {},
         "last_sweep": None, "phase": None, "error": None,
         "universe_n": 0, "quoted_n": 0, "sweeps": 0,
@@ -238,10 +268,11 @@ _SETUPS: list = []
 
 
 def configure(quotes_fn=None, universe_fn=None, notify_fn=None, now_fn=None,
-              data_dir=None) -> None:
-    global _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN, _DATA_DIR
+              data_dir=None, levels_fn=None) -> None:
+    global _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN, _DATA_DIR, _LEVELS_FN
     with _LOCK:
         _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN = quotes_fn, universe_fn, notify_fn, now_fn
+        _LEVELS_FN = levels_fn
         _DATA_DIR = Path(data_dir) / "live_scan" if data_dir else None
         keep = {"scanning": _STATE.get("scanning"), "thread": _STATE.get("thread")}
         _STATE.clear()
@@ -391,7 +422,26 @@ def _load_setups() -> list:
         if v and v["id"] not in seen:
             seen.add(v["id"])
             out.append(v)
-    return out or default_setups()
+    if not out:
+        return default_setups()
+    # A saved list predates any trigger added since it was written. Offer
+    # each new one once, switched on; the offer is remembered, so a setup
+    # Jerry deletes stays deleted (v5.34).
+    offered = _read_json("offered.json", None)
+    offered = set(offered) if isinstance(offered, list) else set(TRIGGERS_BEFORE_V534)
+    have = {s["trigger"] for s in out}
+    added = False
+    for d in default_setups():
+        if d["trigger"] not in offered and d["trigger"] not in have and d["id"] not in seen:
+            out.append(d)
+            seen.add(d["id"])
+            added = True
+    all_triggers = sorted(offered | set(TRIGGERS))
+    if added or sorted(offered) != all_triggers:
+        _write_json("offered.json", all_triggers)
+        if added:
+            _write_json("setups.json", out)
+    return out
 
 
 def setups() -> list:
@@ -424,6 +474,10 @@ def save_setups(items) -> dict:
     with _LOCK:
         _SETUPS[:] = out
         _write_json("setups.json", out)
+        # Saving means every trigger this engine has was on offer, so a
+        # setup left out stays out. Without this a fresh install that
+        # deleted a new setup got it back on restart (Codex, #421).
+        _write_json("offered.json", sorted(TRIGGERS))
     return {"ok": True, "setups": copy.deepcopy(out), "refused": refused}
 
 
@@ -562,10 +616,16 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
         "name": q.get("name") or row.get("company"),
         "prior": (_STATE["prior"] or {}).get(sym),
         "minutes": minutes_since_open(now),
+        "gamma_flip": ((_STATE.get("levels") or {}).get(sym) or {}).get("gamma_flip"),
+        "dark_levels": ((_STATE.get("levels") or {}).get(sym) or {}).get("dark") or [],
     }
 
 
 # ── trigger evaluation ─────────────────────────────────────────────────────
+NO_LEVELS = ("No Unusual Whales levels for this stock yet: they are fetched for the "
+             "stocks on a ranked list, refreshed every 10 minutes.")
+
+
 def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: dict,
                    now: datetime) -> tuple:
     """(live, crossed, side, sentence). `live` is whether the condition
@@ -585,6 +645,40 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
         return False, False, None, "No price yet."
     was = (lambda k: (prev_p or {}).get(k))
     rv = f" on {p['rvol']:.1f}x normal volume" if p.get("rvol") else ""
+
+    if trig in ("gamma_flip_cross", "dark_pool_level"):
+        prev_last = was("last")
+        if trig == "gamma_flip_cross":
+            flip = p.get("gamma_flip")
+            if flip is None:
+                return False, False, None, NO_LEVELS
+            live = abs(last - flip) / flip < 0.002 if flip else False
+            up = prev_last is not None and prev_last < flip <= last
+            down = prev_last is not None and prev_last > flip >= last
+            if up:
+                return live, True, "long", (f"Crossed above the gamma flip at {_fmt_money(flip)}{rv}: dealers "
+                                            "now sell rallies and buy dips, so moves should calm.")
+            if down:
+                return live, True, "short", (f"Fell below the gamma flip at {_fmt_money(flip)}{rv}: dealers "
+                                             "now chase the move, so swings can get bigger.")
+            where = "above" if last >= flip else "below"
+            return live, False, None, f"Trading {where} the gamma flip at {_fmt_money(flip)}."
+        levels = [(float(px), int(sh)) for px, sh in (p.get("dark_levels") or [])
+                  if px and sh >= params.get("min_shares", 100_000)]
+        if not levels:
+            return False, False, None, NO_LEVELS
+        live = any(abs(last - px) / px < 0.002 for px, _sh in levels)
+        if prev_last is not None:
+            for px, sh in levels:
+                if prev_last < px <= last:
+                    return live, True, "long", (f"Crossed above {_fmt_money(px)}{rv}, where {_fmt_vol(sh)} shares "
+                                                "traded in dark pools today: a price big money cared about.")
+                if prev_last > px >= last:
+                    return live, True, "short", (f"Fell below {_fmt_money(px)}{rv}, where {_fmt_vol(sh)} shares "
+                                                 "traded in dark pools today: a price big money cared about.")
+        near = min(levels, key=lambda t: abs(last - t[0]))
+        return live, False, None, (f"Nearest dark pool level {_fmt_money(near[0])} "
+                                   f"({_fmt_vol(near[1])} shares), {abs(_pct(near[0], last) or 0):.1f}% away.")
 
     if trig in ("new_hod", "new_lod"):
         hi = trig == "new_hod"
@@ -743,6 +837,7 @@ def _roll_day(now: datetime) -> None:
         _STATE["prior"] = {}
     _STATE["day"] = day
     _STATE["sym"] = {}
+    _STATE["levels"] = {}
     _STATE["alerts"] = _read_json(f"alerts-{day}.json", []) or []
     _STATE["pending"] = [a for a in _STATE["alerts"] if not (a.get("grade") or {}).get("done")]
 
@@ -961,6 +1056,55 @@ def sweep(now: datetime | None = None) -> dict:
             "failed_chunks": failed}
 
 
+# ── Unusual Whales levels (v5.34) ──────────────────────────────────────────
+def levels_wanted() -> list:
+    """The stocks in play, in order: the fast movers and volume surges
+    first, then the day's biggest gainers, losers and most active. Each
+    list is walked in turn so one list cannot take every slot."""
+    with _LOCK:
+        ranks = _STATE.get("rankings") or {}
+        lists = [[r["symbol"] for r in (ranks.get(k) or [])] for k in LEVEL_LISTS]
+    out, seen = [], set()
+    for i in range(RANK_N):
+        for lst in lists:
+            if i < len(lst) and lst[i] not in seen:
+                seen.add(lst[i])
+                out.append(lst[i])
+                if len(out) >= LEVEL_SYMS:
+                    return out
+    return out
+
+
+def refresh_levels(now: datetime | None = None) -> int:
+    """Fetch levels for in-play stocks whose levels are missing or older
+    than LEVEL_TTL_S, a few per pass. Returns how many were fetched. The
+    network calls happen outside the lock."""
+    if _LEVELS_FN is None:
+        return 0
+    now = now or _now()
+    if phase(now) != "open":
+        return 0
+    ts = now.timestamp()
+    with _LOCK:
+        have = dict(_STATE.get("levels") or {})
+    due = [s for s in levels_wanted() if ts - (have.get(s) or {}).get("at", 0) >= LEVEL_TTL_S]
+    done = 0
+    for sym in due[:LEVEL_FETCH_PER_PASS]:
+        try:
+            got = _LEVELS_FN(sym)
+        except Exception:  # noqa: BLE001
+            got = None
+        rec = {"at": ts, "gamma_flip": None, "dark": []}
+        if isinstance(got, dict):
+            rec["gamma_flip"] = _num(got.get("gamma_flip"))
+            rec["dark"] = [[_num(px), int(_num(sh) or 0)] for px, sh in (got.get("dark") or [])
+                           if _num(px)]
+        with _LOCK:
+            _STATE["levels"][sym] = rec
+        done += 1
+    return done
+
+
 # ── track records ──────────────────────────────────────────────────────────
 _RECORDS_CACHE: dict = {"at": 0.0, "val": None}
 
@@ -1120,6 +1264,8 @@ def _loop() -> None:
             if ph in ("pre", "open"):
                 sweep(now)
                 wait = SWEEP_OPEN_S if ph == "open" else SWEEP_PRE_S
+                if ph == "open":
+                    refresh_levels(now)
             elif ph == "post":
                 with _LOCK:
                     if _STATE["day"] == now.date().isoformat():

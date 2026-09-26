@@ -324,6 +324,44 @@ def congress_section(rows, today: date) -> Optional[dict]:
     return {"text": text, "buys": nb, "sells": ns, "recent": trades[:4]}
 
 
+def live_levels(uw, symbol: str) -> Optional[dict]:
+    """The two levels the Live Scanner alerts on (v5.34): the gamma flip,
+    and the three prices with the most dark pool shares today, as
+    [[price, shares], ...]. None when UW answered neither."""
+    sym = str(symbol or "").upper().strip()
+    gex, _e1 = _call(getattr(uw, "gex_levels", lambda s: None), sym)
+    dark, _e2 = _call(getattr(uw, "darkpool_levels", lambda s: None), sym)
+    if gex is None and dark is None:
+        return None
+    g = gex if isinstance(gex, dict) else (_rows(gex)[0] if _rows(gex) else {})
+    dp = [(p, int(_num(r.get("dark_pool_volume")) or 0))
+          for r in _rows(dark) for p in [_num(r.get("price"))] if p is not None]
+    dp = sorted((t for t in dp if t[1] > 0), key=lambda t: t[1], reverse=True)[:DARK_LEVELS]
+    return {"gamma_flip": _num(g.get("gamma_flip")), "dark": [[p, v] for p, v in dp]}
+
+
+def premium_checks(uw, symbols, workers: int = 6, budget_s: float = 12.0) -> dict:
+    """{symbol: premium_section} for several symbols at once, in parallel
+    and inside a time budget: a board must not wait on the slowest call.
+    A symbol with no answer maps to None. Never raises."""
+    from concurrent.futures import ThreadPoolExecutor, wait
+    syms = [str(s).upper() for s in dict.fromkeys(symbols or []) if s]
+    out: dict = {s: None for s in syms}
+    fn = getattr(uw, "variance_risk_premium", None)
+    if fn is None or not syms:
+        return out
+    pool = ThreadPoolExecutor(max_workers=max(1, min(workers, len(syms))))
+    try:
+        futs = {pool.submit(_call, fn, s): s for s in syms}
+        done, _ = wait(futs, timeout=budget_s)
+        for f in done:
+            v, _err = f.result()
+            out[futs[f]] = premium_section(v) if v is not None else None
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return out
+
+
 def build(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] = None) -> dict:
     """Every section for one ticker. Never raises."""
     symbol = str(symbol or "").upper().strip()

@@ -5337,3 +5337,93 @@ showing old gamma levels as if they were current. A failed refresh now
 shows a warning line above the map naming the error and the time of the
 answer still on screen. A static guard covers it and fails on the old
 code.
+
+## v5.34 — three more things the Unusual Whales plan unlocked
+
+Jerry, on the three follow-ups offered with the Big Money Map: "Do all 3".
+
+### 1. Worth Selling Today gets a second opinion
+Every row on the board already passed the board's own gates and is
+ranked by its own measure of richness: implied volatility against this
+app's forecast of realized. UW measures the same idea from another
+angle: 30-day implied against the 21 trading days the stock actually
+moved (`/volatility/variance-risk-premium`). `money_map.premium_checks`
+asks for every qualifier in parallel inside a 12-second budget.
+`setup_board.second_opinion` then orders the rows: UW RICH first, FAIR
+or no answer next, THIN last (the two measurements disagree). Inside
+each tier the board's own order is kept. The route builds every
+qualifier and cuts to the limit after reordering, so a UW-rich name just
+under the cut can rise into it. Each row shows a RICH / FAIR / THIN
+badge (the phone block labels it "UW check"). Without UW the board is
+unchanged.
+
+### 2. Insider & Congress (new page, Scan group)
+`smart_buyers.py`, route `/api/uw/buyers`:
+- **Insiders:** open-market purchases only (code P, Form 4, common
+  stock) over 30 days, grouped by stock. Ranked by how many different
+  people bought, then dollars. Tags: "N insiders" at 3+ (a cluster),
+  "Boss bought" (CEO/CFO/president/chair), "★ Watchlist". Form 144
+  notices, awards and $0 rows are skipped.
+- **Congress:** purchases over 60 days, grouped by stock, listed stocks
+  only (six-letter fund codes dropped). The page says disclosures can be
+  45 days late and in ranges.
+- **Both:** stocks on both lists, shown first.
+
+A "★ My watchlist" filter narrows to names Jerry follows. The feed
+refreshes every 15 minutes while the page is showing, matching the
+server's 15-minute cache (it was an hour in v5.33).
+
+### 3. Live Scanner: gamma flip and dark pool alerts
+Two new triggers:
+- `gamma_flip_cross` fires both ways and says what the new side means.
+- `dark_pool_level` fires when the price crosses one of the day's three
+  busiest dark pool prices with at least 100K shares, naming the shares.
+
+Both default setups require 1.0x relative volume, with cooldowns of 30
+and 20 minutes. Levels can't be fetched for 1,000 names every 30
+seconds, so `refresh_levels` fetches them for the stocks in play: the
+ranked lists (5-minute movers, volume surge, gainers, losers, most
+active) take turns, up to 40 names. Each name is refetched after 10
+minutes, 6 per pass, and only while the market is open. That comes to
+about 8 UW calls a minute at steady state.
+
+A setups.json saved before this release gets the two new setups once,
+switched on. The offer is remembered in `offered.json`, so deleting one
+sticks. Setup Check explains a missing level ("No Unusual Whales levels
+for this stock yet…").
+
+### Tests
+- `test_setup_board`: the second opinion's order, no UW leaves the board
+  untouched, and the route cuts after reordering.
+- `test_money_map`: `premium_checks` (a failure is None, a slow answer
+  doesn't hold the board); `live_levels`; the server wiring.
+- `test_smart_buyers` (9): clusters count people not filings, the
+  filters, the watchlist, Congress's window, both lists, never raises,
+  the published query params.
+- `test_live_scan` (+7): the flip both ways, a dark pool crossing naming
+  its shares, a thin level ignored, Setup Check without levels, the
+  refresh timer and budget, new setups offered once.
+
+These fail without the change. Render tests:
+- the board's order and badges at desktop and phone;
+- the new page's lists, tags, the Congress switch and the watchlist
+  filter, with nothing off a phone screen.
+
+Static guards cover the new destination, now 32.
+
+Codex on #421, both right and fixed:
+- **Deleting a new setup on a fresh install didn't stick.** A fresh install
+  returned the defaults without writing `offered.json`, so after the first
+  save the list read as pre-v5.34 and the deleted setup came back.
+  `save_setups` now records every current trigger as offered.
+- **The buying feeds read one page.** One call returns 500 insider rows
+  or 200 congressional ones, and a busy month holds more, so clusters
+  could be undercounted. `fetch_insiders` now reads pages 0, 1, 2… until
+  a short page (cap 8 = 4,000 rows). `fetch_congress` pages back by UW's
+  `date` parameter (on or before the oldest trade seen), dropping repeats
+  at the seam, until the window is covered, a page brings nothing new,
+  or the cap of 6 is hit. Hitting a cap, or a later page failing, keeps
+  what arrived and sets `partial`, and the page says some stocks may be
+  missing.
+
+Tests for both fail on the old code.

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.33";
+const APP_VERSION = "5.34";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4100,6 +4100,14 @@ function App() {
             <LazyTab chunk="tab-live" component="LiveScanTab" label="Live Scanner"
                      apiFetch={apiFetch} ticker={ticker}
                      visible={activeTab === "live"}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="buyers" active={activeTab}>
+          <CardErrorBoundary label="Insider & Congress">
+            <LazyTab chunk="tab-buyers" component="BuyersTab" label="Insider & Congress"
+                     apiFetch={apiFetch}
+                     visible={activeTab === "buyers"}
                      onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
           </CardErrorBoundary>
         </TabPanel>

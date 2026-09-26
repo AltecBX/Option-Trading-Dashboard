@@ -211,6 +211,66 @@ class NeverRaises(unittest.TestCase):
         self.assertEqual("2026-06-27", call[2]["start_date"])
 
 
+class LevelsForTheLiveScanner(unittest.TestCase):
+    """v5.34: the gamma flip and the three busiest dark pool prices."""
+
+    def test_the_two_levels(self):
+        got = MM.live_levels(FakeUW(), "spy")
+        self.assertEqual(560.0, got["gamma_flip"])
+        self.assertEqual([[566.0, 910000], [580.5, 450000], [552.0, 300000]], got["dark"])
+
+    def test_the_server_hands_them_to_the_scanner(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        at = src.index("_live.configure(")
+        self.assertIn('levels_fn=lambda sym:', src[at:at + 1500])
+        self.assertIn('live_levels(uw, sym)', src[at:at + 1500])
+
+    def test_nothing_answered_is_none_and_half_is_half(self):
+        self.assertIsNone(MM.live_levels(FakeUW(gex_levels=None, darkpool_levels=None), "SPY"))
+        half = MM.live_levels(FakeUW(gex_levels=RuntimeError("x")), "SPY")
+        self.assertIsNone(half["gamma_flip"])
+        self.assertEqual(3, len(half["dark"]))
+
+
+class PremiumChecksForTheBoard(unittest.TestCase):
+    """v5.34: the Worth Selling Today board asks for several at once."""
+
+    def test_each_symbol_gets_its_verdict_and_a_failure_is_none(self):
+        uw = FakeUW()
+        vrp = uw.data["variance_risk_premium"]
+
+        class Many:
+            def variance_risk_premium(self, sym):
+                if sym == "BAD":
+                    raise RuntimeError("boom")
+                if sym == "NONE":
+                    return None
+                return vrp
+        got = MM.premium_checks(Many(), ["spy", "BAD", "NONE", "spy"])
+        self.assertEqual({"SPY", "BAD", "NONE"}, set(got))
+        self.assertEqual("rich", got["SPY"]["state"])
+        self.assertIsNone(got["BAD"])
+        self.assertIsNone(got["NONE"])
+
+    def test_a_slow_answer_does_not_hold_the_board(self):
+        import time
+
+        class Slow:
+            def variance_risk_premium(self, sym):
+                if sym == "SLOW":
+                    time.sleep(2)
+                return [{"date": "2026-09-24", "implied_volatility": "0.3", "realized_volatility": "0.2"}]
+        t = time.time()
+        got = MM.premium_checks(Slow(), ["FAST", "SLOW"], budget_s=0.5)
+        self.assertLess(time.time() - t, 1.5)
+        self.assertEqual("rich", got["FAST"]["state"])
+        self.assertIsNone(got["SLOW"])
+
+    def test_no_client_method_is_all_none(self):
+        self.assertEqual({"A": None}, MM.premium_checks(object(), ["a"]))
+
+
 class TheClientKnowsTheNewPaths(unittest.TestCase):
     """The paths are UW's published ones (api/openapi, fetched for v5.33)."""
 

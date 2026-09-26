@@ -298,8 +298,14 @@ def board_payload():
             scan("AMD", "iron_condor", 160.0, None, None, 3.05, 4.95, None,
                  short_put=150.0, long_put=142.0, short_call=172.0, long_call=180.0)]
     out = SB.build(rows, limit=12)
+    # v5.34: Unusual Whales' second opinion, one of each verdict, run
+    # through the real reorder: MSFT (UW rich) leads, AMD (thin) trails.
+    out["rows"] = SB.second_opinion(out["rows"], {
+        "MSFT": {"state": "rich", "text": "Options price a 33% move; the stock has moved 25%."},
+        "GOOGL": {"state": "fair", "text": "fair"},
+        "AMD": {"state": "thin", "text": "thin"}})
     out.update({"ok": True, "as_of": datetime.now().astimezone().isoformat(),
-                "measured": len(rows), "universe": None})
+                "measured": len(rows), "universe": None, "uw_checked": True})
     return out
 
 
@@ -368,6 +374,15 @@ def money_map_payload(spot=100.0):
     uw.data["max_pain"] = [dict(r, max_pain=str(round(float(r["max_pain"]) * k, 2))) for r in uw.data["max_pain"]]
     uw.data["darkpool_levels"] = [dict(r, price=str(round(float(r["price"]) * k, 2))) for r in uw.data["darkpool_levels"]]
     return MM.build(uw, "AAPL", spot=spot, today=_d(2026, 9, 25))
+
+
+def buyers_payload():
+    """Insider & Congress buying, built by the REAL smart_buyers module
+    from rows shaped like UW's spec examples (test_smart_buyers)."""
+    from datetime import date as _d
+    import smart_buyers as SBY
+    from test_smart_buyers import FakeUW as _F, INSIDERS, CONGRESS
+    return SBY.build(_F(INSIDERS, CONGRESS), watchlist=["BIGCO"], today=_d(2026, 9, 25))
 
 
 _DEFAULT_PAYLOADS: dict[str, str] = {}
@@ -453,7 +468,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
 
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
-                 quotes=None, tab_order=None, setup_board=None, live=None, uw=None):
+                 quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
+                 buyers=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -477,6 +493,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self._live = live
         # v5.33: Unusual Whales connected, and the Big Money Map's answer.
         self._uw = uw
+        # v5.34: the Insider & Congress page's answer (implies UW connected).
+        self._buyers = buyers
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -593,6 +611,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if self._buyers is not None and urllib.parse.urlsplit(url).path == "/api/uw/buyers":
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"data": self._buyers, "configured": True}))
+                return
             if self._uw is not None and "/api/uw/" in url:
                 path = urllib.parse.urlsplit(url).path
                 if path == "/api/uw/health":
@@ -1758,6 +1780,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                       past: Math.max(0, ...cells.map(c => c.getBoundingClientRect().right - cr.right)),
                     }; }); })()""")
                 self.assertEqual(3, len(rows), f"{len(rows)} rows at {w}px")
+                # v5.34: UW's verdict orders the rows and shows on each.
+                self.assertEqual(["MSFT", "GOOGL", "AMD"], [r["sym"] for r in rows])
+                uw = page.evaluate("[...document.querySelectorAll('.su-brow .su-uw')].map(b => b.innerText.trim())")
+                self.assertEqual(["RICH", "FAIR", "THIN"], uw, f"UW check at {w}px")
                 by = {r["sym"]: r for r in rows}
                 for sym, (kind, legs, collect, lose) in want.items():
                     r = by[sym]
@@ -1774,6 +1800,51 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 else:
                     self.assertTrue(all(r["expLines"] <= 1 for r in rows),
                                     "the expiry wrapped onto more than one line")
+            finally:
+                self._close(handles)
+
+    def test_insider_and_congress_buying_reads_at_a_glance(self):
+        """v5.34. Jerry: a market-wide feed of insider and Congress buying.
+        Stocks on both lists come first; the insider list is ranked by how
+        many different people bought, each row tagged when it is a cluster,
+        when the boss bought, when it is on his watchlist; Congress is one
+        tap away; the watchlist filter is one tap. Nothing runs off a phone."""
+        b = buyers_payload()
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, tab="buyers", buyers=b)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".sb-insiders .sb-row", timeout=15000)
+                read = """(() => {
+                  const c = document.querySelector('.sb-card'), cr = c.getBoundingClientRect();
+                  const rows = sel => [...c.querySelectorAll(sel + ' > .sb-row')].map(li => ({
+                    sym: li.querySelector('.sb-sym').innerText.trim(),
+                    tags: [...li.querySelectorAll('.sb-tag')].map(t => t.innerText.trim()),
+                    text: li.querySelector('.sb-text').innerText.trim(),
+                    past: Math.round(li.getBoundingClientRect().right - cr.right)}));
+                  return {both: rows('.sb-both .sb-list'), ins: rows('.sb-insiders'), con: rows('.sb-congress'),
+                          over: Math.max(0, document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth)};
+                })()"""
+                got = page.evaluate(read)
+                self.assertEqual(["ACME"], [r["sym"] for r in got["both"]])
+                self.assertEqual(["ACME", "BIGCO"], [r["sym"] for r in got["ins"]])
+                self.assertEqual(["3 insiders", "Boss bought"], got["ins"][0]["tags"])
+                self.assertEqual(["★ Watchlist"], got["ins"][1]["tags"])
+                self.assertEqual(b["insiders"][0]["text"], got["ins"][0]["text"])
+                self.assertLessEqual(max(r["past"] for r in got["ins"] + got["both"]), 1, f"a row runs off at {w}px")
+                self.assertLessEqual(got["over"], 2, f"the page scrolls sideways at {w}px")
+                page.click(".sb-view .lv-seg-btn:nth-child(2)")
+                page.wait_for_timeout(150)
+                got = page.evaluate(read)
+                self.assertEqual(["ACME", "MSFT"], [r["sym"] for r in got["con"]])
+                page.click(".sb-bar .lv-seg-btn:nth-child(2)")
+                page.wait_for_timeout(150)
+                page.click(".sb-view .lv-seg-btn:nth-child(1)")
+                page.wait_for_timeout(150)
+                got = page.evaluate(read)
+                self.assertEqual(["BIGCO"], [r["sym"] for r in got["ins"]], "the watchlist filter")
+                self.assertEqual([], got["both"])
             finally:
                 self._close(handles)
 

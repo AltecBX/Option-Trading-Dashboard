@@ -365,3 +365,43 @@ class TestTheRowSaysWhatTheTradeIs(unittest.TestCase):
         # And it still never touches the trade it was handed.
         self.assertEqual(305.0, row["strike"])
 
+
+
+class TestUnusualWhalesSecondOpinion(unittest.TestCase):
+    """v5.34. Jerry: rank the board by the RICH/THIN check from his UW
+    plan. UW's verdict orders the rows that already qualified: where UW
+    also says rich, the name leads; where it says thin, the two
+    measurements disagree and the row goes to the bottom. The board's own
+    richness order is kept inside each tier."""
+
+    def setUp(self):
+        rows = [scan_row("AAA", vrp_percentile=95), scan_row("BBB", vrp_percentile=90),
+                scan_row("CCC", vrp_percentile=85), scan_row("DDD", vrp_percentile=80),
+                scan_row("EEE", vrp_percentile=75)]
+        self.board = SB.build(rows, limit=50)["rows"]
+        self.assertEqual(["AAA", "BBB", "CCC", "DDD", "EEE"], [r["symbol"] for r in self.board])
+
+    def test_uw_rich_leads_thin_trails_and_the_board_order_holds_inside(self):
+        checks = {"AAA": {"state": "thin", "text": "t"}, "BBB": {"state": "fair", "text": "f"},
+                  "CCC": {"state": "rich", "text": "r", "iv": 30.0, "rv": 20.0, "gap": 10.0},
+                  "DDD": None, "EEE": {"state": "rich", "text": "r2"}}
+        out = SB.second_opinion(self.board, checks)
+        self.assertEqual(["CCC", "EEE", "BBB", "DDD", "AAA"], [r["symbol"] for r in out])
+        self.assertEqual({"state": "rich", "text": "r", "iv": 30.0, "rv": 20.0, "gap": 10.0},
+                         out[0]["uw_check"])
+        self.assertIsNone(out[3]["uw_check"], "no answer is no badge, not FAIR")
+
+    def test_without_uw_the_board_is_untouched(self):
+        out = SB.second_opinion(self.board, None)
+        self.assertEqual([r["symbol"] for r in self.board], [r["symbol"] for r in out])
+        self.assertTrue(all(r["uw_check"] is None for r in out))
+
+    def test_the_route_cuts_after_the_reorder(self):
+        """A UW-rich name just below the cut has to be able to rise into it,
+        so the route builds every qualifier and cuts after second_opinion."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        at = src.index('if parsed.path == "/api/setup_board":')
+        body = src[at:at + 4000]
+        self.assertIn("_sboard.build(rows, limit=50)", body)
+        self.assertLess(body.index("_sboard.second_opinion("), body.index('out["rows"] = out["rows"][:limit]'))
