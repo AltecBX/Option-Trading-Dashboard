@@ -393,18 +393,25 @@ class UWClient:
                                              "limit": str(max(1, min(200, int(limit))))})
 
     def insider_buys(self, start_date: str, limit: int = 500,
-                     min_value: int = 0) -> Optional[list[dict]]:
+                     min_value: int = 0, page: int = 0) -> Optional[list[dict]]:
         """Open-market insider PURCHASES (code P) across the whole market
-        since `start_date`, common stock only (v5.34 buying feed)."""
+        since `start_date`, common stock only (v5.34 buying feed). `page`
+        starts at 0, per UW's spec."""
         p = {"transaction_codes[]": "P", "common_stock_only": "true",
              "start_date": str(start_date), "limit": str(max(1, min(500, int(limit))))}
         if min_value > 0:
             p["min_value"] = str(int(min_value))
+        if page > 0:
+            p["page"] = str(int(page))
         return self._get("insider_transactions", p)
 
-    def congress_recent(self, limit: int = 200) -> Optional[list[dict]]:
-        """The latest congressional trades across all tickers."""
-        return self._get("congress_trades", {"limit": str(max(1, min(200, int(limit))))})
+    def congress_recent(self, limit: int = 200, date: str | None = None) -> Optional[list[dict]]:
+        """The latest congressional trades across all tickers. With `date`,
+        only trades transacted on or before it: that is how UW pages back."""
+        p = {"limit": str(max(1, min(200, int(limit))))}
+        if date:
+            p["date"] = str(date)
+        return self._get("congress_trades", p)
 
     def variance_risk_premium(self, ticker: str) -> Any:
         return self._get("variance_risk_premium", {"ticker": str(ticker).upper()})

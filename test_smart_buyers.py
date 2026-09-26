@@ -30,15 +30,15 @@ class FakeUW:
     def __init__(self, insiders=None, congress=None):
         self.i, self.c, self.asked = insiders, congress, []
 
-    def insider_buys(self, start_date, limit=500, min_value=0):
-        self.asked.append(("insider_buys", start_date, limit))
+    def insider_buys(self, start_date, limit=500, min_value=0, page=0):
+        self.asked.append(("insider_buys", start_date, limit, page))
         if isinstance(self.i, Exception):
             raise self.i
-        return self.i
+        return self.i if page == 0 else []
 
-    def congress_recent(self, limit=200):
-        self.asked.append(("congress_recent", limit))
-        return self.c
+    def congress_recent(self, limit=200, date=None):
+        self.asked.append(("congress_recent", limit, date))
+        return self.c if date is None else []
 
 
 INSIDERS = [
@@ -92,7 +92,7 @@ class Insiders(unittest.TestCase):
     def test_the_window_is_asked_of_uw(self):
         uw = FakeUW([], [])
         SB.build(uw, today=TODAY)
-        self.assertIn(("insider_buys", "2026-08-26", 500), uw.asked)
+        self.assertIn(("insider_buys", "2026-08-26", 500, 0), uw.asked)
 
 
 class Congress(unittest.TestCase):
@@ -125,6 +125,76 @@ class NeverRaises(unittest.TestCase):
         self.assertEqual([], out["both"])
 
 
+class EveryPageIsRead(unittest.TestCase):
+    """Codex, #421: a busy month holds more than one call's rows. Every page
+    inside the window is read before anything is grouped."""
+
+    def test_insider_pages_until_a_short_one(self):
+        full = [ins(f"T{i:04d}", f"P{i}", 100, 10, "2026-09-20") for i in range(SB.INSIDER_PAGE)]
+        tail = [ins("LATE", "LATE ONE", 100, 10, "2026-09-20"), ins("LATE", "LATE TWO", 100, 10, "2026-09-19"),
+                ins("LATE", "LATE THREE", 100, 10, "2026-09-18")]
+
+        class Paged(FakeUW):
+            def insider_buys(self, start_date, limit=500, min_value=0, page=0):
+                self.asked.append(page)
+                return [full, tail][page] if page < 2 else []
+        uw = Paged()
+        rows, cut = SB.fetch_insiders(uw, date(2026, 8, 26))
+        self.assertEqual([0, 1], uw.asked)
+        self.assertEqual(SB.INSIDER_PAGE + 3, len(rows))
+        self.assertFalse(cut)
+        out = SB.build(Paged(congress=[]), today=TODAY)
+        late = [x for x in out["insiders"] if x["symbol"] == "LATE"]
+        self.assertTrue(late and late[0]["cluster"], "the cluster on page two was found")
+        self.assertEqual([], out["partial"])
+
+    def test_insider_cap_and_a_failed_later_page_say_partial(self):
+        full = [ins("X", f"P{i}", 1, 10, "2026-09-20") for i in range(SB.INSIDER_PAGE)]
+
+        class Endless(FakeUW):
+            def insider_buys(self, start_date, limit=500, min_value=0, page=0):
+                return full
+        rows, cut = SB.fetch_insiders(Endless(), date(2026, 8, 26))
+        self.assertTrue(cut)
+        self.assertEqual(SB.INSIDER_PAGE * SB.INSIDER_MAX_PAGES, len(rows))
+
+        class Breaks(FakeUW):
+            def insider_buys(self, start_date, limit=500, min_value=0, page=0):
+                return full if page == 0 else None
+        rows, cut = SB.fetch_insiders(Breaks(), date(2026, 8, 26))
+        self.assertEqual((SB.INSIDER_PAGE, True), (len(rows), cut))
+        self.assertEqual(["insider_buys"], SB.build(Breaks(congress=[]), today=TODAY)["partial"])
+
+    def test_congress_pages_back_by_date_and_drops_repeats(self):
+        first = [cong("AAA", f"M{i}", "2026-09-20") for i in range(SB.CONGRESS_PAGE - 1)] + \
+                [cong("BBB", "Edge", "2026-09-10")]
+        second = [cong("BBB", "Edge", "2026-09-10"), cong("OLD", "Earlier", "2026-09-01"),
+                  cong("ANC", "Ancient", "2026-06-01")]
+
+        class Dated(FakeUW):
+            def congress_recent(self, limit=200, date=None):
+                self.asked.append(date)
+                return first if date is None else second if date == "2026-09-10" else []
+        uw = Dated(insiders=[])
+        rows, cut = SB.fetch_congress(uw, date(2026, 7, 28))
+        self.assertEqual([None, "2026-09-10"], uw.asked)
+        self.assertFalse(cut)
+        self.assertEqual(SB.CONGRESS_PAGE + 2, len(rows), "the repeat at the seam is dropped")
+        self.assertIn("OLD", [x["symbol"] for x in SB.build(Dated(insiders=[]), today=TODAY)["congress"]])
+
+    def test_congress_stops_when_a_page_brings_nothing_new(self):
+        same = [cong("AAA", f"M{i}", "2026-09-20") for i in range(SB.CONGRESS_PAGE)]
+
+        class Stuck(FakeUW):
+            def congress_recent(self, limit=200, date=None):
+                self.asked.append(date)
+                return same
+        uw = Stuck(insiders=[])
+        rows, cut = SB.fetch_congress(uw, date(2026, 7, 28))
+        self.assertEqual(2, len(uw.asked), "a page of repeats ends the walk")
+        self.assertEqual(SB.CONGRESS_PAGE, len(rows))
+
+
 class TheClient(unittest.TestCase):
     def test_market_wide_calls_use_the_published_params(self):
         import unusual_whales_client as U
@@ -133,9 +203,13 @@ class TheClient(unittest.TestCase):
         c._get = lambda key, params: seen.append((key, params)) or []
         c.insider_buys("2026-08-26", limit=900)
         c.congress_recent()
+        c.insider_buys("2026-08-26", page=2)
+        c.congress_recent(date="2026-09-10")
         self.assertEqual(("insider_transactions", {"transaction_codes[]": "P", "common_stock_only": "true",
                                                    "start_date": "2026-08-26", "limit": "500"}), seen[0])
         self.assertEqual(("congress_trades", {"limit": "200"}), seen[1])
+        self.assertEqual("2", seen[2][1]["page"])
+        self.assertEqual({"limit": "200", "date": "2026-09-10"}, seen[3][1])
 
 
 if __name__ == "__main__":

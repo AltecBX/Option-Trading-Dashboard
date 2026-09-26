@@ -610,6 +610,15 @@ class NewTriggersReachASavedList(unittest.TestCase):
         self.assertTrue(LS.save_setups(keep)["ok"])
         self.assertNotIn("dark_pool_level", self.load(), "a deleted setup came back")
 
+    def test_a_fresh_install_that_deletes_one_keeps_it_deleted(self):
+        """Codex, #421: no offered.json on a fresh install used to read as a
+        pre-v5.34 list after the first save, and the deleted setup came back."""
+        (self.dir / "setups.json").unlink()
+        self.load()
+        keep = [s for s in LS.setups() if s["trigger"] != "gamma_flip_cross"]
+        self.assertTrue(LS.save_setups(keep)["ok"])
+        self.assertNotIn("gamma_flip_cross", self.load())
+
     def test_a_fresh_install_has_them_by_default(self):
         (self.dir / "setups.json").unlink()
         got = self.load()

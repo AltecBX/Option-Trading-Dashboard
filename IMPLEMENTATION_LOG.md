@@ -5410,3 +5410,20 @@ These fail without the change. Render tests:
   filter, with nothing off a phone screen.
 
 Static guards cover the new destination, now 32.
+
+Codex on #421, both right and fixed:
+- **Deleting a new setup on a fresh install didn't stick.** A fresh install
+  returned the defaults without writing `offered.json`, so after the first
+  save the list read as pre-v5.34 and the deleted setup came back.
+  `save_setups` now records every current trigger as offered.
+- **The buying feeds read one page.** One call returns 500 insider rows
+  or 200 congressional ones, and a busy month holds more, so clusters
+  could be undercounted. `fetch_insiders` now reads pages 0, 1, 2… until
+  a short page (cap 8 = 4,000 rows). `fetch_congress` pages back by UW's
+  `date` parameter (on or before the oldest trade seen), dropping repeats
+  at the seam, until the window is covered, a page brings nothing new,
+  or the cap of 6 is hit. Hitting a cap, or a later page failing, keeps
+  what arrived and sets `partial`, and the page says some stocks may be
+  missing.
+
+Tests for both fail on the old code.

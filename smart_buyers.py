@@ -31,6 +31,13 @@ INSIDER_DAYS = 30
 CONGRESS_DAYS = 60
 CLUSTER_N = 3
 TOP_N = 40
+# A busy month can hold more filings than one call returns (500 insider
+# rows, 200 congressional). Every page inside the window is read before
+# anything is grouped, up to these caps (Codex, #421).
+INSIDER_PAGE = 500
+INSIDER_MAX_PAGES = 8
+CONGRESS_PAGE = 200
+CONGRESS_MAX_PAGES = 6
 # A congressional "ticker" that is not a listed stock: mutual funds and
 # notes come through as six-letter codes or with digits in them.
 _STOCK_SYM = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
@@ -153,22 +160,63 @@ def _neg_date(iso: str) -> int:
     return -(d.toordinal() if d else 0)
 
 
+def fetch_insiders(uw, since: date) -> tuple:
+    """(rows, truncated) over every page, or (None, False) when the first
+    page failed. A later page failing keeps what arrived and says so."""
+    rows: list = []
+    for page in range(INSIDER_MAX_PAGES):
+        try:
+            got = uw.insider_buys(since.isoformat(), limit=INSIDER_PAGE, page=page)
+        except Exception:  # noqa: BLE001
+            got = None
+        if got is None:
+            return (None, False) if page == 0 else (rows, True)
+        batch = _rows(got)
+        rows.extend(batch)
+        if len(batch) < INSIDER_PAGE:
+            return rows, False
+    return rows, True
+
+
+def fetch_congress(uw, since: date) -> tuple:
+    """(rows, truncated). UW pages congressional trades by date: each call
+    asks for trades on or before the oldest one seen, and repeats are
+    dropped, until the window is covered."""
+    rows: list = []
+    seen: set = set()
+    before = None
+    for i in range(CONGRESS_MAX_PAGES):
+        try:
+            got = uw.congress_recent(limit=CONGRESS_PAGE, date=before)
+        except Exception:  # noqa: BLE001
+            got = None
+        if got is None:
+            return (None, False) if i == 0 else (rows, True)
+        batch = _rows(got)
+        fresh = []
+        for r in batch:
+            k = (r.get("name") or r.get("reporter"), r.get("ticker"), r.get("transaction_date"),
+                 r.get("amounts"), r.get("txn_type"), r.get("filed_at_date"))
+            if k not in seen:
+                seen.add(k)
+                fresh.append(r)
+        rows.extend(fresh)
+        dates = [d for d in (_date(r.get("transaction_date")) for r in batch) if d]
+        if len(batch) < CONGRESS_PAGE or not fresh or not dates or min(dates) < since:
+            return rows, False
+        before = min(dates).isoformat()
+    return rows, True
+
+
 def build(uw, watchlist: Iterable[str] = (), today: Optional[date] = None) -> dict:
     """Both lists and where they meet. Never raises."""
     today = today or date.today()
     watch = {str(s).upper().strip() for s in (watchlist or []) if s}
     missing = []
-    ins_raw = cong_raw = None
-    try:
-        ins_raw = uw.insider_buys((today - timedelta(days=INSIDER_DAYS)).isoformat(), limit=500)
-    except Exception:  # noqa: BLE001
-        ins_raw = None
+    ins_raw, ins_cut = fetch_insiders(uw, today - timedelta(days=INSIDER_DAYS))
     if ins_raw is None:
         missing.append("insider_buys")
-    try:
-        cong_raw = uw.congress_recent(limit=200)
-    except Exception:  # noqa: BLE001
-        cong_raw = None
+    cong_raw, cong_cut = fetch_congress(uw, today - timedelta(days=CONGRESS_DAYS))
     if cong_raw is None:
         missing.append("congress_recent")
     ins = insiders(ins_raw, today, watch)
@@ -180,4 +228,7 @@ def build(uw, watchlist: Iterable[str] = (), today: Optional[date] = None) -> di
             for i in ins if i["symbol"] in cmap]
     return {"date": today.isoformat(), "insiders": ins, "congress": con, "both": both,
             "insider_days": INSIDER_DAYS, "congress_days": CONGRESS_DAYS,
-            "cluster_n": CLUSTER_N, "missing": missing}
+            "cluster_n": CLUSTER_N, "missing": missing,
+            # A cap or a failed later page: the lists are built from part
+            # of the window, and the page says so.
+            "partial": [k for k, cut in (("insider_buys", ins_cut), ("congress_recent", cong_cut)) if cut]}

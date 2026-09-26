@@ -185,6 +185,7 @@ function BuyersTab({ apiFetch, onOpenTicker, visible }) {
             many different people bought. Congress: purchases disclosed in the last {data.congress_days} days;
             members can report up to 45 days late, in dollar ranges.
             {missing.length ? ` Not available right now: ${missing.map(m => m === "insider_buys" ? "insider trades" : "Congress trades").join(", ")}.` : ""}
+            {(data.partial || []).length ? ` Only part of the window came back for ${(data.partial || []).map(m => m === "insider_buys" ? "insider trades" : "Congress trades").join(" and ")}, so some stocks may be missing.` : ""}
           </p>
         </>
       ) : null}

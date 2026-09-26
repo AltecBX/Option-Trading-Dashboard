@@ -474,6 +474,10 @@ def save_setups(items) -> dict:
     with _LOCK:
         _SETUPS[:] = out
         _write_json("setups.json", out)
+        # Saving means every trigger this engine has was on offer, so a
+        # setup left out stays out. Without this a fresh install that
+        # deleted a new setup got it back on restart (Codex, #421).
+        _write_json("offered.json", sorted(TRIGGERS))
     return {"ok": True, "setups": copy.deepcopy(out), "refused": refused}
 
 
