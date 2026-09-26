@@ -10062,6 +10062,29 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _uw_send({"data": data})
                 return
 
+            if parsed.path == "/api/uw/money_map":
+                # Big Money Map (v5.33): gamma levels, max pain, dark pool
+                # levels, overnight OI, implied vs realized, insiders and
+                # Congress for one ticker, in plain sentences.
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+                try:
+                    spot = float(qs.get("price", ["0"])[0]) or None
+                except (TypeError, ValueError):
+                    spot = None
+                if not symbol:
+                    _uw_send({"error": "symbol required"}, status=400)
+                    return
+                if uw is None:
+                    _uw_send({"symbol": symbol, "data": None})
+                    return
+                try:
+                    import money_map as _money_map
+                    _uw_send({"symbol": symbol, "data": _money_map.build(uw, symbol, spot)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200], "symbol": symbol}, status=500)
+                return
+
             if parsed.path == "/api/uw/flow_score":
                 # Decision-engine score for the active ticker. Pulls
                 # today's unusual flow alerts and computes four

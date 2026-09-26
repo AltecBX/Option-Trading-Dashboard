@@ -15340,6 +15340,69 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   Big Money Map (v5.33) — what the Unusual Whales API Basic plan unlocked.
+   A ladder of the levels that matter around the price, then one plain
+   sentence per section. Colour carries the verdict (green good for a
+   seller, amber careful, red against), tokens only.
+   ══════════════════════════════════════════════════════════════════════════ */
+.mm-regime {
+  margin: 0 0 12px; padding: 8px 11px; border-radius: 10px; font-size: 13px; line-height: 1.45;
+  color: var(--fg-2); border: 1px solid var(--line); background: var(--bg-3);
+}
+.mm-regime b { color: var(--fg); margin-right: 4px; }
+.mm-regime.mm-calm { border-color: color-mix(in srgb, var(--up) 45%, transparent);
+                     background: color-mix(in srgb, var(--up) 10%, transparent); }
+.mm-regime.mm-wild { border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+                     background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.mm-sec { margin: 0 0 14px; }
+.mm-h { font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--fg-3); margin: 0 0 6px; }
+.mm-ladder { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.mm-lv {
+  display: grid; grid-template-columns: 88px minmax(0, 150px) 64px minmax(0, 1fr);
+  align-items: baseline; gap: 2px 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.mm-lv:last-child { border-bottom: none; }
+.mm-px { font-family: var(--font-mono); font-weight: 700; color: var(--fg); }
+.mm-name { font-weight: 600; color: var(--fg); }
+.mm-dist { font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); text-align: right; }
+.mm-why { color: var(--fg-3); font-size: 12.5px; line-height: 1.35; }
+.mm-k-call_wall .mm-name { color: var(--down); }
+.mm-k-put_wall .mm-name { color: var(--up); }
+.mm-k-gamma_flip .mm-name, .mm-k-gamma_magnet .mm-name { color: var(--now); }
+.mm-k-max_pain .mm-name { color: var(--warn); }
+.mm-k-dark_pool .mm-name { color: var(--modeled); }
+.mm-now { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.mm-now .mm-name { color: var(--accent); }
+.mm-seller { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; color: var(--fg-2); line-height: 1.45; }
+.mm-seller li { padding: 3px 0 3px 10px; border-left: 3px solid var(--line-2); margin-bottom: 4px; }
+.mm-seller .mm-sell-put { border-left-color: var(--up); }
+.mm-seller .mm-sell-call { border-left-color: var(--down); }
+.mm-verdict { display: flex; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.45; color: var(--fg-2); }
+.mm-verdict b { flex: none; font-family: var(--font-mono); font-size: 12px; padding: 1px 7px; border-radius: 6px;
+                color: var(--fg); background: var(--bg-3); border: 1px solid var(--line); }
+.mm-verdict.mm-rich b { background: color-mix(in srgb, var(--up) 20%, transparent); border-color: color-mix(in srgb, var(--up) 55%, transparent); }
+.mm-verdict.mm-thin b { background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.mm-verdict.mm-ins-buying { color: var(--fg); }
+.mm-list { list-style: none; margin: 0; padding: 0; font-size: 13px; color: var(--fg-2); line-height: 1.4; }
+.mm-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.mm-list li:last-child { border-bottom: none; }
+.mm-small { margin-top: 6px; font-size: 12.5px; }
+.mm-lean { flex: none; min-width: 72px; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--fg-3); }
+.mm-lean.bullish { color: var(--up); }
+.mm-lean.bearish { color: var(--down); }
+.mm-missing { margin: 4px 0 0; font-size: 12px; color: var(--fg-3); }
+@media (max-width: 900px) {
+  /* The ladder keeps price, name and distance on one line; the meaning
+     drops under them rather than squeezing into a column. */
+  .mm-lv { grid-template-columns: 82px minmax(0, 1fr) auto; padding: 6px 8px; }
+  .mm-why { grid-column: 1 / -1; font-size: 12px; }
+  .mm-now .mm-why, .mm-now .mm-dist { display: none; }
+  .mm-lean { min-width: 0; }
+  .mm-list li, .mm-verdict { flex-wrap: wrap; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    v5.26 — EVERY DESTINATION ON A PHONE
    ──────────────────────────────────────────────────────────────────────────
    Jerry: "Optimize the rest of the tabs for my phone too."

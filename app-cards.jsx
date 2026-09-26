@@ -15647,6 +15647,184 @@ function FinvizPanel({ ticker, onSwitchTicker, inWatchlist, onAddWatchlist,
 
 
 
+// ─────────────────────────────────────────────────────────────────────────
+// Big Money Map (v5.33). Jerry upgraded Unusual Whales to API Basic and
+// asked what it could do that the app did not. This card reads what the
+// plan unlocked for one ticker: the gamma levels dealers hedge around,
+// max pain, the dark pool's busiest prices, what opened overnight,
+// whether premium is rich, and what insiders and Congress did. Every
+// section is one plain sentence first; the numbers sit under it.
+// ─────────────────────────────────────────────────────────────────────────
+const MM_MISSING = {
+  gex_levels: "gamma levels", max_pain: "max pain", darkpool_levels: "dark pool levels",
+  variance_risk_premium: "implied vs realized", oi_change: "overnight open interest",
+  insider_transactions: "insider trades", congress_trades: "Congress trades",
+};
+const mmPx = (v) => (v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const mmMoney = (v) => {
+  if (v == null || !isFinite(v)) return "—";
+  const a = Math.abs(v);
+  return a >= 1e9 ? `$${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `$${(a / 1e6).toFixed(1)}M`
+    : a >= 1e3 ? `$${Math.round(a / 1e3)}K` : `$${Math.round(a)}`;
+};
+const mmPct = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}%`);
+const mmDay = (iso) => {
+  if (!iso) return "";
+  const d = new Date(`${iso}T12:00:00`);
+  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
+  const [map, setMap] = useState(null);
+  const [error, setError] = useState(null);
+  const priceRef = React.useRef(currentPrice);
+  priceRef.current = currentPrice;
+  useEffect(() => { setMap(null); setError(null); }, [ticker]);
+  useEffect(() => {
+    if (!ticker || !uwHealth?.connected) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const url = `/api/uw/money_map?symbol=${encodeURIComponent(ticker)}`
+                  + (priceRef.current ? `&price=${priceRef.current}` : "");
+        const r = await apiFetch(url);
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.error) setError(j.error);
+        else if (j.data) { setMap(j.data); setError(null); }
+      } catch (e) {
+        if (!cancelled) setError(String(e.message || e));
+      }
+    };
+    load();
+    // Gamma levels refresh about once a minute on UW's side; the filings
+    // and overnight OI once a day. A minute costs seven cached calls.
+    const id = setInterval(skipWhenHidden(load), 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ticker, uwHealth?.connected]);
+
+  if (!uwHealth?.configured) return null;
+  const head = (
+    <div className="card-head">
+      <div>
+        <div className="kicker">Unusual Whales · where the big money sits</div>
+        <div className="card-title">Big Money Map · {ticker}</div>
+      </div>
+    </div>
+  );
+  if (!uwHealth?.connected) {
+    return <div className="card mm-card">{head}
+      <CardNote kind="error">Can't reach Unusual Whales right now. The map comes back when the connection does.</CardNote></div>;
+  }
+  if (!map) {
+    return <div className="card mm-card">{head}
+      {error ? <CardNote kind="error">{error}</CardNote> : <CardNote kind="loading">Reading the levels…</CardNote>}</div>;
+  }
+  const spot = map.spot;
+  const above = (map.levels || []).filter(l => spot == null || l.price > spot);
+  const below = (map.levels || []).filter(l => spot != null && l.price <= spot);
+  const lvRow = (l, i) => (
+    <li key={`${l.kind}-${l.price}-${i}`} className={`mm-lv mm-k-${l.kind}`}>
+      <span className="mm-px">{mmPx(l.price)}</span>
+      <span className="mm-name">{l.label}</span>
+      <span className={`mm-dist ${l.side || ""}`}>{mmPct(l.pct)}</span>
+      <span className="mm-why">{l.meaning}</span>
+    </li>
+  );
+  const prem = map.premium;
+  const ins = map.insiders;
+  const cong = map.congress;
+  const missing = (map.missing || []).map(k => MM_MISSING[k] || k);
+  return (
+    <div className="card mm-card">
+      {head}
+      {map.regime ? (
+        <div className={`mm-regime mm-${map.regime.state}`}>
+          <b>{map.regime.state === "calm" ? "Calm tape" : "Wild tape"}</b> {map.regime.text}
+        </div>
+      ) : null}
+
+      {(map.levels || []).length ? (
+        <section className="mm-sec">
+          <div className="mm-h">Price levels that matter</div>
+          <ul className="mm-ladder">
+            {above.map(lvRow)}
+            {spot != null ? (
+              <li className="mm-lv mm-now">
+                <span className="mm-px">{mmPx(spot)}</span>
+                <span className="mm-name">Price now</span>
+                <span className="mm-dist"></span>
+                <span className="mm-why"></span>
+              </li>
+            ) : null}
+            {below.map(lvRow)}
+          </ul>
+          {(map.seller || []).length ? (
+            <ul className="mm-seller">
+              {map.seller.map(s => <li key={s.side} className={`mm-sell-${s.side}`}>{s.text}</li>)}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
+      {prem ? (
+        <section className="mm-sec">
+          <div className="mm-h">Is premium worth selling?</div>
+          <div className={`mm-verdict mm-${prem.state}`}>
+            <b>{prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"}</b>
+            <span>{prem.text}</span>
+          </div>
+        </section>
+      ) : null}
+
+      {(map.opened || []).length ? (
+        <section className="mm-sec">
+          <div className="mm-h">New positions opened since yesterday</div>
+          <ul className="mm-list">
+            {map.opened.map(o => (
+              <li key={o.symbol}>
+                <span className={`mm-lean ${o.lean || "none"}`}>
+                  {o.lean === "bullish" ? "▲ Bullish" : o.lean === "bearish" ? "▼ Bearish" : "• Mixed"}
+                </span>
+                <span>{o.text}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {ins ? (
+        <section className="mm-sec">
+          <div className="mm-h">Insiders</div>
+          <div className={`mm-verdict mm-ins-${ins.state}`}><span>{ins.text}</span></div>
+          {(ins.recent || []).length ? (
+            <ul className="mm-list mm-small">
+              {ins.recent.map((x, i) => (
+                <li key={i}>
+                  <span className={`mm-lean ${x.sell ? "bearish" : "bullish"}`}>{x.sell ? "Sold" : "Bought"}</span>
+                  <span>{x.title ? `${x.title} ` : ""}{x.name} · {mmMoney(x.value)} · {mmDay(x.date)}{x.planned ? " · pre-planned" : ""}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
+      {cong ? (
+        <section className="mm-sec">
+          <div className="mm-h">Congress</div>
+          <div className="mm-verdict"><span>{cong.text}</span></div>
+        </section>
+      ) : null}
+
+      {missing.length ? (
+        <p className="mm-missing">Not available right now: {missing.join(", ")}.</p>
+      ) : null}
+    </div>
+  );
+}
+
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   FridayCard: _memo(FridayCard),
@@ -15677,7 +15855,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   StrategyReferenceCard: _memo(StrategyReferenceCard), WatchlistManager, QuickAddRow,
   WatchlistRow, FlashOnChange, SortableTh, PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
-  FlowScoreCard: _memo(FlowScoreCard), PullbackBacktest,
+  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),

@@ -5262,3 +5262,71 @@ Codex on #419, both right and both fixed:
   chip disappeared and the list stayed filtered, with no way back except
   switching lists. The filter now applies only while its group is still
   shared. Two static guards cover this; both fail on the old code.
+
+## v5.33 — the Big Money Map (what the Unusual Whales upgrade unlocked)
+
+Jerry upgraded Unusual Whales to API Basic ($750/yr) and asked: "figure
+out how to use my App for this features I may not have coded in my App
+that can help me."
+
+**What the app already read from UW:** flow alerts (Flow Score, the flow
+feed, strike flow), net premium, market tide, sector ETFs, spike, stock
+state, sector tide, 13F institutions, ETF in/outflow, OHLC, analyst
+ratings.
+
+**What it never read, checked against UW's published OpenAPI spec**
+(api.unusualwhales.com/api/openapi, fetched for this change, so every
+path and field is UW's own and none is guessed):
+
+| Section | Endpoint | What it tells a premium seller |
+|---|---|---|
+| Gamma levels | `/api/stock/{t}/gex-levels` | Call wall (resistance), put wall (support), magnet, gamma flip |
+| Max pain | `/api/stock/{t}/max-pain` | Nearest expiry that hasn't passed |
+| Dark pool | `/api/darkpool/{t}/price-levels` | The three prices with the most off-exchange shares |
+| Premium | `/api/stock/{t}/volatility/variance-risk-premium` | 30-day implied vs 21-day realized: rich / fair / thin |
+| Opened overnight | `/api/stock/{t}/oi-change` | Biggest OI gains, and whether they printed at the ask or the bid |
+| Insiders | `/api/insider/transactions` | Open-market buys (P) and sells (S) over 90 days, and how many sells were 10b5-1 |
+| Congress | `/api/congress/recent-trades` | Trades over 6 months |
+
+`money_map.py` turns them into one dict of plain sentences. The UW client
+is passed in, every call is guarded, and a section that can't be
+answered is listed in `missing` (shown as "Not available right now…")
+instead of raising. Route: `/api/uw/money_map?symbol=&price=`. Cache
+times: gamma levels 60s, max pain 15 min, dark pool 5 min; OI, filings
+and implied vs realized 1 hour (they settle once a day). One card open
+costs seven calls a minute at most, well inside 80,000 a day.
+
+**The card** (Flow tab, under Flow Score): a Calm tape / Wild tape line
+from the gamma flip. Then a ladder of the levels, highest first, with
+"Price now" in its place among them, each row's distance and meaning.
+Then the seller lines ("Selling puts: the put wall at $X is 3.2% below…").
+Then the verdict on premium (RICH / FAIR / THIN). Then what opened
+overnight, marked ▲ Bullish / ▼ Bearish. Then insiders and Congress.
+On a phone each row's meaning drops under its price.
+
+Rules worth knowing:
+- Form 144 is a notice of intent, not a trade, so it is skipped, as are
+  awards and exercises. Only P and S count.
+- "Bullish" on an opened contract means calls bought at the ask or puts
+  sold at the bid (1.5x the other side). Anything closer is Mixed.
+- A position opened mostly inside multi-leg trades says so, since one leg
+  of a spread says little alone.
+
+Tests: `test_money_map.py` (19): every payload has the shape of UW's own
+spec example. They cover:
+- level order and distance, max pain choosing the nearest live expiry,
+  and the top three dark pool prices;
+- the regime on both sides of the flip, and the seller lines;
+- no advice without a price;
+- rich, fair and thin premium;
+- what opened overnight, including spreads and OCC symbols with a dot;
+- insider filters (144, awards, 90 days) and the pre-planned count;
+- Congress's 6-month window;
+- a failing endpoint listed rather than raised;
+- the client's paths, cache times and query params.
+
+A render test on desktop and phone (`test_the_big_money_map_reads_at_a_glance`)
+checks the ladder order with "Price now" in place, the regime, the seller
+lines, the premium verdict, what opened, and the insider and Congress
+sentences, with nothing running off the card. Three static guards cover
+the card too.
