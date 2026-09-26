@@ -5114,6 +5114,27 @@ except Exception as _exc:  # noqa: BLE001
     _stretch = None  # type: ignore
     _stretchev = None  # type: ignore
 
+# ── Daily edge: next-day call/put signals on the six daily-expiry ETFs ──────
+# SMH, QQQ, SPY, IWM, XLF, GLD. Rules measured on two years of hourly bars
+# (DAILY_EDGE.md); a light quote pass every minute while the market is open,
+# a chain call only when a signal is live, a push on each first signal.
+try:
+    import daily_edge as _dedge
+    _dedge.configure(
+        schwab_getter=lambda: _schwab(),
+        quotes_fn=lambda syms: (lambda c: c.get_quotes(syms) if c is not None else None)(_schwab()),
+        bars_fn=lambda sym: (lambda c: c.get_price_history(sym, days=90) if c is not None else None)(_schwab()),
+        now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
+        notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
+        data_dir=_STABLE_DIR,
+        base_url=os.environ.get("PUBLIC_BASE_URL") or "https://dashboard.jerrytrade.com",
+    )
+    _DEDGE_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[daily_edge] wiring failed: {_exc}", file=sys.stderr)
+    _DEDGE_AVAILABLE = False
+    _dedge = None  # type: ignore
+
 # ── Live Scanner: what is moving right now, and why (v5.29) ─────────────────
 # One batch quote per ~300 names every 30 seconds while the market is open,
 # over the watchlist board's universe. Alerts, rankings and each setup's own
@@ -10667,6 +10688,24 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _log_warn(None, "api/stretch", exc)
                 self._send_json({"error": str(exc), "rows": []}, status=500)
             return
+        if parsed.path == "/api/daily-edge" or parsed.path.startswith("/api/daily-edge/"):
+            if not _DEDGE_AVAILABLE:
+                self._send_json({"error": "daily edge unavailable", "rows": []}, status=503)
+                return
+            section = parsed.path[len("/api/daily-edge"):].lstrip("/")
+            try:
+                if section == "":
+                    self._send_json(_dedge.snapshot(), no_store=True)
+                elif section == "forward":
+                    self._send_json(_dedge.forward(), no_store=True)
+                elif section == "status":
+                    self._send_json(_dedge.status(), no_store=True)
+                else:
+                    self._send_json({"error": f"unknown daily-edge section {section}"}, status=404)
+            except Exception as exc:  # noqa: BLE001
+                _log_warn(None, "api/daily-edge", exc)
+                self._send_json({"error": str(exc), "rows": []}, status=500)
+            return
         if parsed.path == "/api/spike" or parsed.path.startswith("/api/spike/"):
             if not _SPIKE_AVAILABLE:
                 self._send_json({"error": "sold into strength unavailable", "rows": []},
@@ -14079,6 +14118,14 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                 _stretch.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[stretch_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _DEDGE_AVAILABLE and not os.environ.get("JERRY_NO_NET"):
+        try:
+            # six ETFs, one quote call a minute while the market is open, so
+            # the push reaches the phone with the tab closed
+            if _dedge.config()["scan"].get("background", True):
+                _dedge.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[daily_edge] scheduler start failed: {exc}", file=sys.stderr)
     if _LIVE_AVAILABLE and not os.environ.get("JERRY_NO_NET"):
         try:
             # sweeps the watchlist every 30 seconds while the market is open

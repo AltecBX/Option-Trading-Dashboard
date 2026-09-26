@@ -257,6 +257,9 @@ for p in [
     "/api/live/setups",
     f"/api/live/check?symbol={S}",
     "/api/stretch/alerts",
+    "/api/daily-edge",
+    "/api/daily-edge/forward",
+    "/api/daily-edge/status",
     # Hedge Fund Intelligence (HEDGE_FUND_INTEL.md). Offline every route
     # still answers 200 — NOT READ YET is an answer, and the card renders it.
     "/api/hf",
