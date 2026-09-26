@@ -7,16 +7,18 @@ on, a contract rounded away from the money with a real bid, the first
 signal per ETF per day logged once and pushed once, and the forward record
 graded only after its expiry closed.
 
-Run:  python3 -m pytest test_daily_edge.py -q
+Run:  python3 -m unittest test_daily_edge -v   (plain unittest, as CI runs it)
 """
 from __future__ import annotations
 
+import inspect
 import json
 import math
+import tempfile
+import unittest
+from pathlib import Path
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-
-import pytest
 
 import daily_edge as de
 
@@ -49,15 +51,23 @@ def bars(n=40, start=100.0, step=0.01, last_down=False, end=MON):
 PROF = {"sigma": 0.02, "prev_close": 100.0, "prev_day_ret": 0.005}
 
 
-@pytest.fixture(autouse=True)
-def _clean(tmp_path):
-    de.configure(data_dir=tmp_path)
-    yield
-    de.configure()
+class approx:
+    """pytest.approx without pytest: CI runs plain unittest."""
+    def __init__(self, v, abs=None):
+        self.v, self.tol = v, (abs if abs is not None else 1e-6 * max(1.0, builtins_abs(v)))
+
+    def __eq__(self, other):
+        return builtins_abs(other - self.v) <= self.tol
+
+    def __repr__(self):
+        return f"approx({self.v})"
+
+
+builtins_abs = abs
 
 
 # ── the yardstick ────────────────────────────────────────────────────────────
-def test_profile_uses_only_sessions_before_today():
+def case_profile_uses_only_sessions_before_today():
     b = bars()
     b.append({"date": MON.isoformat() + "T12:00:00-04:00", "close": 999.0})   # today's partial bar
     p = de.profile_from_bars(b, MON)
@@ -66,50 +76,50 @@ def test_profile_uses_only_sessions_before_today():
     assert 0.009 < p["sigma"] < 0.012
 
 
-def test_profile_needs_history():
+def case_profile_needs_history():
     assert de.profile_from_bars(bars(n=10), MON) is None
 
 
-def test_prev_day_down_flag():
+def case_prev_day_down_flag():
     p = de.profile_from_bars(bars(last_down=True), MON)
     assert p["prev_day_ret"] < 0
 
 
 # ── the rules ────────────────────────────────────────────────────────────────
-def test_call_zone_inside_window_sells_call():
+def case_call_zone_inside_window_sells_call():
     c = de.classify("SMH", 0.5, at(MON, 12, 30), PROF)
     assert c["state"] == "SELL" and c["side"] == "call" and c["rule"] == "zone"
 
 
-def test_zone_edges_are_inclusive():
+def case_zone_edges_are_inclusive():
     assert de.classify("SPY", 0.15, at(MON, 11, 0), PROF)["state"] == "SELL"
     assert de.classify("SPY", 0.90, at(MON, 11, 0), PROF)["state"] == "SELL"
     assert de.classify("SPY", 0.14, at(MON, 11, 0), PROF)["state"] == "NO_EDGE"
     assert de.classify("SPY", 0.91, at(MON, 11, 0), PROF)["state"] == "NO_EDGE"
 
 
-def test_before_1030_waits_after_330_closes_window():
+def case_before_1030_waits_after_330_closes_window():
     assert de.classify("QQQ", 0.5, at(MON, 10, 0), PROF)["state"] == "WAIT"
     assert de.classify("QQQ", 0.5, at(MON, 15, 31), PROF)["state"] == "NO_EDGE"
 
 
-def test_gld_sells_the_put_in_its_up_zone():
+def case_gld_sells_the_put_in_its_up_zone():
     c = de.classify("GLD", 0.5, at(MON, 13, 0), PROF)
     assert c["state"] == "SELL" and c["side"] == "put"
 
 
-def test_no_call_gate_only_where_it_held():
+def case_no_call_gate_only_where_it_held():
     for s in ("SMH", "QQQ", "SPY", "IWM", "XLF"):
         assert de.classify(s, -1.2, at(MON, 14, 0), PROF)["state"] == "NO_CALL"
     assert de.classify("GLD", -1.2, at(MON, 14, 0), PROF)["state"] == "NO_EDGE"
 
 
-def test_small_red_and_flat_are_skips():
+def case_small_red_and_flat_are_skips():
     for z in (-0.5, -0.1, 0.0, 0.1):
         assert de.classify("IWM", z, at(MON, 12, 0), PROF)["state"] == "NO_EDGE"
 
 
-def test_smh_second_down_day_at_close_sells_put():
+def case_smh_second_down_day_at_close_sells_put():
     prof = dict(PROF, prev_day_ret=-0.01)
     c = de.classify("SMH", -0.3, at(MON, 15, 50), prof)
     assert c["state"] == "SELL" and c["side"] == "put" and c["rule"] == "down2"
@@ -118,36 +128,36 @@ def test_smh_second_down_day_at_close_sells_put():
     assert de.classify("QQQ", -0.3, at(MON, 15, 50), prof)["state"] == "NO_EDGE"
 
 
-def test_smh_up_friday_at_close_sells_put():
+def case_smh_up_friday_at_close_sells_put():
     c = de.classify("SMH", 0.3, at(FRI, 15, 50), PROF)
     assert c["state"] == "SELL" and c["side"] == "put" and c["rule"] == "upfri"
     assert de.classify("SMH", 0.3, at(MON, 15, 50), PROF)["state"] == "NO_EDGE"
 
 
-def test_closed_outside_hours_and_weekends():
+def case_closed_outside_hours_and_weekends():
     assert de.classify("SPY", 0.5, at(MON, 9, 0), PROF)["state"] == "CLOSED"
     assert de.classify("SPY", 0.5, at(MON, 16, 5), PROF)["state"] == "CLOSED"
     assert de.classify("SPY", 0.5, at(date(2026, 9, 26), 12, 0), PROF)["state"] == "CLOSED"
 
 
 # ── the strike and the contract ──────────────────────────────────────────────
-def test_model_strike_is_084_sigma_over_time_left():
+def case_model_strike_is_084_sigma_over_time_left():
     k = de.model_strike(100.0, 0.02, "call", 0.0)
-    assert k == pytest.approx(100 * (1 + 0.84 * 0.02))
+    assert k == approx(100 * (1 + 0.84 * 0.02))
     kp = de.model_strike(100.0, 0.02, "put", 1.0)
-    assert kp == pytest.approx(100 * (1 - 0.84 * 0.02 * math.sqrt(2)))
+    assert kp == approx(100 * (1 - 0.84 * 0.02 * math.sqrt(2)))
 
 
-def test_hist_loss_scales_with_multiple():
-    assert de.hist_loss_per_share(100, 0.02, 0.0, 1.0) == pytest.approx(0.1119 * 2.0)
-    assert de.hist_loss_per_share(100, 0.02, 0.0, 0.5) == pytest.approx(0.1119)
+def case_hist_loss_scales_with_multiple():
+    assert de.hist_loss_per_share(100, 0.02, 0.0, 1.0) == approx(0.1119 * 2.0)
+    assert de.hist_loss_per_share(100, 0.02, 0.0, 0.5) == approx(0.1119)
 
 
 def chain_for(expiry: date, calls=(), puts=()):
     return {"chains": {expiry.isoformat(): {"calls": list(calls), "puts": list(puts)}}}
 
 
-def test_pick_contract_rounds_away_from_money_and_needs_a_bid():
+def case_pick_contract_rounds_away_from_money_and_needs_a_bid():
     exp = date(2026, 9, 29)
     ch = chain_for(exp, calls=[
         {"strike": 101.0, "bid": 0.80, "ask": 0.90, "delta": 0.30},
@@ -164,7 +174,7 @@ def test_pick_contract_rounds_away_from_money_and_needs_a_bid():
     assert de.pick_contract(ch, exp, "call", 102.5, de.DEFAULTS) is None   # 103 has no bid
 
 
-def test_pick_contract_refuses_wide_spread():
+def case_pick_contract_refuses_wide_spread():
     exp = date(2026, 9, 29)
     ch = chain_for(exp, calls=[{"strike": 102.0, "bid": 0.10, "ask": 0.60}])
     assert de.pick_contract(ch, exp, "call", 101.5, de.DEFAULTS) is None
@@ -181,23 +191,23 @@ class FakeSchwab:
         return chain_for(date.fromisoformat(expiration), calls=k, puts=k)
 
 
-def test_build_row_sell_prices_the_contract_and_the_record():
+def case_build_row_sell_prices_the_contract_and_the_record():
     now = at(MON, 12, 30)
     r = de.build_row("SMH", {"last": 101.0, "prev_close": 100.0}, PROF, now, de.DEFAULTS, FakeSchwab())
     assert r["state"] == "SELL" and r["side"] == "call"
     assert r["expiry"] == "2026-09-29"
     assert r["contract"]["strike"] >= r["model_strike"]
-    assert r["hist_loss"] > 0 and r["edge"] == pytest.approx(0.9 - r["hist_loss"], abs=0.01)
-    assert r["zone_lo_pct"] == pytest.approx(0.3) and r["zone_hi_pct"] == pytest.approx(1.8)
+    assert r["hist_loss"] > 0 and r["edge"] == approx(0.9 - r["hist_loss"], abs=0.01)
+    assert r["zone_lo_pct"] == approx(0.3) and r["zone_hi_pct"] == approx(1.8)
 
 
-def test_build_row_skip_fetches_no_chain():
+def case_build_row_skip_fetches_no_chain():
     sc = FakeSchwab()
     r = de.build_row("SPY", {"last": 100.05, "prev_close": 100.0}, PROF, at(MON, 12, 0), de.DEFAULTS, sc)
     assert r["state"] == "NO_EDGE" and sc.calls == 0 and "contract" not in r
 
 
-def test_fire_logs_and_pushes_once_per_day(tmp_path):
+def case_fire_logs_and_pushes_once_per_day(tmp_path):
     pushes = []
     de.configure(data_dir=tmp_path, notify_fn=lambda t, m, p=0: pushes.append((t, m)) or {"ok": True})
     now = at(MON, 12, 30)
@@ -218,7 +228,7 @@ def test_fire_logs_and_pushes_once_per_day(tmp_path):
 
 
 # ── the forward record ──────────────────────────────────────────────────────
-def test_grade_only_after_expiry_close():
+def case_grade_only_after_expiry_close():
     rec = {"side": "call", "strike": 102.0, "bid": 0.5, "expiry": "2026-09-29"}
     assert de.grade(rec, {}) is None
     g = de.grade(rec, {"2026-09-29": 103.0})
@@ -227,7 +237,7 @@ def test_grade_only_after_expiry_close():
     assert not g2["breached"] and g2["pnl"] == 0.5
 
 
-def test_scan_end_to_end_with_fakes(tmp_path):
+def case_scan_end_to_end_with_fakes(tmp_path):
     de.configure(data_dir=tmp_path,
                  quotes_fn=lambda syms: {s: {"last": 101.0 if s == "SMH" else 100.0, "close_prev": 100.0}
                                          for s in syms},
@@ -242,7 +252,7 @@ def test_scan_end_to_end_with_fakes(tmp_path):
     assert snap["n_sell"] == 1 and snap["forward"]["n"] == 1
 
 
-def test_no_fire_without_a_priced_contract(tmp_path):
+def case_no_fire_without_a_priced_contract(tmp_path):
     pushes = []
     de.configure(data_dir=tmp_path, notify_fn=lambda t, m, p=0: pushes.append(t) or {"ok": True})
     now = at(MON, 12, 30)
@@ -257,7 +267,7 @@ def test_no_fire_without_a_priced_contract(tmp_path):
     assert len(pushes) == 1 and row2["fired"]["bid"] == 0.9
 
 
-def test_grades_survive_once_the_close_leaves_the_cache(tmp_path):
+def case_grades_survive_once_the_close_leaves_the_cache(tmp_path):
     de.configure(data_dir=tmp_path, now_fn=lambda: at(MON, 17, 0))
     rec = {"date": "2026-09-21", "symbol": "SMH", "side": "call", "strike": 102.0, "bid": 0.5,
            "expiry": "2026-09-22", "at": "2026-09-21T12:30:00-04:00"}
@@ -270,3 +280,33 @@ def test_grades_survive_once_the_close_leaves_the_cache(tmp_path):
     assert f2["graded"] == 1 and f2["open"] == 0
     de.configure(data_dir=tmp_path, now_fn=lambda: at(MON, 17, 0))    # and across a restart
     assert de.forward()["graded"] == 1
+
+
+class DailyEdgeTests(unittest.TestCase):
+    """Each case_* above runs as one test, with a fresh data dir."""
+
+
+def _make(fn):
+    def run(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            de.configure(data_dir=tmp)
+            try:
+                if inspect.signature(fn).parameters:
+                    fn(tmp)
+                else:
+                    fn()
+            finally:
+                de.configure()
+    run.__name__ = fn.__name__.replace("case_", "test_", 1)
+    run.__doc__ = fn.__doc__
+    return run
+
+
+for _n, _f in list(globals().items()):
+    if _n.startswith("case_") and callable(_f):
+        setattr(DailyEdgeTests, _n.replace("case_", "test_", 1), _make(_f))
+
+
+if __name__ == "__main__":
+    unittest.main()
