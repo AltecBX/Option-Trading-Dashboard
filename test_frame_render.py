@@ -951,7 +951,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 // and what stands in front of it.
                 firstTool: (() => {
                   const m = document.querySelector('.main');
-                  const c = document.querySelector('.st-card');
+                  // v5.35: Daily edge now leads Trade; the first tool is
+                  // whichever of the two comes first in the document.
+                  const c = document.querySelector('.de-card, .st-card');
                   return (m && c) ? Math.round(c.getBoundingClientRect().top
                                                - m.getBoundingClientRect().top) : null; })(),
                 phoneBand: box('.phone-band'),

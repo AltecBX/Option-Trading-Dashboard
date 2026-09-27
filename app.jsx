@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.34";
+const APP_VERSION = "5.35";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4330,6 +4330,16 @@ function App() {
         {/* Watchlist alerts (v1.15) — fresh upgrades and downgrades on
             watchlist tickers in the past 7 days. Scoped to the Trade tab
             (home dashboard) so it doesn't render on every tab. */}
+        {/* Daily edge (v5.35) — the six ETFs with an expiry every weekday:
+            sell the next-day call, the next-day put, or nothing, by the
+            two-year record. First on Trade: it is the daily decision. */}
+        <TabPanel tab="trade" active={activeTab} pending={dataPending} pendingLabel={ticker}>
+          <CardErrorBoundary label="Daily edge">
+            <LazyTab chunk="tab-dailyedge" component="DailyEdgeCard" label="Daily edge"
+                     apiFetch={apiFetch}
+                     onPickTicker={(t) => { switchTicker(t); }} />
+          </CardErrorBoundary>
+        </TabPanel>
         {/* At the line (v5.16) — the watchman. Names that have reached their
             usual weekly or daily high/low, both sides, priced against what
             followed comparable crossings. It alerts the phone on its own;
