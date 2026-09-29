@@ -405,3 +405,27 @@ class TestUnusualWhalesSecondOpinion(unittest.TestCase):
         body = src[at:at + 4000]
         self.assertIn("_sboard.build(rows, limit=50)", body)
         self.assertLess(body.index("_sboard.second_opinion("), body.index('out["rows"] = out["rows"][:limit]'))
+
+
+class TestWarningsBeforeSelling(unittest.TestCase):
+    """v5.36: an FDA date inside the option's life, or squeeze risk on a
+    short call, goes on the row in words and moves it below clean rows."""
+
+    def test_warned_rows_sink_and_say_why(self):
+        rows = [{"symbol": "AAA"}, {"symbol": "BBB"}, {"symbol": "CCC"}]
+        risks = {"AAA": {"fda": [{"text": "PDUFA Date for X: Oct 12."}, {"text": "later"}], "squeeze": None},
+                 "BBB": {"fda": [], "squeeze": {"level": "elevated", "text": "Squeeze risk elevated: 12% (FINRA, x). y"}},
+                 "CCC": {"fda": [], "squeeze": {"level": "low", "text": "low"}}}
+        out = SB.attach_risks(rows, risks)
+        self.assertEqual(["BBB", "CCC", "AAA"], [r["symbol"] for r in out],
+                         "FDA inside the life sinks; an elevated squeeze warns but keeps its place")
+        aaa = out[-1]
+        self.assertEqual("FDA PDUFA Date for X: Oct 12. (+1 more)", aaa["warnings"][0]["short"])
+        self.assertEqual("Squeeze risk elevated: 12%", out[0]["warnings"][0]["short"])
+        self.assertEqual([], out[1]["warnings"], "a low squeeze reading is not a warning")
+
+    def test_no_risks_changes_nothing(self):
+        rows = [{"symbol": "A"}, {"symbol": "B"}]
+        out = SB.attach_risks(rows, None)
+        self.assertEqual(["A", "B"], [r["symbol"] for r in out])
+        self.assertTrue(all(r["warnings"] == [] for r in out))

@@ -630,7 +630,14 @@ function SuBoardRow({ r, onPick }) {
           {r.symbol}
         </button>
       </td>
-      <td className="su-c-trade" title={SU_TIP.action}><SuTrade r={r} /></td>
+      <td className="su-c-trade" title={SU_TIP.action}>
+        <SuTrade r={r} />
+        {/* v5.36 — an FDA date inside the option's life, or squeeze risk
+            on a short call: said on the row, in words. */}
+        {(r.warnings || []).map(w => (
+          <div key={w.kind} className={`su-warn su-warn-${w.level}`} title={w.text}>⚠ {w.short || w.text}</div>
+        ))}
+      </td>
       <td className="su-c-exp" title={SU_TIP.expiry}>{suExpiry(r.expiration, r.dte)}</td>
       <td className="scan-num su-c-money up" data-label="You collect" title={SU_TIP.collect}>
         {suContract(r.credit)}

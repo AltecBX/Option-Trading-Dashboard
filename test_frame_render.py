@@ -304,6 +304,9 @@ def board_payload():
         "MSFT": {"state": "rich", "text": "Options price a 33% move; the stock has moved 25%."},
         "GOOGL": {"state": "fair", "text": "fair"},
         "AMD": {"state": "thin", "text": "thin"}})
+    # v5.36: MSFT's call spread sits over a heavily shorted stock.
+    out["rows"] = SB.attach_risks(out["rows"], {"MSFT": {"fda": [], "squeeze": {
+        "level": "elevated", "text": "Squeeze risk elevated: 12.0% of the float is sold short, 4.2 days to cover (FINRA, 2026-09-15). Worth remembering before selling calls."}}})
     out.update({"ok": True, "as_of": datetime.now().astimezone().isoformat(),
                 "measured": len(rows), "universe": None, "uw_checked": True})
     return out
@@ -373,6 +376,10 @@ def money_map_payload(spot=100.0):
     uw.data["gex_levels"] = g
     uw.data["max_pain"] = [dict(r, max_pain=str(round(float(r["max_pain"]) * k, 2))) for r in uw.data["max_pain"]]
     uw.data["darkpool_levels"] = [dict(r, price=str(round(float(r["price"]) * k, 2))) for r in uw.data["darkpool_levels"]]
+    # v5.36 sections, from the same UW-shaped rows the unit tests use.
+    from test_money_map import FDA, SI, EARN, OIPS, SEAS
+    uw.data.update({"fda_calendar": [dict(r, ticker="AAPL") for r in FDA], "short_interest": SI,
+                    "earnings_history": EARN, "oi_per_strike": OIPS, "seasonality_monthly": SEAS})
     return MM.build(uw, "AAPL", spot=spot, today=_d(2026, 9, 25))
 
 
@@ -1786,6 +1793,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 self.assertEqual(["MSFT", "GOOGL", "AMD"], [r["sym"] for r in rows])
                 uw = page.evaluate("[...document.querySelectorAll('.su-brow .su-uw')].map(b => b.innerText.trim())")
                 self.assertEqual(["RICH", "FAIR", "THIN"], uw, f"UW check at {w}px")
+                warns = page.evaluate("[...document.querySelectorAll('.su-brow')].map(tr => [...tr.querySelectorAll('.su-warn')].map(x => x.innerText.trim()))")
+                self.assertEqual([["⚠ Squeeze risk elevated: 12.0% of the float is sold short, 4.2 days to cover"], [], []],
+                                 warns, f"the squeeze warning sits on MSFT's row at {w}px")
                 by = {r["sym"]: r for r in rows}
                 for sym, (kind, legs, collect, lose) in want.items():
                     r = by[sym]
@@ -1886,15 +1896,23 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 want = [lv["label"] for lv in mm["levels"] if lv["price"] > mm["spot"]] + ["Price now"] + \
                        [lv["label"] for lv in mm["levels"] if lv["price"] <= mm["spot"]]
                 self.assertEqual(want, names, f"the ladder at {w}px")
-                self.assertEqual("Call wall", names[0])
-                self.assertEqual("Put wall", names[-1])
+                self.assertIn("Call wall", names[:names.index("Price now")])
+                self.assertIn("Put wall", names[names.index("Price now"):])
+                self.assertIn("Big call OI", names, "v5.36: the open-interest walls are on the ladder")
                 self.assertIn("mm-calm", got["regime"])
                 self.assertEqual(2, len(got["seller"]))
                 self.assertTrue(got["seller"][0].startswith("Selling puts"))
-                self.assertEqual(["RICH"], got["prem"])
+                self.assertEqual(["RICH", "UNDERPRICED"], got["prem"], "premium, then the earnings verdict (v5.36)")
                 self.assertEqual(["▲ Bullish", "▲ Bullish"], got["opened"][:2])
-                for s in (mm["insiders"]["text"], mm["congress"]["text"], mm["premium"]["text"]):
+                for s in (mm["insiders"]["text"], mm["congress"]["text"], mm["premium"]["text"],
+                          mm["earnings"]["text"], mm["seasonality"]["text"], mm["squeeze"]["text"],
+                          mm["fda"][0]["text"]):
                     self.assertIn(s, got["texts"])
+                # v5.36: warnings come before everything else on the card.
+                order = page.evaluate("""(() => { const c = document.querySelector('.mm-card');
+                  const y = s => { const e = c.querySelector(s); return e ? e.getBoundingClientRect().top : null; };
+                  return {warn: y('.mm-warn'), ladder: y('.mm-ladder')}; })()""")
+                self.assertLess(order["warn"], order["ladder"], "the FDA and squeeze warnings lead the card")
                 self.assertLessEqual(max(r["past"] for r in got["ladder"]), 1, f"a level runs off the card at {w}px")
                 self.assertLessEqual(got["over"], 2, f"the page scrolls sideways at {w}px")
             finally:

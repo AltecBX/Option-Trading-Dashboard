@@ -20214,7 +20214,12 @@ const MM_MISSING = {
   variance_risk_premium: "implied vs realized",
   oi_change: "overnight open interest",
   insider_transactions: "insider trades",
-  congress_trades: "Congress trades"
+  congress_trades: "Congress trades",
+  fda_calendar: "FDA calendar",
+  short_interest: "short interest",
+  earnings_history: "earnings history",
+  oi_per_strike: "open interest by strike",
+  seasonality_monthly: "seasonality"
 };
 const mmPx = v => v == null ? "—" : `$${Number(v).toLocaleString(undefined, {
   minimumFractionDigits: 2,
@@ -20327,7 +20332,14 @@ function MoneyMapCard({
   }, "Couldn't refresh (", error, "). Showing the answer from ", loadedAt ? loadedAt.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit"
-  }) : "earlier", ".") : null, map.regime ? /*#__PURE__*/React.createElement("div", {
+  }) : "earlier", ".") : null, (map.fda || []).length || map.squeeze && map.squeeze.level !== "low" ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec mm-warns"
+  }, (map.fda || []).slice(0, 3).map((e, i) => /*#__PURE__*/React.createElement("div", {
+    key: `fda-${i}`,
+    className: "mm-warn mm-warn-high"
+  }, /*#__PURE__*/React.createElement("b", null, "\u26A0 FDA"), " ", e.text, " A decision can move the stock 40% overnight.")), map.squeeze && map.squeeze.level !== "low" ? /*#__PURE__*/React.createElement("div", {
+    className: `mm-warn mm-warn-${map.squeeze.level}`
+  }, /*#__PURE__*/React.createElement("b", null, "\u26A0 Squeeze"), " ", map.squeeze.text) : null) : null, map.regime ? /*#__PURE__*/React.createElement("div", {
     className: `mm-regime mm-${map.regime.state}`
   }, /*#__PURE__*/React.createElement("b", null, map.regime.state === "calm" ? "Calm tape" : "Wild tape"), " ", map.regime.text) : null, (map.levels || []).length ? /*#__PURE__*/React.createElement("section", {
     className: "mm-sec"
@@ -20356,7 +20368,19 @@ function MoneyMapCard({
     className: "mm-h"
   }, "Is premium worth selling?"), /*#__PURE__*/React.createElement("div", {
     className: `mm-verdict mm-${prem.state}`
-  }, /*#__PURE__*/React.createElement("b", null, prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"), /*#__PURE__*/React.createElement("span", null, prem.text))) : null, (map.opened || []).length ? /*#__PURE__*/React.createElement("section", {
+  }, /*#__PURE__*/React.createElement("b", null, prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"), /*#__PURE__*/React.createElement("span", null, prem.text))) : null, map.earnings ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Earnings: expected vs actual moves"), /*#__PURE__*/React.createElement("div", {
+    className: `mm-verdict mm-earn-${map.earnings.state}`
+  }, /*#__PURE__*/React.createElement("b", null, map.earnings.state === "under" ? "UNDERPRICED" : map.earnings.state === "over" ? "OVERPRICED" : "FAIR"), /*#__PURE__*/React.createElement("span", null, map.earnings.text))) : null, map.seasonality ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Seasonality"), /*#__PURE__*/React.createElement("div", {
+    className: "mm-verdict"
+  }, /*#__PURE__*/React.createElement("span", null, map.seasonality.text))) : null, (map.opened || []).length ? /*#__PURE__*/React.createElement("section", {
     className: "mm-sec"
   }, /*#__PURE__*/React.createElement("div", {
     className: "mm-h"

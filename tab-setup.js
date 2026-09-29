@@ -656,7 +656,11 @@ function SuBoardRow({
     title: SU_TIP.action
   }, /*#__PURE__*/React.createElement(SuTrade, {
     r: r
-  })), /*#__PURE__*/React.createElement("td", {
+  }), (r.warnings || []).map(w => /*#__PURE__*/React.createElement("div", {
+    key: w.kind,
+    className: `su-warn su-warn-${w.level}`,
+    title: w.text
+  }, "\u26A0 ", w.short || w.text))), /*#__PURE__*/React.createElement("td", {
     className: "su-c-exp",
     title: SU_TIP.expiry
   }, suExpiry(r.expiration, r.dte)), /*#__PURE__*/React.createElement("td", {

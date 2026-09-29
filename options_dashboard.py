@@ -12922,6 +12922,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         out["uw_checked"] = any(v is not None for v in checks.values())
                     except Exception as exc:  # noqa: BLE001
                         _log_warn("*", "api/setup_board uw", exc)
+                    # v5.36: FDA dates inside the option's life, and squeeze
+                    # risk on trades with a short call.
+                    try:
+                        import money_map as _money_map
+                        out["rows"] = _sboard.attach_risks(out["rows"], _money_map.board_risks(uw, out["rows"]))
+                    except Exception as exc:  # noqa: BLE001
+                        _log_warn("*", "api/setup_board risks", exc)
                 out["rows"] = out["rows"][:limit]
                 out["shown"] = len(out["rows"])
                 # Stage 1 over the WHOLE watchlist, so the payload can say

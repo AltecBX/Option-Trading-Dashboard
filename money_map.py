@@ -44,7 +44,21 @@ LEVEL_TEXT = {
     "gamma_flip": ("Gamma flip", "Above it moves get calmer; below it they get bigger."),
     "max_pain": ("Max pain", "Where the most options expire worthless; price often drifts here into expiry."),
     "dark_pool": ("Dark pool", "Big buyers and sellers traded the most shares here, off the exchange."),
+    "oi_call": ("Big call OI", "The most open call contracts above the price: often a ceiling into expiry."),
+    "oi_put": ("Big put OI", "The most open put contracts below the price: often a floor into expiry."),
 }
+
+# ── v5.36 thresholds ──
+FDA_DAYS = 180
+# FINRA short interest as a share of the float, and days to cover. Above
+# the first pair a squeeze is a real risk to a short call; above the
+# second it is worth knowing.
+SQUEEZE_HIGH = (0.20, 7.0)
+SQUEEZE_ELEVATED = (0.10, 4.0)
+EARNINGS_N = 8
+OI_LEVELS = 2
+MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+          "August", "September", "October", "November", "December"]
 
 _OCC = re.compile(r"^([A-Z][A-Z0-9.]*?)(\d{6})([CP])(\d{8})$")
 
@@ -130,8 +144,9 @@ def _call(fn: Callable, *a, **k):
 
 # ── sections ───────────────────────────────────────────────────────────────
 
-def levels_section(gex, max_pain, dark, spot: Optional[float], today: date) -> dict:
-    levels: list[dict] = []
+def levels_section(gex, max_pain, dark, spot: Optional[float], today: date,
+                   extra: Optional[list] = None) -> dict:
+    levels: list[dict] = list(extra or [])
     g = gex if isinstance(gex, dict) else (_rows(gex)[0] if _rows(gex) else {})
     for key in ("call_wall", "gamma_magnet", "gamma_flip", "put_wall"):
         v = _num(g.get(key))
@@ -157,6 +172,8 @@ def levels_section(gex, max_pain, dark, spot: Optional[float], today: date) -> d
             name = f"Max pain ({_short_day(_date(lv['expiry']))})"
         if lv["kind"] == "dark_pool":
             meaning = f"{lv['shares']:,} shares traded off the exchange here: a price big money cared about."
+        if lv["kind"] in ("oi_call", "oi_put"):
+            meaning = f"{lv['contracts']:,} open {'call' if lv['kind'] == 'oi_call' else 'put'} contracts. " + meaning
         lv["label"] = name
         lv["meaning"] = meaning
         lv["pct"] = _pct(lv["price"], spot)
@@ -362,6 +379,189 @@ def premium_checks(uw, symbols, workers: int = 6, budget_s: float = 12.0) -> dic
     return out
 
 
+# ── v5.36: warnings before selling, and better strikes ─────────────────────
+
+def fda_events(rows, today: date, until: Optional[date] = None, ticker: Optional[str] = None) -> list:
+    """Upcoming FDA catalysts, soonest first. An event's window is
+    start_date..end_date (UW widens vague targets like "2026-Q4" into a
+    range); it counts while any of that window is still ahead, and when
+    `until` is given, only if it starts on or before then."""
+    out = []
+    for r in _rows(rows):
+        if ticker and str(r.get("ticker") or "").upper() != ticker:
+            continue
+        s, e = _date(r.get("start_date")), _date(r.get("end_date"))
+        s = s or e
+        e = e or s
+        if s is None or e < today or (until is not None and s > until):
+            continue
+        if r.get("outcome"):
+            continue                     # already decided
+        exact = s == e
+        when = _short_day(s) if exact else f"{_short_day(s)} to {_short_day(e)}"
+        cat = r.get("catalyst") or "FDA event"
+        drug = r.get("drug") or ""
+        out.append({"ticker": str(r.get("ticker") or "").upper(), "start": s.isoformat(), "end": e.isoformat(),
+                    "exact": exact, "catalyst": cat, "drug": drug, "indication": r.get("indication") or "",
+                    "status": r.get("status") or "",
+                    "text": f"{cat}{' for ' + drug if drug else ''}: {when}" +
+                            (f" ({r.get('indication')})" if r.get("indication") else "") + "."})
+    out.sort(key=lambda x: x["start"])
+    return out
+
+
+def squeeze_section(si) -> Optional[dict]:
+    rows = _rows(si)
+    r = rows[0] if rows else None
+    if not r:
+        return None
+    pct = _num(r.get("si_float"))
+    dtc = _num(r.get("days_to_cover"))
+    if pct is None and dtc is None:
+        return None
+    pct_v = (pct or 0) * (100.0 if (pct or 0) <= 1.5 else 1.0)
+    frac = pct_v / 100.0
+    if frac >= SQUEEZE_HIGH[0] or (dtc or 0) >= SQUEEZE_HIGH[1]:
+        level = "high"
+    elif frac >= SQUEEZE_ELEVATED[0] or (dtc or 0) >= SQUEEZE_ELEVATED[1]:
+        level = "elevated"
+    else:
+        level = "low"
+    bits = []
+    if pct is not None:
+        bits.append(f"{pct_v:.1f}% of the float is sold short")
+    if dtc is not None:
+        bits.append(f"{dtc:.1f} days to cover")
+    head = {"high": "Squeeze risk HIGH", "elevated": "Squeeze risk elevated", "low": "Squeeze risk low"}[level]
+    tail = {"high": " A sharp jump up would hurt a short call; give call strikes extra room or skip the call side.",
+            "elevated": " Worth remembering before selling calls.",
+            "low": ""}[level]
+    return {"level": level, "si_pct": round(pct_v, 2) if pct is not None else None, "days_to_cover": dtc,
+            "as_of": r.get("market_date"),
+            "text": f"{head}: {', '.join(bits)} (FINRA, {r.get('market_date') or 'latest'}).{tail}"}
+
+
+def earnings_section(rows) -> Optional[dict]:
+    reps = []
+    for r in _rows(rows):
+        exp = _num(r.get("expected_move_perc"))
+        act = _num(r.get("post_earnings_move_1d"))
+        d = _date(r.get("report_date"))
+        if exp is None or act is None or d is None:
+            continue
+        reps.append({"date": d.isoformat(), "expected": abs(exp) * 100, "actual": abs(act) * 100,
+                     "time": r.get("report_time"), "short_straddle_1d": _num(r.get("short_straddle_1d"))})
+    reps.sort(key=lambda x: x["date"], reverse=True)
+    reps = reps[:EARNINGS_N]
+    if not reps:
+        return None
+    n = len(reps)
+    e_avg = sum(x["expected"] for x in reps) / n
+    a_avg = sum(x["actual"] for x in reps) / n
+    beat = sum(1 for x in reps if x["actual"] > x["expected"])
+    if a_avg > e_avg * 1.15:
+        state = "under"
+        verdict = "Options have UNDERPRICED its earnings: selling premium through a report here has been a losing bet."
+    elif a_avg < e_avg * 0.85:
+        state = "over"
+        verdict = "Options have OVERPRICED its earnings: the crush after the report has usually paid sellers."
+    else:
+        state = "fair"
+        verdict = "Options have priced its earnings about right."
+    return {"state": state, "n": n, "expected_avg": round(e_avg, 2), "actual_avg": round(a_avg, 2),
+            "bigger": beat, "reports": reps,
+            "text": (f"Last {n} reports: options expected ±{e_avg:.1f}% on average; the stock actually moved "
+                     f"±{a_avg:.1f}% the next day, more than expected {beat} of {n} times. {verdict}")}
+
+
+def oi_levels(rows, spot: Optional[float]) -> list:
+    if spot is None:
+        return []
+    calls, puts = [], []
+    for r in _rows(rows):
+        k = _num(r.get("strike"))
+        if k is None:
+            continue
+        c, p = int(_num(r.get("call_oi")) or 0), int(_num(r.get("put_oi")) or 0)
+        if k > spot and c > 0:
+            calls.append((k, c))
+        if k < spot and p > 0:
+            puts.append((k, p))
+    out = []
+    for kind, lst in (("oi_call", calls), ("oi_put", puts)):
+        for k, n in sorted(lst, key=lambda t: t[1], reverse=True)[:OI_LEVELS]:
+            out.append({"kind": kind, "price": k, "contracts": n})
+    return out
+
+
+def seasonality_section(rows, today: date) -> Optional[dict]:
+    by = {}
+    for r in _rows(rows):
+        m = int(_num(r.get("month")) or 0)
+        if 1 <= m <= 12:
+            by[m] = r
+
+    def one(m):
+        r = by.get(m)
+        if not r:
+            return None
+        avg, pos = _num(r.get("avg_change")), _num(r.get("positive_months_perc"))
+        yrs = int(_num(r.get("years")) or 0)
+        up = int(round((pos or 0) * yrs)) if yrs else int(_num(r.get("positive_closes")) or 0)
+        worst, best = _num(r.get("min_change")), _num(r.get("max_change"))
+        if avg is None or not yrs:
+            return None
+        return {"month": m, "name": MONTHS[m - 1], "years": yrs, "up": up, "avg": round(avg * 100, 2),
+                "worst": round(worst * 100, 1) if worst is not None else None,
+                "best": round(best * 100, 1) if best is not None else None,
+                "text": (f"{MONTHS[m - 1]}: up {up} of the last {yrs} years, average {avg * 100:+.1f}%"
+                         + (f" (worst {worst * 100:+.1f}%, best {best * 100:+.1f}%)" if worst is not None and best is not None else "")
+                         + ".")}
+    this = one(today.month)
+    nxt = one(today.month % 12 + 1) if today.day >= 22 else None
+    if not this and not nxt:
+        return None
+    return {"this": this, "next": nxt, "text": " ".join(x["text"] for x in (this, nxt) if x)}
+
+
+# The shapes that lose when a stock jumps UP: a short call is part of them.
+CALL_SIDE = {"call_credit_spread", "iron_condor", "covered_call"}
+BOARD_FDA_DAYS = 75
+
+
+def board_risks(uw, rows, today: Optional[date] = None, workers: int = 6,
+                budget_s: float = 12.0) -> dict:
+    """{symbol: {"fda": [events inside the option's life], "squeeze": {...}|None}}
+    for Worth Selling Today. One market-wide FDA call covers every row;
+    short interest is asked only for trades with a short call, in
+    parallel inside a time budget. Never raises."""
+    from concurrent.futures import ThreadPoolExecutor, wait
+    today = today or date.today()
+    rows = [r for r in (rows or []) if r.get("symbol")]
+    out = {r["symbol"]: {"fda": [], "squeeze": None} for r in rows}
+    fn = getattr(uw, "fda_calendar", None)
+    if fn is not None and rows:
+        raw, _e = _call(fn, None, target_date_min=today.isoformat(),
+                        target_date_max=(today + timedelta(days=BOARD_FDA_DAYS)).isoformat(), limit=500)
+        events = fda_events(raw, today) if raw is not None else []
+        for r in rows:
+            exp = _date(r.get("expiration")) or (today + timedelta(days=BOARD_FDA_DAYS))
+            out[r["symbol"]]["fda"] = [e for e in events if e["ticker"] == r["symbol"] and e["start"] <= exp.isoformat()]
+    sfn = getattr(uw, "short_interest", None)
+    want = sorted({r["symbol"] for r in rows if r.get("kind") in CALL_SIDE})
+    if sfn is not None and want:
+        pool = ThreadPoolExecutor(max_workers=max(1, min(workers, len(want))))
+        try:
+            futs = {pool.submit(_call, sfn, s): s for s in want}
+            done, _ = wait(futs, timeout=budget_s)
+            for f in done:
+                v, _err = f.result()
+                out[futs[f]]["squeeze"] = squeeze_section(v) if v is not None else None
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+    return out
+
+
 def build(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] = None) -> dict:
     """Every section for one ticker. Never raises."""
     symbol = str(symbol or "").upper().strip()
@@ -387,8 +587,14 @@ def build(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] =
     ins = get("insider_transactions", symbol,
               start_date=(today - timedelta(days=INSIDER_DAYS)).isoformat(), limit=200)
     cong = get("congress_trades", symbol, limit=50)
+    fda = get("fda_calendar", symbol, target_date_min=today.isoformat(),
+              target_date_max=(today + timedelta(days=FDA_DAYS)).isoformat(), limit=50)
+    si = get("short_interest", symbol)
+    earn = get("earnings_history", symbol)
+    oips = get("oi_per_strike", symbol)
+    seas = get("seasonality_monthly", symbol)
 
-    lv = levels_section(gex, mp, dark, spot, today)
+    lv = levels_section(gex, mp, dark, spot, today, extra=oi_levels(oips, spot))
     return {
         "symbol": symbol, "spot": spot, "date": today.isoformat(),
         "levels": lv["levels"], "regime": lv["regime"], "seller": lv["seller"], "levels_as_of": lv["as_of"],
@@ -396,5 +602,10 @@ def build(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] =
         "opened": opened_section(oi, symbol),
         "insiders": insiders_section(ins, today),
         "congress": congress_section(cong, today),
+        # v5.36
+        "fda": fda_events(fda, today, ticker=symbol) if fda is not None else None,
+        "squeeze": squeeze_section(si),
+        "earnings": earnings_section(earn),
+        "seasonality": seasonality_section(seas, today),
         "missing": missing,
     }

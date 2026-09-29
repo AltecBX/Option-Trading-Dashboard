@@ -15659,6 +15659,8 @@ const MM_MISSING = {
   gex_levels: "gamma levels", max_pain: "max pain", darkpool_levels: "dark pool levels",
   variance_risk_premium: "implied vs realized", oi_change: "overnight open interest",
   insider_transactions: "insider trades", congress_trades: "Congress trades",
+  fda_calendar: "FDA calendar", short_interest: "short interest", earnings_history: "earnings history",
+  oi_per_strike: "open interest by strike", seasonality_monthly: "seasonality",
 };
 const mmPx = (v) => (v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const mmMoney = (v) => {
@@ -15747,6 +15749,19 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
             ? loadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "earlier"}.
         </p>
       ) : null}
+      {/* v5.36 — warnings first: an FDA decision ahead, or squeeze risk. */}
+      {(map.fda || []).length || (map.squeeze && map.squeeze.level !== "low") ? (
+        <section className="mm-sec mm-warns">
+          {(map.fda || []).slice(0, 3).map((e, i) => (
+            <div key={`fda-${i}`} className="mm-warn mm-warn-high">
+              <b>⚠ FDA</b> {e.text} A decision can move the stock 40% overnight.
+            </div>
+          ))}
+          {map.squeeze && map.squeeze.level !== "low" ? (
+            <div className={`mm-warn mm-warn-${map.squeeze.level}`}><b>⚠ Squeeze</b> {map.squeeze.text}</div>
+          ) : null}
+        </section>
+      ) : null}
       {map.regime ? (
         <div className={`mm-regime mm-${map.regime.state}`}>
           <b>{map.regime.state === "calm" ? "Calm tape" : "Wild tape"}</b> {map.regime.text}
@@ -15783,6 +15798,23 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
             <b>{prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"}</b>
             <span>{prem.text}</span>
           </div>
+        </section>
+      ) : null}
+
+      {map.earnings ? (
+        <section className="mm-sec">
+          <div className="mm-h">Earnings: expected vs actual moves</div>
+          <div className={`mm-verdict mm-earn-${map.earnings.state}`}>
+            <b>{map.earnings.state === "under" ? "UNDERPRICED" : map.earnings.state === "over" ? "OVERPRICED" : "FAIR"}</b>
+            <span>{map.earnings.text}</span>
+          </div>
+        </section>
+      ) : null}
+
+      {map.seasonality ? (
+        <section className="mm-sec">
+          <div className="mm-h">Seasonality</div>
+          <div className="mm-verdict"><span>{map.seasonality.text}</span></div>
         </section>
       ) : null}
 
